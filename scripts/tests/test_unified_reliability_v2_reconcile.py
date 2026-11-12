@@ -221,6 +221,29 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "one ZIP archive"):
                 self.run_report(sources, artifact_sha256=artifact_digest)
 
+    def test_android_and_portable_reports_must_match_the_same_combined_receipt(self):
+        self.junit()
+        portable = self.root / "portable"
+        portable.mkdir()
+        (portable / "TEST-CoreProbe.xml").write_text(
+            f"<testsuite tests='1' timestamp='{(self.now - timedelta(minutes=1)).isoformat()}'>"
+            "<testcase classname='dev.example.CoreProbe' name='portableContract'/></testsuite>"
+        )
+        qualification = self.qualification([self.results, portable])
+        with self.assertRaisesRegex(ValueError, "digest"):
+            self.run_report(self.results, qualification=qualification)
+        report = self.run_report([self.results, portable], qualification=qualification)
+        self.assertEqual(3, report["junit_receipt"]["case_count"])
+        self.assertEqual(2, report["junit_receipt"]["report_count"])
+        self.assertEqual(0, report["summary"]["new_case_pass_claims"])
+        self.assertEqual(0, report["summary"]["new_task_done_claims"])
+        # Overlapping roots or copied reports must not inflate passing evidence.
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            self.run_report([self.results, portable, self.results], qualification=qualification)
+        (portable / "TEST-AcceptanceProbe.xml").write_bytes((self.results / "TEST-AcceptanceProbe.xml").read_bytes())
+        with self.assertRaisesRegex(ValueError, "duplicate"):
+            self.run_report([self.results, portable], qualification=qualification)
+
     def test_repeated_failing_test_cannot_be_misrepresented_as_pass(self):
         self.junit("PASS")
         qualification = self.qualification()

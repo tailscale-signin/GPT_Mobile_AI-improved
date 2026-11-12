@@ -34,6 +34,20 @@ These candidate repairs cover the supplied reporting, app-audit, GitHub, voice a
 
 Unified Reliability v2 is not complete; no acceptance results are promoted by this addendum. Current source and regression evidence does not qualify an installed APK, live account/service, selected model or physical device.
 
+### Supplemental cooldown and diagnostic repairs
+
+The [open issue verification register](docs/repairs/open-issues-verification-2026-11-12.md) records the supplied fifteen diagnostic findings and the reports that arrived during validation. These changes retain the existing release version and qualification limits.
+
+- Provider cooldown recovery claims the current durable owner, restores original completed-result identity, reconciles bounded replay changes and continues the accepted research generation. Missing or contradictory evidence and unknown tool outcomes remain explicit blockers. Retry attaches to an existing wait before creating another action, and the first run start remains immutable.
+- Gateway result readers share one response-anchored Retry-After deadline and bounded result/immutable-command caches. Internal reconnects, concurrent screens and refreshes respect the same deadline. Explicit Gateway Send prepares the exact selected model through the durable queue and rechecks readiness before generation; passive browsing remains observation only.
+- Transcript receipt projection runs outside composition and reuses a bounded incremental cache. Unchanged message updates preserve existing row identities. Integration reports retain accepted budget provenance and counters, derive repository prerequisites from the action schema and available lifecycle receipts, and distinguish supported claims from unmeasured scope and unfinished tasks.
+- Recovery, extraction and tool-precheck reports preserve closed typed causes instead of generic tool failures. Schema 4 separates the original provider interruption from the current recovery failure and retains bounded hashed checkpoint/ownership correlation. Previously approved payloads and uncertain-send reconciliation retain their original bytes and hashes.
+- Claim extraction stops unknown or unfinished provider invocations without treating them as four schema-format repairs. Completed tool receipts and completed extraction batches remain available, and unknown remote outcomes never authorize write replay.
+- Anthropic failures retain actual HTTP status and typed current-attempt evidence through stream assembly and delivery; unknown outcomes prohibit credential rotation and replay. Voice-mode reply failures retain run correlation and structured context without inventing a microphone or playback cause.
+- Spoken replies retain readable link labels while omitting raw destinations, citation syntax and code payloads. The full original answer remains in captions. Both system and local output can begin at a stable first clause or four complete words; device latency still requires measurement.
+
+The supplemental repairs require exact-head Android regression results and an updated hosted reporter advertising context schema 4. Physical frame/allocation measurements, ASUS microphone behavior and the user's private gateway/model remain unqualified by host fixtures. Older context-free reports remain open where their underlying cause is unavailable; successful source repair does not reconstruct missing historical evidence.
+
 ## PR #816 candidate addendum: Gateway 16 and engineering completion
 
 These are unreleased branch changes on top of the versioned notes below. This addendum does not publish, install or qualify a release; it keeps the bounded release scope consistent with the combined PR.

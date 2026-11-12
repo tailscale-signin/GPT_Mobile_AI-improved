@@ -5,8 +5,6 @@ import java.util.Locale
 
 /** Sherpa's lexicon drops unknown words. Admit only known words or their spelled-out letters. */
 internal object KokoroSpeechText {
-    private val markdownLinks = Regex("""!?\[([^\]\n]+)]\((?:https?://)[^)\n]*\)""", RegexOption.IGNORE_CASE)
-    private val codeFences = Regex("""(?m)^\s*\x60{3}[A-Za-z0-9_+.-]*[ \t]*$""")
     private val marks = Regex("""\p{M}+""")
     private val token = Regex("""[vV][0-9]+(?:\.[0-9]+)+|[+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)*|[a-zA-Z]+(?:'[a-zA-Z]+)*|[.,!?;:\n%&#@/+]""")
     private val camelBoundary = Regex("""(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])""")
@@ -25,11 +23,11 @@ internal object KokoroSpeechText {
             input
         } else {
             val end = if (input[MAX_INPUT - 1].isHighSurrogate()) MAX_INPUT - 1 else MAX_INPUT
-            input.substring(0, end) + " The rest of this response is available in the chat."
+            input.substring(0, end)
         }
-        val plain = Normalizer.normalize(clipped, Normalizer.Form.NFKD)
+        val projected = VoiceSpeechText.project(clipped) + if (input.length > MAX_INPUT) " The rest of this response is available in the chat." else ""
+        val plain = Normalizer.normalize(projected, Normalizer.Form.NFKD)
             .replace(marks, "").replace('’', '\'').replace('−', '-')
-            .replace(codeFences, "\n").replace(markdownLinks) { it.groupValues[1] }
         if (plain.codePoints().anyMatch { it > 127 && Character.isLetterOrDigit(it) }) return null
         val result = mutableListOf<String>()
         val part = StringBuilder()

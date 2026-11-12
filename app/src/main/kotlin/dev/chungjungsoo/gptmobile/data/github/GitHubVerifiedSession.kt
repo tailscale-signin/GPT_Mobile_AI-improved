@@ -1054,6 +1054,7 @@ internal class GitHubVerifiedSession(
         }
         fun completedCount() = completed.count { it != null }
         val requirementIds = requests.map { it.requirementIds }
+        val attempt = ExtractionAttempt()
         suspend fun failed(code: String, providerFailure: ProviderEvent.Failed? = null): Pair<String, JsonObject> {
             val (text, report) = partial(receipts, epoch, code)
             return text to JsonObject(
@@ -1072,7 +1073,7 @@ internal class GitHubVerifiedSession(
                                 when (code) {
                                     "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
                                     "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"
-                                    "GITHUB_EXTRACTION_TIMEOUT" -> "RESUME_UNFINISHED_EXTRACTION_BATCHES"
+                                    "GITHUB_EXTRACTION_TIMEOUT" -> if (providerFailure?.transportComplete == false) "INSPECT_THE_RECORDED_PROVIDER_FAILURE" else "RESUME_UNFINISHED_EXTRACTION_BATCHES"
                                     else -> "INSPECT_THE_RECORDED_PROVIDER_FAILURE"
                                 }
                             )
@@ -1093,7 +1094,7 @@ internal class GitHubVerifiedSession(
                 for ((index, request) in requests.withIndex()) {
                     if (completed[index] != null) continue
                     validatePublication()
-                    val result = extractBatch(request)
+                    val result = extractBatch(request, attempt)
                     validatePublication()
                     completed[index] = result
                     evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = true)
@@ -1104,17 +1105,22 @@ internal class GitHubVerifiedSession(
                 }
                 evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = false)
                 result
-            } ?: failed("GITHUB_EXTRACTION_TIMEOUT")
+            } ?: failed("GITHUB_EXTRACTION_TIMEOUT", if (attempt.awaitingTerminal) extractionProviderFailure(null).providerFailure else null)
         } catch (failure: ExtractionFailed) {
             failed(failure.code, failure.providerFailure)
         }
     }
 
-    private suspend fun extractBatch(request: GitHubClaimBatches.Request): JsonObject {
+    /** Local to one extraction deadline; completed responses never become unknown during later local work. */
+    private class ExtractionAttempt {
+        var awaitingTerminal = false
+    }
+
+    private suspend fun extractBatch(request: GitHubClaimBatches.Request, attempt: ExtractionAttempt): JsonObject {
         var current = request
         while (true) {
             try {
-                return extractBatchOnce(current)
+                return extractBatchOnce(current, attempt)
             } catch (failure: ExtractionFailed) {
                 val details = failure.providerFailure?.failureDetails
                 if (failure.providerFailure?.transportComplete == false ||
@@ -1133,7 +1139,7 @@ internal class GitHubVerifiedSession(
         }
     }
 
-    private suspend fun extractBatchOnce(request: GitHubClaimBatches.Request): JsonObject {
+    private suspend fun extractBatchOnce(request: GitHubClaimBatches.Request, attempt: ExtractionAttempt): JsonObject {
         var readingProvider = true
         return try {
             val response = StringBuilder()
@@ -1141,15 +1147,22 @@ internal class GitHubVerifiedSession(
             var finishReason: String? = null
             var outputExceeded = false
             var unexpectedOperation = false
+            attempt.awaitingTerminal = true
             openVerifier(request.payload).streamRound(emptyList(), emptyList()).collect { event ->
                 when (event) {
                     is ProviderEvent.TextDelta -> {
                         if (response.length + event.text.length.toLong() > 32_768) outputExceeded = true
                         if (!outputExceeded) response.append(event.text)
                     }
-                    is ProviderEvent.Completed -> complete = true
+                    is ProviderEvent.Completed -> {
+                        complete = true
+                        attempt.awaitingTerminal = false
+                    }
                     is ProviderEvent.Usage -> event.finishReason?.let { finishReason = it }
-                    is ProviderEvent.Failed -> throw ExtractionFailed(event.errorCode ?: "GITHUB_EXTRACTION_FAILED", event)
+                    is ProviderEvent.Failed -> {
+                        attempt.awaitingTerminal = false
+                        throw ExtractionFailed(event.errorCode ?: "GITHUB_EXTRACTION_FAILED", event)
+                    }
                     is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> unexpectedOperation = true
                     else -> Unit
                 }

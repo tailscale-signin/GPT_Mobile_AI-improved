@@ -5,6 +5,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSessionTest {
+    @Test fun `Android speech starts at a stable word boundary before the final answer and stays sequential`() {
+        start()
+        audio.listeners.last().final("Explain this")
+        val opening = "Here is the answer "
+        session.streamReply("run", opening)
+        assertEquals(listOf(opening), audio.spoken)
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        assertEquals(0, audio.opened)
+        assertEquals(1, audio.listeners.size)
+
+        val final = opening + "Read [the guide](https://private.example/path?token=opaque)."
+        session.streamReply("run", final)
+        session.reply("run", final)
+        assertEquals(final, session.state.reply)
+        assertEquals(listOf(opening), audio.spoken)
+        requireNotNull(audio.done).invoke()
+        assertEquals(listOf(opening, "Read the guide."), audio.spoken)
+        assertEquals(1, audio.listeners.size)
+        requireNotNull(audio.done).invoke()
+        assertEquals(2, audio.listeners.size)
+        assertEquals(VoicePhase.LISTENING, session.state.phase)
+    }
+
+    @Test fun `completed Android speech preserves the full caption while hiding URLs and fenced code`() {
+        start()
+        audio.listeners.last().final("Read the answer")
+        val final = "Read [the guide](https://private.example/path) or https://other.example/opaque.\n```code\nopaqueIdentifier()\n```\nDone."
+        session.reply("run", final)
+        assertEquals(final, session.state.reply)
+        assertEquals("Read the guide or link. Code is available in the chat. Done.", audio.spoken.single().replace(Regex("\\s+"), " ").trim())
+        assertEquals(1, audio.listeners.size)
+        requireNotNull(audio.done).invoke()
+        assertEquals(2, audio.listeners.size)
+    }
+
     @Test fun `system speech starts before sentence completion and preserves full captions`() {
         start()
         audio.listeners.last().final("Explain this")

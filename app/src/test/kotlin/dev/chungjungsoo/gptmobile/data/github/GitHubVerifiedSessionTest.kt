@@ -14,8 +14,11 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
@@ -25,6 +28,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -150,6 +154,137 @@ class GitHubVerifiedSessionTest {
             assertEquals(JsonPrimitive("INCOMPLETE_PROVIDER_STREAM"), failure.failureDetails?.get("provider_error_code"))
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
         }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun extractionDeadlineKeepsCompletedBatchesAndMarksOnlyTheUnfinishedAttempt() = runTest {
+        val stored = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("b", "o/r", "main", emptySet(), now = { 1000 }, load = { stored[it] }, save = { key, value -> stored[key] = value })
+        val requests = mutableListOf<Int>()
+        var published: JsonObject? = null
+        val gate = GitHubVerifiedSession(
+            answer("Private candidate"), book,
+            "Explain the change\n- Document the source\n- Explain the effect\n- List the remaining work\n- Give the result", { 8192 },
+            { prompt ->
+                val batch = Json.parseToJsonElement(prompt).jsonObject.getValue("batch").toString().toInt()
+                requests += batch
+                if (batch == 1) {
+                    answer("""{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}""")
+                } else {
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> {
+                            emit(ProviderEvent.TextDelta("Incomplete private extraction"))
+                            awaitCancellation()
+                        }
+                    }
+                }
+            },
+            {}, {}, now = { 1000 }, computationDispatcher = StandardTestDispatcher(testScheduler),
+            onPublication = { published = it },
+            openExecutionContinuation = { error("An extraction deadline cannot reopen repository execution") }
+        )
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        val failure = events.last() as ProviderEvent.Failed
+        assertEquals(90_000L, testScheduler.currentTime)
+        assertEquals(listOf(1, 2), requests)
+        assertEquals("GITHUB_EXTRACTION_TIMEOUT", failure.errorCode)
+        assertFalse(failure.transportComplete)
+        assertEquals(JsonPrimitive("INSPECT_THE_RECORDED_PROVIDER_FAILURE"), failure.failureDetails?.get("recovery_action"))
+        assertEquals(JsonPrimitive("UNKNOWN"), failure.failureDetails?.get("remote_acceptance"))
+        for (key in listOf("retryable", "request_replay_allowed", "logical_continuation_allowed")) assertEquals(JsonPrimitive(false), failure.failureDetails?.get(key))
+        for (key in listOf("invocation_id", "dispatched", "http_status")) assertFalse(requireNotNull(failure.failureDetails).containsKey(key))
+        assertEquals(null, failure.invocationId)
+        assertEquals(JsonPrimitive(1), published?.get("extraction_batches_completed"))
+        assertEquals(JsonPrimitive(2), published?.get("extraction_batches_total"))
+        val checkpoint = requireNotNull(book.retainedClaimExtraction())
+        val batches = checkpoint.getValue("batches").jsonArray
+        assertEquals(JsonPrimitive(true), checkpoint["pending"])
+        assertTrue(batches[0] is JsonObject)
+        assertEquals(JsonNull, batches[1])
+        assertTrue(events.none { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun localExtractionDeadlineDoesNotInventAnUnfinishedProviderAttempt() = runTest {
+        for (stage in listOf("before_provider", "completed_stream", "completed_checkpoint")) {
+            val started = testScheduler.currentTime
+            val stored = mutableMapOf<String, JsonObject>()
+            var paused = false
+            var attempts = 0
+            val book = GitHubEvidenceBook(
+                "b-$stage",
+                "o/r",
+                "main",
+                emptySet(),
+                now = { 1000 },
+                load = { stored[it] },
+                save = { key, value ->
+                    stored[key] = value
+                    val batches = value["batches"] as? JsonArray
+                    if (!paused &&
+                        key.startsWith("claim_extraction_current_") &&
+                        (stage == "before_provider" || stage == "completed_checkpoint" && batches?.all { it is JsonObject } == true)
+                    ) {
+                        paused = true
+                        awaitCancellation()
+                    }
+                }
+            )
+            val gate = GitHubVerifiedSession(
+                answer("Private candidate"), book, "Explain the recorded result", { 8192 },
+                {
+                    attempts++
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                            emit(ProviderEvent.TextDelta("""{"claims":[{"kind":"not_measured","subject":"Feature acceptance"}]}"""))
+                            emit(ProviderEvent.Completed)
+                            if (stage == "completed_stream") awaitCancellation()
+                        }
+                    }
+                },
+                {}, {}, now = { 1000 }, computationDispatcher = StandardTestDispatcher(testScheduler)
+            )
+            val failure = gate.streamRound(emptyList(), emptyList()).toList().last() as ProviderEvent.Failed
+            assertEquals(stage, 90_000L, testScheduler.currentTime - started)
+            assertEquals(if (stage == "before_provider") 0 else 1, attempts)
+            assertEquals("GITHUB_EXTRACTION_TIMEOUT", failure.errorCode)
+            assertTrue(failure.transportComplete)
+            assertEquals(JsonPrimitive("RESUME_UNFINISHED_EXTRACTION_BATCHES"), failure.failureDetails?.get("recovery_action"))
+            assertEquals(null, failure.invocationId)
+            for (key in listOf("invocation_id", "dispatched", "provider_error_code", "remote_acceptance")) assertFalse(stage, requireNotNull(failure.failureDetails).containsKey(key))
+            if (stage == "completed_checkpoint") {
+                val retained = requireNotNull(book.retainedClaimExtraction()).getValue("batches").jsonArray
+                assertTrue(retained.all { it is JsonObject })
+            }
+        }
+    }
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun callerCancellationIsNotReclassifiedAsAnExtractionDeadline() = runTest {
+        var attempts = 0
+        var published: JsonObject? = null
+        val events = mutableListOf<ProviderEvent>()
+        val gate = GitHubVerifiedSession(
+            answer("Private candidate"), GitHubEvidenceBook("b", "o/r", "main", emptySet(), now = { 1000 }), "Explain the recorded result", { 8192 },
+            {
+                attempts++
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow<ProviderEvent> { awaitCancellation() }
+                }
+            },
+            {}, {}, now = { 1000 }, computationDispatcher = StandardTestDispatcher(testScheduler), onPublication = { published = it }
+        )
+        val collection = async { gate.streamRound(emptyList(), emptyList()).collect { events += it } }
+        testScheduler.runCurrent()
+        assertEquals(1, attempts)
+        collection.cancel(CancellationException("The owner cancelled this request"))
+        assertTrue(runCatching { collection.await() }.exceptionOrNull() is CancellationException)
+        assertEquals(0L, testScheduler.currentTime)
+        assertEquals(null, published)
+        assertTrue(events.none { it is ProviderEvent.Failed || it is ProviderEvent.Completed })
     }
 
     @Test fun completedMalformedExtractionKeepsItsBoundedSchemaRepair() = runBlocking {

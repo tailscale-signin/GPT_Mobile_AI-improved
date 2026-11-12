@@ -6,11 +6,14 @@ internal object VoiceSpeechText {
     private val url = Regex("(?i)(?:[a-z][a-z0-9+.-]*://|www\\.)\\S+")
     private val reference = Regex("(?:[0-9a-fA-F]{32,}|[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})")
     private val citation = Regex("[0-9]+(?:\\s*[,–-]\\s*[0-9]+)*")
+    private val labelEscapes = Regex("""\\([\\\[\]])""")
+    private val labelMarks = Regex("""[\x60*\[\]]""")
+    private val labelWhitespace = Regex("\\s+")
     private val inlineProse = Regex("[\\p{L}\\p{N} .,'’!?_-]{1,120}")
     private val htmlTag = Regex("/?(?:a|b|br|blockquote|code|del|div|em|h[1-6]|hr|i|img|li|ol|p|pre|span|strong|sub|sup|table|tbody|td|th|thead|tr|u|ul)(?:\\s+[^<>]*)?/?", RegexOption.IGNORE_CASE)
 
     /** Incomplete constructs and words are held until their spoken form is stable. */
-    fun project(input: String, final: Boolean): String {
+    fun project(input: String, final: Boolean = true): String {
         val limit = minOf(input.length, 12_000)
         val end = if (limit < input.length && input[limit - 1].isHighSurrogate()) limit - 1 else limit
         val text = input.substring(0, end)
@@ -35,12 +38,17 @@ internal object VoiceSpeechText {
                 index = close + 1
                 continue
             }
-            if (text.startsWith("```", index) || text.startsWith("~~~", index)) {
-                val fence = text.substring(index, index + 3)
+            val fenceLength = if (char == '`' || char == '~') {
+                var end = index
+                while (end < text.length && text[end] == char) end++
+                end - index
+            } else {
+                0
+            }
+            if (fenceLength >= 3) {
                 out.append(CODE_NOTICE)
-                val close = text.indexOf(fence, index + 3)
-                if (close < 0) break
-                index = close + 3
+                val close = closingFenceEnd(text, index + fenceLength, char, fenceLength) ?: break
+                index = close
                 continue
             }
             if (char == '`') {
@@ -56,7 +64,7 @@ internal object VoiceSpeechText {
             }
             if (char == '[' || char == '!' && text.getOrNull(index + 1) == '[') {
                 val start = if (char == '!') index + 1 else index
-                val close = text.indexOf(']', start + 1)
+                val close = closingDelimiter(text, start, '[', ']')
                 if (close < 0) {
                     if (!final) break
                     index = start + 1
@@ -64,11 +72,14 @@ internal object VoiceSpeechText {
                 }
                 if (close == text.lastIndex && !final) break
                 val label = text.substring(start + 1, close)
+                    .replace(labelEscapes) { it.groupValues[1] }
+                    .replace(url, "link").replace(labelMarks, "").replace('_', ' ')
+                    .replace(labelWhitespace, " ").trim()
                 val next = text.getOrNull(close + 1)
                 if (next == '(' || next == '[') {
                     val destinationEnd = closingDelimiter(text, close + 1, next, if (next == '(') ')' else ']')
                     if (destinationEnd < 0 && !final) break
-                    if (!citation.matches(label)) out.append(label.replace(url, "link").replace("*", "").replace("_", " "))
+                    if (!citation.matches(label)) out.append(label)
                     if (destinationEnd < 0) break
                     index = destinationEnd + 1
                 } else if (next == ':' && (index == 0 || text[index - 1] == '\n')) {
@@ -76,7 +87,7 @@ internal object VoiceSpeechText {
                     if (lineEnd < 0) break
                     index = lineEnd
                 } else {
-                    if (!citation.matches(label)) out.append(label.replace(url, "link"))
+                    if (!citation.matches(label)) out.append(label)
                     index = close + 1
                 }
                 continue
@@ -124,6 +135,11 @@ internal object VoiceSpeechText {
                 index += address.value.length
                 continue
             }
+            if (char == '#' && text.getOrNull(index + 1)?.isDigit() == true) {
+                out.append("number ")
+                index++
+                continue
+            }
             if (char in "*_#|" || char == '~') {
                 index++
                 continue
@@ -142,6 +158,26 @@ internal object VoiceSpeechText {
             index = tokenEnd
         }
         return out.toString()
+    }
+
+    private fun closingFenceEnd(text: String, openingEnd: Int, delimiter: Char, minimumLength: Int): Int? {
+        var lineStart = text.indexOf('\n', openingEnd).takeIf { it >= 0 }?.plus(1) ?: return null
+        while (lineStart < text.length) {
+            val lineEnd = text.indexOf('\n', lineStart).takeIf { it >= 0 } ?: text.length
+            var marker = lineStart
+            while (marker < lineEnd && text[marker] == ' ') marker++
+            if (marker - lineStart <= 3) {
+                var end = marker
+                while (end < lineEnd && text[end] == delimiter) end++
+                if (end - marker >= minimumLength &&
+                    text.substring(end, lineEnd).all { it == ' ' || it == '\t' || it == '\r' }
+                ) {
+                    return lineEnd
+                }
+            }
+            lineStart = lineEnd + 1
+        }
+        return null
     }
 
     private fun closingDelimiter(text: String, start: Int, open: Char, close: Char): Int {

@@ -48,7 +48,7 @@ class GitHubIntegrationAcceptanceTest {
         put("result", result)
         put("runtime_identity", runtime)
     }
-    private fun catalog(offset: Int, count: Int): JsonObject {
+    private fun catalog(offset: Int, count: Int, authorizedTools: List<AgentToolDefinition> = tools): JsonObject {
         val next = offset + count
         return receipt(
             "catalog-$offset",
@@ -56,14 +56,14 @@ class GitHubIntegrationAcceptanceTest {
             if (offset == 0) json("{}") else json("""{"inventory_cursor":$offset,"inventory_version":"version-1"}"""),
             buildJsonObject {
                 put("inventory_version", "version-1")
-                put("authorized_tool_count", tools.size)
+                put("authorized_tool_count", authorizedTools.size)
                 put("inventory_offset", offset)
                 put("returned", count)
-                put("has_more", next < tools.size)
+                put("has_more", next < authorizedTools.size)
                 put(
                     "authorized_inventory",
                     JsonArray(
-                        tools.drop(offset).take(count).map { tool ->
+                        authorizedTools.drop(offset).take(count).map { tool ->
                             buildJsonObject {
                                 put("name", tool.name)
                                 put("schema_fingerprint", GitHubEvidenceBook.digest(tool.inputSchema.toString()))
@@ -71,7 +71,7 @@ class GitHubIntegrationAcceptanceTest {
                         }
                     )
                 )
-                if (next < tools.size) put("continuation_call", json("""{"tool":"discover_available_tools","arguments":{"inventory_cursor":$next,"inventory_version":"version-1"}}"""))
+                if (next < authorizedTools.size) put("continuation_call", json("""{"tool":"discover_available_tools","arguments":{"inventory_cursor":$next,"inventory_version":"version-1"}}"""))
             },
             "LOCAL"
         )
@@ -87,6 +87,21 @@ class GitHubIntegrationAcceptanceTest {
         )
     }
     private fun acceptance(records: Map<String, JsonObject>, request: String = task) = GitHubIntegrationAcceptance.requirements(request, records, tools, runtime).filterIsInstance<JsonObject>()
+
+    private fun inventoryReceipts(authorizedTools: List<AgentToolDefinition>, pending: Boolean = true): LinkedHashMap<String, JsonObject> = receipts().apply {
+        this["catalog-0"] = catalog(0, 2, authorizedTools)
+        this["catalog-2"] = catalog(2, 1, authorizedTools)
+        this["branches"] = receipt(
+            "branches",
+            "github_context",
+            json("""{"action":"branches","page":1}"""),
+            buildJsonObject {
+                put("items", JsonArray(listOf(json("""{"name":"main","commit":{"sha":"$sha"}}"""))))
+                put("has_more", pending)
+                if (pending) put("continuation_call", json("""{"tool":"github_context","arguments":{"action":"branches","page":2}}"""))
+            }
+        )
+    }
 
     @Test fun exactFiveRequirementPromptEarnsIndependentEvidenceCredits() {
         val rows = acceptance(receipts())
@@ -257,6 +272,43 @@ class GitHubIntegrationAcceptanceTest {
         val missing = GitHubIntegrationReport.stopReason(task, records, tools, 200)
         assertEquals(JsonPrimitive("ACCEPTANCE_EVIDENCE_MISSING"), missing["code"])
         assertEquals(JsonPrimitive(false), missing["budget_exhausted"])
+    }
+
+    @Test fun optionalInventoryDoesNotMaskMissingCapabilitiesOrIndependentAcceptance() {
+        for (missingCapability in listOf(false, true)) {
+            val actions = if (missingCapability) arrayOf("status", "branches", "commits") else arrayOf("status", "branches")
+            val authorizedTools = tools.map { if (it.name == "github_context") tool(it.name, *actions) else it }
+            val records = inventoryReceipts(authorizedTools)
+            val requirements = GitHubIntegrationAcceptance.requirements(task, records, authorizedTools)
+            assertFalse(GitHubChecklistScope.exhaustive(task))
+            assertEquals(!missingCapability, GitHubTestChecklist.capabilitiesComplete(task, records, authorizedTools))
+            assertFalse(GitHubTestChecklist.apiComplete(task, records, authorizedTools))
+            assertEquals(
+                GitHubIntegrationAcceptance.requirements(task, inventoryReceipts(authorizedTools, pending = false), authorizedTools),
+                requirements
+            )
+
+            val stop = GitHubIntegrationReport.stopReason(task, records, authorizedTools, 200)
+            assertEquals(JsonPrimitive(if (missingCapability) "CAPABILITY_PREREQUISITES_MISSING" else "ACCEPTANCE_EVIDENCE_MISSING"), stop["code"])
+            assertEquals(JsonPrimitive(if (missingCapability) "RESOLVE_CAPABILITY_PREREQUISITE" else "RESUME_UNVERIFIED_REQUIREMENTS"), stop["recovery_action"])
+            assertEquals(JsonPrimitive(1), stop["pending_continuations"])
+            assertEquals(requirements, GitHubIntegrationAcceptance.requirements(task, records, authorizedTools))
+            assertEquals(JsonPrimitive("VERIFICATION_RESERVE_REACHED"), GitHubIntegrationReport.stopReason(task, records, authorizedTools, 2)["code"])
+            assertEquals(JsonPrimitive("TOOL_BUDGET_EXHAUSTED"), GitHubIntegrationReport.stopReason(task, records, authorizedTools, 0)["code"])
+        }
+    }
+
+    @Test fun explicitlyRequestedInventoryRemainsAnAcceptanceBlocker() {
+        val authorizedTools = tools.map { if (it.name == "github_context") tool(it.name, "status", "branches") else it }
+        val records = inventoryReceipts(authorizedTools)
+        val request = "$task\nRetrieve all branches."
+        assertTrue(GitHubChecklistScope.exhaustive(request))
+        assertFalse(GitHubTestChecklist.capabilitiesComplete(request, records, authorizedTools))
+        assertFalse(GitHubTestChecklist.apiComplete(request, records, authorizedTools))
+        val stop = GitHubIntegrationReport.stopReason(request, records, authorizedTools, 200)
+        assertEquals(JsonPrimitive("INVENTORY_CONTINUATION_BLOCKED"), stop["code"])
+        assertEquals(JsonPrimitive("RESUME_UNVERIFIED_REQUIREMENTS"), stop["recovery_action"])
+        assertEquals(JsonPrimitive(1), stop["pending_continuations"])
     }
 
     @Test fun jobAndRunIdentifiersKeepObservationGroupsDistinct() {

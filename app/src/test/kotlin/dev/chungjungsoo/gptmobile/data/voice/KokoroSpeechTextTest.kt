@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KokoroSpeechTextTest {
+    @Test fun bareAddressesAndCodeUseTheSameSpokenProjectionAsMarkdownLinks() {
+        assertEquals(
+            "read the guide or link. code is available in the chat. the answer remains available.",
+            normalize("Read [the guide](https://private.example/a_(b)?token=opaque) or <HTTP://other.example/path>.\n```kotlin\nopaqueIdentifier()\n```\nThe answer remains available.")
+        )
+        assertEquals("link", normalize("https://private.example/opaque"))
+    }
+
     @Test fun speaksBuildNumbersPrNumbersAndVersions() {
         assertEquals(
             "build one hundred forty one and p r number eight hundred sixteen. version zero point nine point sixty six point seven.",
@@ -36,6 +44,7 @@ class KokoroSpeechTextTest {
         assertTrue(parts.all { it.length <= 128 && it.split(' ').size <= 16 })
         assertEquals(input, parts.joinToString(" "))
         assertEquals(emptyList<String>(), KokoroSpeechText.parts("**✨**") { true })
+        assertEquals("turn ".repeat(2400) + "the rest of this response is available in the chat.", normalize("turn ".repeat(3000)))
     }
 
     private fun normalize(text: String, isKnown: (String) -> Boolean = { true }) =

@@ -56,13 +56,27 @@
   ],
   "validation": {
     "host": "PASSED_472_TESTS_AND_FAST_GATE",
-    "focused_behavior": "FULL_JVM_SUITE_COMPILING",
-    "android": "PRODUCTION_COMPILATION_PASSED",
+    "focused_behavior": "CORRECTED_FULL_JVM_SUITE_QUEUED",
+    "android": "PRODUCTION_AND_TEST_COMPILATION_PASSED_AT_6d792622",
     "gateway": "PASSED_895_SKIPPED_2_BROWSER_PASSED_7",
     "device": "NOT_RUN_NO_DEVICE",
     "live_services": "NOT_RUN_NO_USER_ENDPOINT_CREDENTIAL_ACCESS",
-    "authentication": "PASSED_47_TESTS",
-    "kotlin_style": "PASSED_144_CHANGED_FILES"
+    "authentication": "PASSED_47_TESTS_AFTER_ANDROID_SERVICE_ERROR_CODE_PARITY_FIX",
+    "kotlin_style": "PASSED_144_CHANGED_FILES",
+    "test_runtime": "Pinned startup ByteBuddy agent verified for restricted attachment namespace; SDK31,32,34,35,36,37 artifacts verified against publisher SHA-512; corrected full rerun pending",
+    "jvm_initial": {
+      "commit": "6d79262254559831a85742bd51f627539fb98894",
+      "tests": 9502,
+      "passed": 8322,
+      "failed": 1175,
+      "skipped": 5,
+      "failure_classification": {
+        "attachment_runtime_including_caught_initialization": 1162,
+        "sdk_resolution": 5,
+        "code_and_fixture_followups_corrected": 8,
+        "unclassified": 0
+      }
+    }
   },
   "external_qualification": [
     "Restore or reconfigure the user's private MCP endpoints using their actual saved identities; audit aliases are capture-local.",
@@ -74,10 +88,11 @@
   "publication": {
     "mode": "GUARDED_FAST_FORWARD_ONLY",
     "force": false,
-    "state": "SOURCE_PREPARED_FOR_VALIDATION",
-    "code_commit": "1aa56b67e83638c2e946cfa627186fb5cc37e59d",
-    "last_verified_remote_head_before_publication": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
-    "branch": "fix/session-reliability-reporting-2026-11-12"
+    "state": "PUBLISHED_PR_OPEN_FINAL_REGRESSION_RUN_PENDING",
+    "code_commit": "1407e550ba4ddab972a56a330ae0a175100ee154",
+    "last_verified_remote_head_before_publication": "6d79262254559831a85742bd51f627539fb98894",
+    "branch": "fix/session-reliability-reporting-2026-11-12",
+    "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/838"
   },
   "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
   "checkpoint_storage": "repository_file"

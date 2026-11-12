@@ -98,10 +98,12 @@ Primary implementation: `McpClientManager`, `McpFailurePresentation`, `McpInitia
 | Gateway | `python gateway/check_gateway.py`, followed by the renamed engineering guard suite | 895 passed, 2 host-dependent skips across 897 Python cases; browser bridge 7/7 passed. The canonical gate included the 50,000-event durable stress case. |
 | Generated source inventories | App audit generator/check; gateway source-package manifest builder/check | Passed. Dependency artifact pins were unchanged. |
 | Android production compilation | Existing CI split generation/compilation workflow using JDK 21 and SDK 37 | Passed: source generation, Kotlin compilation and Java compilation. |
-| Android JVM behavioral tests | Centralized execution against the final working tree | Test compilation and full JVM suite in progress. |
+| Android JVM behavioral tests | Centralized execution against the final working tree | Production and test compilation passed. The first full sweep found two implementation omissions, six fixture expectations/assumptions and local test-runtime failures; these are corrected and the full rerun is pending. |
 | Installed app/device/service acceptance | Exact APK and intended phone/deployments | Not run; prerequisites are listed below. |
 
 The two gateway skips require Windows Credential Manager and a bindable LAN IPv4 interface. An initial gateway run found stale source-package hashes, which were corrected with the canonical source-manifest generator before the successful complete rerun. An initial combined Android generation/compile attempt encountered the repository's documented 3 GiB compiler heap pressure and was interrupted; the final run uses separate phases and the existing CI-bounded 4 GiB production compiler setting, without changing repository memory defaults.
+
+The local JVM environment requires the existing pinned ByteBuddy agent at test-worker startup because dynamic attachment cannot find its process socket. Additional Robolectric SDKs were provisioned against Maven publisher SHA-512 sidecars. No dependency pins, application behavior or test assertions were bypassed for that environment repair. The Windows streaming fixture now measures backend repair readiness separately from its unchanged ASGI-delivery deadline; a deliberately buffered negative control still fails.
 
 A generated source inventory, a named test file or an unexecuted qualification plan is never execution coverage. JVM fixtures do not substitute for installed-app, physical-device or real-service acceptance.
 

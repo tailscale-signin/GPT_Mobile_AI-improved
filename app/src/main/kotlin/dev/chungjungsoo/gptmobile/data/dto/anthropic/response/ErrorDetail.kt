@@ -10,5 +10,12 @@ data class ErrorDetail(
     val type: String,
 
     @SerialName("message")
-    val message: String
+    val message: String,
+
+    @kotlinx.serialization.Transient
+    val code: String? = null,
+
+    // Only the client may attach dispatch and response observations.
+    @kotlinx.serialization.Transient
+    val failureDetails: kotlinx.serialization.json.JsonObject? = null
 )

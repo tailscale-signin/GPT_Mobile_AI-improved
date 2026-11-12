@@ -178,6 +178,23 @@ class ProviderExceptionDetailsTest {
         assertEquals(JsonPrimitive(true), failure.failureDetails?.get("partial_output_preserved"))
     }
 
+    @Test fun streamingRateLimitKeepsItsSemanticCodeSeparateFromObservedHttpStatus() {
+        val failure = requireNotNull(
+            providerExceptionDetails(
+                ProviderHttpFailure(429, 1_500, observedHttpStatus = 200, serverRequestId = "req_stream_fixture"),
+                partialOutput = true
+            )
+        )
+        assertEquals("429", failure.code)
+        assertEquals(JsonPrimitive(200), failure.failureDetails?.get("http_status"))
+        assertEquals(JsonPrimitive("req_stream_fixture"), failure.failureDetails?.get("server_request_id"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("dispatched"))
+        assertEquals(false, failure.retryable)
+        val local = requireNotNull(providerExceptionDetails(ProviderHttpFailure(429, 1_500, beforeDispatch = true, serverRequestId = "old_request"), false))
+        assertNull(local.failureDetails?.get("server_request_id"))
+        assertNull(local.failureDetails?.get("http_status"))
+    }
+
     @Test fun remoteRateLimitAndLocalCooldownHaveDifferentDispatchEvidence() {
         listOf(false, true).forEach { localBlock ->
             val cooldown = FreeCooldown(retryAt = 9_000, status = 429, providerCode = "rate_limit_exceeded")

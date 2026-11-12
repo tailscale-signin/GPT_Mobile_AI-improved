@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import android.app.Application
 import java.util.UUID
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -15,6 +17,70 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportContextTest {
+    @Test fun recoveryProjectionHashesEachIdentitySeparatelyAndKeepsOriginalFactsOptional() {
+        val binding = "a".repeat(64)
+        val claim = "11111111-1111-4111-8111-111111111111"
+        val fields = mapOf(
+            "failure_origin" to "local_recovery", "recovery_code" to "PROVIDER_WAIT_CHECKPOINT_CHANGED",
+            "failed_stage" to "lifecycle", "next_action" to "REVIEW_SAVED_RECOVERY", "dispatched" to false,
+            "checkpoint_binding" to binding, "checkpoint_digest" to binding, "resume_claim_id" to claim, "ownership_fence" to 7L,
+            "original_interruption" to Json.parseToJsonElement("""{"code":429,"details":{"http_status":429,"dispatched":true,"invocation_id":"private-original-invocation","message":"private provider reply"}}""")
+        )
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_700_000_000_000)
+        assertEquals(4, context.schemaVersion)
+        assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", context.reasonCode)
+        assertEquals("REVIEW_SAVED_RECOVERY", context.recoveryAction)
+        assertEquals("PROVIDER_RATE_LIMITED", context.originalFailureCode)
+        assertEquals(429, context.originalHttpStatus)
+        assertNull(context.httpStatus)
+        assertNull(context.invocationIdHash)
+        assertEquals(false, context.dispatched)
+        assertEquals(7L, context.ownershipFence)
+        assertEquals(IssueReportContext.identifierHash("checkpoint-binding", binding), context.checkpointBindingHash)
+        assertEquals(IssueReportContext.identifierHash("checkpoint-digest", binding), context.checkpointDigestHash)
+        assertFalse(context.checkpointBindingHash == context.checkpointDigestHash)
+        assertEquals(IssueReportContext.identifierHash("resume-claim", claim), context.resumeClaimIdHash)
+        val raw = IssueReport.json.encodeToString(IssueReportContext.serializer(), context)
+        for (privateValue in listOf(binding, claim, "private-original-invocation", "private provider reply", "original_interruption", "checkpoint_binding")) assertFalse(raw.contains(privateValue))
+        assertEquals(context, IssueReport.json.decodeFromString(IssueReportContext.serializer(), raw))
+        assertTrue(context.unavailableFields.containsAll(listOf("httpStatus", "invocationIdHash")))
+        assertFalse(context.unavailableFields.any { it in setOf("originalFailureCode", "originalHttpStatus", "checkpointBindingHash", "checkpointDigestHash", "resumeClaimIdHash", "ownershipFence") })
+
+        for (malformed in listOf(
+            mapOf("original_interruption" to "private error", "checkpoint_binding" to "a".repeat(63), "checkpoint_digest" to "private-digest", "resume_claim_id" to "1-1-1-1-1", "ownership_fence" to -1),
+            mapOf("original_interruption" to mapOf("code" to "HTTP 429 private error", "details" to mapOf("http_status" to "429")), "checkpoint_binding" to 7, "checkpoint_digest" to false, "resume_claim_id" to "private-claim", "ownership_fence" to "7"),
+            mapOf("original_interruption" to mapOf("code" to true, "details" to mapOf("http_status" to 600)), "checkpoint_binding" to "", "checkpoint_digest" to "", "resume_claim_id" to "", "ownership_fence" to true)
+        )) {
+            val absent = IssueReportContext.fromFields("CHAT_FAILURE", fields + malformed)
+            assertEquals(4, absent.schemaVersion)
+            assertNull(absent.originalFailureCode)
+            assertNull(absent.originalHttpStatus)
+            assertNull(absent.checkpointBindingHash)
+            assertNull(absent.checkpointDigestHash)
+            assertNull(absent.resumeClaimIdHash)
+            assertNull(absent.ownershipFence)
+        }
+    }
+
+    @Test fun newExtractionAndToolPrecheckReasonsSelectFourWithoutChangingLegacyCauses() {
+        for (reason in listOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED")) {
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "claim_extraction", "reason_code" to reason, "next_action" to "RETRY_CLAIM_EXTRACTION_FROM_SAVED_RECEIPTS"))
+            assertEquals(4, context.schemaVersion)
+            assertEquals(reason, context.reasonCode)
+            assertNull(context.originalFailureCode)
+            assertNull(context.dispatched)
+        }
+        val fields = mapOf("failed_stage" to "tool_precheck", "reason_code" to "BUDGET_CHECKPOINT_UNAVAILABLE", "dispatched" to false)
+        val precheck = IssueReportContext.fromFields("TOOL_RESULT", fields)
+        assertEquals(4, precheck.schemaVersion)
+        assertEquals("BUDGET_CHECKPOINT_UNAVAILABLE", precheck.reasonCode)
+        for (unqualified in listOf(fields - "dispatched", fields + ("dispatched" to true), fields + ("failed_stage" to "tool_execution"))) {
+            assertNull(IssueReportContext.fromFields("TOOL_RESULT", unqualified).reasonCode)
+        }
+        assertNull(IssueReportContext.fromFields("CHAT_FAILURE", fields).reasonCode)
+        assertEquals(1, IssueReportContext.fromFields("CHAT_FAILURE", mapOf("http_status" to JsonPrimitive(429))).schemaVersion)
+    }
+
     @Test fun githubStagesAndRecoveryActionsSelectTheirVersionWithoutInventingDispatchOrInvocationEvidence() {
         for (stage in listOf("acceptance_verification", "review_comparison", "approval")) {
             val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to stage))
@@ -194,6 +260,10 @@ class IssueReportContextTest {
         assertEquals(fresh.copy(schemaVersion = 2), restored.context)
         assertEquals(restored.context?.unavailableFields?.filterNot { it == "exceptionFingerprint" }, restored.context?.withException("IllegalStateException", emptyList())?.unavailableFields)
         assertEquals(fresh.unavailableFields.filterNot { it == "exceptionFingerprint" }, fresh.withException("IllegalStateException", emptyList()).unavailableFields)
+        val versionThreeBytes = approved.replace("\"schemaVersion\":2", "\"schemaVersion\":3")
+        val versionThree = IssueReport.json.decodeFromString(IssueReport.serializer(), versionThreeBytes)
+        assertEquals(versionThreeBytes, versionThree.approvedPayload())
+        assertEquals(fresh, versionThree.context)
         val invalidCounts = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "review_comparison", "required_criteria" to 3, "verified_criteria" to 2, "remaining_criteria" to 2))
         assertEquals(3, invalidCounts.schemaVersion)
         assertNull(invalidCounts.requiredCriteria)
@@ -224,11 +294,23 @@ class IssueReportContextTest {
             frames = List(8) { "dev.chungjungsoo.gptmobile.${"a".repeat(140)}$it:999999" }
         )
         val acceptance = fullContext().copy(schemaVersion = 2, stage = "acceptance_verification", reasonCode = "UNVERIFIED_ACCEPTANCE_CRITERIA", requiredCriteria = 100_000, verifiedCriteria = 0, remainingCriteria = 100_000)
-        for (report in listOf(metadata, debug, metadata.copy(context = acceptance), debug.copy(context = acceptance))) {
+        val recovery = acceptance.copy(
+            schemaVersion = 4, reasonCode = "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", recoveryAction = "RECONCILE_TOOL_RECEIPTS",
+            originalFailureCode = code, originalHttpStatus = 599, checkpointBindingHash = "a".repeat(64),
+            checkpointDigestHash = "b".repeat(64), resumeClaimIdHash = "c".repeat(64), ownershipFence = Long.MAX_VALUE
+        )
+        for (report in listOf(metadata, debug, metadata.copy(context = acceptance), debug.copy(context = acceptance), metadata.copy(context = recovery), debug.copy(context = recovery))) {
             val bytes = report.approvedPayload().encodeToByteArray()
             assertTrue("Projected report must fit the unchanged broker byte limit: ${bytes.size}", bytes.size <= IssueReport.MAX_PAYLOAD_BYTES)
             assertEquals(16, report.events.size)
-            assertEquals(if (report.context?.schemaVersion == 2) acceptance else fullContext(), report.context)
+            assertEquals(
+                when (report.context?.schemaVersion) {
+                    4 -> recovery
+                    2 -> acceptance
+                    else -> fullContext()
+                },
+                report.context
+            )
         }
         assertEquals(IssueReport.DESCRIPTION_LIMIT, metadata.description!!.length)
     }

@@ -168,6 +168,68 @@ class VoiceFailureReportingTest {
     }
 
     @Test
+    fun typedReplyFailureKeepsRunAndInvocationEvidenceWithoutCallingItAMicrophoneFailure() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val audio = object : VoiceAudio {
+            override fun listen(listener: VoiceAudio.Listener) = Unit
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val session = VoiceSession(audio, { false }, {})
+        session.restore("private recognized words", "partial reply", review = false, pending = true)
+        val details = kotlinx.serialization.json.buildJsonObject {
+            put("failed_stage", kotlinx.serialization.json.JsonPrimitive("response_stream"))
+            put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("FAILED"))
+            put("dispatched", kotlinx.serialization.json.JsonPrimitive(true))
+            put("remote_acceptance", kotlinx.serialization.json.JsonPrimitive("UNKNOWN"))
+            put("invocation_id", kotlinx.serialization.json.JsonPrimitive("private-invocation"))
+            put("server_request_id", kotlinx.serialization.json.JsonPrimitive("private-request"))
+        }
+        session.reply(
+            "private-run",
+            "",
+            failed = true,
+            failure = ProfileFailureRecord.fromProvider("private provider detail", "NETWORK_TIMEOUT", details)
+        )
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("VOICE_SESSION_FAILED", report.errorCode)
+        assertEquals("response_stream", report.context?.stage)
+        assertEquals(true, report.context?.dispatched)
+        assertEquals("UNKNOWN", report.context?.remoteAcceptance)
+        assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("run", "private-run"), report.context?.runIdHash)
+        assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("invocation", "private-invocation"), report.context?.invocationIdHash)
+        org.junit.Assert.assertNull(report.context?.operation)
+        assertFalse(IssueReport.json.encodeToString(IssueReport.serializer(), report).contains("private"))
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+        assertFalse(session.state.awaitingReply)
+        session.close()
+    }
+
+    @Test
+    fun legacyReplyFailureAddsOnlyRunCorrelationAndDoesNotPromoteProseToDispatchEvidence() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val audio = object : VoiceAudio {
+            override fun listen(listener: VoiceAudio.Listener) = Unit
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val session = VoiceSession(audio, { false }, {})
+        session.restore("recognized words", "", review = false, pending = true)
+        session.reply("legacy-run", "", failed = true, failure = ProfileFailureRecord.classify("HTTP 429: rate limit"))
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("VOICE_SESSION_FAILED", report.errorCode)
+        org.junit.Assert.assertNull(report.context?.stage)
+        org.junit.Assert.assertNull(report.context?.dispatched)
+        org.junit.Assert.assertNull(report.context?.remoteAcceptance)
+        org.junit.Assert.assertNull(report.context?.httpStatus)
+        org.junit.Assert.assertNull(report.context?.retryable)
+        assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("run", "legacy-run"), report.context?.runIdHash)
+        session.close()
+    }
+
+    @Test
     fun detailedFailureCreatesOneSpecificReportWithSafeCauseAndNoGenericDuplicate() {
         LocalDiagnosticsPolicy.setEnabled(true)
         lateinit var capture: VoiceAudio.Listener

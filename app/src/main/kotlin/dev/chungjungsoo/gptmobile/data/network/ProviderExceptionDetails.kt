@@ -209,7 +209,8 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
     val localBlock = rateLimit?.localBlock == true || free != null && localLimit || httpFailure?.beforeDispatch == true
     val responded = http != null && httpFailure?.beforeDispatch != true || rateLimit?.localBlock == false
     val retryAt = rateLimit?.retryAt ?: free?.providerLimit?.retryAt
-    val observedHttpStatus = httpFailure?.takeUnless { it.beforeDispatch && it.consecutiveRejections == 0 }?.status
+    val observedHttpStatus = httpFailure?.takeUnless { it.beforeDispatch && it.consecutiveRejections == 0 }
+        ?.let { it.observedHttpStatus?.takeIf { status -> status in 100..599 } ?: it.status }
     val observedRetryAt = httpFailure?.takeIf { it.retrySource != null }?.retryAtMillis
     val retryable = !partialOutput && (http?.retryable ?: (retryAt != null && (localLimit || category == FreeFailureCategory.PROVIDER_RATE_LIMITED)))
     val code = http?.status?.toString() ?: requireNotNull(category).name
@@ -236,6 +237,7 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
             }
             (observedHttpStatus ?: rateLimit?.cooldown?.status)
                 ?.let { put(if (responded) "http_status" else "originating_http_status", it) }
+            if (responded) safeProviderRequestIdentity(httpFailure?.serverRequestId)?.let { put("server_request_id", it) }
             rateLimit?.cooldown?.providerCode?.let { put(if (responded) "provider_code" else "originating_provider_code", it) }
             (http?.retryAfterMillis ?: retryAt?.let { ProviderRetryPolicy.remainingMillis(it, nowMillis) })?.let { put("retry_after_ms", it) }
             (retryAt ?: observedRetryAt)?.let { put("retry_at_ms", it) }

@@ -149,14 +149,14 @@ looks for the original issue.
 ### Report context and rollout compatibility
 
 The ready response preserves `service: "gpt-mobile-issue-reporter"` and
-`version: 1`, and advertises `reportContextVersions: [1, 2, 3]`. Clients with a
+`version: 1`, and advertises `reportContextVersions: [1, 2, 3, 4]`. Clients with a
 context-bearing report check support for that report's schema and any retained
 review extensions before marking it dispatched or sending the POST. An older
 service without all required versions has not declared
 support: the app retains the approved report and displays a native
 service-update requirement. It must not silently strip context or change a
 previously submitted payload. Deploy the updated reporter before shipping a
-hosted reporting route; the distribution readiness check requires all three versions
+hosted reporting route; the distribution readiness check requires all four versions
 so current reports and retained legacy reports remain supported.
 
 The optional top-level `context` object has a schema version, a bounded client
@@ -182,6 +182,28 @@ New reports use schema 3 when any of these values is present. Versions 2 and 3
 share the acceptance-count and exact `unavailableFields` contract. No schema
 accepts criterion text.
 
+Schema 4 adds closed local recovery and claim-extraction reasons and their recovery
+actions. The public issue code remains `CHAT_FAILED`; `reasonCode` identifies the
+specific local recovery refusal or retained extraction failure. An earlier provider
+429 remains a separate `originalFailureCode: PROVIDER_RATE_LIMITED` and optional
+`originalHttpStatus`, read only from explicit typed interruption fields. Current
+dispatch, invocation, retry and remote-acceptance facts are never copied from that
+earlier interruption. Checkpoint binding, checkpoint digest and resume-claim IDs
+are published only as separately domain-separated SHA-256 hashes. The optional
+`ownershipFence` is an integer from 0 through 9,223,372,036,854,775,807. Missing or
+malformed observations stay unavailable; raw checkpoint values, claim IDs,
+provider messages and free-text recovery details are not accepted.
+
+Version 4 also retains a closed reason for locally rejected tool calls, including
+exhausted allowance, duplicate suppression and unavailable checkpoints. Those
+reasons require `source: TOOL_RESULT`, `stage: tool_precheck`, `dispatched: false`
+and no positive reconciliation requirement. An otherwise unknown tool code may
+use the existing `TOOL_FAILURE` category while preserving these non-dispatch facts;
+known codes such as `INVALID_ARGUMENTS` stay unchanged. New recovery fields and
+reasons are rejected under versions 1 through 3. Version-4 payloads require explicit
+version-4 readiness before the dispatch marker or POST; unsupported services do not
+receive a stripped or downgraded report.
+
 An earlier app revision used schema 2 for those review extensions. Its approved
 payloads remain unchanged: the app requires readiness support for both their
 declared version 2 and the version-3 review contract, then posts their original
@@ -198,7 +220,7 @@ non-retryable; unknown GitHub outcomes still require reconciliation.
 The rendered issue shows captured causal facts and unavailable observations
 separately. A missing field does not establish success, non-dispatch or safe
 retry. The full JSON request still has an 8 KiB maximum. Legacy reports without
-`context`, and existing schema-1 and schema-2 reports, retain their original rendering so
+`context`, and existing schema-1 through schema-3 reports, retain their original rendering so
 previously queued report digests remain valid.
 
 Successful submissions return `{"reportId":"<original UUID>","number":42}`.

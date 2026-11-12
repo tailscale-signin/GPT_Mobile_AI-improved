@@ -193,6 +193,49 @@ class IssueReportSubmissionTest {
         assertEquals(listOf(approved), posted)
     }
 
+    @Test fun versionFourRecoveryAndPrecheckReportsWaitBeforeDispatchAndRetryTheirExactBytes() {
+        for ((source, fields) in listOf(
+            "CHAT_FAILURE" to mapOf("failure_origin" to "local_recovery", "recovery_code" to "PROVIDER_WAIT_INPUT_CHANGED", "failed_stage" to "lifecycle", "next_action" to "REVIEW_SAVED_RECOVERY", "dispatched" to false),
+            "CHAT_FAILURE" to mapOf("failed_stage" to "claim_extraction", "reason_code" to "GITHUB_EXTRACTION_TIMEOUT", "next_action" to "RETRY_CLAIM_EXTRACTION_FROM_SAVED_RECEIPTS"),
+            "TOOL_RESULT" to mapOf("failed_stage" to "tool_precheck", "reason_code" to "DUPLICATE_INVOCATION", "dispatched" to false)
+        )) {
+            val context = IssueReportContext.fromFields(source, fields, occurredAtMillis = 1_000L)
+            assertEquals(4, context.schemaVersion)
+            val approved = report.copy(context = context).approvedPayload()
+            val posted = mutableListOf<String>()
+            var dispatchMarkers = 0
+            var supported = "[1,2,3]"
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                if (request.method == "GET") {
+                    response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":$supported}""")
+                } else {
+                    posted += body(request)
+                    if (posted.size == 1) throw IOException("Receipt unavailable after dispatch")
+                    response(request, 200, """{"reportId":"${report.reportId}","number":742}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            for (versions in listOf("[1,2,3]", "[1,2,3,\"4\"]", "[1,2,3,true]")) {
+                supported = versions
+                val stopped = submission.send(report.reportId, approved) { dispatchMarkers++ } as IssueReportSubmission.Failure
+                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", stopped.code)
+                assertTrue(stopped.retryable)
+                assertFalse(stopped.automaticRetry)
+                assertEquals(0, dispatchMarkers)
+                assertTrue(posted.isEmpty())
+            }
+            supported = "[1,2,3,4]"
+            val uncertain = submission.send(report.reportId, approved) { dispatchMarkers++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_CONNECTION_FAILED", uncertain.code)
+            assertTrue(uncertain.retryable)
+            assertEquals(1, dispatchMarkers)
+            assertEquals(IssueReportSubmission.Confirmed(742), submission.send(report.reportId, approved) { dispatchMarkers++ })
+            assertEquals(2, dispatchMarkers)
+            assertEquals(listOf(approved, approved), posted)
+        }
+    }
+
     @Test fun transientAndPermanentRejectionsHaveBoundedSafeMetadataAndRetryDeadlines() {
         val client = OkHttpClient.Builder().addInterceptor { response(it.request(), 429, """{"error":"RATE_LIMITED","private":"must not be surfaced"}""", "120") }.build()
         val failure = IssueReportSubmission(origin, client) { 10_000L }.send(report.reportId, report.approvedPayload()) as IssueReportSubmission.Failure

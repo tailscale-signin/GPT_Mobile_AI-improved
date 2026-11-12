@@ -123,7 +123,9 @@ internal object IssueReportIncidents {
         }
         if (severity == 'E' && LocalDiagnosticsPolicy.enabled && feature != ReportFeature.CHAT && feature != ReportFeature.VOICE) {
             val evidence = if (tag == "MCP") fields + ("operation" to "mcp") else fields
-            failure(feature, IssueReportCodes.select(code, "APP_ERROR"), error, evidence, source?.takeIf { it in IssueReportContext.sources } ?: "STRUCTURED_EVENT".takeIf { evidence.isNotEmpty() })
+            val captureSource = source?.takeIf { it in IssueReportContext.sources } ?: "STRUCTURED_EVENT".takeIf { evidence.isNotEmpty() }
+            val toolPrecheck = captureSource == "TOOL_RESULT" && IssueReportContext.fromFields("TOOL_RESULT", evidence).let { it.stage == "tool_precheck" && it.dispatched == false }
+            failure(feature, IssueReportCodes.select(code, if (toolPrecheck) "TOOL_FAILURE" else "APP_ERROR"), error, evidence, captureSource)
         } else {
             synchronized(lock) {
                 if (!isPrivate) addEvent(severity, feature, IssueReportCodes.known(code))
@@ -162,8 +164,9 @@ internal object IssueReportIncidents {
     fun chatFailure(code: String?, rateLimited: Boolean) = chatFailure(code, rateLimited, null)
 
     fun chatFailure(code: String?, rateLimited: Boolean, error: Throwable?, fields: Map<String, Any?> = emptyMap(), invocationId: String? = null) {
+        val localRecovery = IssueReportContext.localRecoveryCode(fields) != null
         val specificCode = IssueReportCodes.known(code)?.takeUnless { it == "CHAT_FAILED" }
-        val observedRateLimit = if (specificCode == null && !rateLimited) {
+        val observedRateLimit = if (!localRecovery && specificCode == null && !rateLimited) {
             val evidence = IssueReportContext.fromFields("CHAT_FAILURE", fields)
             evidence.provider != null &&
                 evidence.stage in setOf("model_invocation", "provider_generation") &&
@@ -175,7 +178,7 @@ internal object IssueReportIncidents {
         }
         // A rejected provider attempt may lack a resumable checkpoint. Retain its
         // observed cause without treating the report as authorization to retry.
-        val publicCode = specificCode ?: if (rateLimited || observedRateLimit) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED"
+        val publicCode = if (localRecovery) "CHAT_FAILED" else specificCode ?: if (rateLimited || observedRateLimit) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED"
         failure(ReportFeature.CHAT, publicCode, error, fields + listOfNotNull(invocationId?.let { "invocation_id" to it }).toMap(), "CHAT_FAILURE")
     }
 

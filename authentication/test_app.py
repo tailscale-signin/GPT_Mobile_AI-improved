@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from authentication.app import create_app
 from authentication.github_broker import Config, challenge_for
 from authentication.issue_report_app import create_app as create_report_app
-from authentication.issue_reports import CONTEXT_ACCEPTANCE_REASONS, CONTEXT_ACCEPTANCE_RECOVERY, CONTEXT_FIELDS, CONTEXT_FIELDS_V2, CONTEXT_SELECTION_FIELDS, ERROR_CODES, GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
+from authentication.issue_reports import CONTEXT_ACCEPTANCE_REASONS, CONTEXT_ACCEPTANCE_RECOVERY, CONTEXT_FIELDS, CONTEXT_FIELDS_V2, CONTEXT_FIELDS_V4, CONTEXT_RECOVERY_ACTIONS, CONTEXT_RECOVERY_REASONS, CONTEXT_SELECTION_FIELDS, CONTEXT_TOOL_PRECHECK_REASONS, ERROR_CODES, GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
 
 
 class HttpBoundaryTest(unittest.TestCase):
@@ -102,7 +102,7 @@ class IssueReportHttpTest(unittest.TestCase):
 
     def context(self, **observed):
         result = {"schemaVersion": 1, "occurredAtMillis": self.now * 1000, "source": "CHAT_FAILURE", **observed}
-        fields = CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
+        fields = CONTEXT_FIELDS_V4 if result["schemaVersion"] == 4 else CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
         result["unavailableFields"] = sorted(fields - result.keys())
         return result
 
@@ -127,7 +127,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
                          {key: response.json()[key] for key in ("service", "version")})
-        self.assertEqual([1, 2, 3], response.json()["reportContextVersions"])
+        self.assertEqual([1, 2, 3, 4], response.json()["reportContextVersions"])
         self.assertEqual("no-store", response.headers["cache-control"])
         self.assertFalse(self.issued)
         # Old clients may continue posting their original reports without a
@@ -160,6 +160,71 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertIn("absence does not establish success, non-dispatch, or permission to retry", body)
         self.assertNotIn("| Reported job identity", body)
         self.assertNotIn(context["runIdHash"].encode(), self.database.read_bytes())
+
+    def test_recovery_context_separates_current_refusal_from_the_original_provider_interruption(self):
+        context = self.context(schemaVersion=4, stage="lifecycle", reasonCode="PROVIDER_WAIT_EVIDENCE_UNAVAILABLE",
+                               recoveryAction="REVIEW_SAVED_RECOVERY", dispatched=False, retryable=False, resumeAllowed=False,
+                               remoteAcceptance="NO", originalFailureCode="PROVIDER_RATE_LIMITED", originalHttpStatus=429,
+                               checkpointBindingHash="a" * 64, checkpointDigestHash="b" * 64, resumeClaimIdHash="c" * 64,
+                               ownershipFence=7, runIdHash="d" * 64)
+        report = {**self.metadata(), "source": "debug", "feature": "chat", "errorCode": "CHAT_FAILED", "context": context}
+        self.assertEqual(200, self.submit(report).status_code)
+        body = self.issued[-1]["body"]
+        for row in ("| Context schema | `4` |", "| Dispatched | `false` |", "| Original interruption code | `PROVIDER_RATE_LIMITED` |",
+                    "| Original interruption HTTP status | `429` |", "| Recovery ownership fence | `7` |"):
+            self.assertIn(row, body)
+        self.assertNotIn("| HTTP status |", body)
+        self.assertNotIn("| Invocation identity SHA-256 |", body)
+        self.assertIn("`invocationIdHash`", body.split("Unavailable fields:", 1)[1])
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(1, len(self.issued))
+
+    def test_recovery_extensions_are_strictly_version_four_and_never_accept_private_identifiers(self):
+        valid = {"originalFailureCode": "PROVIDER_RATE_LIMITED", "originalHttpStatus": 429,
+                 "checkpointBindingHash": "a" * 64, "checkpointDigestHash": "b" * 64,
+                 "resumeClaimIdHash": "c" * 64, "ownershipFence": 7}
+        for field, values in (("reasonCode", CONTEXT_RECOVERY_REASONS), ("recoveryAction", CONTEXT_RECOVERY_ACTIONS)):
+            for value in values:
+                with self.subTest(field=field, value=value):
+                    issue_from_report({**self.manual(), "context": self.context(schemaVersion=4, **{field: value})})
+                    for version in (1, 2, 3):
+                        with self.assertRaises(ReportError):
+                            issue_from_report({**self.manual(), "context": self.context(schemaVersion=version, **{field: value})})
+        for version in (1, 2, 3):
+            for field, value in valid.items():
+                with self.subTest(version=version, field=field), self.assertRaises(ReportError):
+                    issue_from_report({**self.manual(), "context": self.context(schemaVersion=version, **{field: value})})
+        invalid = [
+            {"originalFailureCode": "429"}, {"originalFailureCode": 429}, {"originalFailureCode": "private-provider-text"},
+            {"originalHttpStatus": True}, {"originalHttpStatus": "429"}, {"originalHttpStatus": 99}, {"originalHttpStatus": 600},
+            {"ownershipFence": True}, {"ownershipFence": "7"}, {"ownershipFence": 1.5}, {"ownershipFence": -1}, {"ownershipFence": 2 ** 63},
+            {"checkpoint_binding": "private-binding"}, {"checkpoint_digest": "private-digest"}, {"resume_claim_id": str(uuid4())},
+            {"original_interruption": {"message": "private provider text"}}, {"originalMessage": "private provider text"},
+        ]
+        invalid += [{field: value} for field in ("checkpointBindingHash", "checkpointDigestHash", "resumeClaimIdHash")
+                    for value in ("a" * 63, "A" * 64, "private-identifier", 7, None)]
+        for observed in invalid:
+            with self.subTest(observed=observed):
+                response = self.submit({**self.manual(), "context": self.context(schemaVersion=4, **observed)})
+                self.assertEqual(422, response.status_code)
+                self.assertEqual({"error": "INVALID_REPORT"}, response.json())
+        for fence in (0, 2 ** 63 - 1):
+            issue_from_report({**self.manual(), "context": self.context(schemaVersion=4, ownershipFence=fence)})
+        self.assertFalse(self.issued)
+
+    def test_tool_precheck_reasons_require_version_four_and_explicit_non_dispatch(self):
+        for reason in CONTEXT_TOOL_PRECHECK_REASONS:
+            observed = {"source": "TOOL_RESULT", "stage": "tool_precheck", "dispatched": False, "reasonCode": reason}
+            report = {**self.metadata(), "source": "debug", "feature": "tools", "errorCode": "TOOL_FAILURE"}
+            _, issue = issue_from_report({**report, "context": self.context(schemaVersion=4, **observed)})
+            self.assertIn(f"| Reason code | `{reason}` |", issue["body"])
+            self.assertIn("| Dispatched | `false` |", issue["body"])
+            for version in (1, 2, 3):
+                with self.subTest(reason=reason, version=version), self.assertRaises(ReportError):
+                    issue_from_report({**report, "context": self.context(schemaVersion=version, **observed)})
+            for change in ({"source": "CHAT_FAILURE"}, {"stage": "tool_execution"}, {"dispatched": True}, {"dispatched": None}):
+                with self.subTest(reason=reason, change=change), self.assertRaises(ReportError):
+                    issue_from_report({**report, "context": self.context(schemaVersion=4, **{**observed, **change})})
 
     def test_active_job_context_does_not_invent_a_current_request_job_receipt(self):
         context = self.context(stage="conversation_admission", provider="LLAMA", httpStatus=409, dispatched=False,
@@ -283,10 +348,10 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertFalse(self.issued)
         self.assertNotIn("verifiedCriteria", issue["body"])
 
-    def assert_retained_context_v2_digest_reconciles(self, observed, expected_digest):
+    def assert_retained_context_v2_digest_reconciles(self, observed, expected_digest, version=2):
         report = {**self.metadata(), "reportId": "00000000-0000-4000-8000-000000000001", "source": "debug",
                   "feature": "chat", "errorCode": "GITHUB_TASK_INCOMPLETE",
-                  "context": self.context(schemaVersion=2, **observed)}
+                  "context": self.context(schemaVersion=version, **observed)}
         _, issue = issue_from_report(report)
         self.assertEqual(expected_digest, hashlib.sha256(json.dumps(issue, sort_keys=True).encode()).hexdigest())
         with self.reporter._db() as db:
@@ -295,7 +360,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.found = 77
         self.assertEqual({"reportId": report["reportId"], "number": 77}, self.submit(report).json())
         self.assertFalse(self.issued)
-        self.assertEqual(2, report["context"]["schemaVersion"])
+        self.assertEqual(version, report["context"]["schemaVersion"])
 
     def test_original_context_v2_digest_remains_valid_after_context_v3_upgrade(self):
         # Frozen from the publisher at 7aaa9731a, before the version-3 repair.
@@ -311,10 +376,18 @@ class IssueReportHttpTest(unittest.TestCase):
             "9c7c90f465bf47dea86a11fc091cbe22c2a6c8c41402b5b7adf7419fffe47852",
         )
 
+    def test_retained_v3_digest_survives_recovery_context_upgrade_without_reposting(self):
+        # Frozen from the publisher at e1a75433, before recovery context version 4.
+        self.assert_retained_context_v2_digest_reconciles(
+            {"stage": "review_comparison", "recoveryAction": "SELECT_REVIEW_BASELINE"},
+            "cd9c668e5b802db5d2d5a8193cfefa190af8410751503ec7e6ef5ce43ab1501c",
+            version=3,
+        )
+
     def test_context_never_accepts_private_values_unknown_fields_or_ambiguous_types(self):
         context = self.context(stage="tool_execution")
         changes = (
-            {"rawMessage": "private-content"}, {"schemaVersion": True}, {"schemaVersion": 4},
+            {"rawMessage": "private-content"}, {"schemaVersion": True}, {"schemaVersion": 5},
             {"source": "private-content"}, {"occurredAtMillis": 0}, {"occurredAtMillis": True},
             {"occurredAtMillis": 10_000_000_000_000}, {"stage": "private-content"},
             {"provider": "private-model"}, {"operation": "private-tool"}, {"httpStatus": True},
@@ -414,11 +487,18 @@ class IssueReportHttpTest(unittest.TestCase):
                   "version": "v" * 48, "commit": "a" * 40, "android": "a" * 48, "device": "d" * 80,
                   "build": 2_147_483_647, "sdk": 999,
                   "events": ["-99999ms E gateway " + max(ERROR_CODES, key=len)] * 16}
-        payload = json.dumps(report, ensure_ascii=False, separators=(",", ":")).encode()
-        self.assertLessEqual(len(payload), 8192)
-        response = self.client.post("/v1/issue-reports", content=payload, headers={"Content-Type": "application/json"})
-        self.assertEqual(200, response.status_code)
-        self.assertIn("Unavailable fields: none declared by this capture.", self.issued[0]["body"])
+        recovery = self.context(**{**context, "schemaVersion": 4, "reasonCode": "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE",
+                                   "recoveryAction": "RECONCILE_TOOL_RECEIPTS", "requiredCriteria": 100_000,
+                                   "verifiedCriteria": 0, "remainingCriteria": 100_000,
+                                   "originalFailureCode": max(ERROR_CODES, key=len), "originalHttpStatus": 599,
+                                   "checkpointBindingHash": "a" * 64, "checkpointDigestHash": "b" * 64,
+                                   "resumeClaimIdHash": "c" * 64, "ownershipFence": 2 ** 63 - 1})
+        for value in (context, recovery):
+            payload = json.dumps({**report, "reportId": str(uuid4()), "context": value}, ensure_ascii=False, separators=(",", ":")).encode()
+            self.assertLessEqual(len(payload), 8192)
+            response = self.client.post("/v1/issue-reports", content=payload, headers={"Content-Type": "application/json"})
+            self.assertEqual(200, response.status_code)
+            self.assertIn("Unavailable fields: none declared by this capture.", self.issued[-1]["body"])
 
     def test_manual_report_and_retry_return_the_same_issue_after_restart(self):
         report = self.manual()

@@ -287,16 +287,41 @@ CONTEXT_ENUMS_V3 = {
     "stage": CONTEXT_ENUMS_V2["stage"] | CONTEXT_REVIEW_STAGES,
     "recoveryAction": CONTEXT_ENUMS_V2["recoveryAction"] | CONTEXT_REVIEW_RECOVERY,
 }
+CONTEXT_RECOVERY_REASONS = {
+    "PROVIDER_WAIT_CHECKPOINT_CHANGED", "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "PROVIDER_WAIT_OUTCOME_UNKNOWN",
+    "PROVIDER_WAIT_TASK_CHANGED", "PROVIDER_WAIT_CHECKPOINT_INVALID", "PROVIDER_WAIT_INPUT_CHANGED",
+    "PROVIDER_WAIT_PREFIX_CHANGED", "PROVIDER_WAIT_REVIEW_REQUIRED", "RESEARCH_RECOVERY_ACTION_CHANGED",
+    "GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT",
+    "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED",
+}
+CONTEXT_RECOVERY_ACTIONS = {
+    "REVIEW_SAVED_RECOVERY", "RECONCILE_TOOL_RECEIPTS", "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT",
+    "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA", "RESUME_UNFINISHED_EXTRACTION_BATCHES",
+    "INSPECT_THE_RECORDED_PROVIDER_FAILURE", "RETRY_CLAIM_EXTRACTION_FROM_SAVED_RECEIPTS",
+}
+CONTEXT_TOOL_PRECHECK_REASONS = {
+    "BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE",
+    "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED",
+}
+CONTEXT_ENUMS_V4 = {
+    **CONTEXT_ENUMS_V3,
+    "reasonCode": CONTEXT_ENUMS_V3["reasonCode"] | CONTEXT_RECOVERY_REASONS | CONTEXT_TOOL_PRECHECK_REASONS,
+    "recoveryAction": CONTEXT_ENUMS_V3["recoveryAction"] | CONTEXT_RECOVERY_ACTIONS,
+    "originalFailureCode": ERROR_CODES,
+}
 CONTEXT_NUMBERS = {"occurredAtMillis": (1, 9_999_999_999_999), "httpStatus": (100, 599), "retryAfterMillis": (0, 86_400_000)}
 CONTEXT_ACCEPTANCE_NUMBERS = {"requiredCriteria": (0, 100_000), "verifiedCriteria": (0, 100_000), "remainingCriteria": (0, 100_000)}
+CONTEXT_RECOVERY_NUMBERS = {"originalHttpStatus": (100, 599), "ownershipFence": (0, 9_223_372_036_854_775_807)}
 CONTEXT_FLAGS = {"dispatched", "retryable", "resumeAllowed", "requiresReconciliation"}
 CONTEXT_HASHES = {"runIdHash", "invocationIdHash", "callIdHash", "jobIdHash", "activeJobIdHash", "exceptionFingerprint"}
+CONTEXT_RECOVERY_HASHES = {"checkpointBindingHash", "checkpointDigestHash", "resumeClaimIdHash"}
 CONTEXT_SELECTION_FIELDS = {"profile_uid", "profile_revision", "provider_connection_id", "provider_connection_revision", "provider_kind",
                             "configured_endpoint", "requested_model_id", "generation_parameters", "privacy_scope", "tool_owner",
                             "required_capability_policy", "credential_reference", "credential_account_identity", "approved_alias_mapping"}
 CONTEXT_FIELDS = (set(CONTEXT_ENUMS) | set(CONTEXT_NUMBERS) | CONTEXT_FLAGS | CONTEXT_HASHES | {"missingFields", "invalidFields"}) - {"source", "occurredAtMillis"}
 CONTEXT_FIELDS_V2 = CONTEXT_FIELDS | set(CONTEXT_ACCEPTANCE_NUMBERS)
-CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2, 3: CONTEXT_FIELDS_V2}
+CONTEXT_FIELDS_V4 = CONTEXT_FIELDS_V2 | set(CONTEXT_RECOVERY_NUMBERS) | CONTEXT_RECOVERY_HASHES | {"originalFailureCode"}
+CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2, 3: CONTEXT_FIELDS_V2, 4: CONTEXT_FIELDS_V4}
 CONTEXT_LABELS = {
     "stage": "Failure stage", "provider": "Provider family", "operation": "Operation family", "httpStatus": "HTTP status",
     "retryAfterMillis": "Retry delay (ms)", "dispatched": "Dispatched", "retryable": "Retryable", "resumeAllowed": "Resume allowed",
@@ -307,6 +332,9 @@ CONTEXT_LABELS = {
     "exceptionFingerprint": "Exception type/frame fingerprint SHA-256",
     "requiredCriteria": "Required acceptance criteria", "verifiedCriteria": "Verified acceptance criteria",
     "remainingCriteria": "Remaining acceptance criteria",
+    "originalFailureCode": "Original interruption code", "originalHttpStatus": "Original interruption HTTP status",
+    "checkpointBindingHash": "Checkpoint binding SHA-256", "checkpointDigestHash": "Checkpoint digest SHA-256",
+    "resumeClaimIdHash": "Resume claim SHA-256", "ownershipFence": "Recovery ownership fence",
 }
 
 
@@ -356,15 +384,21 @@ def _report_context(value):
         raise ReportError(422, "INVALID_REPORT")
     # A released client used v2 for review extensions. Accept those exact approved
     # payloads as well as v3; clients require readiness for both 2 and 3 before sending them.
-    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V3
+    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V4 if version == 4 else CONTEXT_ENUMS_V3
     for key, choices in enums.items():
         if key in value and (not isinstance(value[key], str) or value[key] not in choices):
             raise ReportError(422, "INVALID_REPORT")
+    if value.get("reasonCode") in CONTEXT_TOOL_PRECHECK_REASONS and not (
+        version == 4 and value.get("source") == "TOOL_RESULT" and value.get("stage") == "tool_precheck" and value.get("dispatched") is False and value.get("requiresReconciliation") is not True
+    ):
+        raise ReportError(422, "INVALID_REPORT")
     numbers = CONTEXT_NUMBERS if version == 1 else {**CONTEXT_NUMBERS, **CONTEXT_ACCEPTANCE_NUMBERS}
+    if version == 4:
+        numbers = {**numbers, **CONTEXT_RECOVERY_NUMBERS}
     for key, (low, high) in numbers.items():
         if key in value and (type(value[key]) is not int or not low <= value[key] <= high):
             raise ReportError(422, "INVALID_REPORT")
-    if version in (2, 3):
+    if version in (2, 3, 4):
         required_count = value.get("requiredCriteria")
         verified_count = value.get("verifiedCriteria")
         remaining_count = value.get("remainingCriteria")
@@ -377,7 +411,7 @@ def _report_context(value):
     for key in CONTEXT_FLAGS:
         if key in value and type(value[key]) is not bool:
             raise ReportError(422, "INVALID_REPORT")
-    for key in CONTEXT_HASHES:
+    for key in CONTEXT_HASHES | (CONTEXT_RECOVERY_HASHES if version == 4 else set()):
         if key in value and (not isinstance(value[key], str) or not re.fullmatch(r"[a-f0-9]{64}", value[key])):
             raise ReportError(422, "INVALID_REPORT")
     for key in ("missingFields", "invalidFields"):

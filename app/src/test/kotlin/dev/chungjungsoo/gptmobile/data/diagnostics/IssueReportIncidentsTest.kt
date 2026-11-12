@@ -3,11 +3,14 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorCategory
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure
 import java.io.File
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -137,6 +140,50 @@ class IssueReportIncidentsTest {
         assertEquals("NO", report.context?.remoteAcceptance)
         assertEquals(null, report.context?.resumeAllowed)
         assertFalse(report.approvedPayload().contains("private provider response"))
+    }
+
+    @Test
+    fun typedLocalRecoveryFailureRetainsItsCauseWithoutReusingTheOriginalRateLimitOrInvocation() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val original = buildJsonObject {
+            put("code", "429")
+            put(
+                "details",
+                buildJsonObject {
+                    put("http_status", 429)
+                    put("dispatched", true)
+                    put("invocation_id", "private-original-invocation")
+                    put("message", "private provider reply")
+                }
+            )
+        }
+        val correlation = buildJsonObject {
+            put("checkpoint_binding", "a".repeat(64))
+            put("checkpoint_digest", "b".repeat(64))
+            put("resume_claim_id", "11111111-1111-4111-8111-111111111111")
+            put("ownership_fence", 3)
+            put("run_id", "private-recovery-run")
+        }
+        val failure = ProviderRecoveryFailure("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", original, correlation).event()
+        IssueReportIncidents.chatFailure(failure.errorCode, true, null, requireNotNull(failure.failureDetails))
+        val report = IssueReportIncidents.pending.value.single()
+        val context = requireNotNull(report.context)
+        assertEquals("CHAT_FAILED", report.errorCode)
+        assertEquals(4, context.schemaVersion)
+        assertEquals("lifecycle", context.stage)
+        assertEquals("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", context.reasonCode)
+        assertEquals("REVIEW_SAVED_RECOVERY", context.recoveryAction)
+        assertEquals("PROVIDER_RATE_LIMITED", context.originalFailureCode)
+        assertEquals(429, context.originalHttpStatus)
+        assertEquals(null, context.httpStatus)
+        assertEquals(false, context.dispatched)
+        assertEquals(false, context.retryable)
+        assertEquals(false, context.resumeAllowed)
+        assertEquals("NO", context.remoteAcceptance)
+        assertEquals(null, context.invocationIdHash)
+        assertEquals(3L, context.ownershipFence)
+        assertEquals(IssueReportContext.identifierHash("run", "private-recovery-run"), context.runIdHash)
+        for (privateValue in listOf("private-original-invocation", "private provider reply", "private-recovery-run", "a".repeat(64), "b".repeat(64), "11111111-1111-4111-8111-111111111111")) assertFalse(report.approvedPayload().contains(privateValue))
     }
 
     @Test

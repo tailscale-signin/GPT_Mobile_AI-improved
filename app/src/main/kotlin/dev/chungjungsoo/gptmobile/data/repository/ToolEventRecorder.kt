@@ -173,6 +173,9 @@ class ToolEventRecorder @Inject constructor(
             } else {
                 buildMap<String, Any?> {
                     putAll(normalizedResult.executionReceipt.orEmpty().filterKeys { it !in setOf("run_id", "runId", "call_id", "callId", "toolCallId", "tool", "tool_name", "operation", "retryable", "requires_reconciliation") })
+                    if ("reason_code" !in this && "reasonCode" !in this) {
+                        ToolPrecheckEvidence.reasonCode(result)?.let { put("reason_code", it) }
+                    }
                     // These identities belong to the recorded call, never a provider-supplied replacement.
                     put("run_id", startedEvent?.runId)
                     put("call_id", normalizedResult.callId)

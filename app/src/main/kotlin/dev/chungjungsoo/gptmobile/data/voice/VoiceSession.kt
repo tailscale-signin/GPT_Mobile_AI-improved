@@ -202,6 +202,25 @@ class VoiceSession(
         }
         return mapOf("failed_stage" to operation, "operation" to operation)
     }
+    private fun replyFailureFields(id: String, failure: ProfileFailureRecord?): Map<String, Any?> = buildMap {
+        put("run_id", id)
+        // A failed chat reply can arrive while partial speech is playing. It is
+        // not evidence of a capture or playback fault.
+        put("operation", null)
+        put("failed_stage", null)
+        // Legacy terminal prose can also be classified into ProfileFailureRecord.
+        // Require retained structured evidence before projecting its other facts.
+        val recorded = failure?.takeIf {
+            it.invocationId != null || it.dispatchState != null || it.causeTypes.isNotEmpty() || it.recoveryDetails != null
+        } ?: return@buildMap
+        put("failed_stage", recorded.phase)
+        put("invocation_id", recorded.invocationId)
+        put("dispatched", recorded.dispatched)
+        put("dispatch_state", recorded.dispatchState)
+        put("remote_acceptance", recorded.remoteAcceptance.name)
+        put("retryable", recorded.retryAllowed)
+        recorded.recoveryActions.firstOrNull()?.let { put("recovery_action", it) }
+    }
     private fun stopAudio(reason: String = "session_reset") {
         generation++
         queuedSpeech.clear()
@@ -475,7 +494,7 @@ class VoiceSession(
                 )
                 return
             }
-            fail("This turn did not finish. Open chat to review it or try again.")
+            fail("This turn did not finish. Open chat to review it or try again.", failureFields = replyFailureFields(id, failure))
             return
         }
         update(state.copy(reply = text))

@@ -1380,7 +1380,6 @@ class AnthropicMessagesAdapter @Inject constructor(
 
                 val attempts = candidateKeys.size
                 val startIndex = keyIndexCounter.get()
-                var lastFailedMessage: String? = null
 
                 for (attempt in 0 until attempts) {
                     val keyIndex = ((startIndex + attempt) % candidateKeys.size + candidateKeys.size) % candidateKeys.size
@@ -1410,7 +1409,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                     var canRotate = false
                     var terminalReceived = false
                     var deliveredPayload = false
-                    var localCircuitRejection: ProviderEvent.Failed? = null
+                    var lastFailure = ProviderEvent.Failed("Anthropic stream request failed")
 
                     // catch is upstream of collect: a collector failure must never be
                     // mistaken for an API failure, rotated, or emitted a second time.
@@ -1423,10 +1422,13 @@ class AnthropicMessagesAdapter @Inject constructor(
                             if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                             roundFailed = true
                             terminalReceived = false
-                            localCircuitRejection = providerRateLimitRejection(error, config, platform.model, deliveredPayload)
+                            val localCircuitRejection = providerRateLimitRejection(error, config, platform.model, deliveredPayload)
                                 ?: providerCircuitRejection(error, deliveredPayload)
-                            lastFailedMessage = providerFailureMessage(error, "Anthropic stream request failed")
-                            canRotate = localCircuitRejection == null && ApiCredentialRotator.isRotatableError(error)
+                            val typed = (error as? Exception)?.let { providerExceptionDetails(it, deliveredPayload) }
+                            lastFailure = localCircuitRejection ?: typed?.let {
+                                ProviderEvent.Failed(it.message, errorCode = it.code, failureDetails = it.failureDetails)
+                            } ?: anthropicUnclassifiedFailure(providerFailureMessage(error, "Anthropic stream request failed"), deliveredPayload)
+                            canRotate = localCircuitRejection == null && anthropicAllowsCredentialRotation(lastFailure) && ApiCredentialRotator.isRotatableError(error)
                         }
                         .collect { chunk ->
                             if (chunk == dev.chungjungsoo.gptmobile.data.dto.anthropic.response.MessageStopResponseChunk) terminalReceived = true
@@ -1435,8 +1437,8 @@ class AnthropicMessagesAdapter @Inject constructor(
                                     ProviderEvent.Completed -> terminalReceived = true
                                     is ProviderEvent.Failed -> {
                                         roundFailed = true
-                                        lastFailedMessage = mapped.message
-                                        canRotate = ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
+                                        lastFailure = mapped
+                                        canRotate = anthropicAllowsCredentialRotation(mapped) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(mapped.message)
                                     }
                                     else -> {
                                         if (mapped is ProviderEvent.TextDelta || mapped is ProviderEvent.ThinkingDelta || mapped is ProviderEvent.ToolCall) deliveredPayload = true
@@ -1448,7 +1450,11 @@ class AnthropicMessagesAdapter @Inject constructor(
 
                     if (!roundFailed && !terminalReceived) {
                         roundFailed = true
-                        lastFailedMessage = "Anthropic response was interrupted before message_stop. Partial output was retained."
+                        lastFailure = anthropicUnclassifiedFailure(
+                            "Anthropic response was interrupted before message_stop. Partial output was retained.",
+                            deliveredPayload,
+                            stage = if (deliveredPayload) "response_stream" else "model_invocation"
+                        )
                     }
                     if (!roundFailed) {
                         val retainedIds = exchanges.flatMap { it.calls }.map { it.callId }.toSet()
@@ -1461,7 +1467,7 @@ class AnthropicMessagesAdapter @Inject constructor(
                     } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                         continue
                     } else {
-                        emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Anthropic stream request failed", transportComplete = terminalReceived && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(lastFailedMessage.orEmpty())))
+                        emit(lastFailure)
                         return@flow
                     }
                 }
@@ -1469,6 +1475,25 @@ class AnthropicMessagesAdapter @Inject constructor(
         }
     }
 }
+
+private fun anthropicAllowsCredentialRotation(failure: ProviderEvent.Failed): Boolean =
+    failure.failureDetails?.get("request_replay_allowed") != JsonPrimitive(false) &&
+        failure.failureDetails?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
+        failure.failureDetails?.get("requires_reconciliation") != JsonPrimitive(true)
+
+private fun anthropicUnclassifiedFailure(message: String, partialOutput: Boolean, stage: String = "model_invocation") = ProviderEvent.Failed(
+    message,
+    errorCode = "PROVIDER_INVOCATION_FAILED",
+    failureDetails = buildJsonObject {
+        put("failed_stage", stage)
+        put("retryable", false)
+        put("request_replay_allowed", false)
+        put("logical_continuation_allowed", false)
+        put("remote_acceptance", "UNKNOWN")
+        put("partial_output_preserved", partialOutput)
+        if (partialOutput) put("dispatched", true)
+    }
+)
 
 internal data class AnthropicThinkingPolicy(
     val config: AnthropicThinkingConfig?,

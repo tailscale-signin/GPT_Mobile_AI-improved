@@ -25,14 +25,18 @@ class IssueReportingConfigurationTest(unittest.TestCase):
     def test_service_can_be_the_only_route(self):
         self.assertEqual({"nativeGitHub": False, "reportingService": True}, validate("https://reports.project.org", "false"))
 
-    def test_readiness_supports_review_acceptance_and_retained_legacy_context_versions(self):
+    def test_readiness_supports_recovery_review_acceptance_and_retained_legacy_context_versions(self):
         observed = []
         def fetch(url):
             observed.append(url)
-            return b'{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3]}'
+            return b'{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4]}'
         check_readiness("https://reports.project.org/", fetch)
         self.assertEqual(["https://reports.project.org/health/ready"], observed)
         for value in (
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, "4"]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, True]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [4]},
             {"service": "other", "reportContextVersions": [1, 2, 3]},
             {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [True, 2, 3]},
             {"service": "gpt-mobile-issue-reporter", "reportContextVersions": ["1", "2", "3"]},

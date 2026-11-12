@@ -1843,6 +1843,129 @@ class ProviderAdaptersTest {
         assertNull(api.requests.single().tools)
     }
 
+    @Test fun anthropicAdapterRetainsTypedFailureDetailsAfterAssembly() = runBlocking {
+        val details = buildJsonObject {
+            put("http_status", 403)
+            put("failed_stage", "model_invocation")
+            put("dispatched", true)
+            put("server_request_id", "req_fixture")
+        }
+        val api = FakeAnthropicAPI(
+            ArrayDeque(
+                listOf(
+                    flowOf(
+                        dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk(
+                            dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorDetail("permission_error", "Request refused", "403", details)
+                        )
+                    )
+                )
+            )
+        )
+        val failure = AnthropicMessagesAdapter(api, attachmentEncoder())
+            .openSession(turns(), platform(ClientType.ANTHROPIC))
+            .streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("403", failure.errorCode)
+        assertEquals(details, failure.failureDetails)
+        assertFalse(failure.transportComplete)
+    }
+
+    @Test fun anthropicCredentialRotationDoesNotCopyThePreviousResponsesFactsOntoCurrentAdmission() = runBlocking {
+        val firstDetails = buildJsonObject {
+            put("http_status", 429)
+            put("dispatched", true)
+            put("server_request_id", "earlier_request")
+        }
+        val api = FakeAnthropicAPI(
+            ArrayDeque(
+                listOf(
+                    flowOf(
+                        dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk(
+                            dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorDetail("rate_limit_error", "Quota exceeded", "429", firstDetails)
+                        )
+                    ),
+                    flow { throw dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF) }
+                )
+            )
+        )
+        val failure = AnthropicMessagesAdapter(api, attachmentEncoder())
+            .openSession(turns(), platform(ClientType.ANTHROPIC).copy(uid = "anthropic-evidence-${java.util.UUID.randomUUID()}", token = "first,second"))
+            .streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(2, api.requests.size)
+        assertEquals("REASONING_OFF_UNSUPPORTED", failure.errorCode)
+        assertEquals(JsonPrimitive("provider_admission"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertNull(failure.failureDetails?.get("http_status"))
+        assertNull(failure.failureDetails?.get("server_request_id"))
+        assertNull(failure.failureDetails?.get("dispatched"))
+    }
+
+    @Test fun anthropicAdapterRetainsCompletedTransportForAnOutputLimitedResponse() = runBlocking {
+        val delta = NetworkClient.json.decodeFromString<MessageResponseChunk>(
+            """{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":100}}"""
+        )
+        val api = FakeAnthropicAPI(ArrayDeque(listOf(flowOf(delta, MessageStopResponseChunk))))
+        val events = AnthropicMessagesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.ANTHROPIC))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().transportComplete)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun anthropicUnknownFailureCannotRotateCredentialsBecauseItsMessageMentionsQuota() = runBlocking {
+        for (throws in listOf(false, true)) {
+            val details = buildJsonObject {
+                put("failed_stage", "model_invocation")
+                put("retryable", false)
+                put("request_replay_allowed", false)
+                put("logical_continuation_allowed", false)
+                put("remote_acceptance", "UNKNOWN")
+            }
+            val first = flow<MessageResponseChunk> {
+                if (throws) throw IllegalStateException("Unknown preparation failure mentioning quota")
+                emit(
+                    dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk(
+                        dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorDetail(
+                            "client_error",
+                            "Unknown preparation failure mentioning quota",
+                            "PROVIDER_INVOCATION_FAILED",
+                            details
+                        )
+                    )
+                )
+            }
+            val api = FakeAnthropicAPI(ArrayDeque(listOf(first, flowOf(MessageStopResponseChunk))))
+            val events = AnthropicMessagesAdapter(api, attachmentEncoder())
+                .openSession(turns(), platform(ClientType.ANTHROPIC).copy(uid = "anthropic-unknown-${java.util.UUID.randomUUID()}", token = "first,second"))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(1, api.requests.size)
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
+            assertEquals(JsonPrimitive("model_invocation"), failure.failureDetails?.get("failed_stage"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+            assertEquals(JsonPrimitive("UNKNOWN"), failure.failureDetails?.get("remote_acceptance"))
+            assertNull(failure.failureDetails?.get("dispatched"))
+            assertTrue(events.none { it == ProviderEvent.Completed })
+        }
+    }
+
+    @Test fun anthropicUnfinishedStreamRetainsPartialTextAndExplicitlyProhibitsReplay() = runBlocking {
+        val api = FakeAnthropicAPI(
+            ArrayDeque(listOf(flowOf(ContentDeltaResponseChunk(0, ContentBlock(type = ContentBlockType.DELTA, text = "Retained text")))))
+        )
+        val events = AnthropicMessagesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.ANTHROPIC))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Retained text", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
+        assertEquals(JsonPrimitive("response_stream"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("partial_output_preserved"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+        assertFalse(failure.transportComplete)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
     @Test
     fun `gemini adapter replays exact function call id on the next round`() = runBlocking {
         val api = FakeGoogleAPI(

@@ -15,7 +15,10 @@ internal class ProviderHttpFailure(
     val errorOrigin: String? = null,
     val errorType: String? = null,
     val beforeDispatch: Boolean = false,
-    val checkpointContinuationAllowed: Boolean = false
+    val checkpointContinuationAllowed: Boolean = false,
+    /** SSE error semantics can differ from the actual HTTP response status. */
+    val observedHttpStatus: Int? = null,
+    val serverRequestId: String? = null
 ) : java.io.IOException("HTTP $status: transient provider failure") {
     val retryAtMillis: Long? = retryAfterMs?.let { ProviderRetryPolicy.deadlineMillis(observedAtMillis, it) }
 }
@@ -45,10 +48,18 @@ internal object ProviderCooldown {
         rateReset: String? = null,
         errorOrigin: String? = null,
         errorType: String? = null,
-        checkpointContinuationAllowed: Boolean = false
+        checkpointContinuationAllowed: Boolean = false,
+        observedHttpStatus: Int? = null,
+        serverRequestId: String? = null
     ): ProviderHttpFailure {
         if (status != 429 || !durableRateLimits()) {
-            return ProviderHttpFailure(status, defer(config, retryAfter), knownNotAccepted)
+            return ProviderHttpFailure(
+                status,
+                defer(config, retryAfter),
+                knownNotAccepted,
+                observedHttpStatus = observedHttpStatus,
+                serverRequestId = safeProviderRequestIdentity(serverRequestId)
+            )
         }
         val now = System.currentTimeMillis()
         val retryDelay = retryAfter?.let { ProviderRetryPolicy.retryAfterMillis(it, now) }
@@ -65,7 +76,9 @@ internal object ProviderCooldown {
             consecutiveRejections = count,
             errorOrigin = errorOrigin?.takeIf { it in setOf("provider", "openrouter", "gateway") },
             errorType = errorType?.takeIf { it.matches(Regex("[a-zA-Z0-9_]{1,64}")) },
-            checkpointContinuationAllowed = checkpointContinuationAllowed
+            checkpointContinuationAllowed = checkpointContinuationAllowed,
+            observedHttpStatus = observedHttpStatus,
+            serverRequestId = safeProviderRequestIdentity(serverRequestId)
         )
     }
 

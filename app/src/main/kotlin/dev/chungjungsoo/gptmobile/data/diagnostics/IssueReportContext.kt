@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
 import java.security.MessageDigest
 import java.util.Locale
 import kotlinx.serialization.Serializable
@@ -40,14 +41,24 @@ internal data class IssueReportContext(
     val callIdHash: String? = null,
     val jobIdHash: String? = null,
     val activeJobIdHash: String? = null,
-    val exceptionFingerprint: String? = null
+    val exceptionFingerprint: String? = null,
+    val originalFailureCode: String? = null,
+    val originalHttpStatus: Int? = null,
+    val checkpointBindingHash: String? = null,
+    val checkpointDigestHash: String? = null,
+    val resumeClaimIdHash: String? = null,
+    val ownershipFence: Long? = null
 ) {
     fun withException(type: String?, frames: List<String>): IssueReportContext =
         if (type == null) this else copy(exceptionFingerprint = digest("exception", (listOf(type) + frames).joinToString("\n"))).withAvailability()
 
     private fun withAvailability(): IssueReportContext {
         val present = IssueReport.json.encodeToJsonElement(serializer(), this).jsonObject.keys
-        val fields = if (schemaVersion in setOf(2, 3)) optionalFields + acceptanceFields else optionalFields
+        val fields = when (schemaVersion) {
+            4 -> optionalFields + acceptanceFields + recoveryFields
+            2, 3 -> optionalFields + acceptanceFields
+            else -> optionalFields
+        }
         return copy(unavailableFields = fields.filterNot { it in present })
     }
 
@@ -62,6 +73,17 @@ internal data class IssueReportContext(
         private val acceptanceStages = setOf("acceptance_verification")
         private val reviewStages = setOf("review_comparison", "approval")
         private val reviewRecoveryActions = setOf("SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE")
+        private val recoveryReasonCodes = ProviderRecoveryFailure.CODES + setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED")
+        private val toolPrecheckReasonCodes = setOf("BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")
+        private val lifecycleRecoveryActions = setOf(
+            "REVIEW_SAVED_RECOVERY",
+            "RECONCILE_TOOL_RECEIPTS",
+            "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT",
+            "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA",
+            "RESUME_UNFINISHED_EXTRACTION_BATCHES",
+            "INSPECT_THE_RECORDED_PROVIDER_FAILURE",
+            "RETRY_CLAIM_EXTRACTION_FROM_SAVED_RECEIPTS"
+        )
         private val acceptanceReasonCodes = setOf(
             "UNVERIFIED_ACCEPTANCE_CRITERIA", "ACCEPTED_TASK_DEADLINE_REACHED", "ACCEPTANCE_EVIDENCE_MISSING",
             "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "FIXTURE_CLEANUP_UNVERIFIED",
@@ -78,6 +100,7 @@ internal data class IssueReportContext(
             "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE"
         )
         private val acceptanceFields = listOf("requiredCriteria", "verifiedCriteria", "remainingCriteria")
+        private val recoveryFields = listOf("originalFailureCode", "originalHttpStatus", "checkpointBindingHash", "checkpointDigestHash", "resumeClaimIdHash", "ownershipFence")
         val selectionFields = setOf("profile_uid", "profile_revision", "provider_connection_id", "provider_connection_revision", "provider_kind", "configured_endpoint", "requested_model_id", "generation_parameters", "privacy_scope", "tool_owner", "required_capability_policy", "credential_reference", "credential_account_identity", "approved_alias_mapping")
         val optionalFields = listOf("stage", "provider", "operation", "httpStatus", "retryAfterMillis", "dispatched", "retryable", "resumeAllowed", "requiresReconciliation", "remoteAcceptance", "jobState", "recoveryAction", "reasonCode", "missingFields", "invalidFields", "runIdHash", "invocationIdHash", "callIdHash", "jobIdHash", "activeJobIdHash", "exceptionFingerprint")
 
@@ -86,6 +109,17 @@ internal data class IssueReportContext(
         /** Some approved v2 reports already contain review extensions. Negotiate them without rewriting their bytes. */
         fun requiredServiceVersions(version: Int, stage: String?, recoveryAction: String?): Set<Int> =
             if (version == 2 && needsReviewContext(stage, recoveryAction)) setOf(2, 3) else setOf(version)
+
+        /** A historical provider interruption cannot reclassify this local refusal as a fresh 429. */
+        fun localRecoveryCode(fields: Map<String, Any?>): String? {
+            fun text(value: Any?) = when (value) {
+                is String -> value
+                is JsonPrimitive -> value.takeIf { it.isString }?.contentOrNull
+                else -> null
+            }
+            if (text(fields["failure_origin"]) != "local_recovery") return null
+            return text(fields["recovery_code"])?.takeIf { it in ProviderRecoveryFailure.CODES }
+        }
 
         fun fromFields(source: String, fields: Map<String, Any?> = emptyMap(), occurredAtMillis: Long = System.currentTimeMillis()): IssueReportContext {
             require(source in sources)
@@ -130,9 +164,28 @@ internal data class IssueReportContext(
             val stage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)
                 ?.takeIf { it in stages || it in acceptanceStages || it in reviewStages }
             val recoveryAction = text("recovery_action", "next_action", "recoveryAction", "nextAction")?.uppercase(Locale.ROOT)
-                ?.takeIf { it in recoveryActions || it in acceptanceRecoveryActions || it in reviewRecoveryActions }
-            val reasonCode = text("reasonCode", "reason_code", "stop_reason")?.uppercase(Locale.ROOT)
-                ?.takeIf { it in reasonCodes || it in acceptanceReasonCodes }
+                ?.takeIf { it in recoveryActions || it in acceptanceRecoveryActions || it in reviewRecoveryActions || it in lifecycleRecoveryActions }
+            val localRecovery = localRecoveryCode(fields)
+            val toolPrecheck = source == "TOOL_RESULT" && stage == "tool_precheck" && dispatched == false && flag("requires_reconciliation", "requiresReconciliation") != true
+            val reasonCode = localRecovery ?: text("reasonCode", "reason_code", "stop_reason")?.uppercase(Locale.ROOT)
+                ?.takeIf { it in reasonCodes || it in acceptanceReasonCodes || it in recoveryReasonCodes || toolPrecheck && it in toolPrecheckReasonCodes }
+            val original = (value("original_interruption") as? Map<*, *>)?.takeIf { localRecovery != null }
+            val originalDetails = original?.get("details") as? Map<*, *>
+            val originalCode = when (val code = original?.get("code")) {
+                is String -> code.takeIf { it.length <= 96 }
+                is Int -> "429".takeIf { code == 429 }
+                is Long -> "429".takeIf { code == 429L }
+                is JsonPrimitive -> if (code.isString) code.contentOrNull?.takeIf { it.length <= 96 } else "429".takeIf { code.longOrNull == 429L }
+                else -> null
+            }?.uppercase(Locale.ROOT)?.let { if (it == "429") "PROVIDER_RATE_LIMITED" else IssueReportCodes.known(it) }
+            val originalStatus = when (val status = originalDetails?.get("http_status")) {
+                is Int -> status.toLong()
+                is Long -> status
+                is JsonPrimitive -> status.takeUnless { it.isString }?.longOrNull
+                else -> null
+            }?.takeIf { it in 100..599 }?.toInt()
+            fun recoveryHash(key: String, kind: String, pattern: Regex): String? = text(key)?.lowercase(Locale.ROOT)
+                ?.takeIf { localRecovery != null && pattern.matches(it) }?.let { identifierHash(kind, it) }
             fun criterionCount(key: String): Int? = number(key)?.takeIf { it in 0..100_000 }?.toInt()
             val required = criterionCount("required_criteria")
             val verified = criterionCount("verified_criteria")
@@ -151,6 +204,7 @@ internal data class IssueReportContext(
                 remainingCriteria != null
             return IssueReportContext(
                 schemaVersion = when {
+                    localRecovery != null || reasonCode in recoveryReasonCodes || reasonCode in toolPrecheckReasonCodes || recoveryAction in lifecycleRecoveryActions -> 4
                     needsReviewContext(stage, recoveryAction) -> 3
                     acceptanceContext -> 2
                     else -> 1
@@ -181,7 +235,13 @@ internal data class IssueReportContext(
                 invocationIdHash = identifierHash("invocation", text("invocation_id", "invocationId")),
                 callIdHash = identifierHash("call", text("call_id", "callId", "toolCallId")),
                 jobIdHash = identifierHash("job", text("job_id", "jobId", "gatewayJobId")),
-                activeJobIdHash = identifierHash("job", text("active_job_id", "activeJobId"))
+                activeJobIdHash = identifierHash("job", text("active_job_id", "activeJobId")),
+                originalFailureCode = originalCode,
+                originalHttpStatus = originalStatus,
+                checkpointBindingHash = recoveryHash("checkpoint_binding", "checkpoint-binding", Regex("[a-f0-9]{64}")),
+                checkpointDigestHash = recoveryHash("checkpoint_digest", "checkpoint-digest", Regex("[a-f0-9]{64}")),
+                resumeClaimIdHash = recoveryHash("resume_claim_id", "resume-claim", Regex("[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}")),
+                ownershipFence = number("ownership_fence")?.takeIf { localRecovery != null && it >= 0 }
             ).withAvailability()
         }
 

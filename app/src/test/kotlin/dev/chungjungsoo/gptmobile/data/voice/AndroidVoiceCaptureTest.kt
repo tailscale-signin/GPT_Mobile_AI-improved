@@ -5,9 +5,12 @@ import android.media.AudioFocusRequest
 import android.media.AudioManager
 import android.media.AudioRecord
 import android.media.AudioRecordingConfiguration
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -97,6 +100,7 @@ class AndroidVoiceCaptureTest {
     @Test fun permissionRevokedDuringConfigurationBlocksTheDefaultRecorderFactory() {
         val context = RuntimeEnvironment.getApplication()
         val manager = mock(AudioManager::class.java)
+        val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})
         shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO)
         `when`(manager.requestAudioFocus(any(AudioFocusRequest::class.java))).thenReturn(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
         val capture = AndroidVoiceCapture(
@@ -107,17 +111,44 @@ class AndroidVoiceCaptureTest {
                 3200
             }
         )
+        capture.bindDiagnostics(trace.advance(1, reset = true))
         val request = ArgumentCaptor.forClass(AudioFocusRequest::class.java)
         try {
             val failure = assertThrows(SecurityException::class.java) { capture.start() }
             assertEquals("Microphone permission was revoked before recorder creation.", failure.message)
+            val incident = IssueReportContext.fromFields("VOICE_STATE", trace.incidentFields(), 1000)
+            assertEquals(5, incident.schemaVersion)
+            assertEquals(JsonPrimitive(false), incident.diagnostics?.values?.get("voice_permission_granted"))
             assertTrue(capture.read().isEmpty())
             verify(manager).requestAudioFocus(request.capture())
             verify(manager, never()).abandonAudioFocusRequest(any(AudioFocusRequest::class.java))
         } finally {
             capture.close()
+            trace.close()
         }
         verify(manager).abandonAudioFocusRequest(request.value)
+    }
+
+    @Test fun recorderSecurityExceptionDoesNotInventPermissionRevocation() {
+        val fixture = Fixture(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})
+        fixture.capture.bindDiagnostics(trace.advance(1, reset = true))
+        val original = SecurityException("Android denied recording while permission remained granted")
+        doThrow(original).`when`(fixture.record).startRecording()
+        try {
+            val failure = assertThrows(SecurityException::class.java) { fixture.capture.start() }
+            assertSame(original, failure)
+            val incident = IssueReportContext.fromFields("VOICE_STATE", trace.incidentFields(), 1000)
+            assertEquals(5, incident.schemaVersion)
+            assertEquals(JsonPrimitive(true), incident.diagnostics?.values?.get("voice_permission_granted"))
+            assertEquals(1, fixture.recorderCreations)
+            verify(fixture.record, never()).read(any(ShortArray::class.java), anyInt(), anyInt(), anyInt())
+        } finally {
+            fixture.capture.close()
+            trace.close()
+        }
+        verify(fixture.record).release()
+        verify(fixture.manager).abandonAudioFocusRequest(any(AudioFocusRequest::class.java))
     }
 
     @Test fun permissionRegrantAllowsANewCaptureAfterPermissionRejection() {

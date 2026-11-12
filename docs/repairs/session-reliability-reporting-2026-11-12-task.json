@@ -478,7 +478,7 @@
   },
   "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
   "checkpoint_storage": "repository_file",
-  "checkpoint_updated_at": "2026-11-12T20:50:12.682769+00:00",
+  "checkpoint_updated_at": "2026-11-12T23:28:06.166753+00:00",
   "draft_pr_merge_followup": {
     "state": "IMPLEMENTED_PENDING_INTEGRATED_VALIDATION",
     "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
@@ -534,5 +534,35 @@
       "new_android_regressions": "PENDING_HOSTED_EXECUTION",
       "lint": "PENDING_HOSTED_EXECUTION"
     }
+  },
+  "integrated_validation_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "parent_head": "a78ffb85d70460e9e0336ed4d64d730b037319cb",
+    "working_branches": [
+      "fix/session-reliability-reporting-2026-11-12",
+      "verify/session-reliability-77c55cc-2026-11-12"
+    ],
+    "pull_requests": [
+      838,
+      881
+    ],
+    "state": "IMPLEMENTED_PENDING_EXACT_INTEGRATED_CI",
+    "intent": "Preserve the owner consolidation and reviewed queue/provider/reporting/voice repairs; refresh the actual microphone permission observation on recorder creation/start SecurityException without changing authorization or retry behavior.",
+    "source_review": {
+      "queue_provider_replay": "No blocking regression found; Room-backed queue authority tests remain required.",
+      "reporting_authentication": "Closed bounded v5 diagnostics preserve approval bytes, privacy opt-out, legacy contracts and read-only uncertain-delivery reconciliation.",
+      "voice": "Retained guard and original tests; corrected stale permission observation reaching v5 incident after revocation."
+    },
+    "local_validation": {
+      "incoming_fast": "PASS_484_TESTS",
+      "incoming_authentication": "PASS_66_TESTS",
+      "permission_diagnostics_ktlint": "PASS",
+      "android_regressions": "PENDING_HOSTED_EXECUTION",
+      "correction_fast": "PASS_484_TESTS",
+      "correction_scope": "PASS"
+    },
+    "prior_execution": "9b exact JVM/heap/emulator/native/gateway evidence remains historical; 9b lint and aggregate failed. 832 verification was cancelled by the owner consolidation. Neither is current integrated-head execution proof."
   }
 }

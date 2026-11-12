@@ -100,7 +100,8 @@
     "Add bounded incident-owned provider, tool, acceptance, voice, gateway and app diagnostics, explicit manual capture preview/refresh, immutable linked follow-up reports and strict context-v5 app/service validation while preserving approved legacy payloads and uncertain-delivery reconciliation.",
     "Revalidate captured provider authority at queued exact-model preparation boundaries, preserving the saved prompt when permission changes during suspended metadata, and distinguish completed malformed extraction from an unfinished stream without replay.",
     "Separate CodeQL source generation and production compilation into bounded traced Gradle processes, forcing actual Kotlin and Java compilation without increasing memory limits or bypassing analysis.",
-    "Recheck microphone permission inside the deferred default recorder factory before AudioRecord creation, with revocation-during-configuration and fresh-capture permission-regrant regressions; retain strict lint and cleanup behavior."
+    "Recheck microphone permission inside the deferred default recorder factory before AudioRecord creation, with revocation-during-configuration and fresh-capture permission-regrant regressions; retain strict lint and cleanup behavior.",
+    "Refresh the actual microphone permission observation after recorder creation/start security failures, preserving the original exception and proving revoked and still-granted states in approved v5 diagnostics."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",

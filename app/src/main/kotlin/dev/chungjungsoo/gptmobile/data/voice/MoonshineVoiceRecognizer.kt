@@ -600,12 +600,20 @@ internal class AndroidVoiceCapture(
         if (stopped) return@synchronized
         val minimum = minimumBufferSize()
         if (minimum <= 0) throw LocalVoiceCaptureException("This microphone route does not support local speech. Select another audio route.", "MICROPHONE_FORMAT_UNSUPPORTED", "capture_configuration", platformCode = minimum)
-        val record = createRecorder(maxOf(minimum, 16_000))
+        val record = try {
+            createRecorder(maxOf(minimum, 16_000))
+        } catch (failure: SecurityException) {
+            diagnosticProbe?.permission(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            throw failure
+        }
         recorder = record
         if (stopped) return@synchronized
         if (record.state != AudioRecord.STATE_INITIALIZED) throw captureFailure(record, "MICROPHONE_UNINITIALIZED", "capture_initialization", "The microphone could not initialize. Check your audio route.", retryable = true)
         try {
             record.startRecording()
+        } catch (failure: SecurityException) {
+            diagnosticProbe?.permission(ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED)
+            throw failure
         } catch (failure: IllegalStateException) {
             throw captureFailure(record, "MICROPHONE_START_FAILED", "capture_start", "The microphone did not start recording. Check microphone access.", retryable = true, cause = failure)
         }

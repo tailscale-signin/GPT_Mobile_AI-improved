@@ -80,7 +80,7 @@ Primary implementation: `McpClientManager`, `McpFailurePresentation`, `McpInitia
 
 | ID | Finding | Implemented solution | Remaining acceptance |
 | --- | --- | --- | --- |
-| R31 | Failed accepted model attempts lost known usage or borrowed another invocation's output. | Each physical attempt contributes idempotently to its owning invocation. Retained known failed-attempt usage contributes to a known subtotal; missing usage remains null/unknown. Output provenance carries the invocation identity. | Compare a fresh export with physical backend receipts; never present the known subtotal as a complete total. |
+| R31 | Failed accepted model attempts lost known usage or borrowed another invocation's output. | Each physical attempt contributes idempotently to its owning invocation. Bounded typed backend-attempt receipts preserve serialized output allowances, finish categories, observed response state, known byte counts and terminal status without response text. Diagnostic receipts remain available independently of token usage. Retained known failed-attempt usage contributes to a known subtotal; missing usage remains null/unknown. Output provenance carries the invocation identity. | Compare every physical request and repair attempt with backend receipts, retaining observed bytes, effective limits, finish reason, known usage and terminal error where available. Keep missing values unknown and never present the known subtotal as a complete total. |
 | R32 | Capacity failure became generic INCOMPLETE/stage_not_recorded. | Typed capacity exceptions retain admission stage, component budgets and no-dispatch evidence through provider diagnostics. Private review keeps its own stage alongside backend generation details. | Reproduce local admission rejection and inspect the compact/exported receipt. |
 | R33 | Completed runs retained failure recovery metadata. | Successful terminalization has completion-specific dispatch scope, no failure stop code, no failure evidence pointer and no resume-failure instruction. | Inspect completed and failed terminal records from the updated APK. |
 | R34 | Runtime identity parsing included punctuation and hid the source of context caps. | Runtime identity emits structured JSON with distinct declared/server/profile/effective context values and their source/revision where known. No formatted-string parsing is used. | Confirm exact backend identity values; declared values remain declarations unless independently bound. |
@@ -88,35 +88,100 @@ Primary implementation: `McpClientManager`, `McpFailurePresentation`, `McpInitia
 | R36 | Export work could block the main thread. | Chat export snapshots its inputs and performs grouping, thinking separation, redaction and formatting on a computation dispatcher. Existing off-main markdown preparation and streaming diagnostic export remain in use. | Profile export and navigation on the same device/workload. |
 | R37 | Debug frame stalls and resource behavior lacked causal or release evidence. | No smoothness, memory or GPU/NPU success is inferred from source changes. Existing instrumentation and device qualification remain required; operation timings are investigation targets rather than proof of causation. | Replay streaming/navigation/workspace/voice journeys on a release/profileable APK with frame and memory traces. |
 
+## Audit findings and execution still required
+
+These are the counts reported in the user-supplied analysis of `app-audit-1794498632783.json`, not a newly executed audit: 56 passed, 4 failed, 4 blocked, 10 unavailable and 67 untested, totalling 141. The displayed 86.2% was 25/29 measured checks. It did not mean that 86.2% of the complete 141-check plan or application was verified. The revised presentation keeps measured quality and execution coverage separate.
+
+| Capture-local connection | Observed prerequisite | Dependent execution | Required operational repair |
+| --- | --- | --- | --- |
+| target-7 | check-36: connection refused; dispatch uncertain | check-37 | Check the exact saved host, port and listener, then perform bounded discovery and an actual tool assertion. |
+| target-8 | check-39: generic discovery failure with missing phase/revision | check-40 | Retry independently with the repaired typed receipt; determine its actual cause. |
+| target-9 | check-42: HTTP 404/protocol negotiation rejection | check-43 | Repair the configured endpoint or supported discovery adapter/lifecycle before retrying. |
+| target-10 | check-45: generic discovery failure with missing phase/revision | check-46 | Diagnose independently of target-8 and retain the configuration binding and terminal cause. |
+| target-11 | check-48: local credential invalid; no dispatch | check-49 | Reauthorize the exact saved connection, then discover and execute a bounded tool. |
+
+Aliases are valid only within that capture. The in-app affected-connection action uses the saved local identity; it does not guess a server from an alias in another export.
+
+Disabled Crawlers, Deep Research and Google service are configuration choices, not demonstrated implementation failures. The optional absent plugins are ArcGIS, Eventbrite, Foursquare, Google Places, openrouteservice, OpenStreetMap, Ticketmaster, TomTom, Universal Marketplace and Yelp. Enable or install only the integrations the user wants, then audit that new configuration. Missing plugins and their dependent untested checks must not become two independent bugs.
+
+| Untested category in the historical audit | Count | Evidence required to close it |
+| --- | ---: | --- |
+| Plugin/tool execution | 39 | Bounded actual invocations against the exact saved targets, expected assertions, and matching result receipts. Eighteen had the prerequisites listed above; the other 21 still had no execution proof. |
+| Broader source-area suites | 26 | Named executed cases for the matching source/build, with the environment and scope retained. JVM evidence covers its named assertions; external/device cases remain separate. |
+| Selected-model generation | 1 | Requested/observed exact identity, load/generation/streaming/finalization assertions, first-output timing and finish reason. |
+| Device performance and rendering | 1 | Exact APK/device/workload, timestamps, frame durations, memory and relevant runtime-resource measurements. |
+
+The 21 plugin/tool checks without a recorded prerequisite blocker were five saved connections, the MCP connection advertising 46 tools, Airbnb, Amazon Free, Amazon Search, device location, GitHub, Health Connect, local memory, model delegation, News, Read files, Read URL, Voice chat, Web search, Refuge and Toronto. Tool discovery alone does not qualify their advertised tools.
+
+The 26 broader source areas were Android lifecycle; chat UI; accessibility/localization; agent execution; agent tools; MCP plugins; marketplace plugins; model providers; models/profiles; local inference; gateway client; network; GitHub integration; research; memory/retrieval; persistence; diagnostics/export; benchmarking; authentication/security; voice/media; portable domain code; native bridge; gateway software; authentication service; external integrations; and other production code. The generated qualification artifact ties named harness observations to fresh JUnit and coverage receipts without relabelling the old audit or declaring a whole subsystem verified. Android and portable-domain tests now run fresh within the same recorded window, and the collector accepts both report directories. A stale report in either directory remains unverified.
+
+Installed-APK digests identify the captured artifact but do not independently prove its declared source commit. Gateway capability identity remains declared unless bound to the actual deployed artifact; the engineering gateway's missing instance/source fields remain missing evidence. Reported device properties and emulator tests do not establish physical-phone performance. The supplied capture also recorded successful engineering readiness, inference capabilities, one 46-tool MCP catalogue, 22 narrow local fixtures and complete plan/result reconciliation; the repair does not relabel those successes as failures.
+
+## Cross-reference to the added diagnostic findings
+
+The 23 numbered findings in the later user-supplied diagnostic analysis map to the repair register as follows. Grouping keeps one underlying repair from being counted as several independent bugs.
+
+| Supplied finding | Repair IDs | Disposition |
+| --- | --- | --- |
+| 1. Review context overflow | R06, R32 | Serialized budgeting, bounded evidence batches and typed admission receipts. |
+| 2. Review/preflight repair exhaustion | R07, R31 | Changed-parameter repair, explicit reasoning authority, bounded attempts and retained usage. |
+| 3. Candidate withheld after private review | R08, R09, R35 | Persisted candidate, factual partial delivery and separately resumable verification. |
+| 4. Repeated incomplete workflow page | R10, R11, R12 | Authorized remote continuation, durable progress and operation-scoped duplicate handling. |
+| 5. Microphone startup failures | R17, R18 | Typed recorder outcomes and bounded attempt-owned startup recovery. |
+| 6. Speech interrupted after generation | R19, R20 | Terminal whitespace repair, buffered drain and explicit interruption origin. |
+| 7. Integration prerequisites and unfinished fixtures | R16, R27 | Preparation and saved qualification preserve fixture authority, ownership and cleanup requirements. |
+| 8. MCP port 8101 refusal | R22, R25 | Specific local repair guidance; the real listener still needs operational repair. |
+| 9. MCP port 8102 discovery 404 | R22, R24 | Typed protocol evidence; actual route and supported lifecycle need deployment verification. |
+| 10. Jina initialization 400 | R24 | Bounded redacted protocol detail; no unsupported URL replacement. |
+| 11. Exact selected model unavailable | R28 | Model-specific readiness and preparation; actual catalogue/load/generation remains required. |
+| 12. Rendering stalls | R36, R37 | Export work moves off the UI thread; causal tracing and release/device comparison remain required. |
+| 13. Schema, preflight and metadata overhead | R07, R15, R29 | Compact status schemas, matching compatibility reuse and shared metadata reads. |
+| 14. False/missed native voice incidents | R21 | Typed outcomes before generic text classification, with cleanup correlation. |
+| 15. Missing recorder/playback details | R17, R20 | Recorder phase/state, cancellation origin and first-PCM/output/drain observations. |
+| 16. Duplicate Network/MCP incidents | R23 | One pre-dispatch operation ID across transport and discovery. |
+| 17. Lost capacity code/stage | R32 | Typed context-admission code, component budgets and dispatch evidence. |
+| 18. Lost physical-attempt details and usage | R31 | Attempt-owned receipts, known subtotals and explicit unknown usage. |
+| 19. Blank CI operation identity | R12 | Canonical default action and aliases before dispatch/caching/receipts. |
+| 20. Stale call ID in cached replies | R12 | Fresh invocation receipt separated from source observation provenance. |
+| 21. Failure metadata on completed runs | R33 | Completion-specific terminal metadata without failure recovery pointers. |
+| 22. Punctuation in runtime identity | R34 | Structured identity values rather than formatted-string parsing. |
+| 23. Unexplained effective context cap | R34 | Distinct model/server/profile/effective limits and known sources/revisions. |
+
+The reporting investigation maps to R01–R05. The audit's four MCP failures and credential blocker map to R22–R26; disabled and absent optional integrations, measured-score interpretation, all 67 untested checks and source/deployment/device evidence limitations map to R27–R28 and the external acceptance below. A plan, fixture catalogue, source inventory, or successful capability response does not upgrade those historical checks to verified execution.
+
+The final combined source commit is `53e3139889f57467c8e3ca1aa78e7a32183a26c6`. It preserves concurrent updates through `831d3499`, including context-v2 incomplete-task evidence. Legacy context-v1 approvals remain byte-stable; the hosted service now advertises versions `[1, 2]`, and a v1-only service blocks a v2 report before dispatch rather than rewriting the approved report. Gateway source is independently bound to `9155a1a2`; all 218 manifest file hashes were rechecked after integration. Exact combined-head Android execution remains pending at this checkpoint.
+
 ## Verification ledger
 
 | Validation | Command or scope | Observed result |
 | --- | --- | --- |
-| Host gate | `bash scripts/validate-local.sh fast` | Passed: 472 tests, CI policy, schema/catalog checks, secret scan, regex/resource preflight and whitespace checks. |
-| Kotlin formatting | Pinned ktlint 1.3.1 on every changed/new Kotlin file | Passed: all 150 changed Kotlin files before workspace restoration; exact combined-head CI is pending. |
-| Authentication | `python -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker` | Passed: 47 tests. |
-| Gateway | `python gateway/check_gateway.py`, followed by the renamed engineering guard suite | Earlier complete run: 895 passed, 2 host-dependent skips across 897 Python cases; browser bridge 7/7 passed. Final disconnect changes: 30 affected soak/journal tests passed. The new 900-case canonical run had one corrected test-double error; a clean rerun was interrupted after 47 modules without failures. Fresh combined validation is pending. |
+| Host gate | `bash scripts/validate-local.sh fast` | Passed: 473 tests, CI policy, schema/catalog checks, secret scan, regex/resource preflight and whitespace checks. |
+| Kotlin formatting | Pinned ktlint 1.3.1 on every changed/new Kotlin file | Passed: all 185 changed Kotlin files with the pinned formatter after the final receipt and qualification changes. |
+| Authentication | `python -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker` | Passed: 52 tests after preserving the concurrent context-v2 reporting update. |
+| Gateway | `python gateway/check_gateway.py`, followed by the renamed engineering guard suite | Final backend-attempt-receipt run: 908 passed and 2 host-dependent skips across 910 Python cases in 69 modules; browser bridge 7/7 passed. All 218 gateway source files match immutable code commit `9155a1a2` and its canonical manifest. This includes the 50,000-event durable stress case, disconnect recovery, exact attempt caps and byte counts, unknown usage, and failed second HTTP requests. The 9-test incremental-delivery suite also passed separately. |
 | Generated source inventories | App audit generator/check; gateway source-package manifest builder/check | Passed. Dependency artifact pins were unchanged. |
-| Android production compilation | Existing CI split generation/compilation workflow using JDK 21 and SDK 37 | Passed: source generation, Kotlin compilation and Java compilation. |
-| Android JVM behavioral tests | Centralized execution against the final working tree | At `82dfad5c`, the complete rerun produced 9,519 passes, two identified follow-ups and five dedicated-heap skips, with no environment failures. The usage-event identity expectation and resolver original-intent path are now corrected. Final combined-head validation is pending. |
+| Android production compilation | Existing CI split generation/compilation workflow using JDK 21 and SDK 37 | Passed at baseline `ddbea3a9`: source generation, Kotlin compilation and Java compilation. The final receipt changes await their own hosted run. |
+| Android JVM behavioral tests | Centralized execution against the final working tree | Latest published baseline `ddbea3a9`, tested as merge `956d50d3`: 9,546 passed, five deliberate heap skips and zero failures/errors across 1,437 Android JUnit reports. The separate constrained-heap gate passed all five deliberately skipped cases (10 tests at 256 MiB and one at 64 MiB, with overlap; these are not 11 additional unique tests). The final backend-attempt-receipt changes await their own hosted run. |
+| Emulator baseline | API 34 and API 36 at `ddbea3a9` | 66 instrumented passes on each emulator. Android 16 native smoke: three passes, two unsupported-accelerator skips. These are emulator observations, not physical microphone or performance qualification. |
 | Installed app/device/service acceptance | Exact APK and intended phone/deployments | Not run; prerequisites are listed below. |
 
 The two gateway skips require Windows Credential Manager and a bindable LAN IPv4 interface. An initial gateway run found stale source-package hashes, which were corrected with the canonical source-manifest generator before the successful complete rerun. An initial combined Android generation/compile attempt encountered the repository's documented 3 GiB compiler heap pressure and was interrupted; the final run uses separate phases and the existing CI-bounded 4 GiB production compiler setting, without changing repository memory defaults.
 
 The local JVM environment requires the existing pinned ByteBuddy agent at test-worker startup because dynamic attachment cannot find its process socket. Additional Robolectric SDKs were provisioned against Maven publisher SHA-512 sidecars. No dependency pins, application behavior or test assertions were bypassed for that environment repair. The Windows streaming fixture now measures backend repair readiness separately from its unchanged three-second ASGI-delivery deadline; a deliberately buffered negative control still fails. The connection soak uses separate admission, disconnect and completion phases, each retaining its 15-second limit and an explicit elapsed-time assertion. It still verifies 48 unique jobs, 144 disconnect checks, durable reloads and no model replay. Delayed journal writes reproduced the old aggregate-deadline failure; both asynchronous-disconnect and synchronous-admission stall controls still fail.
 
-The temporary execution workspace became unavailable after the final source commit was preserved. Its clean canonical rerun did not return a final result. The checkout was restored from the immutable commit; no unobserved completion is promoted to a pass. Exact combined-head CI will provide the fresh Android/JVM, coverage and APK results. The prior successful compilation and test counts above remain tied to their stated revisions.
+The temporary execution workspace became unavailable after the final source commit was preserved. Its then-running canonical rerun did not return a final result. The checkout was restored from the immutable commit, and the complete gateway and authentication gates were rerun successfully with source-content binding. The interrupted run was not promoted to a pass. Exact combined-head CI provides the Android/JVM, coverage and APK results. The prior successful compilation and test counts above remain tied to their stated revisions.
 
 A generated source inventory, a named test file or an unexecuted qualification plan is never execution coverage. JVM fixtures do not substitute for installed-app, physical-device or real-service acceptance.
 
 ## External completion checklist
 
-1. Install the branch APK as an update and retain its digest, build commit and exact configuration. A repository variable cannot change an address compiled into an older APK.
+1. Verify the installed and replacement APK signing identities before performing a compatible update that preserves the saved-report outbox. Retain the new APK digest, actual build/checkout commit and configuration. Bind that digest to the build evidence rather than trusting a declaration. A repository variable cannot change an address compiled into an older APK.
 2. Approve a real reporting route/account, send a disposable report and verify the matching report ID, body, author and issue number. Exercise uncertain-delivery recovery without creating a second issue.
 3. Open the affected MCP connections locally; repair their real listeners/routes and reauthorize the invalid credential. Run discovery followed by a bounded actual tool assertion.
 4. Run selected-model generation with requested/observed identity, first-output timing, final-output assertion and finish reason. A passing gateway capability response alone is insufficient.
 5. Resume integration qualification with explicit owned fixtures and sufficient cleanup reserve; retain creation/use/deletion/final-absence evidence. Keep sampling and missing prerequisites visible.
 6. Run the device voice, lifecycle, permission, rendering and memory journeys. Compare the same declared workload on the same device, with release/profileable traces.
-7. Run the applicable external source-area suites and attach their exact source/build qualification. The audit's 67 untested entries remain untested until their own required evidence is collected.
+7. Run the applicable external source-area suites and attach their exact source/build qualification. The audit's 67 untested entries remain untested until their own required evidence is collected. Keep measured JVM line/branch coverage distinct from whole-app, live-service and physical-device coverage.
+8. Bind each deployed gateway's artifact digest, instance identity and source revision to the observed service. Missing or declared-only identity must remain explicit; capability readiness does not supply independent deployment attestation.
 
 Optional marketplace integrations and deliberately disabled plugins are user choices. This repair does not silently install, enable or grant them access. The supplied captures do not establish an app crash, ANR, OOM, rate-limit cancellation, diagnostic truncation, or the availability of every advertised MCP tool; none is claimed as an additional confirmed defect or as fixed by this branch.

@@ -1012,7 +1012,7 @@ class McpClientManager internal constructor(
                             "MCP",
                             "Connect failed · connection=${config.connectionUid} · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · errorType=${error.javaClass.simpleName} · httpStatus=${httpStatus ?: "unavailable"}",
                             "E",
-                            reportCode = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.classify(reportedFailure),
+                            reportCode = mcpConnectFailureReportCode(reportedFailure),
                             reportError = error
                         )
                         throw reportedFailure
@@ -1101,6 +1101,13 @@ class McpClientManager internal constructor(
 }
 
 internal class McpAuthenticationRequiredException : IllegalStateException("MCP authentication is required. Open Manage connection and reconnect or update the credential.")
+
+internal fun mcpConnectFailureReportCode(error: Throwable): String = when {
+    error is McpProtocolConfigurationException -> error.diagnosticCode
+    error is McpEndpointConfigurationException -> "MCP_ENDPOINT_CONFIGURATION"
+    error.isMcpUnauthorized() -> "MCP_AUTHENTICATION_REQUIRED"
+    else -> dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.classify(error)
+}
 
 internal fun Throwable.isMcpUnauthorized(): Boolean = generateSequence(this) { it.cause?.takeUnless { cause -> cause === it } }.take(8)
     .any { error -> error is McpAuthenticationRequiredException || error is McpDiscoveryOAuthRefreshException || (error is StreamableHttpError && error.code in setOf(401, 403)) || (error is ModernMcpError && error.status in setOf(401, 403)) }

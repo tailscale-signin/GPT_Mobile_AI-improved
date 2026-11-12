@@ -2296,6 +2296,8 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/PrivacyAdmissionException.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusEvidenceRecoveryTest.kt",
     "docs/repairs/session-reliability-followup-2026-11-12-task.json",
-    "docs/repairs/session-reliability-followup-2026-11-12.md"
+    "docs/repairs/session-reliability-followup-2026-11-12.md",
+    "docs/repairs/open-issues-verification-2026-11-12-task.json",
+    "docs/repairs/open-issues-verification-2026-11-12.md"
   ]
 }

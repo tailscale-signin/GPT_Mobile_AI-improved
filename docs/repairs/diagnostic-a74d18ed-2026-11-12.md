@@ -81,7 +81,7 @@ component coverage, not an Android build or physical-device result.
 | Recovery checkpoint, policy, retry and throttle helpers | **21 JVM tests passed** against actual production helper sources without Android stubs. |
 | Gateway diagnostic protocol | **28 Python tests passed** using the repository's hash-pinned dependencies. |
 | Kotlin formatting | **56 changed Kotlin files passed** ktlint 1.3.1. |
-| Gateway package source | **218 file hashes matched** the canonical source manifest and its pinned local source revision; publication rebinds this to the identical published source tree. |
+| Gateway package source | **218 file hashes matched** the canonical source manifest and its pinned published source revision; the [binding record](evidence/diagnostic-a74d18ed-2026-11-12/gateway-source-binding.json) identifies the commit. |
 | Full Android compilation and Room/Robolectric integration | **Not run locally**; the Android SDK/Gradle environment is unavailable. Added persistence, ownership-race, scheduler and continuation tests require CI. |
 | Physical-device and real-service acceptance | **Not measured**; see the finding-specific remaining acceptance above. |
 

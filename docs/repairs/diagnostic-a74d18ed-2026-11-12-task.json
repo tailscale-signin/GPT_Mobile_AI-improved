@@ -74,6 +74,13 @@
         "real selected-model readiness",
         "live integration fixture cleanup"
       ]
+    },
+    "gateway_package_source": {
+      "source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "files": 218,
+      "mismatches": [],
+      "result": "PASS",
+      "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/gateway-source-binding.json"
     }
   },
   "compatibility_limits": [
@@ -88,5 +95,12 @@
       "polling invalidation metadata eviction",
       "incidental guard text in failure summaries"
     ]
+  },
+  "publication": {
+    "source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+    "source_tree": "7c5187bd828ceca94c740ba919780af1c74ce57f",
+    "method": "GitHub Git Data API with expected-head compare",
+    "expected_previous_head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+    "force": false
   }
 }

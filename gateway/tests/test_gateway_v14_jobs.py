@@ -119,6 +119,25 @@ class JournalTests(unittest.TestCase):
             self.assertEqual(result, recovered.json()['result'])
             model.assert_not_called()
 
+    def test_repeated_disconnect_only_persists_the_state_transition(self):
+        job_id = 'durable-repeated-disconnect'
+        soft, hard = threading.Event(), threading.Event()
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+        self.store.claim(job_id, 'local:single-user')
+
+        with patch.object(
+            self.runtime,
+            'durable_persist_job',
+            wraps=self.runtime.durable_persist_job,
+        ) as persist:
+            self.runtime.mark_gateway_job_disconnected(job_id)
+            first_updated_at = self.runtime.job_registry[job_id]['updated_at']
+            self.runtime.mark_gateway_job_disconnected(job_id)
+
+        persist.assert_called_once_with(job_id)
+        self.assertEqual(first_updated_at, self.runtime.job_registry[job_id]['updated_at'])
+        self.assertTrue(self.runtime.gateway_continue_disconnected(job_id))
+
     def test_retained_interrupted_job_is_terminal_even_without_result_after_restart(self):
         job_id = 'interrupted-without-result'
         self.runtime.register_gateway_job(job_id, 'local', 'interactive', threading.Event(), threading.Event())

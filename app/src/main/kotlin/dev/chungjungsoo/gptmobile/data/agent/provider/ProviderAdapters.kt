@@ -703,10 +703,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             ): Flow<ProviderEvent> = flow {
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
                 restoredGatewayJob?.let { binding ->
-                    binding.requireResults(
-                        exchanges.lastOrNull()?.calls.orEmpty().map { Triple(it.callId, it.name, it.arguments) },
-                        exchanges.lastOrNull()?.results.orEmpty().map { it.callId }
-                    )
+                    binding.requireResults(exchanges)
                     restoredGatewayJob = null
                 }
                 if (tools.isNotEmpty()) clientToolsAdvertised = true
@@ -740,7 +737,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 } else {
                     exchanges.flatMap { it.toChatMessages() }
                 }
-                val retainedHistory = replay + toolImages.map { media ->
+                val toolImageMessages = toolImages.map { media ->
                     ChatMessage(
                         OpenAIRole.USER,
                         listOf(
@@ -749,6 +746,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                         )
                     )
                 }
+                // Gateway continuation admission requires the exact pending
+                // assistant/tool suffix. Native image wrappers are tool evidence,
+                // so keep their user-role blocks before that suffix.
+                val retainedHistory = if (isLlama) toolImageMessages + replay else replay + toolImageMessages
                 val baseMessages = if (isLlama && constraints.gatewayNewStageAfterTerminal && capturedGatewayJobId == null) {
                     dev.chungjungsoo.gptmobile.data.network.gateway.gatewayNewStageBoundary(roundMessages, retainedHistory)
                 } else {

@@ -25,7 +25,13 @@ MESSAGE_PART_BYTES = 256 * 1024
 
 
 class ConversationConflict(ValueError):
-    pass
+    def __init__(self, message, *, details=None):
+        super().__init__(message)
+        self.details = dict(details or {})
+
+    def error_payload(self):
+        return {'code': 'conversation_conflict', 'message': str(self), 'retryable': False,
+                'dispatch_state': 'not_dispatched', **self.details}
 
 
 class CommandIdentityConflict(ConversationConflict):
@@ -230,6 +236,32 @@ class Conversations:
         row = db.execute(f'SELECT {column} FROM {table} WHERE {key}=?', (job_id,)).fetchone()
         return bool(row and row[0] not in TERMINAL)
 
+    @classmethod
+    def active_conflict(cls, db, conversation):
+        """Describe the already owned job without rebinding the rejected turn."""
+        state = cls.job_state(db, conversation)
+        kind = conversation['active_kind']
+        if kind == 'generation' and state == 'WAITING_FOR_CLIENT_TOOL':
+            action = 'return_client_tool_results'
+            message = 'This conversation is waiting for saved tool results. Resume its existing job with the original results; completed tools must not run again.'
+        elif kind == 'engineering' and state and state not in {'CANCELLING', 'NEEDS_INPUT', 'MERGE_READY'}:
+            action = 'queue_instruction'
+            message = 'An engineering job is active in this conversation. Queue this instruction for that job.'
+        elif kind == 'engineering':
+            action = 'resolve_active_job'
+            message = 'The existing engineering job needs attention. Open it and resolve its pending state before starting another turn.'
+        else:
+            action = 'wait_for_active_job'
+            message = 'A generation job is active in this conversation. Keep this instruction queued locally and reconnect to the existing job before sending it.'
+        return ConversationConflict(message, details={
+            'active_job_id': conversation['active_job'], 'active_job_kind': kind,
+            'active_job_state': state, 'conversation_id': conversation['id'],
+            'conversation_revision': conversation['revision'],
+            'failed_stage': 'conversation_admission', 'remote_acceptance': 'NO',
+            'retryable_without_new_input': False, 'recovery_action': action,
+            'allowed_recovery_actions': ['open_active_job', action],
+        })
+
     @staticmethod
     def bounded_id(value, name):
         if not isinstance(value, str) or not 1 <= len(value) <= 256 or any(ord(c) < 32 for c in value):
@@ -282,7 +314,7 @@ class Conversations:
                 raise ConversationConflict('Conversation revision changed; refresh before sending')
             if self.active(db, row['active_kind'], row['active_job']):
                 if kind != 'engineering' or row['active_kind'] != 'engineering' or replace_paused is None or expected is None:
-                    raise ConversationConflict('A job is active in this conversation; submit a queued instruction')
+                    raise self.active_conflict(db, row)
                 replace_paused(db, row['active_job'])
             conversation_id = row['id']
         else:
@@ -657,10 +689,12 @@ class Conversations:
             if type(payload.get('expected_revision')) is not int or payload['expected_revision'] != row['revision']:
                 raise ConversationConflict('Conversation revision changed')
             if row['active_kind'] != 'engineering' or not self.active(db, row['active_kind'], row['active_job']):
+                if self.active(db, row['active_kind'], row['active_job']):
+                    raise self.active_conflict(db, row)
                 raise ConversationConflict('Instructions require an active engineering job')
             state = db.execute('SELECT state FROM engineering_jobs WHERE id=?', (row['active_job'],)).fetchone()
             if state is None or state[0] in {'CANCELLING', 'NEEDS_INPUT', 'MERGE_READY'}:
-                raise ConversationConflict('The job is paused or cancelling; resolve or stop it before starting another turn')
+                raise self.active_conflict(db, row)
             if db.execute("SELECT COUNT(*) FROM gateway_pending_instructions WHERE conversation_id=? AND status='pending'", (conversation_id,)).fetchone()[0] >= 32:
                 raise QueueFull('Conversation instruction queue is full')
             now = self.now()

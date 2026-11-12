@@ -1,8 +1,14 @@
 # Unified Reliability v2 — acceptance reconciliation and execution
 
-Reviewed 2026-11-10 against main at 7db0c735f9e86eaece24513fbaf5c0a624f13822
-and PR #816 at 5190aac3564319ca95a26c09552d06f9aa0622a2.
-These are historical snapshots; each CI report records the source revision it tested.
+Updated 2026-11-12 on `fix/github-job-recovery-and-open-issues-2026-11-12`,
+based on main `8877f0ef12ac46f87c9db6e5d79b1b661dc0f62f` with PR #834 integrated
+at `39594bdb93ef9f304c6e7fa0321f946f8cdea881`. The read-only ledger inventory
+used that exact integration revision. New working-tree repairs are component
+changes awaiting their own exact-commit CI and acceptance qualification.
+
+The previous review compared main `7db0c735f9e86eaece24513fbaf5c0a624f13822`
+and PR #816 `5190aac3564319ca95a26c09552d06f9aa0622a2`. Those remain historical
+snapshots; each CI evidence report must record the source revision it tested.
 
 ## Truthful ledger baseline
 
@@ -19,8 +25,57 @@ The versioned ledgers intentionally remain unchanged in this implementation:
 
 A green generic PR, Gateway, Android emulator, or CodeQL workflow is never
 automatically evidence that one of the 99 outstanding formal cases passed.
-Issue #674 is closed despite its unfinished closure conditions; reopening and
-editing that issue requires separate user approval.
+[Issue #674](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/674)
+was read back on 2026-11-12 as **open**, with `state_reason=reopened` and last
+update `2026-11-11T02:57:36Z`. Its acceptance closure conditions remain unfinished.
+The earlier statement that the issue was closed is superseded by this observation.
+
+## Main branch enforcement verified
+
+Readback on 2026-11-12 of
+[ruleset 27005122](https://api.github.com/repos/tailscale-signin/GPT_Mobile_AI-improved/rulesets/27005122)
+confirmed active enforcement for `refs/heads/main`, required pull requests,
+deletion and non-fast-forward protection, strict required status checks, no bypass
+actors and `current_user_can_bypass=never`. The required checks are
+`Required verification` and `Analyze (java-kotlin)`, bound to the GitHub Actions
+integration (`15368`). This satisfies the issue's outstanding server-side
+main-protection requirement at the observed configuration.
+
+`Required verification` depends on the reliability scope/completion gate,
+unit tests/heap checks/review APK, Android lint, repository/gateway contracts
+and changed-Kotlin formatting. Each must succeed; the aggregate does not turn
+the scope-only mode of an incremental repair branch into full acceptance.
+The signed-release `--require-done` gate remains in place.
+
+## Current host verification and limits
+
+The read-only reconciler reports the unchanged 48-task / 110-case inventory.
+No current JUnit artifact was supplied to this local inventory, so
+`junit_evidence_scope=NONE`, named candidates remain unobserved and formal
+promotions are zero. This does not infer that the candidate tests failed.
+
+The 26 Python evidence-ledger, PR-gate and reconciliation regressions passed
+locally after adding rejection of Git's all-zero object placeholder for PASS
+case commits and VERIFIED/DONE implementation commits. The two new regressions
+failed before that fix. Scope validation and this repair branch's scope-only
+gate passed. `check_unified_reliability_v2.py --require-done` correctly exited
+nonzero with all 48 tasks and 99 cases outstanding. These host checks validate
+the evidence gate, not the Android, hardware, live-model or formal case outcomes.
+
+The next host/CI evidence to collect is the existing exact named JUnit mapping
+below, followed by the new recovery/export/reporting regressions at the final
+repair commit. Preserve raw XML, its qualification receipt, GitHub artifact
+digest and exact run-attempt URL. A component PASS cannot promote a formal case.
+
+### Related repair components; no task or case promotion
+
+| Repair component | Related tasks/cases | Evidence still needed |
+| --- | --- | --- |
+| Saved gateway job/tool-result recovery and active-conversation admission | V13; LC-T13, LC-T16 | Same-job resumption with exact retained results, process interruption and uncertain-write reconciliation across the actual serving route. |
+| Bounded same-run failure summaries, snapshot matching and accepted-policy references | V40, V42; IX12, IX19, IX20 | Full active-capture consistency, independently verified replay boundaries, diagnostic-off/temporary-session integration and response-UI qualification. |
+| Explicit critical-source availability and correct disabled-recorder recovery | V39, V40; CM-T23, CM-T25, IX15, IX19 | Disk/queue pressure, missing sequence disclosure, operational versus diagnostic storage failures and no false complete/resumable claim. |
+| Typed public-report failures without private job identifiers | V39; CM-T22, IX20 | Remaining legacy logging/exports, privacy transitions and end-to-end incident retention; public code allowlists alone do not qualify every content path. |
+| Reject null Git revisions in acceptance evidence | V48; IX27 | Reviewed case/task receipts, exact-commit release CI, production JNI/ABI, signature, artifact and upgrade qualification. |
 
 ## Automated read-only evidence inventory
 
@@ -45,10 +100,15 @@ with the repository's Android toolchain:
     python3 scripts/gradle_retry.py -- :app:testDebugUnitTest --no-daemon \
       --tests 'dev.chungjungsoo.gptmobile.data.assist.AssistReliabilityTest' \
       --tests 'dev.chungjungsoo.gptmobile.data.context.RequestAdmissionTest' \
+      --tests 'dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuardTest' \
       --tests 'dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCacheTest' \
       --tests 'dev.chungjungsoo.gptmobile.data.agent.ProgressWatchdogSessionTest' \
       --tests 'dev.chungjungsoo.gptmobile.data.context.CombinedCorpusMultipassTest' \
       --tests 'dev.chungjungsoo.gptmobile.data.agent.CombinedClaimInventoryTest' \
+      --tests 'dev.chungjungsoo.gptmobile.data.agent.CombinedWriterRequestPlanTest' \
+      --tests 'dev.chungjungsoo.gptmobile.data.agent.CombinedWordingLineageTest' \
+      --tests 'dev.chungjungsoo.gptmobile.data.agent.CombinedClaimMatchingTest' \
+      --tests 'dev.chungjungsoo.gptmobile.data.agent.CombinedProvenanceValidatorTest' \
       --tests 'dev.chungjungsoo.gptmobile.data.agent.CombinedSynthesisPlannerTest'
 
     python3 scripts/unified_reliability_v2_reconcile.py \
@@ -107,10 +167,11 @@ required before a receipt or ledger status is published.
    behavior. Use the dedicated self-hosted .github/workflows/device-validation.yml
    with explicit backend and QNN inputs. No backends requested means NOT_QUALIFIED.
 5. **P0 final:** V46/V48 cross-mode and production release qualification, exact
-   commit and signature/ABI/signed binary evidence, migrations, and a verified
-   server-side main branch protection rule. The branch API showed protected=false
-   with no active rulesets at this review. Do not release with false green checks.
+   commit and signature/ABI/signed binary evidence and migrations. Main branch
+   protection is now verified above; recheck the rule and required-check identities
+   at merge/release time. Do not release with false green checks.
 
-Do not modify issue #674 or main branch protection as part of this acceptance
-report without separate approval. This branch's changes do not claim that any
-of the 99 cases have newly passed.
+Issue #674 still requires reviewed completion of the original 48 tasks and
+99 outstanding formal cases, including V46/V47/V48. This report does not change
+remote issue state or rules. This branch's changes do not claim that any of the
+99 cases have newly passed.

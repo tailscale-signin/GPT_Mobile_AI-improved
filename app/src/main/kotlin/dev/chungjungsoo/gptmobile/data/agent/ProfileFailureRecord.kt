@@ -65,7 +65,7 @@ data class ProfileFailureRecord(
             "This saved review requires an updated request or new evidence. Send an updated prompt; the saved draft and tool results are retained."
         }
 
-        private val phases = setOf("admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle")
+        private val phases = setOf("admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission", "conversation_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle")
         private val executionCode = Regex("EXECUTION_[A-Z0-9_]{1,72}")
         private val repositoryAdmissionCodes = setOf("GITHUB_REPOSITORY_UNAVAILABLE", "GITHUB_REF_UNAVAILABLE")
         private val githubSchemaAdmissionCodes = setOf("GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_TOOL_CONTRACT_UNSUPPORTED")
@@ -151,8 +151,8 @@ data class ProfileFailureRecord(
                 requestReplayAllowed = (details?.get("request_replay_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
                 causeTypes = causeTypes,
                 dispatchState = dispatchState?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("NOT_DISPATCHED", "PRECHECK_REJECTED", "DISPATCHED", "FAILED", "COMPLETED", "UNKNOWN") },
-                recoveryActions = (details?.get("recovery_actions") as? JsonArray).orEmpty().mapNotNull { item ->
-                    (item as? JsonPrimitive)?.contentOrNull?.takeIf { it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF") }
+                recoveryActions = (listOfNotNull(details?.get("recovery_action")) + ((details?.get("recovery_actions") ?: details?.get("allowed_recovery_actions")) as? JsonArray).orEmpty()).mapNotNull { item ->
+                    (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB") }
                 }.distinct()
             )
         }

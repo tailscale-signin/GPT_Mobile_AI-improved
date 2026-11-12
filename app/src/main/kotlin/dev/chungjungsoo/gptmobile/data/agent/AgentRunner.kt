@@ -335,7 +335,7 @@ class AgentRunner(
                     val identified = if (restoringBatch) call else call.copy(originalInvocationFingerprint = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}"))
                     resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
                 }
-                resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
+                resolvedCalls.filterNot { it.callId in restoredCompleted }.forEach { emit(AgentRunEvent.Provider(it)) }
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
                 savedResultRecovery.record(calls)
                 if (calls.isEmpty()) {
@@ -357,7 +357,7 @@ class AgentRunner(
                 val completed = processToolCalls(
                     calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
                     initialSchemaTokens, replayTokens, toolCallsByName, consecutiveToolFailures, blockedReadScopes,
-                    remainingCalls, toolCallCount, restoredDispatched, restoredRetained, roundLimitReached, finalResponseRequested,
+                    remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
                     retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery
                 ) ?: return
                 executableToolByName = completed.tools
@@ -365,6 +365,7 @@ class AgentRunner(
                 toolCallCount = completed.toolCallCount
                 restoredDispatched = emptySet()
                 restoredRetained = emptySet()
+                restoredCompleted = emptyMap()
                 toolMayHaveExecuted = toolMayHaveExecuted || completed.executedAny
                 suppressedReadRounds = completed.suppressedReadRounds
                 replayTokens = completed.batch.replayTokens
@@ -417,6 +418,7 @@ class AgentRunner(
         var restoredCalls = recovery?.pending.orEmpty()
         var restoredDispatched = recovery?.pendingDispatchedIds.orEmpty()
         var restoredRetained = recovery?.pendingRetainedIds.orEmpty()
+        var restoredCompleted = emptyMap<String, AgentToolResult>()
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
@@ -433,47 +435,62 @@ class AgentRunner(
         state: LoopState
     ): Boolean {
         with(state) {
+            val completed = recovery?.completedExchanges.orEmpty().filter { exchange -> exchange.calls.all { it.name in toolByName } }
+            val pendingCompleted = recovery?.pendingCompletedExchange?.let { exchange ->
+                val admittedCalls = exchange.calls.filter { it.name in toolByName }
+                val admittedIds = admittedCalls.mapTo(hashSetOf()) { it.callId }
+                admittedCalls.takeIf { it.isNotEmpty() }?.let {
+                    AgentToolExchange(it, exchange.results.filter { result -> result.callId in admittedIds })
+                }
+            }
+            val retained = completed + listOfNotNull(pendingCompleted)
+            // Keep partial receipts in their original assistant call group.
+            restoredCompleted = pendingCompleted?.results.orEmpty().associateBy { it.callId }
             if (limits.githubTask) {
-                val retained = recovery?.completedExchanges.orEmpty().filter { it.calls.single().name in toolByName }
                 if (retained.isEmpty()) return true
                 // Restore current authorization/evidence once, before provider work.
                 // Completion callbacks persist new work and must not replay here.
-                var observedExchange: AgentToolExchange? = null
+                var observedPair: Pair<ProviderEvent.ToolCall, AgentToolResult>? = null
                 try {
                     if (onToolResultsRestored != null) {
                         onToolResultsRestored.invoke(retained)
                     } else {
                         for (exchange in retained) {
-                            observedExchange = exchange
-                            onToolResult?.invoke(exchange.calls.single(), exchange.results.single())
+                            val results = exchange.results.associateBy { it.callId }
+                            for (call in exchange.calls) {
+                                val result = results.getValue(call.callId)
+                                observedPair = call to result
+                                onToolResult?.invoke(call, result)
+                            }
                         }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    val observed = observedExchange ?: retained.first()
-                    val failure = ToolFailureMetadata.withAuthorityFailure(observed.results.single(), error, "delivery") ?: throw error
-                    observedExchange?.let { emit(AgentRunEvent.ToolFinished(it.calls.single(), failure)) }
+                    val observed = observedPair ?: (retained.first().calls.first() to retained.first().results.first())
+                    val failure = ToolFailureMetadata.withAuthorityFailure(observed.second, error, "delivery") ?: throw error
+                    observedPair?.let { emit(AgentRunEvent.ToolFinished(it.first, failure)) }
                     emit(AgentRunEvent.Provider(ToolFailureMetadata.authorityFailure(failure, retainedUnknownOutcome)))
                     return false
                 }
                 retained.forEach { exchange ->
-                    val call = exchange.calls.single()
-                    val result = exchange.results.single()
-                    if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
-                        unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                    val results = exchange.results.associateBy { it.callId }
+                    for (call in exchange.calls) {
+                        if (results.getValue(call.callId).errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
+                            unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                        }
                     }
                 }
-                exchanges += retained
-                emit(AgentRunEvent.ToolResultsRestored(retained.size))
+                exchanges += completed
+                emit(AgentRunEvent.ToolResultsRestored(retained.sumOf { it.results.size }))
                 return true
             }
             // Restore all settled batches before model finalization, without executing them.
             // Full GitHub receipts are reloaded by call identity by the evidence observer.
-            for (exchange in recovery?.completedExchanges.orEmpty()) {
-                val call = exchange.calls.single()
-                if (call.name in toolByName) {
-                    val result = exchange.results.single()
+            for (exchange in retained) {
+                val results = exchange.results.associateBy { it.callId }
+                for (call in exchange.calls) {
+                    val result = results.getValue(call.callId)
                     val restored = try {
                         onToolResult?.invoke(call, result)
                         onToolResultCommitted?.invoke(call, result)
@@ -488,12 +505,12 @@ class AgentRunner(
                     if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
                         unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                     }
-                    exchanges += exchange
                     if (restored !== result) {
                         emit(AgentRunEvent.Provider(ToolFailureMetadata.authorityFailure(restored, retainedUnknownOutcome || unknownOutcomes.isNotEmpty())))
                         return false
                     }
                 }
+                if (exchange !== pendingCompleted) exchanges += exchange
             }
         }
         return true
@@ -820,6 +837,7 @@ class AgentRunner(
         initialToolCallCount: Int,
         restoredDispatched: Set<String>,
         restoredRetained: Set<String>,
+        restoredCompleted: Map<String, AgentToolResult>,
         roundLimitReached: Boolean,
         initialFinalResponseRequested: Boolean,
         retriedWithoutTools: Boolean,
@@ -838,12 +856,20 @@ class AgentRunner(
         val questionNames = executableToolByName.values.filter { AgentToolCapability.USER_DECISION in it.definition.capabilities }.mapTo(hashSetOf()) { it.definition.name }
         // A choice and a mutation in the same model batch must not race. Replan
         // dependent actions after the answer has been returned to the model.
-        val toolsForBatch = if (calls.any { it.name in questionNames }) executableToolByName.filterKeys { it in questionNames } else executableToolByName
-        val batchAllowance = if (calls.any { it.name in questionNames }) minOf(1, remainingCalls) else remainingCalls
-        // Deferred mutations cannot become prerequisites of the decision that
-        // must be answered before those mutations may be planned.
-        val dependencyCalls = if (calls.any { it.name in questionNames }) calls.filter { it.name in questionNames } else calls
-        val plan = dependencyClosedPlan(planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, ::failureScope), planIntelligentBatch(dependencyCalls, toolsForBatch), restoredRetained)
+        val decisionCalls = calls.filter { it.name in questionNames }
+        val toolsForBatch = if (decisionCalls.isNotEmpty()) executableToolByName.filterKeys { it in questionNames } else executableToolByName
+        val batchAllowance = when {
+            decisionCalls.any { it.callId in restoredCompleted } -> 0
+            decisionCalls.isNotEmpty() -> minOf(1, remainingCalls)
+            else -> remainingCalls
+        }
+        // Keep this batch decision-only even if a saved answer is available.
+        val dependencyCalls = decisionCalls.ifEmpty { calls }
+        val dependencyPlan = planIntelligentBatch(dependencyCalls, toolsForBatch).map { node ->
+            if (node.call.callId in restoredCompleted) node.copy(dependencies = emptySet()) else node
+        }
+        val admission = planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, restoredCompleted.keys, ::failureScope)
+        val plan = dependencyClosedPlan(admission, dependencyPlan, restoredRetained)
         val executableCalls = plan.executable
         val deferredCalls = plan.deferred
         val perToolSuppressedIds = plan.perToolSuppressedIds
@@ -856,8 +882,8 @@ class AgentRunner(
         }
 
         checkpoint?.enqueue(calls)
-        executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
-        val invalidatedAuthority = AtomicReference<AgentToolResult?>(null)
+        executableCalls.filterNot { it.callId in restoredCompleted }.forEach { emit(AgentRunEvent.ToolStarted(it)) }
+        val invalidatedAuthority = AtomicReference(restoredCompleted.values.firstOrNull { ToolFailureMetadata.authorityCode(it) != null })
         val deliveredResults = mutableMapOf<String, AgentToolResult>()
         val executedResults = mutableListOf<AgentToolResult>()
         // Keep one graph for the entire admitted round: chunk boundaries must not
@@ -868,10 +894,11 @@ class AgentRunner(
             unknownOutcomes,
             invalidatedAuthority,
             completed = { call, result ->
-                deliveredResults[call.callId] = completeTool(call, result, invalidatedAuthority)
+                deliveredResults[call.callId] = if (call.callId in restoredCompleted) result else completeTool(call, result, invalidatedAuthority)
             },
             progress = { emit(AgentRunEvent.BatchProgress(it)) },
-            plannedCalls = dependencyCalls
+            dependencyPlan = dependencyPlan,
+            restoredCompleted = restoredCompleted
         ).map { deliveredResults[it.callId] ?: it }
         invalidatedAuthority.get()?.let { failure ->
             val deferred = deferredCalls.map { call -> completeTool(call, ToolFailureMetadata.authorityBlocked(call.callId, call.name, failure), invalidatedAuthority) }
@@ -1454,6 +1481,21 @@ class AgentRunner(
                     "PRIMARY_REPLAY_BUDGET_OVERRUN · replayTokens=$compactedReplayTokens · budget=${limits.maxReplayTokens} · exchanges=${exchanges.size}",
                     "W"
                 )
+                emit(
+                    ProviderEvent.Failed(
+                        "The exact saved tool-call identities do not fit the replay allowance. Increase the available context or reduce the request's output reservation before resuming; saved tool results remain intact.",
+                        errorCode = "REPLAY_EVIDENCE_REQUIRED",
+                        taskOutcome = "BLOCKED",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "planning")
+                            put("dispatched", false)
+                            put("retryable", false)
+                            put("replay_tokens", compactedReplayTokens)
+                            put("replay_allowance", limits.maxReplayTokens)
+                        }
+                    )
+                )
+                return@flow
             }
             // Include synchronous stream construction failures in the upstream boundary.
             val preparedExchanges = replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }
@@ -1691,7 +1733,8 @@ class AgentRunner(
         invalidatedAuthority: AtomicReference<AgentToolResult?>,
         completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit,
         progress: suspend (ToolBatchProgress) -> Unit,
-        plannedCalls: List<ProviderEvent.ToolCall>
+        dependencyPlan: List<ToolBatchNode>,
+        restoredCompleted: Map<String, AgentToolResult>
     ): List<AgentToolResult> {
         val intelligent = limits.githubTask ||
             limits.researchAcquisition ||
@@ -1703,13 +1746,19 @@ class AgentRunner(
             // Keep undispatched later chunks out of the cancellation race. The
             // dependency-aware scheduler below still owns one complete DAG.
             for (batch in calls.chunked(limits.maxToolCallsPerRound.coerceIn(1, 32))) {
-                val receipts = executeLegacyToolBatch(batch, tools, unknownOutcomes, invalidatedAuthority, completed)
+                val receipts = executeLegacyToolBatch(batch, tools, unknownOutcomes, invalidatedAuthority, restoredCompleted, completed)
                 results += receipts
             }
             return results
         }
         val admittedIds = calls.mapTo(hashSetOf()) { it.callId }
-        val fullPlan = planIntelligentBatch(plannedCalls, tools).filter { it.call.callId in admittedIds }
+        val nodesById = dependencyPlan.associateBy { it.call.callId }
+        val fullPlan = calls.map { call ->
+            nodesById[call.callId] ?: run {
+                check(call.callId in restoredCompleted)
+                ToolBatchNode(call, emptySet(), false)
+            }
+        }
         val blocked = fullPlan.filter { !admittedIds.containsAll(it.dependencies) }.mapTo(hashSetOf()) { it.call.callId }
         val nodes = fullPlan.map { it.copy(dependencies = it.dependencies.intersect(admittedIds)) }
         return IntelligentToolBatch(AdaptiveBatchWindow(limits.maxConcurrentTools)).execute(
@@ -1732,11 +1781,19 @@ class AgentRunner(
                 result
             },
             completed = completed,
-            progress = progress
+            progress = progress,
+            restored = restoredCompleted
         )
     }
 
-    private suspend fun executeLegacyToolBatch(calls: List<ProviderEvent.ToolCall>, tools: Map<String, AgentTool>, unknownOutcomes: MutableSet<String>, invalidatedAuthority: AtomicReference<AgentToolResult?>, completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit): List<AgentToolResult> {
+    private suspend fun executeLegacyToolBatch(
+        calls: List<ProviderEvent.ToolCall>,
+        tools: Map<String, AgentTool>,
+        unknownOutcomes: MutableSet<String>,
+        invalidatedAuthority: AtomicReference<AgentToolResult?>,
+        restoredCompleted: Map<String, AgentToolResult>,
+        completed: suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit
+    ): List<AgentToolResult> {
         val semaphore = Semaphore(limits.maxConcurrentTools.coerceIn(1, 32))
         val perTool = calls.map { it.name }.distinct().associateWith { Semaphore(1) }
         fun ownerOf(call: ProviderEvent.ToolCall): AgentToolExecutionOwner =
@@ -1753,7 +1810,7 @@ class AgentRunner(
                     for (call in ownedCalls) {
                         workers += launch {
                             try {
-                                val result = perTool.getValue(call.name).withPermit {
+                                val result = restoredCompleted[call.callId] ?: perTool.getValue(call.name).withPermit {
                                     semaphore.withPermit {
                                         val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                                         suspend fun dispatch(): AgentToolResult {

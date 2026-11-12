@@ -356,12 +356,42 @@ internal class GitHubVerifiedSession(
             emitAll(publish(null))
             return@flow
         }
-        if (GitHubReviewComparison.matches(task) && remainingToolCalls()?.let { it > 0 } != false) {
-            val comparison = withContext(computationDispatcher) { GitHubReviewComparison.plan(task, tools, evidence.snapshot().first) }
+        if (GitHubReviewComparison.matches(task)) {
+            val comparisonTools = if (remainingToolCalls()?.let { it > 0 } != false) tools else emptyList()
+            val comparison = withContext(computationDispatcher) { GitHubReviewComparison.plan(task, comparisonTools, evidence.snapshot().first) }
             comparison?.nextCall?.let { next ->
                 progress("Resolving exact review comparison revisions")
                 emit(next)
                 emit(ProviderEvent.Completed)
+                return@flow
+            }
+            if (comparison != null && comparison.checkpoint["comparison_verified"] != JsonPrimitive(true)) {
+                // A missing baseline is a prerequisite, not permission for the model
+                // to choose an arbitrary branch. Keep this gate outside the reviewed
+                // provider so neither its compatibility probe nor source work starts.
+                val needsInput = comparison.checkpoint["user_input_required"] == JsonPrimitive(true)
+                val code = if (needsInput) "REVIEW_INPUT_REQUIRED" else "GITHUB_REVIEW_COMPARISON_REQUIRED"
+                emitAll(
+                    publish(
+                        null,
+                        failureCode = code,
+                        originalFailure = ProviderEvent.Failed(
+                            (comparison.checkpoint["detail"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
+                            errorCode = code,
+                            transportComplete = true,
+                            taskOutcome = "BLOCKED",
+                            failureDetails = JsonObject(
+                                comparison.checkpoint + buildJsonObject {
+                                    put("failed_stage", "review_comparison")
+                                    put("dispatched", false)
+                                    put("retryable", false)
+                                    put("resume_allowed", false)
+                                    put("next_action", if (needsInput) "SELECT_REVIEW_BASELINE" else "RESTORE_REVIEW_COMPARISON_EVIDENCE")
+                                }
+                            )
+                        )
+                    )
+                )
                 return@flow
             }
         }

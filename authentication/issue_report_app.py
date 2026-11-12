@@ -42,7 +42,7 @@ def create_app(public_url, reporter, rate_key):
 
     @app.get("/health/ready")
     async def ready():
-        return {"service": "gpt-mobile-issue-reporter", "version": 1}
+        return {"service": "gpt-mobile-issue-reporter", "version": 1, "reportContextVersions": [1]}
 
     @app.post("/v1/issue-reports")
     async def submit(request: Request):
@@ -60,7 +60,7 @@ def create_app(public_url, reporter, rate_key):
         address = request.client.host if request.client else "unknown"
         client = hmac.new(rate_key, address.encode(), hashlib.sha256).hexdigest()
         number = await run_in_threadpool(reporter.submit, values, client)
-        return {"number": number}
+        return {"reportId": values["reportId"], "number": number}
 
     return app
 

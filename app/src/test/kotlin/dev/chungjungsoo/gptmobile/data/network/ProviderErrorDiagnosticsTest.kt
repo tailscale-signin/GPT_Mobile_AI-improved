@@ -5,6 +5,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderErrorDiagnosticsTest {
+    @Test fun conflictingCommandWithAnUnknownOutcomeCannotBeClassifiedAsUnsent() {
+        val details = requireNotNull(structuredProviderFailure("""{"error":{"code":"conversation_conflict","command_outcome_unknown":true,"retryable":false,"dispatch_state":"not_dispatched","dispatched":false}}""", 409))
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("GATEWAY_OUTCOME_UNKNOWN"), details["code"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details["requires_reconciliation"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+        assertFalse(details.containsKey("dispatched"))
+        assertFalse(details.containsKey("dispatch_state"))
+    }
+
+    @Test fun conversationConflictRetainsActiveJobGuidanceWithoutClaimingItsOwnership() {
+        val body = """{"error":{"code":"conversation_conflict","active_job_id":"old-job","active_job_kind":"generation","active_job_state":"waiting_for_client_tool","conversation_id":"conversation-1","conversation_revision":7,"failed_stage":"conversation_admission","recovery_action":"return_client_tool_results","allowed_recovery_actions":["open_active_job","return_client_tool_results"],"retryable":false,"retryable_without_new_input":false,"dispatch_state":"not_dispatched","private":"prompt"}}"""
+        val details = requireNotNull(structuredProviderFailure(body, 409))
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("CONVERSATION_CONFLICT"), details["code"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("old-job"), details["active_job_id"])
+        assertFalse(details.containsKey("job_id"))
+        assertFalse(details.containsKey("private"))
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider("HTTP 409", "conversation_conflict", details)
+        org.junit.Assert.assertEquals("CONVERSATION_CONFLICT", failure.category)
+        org.junit.Assert.assertEquals(false, failure.dispatched)
+        org.junit.Assert.assertEquals(listOf("RETURN_CLIENT_TOOL_RESULTS", "OPEN_ACTIVE_JOB"), failure.recoveryActions)
+        assertFalse(failure.retryAllowed)
+        org.junit.Assert.assertEquals("conversation_admission", failure.phase)
+        val terminal = dev.chungjungsoo.gptmobile.data.agent.AgentRunTerminalDiagnostics.from("FAILED", failure)
+        org.junit.Assert.assertEquals("RETURN_CLIENT_TOOL_RESULTS", terminal.recoveryAction)
+        org.junit.Assert.assertEquals("CONVERSATION_CONFLICT", terminal.reason)
+        val malicious = requireNotNull(structuredProviderFailure(body.replace("[\"open_active_job\",\"return_client_tool_results\"]", "[\"replay_mutation\"]"), 409))
+        assertFalse(malicious.containsKey("allowed_recovery_actions"))
+    }
+
     @Test fun templateSourceIsNotRetainedAndItsTypedFailureSurvivesLegacyHttp500() {
         val body = """{"error":{"message":"Jinja Exception: System message must be at the beginning. PRIVATE TEMPLATE SOURCE","backend_status":500,"dispatch_state":"backend_rejected","origin":"backend"}}"""
         val details = requireNotNull(structuredProviderFailure(body, 500))

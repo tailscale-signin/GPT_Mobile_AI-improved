@@ -1,0 +1,215 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "8877f0ef12ac46f87c9db6e5d79b1b661dc0f62f",
+  "working_branch": "fix/github-job-recovery-and-open-issues-2026-11-12",
+  "pull_request": 837,
+  "preserved_parent_pr": 834,
+  "preserved_parent_sha": "61b9034259b5052e58fa2ed5b97395615599d910",
+  "preserved_concurrent_sha": "1b366647baebedbdecca311871884a676db28b75",
+  "preceding_published_sha": "1a7f61dec1bc204b7b96d5006c5d02c1ead2a1b2",
+  "state": "IMPLEMENTED_PENDING_REPAIRED_TEST_HEAD_HOSTED_VALIDATION",
+  "intent": "Repair reproducible diagnostic and open-issue failures, improve cause-bearing public reports and native Send/retry, validate the combined source, and close only issues whose resolution is established.",
+  "open_issue_snapshot": [
+    674,
+    820,
+    821,
+    822,
+    823,
+    824,
+    825,
+    826,
+    827,
+    828,
+    829,
+    830,
+    831,
+    832,
+    833,
+    835,
+    836
+  ],
+  "local_validation": {
+    "preceding_fast": {
+      "status": "PASS",
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 465,
+      "regex_patterns": 1560,
+      "resource_xml_files": 34,
+      "scope": "Recovery/progress source before the native-reporting extension"
+    },
+    "gateway": {
+      "status": "PASS",
+      "python_suites": 68,
+      "discovered": 892,
+      "passed": 890,
+      "platform_skips": 2,
+      "browser_bridge_passed": 7,
+      "scope": "Gateway behavior repairs; later schema/manifest metadata validated separately"
+    },
+    "preceding_android_production_compile": {
+      "status": "PASS",
+      "source_revision": "6068637a95c9399030dd64f98545bdaa963211ab",
+      "scope": "Production Kotlin and Java compilation only; later scheduler/progress/reporting sources require fresh compilation"
+    },
+    "reporting_extension": {
+      "status": "SERVER_AND_FOCUSED_ANDROID_PASS_LIVE_DEPLOYMENT_UNAVAILABLE",
+      "server_tests": 46,
+      "server_command": "python -m unittest authentication.test_app authentication.test_github_broker authentication.test_ticket_broker",
+      "server_scope": "Fake GitHub publisher and bounded HTTP fixtures; no live report or deployment",
+      "android_scope": "61 focused real JUnit/Robolectric reporting, correlation, delivery, worker, voice and export tests passed against production 12af bytecode and actual AGP fixtures; no live service submission or full-device qualification."
+    },
+    "current_head_android": {
+      "status": "PRODUCTION_AND_FOCUSED_PASS_FULL_SUITE_REQUIRES_RERUN",
+      "production_source_sha": "12af4f6be86c7893efe6b4aa80290405feef4010",
+      "production_compile": [
+        "compileDebugKotlin",
+        "compileDebugJavaWithJavac"
+      ],
+      "reporting_tests_passed": 61,
+      "combined_claim_delivery_tests_passed": 41,
+      "production_source_unchanged_through": "1a7f61dec1bc204b7b96d5006c5d02c1ead2a1b2",
+      "scope": "Real completed Android production compile; focused tests separately compiled and run with actual dependencies and generated AGP configuration. Not a full Gradle unit-suite pass."
+    },
+    "exact_head_hosted_checks": {
+      "status": "PREDECESSOR_FULL_UNIT_FAILED_REPAIRED_HEAD_PENDING",
+      "source_sha": "12af4f6be86c7893efe6b4aa80290405feef4010",
+      "run_id": 43217199558,
+      "unit_job_id": 131179787264,
+      "unit_tests": 9414,
+      "unit_passed": 9404,
+      "unit_failures": 5,
+      "unit_errors": 0,
+      "unit_skipped": 5,
+      "artifact_id": 13944794343,
+      "artifact_sha256": "e136d36d1d5b57e2b0f1750b41e508c32cdf48bfe50133662f3f2855073c163a",
+      "failures": "Four exact error expectations lacked intentional causal identity; one wording fixture reversed FUND participants. Corrected in preserved concurrent 1a7 commit without changing production checks.",
+      "predecessor_passed": [
+        "Analyze (java-kotlin)",
+        "emulator (34, pixel_2)",
+        "emulator (36, pixel_c)",
+        "gateway Windows Python3.12",
+        "gateway Windows Python3.13",
+        "gateway Ubuntu Python3.12",
+        "gateway Ubuntu Python3.13",
+        "Build APK"
+      ],
+      "qualification": "These predecessor outcomes do not satisfy required checks for a later published head."
+    },
+    "canonical_fast": {
+      "status": "PASS",
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 465,
+      "regex_patterns": 1568,
+      "dynamic_patterns_skipped": 77,
+      "resource_xml_files": 34,
+      "scope": "Final regression candidate after concurrent1a7 corrections and the added identity/lineage tests; 465 tests, regex and XML checks passed.",
+      "source_parent_sha": "1a7f61dec1bc204b7b96d5006c5d02c1ead2a1b2"
+    },
+    "combined_role_reversal": {
+      "status": "FOCUSED_PASS_FULL_ANDROID_PENDING",
+      "baseline_source_sha256": "206e203fd8592d6c297036f0cc5dfc3032f33e40d0a6b92027a67518071a905e",
+      "baseline_class_sha256": "9afccb6ec790db7319964b095e2a1aab6a465394f96b7c73a54a9032c9cdecfd",
+      "baseline_results": {
+        "swapped_active_participants": "PARAPHRASE",
+        "same_order_passive_inversion": "EXACT",
+        "valid_same_meaning_passive": "PARAPHRASE"
+      },
+      "scope": "Current matcher, FinalCheck and both focused test classes compiled with cached supporting app bytecode and resolved dependencies; not a complete Android build",
+      "focused_tests": 41,
+      "receipt": {
+        "scope": "Isolated current matcher/FinalCheck and two focused JUnit classes compiled against existing supporting production bytecode and resolved test dependencies; not full Android qualification",
+        "sources": {
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedClaimMatcher.kt": "1a1f090898014e869696be9df8cb88fa013cf2bbc08250b36c21fa827648ca15",
+          "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedFinalCheck.kt": "896510dd0d3faa51a0fd539e6f2186de7a72ffc3bacc9600b5b175e9d334c0cc",
+          "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedClaimMatchingTest.kt": "da1b8475ffcf5c67c07f09c981e658e90bb79cb6e89587b7e71fc3a144f2441b",
+          "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySessionTest.kt": "2b95f97968b1b8803bdad90d3abddf674d04cb921bddcf6f7c9d725851d0b6c6",
+          "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedEventAssertions.kt": "3ca87962d9a2da22a2b44e28a852b32f5ccc1c20fd52ccea4fadccb86c21fb99"
+        },
+        "compile_exit": 0,
+        "junit_exit": 0,
+        "junit_stdout": "JUnit version 4.13.2\n.........................................\nTime: 1.469\n\nOK (41 tests)\n\n",
+        "source_unchanged_during_validation": true
+      }
+    },
+    "lineage_compatibility": {
+      "status": "FOCUSED_PASS",
+      "source_parent_sha": "1a7f61dec1bc204b7b96d5006c5d02c1ead2a1b2",
+      "production_compiled_sha": "12af4f6be86c7893efe6b4aa80290405feef4010",
+      "production_source_unchanged": true,
+      "test_source_hashes": {
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedClaimMatchingTest.kt": "0ec696e33fd4875189e8f90646de568e875cd0854865658b104ee8f629bfacdd",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySessionTest.kt": "86d1631575b95abd649ae0061195683f2bde5496a49229c127e8626aaedb9dea",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWordingLineageTest.kt": "7f8eeb47cd34d6aad398f82a8511c78107ab279db756c4885ae6fef3e1daa3a4",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedEventAssertions.kt": "3ca87962d9a2da22a2b44e28a852b32f5ccc1c20fd52ccea4fadccb86c21fb99"
+      },
+      "compile_exit": 0,
+      "junit": {
+        "combined": {
+          "exit_code": 0,
+          "tests": 52,
+          "failures": 0
+        }
+      },
+      "source_unchanged_during_validation": true,
+      "recorded_production_bytecode_unchanged": true,
+      "scope": "52 focused real lineage, claim-matching and delivery JUnit methods; not full Android/device qualification."
+    },
+    "repository_causal_identity": {
+      "status": "FOCUSED_PASS",
+      "source_parent_sha": "1a7f61dec1bc204b7b96d5006c5d02c1ead2a1b2",
+      "production_compiled_sha": "12af4f6be86c7893efe6b4aa80290405feef4010",
+      "production_source_unchanged": true,
+      "test_source_sha256": "62ab585a1297c6f90fd337ccd642b165fe35367b7a1614416eb20136cf63ac34",
+      "compile_exit": 0,
+      "tests": 60,
+      "failures": 0,
+      "junit_log_sha256": "7e0b156921d97ea6e47ae8e0f976f22ee23faf1ac2a97630575f3f0a82eace95",
+      "android_fixture": "Generated by actual cached AGP9.4.1 MockableJarGenerator with returnDefaultValues=false, matching project configuration; not handwritten Android stubs.",
+      "scope": "Complete ChatRepositoryImplTest class with its three real checked-in helpers, separately compiled/run against actual production bytecode and resolved dependencies; not the complete Gradle suite."
+    }
+  },
+  "publication_policy": {
+    "expected_head_required": true,
+    "force": false,
+    "merge_requires_current_checks": [
+      "Required verification",
+      "Analyze (java-kotlin)"
+    ],
+    "no_administrative_bypass": true
+  },
+  "evidence_limits": [
+    "The historical generic report bodies do not identify their original causes; no report UUID was present in the supplied capture.",
+    "New reporting context and correlation cannot reconstruct previously uncaptured evidence.",
+    "Live issue-reporter deployment and the repository Actions variable are not established by source changes or fake-publisher tests.",
+    "No physical Android device is attached; remaining device, private-service and formal acceptance requirements are not qualified.",
+    "Issue 674 acceptance statuses remain unchanged.",
+    "Issue #674 also contains unfinished independently qualified semantic coverage/provenance implementation; the new directed-role guard repairs bounded false matches without completing that pipeline."
+  ],
+  "issue_closure_at_checkpoint": {
+    "closed": [],
+    "reason": "Historical reports lack an incident-specific causal join; issue #674 also requires remaining qualified implementation and acceptance evidence."
+  },
+  "integrated_main_sha": "fc78fa4e5285c45ded6c122a6da2644ef84dd42a",
+  "main_update_reason": "PR834 merged separately while the repair was in progress; its complete source history was already preserved by this branch.",
+  "main_tree_verified_identical_to_preserved_parent": true,
+  "preserved_concurrent_shas": [
+    "1b366647baebedbdecca311871884a676db28b75",
+    "389a368475c8dab26495c702166c4ec483620167",
+    "12af4f6be86c7893efe6b4aa80290405feef4010",
+    "1a7f61dec1bc204b7b96d5006c5d02c1ead2a1b2"
+  ],
+  "reporter_deployment": {
+    "status": "UNAVAILABLE",
+    "origin_observed": "EMPTY",
+    "observed_source_sha": "5026f9d1632639ca7e1ef666da4ff38acedcf61d",
+    "observed_job_id": 131172136625,
+    "required_actions": [
+      "Deploy the updated HTTPS reporter and persistent state database with server-only GitHub App credentials.",
+      "Set repository Actions variable ISSUE_REPORT_ORIGIN to that deployed public HTTPS origin.",
+      "Rebuild the app and verify one explicitly approved report reaches GitHub with matching reportId receipt."
+    ],
+    "live_report_sent": false
+  }
+}

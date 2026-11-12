@@ -7,6 +7,7 @@
 - Add durable App audit checks, measured scores with explicit coverage, exact-connection repair controls and prerequisite-bound qualification worklists.
 - Fix the Gateway frame-timing crash, redact multiline chat diagnostics, correlate crash evidence and preserve explicit provider/output origins.
 - Bound speech/TTS lifecycle recovery, reduce rendering/checkpoint work and repair Android method-size and regression failures without weakening validation guards.
+- Add direct native issue-report submission, retained delivery status/retry, bounded causal context and report-to-capture correlation; wire the configured reporting origin into review/debug builds and preserve explicit service-update requirements.
 - Build 141; scoped qualification and all unmeasured device/deployment boundaries are retained in [RELEASE_NOTES.md](RELEASE_NOTES.md). Versioned-candidate and exact-main release checks remain mandatory.
 
 # 0.9.66.6 — Diagnostic reliability

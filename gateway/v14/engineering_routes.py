@@ -78,7 +78,7 @@ def install_engineering_routes(app, service):
         except CommandIdentityConflict:
             return JSONResponse({'error': {'code': 'conversation_conflict', 'command_outcome_unknown': True, 'retryable': False}}, status_code=409)
         except ConversationConflict as error:
-            return JSONResponse({'error': {'code': 'conversation_conflict', 'message': str(error), 'retryable': False}}, status_code=409)
+            return JSONResponse({'error': error.error_payload()}, status_code=409)
         except PublicGitHubRateLimited:
             return JSONResponse({'error': {'code': 'public_github_rate_limited',
                                            'message': 'GitHub limited public repository requests. Retry later or connect GitHub in Gateway Settings.',

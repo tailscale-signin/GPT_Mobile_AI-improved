@@ -47,6 +47,10 @@ class GatewayEngineeringClient internal constructor(
 ) {
     @Inject constructor(network: NetworkClient) : this(network(), network.gatewayReadClient(), network::evictIdleConnections)
     private val json = Json { ignoreUnknownKeys = true }
+
+    // The gateway requires the complete selected authority, including the
+    // default tool owner and required capability policy, on the wire.
+    private val selectionJson = Json(json) { encodeDefaults = true }
     private data class CapabilityAttempt(val capability: GatewayEngineeringCapabilities? = null, val failure: GatewayAdmissionException? = null)
     private val capabilityCache = RouteCapabilityCache<CapabilityAttempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
     private fun capabilityKey(config: ProviderRequestConfig) = "${selectionDigest(JsonPrimitive(config.buildEndpoint("gateway/engineering/capabilities")))}|${GatewaySurfacePolicy.identity(config)}"
@@ -101,7 +105,8 @@ class GatewayEngineeringClient internal constructor(
                                 response.status.value,
                                 failedStage = stage,
                                 retryable = (detail?.get("retryable") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
-                                inferenceAttempted = (detail?.get("inference_attempted") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+                                inferenceAttempted = (detail?.get("inference_attempted") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
+                                diagnosticDetails = dev.chungjungsoo.gptmobile.data.network.structuredProviderFailure(payload, response.status.value)
                             )
                         }
                         if (path == "graph" && code == "graph_connection_required" && response.status.value in setOf(412, 503)) {
@@ -216,7 +221,7 @@ class GatewayEngineeringClient internal constructor(
     }
 
     suspend fun prepareBinding(config: ProviderRequestConfig, selection: GatewayExecutionSelection): GatewayExecutionAdmission {
-        val payload = buildJsonObject { put("selection", json.encodeToJsonElement(GatewayExecutionSelection.serializer(), selection)) }
+        val payload = buildJsonObject { put("selection", selectionJson.encodeToJsonElement(GatewayExecutionSelection.serializer(), selection)) }
         val result = json.decodeFromString<GatewayExecutionAdmission>(request(config, "bindings", payload.toString()))
         result.verify(selection)
         return result
@@ -366,7 +371,8 @@ class GatewayExecutionRejected(
     override val failedStage: String = "provider_admission",
     val retryable: Boolean? = null,
     val inferenceAttempted: Boolean? = null,
-    commandOutcomeUnknown: Boolean = false
+    commandOutcomeUnknown: Boolean = false,
+    val diagnosticDetails: JsonObject? = null
 ) : GatewayEngineeringRequestRejected(
     httpStatus,
     "The selected execution profile could not be verified ($code; $failedStage). Saved work is retained; " +
@@ -376,7 +382,7 @@ class GatewayExecutionRejected(
     failedStage = failedStage
 ) {
     override fun withCommandOutcomeUnknown(unknown: Boolean): GatewayExecutionRejected =
-        GatewayExecutionRejected(code, httpStatus, failedStage, retryable, inferenceAttempted, commandOutcomeUnknown || unknown)
+        GatewayExecutionRejected(code, httpStatus, failedStage, retryable, inferenceAttempted, commandOutcomeUnknown || unknown, diagnosticDetails)
 }
 
 /** A response rejected this POST; prior uncertain attempts still require command reconciliation. */

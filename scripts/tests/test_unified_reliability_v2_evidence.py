@@ -147,6 +147,23 @@ class ReliabilityEvidenceGateTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'valid commit hash'):
             gate.validate()
 
+    def test_null_git_object_cannot_certify_a_passing_acceptance_case(self):
+        receipt = self.passing_fixture()
+        self.case()['commit'] = '0' * 40
+        receipt['commit'] = '0' * 40
+        (self.scope / 'evidence/proof.json').write_text(json.dumps(receipt))
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'valid commit hash'):
+            gate.validate()
+
+    def test_null_git_object_cannot_certify_verified_implementation(self):
+        task = self.tasks[0]
+        task.update(status='VERIFIED', implementation_commits=['0' * 40], evidence=['BASELINE.json'])
+        (self.scope / 'BASELINE.json').write_text('{}')
+        self.save()
+        with self.assertRaisesRegex(ValueError, 'real commit hashes'):
+            gate.validate()
+
 
 if __name__ == '__main__':
     unittest.main()

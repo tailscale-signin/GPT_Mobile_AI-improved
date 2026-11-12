@@ -107,6 +107,17 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun activeGatewayJobAndExecutionSelectionFailuresKeepDistinctSafeReportCodes() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val conflict = ErrorClassification.classify(IllegalStateException("code=conversation_conflict active_job_id=private-job"))
+        IssueReportIncidents.chatFailure(conflict.errorCode, false)
+        IssueReportIncidents.chatFailure("EXECUTION_SELECTION_INVALID", false)
+
+        assertEquals(listOf("CONVERSATION_CONFLICT", "EXECUTION_SELECTION_INVALID"), IssueReportIncidents.pending.value.map { it.errorCode })
+        assertFalse(IssueReportIncidents.pending.value.flatMap { it.events }.any { "private-job" in it || "active_job_id" in it })
+    }
+
+    @Test
     fun reportAllowlistCoversProviderContractsAndSpecificErrorCategories() {
         val specificCategories = ErrorCategory.entries.map { it.name }.toSet() - setOf("CLIENT_CANCELLED", "UNKNOWN")
         val missing = (ProviderContractFailure.codes + specificCategories) - IssueReportCodes.allowed
@@ -148,6 +159,7 @@ class IssueReportIncidentsTest {
         }
 
         assertEquals(codes, IssueReportIncidents.pending.value.map { it.errorCode })
+        assertTrue(IssueReportIncidents.pending.value.all { it.context?.operation == "mcp" })
         assertFalse(IssueReportIncidents.recentEvents().any { "private" in it })
     }
 
@@ -208,6 +220,70 @@ class IssueReportIncidentsTest {
         val report = IssueReportIncidents.pending.value.single()
         assertEquals("APP_ERROR", report.errorCode)
         assertFalse(report.events.any { "GITHUB_CIRCUIT_OPEN" in it || "PRIVATE_PROVIDER_TOKEN_VALUE" in it })
+    }
+
+    @Test
+    fun differentRunsAreNotCollapsedOrBorrowedIntoAContextlessFailure() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure("CONVERSATION_CONFLICT", false, null, mapOf("run_id" to "first-run", "invocation_id" to "untrusted-alias", "http_status" to 409), "first-invocation")
+        IssueReportIncidents.chatFailure("CONVERSATION_CONFLICT", false, null, mapOf("run_id" to "second-run"), "second-invocation")
+        IssueReportIncidents.chatFailure("CONVERSATION_CONFLICT", false)
+
+        val reports = IssueReportIncidents.pending.value
+        assertEquals(3, reports.size)
+        assertEquals(3, reports.map { it.reportId }.distinct().size)
+        assertEquals(IssueReportContext.identifierHash("run", "first-run"), reports[0].context?.runIdHash)
+        assertEquals(IssueReportContext.identifierHash("invocation", "first-invocation"), reports[0].context?.invocationIdHash)
+        assertEquals(IssueReportContext.identifierHash("run", "second-run"), reports[1].context?.runIdHash)
+        assertEquals(null, reports[2].context?.runIdHash)
+        assertEquals(null, reports[2].context?.invocationIdHash)
+        assertEquals(null, reports[2].context?.httpStatus)
+        assertTrue(reports[2].context!!.unavailableFields.containsAll(listOf("runIdHash", "invocationIdHash", "httpStatus")))
+    }
+
+    @Test
+    fun deterministicCallIdsAreScopedToTheirRunWhileExactIncidentDuplicatesCollapse() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (run in listOf("first-run", "second-run")) {
+            repeat(2) {
+                IssueReportIncidents.failure(
+                    ReportFeature.TOOLS,
+                    "GITHUB_CIRCUIT_OPEN",
+                    null,
+                    mapOf("run_id" to run, "call_id" to "same-deterministic-checklist-call", "tool" to "github_read"),
+                    "TOOL_RESULT"
+                )
+            }
+        }
+
+        val reports = IssueReportIncidents.pending.value
+        assertEquals(2, reports.size)
+        assertEquals(2, reports.map { it.reportId }.distinct().size)
+        assertEquals(listOf("first-run", "second-run").map { IssueReportContext.identifierHash("run", it) }, reports.map { it.context?.runIdHash })
+        assertEquals(1, reports.map { it.context?.callIdHash }.distinct().size)
+        assertEquals(IssueReportContext.identifierHash("call", "same-deterministic-checklist-call"), reports.first().context?.callIdHash)
+    }
+
+    @Test
+    fun structuredRecorderRetainsTypedOperationFactsWithoutRawPayloadOrIdentifiers() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        AppLogRecorder.recordEvent(
+            "Tool",
+            "Private operation name",
+            mapOf("error_code" to "GITHUB_CIRCUIT_OPEN", "tool" to "github_read__github_api", "run_id" to "recorded-run", "call_id" to "recorded-call", "phase" to "tool_precheck", "dispatched" to false, "retry_after_ms" to 5000L, "url" to "https://private.example", "message" to "private result"),
+            "E"
+        )
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("STRUCTURED_EVENT", report.context?.source)
+        assertEquals("github_read", report.context?.operation)
+        assertEquals("tool_precheck", report.context?.stage)
+        assertEquals(false, report.context?.dispatched)
+        assertEquals(5000L, report.context?.retryAfterMillis)
+        assertEquals(IssueReportContext.identifierHash("call", "recorded-call"), report.context?.callIdHash)
+        val raw = report.approvedPayload()
+        assertFalse(raw.contains("private", ignoreCase = true))
+        assertFalse(raw.contains("recorded-run"))
+        assertFalse(raw.contains("recorded-call"))
     }
 
     @Test

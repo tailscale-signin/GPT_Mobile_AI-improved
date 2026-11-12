@@ -78,7 +78,11 @@
     "Preserve stable recovery tool contracts, restore exact native approvals in ordinary chats, and recover only verified source-bound saved reads with qualified legacy inventory counts.",
     "Stop sustained repetitive prose with bounded text-only repair, deliver continuation text incrementally, retain output ownership through rendering, bound long paragraph layouts, and reduce diagnostic export allocation.",
     "Distinguish local observer Stop from remote Gateway cancellation receipts and close exact-model preparation test resources before Windows cleanup.",
-    "Prevent uncertain Gateway instruction replay and stale-job redirection, preserve confirmed acceptance through rejection races, retain live GitHub read evidence after bounded retry, recover stalled Android recognition and preserve actionable public report codes."
+    "Prevent uncertain Gateway instruction replay and stale-job redirection, preserve confirmed acceptance through rejection races, retain live GitHub read evidence after bounded retry, recover stalled Android recognition and preserve actionable public report codes.",
+    "Repair the November 12 execution-selection wire contract, exact pending gateway handoffs and restart grouping, bounded GitHub read/circuit recovery, review baseline and source evidence, compact observed-capability checkpoints and typed diagnostic summaries; retain explicit unresolved incident and device acceptance limits.",
+    "Keep native GitHub tool progress current after gateway preflight, suppress gateway-owned duplicate result counts, group repeated nonfatal privacy catalog notices without weakening filtering, and cover restored failed prerequisites in the batch scheduler.",
+    "Add native approved issue-report submission and durable same-ID retry, bounded causal context with explicit unavailable facts and hashed report-to-capture joins, fixed-origin review/debug build wiring and service schema negotiation; preserve consent, privacy, unknown-outcome reconciliation and qualification limits.",
+    "Reject demonstrated Combined claim participant reversals before exact/paraphrase coverage and disputed declarations, preserving valid active/passive and independent-clause matching while leaving ambiguous relations unresolved."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -130,7 +134,8 @@
     "Gateway 16 requires matching Android and gateway deployment. Its acceptance preflight requires approved host policy, exact source mirror, digest-pinned local Docker image, allowed CI checks and mapped fresh behavior tests; arbitrary objectives without suitable explicit requirements or a full-objective template remain blocked before execution.",
     "PR #816 host fixtures validate contract and recovery behavior, not live GitHub collaboration mutations, private model inference, isolated Docker execution, physical-device scrolling or installed Moonshine recognition. Final Android, emulator, Windows installer and exact-revision release checks remain required.",
     "Gateway 16 support exports preserve newly recorded evidence and cannot reconstruct omitted causes or repair an unidentified service dependency from an older diagnostic archive.",
-    "New release provenance requires a successful exact workflow with GitHub CLI >=2.102.0 and an unexpired digest-bound evidence artifact. Host tests do not qualify the current APK, microphone or deployed gateway. Unsupported mutation lifecycles remain explicitly outside the new bounded integration preset."
+    "New release provenance requires a successful exact workflow with GitHub CLI >=2.102.0 and an unexpired digest-bound evidence artifact. Host tests do not qualify the current APK, microphone or deployed gateway. Unsupported mutation lifecycles remain explicitly outside the new bounded integration preset.",
+    "Native issue-report delivery requires a deployed project-owned HTTPS reporter advertising the supported context schema and ISSUE_REPORT_ORIGIN configured for APK builds. Source changes and fake-publisher/transport regressions do not qualify that live deployment or identify historical generic incident causes."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -143,6 +148,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWordingLineageTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerMapping.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySession.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatch.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpToolMapper.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCommitReconciliation.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/GroqAPIImpl.kt",
@@ -2213,6 +2219,38 @@
     "gateway/desktop/benchmark_panel.py",
     "gateway/desktop/dashboard_model.py",
     "gateway/tests/test_gateway_desktop_benchmark.py",
-    "docs/repairs/strict-off-admission-ci-2026-11-12-task.json"
+    "docs/repairs/strict-off-admission-ci-2026-11-12-task.json",
+    ".gitignore",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedViewRecoveryBatch.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticFailureSummary.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLink.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadCoverage.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadRecovery.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSourceReadRecoveryIntegrationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticFailureSummaryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLinkTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadCoverageTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadRecoveryTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogNoticePresentation.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogNoticePresentationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/IntelligentToolBatchTest.kt",
+    ".github/workflows/apply-ui-pipeline.yml",
+    ".github/workflows/debug-build.yml",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCorrelationIndex.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportOutbox.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCollectorsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContextTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCorrelationIndexTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportOutboxTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorkerTest.kt",
+    "docs/repairs/github-job-recovery-2026-11-12-task.json",
+    "docs/repairs/github-job-recovery-2026-11-12.md",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedClaimMatcher.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedFinalCheck.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedClaimMatchingTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySessionTest.kt"
   ]
 }

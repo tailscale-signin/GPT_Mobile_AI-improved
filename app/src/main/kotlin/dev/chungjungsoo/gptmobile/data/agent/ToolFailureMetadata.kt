@@ -145,7 +145,7 @@ internal object ToolFailureMetadata {
         result.errorCode !in ToolResultEnvelope.unknownOutcomeCodes &&
         (result.executionReceipt?.get("replay_safe") == JsonPrimitive(true) || result.errorCode in setOf("READ_DEADLINE", "READ_FAILED")) &&
         result.executionReceipt?.get("requires_reconciliation") != JsonPrimitive(true) &&
-        result.errorCode in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "SERVICE_UNAVAILABLE", "DNS_FAILED", "DNS_RECOVERY", "CONNECTION_FAILED", "STREAM_INTERRUPTED", "TIMEOUT", "RATE_LIMITED", "UNAVAILABLE", "SEARCH_PROVIDERS_UNAVAILABLE", "GITHUB_CIRCUIT_OPEN")
+        result.errorCode in setOf("READ_DEADLINE", "READ_FAILED", "PROVIDER_UNAVAILABLE", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "SERVICE_UNAVAILABLE", "DNS_FAILED", "DNS_RECOVERY", "CONNECTION_FAILED", "STREAM_INTERRUPTED", "TIMEOUT", "RATE_LIMITED", "UNAVAILABLE", "SEARCH_PROVIDERS_UNAVAILABLE", "GITHUB_CIRCUIT_OPEN", "GITHUB_TRANSIENT_NETWORK", "GITHUB_TRANSIENT_SERVER")
 
     private fun text(content: ToolResultContent): String = when (content) {
         is ToolResultContent.Text -> content.text.take(8192)

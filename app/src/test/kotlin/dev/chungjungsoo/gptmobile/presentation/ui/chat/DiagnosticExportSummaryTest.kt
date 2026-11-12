@@ -44,6 +44,47 @@ class DiagnosticExportSummaryTest {
         assertFalse(summary.contains("Resume diagnostic capture"))
     }
 
+    @Test fun disabledApplicationRecorderRequiresReproductionAndDoesNotSuggestMemoryRepairOrResume() {
+        val root = buildJsonObject {
+            put(
+                "stages",
+                JsonArray(
+                    listOf(
+                        buildJsonObject {
+                            put("id", "critical_logs")
+                            put("status", "PARTIAL")
+                            put("evidenceRecords", 0)
+                            put("omissions", buildJsonObject { put("TRACKING_DISABLED_NO_RETAINED_LOGS", 1) })
+                        }
+                    )
+                )
+            )
+            put("resumable", false)
+            put("resumeSupported", true)
+            put("recoveryAction", "NEW_CAPTURE_REQUIRED")
+        }
+        val summary = diagnosticExportSummary(root)
+        assertTrue(summary.contains("Enable application log recording"))
+        assertTrue(summary.contains("reproduce the issue"))
+        assertTrue(summary.contains("Network diagnostics uses a separate setting"))
+        assertFalse(summary.contains("Low-memory"))
+        assertFalse(summary.contains("Temporary"))
+        assertFalse(summary.contains("Resume diagnostic capture"))
+    }
+
+    @Test fun retainedSourceOmissionRequestsNewCaptureWithoutCallingItTemporary() {
+        val root = buildJsonObject {
+            put("stages", JsonArray(listOf(stage("critical_logs", "COMPLETED", 2), stage("workspace", "PARTIAL", 5))))
+            put("resumable", false)
+            put("resumeSupported", true)
+            put("recoveryAction", "NEW_CAPTURE_REQUIRED")
+        }
+        val summary = diagnosticExportSummary(root)
+        assertTrue(summary.contains("Start a new diagnostic capture after reproducing"))
+        assertFalse(summary.contains("Temporary"))
+        assertFalse(summary.contains("Resume diagnostic capture"))
+    }
+
     @Test fun archiveContinuationExplainsNewTailAndStageCoverage() {
         val root = buildJsonObject {
             put("stages", JsonArray(listOf(stage("critical_logs", "COMPLETED", 2), stage("workspace", "PARTIAL", 40))))

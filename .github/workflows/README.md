@@ -17,6 +17,14 @@ settings. Keep security and device/release workflows in the review/release polic
 aggregate check is not a claim that physical-device qualification or CodeQL has completed.
 See `docs/ci-cd/modernization.md` for remaining settings and evidence gates.
 
+APK-producing review, debug, acceptance and preview workflows pass the public
+repository Actions variable `ISSUE_REPORT_ORIGIN` to Gradle, as release builds do.
+Set it only after deploying the project-owned HTTPS issue reporter described in
+`authentication/README.md`. An unset value leaves native submission unavailable;
+debug builds do not invent a destination or fall back to a browser. Sending an
+approved report with structured context requires the reporter to advertise the
+supported context schema before the app posts its retained payload.
+
 | File | Purpose / workflow name | Triggers | Jobs |
 |---|---|---|---|
 | `artifact-retention.yml` | Artifact retention | workflow_dispatch | Read-only preview or explicit cleanup |

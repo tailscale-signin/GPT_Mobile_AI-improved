@@ -11,16 +11,29 @@ internal fun diagnosticExportSummary(manifest: JsonObject): String {
     val logs = stages.filter { it.text("id") in setOf("critical_logs", "recent_logs") }.sumOf { it.text("evidenceRecords").toLongOrNull() ?: 0 }
     val unfinished = stages.count { it.text("status") in setOf("FAILED", "PARTIAL") }
     val pendingSections = stages.filter { it.text("status") in setOf("FAILED", "PARTIAL") }.map { it.text("id") }.filter(String::isNotBlank)
+    val applicationRecordingDisabled = stages.filter { it.text("id") in setOf("critical_logs", "recent_logs") }.any {
+        (it["omissions"] as? JsonObject)?.containsKey("TRACKING_DISABLED_NO_RETAINED_LOGS") == true ||
+            it.text("omissionReason") == "TRACKING_DISABLED_NO_RETAINED_LOGS"
+    }
     val resumable = manifest["resumable"] != JsonPrimitive(false)
     val continuation = resumable && manifest["continuationAvailable"] == JsonPrimitive(true)
     val resume = if (continuation) "Choose Resume diagnostic capture to export the next archive part with new history records." else "Choose Resume diagnostic capture to retry unfinished sections."
-    val retry = if (resumable) "$resume Low-memory diagnostics starts a new capture with smaller limits." else "Choose Low-memory diagnostics to start a new capture. Temporary captures cannot be resumed."
+    val newCapture = when {
+        applicationRecordingDisabled -> "Enable application log recording, reproduce the issue, then start a new diagnostic capture. Network diagnostics uses a separate setting."
+        manifest.text("recoveryAction") == "NEW_CAPTURE_REQUIRED" -> "Start a new diagnostic capture after reproducing the issue. Missing historical evidence cannot be recovered by resuming this archive."
+        else -> "Start a new diagnostic capture. This capture cannot be resumed. Low-memory diagnostics is available when memory limits prevent collection."
+    }
+    val retry = when {
+        applicationRecordingDisabled && resumable -> "$newCapture $resume"
+        applicationRecordingDisabled || !resumable -> newCapture
+        else -> "$resume Low-memory diagnostics starts a new capture with smaller limits."
+    }
     val summary = when {
         logs == 0L -> "No application log records were captured. The archive reports the available sections and missing evidence. $retry"
         unfinished > 0 ->
             "Partial diagnostics: $logs retained log records; " +
                 (if (unfinished == 1) "1 section is incomplete. " else "$unfinished sections are incomplete. ") +
-                (if (resumable) resume else "Choose Low-memory diagnostics to start a new capture. Temporary captures cannot be resumed.") +
+                retry +
                 if (pendingSections.isNotEmpty()) " Pending sections: ${pendingSections.joinToString(", ")}." else ""
         manifest["reducedMemory"] == JsonPrimitive(true) -> "Low-memory diagnostics prepared with $logs retained log records. The manifest lists the captured sections and retention limits."
         else -> "Diagnostics prepared with $logs retained log records. The manifest lists the captured sections and retention limits."

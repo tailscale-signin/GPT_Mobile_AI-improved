@@ -20,6 +20,7 @@ internal fun planToolBatch(
     blockedScopes: Set<String>,
     sameToolLimit: Int,
     retainedCallIds: Set<String> = emptySet(),
+    settledCallIds: Set<String> = emptySet(),
     scope: (ProviderEvent.ToolCall) -> String
 ): ToolBatchPlan {
     val executable = mutableListOf<ProviderEvent.ToolCall>()
@@ -31,6 +32,10 @@ internal fun planToolBatch(
     val accepted = mutableMapOf<String, Int>()
     var newlyAdmitted = 0
     calls.forEach { call ->
+        if (call.callId in settledCallIds) {
+            executable += call
+            return@forEach
+        }
         val repeatKey = toolRepeatKey(call)
         val sourceRead = repeatKey != call.name
         val used = (usedByName[repeatKey] ?: 0) + (accepted[repeatKey] ?: 0)

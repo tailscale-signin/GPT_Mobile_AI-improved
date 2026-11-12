@@ -25,6 +25,54 @@ from requests import Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_selection_rejection_explains_safe_fields_before_any_provider_probe(self):
+        from test_gateway_selected_execution import selected
+        base = selected(self.runtime.LLAMA_BASE)
+        cases = [
+            (None, 'SELECTION_NOT_OBJECT', {}),
+            ({key: value for key, value in base.items() if key not in {'tool_owner', 'required_capability_policy'}},
+             'SELECTION_SCHEMA_INVALID', {'missing_fields': ['required_capability_policy', 'tool_owner'], 'unknown_field_count': 0}),
+            (dict(base, private_unknown_field='private-secret-value'), 'SELECTION_SCHEMA_INVALID',
+             {'missing_fields': [], 'unknown_field_count': 1}),
+            (dict(base, profile_uid='private-identity\n', provider_connection_id=42), 'SELECTION_IDENTITY_INVALID',
+             {'invalid_fields': ['profile_uid', 'provider_connection_id']}),
+            (dict(base, credential_reference={'private-credential': 'private-secret-value'}), 'SELECTION_CREDENTIAL_REFERENCE_INVALID',
+             {'invalid_fields': ['credential_reference']}),
+        ]
+        before = self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_bindings').fetchone()[0])
+        with patch.object(self.service.capabilities, 'inspect') as probe:
+            for value, reason, fields in cases:
+                with self.subTest(reason=reason, fields=fields):
+                    response = self.client.post('/gateway/engineering/bindings', json={'selection': value}, headers=self.headers)
+                    self.assertEqual(409, response.status_code, response.text)
+                    observed = response.json()['error']
+                    self.assertEqual('EXECUTION_SELECTION_INVALID', observed['code'])
+                    self.assertEqual(reason, observed['reasonCode'])
+                    self.assertEqual('provider_admission', observed['failed_stage'])
+                    self.assertEqual('not_dispatched', observed['dispatch_state'])
+                    self.assertIs(False, observed['inference_attempted'])
+                    self.assertIs(False, observed['retryable'])
+                    self.assertIs(False, observed['routeSubstituted'])
+                    for key, expected in fields.items():
+                        self.assertEqual(expected, observed[key])
+                    for private in ('private_unknown_field', 'private-secret-value', 'private-identity', 'private-credential'):
+                        self.assertNotIn(private, response.text)
+            probe.assert_not_called()
+        self.assertEqual(before, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_bindings').fetchone()[0]))
+        self.assertEqual([], self.backend.calls)
+
+    def test_selection_error_payload_never_exports_unrecognized_field_names(self):
+        from v14.execution_binding import ExecutionBindingError
+        error = ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'Invalid selection.', observation={
+            'invalid_fields': ['credential_reference', 'private_secret_key', {'private': 'value'}],
+            'missing_fields': ['tool_owner', 'private_unknown_field'], 'unknown_field_count': -1,
+        })
+        observed = error.error_payload(stage='provider_admission')
+        self.assertEqual(['credential_reference'], observed['invalid_fields'])
+        self.assertEqual(['tool_owner'], observed['missing_fields'])
+        self.assertNotIn('unknown_field_count', observed)
+        self.assertNotIn('private', json.dumps(observed))
+
     def test_binding_failure_keeps_typed_dependency_and_transient_retryability(self):
         from v14.execution_binding import ExecutionBindingError
         error = ExecutionBindingError('EXECUTION_BACKEND_UNAVAILABLE', 'The selected backend is not ready.', 503)

@@ -19,6 +19,68 @@ class GitHubOutputContinuationSessionTest {
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flowOf(*events)
     }
 
+    @Test fun explicitContinuationProhibitionAppliesBeforeLengthRepairAndAfterRestoration() = runBlocking {
+        for (draft in listOf("", "Retained findings")) {
+            var checkpoint: JsonObject? = null
+            val failure = limited.copy(failureDetails = JsonObject(mapOf("resume_allowed" to JsonPrimitive(false))))
+            val blocked = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta(draft), failure), continuationRevision = "same-config", recoveryRevision = "run-one", saveCheckpoint = { checkpoint = it }) { _, _, _ ->
+                error("An explicit continuation prohibition applies before automatic length repair")
+            }.streamRound(emptyList(), emptyList()).toList()
+            assertEquals(failure, blocked.last())
+            assertEquals(JsonPrimitive(false), checkpoint?.get("resume_allowed"))
+            assertEquals(JsonPrimitive("run-one"), checkpoint?.get("recovery_revision"))
+            val restored = GitHubOutputContinuationSession(
+                object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("A saved prohibition cannot become a new provider request")
+                },
+                continuationRevision = "same-config",
+                recoveryRevision = "run-two",
+                readCheckpoint = { checkpoint }
+            ) { _, _, _ -> error("A saved prohibition cannot be reopened") }
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals("BLOCKED", (restored.single() as ProviderEvent.Failed).taskOutcome)
+        }
+    }
+
+    @Test fun rejectedNewTurnDoesNotOfferAfterToolResultsRecoveryWithoutReceipts() = runBlocking {
+        var checkpoint: JsonObject? = null
+        val conflict = ProviderEvent.Failed(
+            "The earlier gateway job is still waiting for its tool results.",
+            errorCode = "CONVERSATION_CONFLICT",
+            failureDetails = JsonObject(
+                mapOf(
+                    "retryable" to JsonPrimitive(false),
+                    "active_job_id" to JsonPrimitive("earlier-job"),
+                    "recovery_action" to JsonPrimitive("return_client_tool_results")
+                )
+            )
+        )
+        val output = GitHubOutputContinuationSession(session(conflict), saveCheckpoint = { checkpoint = it }) { _, _, _ ->
+            error("A rejected new turn cannot reopen an earlier job")
+        }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(conflict, output.last())
+        assertEquals(JsonPrimitive(false), checkpoint?.get("resume_allowed"))
+        assertEquals(JsonPrimitive("ACTIVE_GATEWAY_JOB"), checkpoint?.get("resume_kind"))
+        assertEquals(JsonPrimitive("return_client_tool_results"), checkpoint?.get("next_action"))
+        assertEquals(kotlinx.serialization.json.JsonArray(emptyList()), checkpoint?.get("completed_results"))
+        assertEquals(conflict.failureDetails, checkpoint?.get("failure_details"))
+    }
+
+    @Test fun missingBaselineKeepsTheUserInputRequirementInTheSavedCheckpoint() = runBlocking {
+        var checkpoint: JsonObject? = null
+        val blocked = ProviderEvent.Failed(
+            "Select the review baseline.",
+            errorCode = "REVIEW_INPUT_REQUIRED",
+            taskOutcome = "BLOCKED",
+            failureDetails = JsonObject(mapOf("user_input_required" to JsonPrimitive(true), "next_action" to JsonPrimitive("SELECT_REVIEW_BASELINE")))
+        )
+        GitHubOutputContinuationSession(session(blocked), saveCheckpoint = { checkpoint = it }) { _, _, _ -> error("No provider retry") }
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(JsonPrimitive(false), checkpoint?.get("resume_allowed"))
+        assertEquals(JsonPrimitive(true), checkpoint?.get("user_input_required"))
+        assertEquals(JsonPrimitive("SELECT_REVIEW_BASELINE"), checkpoint?.get("next_action"))
+    }
+
     @Test fun extractedSegmentCollectorCheckpointsLargeDraftWithoutDuplicatingPublishedText() = runBlocking {
         val body = "verified evidence\n" + "x".repeat(5_000)
         val checkpoints = mutableListOf<JsonObject>()

@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.SavedViewRecoveryBatch
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -17,10 +19,22 @@ class GatewayContinuationBinding private constructor(
         }
     }
 
-    /** Validate only the latest assistant batch; opaque call IDs may recur in older completed batches. */
+    /** Skip only complete, cursor-bound local saved-page batches after the latest real handoff. */
+    fun requireResults(exchanges: List<AgentToolExchange>) {
+        val latest = exchanges.lastOrNull { !SavedViewRecoveryBatch.isComplete(it, pending.keys) }
+        requireResults(latest?.calls.orEmpty().map { Triple(it.callId, it.name, it.arguments) }, latest?.results.orEmpty().map { it.callId })
+    }
+
+    /** Opaque call IDs may recur in older completed batches; only this exact batch is authoritative. */
     fun requireResults(calls: List<Triple<String, String, JsonObject>>, terminalResultIds: List<String>) {
-        check(calls.map { it.first }.distinct().size == calls.size && terminalResultIds.distinct().size == terminalResultIds.size) {
-            "CLIENT_TOOL_RESULTS_REQUIRED: The pending assistant batch and terminal results must have unique IDs within that batch."
+        val callIds = calls.map { it.first }
+        check(
+            callIds.distinct().size == calls.size &&
+                terminalResultIds.distinct().size == terminalResultIds.size &&
+                callIds.toSet() == pending.keys &&
+                terminalResultIds.toSet() == pending.keys
+        ) {
+            "CLIENT_TOOL_RESULTS_REQUIRED: The assistant batch and terminal results must contain exactly the original pending IDs, once each."
         }
         for ((id, expected) in pending) {
             val matching = calls.filter { it.first == id }

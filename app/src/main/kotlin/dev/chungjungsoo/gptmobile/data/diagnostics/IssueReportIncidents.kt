@@ -7,19 +7,36 @@ import android.content.SharedPreferences
 import android.os.Process
 import android.util.AtomicFile
 import java.io.File
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 
-/** Local projection for public reports. App log messages, identifiers and OS logcat never enter it. */
+/** Local projection for public reports. Raw messages, identifiers and OS logcat never enter it. */
 internal object IssueReportIncidents {
     private const val RECENT_MILLIS = 60_000L
     private const val DUPLICATE_MILLIS = 3_000L
     private const val PENDING_LIMIT = 24
     private val lock = Any()
     private val events = ArrayDeque<Pair<Long, String>>()
-    private val lastFailures = mutableMapOf<Pair<ReportFeature, String>, Long>()
+    private data class FailureKey(
+        val feature: ReportFeature,
+        val code: String,
+        val runId: String?,
+        val invocationId: String?,
+        val callId: String?,
+        val jobId: String?,
+        val activeJobId: String?
+    )
+    private val lastFailures = mutableMapOf<FailureKey, Long>()
+    private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val pendingCorrelations = Channel<IssueReport>(PENDING_LIMIT)
     private val mutablePending = MutableStateFlow<List<IssueReport>>(emptyList())
     private val mutablePrivate = MutableStateFlow(false)
     val pending = mutablePending.asStateFlow()
@@ -28,10 +45,48 @@ internal object IssueReportIncidents {
     @Volatile private var context: Context? = null
 
     @Volatile private var processState: SharedPreferences? = null
+
+    @Volatile private var correlations: IssueReportCorrelationIndex? = null
     private val isPrivate: Boolean get() = mutablePrivate.value || AppLogRecorder.privateSessionActive
+
+    init {
+        persistenceScope.launch {
+            for (report in pendingCorrelations) {
+                try {
+                    retainCorrelation(report)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Send and export retry this write and expose failure explicitly.
+                }
+            }
+        }
+    }
 
     fun initialize(context: Context) {
         this.context = context.applicationContext
+        correlations = null
+    }
+
+    private suspend fun correlationIndex(): IssueReportCorrelationIndex = withContext(Dispatchers.IO) {
+        correlations ?: run {
+            val owner = checkNotNull(context) { "Issue reporting is not initialized." }
+            IssueReportCorrelationIndex(File(owner.noBackupFilesDir, "issue-report-correlations.json")).also {
+                if (context === owner) correlations = it
+            }
+        }
+    }
+
+    /** Approved Send waits for this join before delivery; retries retain the same public UUID. */
+    suspend fun retainCorrelation(report: IssueReport) {
+        correlationIndex().retain(report)
+    }
+
+    suspend fun correlationSnapshot(): List<JsonObject> {
+        if (isPrivate) return emptyList()
+        val index = correlationIndex()
+        pending.value.forEach { index.retain(it) }
+        return index.snapshot().takeUnless { isPrivate }.orEmpty()
     }
 
     fun privacyChanged(active: Boolean) = synchronized(lock) {
@@ -53,7 +108,7 @@ internal object IssueReportIncidents {
 
     fun log(tag: String, level: String, tracking: Boolean) = log(tag, level, tracking, null)
 
-    fun log(tag: String, level: String, tracking: Boolean, code: String?, error: Throwable? = null) {
+    fun log(tag: String, level: String, tracking: Boolean, code: String?, error: Throwable? = null, fields: Map<String, Any?> = emptyMap(), source: String? = null) {
         if (!LocalDiagnosticsPolicy.enabled && !tracking || isPrivate) return
         val severity = level.firstOrNull()?.takeIf { it in "DIWEF" } ?: return
         // Only application-owned tags with known meaning. Ignore raw logcat and the reporting pipeline.
@@ -67,7 +122,8 @@ internal object IssueReportIncidents {
             else -> return
         }
         if (severity == 'E' && LocalDiagnosticsPolicy.enabled && feature != ReportFeature.CHAT && feature != ReportFeature.VOICE) {
-            failure(feature, IssueReportCodes.select(code, "APP_ERROR"), error)
+            val evidence = if (tag == "MCP") fields + ("operation" to "mcp") else fields
+            failure(feature, IssueReportCodes.select(code, "APP_ERROR"), error, evidence, source?.takeIf { it in IssueReportContext.sources } ?: "STRUCTURED_EVENT".takeIf { evidence.isNotEmpty() })
         } else {
             synchronized(lock) {
                 if (!isPrivate) addEvent(severity, feature, IssueReportCodes.known(code))
@@ -77,25 +133,37 @@ internal object IssueReportIncidents {
 
     fun failure(feature: ReportFeature, code: String) = failure(feature, code, null)
 
-    fun failure(feature: ReportFeature, code: String, error: Throwable?) {
+    fun failure(feature: ReportFeature, code: String, error: Throwable?, fields: Map<String, Any?> = emptyMap(), source: String? = null) {
         if (!LocalDiagnosticsPolicy.enabled || isPrivate || context == null) return
         synchronized(lock) {
             if (!LocalDiagnosticsPolicy.enabled || isPrivate) return
             val now = System.nanoTime() / 1_000_000L
             val publicCode = IssueReportCodes.select(code, fallbackCode(feature))
-            val key = feature to publicCode
+            val evidence = IssueReportContext.fromFields(
+                source ?: if (fields.isNotEmpty()) {
+                    "STRUCTURED_EVENT"
+                } else if (error == null) {
+                    "CODE_ONLY"
+                } else {
+                    "EXCEPTION"
+                },
+                fields
+            )
+            val key = FailureKey(feature, publicCode, evidence.runIdHash, evidence.invocationIdHash, evidence.callIdHash, evidence.jobIdHash, evidence.activeJobIdHash)
             addEvent('E', feature, publicCode)
             if ((lastFailures[key] ?: Long.MIN_VALUE / 2) + DUPLICATE_MILLIS > now) return
+            lastFailures.entries.removeAll { it.value < now - DUPLICATE_MILLIS }
+            if (lastFailures.size >= 128) lastFailures.remove(lastFailures.minBy { it.value }.key)
             lastFailures[key] = now
-            addPending(IssueReport.debug(feature, publicCode, recentEvents(), error))
+            addPending(IssueReport.debug(feature, publicCode, recentEvents(), error, evidence))
         }
     }
 
     fun chatFailure(code: String?, rateLimited: Boolean) = chatFailure(code, rateLimited, null)
 
-    fun chatFailure(code: String?, rateLimited: Boolean, error: Throwable?) {
+    fun chatFailure(code: String?, rateLimited: Boolean, error: Throwable?, fields: Map<String, Any?> = emptyMap(), invocationId: String? = null) {
         val publicCode = IssueReportCodes.select(code, if (rateLimited) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED")
-        failure(ReportFeature.CHAT, publicCode, error)
+        failure(ReportFeature.CHAT, publicCode, error, fields + listOfNotNull(invocationId?.let { "invocation_id" to it }).toMap(), "CHAT_FAILURE")
     }
 
     /** Called by the existing uncaught exception handler before it delegates to Android. */
@@ -139,8 +207,10 @@ internal object IssueReportIncidents {
     }
 
     private fun addPending(report: IssueReport) {
-        if (mutablePending.value.none { it.reportId == report.reportId }) {
+        if (mutablePending.value.size < PENDING_LIMIT && mutablePending.value.none { it.reportId == report.reportId }) {
             mutablePending.value = (mutablePending.value + report).take(PENDING_LIMIT)
+            // The queue is bounded; Send/export also retain every still-pending report synchronously.
+            pendingCorrelations.trySend(report)
         }
     }
 
@@ -186,7 +256,7 @@ internal object IssueReportIncidents {
             ApplicationExitInfo.REASON_ANR -> "APP_NOT_RESPONDING"
             else -> return
         }
-        val report = IssueReport.debug(ReportFeature.APP, code, emptyList())
+        val report = IssueReport.debug(ReportFeature.APP, code, emptyList(), context = IssueReportContext.fromFields("PROCESS_EXIT", occurredAtMillis = exit.timestamp))
         persist(report)
         synchronized(lock) { addPending(report) }
     }

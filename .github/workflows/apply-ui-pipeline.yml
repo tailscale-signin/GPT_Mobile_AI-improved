@@ -21,6 +21,8 @@ permissions:
 concurrency:
   group: ui-pipeline-${{ github.ref }}-${{ inputs.stage }}
   cancel-in-progress: true
+env:
+  ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
 jobs:
   preflight:
     runs-on: ubuntu-latest

@@ -119,7 +119,9 @@ release requirements.
 The Compact report dialog and Debug Mode prompt send approved reports to
 `POST /v1/issue-reports` on a project-owned HTTPS origin. The reporter runs
 independently of the OAuth broker. It creates issues only in
-`tailscale-signin/GPT_Mobile_AI-improved` and returns the issue number.
+`tailscale-signin/GPT_Mobile_AI-improved` and returns the issue number and the
+submitted report ID. The public HTTPS intake keeps per-client and global rate
+limits; the server authenticates GitHub publication with its dedicated App.
 
 Register a dedicated GitHub App, grant repository `Issues: write` and install
 it on the app repository. Set the following in the reporter's environment.
@@ -143,6 +145,47 @@ Check `/health/ready` against that origin. The database retains report IDs,
 payload digests, cooldowns and issue receipts. The issue body goes to GitHub.
 A request with an uncertain GitHub outcome remains pending while the service
 looks for the original issue.
+
+### Report context and rollout compatibility
+
+The ready response preserves `service: "gpt-mobile-issue-reporter"` and
+`version: 1`, and advertises `reportContextVersions: [1]`. Clients with a
+context-bearing report check this capability before the first submission. An
+older service without that field has not declared support: the app retains the
+approved report and displays a native service-update requirement. It must not
+silently strip context or change a previously submitted payload. Deploy the
+updated reporter before enabling context-bearing submissions in a release.
+
+The optional top-level `context` object has `schemaVersion: 1`, a bounded client
+occurrence timestamp, a fixed capture-source enum, and `unavailableFields`.
+Optional observations use only fixed stage/provider/operation/recovery enums,
+typed HTTP status and relative retry delay, dispatch/retry/reconciliation
+booleans, known selection-field names, and SHA-256 correlation identifiers.
+`unavailableFields` must list every absent optional observation. The service
+rejects unknown fields, arbitrary text, malformed hashes, contradictory
+availability declarations, and unsupported schema versions. Raw prompts,
+messages, URLs, tool arguments, model names and original run/job/call IDs are
+not accepted in this context. The existing approved manual description remains
+a separate, bounded, redacted user-authored field.
+
+The rendered issue shows captured causal facts and unavailable observations
+separately. A missing field does not establish success, non-dispatch or safe
+retry. The full JSON request still has an 8 KiB maximum. Legacy reports without
+`context` retain their original rendering so previously queued report digests
+remain valid.
+
+Successful submissions return `{"reportId":"<original UUID>","number":42}`.
+Context-bearing submissions require that matching report ID before the app
+marks a report sent. A legacy report without context may accept an older
+number-only receipt when `reportId` is absent; an explicit null, malformed or
+mismatched ID is never confirmation. Every retry uses the same approved UUID
+and payload. A
+matching completed report returns its original issue number; changed content
+under that UUID returns `409 REPORT_ID_CONFLICT`. Rate limits return `429`, and
+upstream cooldowns or uncertain publication return `503`, with `Retry-After`
+when known. An uncertain publication only reconciles the original GitHub write;
+it never creates a replacement issue automatically. No browser handoff or
+alternate unauthenticated publication route is needed.
 
 Deploy the reporter and its persistent database before shipping builds, then set
 the repository Actions variable `ISSUE_REPORT_ORIGIN` to its public HTTPS origin

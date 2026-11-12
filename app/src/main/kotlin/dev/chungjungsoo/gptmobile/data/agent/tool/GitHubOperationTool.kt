@@ -6,10 +6,13 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolWorkflowLink
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.github.GitHubArgumentProvenance
+import dev.chungjungsoo.gptmobile.data.github.GitHubSourceReadRecovery
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Small model-facing contracts backed by the same authorized native integration as the UI. */
@@ -272,11 +275,50 @@ internal class GitHubOperationTool(
                 dispatched = false
             )
         }
-        val executed = backend.execute(callId, native)
+        var resolved = native
+        var effectiveArguments = arguments
+        var executed = backend.execute(callId, native)
+        val rejectedRead = (executed.content as? ToolResultContent.Json)?.value as? JsonObject
+        val initialReceipt = executed.executionReceipt
+        if (backend is GitHubTool &&
+            executed.isError &&
+            rejectedRead != null &&
+            initialReceipt != null &&
+            listOf("mutation_requests", "accepted_mutations", "unknown_mutations", "unobserved_read_requests", "read_http_failures", "observation_mismatches")
+                .all { initialReceipt[it] == JsonPrimitive(0) } &&
+            initialReceipt["requires_reconciliation"] == JsonPrimitive(false)
+        ) {
+            val corrected = GitHubSourceReadRecovery.correctedArguments(operation, native, rejectedRead)
+            if (corrected != null) {
+                // Keep the provider's call identity and re-enter the authorized native
+                // backend exactly once. Saved-view selectors and writes are ineligible.
+                val modelArguments = JsonObject(arguments + (corrected - "action"))
+                if (ToolArgumentValidator.errors(modelArguments, definition.inputSchema).isEmpty() &&
+                    GitHubOperationArguments.errors(operation, modelArguments).isEmpty() &&
+                    nativeArguments(operation, JsonObject(modelArguments - "response_detail")) == corrected
+                ) {
+                    val rejected = executed
+                    resolved = corrected
+                    effectiveArguments = modelArguments
+                    val recovered = try {
+                        backend.execute(callId, corrected)
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.authorityPrecheck(callId, definition.name, failure)
+                            ?: AgentToolResult(callId, ToolResultContent.Text("GitHub authorization could not be revalidated for the corrected source read. Restore the original authorized workspace before resuming."), true, errorCode = "GITHUB_AUTHORIZATION_UNVERIFIED", dispatched = false)
+                    }
+                    executed = recovered.copy(
+                        dispatched = rejected.dispatched || recovered.dispatched,
+                        executionReceipt = sourceReadRecoveryReceipt(rejected, recovered, native, corrected, modelArguments)
+                    )
+                }
+            }
+        }
         val original = executed.copy(
             executionReceipt = JsonObject(
                 executed.executionReceipt.orEmpty() + buildJsonObject {
-                    put("resolved_arguments", dev.chungjungsoo.gptmobile.data.github.GitHubArgumentProvenance.sanitize(native))
+                    put("resolved_arguments", GitHubArgumentProvenance.sanitize(resolved))
                 }
             )
         )
@@ -362,7 +404,7 @@ internal class GitHubOperationTool(
             else -> null
         }
         if (!result.isError && data != null) {
-            val assessment = pagination.assessPage(operation, native, data)
+            val assessment = pagination.assessPage(operation, resolved, data)
             if (assessment.errorCode != null) {
                 return withPaginationState(result, assessment.data).copy(
                     executionReceipt = JsonObject(result.executionReceipt.orEmpty() + mapOf("traversal_state" to assessment.data.getValue("traversal_state"), "has_more" to JsonPrimitive(false), "pagination_progress" to assessment.data.getValue("pagination_progress"))),
@@ -376,23 +418,23 @@ internal class GitHubOperationTool(
                 )
                 data = assessment.data
             } else {
-                pagination.observe(operation, native, data)
+                pagination.observe(operation, resolved, data)
             }
         }
         val paged = if (!result.isError && data?.get("has_more") == JsonPrimitive(true) && "continuation" !in data && operation != "github_search") {
-            withPaginationState(result, JsonObject(data + ("continuation" to JsonObject(native + ("page" to JsonPrimitive(((arguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1))))))
+            withPaginationState(result, JsonObject(data + ("continuation" to JsonObject(resolved + ("page" to JsonPrimitive(((effectiveArguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1) + 1))))))
         } else {
             result
         }
         val outputAllowance = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.ToolOutputAllowance]?.bytes ?: 8 * 1024
         val body = (paged.content as? ToolResultContent.Json)?.value as? JsonObject ?: data
-        val projected = body?.let { dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project(operation, arguments, it) }
+        val projected = body?.let { dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project(operation, effectiveArguments, it) }
         val presented = if (projected != null && projected != body && !paged.isError) {
             paged.copy(content = ToolResultContent.Json(projected), retainedContent = paged.retainedContent ?: paged.content)
         } else {
             paged
         }
-        return retainSavedView(views.present(scope, operation, definition.name, presented, arguments, maxPageBytes = outputAllowance))
+        return retainSavedView(views.present(scope, operation, definition.name, presented, effectiveArguments, maxPageBytes = outputAllowance))
     }
 
     /** Original rows stay intact, but every consumer must see the same traversal state and exact recipe. */
@@ -448,6 +490,60 @@ internal class GitHubOperationTool(
                     "saved_view_persistence" to JsonPrimitive(status)
                 )
             )
+        )
+    }
+
+    private fun sourceReadRecoveryReceipt(rejected: AgentToolResult, recovered: AgentToolResult, original: JsonObject, corrected: JsonObject, modelArguments: JsonObject): JsonObject {
+        val before = rejected.executionReceipt.orEmpty()
+        val after = recovered.executionReceipt.orEmpty()
+        fun count(key: String) = ((before[key] as? JsonPrimitive)?.intOrNull ?: 0) + ((after[key] as? JsonPrimitive)?.intOrNull ?: 0)
+        val observed = count("read_requests") > 0 && count("read_response_observations") + count("recovered_read_requests") == count("read_requests") && count("observation_mismatches") == 0
+        return JsonObject(
+            after + buildJsonObject {
+                put("schema", "github.dispatch.v1")
+                listOf("read_requests", "read_response_observations", "recovered_read_requests", "read_http_failures", "omitted_failed_requests", "expected_absence_responses", "unobserved_read_requests", "observation_mismatches", "cached_read_observations").forEach { put(it, count(it)) }
+                listOf("mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations").forEach { put(it, count(it)) }
+                put("requires_reconciliation", false)
+                put("parent_result_successful", !recovered.isError)
+                recovered.errorCode?.let { put("error_code", it) }
+                put("failed_requests", JsonArray((before["failed_requests"] as? JsonArray).orEmpty() + (after["failed_requests"] as? JsonArray).orEmpty()))
+                put("live_read_performed", observed)
+                put(
+                    "live_read_status",
+                    if (observed) {
+                        "PERFORMED"
+                    } else if (count("read_requests") > 0) {
+                        "RESPONSE_NOT_FULLY_OBSERVED"
+                    } else {
+                        after["live_read_status"]?.let { (it as? JsonPrimitive)?.content }.orEmpty().ifBlank { "NOT_REQUESTED" }
+                    }
+                )
+                put(
+                    "read_source",
+                    if (observed) if (count("cached_read_observations") > 0) "MIXED" else "LIVE" else if (count("cached_read_observations") > 0) {
+                        "RETAINED"
+                    } else {
+                        "UNVERIFIED"
+                    }
+                )
+                if (!recovered.isError && observed) put("phase", "OBSERVED")
+                if ("phase" !in after) put("phase", if (count("read_requests") > 0) "READ_FAILED" else "PREFLIGHT_REJECTED")
+                put("corrected_arguments", modelArguments)
+                put(
+                    "source_read_recovery",
+                    buildJsonObject {
+                        put("schema", "github.source-read-recovery.v1")
+                        put("attempts", 1)
+                        put("call_id", recovered.callId)
+                        put("original_error_code", rejected.errorCode.orEmpty())
+                        put("original_arguments", GitHubArgumentProvenance.sanitize(original))
+                        put("corrected_arguments", GitHubArgumentProvenance.sanitize(corrected))
+                        put("precheck_receipt", JsonObject(before))
+                        put("corrected_receipt", JsonObject(after))
+                        put("successful", !recovered.isError)
+                    }
+                )
+            }
         )
     }
 
@@ -984,7 +1080,7 @@ internal class GitHubOperationTool(
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
                 "github_search" -> "Pinned glob search using exact continuation_call."
-                "github_read" -> "Lines 1..2000 or evidence_id. end_line=-1 is bounded EOF."
+                "github_read" -> "end_line=-1: bounded EOF. Follow source_coverage.next_action."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."

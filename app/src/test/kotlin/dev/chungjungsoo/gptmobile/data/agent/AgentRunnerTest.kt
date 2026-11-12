@@ -22,6 +22,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun oversizedPendingToolIdentityBlocksBeforeAnotherProviderRequest() = runBlocking {
+        var requests = 0
+        var executions = 0
+        val arguments = buildJsonObject { put("source", "x".repeat(12_000)) }
+        val reader = tool("github_read") { id, _ ->
+            executions++
+            AgentToolResult(id, ToolResultContent.Text("Saved result"), false)
+        }
+        val provider = session { _, _ ->
+            requests++
+            flow {
+                emit(ProviderEvent.ToolCall("original-call", reader.definition.name, arguments))
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(maxRounds = 4, maxReplayTokens = 128, maxReplayResultTokens = 64))
+            .run(provider, listOf(reader)).toList()
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().last()
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals(1, requests)
+        assertEquals(1, executions)
+        assertEquals(arguments, events.filterIsInstance<AgentRunEvent.ToolStarted>().single().call.arguments)
+    }
+
     @Test fun typedBindingAdmissionFailureReachesTheRunnerWithoutLosingItsDispatchFacts() = runBlocking {
         var requests = 0
         val provider = session { _, _ ->

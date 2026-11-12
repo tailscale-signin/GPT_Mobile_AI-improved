@@ -54,6 +54,8 @@ internal object AgentFailureEvidence {
             transportComplete = !unknown,
             taskOutcome = if (unknown) "PARTIAL" else "BLOCKED",
             failureDetails = buildJsonObject {
+                rejected.diagnosticDetails?.filterKeys { it in setOf("reasonCode", "missing_fields", "invalid_fields", "unknown_field_count") }
+                    ?.forEach { (key, value) -> put(key, value) }
                 put("failed_stage", if (unknown) "gateway_dispatch" else rejected.failedStage)
                 put("http_status", rejected.httpStatus)
                 put("attempt_dispatch_state", "REJECTED")

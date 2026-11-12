@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.repository
 
 import android.content.ContextWrapper
+import dev.chungjungsoo.gptmobile.data.agent.AgentRunEvent
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.provider.LiteRtLmAdapter
 import dev.chungjungsoo.gptmobile.data.agent.tool.AgentToolResolver
@@ -16,6 +18,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.selectionId
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogCapabilities
 import dev.chungjungsoo.gptmobile.data.catalog.CatalogEntry
 import dev.chungjungsoo.gptmobile.data.context.ContextBuilder
+import dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard
 import dev.chungjungsoo.gptmobile.data.database.dao.AgentToolBindingWithConnection
 import dev.chungjungsoo.gptmobile.data.database.dao.ToolConnectionDao
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentToolBinding
@@ -49,7 +52,9 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatFunctionDelta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.Choice
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.Delta
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
+import dev.chungjungsoo.gptmobile.data.github.GitHubChatProgress
 import dev.chungjungsoo.gptmobile.data.localruntime.FakeLocalRuntime
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalInferencePhase
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
@@ -102,6 +107,92 @@ import org.junit.Test
 
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
+
+    @Test fun nativeToolProgressAfterGatewayTelemetryReplacesStalePreflightSummary() = runBlocking {
+        val repository = createRepository()
+        val trace = mockk<ToolTraceSession>()
+        coEvery { trace.gateway(any()) } returns null
+        coEvery { trace.finish(any(), any()) } returns null
+        val status = ProviderEvent.ToolCall("status", "github_context", buildJsonObject { put("action", "status") })
+        val pulls = ProviderEvent.ToolCall("pulls", "github_pr", buildJsonObject { put("action", "list") })
+        val comparison = ProviderEvent.ToolCall("comparison", "github_context", buildJsonObject { put("action", "changes") })
+        val read = ProviderEvent.ToolCall("source", "github_read", buildJsonObject { put("path", "src/MainActivity.kt") })
+        fun success(call: ProviderEvent.ToolCall) = AgentToolResult(call.callId, ToolResultContent.Text("retained result"), false)
+        val states = repository.streamAgentEvents(
+            flowOf(
+                AgentRunEvent.ToolStarted(status), AgentRunEvent.ToolFinished(status, success(status)),
+                AgentRunEvent.ToolStarted(pulls), AgentRunEvent.ToolFinished(pulls, success(pulls)),
+                AgentRunEvent.Provider(ProviderEvent.GatewayProgressUpdate(GatewayProgress(origin = "gateway", event = "reasoning_started", jobId = "preflight", sequence = 1))),
+                AgentRunEvent.ToolStarted(comparison), AgentRunEvent.ToolFinished(comparison, success(comparison)),
+                AgentRunEvent.ToolStarted(read), AgentRunEvent.ToolFinished(read, AgentToolResult(read.callId, ToolResultContent.Text("Exact source path needs correction"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false))
+            ),
+            customPlatform(),
+            "native-progress",
+            3,
+            trace,
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {},
+            githubChat = true
+        ).toList()
+        var clock = 0L
+        val progress = GitHubChatProgress("Review the selected branch against its base.") { clock }
+        progress.tick()
+        var nativeReadStarted = false
+        states.forEach { state ->
+            progress.forward(state)
+            if (state is ApiState.GatewayProgressChanged && state.progress.event == "tool_started" && state.progress.toolCallId == read.callId) {
+                nativeReadStarted = true
+                assertEquals(1, progress.summarySnapshot().pending)
+            }
+        }
+        assertTrue(nativeReadStarted)
+        assertEquals(3, progress.summarySnapshot().completed)
+        assertEquals(1, progress.summarySnapshot().failed)
+        assertEquals(0, progress.summarySnapshot().pending)
+        clock = 45_000
+        val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
+        assertTrue(summary.contains("branch comparison"))
+        assertTrue(summary.contains("source read") && summary.contains("failed") && summary.contains("MainActivity.kt"))
+        assertTrue(summary.contains("inspect the source read error"))
+        assertFalse(summary.contains("identify the pull request associated"))
+    }
+
+    @Test fun gatewayOwnedResultEchoesDoNotDuplicateNativeProgressCounts() = runBlocking {
+        val repository = createRepository()
+        val trace = mockk<ToolTraceSession>()
+        coEvery { trace.gateway(any()) } returns null
+        coEvery { trace.finish(any(), any()) } returns null
+        val remote = ProviderEvent.ToolCall("server-call", "github_read", buildJsonObject { put("path", "src/Remote.kt") })
+        val native = ProviderEvent.ToolCall("client-call", "github_read", buildJsonObject { put("path", "src/Native.kt") })
+        val started = GatewayProgress(origin = "gateway", event = "tool_started", jobId = "server-job", sequence = 1, toolSource = "gateway", toolCallId = remote.callId, toolName = remote.name, toolArgs = remote.arguments)
+        val completed = started.copy(event = "tool_completed", sequence = 2)
+        val remoteResult = AgentToolResult(remote.callId, ToolResultContent.Text("server result"), false)
+        val nativeResult = AgentToolResult(native.callId, ToolResultContent.Text("client result"), false)
+        val states = repository.streamAgentEvents(
+            flowOf(
+                AgentRunEvent.Provider(ProviderEvent.GatewayProgressUpdate(started)),
+                AgentRunEvent.Provider(ProviderEvent.GatewayProgressUpdate(completed)),
+                AgentRunEvent.ToolFinished(remote, remoteResult),
+                AgentRunEvent.Provider(ProviderEvent.GatewayProgressUpdate(completed)),
+                AgentRunEvent.ToolStarted(native),
+                AgentRunEvent.ToolFinished(native, nativeResult),
+                AgentRunEvent.ToolFinished(native, nativeResult)
+            ),
+            customPlatform(),
+            "mixed-progress",
+            2,
+            trace,
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {},
+            githubChat = true
+        ).toList()
+        val clientTerminals = states.filterIsInstance<ApiState.GatewayProgressChanged>().map { it.progress }.filter { it.toolSource == "client" && it.event == "tool_completed" }
+        assertEquals(listOf(native.callId), clientTerminals.map { it.toolCallId })
+        val progress = GitHubChatProgress { 0L }
+        progress.tick()
+        states.forEach { progress.forward(it) }
+        assertEquals(2, progress.summarySnapshot().completed)
+        assertEquals(0, progress.summarySnapshot().failed)
+        assertEquals(0, progress.summarySnapshot().pending)
+    }
 
     @Test fun combinedWriterControlsRejectBeforeBudgetAdmissionAndExplicitAutoUsesTheSameProfile() = runBlocking {
         val writer = customPlatform().copy(uid = "combined-controls", compatibleType = ClientType.LLAMA, model = "selected", enabled = true, maxTokens = 16384)
@@ -1340,6 +1431,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `groq token limit reports failure instead of completing with only thinking`() = runBlocking {
+        val runId = "run-groq-output-limit"
         val groqAPI = FakeGroqAPI(
             flowOf(
                 GroqChatCompletionChunk(
@@ -1359,14 +1451,21 @@ class ChatRepositoryImplTest {
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
             platform = groqPlatform(reasoning = true, model = "qwen/qwen3.6-27b"),
-            runId = "test-run"
+            runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
                 ApiState.Loading,
                 ApiState.Thinking("Still reasoning"),
-                ApiState.Error("Groq reached the model output limit before producing a final answer.", errorCode = "OUTPUT_LIMIT"),
+                ApiState.Error(
+                    "Groq reached the model output limit before producing a final answer.",
+                    errorCode = "OUTPUT_LIMIT",
+                    failureDetails = buildJsonObject {
+                        put("run_id", runId)
+                        put("provider_kind", "GROQ")
+                    }
+                ),
                 ApiState.Done
             ),
             states
@@ -1471,6 +1570,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `google prompt safety block emits error`() = runBlocking {
+        val runId = "run-google-prompt-safety"
         val repository = createRepository(
             googleAPI = FakeGoogleAPI(
                 flowOf(
@@ -1485,13 +1585,19 @@ class ChatRepositoryImplTest {
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
             platform = googlePlatform(),
-            runId = "test-run"
+            runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
                 ApiState.Loading,
-                ApiState.Error("Gemini safety settings blocked the prompt: SAFETY"),
+                ApiState.Error(
+                    "Gemini safety settings blocked the prompt: SAFETY",
+                    failureDetails = buildJsonObject {
+                        put("run_id", runId)
+                        put("provider_kind", "GOOGLE")
+                    }
+                ),
                 ApiState.Done
             ),
             states
@@ -1500,6 +1606,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `google safety finish reason emits error`() = runBlocking {
+        val runId = "run-google-response-safety"
         val repository = createRepository(
             googleAPI = FakeGoogleAPI(
                 flowOf(
@@ -1514,13 +1621,19 @@ class ChatRepositoryImplTest {
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
             platform = googlePlatform(),
-            runId = "test-run"
+            runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
             listOf(
                 ApiState.Loading,
-                ApiState.Error("Gemini safety settings blocked the response."),
+                ApiState.Error(
+                    "Gemini safety settings blocked the response.",
+                    failureDetails = buildJsonObject {
+                        put("run_id", runId)
+                        put("provider_kind", "GOOGLE")
+                    }
+                ),
                 ApiState.Done
             ),
             states
@@ -1693,6 +1806,7 @@ class ChatRepositoryImplTest {
 
     @Test
     fun `complete chat propagates circuit breaker error as classified user message`() = runBlocking {
+        val runId = "run-custom-circuit-breaker"
         val failingOpenAIAPI = object : OpenAIAPI by RecordingOpenAIAPI() {
             override fun streamChatCompletion(
                 request: ChatCompletionRequest,
@@ -1708,7 +1822,7 @@ class ChatRepositoryImplTest {
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
             platform = customPlatform(),
-            runId = "test-cb"
+            runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         assertEquals(
@@ -1721,11 +1835,54 @@ class ChatRepositoryImplTest {
                         put("failed_stage", kotlinx.serialization.json.JsonPrimitive("provider_admission"))
                         put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
                         put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(5000L))
+                        put("run_id", runId)
+                        put("provider_kind", "CUSTOM")
                     }
                 ),
                 ApiState.Done
             ),
             states
+        )
+    }
+
+    @Test fun `provider failure keeps invocation evidence but cannot replace locally bound run and provider`() = runBlocking {
+        val remoteFailure = ProviderEvent.Failed(
+            "The selected execution profile was rejected.",
+            errorCode = "EXECUTION_SELECTION_INVALID",
+            taskOutcome = "BLOCKED",
+            failureDetails = buildJsonObject {
+                put("run_id", "unrelated-remote-run")
+                put("provider_kind", "GOOGLE")
+                put("failed_stage", "request_validation")
+                put("http_status", 400)
+                put("reasonCode", "SELECTION_SCHEMA_INVALID")
+            },
+            invocationId = "failed-invocation"
+        )
+        val failure = createRepository().streamAgentEvents(
+            flowOf(AgentRunEvent.Provider(remoteFailure)),
+            customPlatform(),
+            "bound-local-run",
+            0,
+            mockk<ToolTraceSession>(),
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {}
+        ).toList().filterIsInstance<ApiState.Error>().single()
+
+        assertEquals(
+            ApiState.Error(
+                "The selected execution profile was rejected.",
+                errorCode = "EXECUTION_SELECTION_INVALID",
+                taskOutcome = "BLOCKED",
+                failureDetails = buildJsonObject {
+                    put("run_id", "bound-local-run")
+                    put("provider_kind", "CUSTOM")
+                    put("failed_stage", "request_validation")
+                    put("http_status", 400)
+                    put("reasonCode", "SELECTION_SCHEMA_INVALID")
+                },
+                invocationId = "failed-invocation"
+            ),
+            failure
         )
     }
 

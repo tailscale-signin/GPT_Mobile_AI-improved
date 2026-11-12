@@ -14,6 +14,10 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticExportMemory
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticLogSnapshot
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticLogSource
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCorrelationIndex
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalRuntimeIncidentHistory
 import dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics
 import dev.chungjungsoo.gptmobile.data.diagnostics.RuntimeIncidentCapture
@@ -76,7 +80,8 @@ class StagedChatDebugExportTest {
         context = ApplicationProvider.getApplicationContext()
         destination = File(context.cacheDir, "export-test-${UUID.randomUUID()}")
         database = mockk()
-        mockkObject(AppLogRecorder, AndroidDiagnosticExportMemory, LocalRuntimeIncidentHistory, FreeProviderDiagnostics, RunDiagnostics)
+        mockkObject(AppLogRecorder, AndroidDiagnosticExportMemory, LocalRuntimeIncidentHistory, FreeProviderDiagnostics, RunDiagnostics, IssueReportIncidents)
+        coEvery { IssueReportIncidents.correlationSnapshot() } returns emptyList()
         every { AndroidDiagnosticExportMemory.sample() } returns DiagnosticExportMemory(1, 256L * 1024 * 1024, 64L * 1024 * 1024, 32L * 1024 * 1024, 224L * 1024 * 1024)
         every { LocalRuntimeIncidentHistory.capture() } returns RuntimeIncidentCapture("AVAILABLE", 123, emptyList(), 0)
         every { FreeProviderDiagnostics.snapshot(any()) } returns emptyList()
@@ -103,6 +108,48 @@ class StagedChatDebugExportTest {
         DiagnosticCaptureStorage.deleteChat(context, chatId)
         destination.deleteRecursively()
         unmockkAll()
+    }
+
+    @Test fun reportUuidRemainsExportableAfterRestartWhenApplicationLogsWereDisabled() = runBlocking {
+        val indexFile = File(context.noBackupFilesDir, "correlation-test-${UUID.randomUUID()}.json")
+        try {
+            val report = IssueReport.manual("private report title", "private report description", emptyList()).copy(
+                context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("run_id" to "exact-incident-run", "http_status" to 409))
+            )
+            IssueReportCorrelationIndex(indexFile).retain(report)
+            coEvery { IssueReportIncidents.correlationSnapshot() } coAnswers { IssueReportCorrelationIndex(indexFile).snapshot() }
+            coEvery { database.latestFailureSummary(any(), any(), any(), any(), any(), any()) } returns buildJsonObject { put("kind", "compact_failure_summary") }
+            every { AppLogRecorder.captureForExport(any(), any()) } returns DiagnosticLogSnapshot(emptyList(), 123, false, 0, omissionReason = "APPLICATION_LOG_RECORDING_DISABLED")
+            val files = archive(capture())
+            val latest = files.getValue("latest-state.jsonl")
+            assertTrue(latest.contains(report.reportId))
+            assertTrue(latest.contains(IssueReportContext.identifierHash("run", "exact-incident-run")!!))
+            assertTrue(latest.contains("APP_REPORT_HISTORY_NOT_CONVERSATION_ATTRIBUTION"))
+            assertFalse(latest.contains("private report"))
+            assertFalse(latest.contains("exact-incident-run"))
+            assertTrue(files.getValue("capture-context.jsonl").contains("activeJobIdHash identifies a blocker, not ownership"))
+        } finally {
+            indexFile.delete()
+            File(indexFile.path + ".bak").delete()
+        }
+    }
+
+    @Test fun unavailableReportCorrelationDoesNotDiscardOtherLatestStateEvidence() = runBlocking {
+        coEvery { database.latestFailureSummary(any(), any(), any(), any(), any(), any()) } returns buildJsonObject { put("kind", "compact_failure_summary") }
+        coEvery { IssueReportIncidents.correlationSnapshot() } throws IOException("private local path")
+        readSection = { section, before, consume ->
+            before()
+            if (section == "latest_state") consume(buildJsonObject { put("kind", "retained_run_evidence") })
+        }
+        val result = capture()
+        val files = archive(result)
+        val latest = files.getValue("latest-state.jsonl")
+        assertTrue(latest.contains("issue_report_correlation_metadata"))
+        assertTrue(latest.contains("UNAVAILABLE"))
+        assertTrue(latest.contains("retained_run_evidence"))
+        assertTrue(files.getValue("profiles.jsonl").contains("Profile"))
+        assertEquals(JsonPrimitive("PARTIAL"), stage(result, "latest_state")["status"])
+        assertFalse(files.values.any { "private local path" in it })
     }
 
     @Test fun failedConversationStillExportsLogsProfilesAndToolReceiptsWithoutCredentials() = runBlocking {

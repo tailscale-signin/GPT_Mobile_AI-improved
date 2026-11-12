@@ -44,6 +44,28 @@ class ConversationJobStateTests(unittest.TestCase):
             db.execute("UPDATE gateway_jobs SET status='running'")
             self.assertEqual('RUNNING', Conversations.job_state(db, generation))
 
+    def test_active_conflict_actions_follow_owned_job_kind_and_state(self):
+        with sqlite3.connect(':memory:') as db:
+            db.row_factory = sqlite3.Row
+            db.execute('CREATE TABLE gateway_jobs(job_id TEXT, status TEXT, public_json TEXT)')
+            db.execute('CREATE TABLE engineering_jobs(id TEXT, state TEXT, principal TEXT)')
+            db.execute('INSERT INTO gateway_jobs VALUES(?,?,?)', ('generation', 'waiting_for_client_tool', '{"principal_id":"owner"}'))
+            db.execute('INSERT INTO engineering_jobs VALUES(?,?,?)', ('engineering', 'READ', 'owner'))
+            conversation = dict(id='owned-conversation', revision=7, active_job='generation', active_kind='generation', principal='owner')
+            error = Conversations.active_conflict(db, conversation).error_payload()
+            self.assertEqual('return_client_tool_results', error['recovery_action'])
+            self.assertEqual('generation', error['active_job_id'])
+            self.assertEqual('WAITING_FOR_CLIENT_TOOL', error['active_job_state'])
+            self.assertNotIn('job_id', error)
+            self.assertFalse(error['retryable_without_new_input'])
+            db.execute("UPDATE gateway_jobs SET status='running'")
+            self.assertEqual('wait_for_active_job', Conversations.active_conflict(db, conversation).error_payload()['recovery_action'])
+            engineering = dict(conversation, active_job='engineering', active_kind='engineering')
+            self.assertEqual('queue_instruction', Conversations.active_conflict(db, engineering).error_payload()['recovery_action'])
+            for state in ('NEEDS_INPUT', 'MERGE_READY', 'CANCELLING'):
+                db.execute('UPDATE engineering_jobs SET state=?', (state,))
+                self.assertEqual('resolve_active_job', Conversations.active_conflict(db, engineering).error_payload()['recovery_action'])
+
 
 class ConversationHTTPTests(unittest.TestCase):
     @classmethod
@@ -631,6 +653,36 @@ class ConversationHTTPTests(unittest.TestCase):
             self.assertEqual(page['messages'], hydrated['messages'])
             self.assertEqual(1, model.call_count)
 
+    def test_pending_generation_conflict_identifies_recovery_without_admitting_new_turn(self):
+        call = {'id': 'pending-client-read', 'type': 'function',
+                'function': {'name': 'client_lookup', 'arguments': '{}'}}
+        handoff = {'choices': [{'index': 0, 'message': {'role': 'assistant', 'content': None, 'tool_calls': [call]},
+                               'finish_reason': 'tool_calls'}]}
+        payload = self.payload('pending-first')
+        payload['tools'] = [{'type': 'function', 'function': {'name': 'client_lookup', 'parameters': {'type': 'object'}}}]
+        with self.client() as client, patch.object(self.runtime, 'process_chat_payload', return_value=(200, handoff)) as model:
+            first = client.post('/v1/chat/completions', json=payload)
+            self.assertEqual(200, first.status_code, first.text)
+            job_id, conversation_id = first.headers['x-gateway-job-id'], first.headers['x-gateway-conversation-id']
+            blocked = client.post('/v1/chat/completions', json=self.payload('pending-new-turn', text='A separate instruction'))
+            self.assertEqual(409, blocked.status_code, blocked.text)
+            error = blocked.json()['error']
+            self.assertEqual('conversation_conflict', error['code'])
+            self.assertEqual(job_id, error['active_job_id'])
+            self.assertEqual('generation', error['active_job_kind'])
+            self.assertEqual('WAITING_FOR_CLIENT_TOOL', error['active_job_state'])
+            self.assertEqual(conversation_id, error['conversation_id'])
+            self.assertEqual('return_client_tool_results', error['recovery_action'])
+            self.assertNotIn('queue_instruction', error['allowed_recovery_actions'])
+            self.assertNotIn('job_id', error)
+            self.assertEqual('not_dispatched', error['dispatch_state'])
+            self.assertFalse(error['retryable'])
+            self.assertEqual(1, model.call_count)
+            self.assertEqual('waiting_for_client_tool', self.runtime.job_registry[job_id]['status'])
+            self.assertEqual(404, client.get('/gateway/commands/pending-new-turn').status_code)
+            transcript = client.get('/gateway/conversations/' + conversation_id + '/messages').json()['messages']
+            self.assertNotIn('A separate instruction', [message['content'] for message in transcript])
+
     def test_tool_stage_commands_keep_one_visible_turn_and_one_assistant_publication(self):
         call = {'id': 'client-lookup', 'type': 'function', 'function': {'name': 'client_lookup', 'arguments': '{}'}}
         handoff = {'role': 'assistant', 'content': None, 'tool_calls': [call]}
@@ -660,6 +712,7 @@ class ConversationHTTPTests(unittest.TestCase):
             self.assertEqual(1, model.call_count)
             self.assertEqual(404, client.get('/gateway/commands/tool-result-stage').status_code)
             self.assertEqual(before, client.get('/gateway/conversations/' + conversation_id + '/messages').json()['messages'])
+            self.assertNotIn('client_tool_acknowledgement', self.runtime.job_registry[job_id])
             projection.tx(lambda db: db.execute("DELETE FROM gateway_generation_admissions WHERE job_id LIKE 'occupied-%'"))
             second = client.post('/v1/chat/completions', json=followup, headers={'X-Gateway-Job-ID': job_id})
             self.assertEqual(200, second.status_code, second.text)

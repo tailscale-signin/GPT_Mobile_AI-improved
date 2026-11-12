@@ -267,9 +267,9 @@ object AppLogRecorder {
 
     fun record(tag: String, message: String, level: String = "I") = record(tag, message, level, null)
 
-    fun record(tag: String, message: String, level: String, reportCode: String?, reportError: Throwable? = null) {
+    fun record(tag: String, message: String, level: String, reportCode: String?, reportError: Throwable? = null, reportFields: Map<String, Any?> = emptyMap(), reportSource: String? = null) {
         val epoch = captureEpoch.get()
-        if (!privateSessionActive) IssueReportIncidents.log(tag, level, mutableEnabled.value, reportCode, reportError)
+        if (!privateSessionActive) IssueReportIncidents.log(tag, level, mutableEnabled.value, reportCode, reportError, reportFields, reportSource)
         recordCaptured(epoch, tag, message, level)
     }
 
@@ -288,7 +288,7 @@ object AppLogRecorder {
     fun recordEvent(tag: String, eventName: String, fields: Map<String, Any?>, level: String = "I") {
         val epoch = captureEpoch.get()
         if (privateSessionActive) return
-        IssueReportIncidents.log(tag, level, mutableEnabled.value, IssueReportCodes.fromFields(fields))
+        IssueReportIncidents.log(tag, level, mutableEnabled.value, IssueReportCodes.fromFields(fields), fields = fields)
         if (operationCaptureCurrent(epoch)) recordCaptured(epoch, tag, structuredDiagnosticEventMessage(eventName, fields), level)
     }
 

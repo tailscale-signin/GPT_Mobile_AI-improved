@@ -50,85 +50,109 @@ class DiagnosticDatabaseSource @Inject constructor(
         ).use { cursor ->
             if (!cursor.moveToFirst()) null else Triple(cursor.getString(0), cursor.getString(1), cursor.getString(2))
         }
-        var report: JsonObject? = null
+        val evidence = mutableListOf<DiagnosticFailureEvidence>()
+        val limitations = mutableListOf<JsonObject>()
         if (run != null) {
-            beforeRead()
-            val stored = database.openHelper.readableDatabase.query(
-                SimpleSQLiteQuery(
-                    "SELECT id, kind, payload FROM workspace_records WHERE chatId = ? AND runId = ? AND kind IN ('github_evidence','synthesis_checkpoint') AND id GLOB 'github-evidence:*:verification_current_*' ORDER BY updatedAt DESC, rowid DESC LIMIT 1",
-                    arrayOf<Any?>(chatId, run.first)
-                )
-            ).use { cursor ->
-                if (!cursor.moveToFirst()) null else Triple(cursor.getString(0), cursor.getString(1), cursor.getString(2))
+            suspend fun load(predicate: String, identity: String? = null): Triple<String, String, String>? {
+                beforeRead()
+                return database.openHelper.readableDatabase.query(
+                    SimpleSQLiteQuery(
+                        "SELECT id, kind, CASE WHEN length(CAST(payload AS BLOB)) <= 262144 THEN payload ELSE NULL END " +
+                            "FROM workspace_records WHERE chatId = ? AND runId = ? AND kind IN ('github_evidence','synthesis_checkpoint') AND $predicate " +
+                            "ORDER BY updatedAt DESC, rowid DESC LIMIT 1",
+                        if (identity == null) arrayOf<Any?>(chatId, run.first) else arrayOf<Any?>(chatId, run.first, identity)
+                    )
+                ).use { cursor ->
+                    if (!cursor.moveToFirst()) null else Triple(cursor.getString(0), cursor.getString(1), cursor.getString(2).orEmpty())
+                }
             }
-            if (stored != null) {
-                val protected = workspace.diagnosticPayload(chatId, stored.first, stored.second, stored.third, 256 * 1024, beforeRead, omitted)
-                report = protected.payload as? JsonObject
-                if (protected.protected && report == null) omitted(protected.omissionReason ?: "LATEST_FAILURE_EVIDENCE_UNAVAILABLE")
+            suspend fun project(stored: Triple<String, String, String>?, source: String): JsonObject? {
+                if (stored == null) return null
+                val reasons = mutableListOf<String>()
+                val protected = workspace.diagnosticPayload(chatId, stored.first, stored.second, stored.third, 256 * 1024, beforeRead, reasons::add)
+                val payload = if (stored.third.isEmpty()) {
+                    reasons += "PROTECTED_METADATA_LIMIT"
+                    null
+                } else if (protected.protected) {
+                    (protected.payload as? JsonObject).also {
+                        if (it == null) reasons += protected.omissionReason ?: "LATEST_FAILURE_EVIDENCE_UNAVAILABLE"
+                    }
+                } else {
+                    DiagnosticValueProjector(256 * 1024, reasons::add).text(stored.third) as? JsonObject
+                }
+                reasons.distinct().forEach { reason ->
+                    limitations += buildJsonObject {
+                        put("record_id", stored.first)
+                        put("source", source)
+                        put("reason", reason)
+                        put("scope", "COMPACT_SUMMARY_PROJECTION; full records are captured independently")
+                    }
+                    // A small projection limit is not missing source evidence. The full
+                    // latest-state/workspace collector independently records real omissions.
+                    if (reason !in setOf("PROTECTED_PAYLOAD_BYTE_LIMIT", "PROTECTED_METADATA_LIMIT")) omitted(reason)
+                }
+                if (payload != null) evidence += DiagnosticFailureEvidence(stored.first, source, payload)
+                return payload
             }
-        }
-        fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
-        fun readFrom(vararg values: JsonObject?, key: String): String? = values.firstNotNullOfOrNull { it?.text(key) }
-        val acceptance = report?.get("acceptance_ledger") as? JsonObject
-        val failureEnvelope = report?.get("verification_failure") as? JsonObject
-        val stopReason = report?.get("stop_reason") as? JsonObject
-        val requirements = ((acceptance?.get("requirements") as? JsonArray).orEmpty() + (report?.get("remaining_requirements") as? JsonArray).orEmpty())
-            .filterIsInstance<JsonObject>()
-        val failed = requirements.firstOrNull { requirement ->
-            val state = requirement.text("acceptance_state") ?: requirement.text("state") ?: requirement.text("status")
-            state != null && state !in setOf("PASS", "VERIFIED", "COMPLETED", "NOT_APPLICABLE", "OUT_OF_SCOPE")
-        }
-        val failureCode = readFrom(failureEnvelope, report, acceptance, key = "code")
-            ?: readFrom(report, acceptance, key = "verification_failure")
-            ?: readFrom(report, acceptance, key = "failure_code")
-            ?: readFrom(report, acceptance, key = "stop_code")
-            ?: stopReason?.text("code")
-            ?: Regex("\\b(?:GITHUB_[A-Z0-9_]+|WAITING_FOR_APPROVAL|PARTIAL_EVIDENCE)\\b").find(run?.third.orEmpty())?.value
-        val testedSha = listOf("tested_sha", "head_sha", "expected_head_sha", "source_head_sha")
-            .firstNotNullOfOrNull { key -> readFrom(report, acceptance, key = key)?.takeIf { it.matches(Regex("(?i)[a-f0-9]{40}")) } }
-        val receiptIds = (
-            failed?.let { criterion ->
-                listOf("receipt_ids", "missing_evidence_ids", "evidence_receipt_ids", "receipt_id").flatMap { key ->
-                    when (val value = criterion[key]) {
-                        is JsonArray -> value.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-                        is JsonPrimitive -> listOfNotNull(value.contentOrNull)
-                        else -> emptyList()
+            val current = load("id GLOB 'github-evidence:*:verification_current_*'")
+            val report = project(current, "VERIFICATION_CURRENT")
+            if (report == null) {
+                val event = load("id GLOB 'github-evidence:*:verification_event_*'")
+                val projected = project(event, "VERIFICATION_EVENT")
+                val snapshot = (projected?.get("snapshot_id") as? JsonPrimitive)?.contentOrNull
+                if (current != null && snapshot != current.first.substringAfterLast(':')) {
+                    evidence.removeAll { it.source == "VERIFICATION_EVENT" }
+                    limitations += buildJsonObject {
+                        put("source", "VERIFICATION_EVENT")
+                        put("reason", "LATEST_FAILURE_SNAPSHOT_MISMATCH")
                     }
                 }
-            } ?: emptyList()
-            ).distinct().take(12)
-        val taskState = readFrom(report, acceptance, key = "task_state")
-        val approvalState = readFrom(report, acceptance, key = "approval_state")
-        val taskOutcome = readFrom(report, acceptance, key = "task_outcome")
-        val verdict = when {
-            taskState == "WAITING_FOR_APPROVAL" || approvalState == "WAITING_FOR_APPROVAL" -> "WAITING_FOR_APPROVAL"
-            report?.get("completion_verified") == JsonPrimitive(true) -> "VERIFIED"
-            failureCode != null -> failureCode
-            taskOutcome != null -> taskOutcome
-            report == null -> run?.second ?: "NOT_RETAINED"
-            else -> report?.text("phase") ?: run?.second ?: "NOT_RECORDED"
+            }
+            // The output checkpoint supplies invocation/dispatch/recovery detail when
+            // the verification event deliberately contains only a compact verdict.
+            if (report?.get("completion_verified") != JsonPrimitive(true) &&
+                (report == null || listOf("invocation_id", "failed_stage", "recovery_action").any { report[it] == null || report[it] == JsonNull })
+            ) {
+                val binding = current?.first?.removePrefix("github-evidence:")?.substringBeforeLast(':')
+                val output = if (binding == null) load("id GLOB 'github-output:*'") else load("id = ?", "github-output:$binding")
+                project(output, "OUTPUT_CHECKPOINT")
+            }
+        }
+        diagnosticFailureSummary(run?.first, run?.second, run?.third, appVersion, appBuild, appCommit, evidence, limitations)
+    }
+
+    /** References only: accepted GitHub policies also live outside the legacy policy tables. */
+    internal suspend fun latestPolicyReferences(chatId: Int, beforeRead: suspend () -> Unit): JsonObject = withContext(Dispatchers.IO) {
+        require(chatId > 0)
+        beforeRead()
+        val references = database.openHelper.readableDatabase.query(
+            SimpleSQLiteQuery(
+                "SELECT rowid, id, runId FROM workspace_records WHERE chatId = ? " +
+                    "AND runId IN (SELECT run_id FROM agent_runs WHERE chat_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1) " +
+                    "AND (id GLOB 'github-run-policy:*' OR id GLOB 'github-evidence:*:policy_*') ORDER BY updatedAt DESC, rowid DESC LIMIT 17",
+                arrayOf<Any?>(chatId, chatId)
+            )
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) {
+                    add(
+                        buildJsonObject {
+                            put("table", "workspace_records")
+                            put("rowId", cursor.getLong(0))
+                            put("record_id", cursor.getString(1))
+                            put("run_id", cursor.getString(2))
+                        }
+                    )
+                }
+            }
         }
         buildJsonObject {
-            put("kind", "compact_failure_summary")
-            put("run_id", run?.first?.let(::JsonPrimitive) ?: JsonNull)
-            put("run_status", run?.second?.let(::JsonPrimitive) ?: JsonNull)
-            put("app_version", appVersion)
-            put("app_build", appBuild)
-            put("app_commit", appCommit)
-            put("latest_verdict", verdict)
-            put("task_state", taskState?.let(::JsonPrimitive) ?: JsonNull)
-            put("task_outcome", taskOutcome?.let(::JsonPrimitive) ?: JsonNull)
-            put("stop_code", (readFrom(report, acceptance, key = "stop_code") ?: stopReason?.text("code") ?: failureCode)?.let(::JsonPrimitive) ?: JsonNull)
-            put("approval_state", approvalState?.let(::JsonPrimitive) ?: JsonNull)
-            put("failed_criterion", (failed?.text("requirement") ?: failed?.text("label") ?: failed?.text("id"))?.take(360)?.let(::JsonPrimitive) ?: JsonNull)
-            put("causal_receipt_ids", JsonArray(receiptIds.map(::JsonPrimitive)))
-            put("invocation_id", readFrom(failureEnvelope, report, acceptance, key = "invocation_id")?.let(::JsonPrimitive) ?: JsonNull)
-            put("failed_stage", (readFrom(failureEnvelope, report, acceptance, key = "failed_stage") ?: report?.text("phase"))?.let(::JsonPrimitive) ?: JsonNull)
-            put("failure_code", failureCode?.let(::JsonPrimitive) ?: JsonNull)
-            put("recovery_action", readFrom(report, acceptance, key = "recovery_action")?.let(::JsonPrimitive) ?: JsonNull)
-            put("tested_sha", testedSha?.let(::JsonPrimitive) ?: JsonNull)
-            put("tested_sha_status", if (testedSha == null) "NOT_RETAINED" else "EXACT_SHA_RETAINED")
-            put("captured_at_millis", System.currentTimeMillis())
+            put("kind", "accepted_policy_workspace_references")
+            put("availability", if (references.isEmpty()) "NO_RETAINED_WORKSPACE_POLICY_REFERENCES" else "RETAINED_WORKSPACE_POLICY_REFERENCES")
+            put("scope", "Latest run only. References identify retained accepted policies, not successful tool tests or process admission snapshots.")
+            put("lookup", "Latest matching policy records are in latest-state.jsonl; full-history captures also include workspace.jsonl.")
+            put("references", JsonArray(references.take(16)))
+            put("referencesTruncated", references.size > 16)
         }
     }
 
@@ -412,12 +436,13 @@ class DiagnosticDatabaseSource @Inject constructor(
             "w.id GLOB 'github-evidence:*:verification_event_*'",
             "w.id GLOB 'github-evidence:*:checklist_*'",
             "w.id GLOB 'github-evidence:*:policy_*'",
+            "w.id GLOB 'github-run-policy:*'",
             "w.id GLOB 'github-review:*'",
             "w.id GLOB 'github-active-task:*'",
             "w.id GLOB 'github-tool-budget:*'",
             "w.id GLOB 'github-output:*'"
         ).joinToString(" OR ") { predicate ->
-            "t.rowid IN (SELECT w.rowid FROM workspace_records w WHERE w.chatId = :chatId AND ($predicate) ORDER BY w.updatedAt DESC, w.rowid DESC LIMIT 1)"
+            "t.rowid IN (SELECT w.rowid FROM workspace_records w WHERE w.chatId = :chatId AND w.runId IN ($latestRun) AND ($predicate) ORDER BY w.updatedAt DESC, w.rowid DESC LIMIT 1)"
         }
         val invocationScope = "t.parentRunId IN ($runs) OR (t.turnKey LIKE CAST(:chatId AS TEXT) || ':%' AND NOT EXISTS (SELECT 1 FROM agent_runs ar WHERE ar.run_id = t.parentRunId AND ar.chat_id != :chatId))"
         val researchWorks = "SELECT workId FROM research_save_receipts WHERE chatId = :chatId UNION SELECT workId FROM research_jobs WHERE chatId = :chatId"

@@ -272,7 +272,7 @@ class ToolExchangeCompactorTest {
     }
 
     @Test
-    fun compact_respects_replay_budgets_below_previous_512_token_floor() {
+    fun irreduciblePendingArgumentsRemainExactForAnExplicitReplayAdmissionFailure() {
         val call = ProviderEvent.ToolCall(
             callId = "tiny-budget",
             name = "github__github_api",
@@ -284,7 +284,49 @@ class ToolExchangeCompactorTest {
             maxResultTokens = 128
         )
 
-        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) <= 128)
+        assertEquals(call, compacted.single().calls.single())
+        assertEquals(call.callId, compacted.single().results.single().callId)
+        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) > 128)
+    }
+
+    @Test fun hardBoundNeverReplacesWireArgumentsWithAnEmptyObjectOrAHash() {
+        val exchanges = (0 until 12).map { index ->
+            val call = ProviderEvent.ToolCall("original-$index", "github_read", buildJsonObject { put("path", "src/" + "segment/".repeat(12) + "$index.kt") })
+            AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("source ".repeat(1000)), false)))
+        }
+        val compacted = ToolExchangeCompactor.compact(exchanges, 400, 80)
+        assertTrue(compacted.isNotEmpty())
+        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) <= 400)
+        compacted.flatMap { it.calls }.forEach { call ->
+            assertEquals(exchanges.flatMap { it.calls }.single { it.callId == call.callId }, call)
+            assertEquals(ToolHandoffReceipt.fingerprint(exchanges.flatMap { it.calls }.single { it.callId == call.callId }), ToolHandoffReceipt.fingerprint(call))
+        }
+    }
+
+    @Test fun hardBoundPreservesEveryCallInTheLatestPendingBatch() {
+        val calls = (1..2).map { index -> ProviderEvent.ToolCall("pending-$index", "github_read", buildJsonObject { put("path", "path-$index/" + "x".repeat(1000)) }) }
+        val latest = AgentToolExchange(calls, calls.map { AgentToolResult(it.callId, ToolResultContent.Text("retained"), false) })
+        val compacted = ToolExchangeCompactor.compact(listOf(latest), 128, 64)
+        assertEquals(calls, compacted.single().calls)
+        assertEquals(calls.map { it.callId }, compacted.single().results.map { it.callId })
+        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) > 128)
+    }
+
+    @Test fun savedViewConsumptionCannotEvictTheOriginalPendingHandoff() {
+        val name = "github_read__account"
+        val cursor = "saved-view:0:2048"
+        val localId = "saved-result-consume-" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("$name:$cursor").take(24)
+        val pendingCall = ProviderEvent.ToolCall("pending", name, buildJsonObject { put("ranges", "x".repeat(1500)) })
+        val localCall = ProviderEvent.ToolCall(localId, name, buildJsonObject { put("view_cursor", cursor) })
+        fun exchange(call: ProviderEvent.ToolCall) = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("captured source ".repeat(100)), false)))
+        val compacted = ToolExchangeCompactor.compact(listOf(exchange(pendingCall), exchange(localCall)), 150, 64)
+        assertEquals(listOf(pendingCall), compacted.flatMap { it.calls })
+        assertEquals(listOf("pending"), compacted.flatMap { it.results }.map { it.callId })
+        assertTrue(ToolExchangeCompactor.estimateTokens(compacted) > 150)
+        val fits = ToolExchangeCompactor.compact(listOf(exchange(pendingCall), exchange(localCall)), 1000, 80)
+        assertTrue(fits.any { pendingCall in it.calls })
+        assertTrue(fits.flatMap { it.calls }.all { it == pendingCall || it == localCall })
+        assertTrue(ToolExchangeCompactor.estimateTokens(fits) <= 1000)
     }
 
     @Test

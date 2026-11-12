@@ -58,6 +58,27 @@ class StagedDiagnosticCaptureTest {
         }
     }
 
+    @Test fun mixedCriticalAvailabilityNamesTheMissingSourceInsteadOfImplyingAllEvidenceIsEmpty() = temporary { directory ->
+        runBlocking {
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "mixed-critical",
+                listOf(
+                    stage("latest_state", critical = true) { it.record("retained failure") },
+                    stage("critical_logs", critical = true) { it.omit("TRACKING_DISABLED_NO_RETAINED_LOGS") }
+                ),
+                available
+            )
+            val availability = result.manifest.getValue("evidenceAvailability").jsonObject
+            assertEquals(JsonPrimitive(2), availability["criticalSectionCount"])
+            assertEquals(JsonPrimitive(1), availability["criticalSectionsWithEvidence"])
+            assertEquals(JsonPrimitive(1), availability["criticalSectionsWithoutEvidence"])
+            assertEquals(JsonPrimitive(0L), availability["applicationLogRecords"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("critical_logs"))), availability["emptyCriticalSections"])
+            assertEquals(result.manifest, StagedDiagnosticCapture.verify(result.file))
+        }
+    }
+
     @Test fun stageTraceClosesOnFailureAndIsNotReopenedForReusedEvidence() = temporary { directory ->
         runBlocking {
             val observations = mutableListOf<String>()

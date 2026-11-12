@@ -26,16 +26,17 @@ class GitHubContinuationInvocationTest {
     }
     private fun fingerprint(call: ProviderEvent.ToolCall) = GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}")
 
-    @Test fun authorizedAliasAndCompactedArgumentsResolveTheOriginalHandoff() = runBlocking {
-        // Fit the 16 KiB admission limit while still exceeding the 512-token replay allowance.
+    @Test fun authorizedAliasAndCompactedResultPreserveTheOriginalHandoff() = runBlocking {
+        // The original arguments fit replay; only the larger result may be compacted.
         val call = ProviderEvent.ToolCall("read", "github_read", buildJsonObject { put("path", "original-path-".repeat(600)) }, originalInvocationFingerprint = "untrusted-provider-value")
         assertTrue("The fixture must reach the authorized tool before replay compaction.", ToolRoundAdmission().admit(call))
+        val originalResult = "Confirmed read receipt. ".repeat(600)
         var executions = 0
         var reopens = 0
         val read = tool("github_read__fixture") { id, arguments ->
             executions++
             assertEquals(call.arguments, arguments)
-            AgentToolResult(id, ToolResultContent.Text("Confirmed read receipt"), false)
+            AgentToolResult(id, ToolResultContent.Text(originalResult), false)
         }
         val continuation = GitHubOutputContinuationSession(session(ProviderEvent.TextDelta("Saved prefix."), limited), maxContinuations = 1) { _, exchanges, _ ->
             if (++reopens == 1) {
@@ -43,16 +44,64 @@ class GitHubContinuationInvocationTest {
             } else {
                 val delivered = exchanges.single().calls.single()
                 assertEquals(read.definition.name, delivered.name)
-                assertTrue(delivered.arguments.isEmpty())
+                assertEquals(call.arguments, delivered.arguments)
                 assertEquals(fingerprint(call), delivered.originalInvocationFingerprint)
+                val result = exchanges.single().results.single()
+                assertEquals(call.callId, result.callId)
+                val projected = (result.content as ToolResultContent.Text).text
+                assertTrue(projected.isNotEmpty() && projected.length < originalResult.length)
                 session(ProviderEvent.TextDelta(" Confirmed suffix."), ProviderEvent.Completed)
             }
         }
-        val events = AgentRunner(AgentRunLimits(githubTask = true, maxReplayTokens = 512, maxReplayResultTokens = 128)).run(continuation, listOf(read)).toList()
+        val events = AgentRunner(AgentRunLimits(githubTask = true, maxReplayTokens = 4096, maxReplayResultTokens = 128)).run(continuation, listOf(read)).toList()
         assertEquals(1, executions)
         assertEquals(2, reopens)
         assertTrue(events.none { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
         assertEquals("Saved prefix. Confirmed suffix.", events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { (it.event as? ProviderEvent.TextDelta)?.text }.joinToString(""))
+    }
+
+    @Test fun irreducibleAliasedInvocationBlocksReplayWithoutLosingItsReceipt() = runBlocking {
+        val call = ProviderEvent.ToolCall("read", "github_read", buildJsonObject { put("path", "original-path-".repeat(600)) }, originalInvocationFingerprint = "untrusted-provider-value")
+        val batch = ToolBatchCheckpoint(null, "aliased-replay-admission")
+        var saved: JsonObject? = null
+        var executions = 0
+        var reopens = 0
+        val read = tool("github_read__fixture") { id, arguments ->
+            executions++
+            assertEquals(call.arguments, arguments)
+            AgentToolResult(id, ToolResultContent.Text("Confirmed read receipt"), false)
+        }
+        val continuation = GitHubOutputContinuationSession(
+            session(ProviderEvent.TextDelta("Saved prefix."), limited),
+            maxContinuations = 1,
+            durableToolReceipts = batch::handoffReceipts,
+            readCheckpoint = { saved },
+            saveCheckpoint = { saved = it }
+        ) { _, _, _ ->
+            reopens++
+            session(call, ProviderEvent.Completed)
+        }
+        val events = AgentRunner(
+            AgentRunLimits(githubTask = true, maxReplayTokens = 512, maxReplayResultTokens = 128),
+            checkpoint = batch,
+            onToolResultCommitted = continuation::observeToolResult
+        ).run(continuation, listOf(read)).toList()
+
+        assertEquals(1, executions)
+        assertEquals(1, reopens)
+        val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("REPLAY_EVIDENCE_REQUIRED", failure.errorCode)
+        assertEquals("BLOCKED", failure.taskOutcome)
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        val retained = batch.recoverySnapshot().completedExchanges.single()
+        assertEquals(call.copy(name = read.definition.name, originalInvocationFingerprint = fingerprint(call)), retained.calls.single())
+        assertEquals(ToolResultContent.Text("Confirmed read receipt"), retained.results.single().content)
+        assertEquals(JsonPrimitive("TOOL_RESULTS_READY"), saved?.get("state"))
+        assertEquals(JsonArray(emptyList()), saved?.get("pending_calls"))
+        assertEquals(JsonPrimitive("Saved prefix."), saved?.get("draft"))
+        val output = events.filterIsInstance<AgentRunEvent.Provider>().mapNotNull { (it.event as? ProviderEvent.TextDelta)?.text }.joinToString("")
+        assertTrue(output.contains("Status: PARTIAL. Recorded failure: `REPLAY_EVIDENCE_REQUIRED`."))
+        assertTrue(output.contains("Stopped during `planning`."))
     }
 
     @Test fun restoredAliasedInvocationKeepsUnknownDurableOutcomePendingDespiteStaleCompactedSuccess() = runBlocking {

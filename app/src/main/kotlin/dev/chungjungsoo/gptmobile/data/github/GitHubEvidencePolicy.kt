@@ -375,6 +375,8 @@ internal object GitHubEvidencePolicy {
     private fun recoveryAction(failureCode: String?, receipts: Map<String, JsonObject>): String = when {
         GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "REVIEW_EXISTING_APPROVAL_CARD"
         receipts.values.any { proposal -> GitHubPendingApproval.resolution(proposal, receipts.values)?.let(GitHubPendingApproval::isRejectedResolution) == true } -> "RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION"
+        failureCode == "REVIEW_INPUT_REQUIRED" -> "PROVIDE_MISSING_REVIEW_INPUT"
+        failureCode == "GITHUB_REVIEW_COMPARISON_REQUIRED" -> "RESTORE_REVIEW_COMPARISON_EVIDENCE"
         failureCode == "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT"
         failureCode == "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "RESUME_SAVED_BATCH_WITH_SCHEMA_VALIDATION"
         failureCode == "GITHUB_EXTRACTION_TIMEOUT" -> "RESUME_UNFINISHED_EXTRACTION_BATCHES"
@@ -389,6 +391,8 @@ internal object GitHubEvidencePolicy {
 
     private fun recoveryText(action: String): String = when (action) {
         "REVIEW_EXISTING_APPROVAL_CARD" -> "Resolve the existing approval card; do not create another card or retry the mutation."
+        "PROVIDE_MISSING_REVIEW_INPUT" -> "Provide the requested review input, such as the baseline commit or tag; completed repository observations remain retained."
+        "RESTORE_REVIEW_COMPARISON_EVIDENCE" -> "Restore the exact head and baseline observations before continuing the source review."
         "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT" -> "Resume the failed saved claim batch with a smaller claim limit; keep completed batches."
         "RESUME_SAVED_BATCH_WITH_SCHEMA_VALIDATION" -> "Resume the failed saved claim batch with strict structured-output validation."
         "RESUME_UNFINISHED_EXTRACTION_BATCHES" -> "Continue only unfinished claim extraction batches from their saved checkpoint."
@@ -622,18 +626,9 @@ internal object GitHubEvidencePolicy {
             ?.let { "${it.scheme}://${it.rawAuthority}" } ?: "https://github.com"
         val base = "$origin/${repo[0]}/${repo[1]}"
         val pointer = claim.string("pointer")
-        val tool = receipt.string("tool").substringBefore("__")
-        val url = when {
-            pointer.contains("branch", true) || pointer.endsWith("/ref") -> "$base/tree/${encodeRef(value)}"
-            pointer.contains("sha", true) || pointer.endsWith("/commit") -> value.takeIf { it.matches(Regex("(?i)[a-f0-9]{7,40}")) }?.let { "$base/commit/$it" }
-            tool == "github_pr" && (pointer.endsWith("/number") || pointer.contains("pull_requests")) -> value.toLongOrNull()?.takeIf { it > 0 }?.let { "$base/pull/$it" }
-            else -> null
-        } ?: return value
+        val observed = (claim["observed"] as? JsonPrimitive)?.contentOrNull ?: return value
+        val url = GitHubEvidenceLink.url(base, pointer, observed, receipt) ?: return value
         return "[$value]($url)"
-    }
-
-    private fun encodeRef(value: String): String = value.split('/').joinToString("/") {
-        java.net.URLEncoder.encode(it, Charsets.UTF_8.name()).replace("+", "%20")
     }
 
     private fun label(pointer: String, receipt: JsonObject? = null): String {

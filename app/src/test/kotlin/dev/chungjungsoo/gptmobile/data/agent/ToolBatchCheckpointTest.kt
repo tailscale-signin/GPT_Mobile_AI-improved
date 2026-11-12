@@ -10,12 +10,14 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -108,6 +110,259 @@ class ToolBatchCheckpointTest {
         val events = AgentRunner(AgentRunLimits(githubTask = true, maxToolCalls = 4), journal, onToolResult = { call, _ -> observed += call.callId }).run(provider, listOf(tool)).toList()
         assertEquals(listOf("status", "checks", "prs", "commits"), observed)
         assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Completed })
+    }
+
+    private fun binding(calls: List<ProviderEvent.ToolCall>): dev.chungjungsoo.gptmobile.data.network.gateway.GatewayContinuationBinding {
+        val source = buildJsonObject {
+            put("job_id", "saved")
+            put("status", "waiting_for_client_tool")
+            put(
+                "job",
+                buildJsonObject {
+                    put("job_id", "saved")
+                    put("model", "selected")
+                    put("pending_client_tool_call_ids", JsonArray(calls.map { JsonPrimitive(it.callId) }))
+                }
+            )
+            put(
+                "result",
+                buildJsonObject {
+                    put(
+                        "choices",
+                        JsonArray(
+                            listOf(
+                                buildJsonObject {
+                                    put("finish_reason", "tool_calls")
+                                    put(
+                                        "message",
+                                        buildJsonObject {
+                                            put("role", "assistant")
+                                            put(
+                                                "tool_calls",
+                                                JsonArray(
+                                                    calls.map { call ->
+                                                        buildJsonObject {
+                                                            put("id", call.callId)
+                                                            put("type", "function")
+                                                            put(
+                                                                "function",
+                                                                buildJsonObject {
+                                                                    put("name", call.name)
+                                                                    put("arguments", call.arguments.toString())
+                                                                }
+                                                            )
+                                                        }
+                                                    }
+                                                )
+                                            )
+                                        }
+                                    )
+                                }
+                            )
+                        )
+                    )
+                }
+            )
+        }
+        val saved = Json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobResult.serializer(), source)
+        return dev.chungjungsoo.gptmobile.data.network.gateway.GatewayContinuationBinding.verified("profile", "https://gateway.test/v1", "selected", "saved", saved)
+    }
+
+    @Test fun processRestartRestoresTheOriginalTwoCallBatchAndNeverRedispatchesCompletedMembers() = runBlocking {
+        for (github in listOf(false, true)) {
+            for (partial in listOf(false, true)) {
+                val file = File.createTempFile("grouped-handoff", ".json").apply { delete() }
+                try {
+                    val calls = listOf("first", "second").map { ProviderEvent.ToolCall(it, "read_fixture", buildJsonObject { put("path", "$it.txt") }) }
+                    val original = ToolBatchCheckpoint(file, "same-task")
+                    original.enqueue(calls)
+                    val executions = mutableListOf<String>()
+                    suspend fun execute(call: ProviderEvent.ToolCall): AgentToolResult {
+                        executions += call.callId
+                        return AgentToolResult(call.callId, ToolResultContent.Text("retained ${call.callId}"), false)
+                    }
+                    original.execute(calls.first()) { execute(calls.first()) }
+                    if (!partial) original.execute(calls.last()) { execute(calls.last()) }
+                    val waiting = binding(calls)
+                    val restored = ToolBatchCheckpoint(file, "same-task")
+                    val snapshot = restored.recoverySnapshot()
+                    if (partial) {
+                        assertEquals(calls, snapshot.pending)
+                        assertTrue(snapshot.completedExchanges.isEmpty())
+                        assertEquals(setOf("first"), snapshot.pendingRetainedIds)
+                    } else {
+                        assertTrue(snapshot.pending.isEmpty())
+                        assertEquals(calls, snapshot.completedExchanges.single().calls)
+                        waiting.requireResults(snapshot.completedExchanges)
+                    }
+                    val tool = object : AgentTool {
+                        override val definition = AgentToolDefinition("read_fixture", "Read fixture", JsonObject(emptyMap()))
+                        override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                            assertEquals("Only the uncompleted member may execute", "second", callId)
+                            return execute(calls.last())
+                        }
+                    }
+                    var providerRounds = 0
+                    val provider = object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                            providerRounds++
+                            waiting.requireResults(exchanges)
+                            assertEquals(calls, exchanges.last().calls)
+                            assertEquals(calls.map { it.callId }, exchanges.last().results.map { it.callId })
+                            emit(ProviderEvent.TextDelta("Saved handoff received"))
+                            emit(ProviderEvent.Completed)
+                        }
+                    }
+                    repeat(2) {
+                        val events = AgentRunner(AgentRunLimits(githubTask = github, maxToolCalls = 2), ToolBatchCheckpoint(file, "same-task")).run(provider, listOf(tool)).toList()
+                        assertTrue(events.any { it is AgentRunEvent.Provider && it.event == ProviderEvent.Completed })
+                    }
+                    assertEquals(listOf("first", "second"), executions)
+                    assertEquals(2, providerRounds)
+                    assertEquals(calls, ToolBatchCheckpoint(file, "same-task").recoverySnapshot().completedExchanges.single().calls)
+                } finally {
+                    file.delete()
+                }
+            }
+        }
+    }
+
+    @Test fun legacyJournalGroupsOnlyItsProvenPendingBatchAndDoesNotMergeHistoricalCalls() = runBlocking {
+        val file = File.createTempFile("legacy-grouping", ".json").apply { delete() }
+        try {
+            val journal = ToolBatchCheckpoint(file, "legacy-groups")
+            val historical = ProviderEvent.ToolCall("historical", "read_fixture", JsonObject(emptyMap()))
+            val current = listOf("first", "second").map { ProviderEvent.ToolCall(it, "read_fixture", JsonObject(emptyMap())) }
+            for (batch in listOf(listOf(historical), current)) {
+                journal.enqueue(batch)
+                batch.forEach { call -> journal.execute(call) { AgentToolResult(call.callId, ToolResultContent.Text("saved"), false) } }
+            }
+            file.writeText(JsonObject(Json.parseToJsonElement(file.readText()).jsonObject - "batches").toString())
+            val grouped = ToolBatchCheckpoint(file, "legacy-groups").recoverySnapshot().completedExchanges
+            assertEquals(listOf(listOf(historical), current), grouped.map { it.calls })
+            binding(current).requireResults(grouped)
+            val withoutPending = JsonObject(Json.parseToJsonElement(file.readText()).jsonObject + ("pending" to JsonArray(emptyList())))
+            file.writeText(withoutPending.toString())
+            val ungrouped = ToolBatchCheckpoint(file, "legacy-groups").recoverySnapshot().completedExchanges
+            assertEquals(listOf(historical) + current, ungrouped.map { it.calls.single() })
+            assertTrue(runCatching { binding(current).requireResults(ungrouped) }.isFailure)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun partialGitHubBatchRestoresCompletedMembersWithoutPublishingNewToolActivity() = runBlocking {
+        val file = File.createTempFile("partial-restored-events", ".json").apply { delete() }
+        try {
+            val calls = listOf("committed", "queued").map {
+                ProviderEvent.ToolCall(it, "write_fixture", buildJsonObject { put("target", it) })
+            }
+            val executions = mutableListOf<String>()
+            val original = ToolBatchCheckpoint(file, "same-task")
+            original.enqueue(calls)
+            original.execute(calls.first()) {
+                executions += calls.first().callId
+                AgentToolResult(calls.first().callId, ToolResultContent.Text("Original committed receipt"), false)
+            }
+            val restored = mutableListOf<List<AgentToolExchange>>()
+            val observed = mutableListOf<String>()
+            val committed = mutableListOf<String>()
+            val waiting = binding(calls)
+            var providerRounds = 0
+            val tool = object : AgentTool {
+                override val definition = AgentToolDefinition("write_fixture", "Write fixture", JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    executions += callId
+                    assertEquals("queued", callId)
+                    return AgentToolResult(callId, ToolResultContent.Text("New committed receipt"), false)
+                }
+            }
+            val provider = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    providerRounds++
+                    waiting.requireResults(exchanges)
+                    assertEquals(calls, exchanges.single().calls)
+                    assertEquals(calls.map { it.callId }, exchanges.single().results.map { it.callId })
+                    assertEquals(ToolResultContent.Text("Original committed receipt"), exchanges.single().results.first().content)
+                    emit(ProviderEvent.TextDelta("Both saved outcomes received"))
+                    emit(ProviderEvent.Completed)
+                }
+            }
+            val events = AgentRunner(
+                AgentRunLimits(githubTask = true, maxToolCalls = 2),
+                ToolBatchCheckpoint(file, "same-task"),
+                onToolResult = { call, _ -> observed += call.callId },
+                onToolResultCommitted = { call, _ -> committed += call.callId },
+                onToolResultsRestored = { restored += it }
+            ).run(provider, listOf(tool)).toList()
+
+            assertEquals(listOf("committed", "queued"), executions)
+            assertEquals(1, providerRounds)
+            assertEquals(listOf(calls.first()), restored.single().single().calls)
+            assertTrue(restored.single().single().results.single().sharedResult)
+            assertTrue(observed.isNotEmpty() && observed.all { it == "queued" })
+            assertEquals(listOf("queued"), committed)
+            assertEquals(listOf("queued"), events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.ToolCall>().map { it.callId })
+            assertEquals(listOf("queued"), events.filterIsInstance<AgentRunEvent.ToolStarted>().map { it.call.callId })
+            assertEquals(listOf("queued"), events.filterIsInstance<AgentRunEvent.ToolFinished>().map { it.call.callId })
+            assertEquals(listOf(1), events.filterIsInstance<AgentRunEvent.ToolResultsRestored>().map { it.count })
+            assertEquals(calls, ToolBatchCheckpoint(file, "same-task").recoverySnapshot().completedExchanges.single().calls)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun partialBatchRestoresAnsweredDecisionAndDefersActionsUntilTheProviderReplans() = runBlocking {
+        for (githubTask in listOf(false, true)) {
+            val file = File.createTempFile("partial-decision", ".json").apply { delete() }
+            try {
+                val question = ProviderEvent.ToolCall("decision", "question_fixture", JsonObject(emptyMap()))
+                val action = ProviderEvent.ToolCall("action", "action_fixture", JsonObject(emptyMap()))
+                val calls = listOf(question, action)
+                val journal = ToolBatchCheckpoint(file, "same-task")
+                journal.enqueue(calls)
+                val answer = AgentToolResult(question.callId, ToolResultContent.Text("Saved answer"), false)
+                journal.complete(question, answer)
+                val tools = calls.map { call ->
+                    object : AgentTool {
+                        override val definition = AgentToolDefinition(
+                            call.name,
+                            "Fixture",
+                            JsonObject(emptyMap()),
+                            capabilities = if (call == question) setOf(AgentToolCapability.USER_DECISION) else emptySet()
+                        )
+
+                        override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult =
+                            error("Recovered batch must not dispatch $callId")
+                    }
+                }
+                var providerRounds = 0
+                val provider = object : AgentProviderSession {
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                        providerRounds++
+                        val batch = exchanges.single()
+                        assertEquals(calls, batch.calls)
+                        assertEquals(answer.content, batch.results.first().content)
+                        assertTrue(batch.results.first().sharedResult)
+                        assertEquals(action.callId, batch.results.last().callId)
+                        assertFalse(batch.results.last().dispatched)
+                        emit(ProviderEvent.TextDelta("The saved decision is available."))
+                        emit(ProviderEvent.Completed)
+                    }
+                }
+
+                val events = AgentRunner(
+                    AgentRunLimits(githubTask = githubTask),
+                    ToolBatchCheckpoint(file, "same-task")
+                ).run(provider, tools).toList()
+
+                assertEquals(1, providerRounds)
+                assertTrue(events.none { it is AgentRunEvent.ToolStarted })
+                assertEquals(calls, ToolBatchCheckpoint(file, "same-task").recoverySnapshot().completedExchanges.single().calls)
+            } finally {
+                file.delete()
+            }
+        }
     }
 
     @Test fun acceptedJobAndVerifiedReceiptSurviveRestartWithoutReplayingPolicyRejections() = runBlocking {
@@ -313,11 +568,11 @@ class ToolBatchCheckpointTest {
             assertEquals(1, restored.dispatchedCount())
             assertEquals(setOf("uncertain"), restored.pendingDispatchedIds())
             val snapshot = restored.recoverySnapshot(CheckpointRestoreObjective(60_000))
-            assertEquals(listOf(uncertain), snapshot.pending)
-            assertTrue(snapshot.completedExchanges.any { it.calls.single() == rejected })
+            assertEquals(listOf(rejected, uncertain), snapshot.pending)
+            assertTrue(snapshot.completedExchanges.isEmpty())
             assertEquals(1, snapshot.dispatchedCount)
             assertEquals(setOf("uncertain"), snapshot.pendingDispatchedIds)
-            assertEquals(setOf("uncertain"), snapshot.pendingRetainedIds)
+            assertEquals(setOf("rejected", "uncertain"), snapshot.pendingRetainedIds)
             assertEquals("MET", snapshot.objectiveStatus)
             assertEquals("NOT_CONFIGURED", restored.recoverySnapshot().objectiveStatus)
             assertEquals(1, snapshot.unknownCount)
@@ -347,7 +602,7 @@ class ToolBatchCheckpointTest {
         journal.execute(calls.first()) { AgentToolResult(calls.first().callId, ToolResultContent.Text("saved"), false) }
         assertTrue(runCatching { journal.enqueue(listOf(calls.last())) }.isFailure)
         val remaining = journal.recoverySnapshot().pending
-        assertEquals(calls.drop(1), remaining)
+        assertEquals(calls, remaining)
         journal.enqueue(remaining)
         assertEquals(remaining, journal.pending())
         val receipt = journal.execute(calls.first()) { error("Settled work must not dispatch again") }

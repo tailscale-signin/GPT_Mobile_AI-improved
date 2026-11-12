@@ -12,78 +12,100 @@ import androidx.work.WorkerParameters
 import androidx.work.await
 import androidx.work.workDataOf
 import dev.chungjungsoo.gptmobile.BuildConfig
-import java.io.IOException
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.serialization.Serializable
-import kotlinx.serialization.SerializationException
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 
-/** WorkManager persists the approved, filtered payload and retries with the same report ID. */
+/** WorkManager delivers only durable, explicitly approved reports; no browser submission fallback. */
 class IssueReportWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        val payload = inputData.getString(PAYLOAD) ?: return@withContext Result.failure()
-        if (!configured) return@withContext fallback(payload)
-        val request = Request.Builder().url("${BuildConfig.ISSUE_REPORT_ORIGIN}/v1/issue-reports")
-            .post(payload.toRequestBody(JSON_MEDIA_TYPE)).build()
+        val outbox = IssueReportOutbox.forContext(applicationContext)
+        var reportId = inputData.getString(REPORT_ID)
         try {
-            client.newCall(request).execute().use { response ->
-                if (response.code in 500..599 || response.code in setOf(408, 425, 429)) return@use retryOrFallback(payload)
-                if (!response.isSuccessful) return@use fallback(payload)
-                val body = response.body ?: return@use retryOrFallback(payload)
-                if (body.source().request(MAX_RECEIPT_BYTES + 1)) return@use retryOrFallback(payload)
-                val number = IssueReport.json.decodeFromString(Receipt.serializer(), body.string()).number
-                if (number > 0) Result.success(workDataOf(ISSUE_NUMBER to number)) else retryOrFallback(payload)
+            if (reportId == null) {
+                // Upgrade an already-approved WorkManager request without changing its wire bytes.
+                val payload = inputData.getString(LEGACY_PAYLOAD) ?: return@withContext Result.failure()
+                val report = IssueReport.json.decodeFromString(IssueReport.serializer(), payload)
+                IssueReportIncidents.retainCorrelation(report)
+                reportId = outbox.approve(report, payload).reportId
             }
-        } catch (_: IOException) {
-            retryOrFallback(payload)
-        } catch (_: SerializationException) {
-            // GitHub may have accepted the report even if a proxy damaged the receipt.
-            retryOrFallback(payload)
+            val id = checkNotNull(reportId)
+            val client = IssueReportSubmission(BuildConfig.ISSUE_REPORT_ORIGIN)
+            val result = IssueReportDelivery.attempt(outbox, id, client::send) {
+                setProgress(workDataOf(REPORT_ID to id, PHASE to "SENDING"))
+            }
+            val saved = outbox.load(id)
+            val data = workDataOf(REPORT_ID to id, ISSUE_NUMBER to (saved?.issueNumber ?: 0), FAILURE_CODE to saved?.failureCode)
+            when (result) {
+                IssueReportDelivery.Result.CONFIRMED -> Result.success(data)
+                IssueReportDelivery.Result.RETRY -> {
+                    setProgress(workDataOf(REPORT_ID to id, PHASE to "QUEUED", FAILURE_CODE to saved?.failureCode))
+                    Result.retry()
+                }
+                IssueReportDelivery.Result.FAILED -> Result.failure(data)
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A local persistence failure cannot prove a remote issue was not created.
+            reportId?.let { id -> runCatching { outbox.failed(id, IssueReportSubmission.Failure("REPORT_LOCAL_UNAVAILABLE", retryable = true, automaticRetry = false), automaticRetry = false) } }
+            Result.failure(workDataOf(REPORT_ID to reportId, FAILURE_CODE to "REPORT_LOCAL_UNAVAILABLE"))
         }
     }
 
-    private fun retryOrFallback(payload: String): Result =
-        if (runAttemptCount + 1 >= MAX_AUTOMATIC_ATTEMPTS) fallback(payload) else Result.retry()
-
-    private fun fallback(payload: String): Result {
-        val url = runCatching {
-            IssueReportGitHubFallback.url(IssueReport.json.decodeFromString(IssueReport.serializer(), payload))
-        }.getOrNull()
-        return if (url == null) Result.failure() else Result.failure(workDataOf(FALLBACK_URL to url))
-    }
-
-    @Serializable
-    private data class Receipt(val number: Int)
-
     companion object {
         internal const val TAG = "gpt-mobile-issue-report"
+        internal const val REPORT_ID = "report-id"
         internal const val ISSUE_NUMBER = "issue-number"
-        internal const val FALLBACK_URL = "fallback-url"
-        private const val PAYLOAD = "approved-report"
-        private const val MAX_PAYLOAD_BYTES = 8192
-        private const val MAX_RECEIPT_BYTES = 1024L
-        private const val MAX_AUTOMATIC_ATTEMPTS = 5
-        private val JSON_MEDIA_TYPE = "application/json".toMediaType()
-        private val client = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
-            .retryOnConnectionFailure(false).callTimeout(40, TimeUnit.SECONDS).build()
-        internal val configured: Boolean get() = BuildConfig.ISSUE_REPORT_ORIGIN.isNotBlank()
+        internal const val FAILURE_CODE = "failure-code"
+        private const val PHASE = "phase"
+        private const val LEGACY_PAYLOAD = "approved-report"
+        private val queueLock = Mutex()
+        internal val configured: Boolean get() = IssueReportSubmission.configured(BuildConfig.ISSUE_REPORT_ORIGIN)
 
-        internal suspend fun enqueue(context: Context, report: IssueReport) {
-            check(configured)
-            val payload = IssueReport.json.encodeToString(IssueReport.serializer(), report)
-            require(payload.encodeToByteArray().size <= MAX_PAYLOAD_BYTES)
-            val request = OneTimeWorkRequestBuilder<IssueReportWorker>()
-                .setInputData(workDataOf(PAYLOAD to payload))
-                .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 60, TimeUnit.SECONDS)
-                .addTag(TAG)
-                .build()
-            WorkManager.getInstance(context).enqueueUniqueWork("$TAG:${report.reportId}", ExistingWorkPolicy.KEEP, request).await()
+        internal suspend fun enqueue(context: Context, report: IssueReport): IssueReportOutbox.Entry = withContext(Dispatchers.IO) {
+            val payload = report.approvedPayload()
+            IssueReportIncidents.retainCorrelation(report)
+            val approved = IssueReportOutbox.forContext(context).approve(report, payload)
+            enqueueApproved(context, approved.reportId, manualRetry = false)
+        }
+
+        internal suspend fun retry(context: Context, reportId: String): IssueReportOutbox.Entry =
+            withContext(Dispatchers.IO) { enqueueApproved(context, reportId, manualRetry = true) }
+
+        internal suspend fun resumeApproved(context: Context) = withContext(Dispatchers.IO) {
+            IssueReportOutbox.forContext(context).entries().filter { it.state in setOf(IssueReportOutbox.State.QUEUED, IssueReportOutbox.State.SENDING) }.forEach {
+                enqueueApproved(context, it.reportId, manualRetry = false)
+            }
+        }
+
+        private suspend fun enqueueApproved(context: Context, reportId: String, manualRetry: Boolean): IssueReportOutbox.Entry = queueLock.withLock {
+            val outbox = IssueReportOutbox.forContext(context)
+            val saved = checkNotNull(outbox.load(reportId)) { "Approved report is unavailable" }
+            if (saved.state == IssueReportOutbox.State.SENT || !saved.retryable) return@withLock saved
+            if (!configured) return@withLock outbox.failed(reportId, IssueReportSubmission.Failure("REPORT_SERVICE_UNCONFIGURED", retryable = true, automaticRetry = false), automaticRetry = false)
+            try {
+                val manager = WorkManager.getInstance(context)
+                val name = "$TAG:$reportId"
+                if (manager.getWorkInfosByTagFlow(name).first().any { !it.state.isFinished }) return@withLock saved
+                val queued = outbox.queue(reportId, manualRetry)
+                val request = OneTimeWorkRequestBuilder<IssueReportWorker>()
+                    .setInputData(workDataOf(REPORT_ID to reportId))
+                    .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+                    .setInitialDelay((queued.retryNotBeforeMillis - System.currentTimeMillis()).coerceAtLeast(0), TimeUnit.MILLISECONDS)
+                    .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 60, TimeUnit.SECONDS)
+                    .addTag(TAG).addTag(name).build()
+                manager.enqueueUniqueWork(name, ExistingWorkPolicy.KEEP, request).await()
+                checkNotNull(outbox.load(reportId))
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                outbox.failed(reportId, IssueReportSubmission.Failure("REPORT_QUEUE_UNAVAILABLE", retryable = true, automaticRetry = false), automaticRetry = false)
+            }
         }
     }
 }

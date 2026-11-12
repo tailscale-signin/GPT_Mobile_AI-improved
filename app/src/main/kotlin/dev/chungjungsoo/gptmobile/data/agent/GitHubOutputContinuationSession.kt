@@ -94,6 +94,21 @@ internal class GitHubOutputContinuationSession(
             previous?.get("evidence_digest") == JsonPrimitive(evidenceDigest)
         }
         val revised = previous != null && (previous["continuation_revision"] ?: JsonPrimitive("")) != JsonPrimitive(continuationRevision)
+        if (sameEvidence &&
+            !revised &&
+            previous?.get("resume_allowed") == JsonPrimitive(false) &&
+            previous["state"] in setOf(JsonPrimitive("OUTPUT_LIMIT"), JsonPrimitive("INTERRUPTED"))
+        ) {
+            emit(
+                ProviderEvent.Failed(
+                    "The saved provider request requires its recorded recovery action before continuation. Saved text and tool receipts remain available.",
+                    errorCode = (previous["failure_code"] as? JsonPrimitive)?.contentOrNull ?: "OUTPUT_CONTINUATION_UNAVAILABLE",
+                    taskOutcome = "BLOCKED",
+                    failureDetails = previous["failure_details"] as? JsonObject
+                )
+            )
+            return@flow
+        }
         if (sameEvidence && previous?.get("state") == JsonPrimitive("BLOCKED_NO_PROGRESS") && !revised) {
             emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_PROGRESS: The saved draft is blocked because its unchanged continuation added no new work. Change the request or supported output configuration before resuming.", errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS", taskOutcome = "BLOCKED"))
             return@flow
@@ -130,7 +145,7 @@ internal class GitHubOutputContinuationSession(
                 it["handoff_continuation"] == JsonPrimitive(true)
         } ?: previous?.takeIf {
             sameEvidence &&
-                (it["state"] == JsonPrimitive("OUTPUT_LIMIT") || it["resume_allowed"] == JsonPrimitive(true) || revised && it["state"] == JsonPrimitive("BLOCKED_NO_PROGRESS"))
+                (it["resume_allowed"] != JsonPrimitive(false) && (it["state"] == JsonPrimitive("OUTPUT_LIMIT") || it["resume_allowed"] == JsonPrimitive(true)) || revised && it["state"] == JsonPrimitive("BLOCKED_NO_PROGRESS"))
         }
         var draft = (restored?.get("draft") as? JsonPrimitive)?.contentOrNull.orEmpty()
         val draftLineage = dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineageAccumulator()
@@ -139,7 +154,9 @@ internal class GitHubOutputContinuationSession(
         require(draft.length <= maxCharacters && attempts in 0..maxContinuations) { "Saved GitHub continuation is invalid; no generation was dispatched." }
         var active = delegate
         var needsContinuation = restored != null
-        var claimContinuation = restored != null && handoff == null && restored["resume_kind"] != JsonPrimitive("AFTER_TOOL_RESULTS")
+        var claimContinuation = restored != null &&
+            handoff == null &&
+            (restored["resume_kind"] == JsonPrimitive("OUTPUT_CONTINUATION") || restored["resume_kind"] == null && restored["state"] == JsonPrimitive("OUTPUT_LIMIT"))
         var interruptedContinuation = restored != null && handoff == null && !claimContinuation
         var interruptionAttempts = if (previous?.get("recovery_revision") == JsonPrimitive(recoveryRevision)) {
             (previous["interruption_attempts"] as? JsonPrimitive)?.intOrNull?.coerceIn(0, GitHubTaskRecovery.MAX_CONNECTION_RECOVERIES) ?: 0
@@ -258,12 +275,17 @@ internal class GitHubOutputContinuationSession(
             if (novel.isNotEmpty()) draftLineage.append(generated.lineage)
             draft += novel
             val limited = finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") || failure?.let { isProviderOutputLimitFailure(it.message) } == true
+            val continuationPermitted = failure?.errorCode?.uppercase(java.util.Locale.ROOT) !in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes &&
+                failure?.failureDetails?.get("retryable") != JsonPrimitive(false) &&
+                failure?.failureDetails?.get("resume_allowed") != JsonPrimitive(false) &&
+                failure?.taskOutcome !in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "WAITING_FOR_APPROVAL")
             val safeBoundary = !receivedToolResult &&
                 calls.isEmpty() &&
                 failure?.providerLimit == null &&
                 failure?.errorCode?.startsWith("TOOL_PROTOCOL_") != true &&
                 !GatewayOutcomeRecovery.requiresReconciliation(failure?.message.orEmpty(), failure?.errorCode) &&
-                (failure?.transportComplete == true || failure == null && completed)
+                (failure?.transportComplete == true || failure == null && completed) &&
+                continuationPermitted
             if (limited && safeBoundary && needsContinuation && novel.isBlank()) {
                 save("BLOCKED_NO_PROGRESS")
                 emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_NO_PROGRESS: The provider exhausted its output without adding to the saved draft. Change the request or supported output capacity before resuming.", errorCode = "OUTPUT_CONTINUATION_NO_PROGRESS", taskOutcome = "BLOCKED"))
@@ -281,6 +303,7 @@ internal class GitHubOutputContinuationSession(
                     calls.isEmpty() &&
                     failure?.errorCode?.startsWith("TOOL_PROTOCOL_") != true &&
                     failure?.errorCode !in ToolResultEnvelope.unknownOutcomeCodes &&
+                    continuationPermitted &&
                     !GatewayOutcomeRecovery.requiresReconciliation(failure?.message.orEmpty(), failure?.errorCode)
                 val limit = failure?.providerLimit
                 val binding = (checkpointContext["task_binding"] as? JsonPrimitive)?.contentOrNull
@@ -296,7 +319,7 @@ internal class GitHubOutputContinuationSession(
                     emit(requireNotNull(failure).copy(providerLimit = limit.copy(gitHubCheckpoint = checkpoint)))
                     return@flow
                 }
-                if (!limited) claimContinuation = false
+                if (!limited || !continuationPermitted) claimContinuation = false
                 save(if (limited && safeBoundary) "OUTPUT_LIMIT" else "INTERRUPTED", resumable = mayResumeText, failure = failure)
                 // Incomplete frames stay with the runner's protocol repair; no buffered call is dispatched.
                 emit(failure ?: ProviderEvent.Failed("The GitHub draft did not reach a complete response boundary. Saved text and receipts remain available.", errorCode = if (limited) "OUTPUT_LIMIT" else "INCOMPLETE_PROVIDER_STREAM"))
@@ -455,11 +478,19 @@ internal class GitHubOutputContinuationSession(
             put("context", checkpointContext)
             put("completed_results", receiptBoundary)
             put("reconciled_call_ids", JsonArray(settledCallIds.sorted().map(::JsonPrimitive)))
-            put("resume_kind", if (claimContinuation) "OUTPUT_CONTINUATION" else "AFTER_TOOL_RESULTS")
+            put(
+                "resume_kind",
+                when {
+                    failure?.errorCode.equals("CONVERSATION_CONFLICT", ignoreCase = true) -> "ACTIVE_GATEWAY_JOB"
+                    claimContinuation -> "OUTPUT_CONTINUATION"
+                    receiptBoundary.isNotEmpty() -> "AFTER_TOOL_RESULTS"
+                    else -> "PROVIDER_REQUEST"
+                }
+            )
             put("resume_allowed", resumable)
             put("tool_actions_replayed", false)
             put("draft_kind", if (text.isBlank()) "NO_VISIBLE_DRAFT" else "UNVERIFIED_VISIBLE_DRAFT")
-            put("user_input_required", pendingApproval)
+            put("user_input_required", pendingApproval || failure?.failureDetails?.get("user_input_required") == JsonPrimitive(true))
             if (pendingApproval) put("blocking_condition", "WAITING_FOR_APPROVAL")
             if (pendingCalls.isNotEmpty()) {
                 put("pending_calls", JsonArray(pendingCalls.map { JsonPrimitive(callDigest(it)) }))
@@ -468,6 +499,7 @@ internal class GitHubOutputContinuationSession(
             failure?.let {
                 it.errorCode?.let { code -> put("failure_code", code) }
                 it.failureDetails?.let { details -> put("failure_details", details) }
+                (it.failureDetails?.get("next_action") ?: it.failureDetails?.get("recovery_action"))?.let { action -> put("next_action", action) }
             }
         }
         saveCheckpoint(checkpoint)

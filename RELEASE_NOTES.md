@@ -4,6 +4,24 @@ Android build 141. Scoped reliability release covering the changes since [0.9.66
 
 This release brings together persistent gateway conversations and jobs, more reliable GitHub task recovery and acceptance evidence, application audits, safer diagnostics, and the November 7–9 integration repairs. The latest repair also addresses the Gateway conversations crash and the Android method-size and regression failures found while reviewing PR #815.
 
+## November 12 candidate repairs
+
+These unreleased repairs preserve the selected gateway request contract and the original pending tool batch through local result reads, images, compaction and app restart. Completed calls retain their receipts without new execution events. Conflict and selection failures carry bounded recovery details, and explicit continuation prohibitions remain effective after a new run starts.
+
+GitHub reads can recover from a proven path or retained search recipe, and eligible reads wait through one bounded circuit cooldown. Reviews require a valid comparison baseline, preserve typed source links and immutable read coverage, and retain observed capability rows without duplicating the unused integration catalog. Diagnostic exports retain bounded failure summaries, critical-section counts and separate logging availability. Voice cooldown re-entry does not create an incident without a new recognition attempt.
+
+Native tool progress now updates the observed steps, failure count and next action after gateway preflight telemetry. Repeated privacy catalog notices are grouped by their actual denial reason and reported tool-entry count; all privacy filtering and per-tool diagnostics remain in place.
+
+The issue-report dialog now retains an approved report for direct native submission, visible delivery status and retry with the same report ID. Reports include bounded failure context and explicit missing observations, with hashed identities that can be matched to future diagnostic captures even when app logging is off. Review and debug APK workflows now receive the configured reporting-service origin. Context-bearing reports require the updated hosted reporter; an unconfigured or older service leaves the report available in the app with an explicit status. Send no longer opens a browser.
+
+Combined Mode also rejects demonstrated participant reversals that previously passed lexical matching, including passive wording and disputed-claim declarations. The guard preserves valid comparisons within independent answer clauses and leaves ambiguous relationships unresolved. It does not qualify the unfinished general semantic-provenance pipeline.
+
+These fixes require matching Android and gateway deployment. Passing host or emulator regressions does not identify the cause of older generic incident reports or qualify physical-device behavior. Unified Reliability v2 is not complete; the 99 outstanding acceptance cases and device/release evidence remain outstanding, and no acceptance results are promoted by these changes.
+
+The [findings and remedies](docs/repairs/github-job-recovery-2026-11-12.md) describe the code changes, reporting rollout and remaining evidence requirements.
+
+Native issue-report delivery requires a deployed project-owned HTTPS reporter advertising the supported context schema and ISSUE_REPORT_ORIGIN configured for APK builds. Source changes and fake-publisher/transport regressions do not qualify that live deployment or identify historical generic incident causes.
+
 ## PR #816 candidate addendum: Gateway 16 and engineering completion
 
 These are unreleased branch changes on top of the versioned notes below. This addendum does not publish, install or qualify a release; it keeps the bounded release scope consistent with the combined PR.

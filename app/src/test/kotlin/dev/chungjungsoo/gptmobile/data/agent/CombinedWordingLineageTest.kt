@@ -74,10 +74,58 @@ class CombinedWordingLineageTest {
 
     @Test fun overlapIsPartitionedAndSharedTextNeverClaimsExclusiveOwnership() {
         val first = "The citizens funded public works and naval power through silver mines."
-        val second = "Public works and naval power through silver mines funded the citizens."
-        val spans = combinedWordingSpans(first, listOf(CombinedModelResponse("one", "One", content = first), CombinedModelResponse("two", "Two", content = second)))
+        val second = "Public works and naval power were funded by the citizens through silver mines."
+        val profiles = listOf(CombinedModelResponse("one", "One", content = first), CombinedModelResponse("two", "Two", content = second))
+        val spans = combinedWordingSpans(first, profiles)
         assertTrue(spans.any { it.profileUids == setOf("one", "two") })
+        assertTrue(spans.all { it.profileUids == setOf("one", "two") })
         assertTrue(spans.zipWithNext().all { (a, b) -> a.end <= b.start })
+        assertEquals(spans, combinedWordingSpans(first, profiles.reversed()))
+    }
+
+    @Test fun partialOverlapKeepsSharedAndSourceSpecificRangesDisjoint() {
+        val first = "The citizens funded public works and naval power through silver mines."
+        val shorter = "The citizens funded public works and naval power."
+        val profiles = listOf(CombinedModelResponse("one", "One", content = first), CombinedModelResponse("two", "Two", content = shorter))
+        val spans = combinedWordingSpans(first, profiles)
+        assertEquals(listOf(setOf("one", "two"), setOf("one")), spans.map { it.profileUids })
+        assertEquals(listOf("citizens funded public works and naval power", " through silver mines"), spans.map { first.substring(it.start, it.end) })
+        assertTrue(spans.zipWithNext().all { (a, b) -> a.end <= b.start })
+        assertEquals(spans, combinedWordingSpans(first, profiles.reversed()))
+        assertTrue(CombinedContentCoverage(profiles).check(first).accepted)
+    }
+
+    @Test fun reversedFundingRolesCannotClaimSharedWordingOwnership() {
+        val first = "The citizens funded public works and naval power through silver mines."
+        val reversed = "Public works and naval power through silver mines funded the citizens."
+        val profiles = listOf(CombinedModelResponse("one", "One", content = first), CombinedModelResponse("two", "Two", content = reversed))
+        for ((answer, owner) in listOf(first to "one", reversed to "two")) {
+            val spans = combinedWordingSpans(answer, profiles)
+            assertEquals(listOf(setOf(owner)), spans.map { it.profileUids })
+            assertEquals(answer.dropLast(1), answer.substring(spans.single().start, spans.single().end))
+            assertEquals(spans, combinedWordingSpans(answer, profiles.reversed()))
+            for (ordered in listOf(profiles, profiles.reversed())) {
+                val mapping = CombinedAnswerMappings.get(answer, ordered)
+                assertTrue(mapping.evaluated)
+                assertTrue(mapping.matches(answer))
+                val unchanged = mapping.claims.single { it.profileUids == setOf(owner) }
+                val inverted = mapping.claims.single { owner !in it.profileUids }
+                assertEquals("EXACT", unchanged.status)
+                assertTrue(unchanged.fullyLinked)
+                assertTrue(unchanged.links.isNotEmpty())
+                assertEquals("UNMATCHED", inverted.status)
+                assertFalse(inverted.fullyLinked)
+                assertTrue(inverted.links.isEmpty())
+                assertEquals(setOf(owner), mapping.links.flatMapTo(linkedSetOf()) { it.profileUids })
+                val coverage = CombinedContentCoverage(ordered).check(answer)
+                assertFalse(coverage.accepted)
+                assertEquals(1, coverage.exactMatches)
+                assertEquals(0, coverage.paraphraseMatches)
+                assertEquals(inverted.profileUids, coverage.missing.single().profileUids)
+                val assessment = CombinedFinalCheck.check(answer, ordered, CombinedEvidenceLedger(), CombinedAnswerPolicy())
+                assertTrue(assessment.checks.any { it.id == "SEMANTIC_CONTRIBUTION_UNRESOLVED:${inverted.claimId}" })
+            }
+        }
     }
 
     @Test fun changedSourcesAndUnmatchedParaphrasesDoNotKeepOldColours() {

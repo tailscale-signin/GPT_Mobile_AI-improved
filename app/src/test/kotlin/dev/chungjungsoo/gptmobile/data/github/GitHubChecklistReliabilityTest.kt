@@ -48,7 +48,7 @@ class GitHubChecklistReliabilityTest {
         assertEquals(JsonPrimitive(53), budget["used_calls"])
         assertEquals(JsonPrimitive(203), budget["remaining_calls"])
         assertEquals(budget, (checkpoint["preparation"] as JsonObject)["budget"])
-        val (report, verdict) = GitHubEvidencePolicy.testing(emptyMap(), 1_000, 0, "test all tools", listOf(branches), 203, contract)
+        val (report, verdict) = GitHubEvidencePolicy.testing(emptyMap(), 1_000, 0, "test all tools", listOf(branches), 203, acceptedContract = contract)
         assertTrue(report, report.contains("Effective tool-call limit: 256 (AUTHORIZED_RUN_CONTRACT)"))
         assertEquals(budget, ((verdict["test_checklist"] as JsonObject)["stage_budget"]))
         assertEquals(JsonPrimitive(false), verdict["completion_verified"])

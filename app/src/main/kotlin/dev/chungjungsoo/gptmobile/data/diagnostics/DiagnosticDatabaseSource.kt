@@ -138,6 +138,18 @@ class DiagnosticDatabaseSource @Inject constructor(
             // Do not borrow a newer revision or another run's timeline by recency.
             if (run.second != "COMPLETED" && verification?.get("completion_verified") != JsonPrimitive(true)) {
                 beforeRead()
+                val wait = database.openHelper.readableDatabase.query(
+                    SimpleSQLiteQuery(
+                        "SELECT w.fence, w.checkpoint FROM provider_waits w JOIN agent_runs r ON r.run_id = w.runId JOIN messages_v2 m ON m.message_id = r.assistant_message_id WHERE r.run_id = ? AND r.chat_id = ? AND r.ownership_fence = w.fence AND m.current_run_id = r.run_id AND m.ownership_fence = w.fence AND length(CAST(w.checkpoint AS BLOB)) <= 262144 LIMIT 1",
+                        arrayOf<Any?>(run.first, chatId)
+                    )
+                ).use { cursor -> if (!cursor.moveToFirst()) null else cursor.getLong(0) to cursor.getString(1) }
+                val savedWait = wait?.second?.let { runCatching { kotlinx.serialization.json.Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+                val recovery = savedWait?.get("recoveryFailure") as? JsonObject
+                if (dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedDetails(recovery) != null && recovery?.get("failure_origin") == JsonPrimitive("local_recovery")) {
+                    evidence.add(0, DiagnosticFailureEvidence("provider_waits:${run.first}:${wait?.first}", "PROVIDER_WAIT_RECOVERY", buildJsonObject { put("latest_recovery_failure", requireNotNull(recovery)) }))
+                }
+                beforeRead()
                 val message = database.openHelper.readableDatabase.query(
                     SimpleSQLiteQuery(
                         "SELECT m.message_id, CASE WHEN length(CAST(m.timeline AS BLOB)) <= 262144 THEN m.timeline ELSE NULL END " +
@@ -410,6 +422,18 @@ class DiagnosticDatabaseSource @Inject constructor(
                         }
                     }
                     JsonObject(fields + ("payload" to payload))
+                } else if (table.name == "provider_waits") {
+                    val saved = fields["checkpoint"] as? JsonObject
+                    val decision = saved?.get("decision") as? JsonObject
+                    JsonObject(
+                        fields.filterKeys { it != "checkpoint" } + (
+                            "recovery" to buildJsonObject {
+                                saved?.filterKeys { it in setOf("mode", "resumeClaimId", "resumeClaimedAtMillis", "lastResumedAtMillis", "resumeCount", "recoveryFailure", "waitStartedAtMillis", "accumulatedProviderWaitMillis") }?.forEach { (key, value) -> put(key, value) }
+                                if (decision != null) put("interruption", JsonObject(decision.filterKeys { it in setOf("category", "knownNotAccepted", "httpStatus", "retryAt", "retrySource", "consecutiveRejections", "checkpointContinuationAllowed", "gitHubCheckpoint") }))
+                                put("first_start_source", "agent_runs.started_at; earlier legacy resume overwrites cannot be reconstructed")
+                            }
+                            )
+                    )
                 } else {
                     fields
                 }
@@ -502,8 +526,8 @@ class DiagnosticDatabaseSource @Inject constructor(
                 ),
                 Table(
                     "provider_waits",
-                    "t.runId IN ($latestRun) AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.run_id = t.runId AND r.status = 'WAITING_PROVIDER_LIMIT' AND r.ownership_fence = t.fence)",
-                    listOf("runId", "fence", "retryAt")
+                    "t.runId IN ($latestRun) AND EXISTS (SELECT 1 FROM agent_runs r JOIN messages_v2 m ON m.message_id = r.assistant_message_id WHERE r.run_id = t.runId AND r.ownership_fence = t.fence AND m.current_run_id = r.run_id AND m.ownership_fence = t.fence)",
+                    listOf("runId", "fence", "retryAt", "checkpoint")
                 ),
                 Table("agent_run_policy_refs", "t.runId IN ($latestRun)"),
                 Table("run_policy_snapshots", "t.chatId = :chatId AND t.digest IN (SELECT digest FROM agent_run_policy_refs WHERE runId IN ($latestRun))"),

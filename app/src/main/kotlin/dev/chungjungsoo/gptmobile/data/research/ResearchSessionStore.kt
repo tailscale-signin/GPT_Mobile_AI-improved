@@ -178,6 +178,16 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
         taskStore.resume(ResearchResumeRequest(actionId, task.taskId, rootWorkId, latest?.runId.orEmpty(), stage, destination, revision, policyRevision, System.currentTimeMillis()), persistent, currentLegacyPolicyRevision)
     }
 
+    /** Only a new user action advances generation; a claimed cooldown wake retains it. */
+    internal suspend fun resumeAcceptedTask(chatId: Int, rootWorkId: String, actionId: String, stage: String, destination: String, policyRevision: String, persistent: Boolean, automaticProviderResume: Boolean, currentLegacyPolicyRevision: String? = null) {
+        if (automaticProviderResume) {
+            check(acceptedTask(rootWorkId, persistent) != null) { "Accepted research task is unavailable" }
+            return
+        }
+        recordResume(rootWorkId, actionId, stage, destination, policyRevision, persistent, currentLegacyPolicyRevision)
+        resumeGeneration(chatId, rootWorkId, actionId, persistent)
+    }
+
     fun stop(runId: String) {
         stopOrigins[runId] = "USER_STOP_RESEARCH_AND_SUMMARIZE"
         stops += runId

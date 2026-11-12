@@ -7,6 +7,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** A durable prerequisite plan is not an execution receipt or permission to create unrelated resources. */
@@ -18,10 +19,12 @@ internal object GitHubIntegrationPreparation {
         capabilities: JsonArray,
         remainingToolCalls: Int?,
         approval: JsonObject?,
+        stageBudget: JsonObject? = null,
         acceptedContract: JsonObject? = null
     ): JsonObject {
-        val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
-        val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remainingToolCalls)
+        val budget = stageBudget ?: GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools), acceptedContract)
+        val remaining = (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull ?: GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
+        val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remaining)
         val minimum = GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE
         val readCalls = if (acquisitionAllowed) GitHubSelfTestReads.available(tools, receipts.values.toList()) else emptyList()
         val canCreate = !GitHubChecklistScope.readOnly(task) && approval?.get("state") == JsonPrimitive("READY") && (remaining == null || remaining >= minimum)
@@ -51,7 +54,7 @@ internal object GitHubIntegrationPreparation {
             put("automatic_permission_changes", false)
             put("automatic_budget_increase", false)
             put("scope", "Prepare exact authorized reads and the supported task-owned content fixture. Missing IDs, approval or cleanup recipes remain explicit prerequisites.")
-            put("budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools), acceptedContract))
+            put("budget", budget)
             put("ready_read_count", readCalls.size)
             put("ready_reads", JsonArray(readCalls.take(16).map(::call)))
             put("additional_ready_read_count", (readCalls.size - 16).coerceAtLeast(0))
@@ -66,7 +69,8 @@ internal object GitHubIntegrationPreparation {
                         buildJsonObject {
                             put("code", code)
                             put("capability_ids", JsonArray(rows.mapNotNull { it["id"] }))
-                            put("required_inputs", JsonArray(requiredInputs(code).map(::JsonPrimitive)))
+                            val exactInputs = rows.flatMap { (it["required_inputs"] as? JsonArray).orEmpty() }.distinct()
+                            put("required_inputs", if (exactInputs.isNotEmpty()) JsonArray(exactInputs) else JsonArray(requiredInputs(code).map(::JsonPrimitive)))
                             put("next_action", GitHubCriterionBlocker.from(code)?.nextAction ?: GitHubCriterionBlocker.BLOCKER_DETAIL_NOT_RECORDED.nextAction)
                             put("explanations", JsonArray(rows.mapNotNull { it["next_action"] }.distinct()))
                             if (code == GitHubCriterionBlocker.OWNED_FIXTURE_REQUIRED.name) {

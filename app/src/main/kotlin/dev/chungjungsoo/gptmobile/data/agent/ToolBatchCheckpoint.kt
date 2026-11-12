@@ -66,7 +66,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
     }
 
     @Serializable private data class Result(val body: String, val json: Boolean, val error: Boolean, val dispatched: Boolean, val code: String?, val callLimit: Boolean, val outputLimit: Boolean, val execution: JsonObject? = null, val sourceResultSha256: String? = null, val projectionSha256: String? = null) {
-        fun restore(id: String) = AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit, executionReceipt = execution))
+        fun restore(id: String): AgentToolResult {
+            // The body is an evictable replay projection. Its original identity was
+            // captured before compaction and must survive a process restart.
+            val identity = sourceResultSha256?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { source ->
+                JsonObject(execution.orEmpty() + mapOf("source_result_sha256" to JsonPrimitive(source), "source_hash_scope" to JsonPrimitive("ORIGINAL_TOOL_RESULT_PAYLOAD_UTF8")))
+            } ?: execution
+            return AgentContractValidation.receipt(id, AgentToolResult(id, if (json) ToolResultContent.Json(Json.parseToJsonElement(body)) else ToolResultContent.Text(body), error, sharedResult = true, dispatched = dispatched, errorCode = code, toolCallBudgetExhausted = callLimit, outputBudgetExhausted = outputLimit, executionReceipt = identity))
+        }
     }
 
     @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null, val priorBudgetRejection: Result? = null)

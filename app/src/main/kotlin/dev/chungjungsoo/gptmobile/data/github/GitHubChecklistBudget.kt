@@ -36,41 +36,56 @@ internal object GitHubChecklistBudget {
         (budget["limit"] as JsonPrimitive).intOrNull!! - (budget["used"] as JsonPrimitive).intOrNull!!
     }
 
-    fun checkpoint(receipts: Map<String, JsonObject>, current: Int? = null, fixtureCalls: Int = FIXTURE_CALLS, acceptedContract: JsonObject? = null): JsonObject = buildJsonObject {
-        val remaining = remaining(receipts, current)
+    fun checkpoint(
+        receipts: Map<String, JsonObject>,
+        current: Int? = null,
+        fixtureCalls: Int = FIXTURE_CALLS,
+        acceptedContract: JsonObject? = null,
+        retainedBudget: JsonObject? = null
+    ): JsonObject = buildJsonObject {
         val receipt = recorded(receipts)
         val observed = receipt?.get("tool_budget") as? JsonObject
-        // The accepted task contract exists before the first tool receipt and is
-        // independent from transport telemetry. A receipt can tighten this ceiling,
-        // but cannot raise an explicit allowance when a task is resumed.
-        val acceptedLimit = (acceptedContract?.get("tool_call_limit") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
-        val observedLimit = (observed?.get("limit") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
-        val effectiveLimit = listOfNotNull(acceptedLimit, observedLimit).minOrNull()
-        effectiveLimit?.let { put("effective_call_limit", it) }
-        observed?.get("configured")?.let { put("configured_call_limit", it) }
+        val contractLimit = acceptedContract?.number("effective_tool_call_limit") ?: acceptedContract?.number("tool_call_limit")
+        val contractIdentity = acceptedContract?.takeIf { contractLimit != null }?.let { contract ->
+            GitHubEvidenceBook.digest(JsonObject(contract.filterKeys { it in setOf("binding", "repository", "source_message_id", "request_digest", "tool_call_limit", "effective_tool_call_limit") }.toSortedMap()).toString())
+        }
+        val retained = retainedBudget?.takeIf { contractIdentity != null && it["accepted_contract_identity"] == JsonPrimitive(contractIdentity) }
+        val limit = listOfNotNull(contractLimit, observed?.number("limit"), retained?.number("effective_call_limit")).filter { it >= 0 }.minOrNull()
+        val restoredRemaining = retained?.number("remaining_calls")?.takeIf { it >= 0 }
+        val receiptRemaining = remaining(receipts)
+        val remaining = current?.coerceAtLeast(0) ?: listOfNotNull(receiptRemaining, restoredRemaining).minOrNull()
+        limit?.let { put("effective_call_limit", it) }
+        (acceptedContract?.get("tool_call_limit") ?: observed?.get("configured"))?.let { put("configured_call_limit", it) }
+        contractIdentity?.let { put("accepted_contract_identity", it) }
         put(
             "limit_source",
-            when {
-                acceptedLimit != null && effectiveLimit == acceptedLimit -> "AUTHORIZED_RUN_CONTRACT"
-                observedLimit != null -> "RECORDED_EXECUTION_ALLOWANCE"
-                else -> "NOT_RECORDED"
+            if (contractLimit != null && limit == contractLimit) {
+                "AUTHORIZED_RUN_CONTRACT"
+            } else if (observed?.number("limit") == limit && observed != null) {
+                "RECORDED_EXECUTION_ALLOWANCE"
+            } else if (retained != null && limit != null) {
+                (retained["limit_source"] as? JsonPrimitive)?.content ?: "RETAINED_EXECUTION_ALLOWANCE"
+            } else {
+                "NOT_RECORDED"
             }
         )
-        if (effectiveLimit != null && remaining != null && current != null && remaining <= effectiveLimit) {
-            put("used_calls", effectiveLimit - remaining)
-        }
         put("limit_rule", "Minimum of the profile/chat allowance, workflow/task policy and explicit request ceiling.")
         remaining?.let { put("remaining_calls", it) }
         put(
             "remaining_source",
             if (current != null) {
                 "LIVE_EXECUTION_LEDGER"
+            } else if (restoredRemaining != null && remaining == restoredRemaining) {
+                "RETAINED_EXECUTION_CHECKPOINT"
             } else if (observed != null) {
                 "RECORDED_EXECUTION_HIGH_WATER"
             } else {
                 "NOT_RECORDED"
             }
         )
+        // A ceiling without its counter does not imply zero calls used. The
+        // accepted identity also prevents a resumed report borrowing another task's allowance.
+        if (limit != null && remaining != null && remaining <= limit) put("used_calls", limit - remaining)
         observed?.get("used")?.let { put("observed_used_calls", it) }
         observed?.get("sequence")?.let { put("observed_counter_sequence", it) }
         receipt?.get("receipt_id")?.let { put("observed_counter_receipt_id", it) }
@@ -80,8 +95,10 @@ internal object GitHubChecklistBudget {
         put("cleanup_reserve", minOf(remaining ?: FIXTURE_CALLS, cleanupReserve(receipts)))
         put("cleanup_reserve_scope", "Remaining reconciliation and verified cleanup of the existing task-owned fixture; does not raise the accepted allowance.")
         put("fixture_start_minimum", fixtureCalls + VERIFICATION_RESERVE)
-        put("acquisition_allowed", acquisitionAllowed(receipts, current))
+        put("acquisition_allowed", remaining?.let { it > VERIFICATION_RESERVE + cleanupReserve(receipts) } != false)
         put("hard_limit_policy", "Use the authorized execution ceiling; never expand it to finish a checklist.")
         put("reporting", "Final response capacity remains separately reserved by the run budget.")
     }
+
+    private fun JsonObject.number(key: String) = (get(key) as? JsonPrimitive)?.intOrNull
 }

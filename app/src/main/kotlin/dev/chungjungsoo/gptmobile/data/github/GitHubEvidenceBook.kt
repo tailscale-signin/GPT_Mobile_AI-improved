@@ -506,7 +506,7 @@ internal class GitHubEvidenceBook(
     suspend fun diagnostic(): JsonObject? = latestVerdict()?.takeIf { it["binding"] == JsonPrimitive(binding) }
 
     /** Freeze task identity and ceilings before the first provider round, in either chat surface. */
-    suspend fun retainTaskContract(task: String, sourceMessageId: Int, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, callLimit: Int) = mutex.withLock {
+    suspend fun retainTaskContract(task: String, sourceMessageId: Int, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, callLimit: Int, executionCallLimit: Int = callLimit) = mutex.withLock {
         val key = "task_contract"
         val previous = taskContract ?: load(key)
         if (previous != null) {
@@ -530,6 +530,7 @@ internal class GitHubEvidenceBook(
             put("required_tool_names", JsonArray(tools.filter { it.modelVisible }.map { JsonPrimitive(it.name) }.distinct()))
             put("accepted_at_ms", acceptedAt)
             put("tool_call_limit", callLimit.coerceAtLeast(0))
+            put("effective_tool_call_limit", executionCallLimit.coerceIn(0, callLimit.coerceAtLeast(0)))
             put("tool_call_limit_source", "AUTHORIZED_RUN_CONTRACT")
             put("tool_call_limit_rule", "Minimum of the profile/chat allowance, workflow/task policy and explicit request ceiling.")
             GitHubWorkflowPreset.fromRequest(task)?.let { put("workflow_preset_call_limit", it.toolCalls) }
@@ -551,7 +552,20 @@ internal class GitHubEvidenceBook(
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
 
     suspend fun acceptedPromptContract(): JsonObject? = (taskContract ?: load("task_contract"))?.let { contract ->
-        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "tool_call_limit", "tool_call_limit_source") })
+        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "tool_call_limit", "effective_tool_call_limit", "tool_call_limit_source") })
+    }
+
+    /** Report the same accepted ceiling and execution counter across process restart. */
+    suspend fun stageBudget(receipts: Map<String, JsonObject>, current: Int?, fixtureCalls: Int): JsonObject {
+        val contract = (taskContract ?: load("task_contract"))?.takeIf { it["binding"] == JsonPrimitive(binding) && it["repository"] == JsonPrimitive(repository) }
+        val retained = if (current == null) {
+            val previous = load("verification_current_" + digest(binding).take(24))
+            val checklist = previous?.get("test_checklist") as? JsonObject
+            checklist?.get("stage_budget") as? JsonObject
+        } else {
+            null
+        }
+        return GitHubChecklistBudget.checkpoint(receipts, current, fixtureCalls, contract, retained)
     }
 
     /** One bounded delivery snapshot, separate from immutable operation receipts and their verdict. */
@@ -656,7 +670,8 @@ internal class GitHubEvidenceBook(
     suspend fun retainProgress(task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, failureCode: String? = null, failure: ProviderEvent.Failed? = null, remainingToolCalls: Int? = null) {
         val (receipts, _) = snapshot()
         val fixturePreflight = if (GitHubTestChecklist.integration(task)) fixtureApprovalPreflight() else null
-        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, acceptedPromptContract())
+        val budget = stageBudget(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools))
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, budget)
         val retention = retentionStatus()
         val previous = diagnostic() ?: load("verification_current_" + digest(binding).take(24))
         if (previous == null) {

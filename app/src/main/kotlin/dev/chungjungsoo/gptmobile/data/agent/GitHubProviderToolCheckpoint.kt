@@ -10,12 +10,10 @@ internal object GitHubProviderToolCheckpoint {
     fun binding(scope: String, authorityRevision: String, expected: GitHubProviderCheckpoint?, checkpoint: JsonObject?): String {
         val current = "$scope:$authorityRevision"
         if (expected == null) return current
-        check(checkpoint != null && expected.matches(checkpoint)) { "PROVIDER_WAIT_CHECKPOINT_CHANGED" }
+        if (checkpoint == null || !expected.matches(checkpoint)) throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", correlation = ProviderRecoveryFailure.correlation(expected, null, null, null))
         val context = checkpoint["context"] as? JsonObject
         val retained = (context?.get("tool_checkpoint_binding") as? JsonPrimitive)?.contentOrNull ?: return current
-        check(context["task_binding"] == JsonPrimitive(expected.binding) && retained.startsWith("$scope:") && retained.length <= 4096) {
-            "PROVIDER_WAIT_CHECKPOINT_CHANGED"
-        }
+        if (!(context["task_binding"] == JsonPrimitive(expected.binding) && retained.startsWith("$scope:") && retained.length <= 4096)) throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(checkpoint), ProviderRecoveryFailure.correlation(expected, null, null, null))
         return retained
     }
 }

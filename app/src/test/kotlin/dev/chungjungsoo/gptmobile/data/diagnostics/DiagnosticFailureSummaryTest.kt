@@ -15,6 +15,51 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class DiagnosticFailureSummaryTest {
+    @Test fun latestLocalRecoveryFailureDoesNotBorrowTheOriginalProviderInvocation() {
+        val original = buildJsonObject {
+            put("code", "429")
+            put(
+                "details",
+                buildJsonObject {
+                    put("http_status", 429)
+                    put("invocation_id", "original-invocation")
+                    put("dispatched", true)
+                }
+            )
+        }
+        val recovery = dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", original)
+        val output = recovery.block(
+            buildJsonObject {
+                put("state", "WAITING_PROVIDER_LIMIT")
+                put("failure_code", "429")
+                put("failure_details", original.getValue("details"))
+                put("resume_allowed", true)
+            }
+        )
+        val verification = DiagnosticFailureEvidence(
+            "verification",
+            "VERIFICATION_CURRENT",
+            buildJsonObject {
+                put("verification_failure", "429")
+                put("task_outcome", "PARTIAL")
+                put("completion_verified", false)
+                put("invocation_id", "original-invocation")
+            }
+        )
+        val result = summary("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", listOf(verification, DiagnosticFailureEvidence("output", "OUTPUT_CHECKPOINT", output)))
+        assertEquals(JsonPrimitive("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE"), result["failure_code"])
+        assertEquals(JsonPrimitive("lifecycle"), result["failed_stage"])
+        assertEquals(JsonPrimitive("BLOCKED"), result["task_outcome"])
+        assertEquals(JsonPrimitive("REVIEW_SAVED_RECOVERY"), result["recovery_action"])
+        assertEquals(JsonNull, result["invocation_id"])
+        assertEquals(JsonPrimitive(false), result["dispatched"])
+        assertEquals(original, result["original_interruption"])
+        val olderTerminal = summary("PROVIDER_WAIT_CHECKPOINT_CHANGED", listOf(verification, DiagnosticFailureEvidence("output", "OUTPUT_CHECKPOINT", output)))
+        assertEquals(JsonPrimitive("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE"), olderTerminal["failure_code"])
+        assertEquals(JsonPrimitive("RECOVERY_CHECKPOINT"), olderTerminal.getValue("field_sources").jsonObject["failure_code"])
+        assertEquals(JsonPrimitive(false), olderTerminal["dispatched"])
+    }
+
     @Test fun terminalRecoveryGuardOutranksSavedRateLimitWithoutBorrowingItsInvocation() {
         val interruption = DiagnosticFailureEvidence(
             "current",
@@ -35,8 +80,8 @@ class DiagnosticFailureSummaryTest {
             assertEquals(JsonPrimitive("429"), result["prior_interruption_code"])
             assertEquals(JsonPrimitive("TERMINAL_ERROR"), result.getValue("field_sources").jsonObject["failure_code"])
             assertEquals(JsonPrimitive("VERIFICATION_CURRENT"), result.getValue("field_sources").jsonObject["prior_interruption_code"])
-            assertEquals(JsonPrimitive("provider_recovery"), result["failed_stage"])
-            assertEquals(JsonPrimitive("RECONCILE_SAVED_CHECKPOINT"), result["recovery_action"])
+            assertEquals(JsonPrimitive("lifecycle"), result["failed_stage"])
+            assertEquals(JsonPrimitive("REVIEW_SAVED_RECOVERY"), result["recovery_action"])
             assertEquals(JsonNull, result["invocation_id"])
             assertFalse(result.containsKey("dispatched"))
             assertFalse(result.containsKey("retryable"))

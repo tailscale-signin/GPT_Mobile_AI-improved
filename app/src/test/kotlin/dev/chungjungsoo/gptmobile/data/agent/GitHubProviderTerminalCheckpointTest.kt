@@ -15,15 +15,18 @@ class GitHubProviderTerminalCheckpointTest {
 
     @Test fun terminalRecoveryFailureRetainsReceiptsAndDisablesAutomaticWake() {
         val result = requireNotNull(GitHubProviderTerminalCheckpoint.reconcile(saved, expected, "FAILED", "An unexpected error occurred: PROVIDER_WAIT_CHECKPOINT_CHANGED"))
-        assertEquals(JsonPrimitive("FAILED"), result["state"])
+        assertEquals(JsonPrimitive("BLOCKED_RECOVERY"), result["state"])
+        assertEquals(JsonPrimitive("FAILED"), result["terminal_run_status"])
         assertEquals(JsonPrimitive(false), result["resume_allowed"])
-        assertEquals(JsonPrimitive(true), result["user_input_required"])
-        assertEquals(JsonPrimitive("PROVIDER_WAIT_CHECKPOINT_CHANGED"), result["failure_code"])
-        assertEquals(JsonPrimitive("429"), result["prior_interruption_code"])
-        assertEquals(saved["failure_details"], result["prior_interruption_details"])
-        val failure = result.getValue("failure_details") as JsonObject
+        assertEquals(JsonPrimitive(false), result["user_input_required"])
+        assertEquals(JsonPrimitive("PROVIDER_WAIT_CHECKPOINT_CHANGED"), result["current_failure_code"])
+        assertEquals(saved["failure_code"], result["failure_code"])
+        assertEquals(saved["failure_details"], result["failure_details"])
+        val failure = result.getValue("latest_recovery_failure") as JsonObject
         assertEquals(JsonPrimitive(false), failure["request_replay_allowed"])
-        assertEquals(JsonPrimitive("provider_recovery"), failure["failed_stage"])
+        assertEquals(JsonPrimitive(false), failure["dispatched"])
+        assertEquals(JsonPrimitive("lifecycle"), failure["failed_stage"])
+        assertEquals(ProviderRecoveryFailure.interruption(saved), failure["original_interruption"])
         assertNull(failure["invocation_id"])
         assertNull(failure["http_status"])
         assertEquals(saved["completed_results"], result["completed_results"])
@@ -66,8 +69,20 @@ class GitHubProviderTerminalCheckpointTest {
             }
             for (text in listOf(code, "An unexpected error occurred: $code", "$code: Reconcile retained results", "$code; recovery stopped")) {
                 val result = requireNotNull(GitHubProviderTerminalCheckpoint.reconcile(saved, expected, "FAILED", text))
-                assertEquals(JsonPrimitive(code), result["failure_code"])
+                assertEquals(JsonPrimitive(code), result[if (code in ProviderRecoveryFailure.CODES) "current_failure_code" else "failure_code"])
             }
         }
+    }
+
+    @Test fun durableRecoveryCauseAndCorrelationOutrankAnOlderTerminalGuard() {
+        val retained = ProviderRecoveryFailure("PROVIDER_WAIT_OUTCOME_UNKNOWN").event().failureDetails
+        val correlation = ProviderRecoveryFailure.correlation(expected, "claim", 7, "run")
+        val result = requireNotNull(GitHubProviderTerminalCheckpoint.reconcile(saved, expected, "BLOCKED", "PROVIDER_WAIT_CHECKPOINT_CHANGED", retained, correlation))
+        assertEquals(JsonPrimitive("PROVIDER_WAIT_OUTCOME_UNKNOWN"), result["current_failure_code"])
+        assertEquals(JsonPrimitive("RECONCILE_TOOL_RECEIPTS"), result["next_action"])
+        val failure = result.getValue("latest_recovery_failure") as JsonObject
+        assertEquals(JsonPrimitive("claim"), failure["resume_claim_id"])
+        assertEquals(JsonPrimitive(7), failure["ownership_fence"])
+        assertEquals(saved["completed_results"], result["completed_results"])
     }
 }

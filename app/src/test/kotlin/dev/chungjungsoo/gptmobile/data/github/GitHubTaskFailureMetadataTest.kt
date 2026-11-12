@@ -84,6 +84,7 @@ class GitHubTaskFailureMetadataTest {
         }
         val details = GitHubTaskLifecycle.acceptanceFailureDetails(verdict)
         assertEquals(JsonPrimitive("claim_extraction"), details["failed_stage"])
+        assertEquals(JsonPrimitive("GITHUB_EXTRACTION_OUTPUT_LIMIT"), details["reason_code"])
         assertEquals(JsonPrimitive(2), details["extraction_batch"])
         assertEquals(JsonPrimitive("ACCEPTANCE_EVIDENCE_MISSING"), details["stop_reason"])
         assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), details["recovery_action"])
@@ -122,6 +123,43 @@ class GitHubTaskFailureMetadataTest {
         assertFalse(unrecorded.containsKey("failed_stage"))
         assertFalse(unrecorded.containsKey("dispatched"))
         assertFalse(unrecorded.containsKey("failure_domain"))
+    }
+
+    @Test fun exactExtractionCauseAndActionSurviveDeliveryWithoutBorrowingHistoricalDispatch() {
+        val extraction = buildJsonObject {
+            put("failed_stage", "claim_extraction")
+            put("code", "GITHUB_EXTRACTION_INVALID_RESPONSE")
+            put("recovery_action", "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA")
+            put("dispatched", true)
+            put("invocation_id", "historical-extractor")
+        }
+        val verdict = buildJsonObject {
+            put("verification_failure", extraction)
+            put(
+                "stop_reason",
+                buildJsonObject {
+                    put("code", "ACCEPTANCE_EVIDENCE_MISSING")
+                    put("recovery_action", "RESUME_UNFINISHED_WORK")
+                }
+            )
+        }
+        val details = GitHubTaskLifecycle.acceptanceFailureDetails(verdict)
+        assertEquals(JsonPrimitive("GITHUB_EXTRACTION_INVALID_RESPONSE"), details["reason_code"])
+        assertEquals(JsonPrimitive("RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"), details["recovery_action"])
+        assertFalse(details.containsKey("dispatched"))
+        assertFalse(details.containsKey("invocation_id"))
+        val primary = JsonObject(
+            verdict + (
+                "original_failure" to buildJsonObject {
+                    put("code", "NETWORK_TIMEOUT")
+                    put("failed_stage", "transport")
+                }
+                )
+        )
+        val original = GitHubTaskLifecycle.acceptanceFailureDetails(primary)
+        assertEquals(JsonPrimitive("transport"), original["failed_stage"])
+        assertFalse(original.containsKey("reason_code"))
+        assertFalse(original["recovery_action"] == extraction["recovery_action"])
     }
 
     @Test fun retainedReviewRecoveryKeepsExplicitActionAndUncertainOutcomePrecedence() {

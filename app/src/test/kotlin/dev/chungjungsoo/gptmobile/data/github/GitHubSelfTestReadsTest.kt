@@ -51,8 +51,11 @@ class GitHubSelfTestReadsTest {
         assertTrue(row["blocker"].toString().contains("operation_id"))
         assertTrue(row["blocker"].toString().contains("expected_repository_id"))
         val broad = GitHubTestChecklist.rows(receipts, listOf(definition), "test all tools").filterIsInstance<JsonObject>().single { it["id"] == JsonPrimitive("github_repository:status") }
-        assertEquals(JsonPrimitive(true), broad["required"])
-        assertEquals(JsonPrimitive("BLOCKED"), broad["status"])
+        // Even broad integration coverage does not authorize creating an
+        // unrelated repository merely to satisfy a dependent status operation.
+        assertEquals(JsonPrimitive(false), broad["required"])
+        assertEquals(JsonPrimitive("CONDITIONAL"), broad["status"])
+        assertEquals(JsonPrimitive("REPOSITORY_LIFECYCLE_REQUIRED"), broad["blocker_code"])
     }
 
     @Test fun repositoryStatusUsesTheExactNativeCreationIdentityAndDestination() {

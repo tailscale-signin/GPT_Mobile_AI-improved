@@ -107,9 +107,8 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
     }
 
     /** Each encrypted chunk fits the vault limit. Publish metadata only after all chunks exist. */
-    suspend fun saveProtectedSynthesisCheckpoint(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject, appendOnly: Boolean = false, engineeringMemory: Boolean = false) {
-        writeProtectedSynthesisCheckpoint(id, chatId, runId, payload, appendOnly, engineeringMemory)
-    }
+    suspend fun saveProtectedSynthesisCheckpoint(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject, appendOnly: Boolean = false, engineeringMemory: Boolean = false, expectedDigest: String? = null, expectedRunFence: Long? = null): Boolean =
+        writeProtectedSynthesisCheckpoint(id, chatId, runId, payload, appendOnly, engineeringMemory, expectedDigest, expectedRunFence)
 
     /** Terminal reconciliation is a compare-and-set of the exact saved bytes and their current owner. */
     internal suspend fun finishProviderCheckpoint(
@@ -167,18 +166,18 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                 if (database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return@withTransaction false
                 val existing = dao.get(id)
                 previous = existing?.payload?.let { Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }
-                if (expectedDigest != null) {
+                if (expectedDigest != null && (existing?.runId != runId || existing.chatId != chatId || previous?.get("digest") != kotlinx.serialization.json.JsonPrimitive(expectedDigest))) return@withTransaction false
+                if (expectedFence != null || expectedStatus != null) {
                     val run = database.agentPersistenceDao().rawRecoveryRun(runId) ?: return@withTransaction false
                     val owner = database.agentPersistenceDao().rawRecoveryMessage(run.assistantMessageId) ?: return@withTransaction false
-                    if (existing?.runId != runId ||
-                        existing.chatId != chatId ||
-                        previous?.get("digest") != kotlinx.serialization.json.JsonPrimitive(expectedDigest) ||
-                        run.chatId != chatId ||
-                        run.ownershipFence != expectedFence ||
-                        run.status != expectedStatus ||
+                    if (run.chatId != chatId ||
                         owner.chatId != chatId ||
                         owner.currentRunId != runId ||
-                        owner.ownershipFence != expectedFence
+                        owner.ownershipFence != run.ownershipFence ||
+                        expectedFence != null &&
+                        run.ownershipFence != expectedFence ||
+                        expectedStatus != null &&
+                        run.status != expectedStatus
                     ) {
                         return@withTransaction false
                     }

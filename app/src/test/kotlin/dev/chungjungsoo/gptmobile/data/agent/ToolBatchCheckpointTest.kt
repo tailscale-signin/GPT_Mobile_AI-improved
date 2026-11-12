@@ -27,6 +27,23 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun compactedResultRestoresItsOriginalHashEvenWithoutAnExecutionEnvelope() = runBlocking {
+        val file = File.createTempFile("source-identity", ".json").apply { delete() }
+        try {
+            val call = ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap()))
+            val original = AgentToolResult(call.callId, ToolResultContent.Text("long source receipt ".repeat(2000)), false)
+            val journal = ToolBatchCheckpoint(file, "same-grant")
+            journal.enqueue(listOf(call))
+            journal.execute(call) { original }
+            val restored = ToolBatchCheckpoint(file, "same-grant").recoverySnapshot().completedExchanges.single().results.single()
+            assertEquals(ToolHandoffReceipt.sourceHash(original), ToolHandoffReceipt.sourceHash(restored, originalAvailable = false))
+            assertTrue(ToolHandoffReceipt.payload(restored.content).length < ToolHandoffReceipt.payload(original.content).length)
+            assertTrue(restored.sharedResult)
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test fun measuredMutationTimeoutRemainsUnknownAcrossAProcessIndependentCheckpoint() = runBlocking {
         val file = File.createTempFile("measured-mutation", ".json").apply { delete() }
         try {

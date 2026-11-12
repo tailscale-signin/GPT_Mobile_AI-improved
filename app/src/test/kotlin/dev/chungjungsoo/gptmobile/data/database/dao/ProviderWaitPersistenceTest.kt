@@ -3,14 +3,19 @@ package dev.chungjungsoo.gptmobile.data.database.dao
 import android.app.Application
 import androidx.room.Room
 import dev.chungjungsoo.gptmobile.data.agent.ProviderWait
+import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint
 import dev.chungjungsoo.gptmobile.data.agent.ProviderWaitStore
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.mockk
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,13 +35,16 @@ class ProviderWaitPersistenceTest {
             db.messageDao().addMessages(MessageV2(id = 1, chatId = 1, content = "Question", platformType = null), MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "run", ownershipFence = 3))
             db.agentRunDao().upsert(AgentRun("run", 1, 1, 2, "p", "CUSTOM", "model", "WAITING_PROVIDER_LIMIT", startedAt = 5, ownershipFence = 3))
             val dao = db.agentPersistenceDao()
-            val prior = ProviderWait("run", 3, "scope", 1, "accepted-checkpoint")
+            val checkpoint = ProviderWaitCheckpoint(chatId = 1, platform = PlatformV2(uid = "p", name = "Provider", compatibleType = ClientType.CUSTOM, model = "model"), registeredRevision = "profile", policyRevision = "policy", permissionRevision = "permission", users = listOf(1), replies = emptyList(), inputDigest = "inputs", tools = null, stage = null, participants = listOf("p"), resumeClaimId = "first-claim")
+            val prior = ProviderWait("run", 3, "scope", 1, Json.encodeToString(checkpoint))
             dao.saveProviderWait(prior)
             assertEquals(1, dao.claimProviderWait("run", 3))
             assertEquals(5L, dao.recoveryRun("run")?.startedAt)
-            val renewed = prior.copy(retryAt = 20_000)
+            val renewed = prior.copy(retryAt = 20_000, checkpoint = Json.encodeToString(checkpoint.copy(resumeClaimId = null)))
             assertFalse(dao.redeferClaimedProvider(prior.copy(checkpoint = "stale"), renewed))
-            assertTrue(dao.redeferClaimedProvider(prior, renewed))
+            assertFalse(dao.redeferClaimedProvider(prior, renewed))
+            assertFalse(dao.redeferClaimedProvider(prior, renewed, "stale-claim"))
+            assertTrue(dao.redeferClaimedProvider(prior, renewed, "first-claim"))
             assertEquals(5L, dao.recoveryRun("run")?.startedAt)
             assertEquals("WAITING_PROVIDER_LIMIT", dao.recoveryRun("run")?.status)
             assertEquals(1, dao.claimProviderWait("run", 3))

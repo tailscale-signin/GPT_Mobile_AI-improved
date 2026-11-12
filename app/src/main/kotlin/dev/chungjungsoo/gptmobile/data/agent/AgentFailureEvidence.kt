@@ -45,6 +45,7 @@ internal object AgentFailureEvidence {
 
     /** A typed binding rejection preserves server facts without logging its response body. */
     fun exception(error: Throwable, partialOutput: Boolean = false): ProviderEvent.Failed? {
+        if (error is ProviderRecoveryFailure) return error.event()
         (error as? dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringInputRejected)?.let { rejected ->
             return ProviderEvent.Failed(
                 message = rejected.message.orEmpty(),

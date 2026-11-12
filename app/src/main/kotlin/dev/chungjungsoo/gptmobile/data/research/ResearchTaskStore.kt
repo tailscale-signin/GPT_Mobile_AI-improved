@@ -226,7 +226,7 @@ internal class ResearchTaskStore(private val directory: File) {
         val old = read("resume", key, persistent)?.let { json.decodeFromString<ResearchResumeRequest>(it) }
         if (old != null) {
             val migrate = ResearchResumePolicy.mayMigrate(old.policyRevision, value.policyRevision, currentLegacyPolicyRevision)
-            check(old.taskId == value.taskId && old.rootWorkId == value.rootWorkId && old.requestedStage == value.requestedStage && old.destinationProfileUid == value.destinationProfileUid && (old.policyRevision == value.policyRevision || migrate)) { "RESEARCH_RECOVERY_ACTION_CHANGED" }
+            if (!(old.taskId == value.taskId && old.rootWorkId == value.rootWorkId && old.requestedStage == value.requestedStage && old.destinationProfileUid == value.destinationProfileUid && (old.policyRevision == value.policyRevision || migrate))) throw dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure("RESEARCH_RECOVERY_ACTION_CHANGED")
             if (migrate) {
                 // Only the digest representation changes. Evidence, action identity and
                 // original request time remain those accepted before the upgrade.

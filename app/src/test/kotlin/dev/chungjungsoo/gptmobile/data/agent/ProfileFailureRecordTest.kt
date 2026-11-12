@@ -6,6 +6,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun typedProviderCooldownKeepsTheSameDeadlineAsTheIncidentAndLocalRejection() {
+        val retryAt = 1_800_000_030_156L
+        for (dispatched in listOf(true, false)) {
+            val details = kotlinx.serialization.json.buildJsonObject {
+                put("failed_stage", kotlinx.serialization.json.JsonPrimitive(if (dispatched) "model_invocation" else "provider_admission"))
+                put("http_status", kotlinx.serialization.json.JsonPrimitive(429))
+                put("dispatched", kotlinx.serialization.json.JsonPrimitive(dispatched))
+                put("dispatch_state", kotlinx.serialization.json.JsonPrimitive(if (dispatched) "FAILED" else "PRECHECK_REJECTED"))
+                put("remote_acceptance", kotlinx.serialization.json.JsonPrimitive("NO"))
+                put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(30_156))
+                put("retry_at_ms", kotlinx.serialization.json.JsonPrimitive(retryAt))
+            }
+            val failure = ProfileFailureRecord.fromProvider("Request unavailable", "429", details)
+            assertEquals("RATE_LIMIT", failure.category)
+            assertEquals(retryAt, failure.retryAfterMillis)
+            assertEquals(dispatched, failure.dispatched)
+            assertEquals(if (dispatched) "FAILED" else "PRECHECK_REJECTED", failure.dispatchState)
+        }
+    }
+
     @Test fun unknownModelInvocationFailureRetainsItsDomainWithoutGrantingRetryFromProse() {
         val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"model_invocation","retryable":true,"request_replay_allowed":true}""") as kotlinx.serialization.json.JsonObject
         val failure = ProfileFailureRecord.fromProvider("An old HTTP 503 may have been retried. No request was dispatched; retryAfterMs=2000", "PROVIDER_INVOCATION_FAILED", details)

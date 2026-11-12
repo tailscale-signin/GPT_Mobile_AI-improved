@@ -38,6 +38,51 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun unknownOrUnfinishedExtractorInvocationsDoNotTriggerSchemaRepairAttempts() = runBlocking {
+        for (phase in listOf("open", "stream", "collect", "empty", "partial")) {
+            var attempts = 0
+            var published: JsonObject? = null
+            val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_context"), now = { 1000L })
+            book.observe(
+                ProviderEvent.ToolCall("saved-read", "github_context", JsonObject(mapOf("action" to JsonPrimitive("status")))),
+                AgentToolResult("saved-read", ToolResultContent.Json(JsonObject(mapOf("branch" to JsonPrimitive("main")))), false)
+            )
+            val gate = GitHubVerifiedSession(
+                answer("Private candidate"), book, "Explain the observed repository branch", { 8192 },
+                {
+                    attempts++
+                    if (phase == "open") error("Private exception details must stay private")
+                    object : AgentProviderSession {
+                        override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> {
+                            if (phase == "stream") error("Private exception details must stay private")
+                            return flow {
+                                if (phase != "empty") emit(ProviderEvent.TextDelta("Incomplete private extraction"))
+                                if (phase == "collect") error("Private exception details must stay private")
+                            }
+                        }
+                    }
+                },
+                {}, {}, now = { 1000L }, onPublication = { published = it },
+                openExecutionContinuation = { error("Unknown extraction outcome must not reopen repository execution") }
+            )
+            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            val terminal = events.last() as ProviderEvent.Failed
+            assertEquals(1, attempts)
+            assertEquals("GITHUB_EXTRACTION_FAILED", terminal.errorCode)
+            assertEquals(JsonPrimitive("GITHUB_EXTRACTION_FAILED"), terminal.failureDetails?.get("reason_code"))
+            assertEquals(1, book.snapshot().first.size)
+            assertTrue(events.none { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+            val diagnostic = requireNotNull(published?.get("verification_failure") as? JsonObject)
+            assertEquals(JsonPrimitive("PROVIDER_INVOCATION_FAILED"), diagnostic["provider_error_code"])
+            assertEquals(JsonPrimitive(false), diagnostic["request_replay_allowed"])
+            assertEquals(JsonPrimitive(false), diagnostic["logical_continuation_allowed"])
+            assertEquals(JsonPrimitive("UNKNOWN"), diagnostic["remote_acceptance"])
+            assertFalse(diagnostic.containsKey("dispatched"))
+            assertFalse(diagnostic.containsKey("invocation_id"))
+            assertFalse(diagnostic.toString().contains("Private exception details"))
+        }
+    }
+
     @Test fun typedReviewFailuresDeliverReceiptFactsWithoutReopeningExtractionOrPublishingTheCandidate() = runBlocking {
         for (code in listOf("COMPLETION_REPAIR_BUDGET_EXHAUSTED", "CONTEXT_CAPACITY_EXCEEDED")) {
             val stored = linkedMapOf<String, JsonObject>()

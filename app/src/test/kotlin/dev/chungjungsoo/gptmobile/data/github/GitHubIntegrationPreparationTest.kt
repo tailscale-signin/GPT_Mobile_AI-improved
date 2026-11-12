@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -52,6 +53,72 @@ class GitHubIntegrationPreparationTest {
             """{"branch":"$fixture","created":true,"receipt_verified":true,"head_sha":"$sha"}"""
         )
     )
+
+    @Test fun acceptedCeilingAndLiveCounterSurviveCheckpointResumeAndFinalReport() = runBlocking {
+        val stored = linkedMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("budget-task", "owner/repo", "main", emptySet(), load = { stored[it] }, save = { id, value -> stored[id] = value })
+        book.retainTaskContract(task, 7, tools, 256)
+        book.retainProgress(task, tools, remainingToolCalls = 203)
+        val key = "verification_current_" + GitHubEvidenceBook.digest("budget-task").take(24)
+        val checkpoint = stored.getValue(key).getValue("test_checklist").jsonObject
+        val budget = checkpoint.getValue("stage_budget").jsonObject
+        assertEquals(JsonPrimitive(256), budget["effective_call_limit"])
+        assertEquals(JsonPrimitive(53), budget["used_calls"])
+        assertEquals(JsonPrimitive(203), budget["remaining_calls"])
+        assertEquals(JsonPrimitive("AUTHORIZED_RUN_CONTRACT"), budget["limit_source"])
+        assertEquals(JsonPrimitive("LIVE_EXECUTION_LEDGER"), budget["remaining_source"])
+        assertEquals(budget, checkpoint.getValue("preparation").jsonObject["budget"])
+
+        val serialized = stored.mapValues { json(it.value.toString()) }
+        val resumed = GitHubEvidenceBook("budget-task", "owner/repo", "main", emptySet(), load = { serialized[it] })
+        resumed.retainTaskContract(task, 7, tools, 512)
+        val resumedBudget = resumed.stageBudget(emptyMap(), null, GitHubSelfTestFixtures.minimumCalls(tools))
+        assertEquals(JsonPrimitive(256), resumedBudget["effective_call_limit"])
+        assertEquals(JsonPrimitive(53), resumedBudget["used_calls"])
+        assertEquals(JsonPrimitive(203), resumedBudget["remaining_calls"])
+        assertEquals(JsonPrimitive("RETAINED_EXECUTION_CHECKPOINT"), resumedBudget["remaining_source"])
+        val (text, report) = GitHubEvidencePolicy.testing(emptyMap(), 1000, 0, task, tools, stageBudget = resumedBudget)
+        assertEquals(resumedBudget, report.getValue("test_checklist").jsonObject["stage_budget"])
+        assertTrue(text.contains("Effective tool-call limit: 256 (AUTHORIZED_RUN_CONTRACT). Calls used: 53. Budget remaining: 203"))
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+    }
+
+    @Test fun executableReserveAndTaskIdentityStayAttachedToTheirCounter() = runBlocking {
+        var contract: JsonObject? = null
+        val book = GitHubEvidenceBook("budget-task", "owner/repo", "main", emptySet(), save = { id, value -> if (id == "task_contract") contract = value })
+        book.retainTaskContract(task, 7, tools, 256, executionCallLimit = 254)
+        val budget = GitHubChecklistBudget.checkpoint(emptyMap(), 201, acceptedContract = contract)
+        assertEquals(JsonPrimitive(256), budget["configured_call_limit"])
+        assertEquals(JsonPrimitive(254), budget["effective_call_limit"])
+        assertEquals(JsonPrimitive(53), budget["used_calls"])
+        val other = JsonObject(requireNotNull(contract) + ("source_message_id" to JsonPrimitive(8)))
+        val unrelated = GitHubChecklistBudget.checkpoint(emptyMap(), acceptedContract = other, retainedBudget = budget)
+        assertNull(unrelated["remaining_calls"])
+        assertNull(unrelated["used_calls"])
+    }
+
+    @Test fun exhaustedRetainedCounterAlsoControlsTheResumedStopReason() = runBlocking {
+        val stored = linkedMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("exhausted-task", "owner/repo", "main", emptySet(), load = { stored[it] }, save = { id, value -> stored[id] = value })
+        book.retainTaskContract(task, 7, tools, 256)
+        book.retainProgress(task, tools, remainingToolCalls = 0)
+        val serialized = stored.mapValues { json(it.value.toString()) }
+        val resumed = GitHubEvidenceBook("exhausted-task", "owner/repo", "main", emptySet(), load = { serialized[it] })
+        val budget = resumed.stageBudget(emptyMap(), null, GitHubSelfTestFixtures.minimumCalls(tools))
+        val (text, report) = GitHubEvidencePolicy.testing(emptyMap(), 1000, 0, task, tools, stageBudget = budget)
+        assertEquals(JsonPrimitive(0), budget["remaining_calls"])
+        assertTrue(text.contains("**TOOL_BUDGET_EXHAUSTED**"))
+        assertTrue(text.contains("Calls used: 256. Budget remaining: 0"))
+        val preparation = report.getValue("test_checklist").jsonObject.getValue("preparation").jsonObject
+        assertEquals(JsonPrimitive(false), preparation.getValue("budget").jsonObject["acquisition_allowed"])
+        assertEquals(JsonPrimitive(0), preparation["ready_read_count"])
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        val (partialText, partialReport) = GitHubEvidencePolicy.partial(emptyMap(), 1000, 0, task, "GITHUB_EXTRACTION_TIMEOUT", tools, stageBudget = budget)
+        assertTrue(partialText.contains("**TOOL_BUDGET_EXHAUSTED**"))
+        assertEquals(budget, partialReport.getValue("test_checklist").jsonObject["stage_budget"])
+        assertEquals(JsonPrimitive(0), partialReport.getValue("test_checklist").jsonObject.getValue("preparation").jsonObject["ready_read_count"])
+        assertEquals(JsonPrimitive(false), partialReport["completion_verified"])
+    }
 
     @Test fun manualApprovalAndUnsupportedResourceLifecyclesExposeExactPrerequisitesWithoutMutations() {
         val preflight = GitHubTestChecklist.fixtureApprovalPreflight(GitHubDecisionMode.ASK, "task", "owner/repo", "main", JsonObject(emptyMap()))

@@ -71,6 +71,9 @@ internal object GitHubTaskLifecycle {
                 .forEach { key -> originalFailure[key]?.let { put(key, it) } }
         }
         extractionFailure?.get("batch")?.let { put("extraction_batch", it) }
+        val extractionReason = ((extractionFailure?.get("code") as? JsonPrimitive)?.contentOrNull ?: extractionCode)
+            ?.takeIf { it in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED") }
+        if (originalFailure == null) extractionReason?.let { put("reason_code", it) }
         listOf("extraction_batches_completed", "extraction_batches_total").forEach { key -> verdict[key]?.let { put(key, it) } }
         val stop = verdict["stop_reason"] as? JsonObject
         put("stop_reason", originalFailure?.get("stop_reason") ?: stop?.get("code") ?: originalFailure?.get("code") ?: JsonPrimitive("UNVERIFIED_ACCEPTANCE_CRITERIA"))
@@ -79,7 +82,8 @@ internal object GitHubTaskLifecycle {
         if (domain != null || originalFailure == null) put("failure_domain", domain ?: JsonPrimitive("APPLICATION_VERIFICATION"))
         val ledger = verdict["execution_ledger"] as? JsonObject
         val unresolved = (ledger?.get("unresolved_remote_outcomes") as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true
-        val recovery = if (unresolved) JsonPrimitive("RECONCILE_REMOTE_OUTCOME") else originalFailure?.get("recovery_action") ?: originalFailure?.get("next_action") ?: stop?.get("recovery_action") ?: ledger?.get("recovery")
+        val extractionRecovery = extractionFailure?.get("recovery_action").takeIf { originalFailure == null }
+        val recovery = if (unresolved) JsonPrimitive("RECONCILE_REMOTE_OUTCOME") else originalFailure?.get("recovery_action") ?: originalFailure?.get("next_action") ?: extractionRecovery ?: stop?.get("recovery_action") ?: ledger?.get("recovery")
         if (recovery != null || originalFailure == null) put("recovery_action", recovery ?: JsonPrimitive("RESUME_UNFINISHED_WORK"))
         automaticContinuations?.let { put("automatic_continuations", it) }
         listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger?.get(key)?.let { put(key, it) } }

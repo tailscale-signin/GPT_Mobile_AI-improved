@@ -2544,7 +2544,6 @@ class ChatViewModel @Inject constructor(
             retryFrozenCombined(turnIndex, platformIndex, currentAssistantMessage, platformWithChatModel)
             return
         }
-        combinedSynthesisAttempts.reset(userMessage.id)
         val runId = UUID.randomUUID().toString()
         val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(turnIndex + 1))
         val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
@@ -2564,6 +2563,12 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             agentRunCoordinator.withChatGate(userMessage.chatId) {
+                if (agentRunCoordinator.reattachProviderWait(currentAssistantMessage)) {
+                    _attachmentNotice.value = "Saved work is waiting for the provider or already resuming. Its existing continuation and completed tool results are retained."
+                    _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Idle else state } }
+                    return@withChatGate
+                }
+                combinedSynthesisAttempts.reset(userMessage.id)
                 persistBeforeProvider(
                     persist = {
                         refreshGatewayWriteBlocker(userMessage.chatId)?.let { error(it) }
@@ -4704,13 +4709,17 @@ internal fun updateAssistantSlot(
 ): ChatViewModel.GroupedMessages {
     if (turnIndex !in groupedMessages.assistantMessages.indices) return groupedMessages
 
-    val currentTurnMessages = groupedMessages.assistantMessages[turnIndex].toMutableList()
+    val currentTurnMessages = groupedMessages.assistantMessages[turnIndex]
     if (platformIndex !in currentTurnMessages.indices) return groupedMessages
 
-    currentTurnMessages[platformIndex] = transform(currentTurnMessages[platformIndex])
+    val currentMessage = currentTurnMessages[platformIndex]
+    val updatedMessage = transform(currentMessage)
+    if (updatedMessage === currentMessage || updatedMessage == currentMessage) return groupedMessages
 
+    val updatedTurnMessages = currentTurnMessages.toMutableList()
+    updatedTurnMessages[platformIndex] = updatedMessage
     val updatedAssistantMessages = groupedMessages.assistantMessages.toMutableList()
-    updatedAssistantMessages[turnIndex] = currentTurnMessages
+    updatedAssistantMessages[turnIndex] = updatedTurnMessages
 
     return groupedMessages.copy(assistantMessages = updatedAssistantMessages)
 }

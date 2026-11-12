@@ -34,6 +34,34 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class AgentRunProviderWaitTest {
+    @Test fun localRecoveryRefusalPublishesTypedBlockedStateBeforeAnyRetainedCombinedFallback() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val chats = mockk<ChatRepository>()
+        val settings = mockk<SettingRepository>()
+        val platform = PlatformV2(uid = "p", name = "Primary", compatibleType = ClientType.CUSTOM, model = "model", apiUrl = "https://writer.example/v1")
+        val user = MessageV2(id = 1, chatId = 1, content = "Original task", platformType = null)
+        val answer = MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "run", ownershipFence = 1)
+        val request = AgentRunRequest("run", 1, answer, platform, listOf(user), listOf(listOf(answer)))
+        val committed = CompletableDeferred<Pair<MessageV2, String>>()
+        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(backgroundGeneration = false)
+        coEvery { chats.markAgentRunRunning("run", any()) } returns true
+        coEvery { chats.completeChat(any(), any(), any(), "run", any(), any()) } returns flow { throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED") }
+        coEvery { chats.commitAgentRun(any(), "run", any(), any(), any()) } coAnswers {
+            committed.complete(firstArg<MessageV2>() to thirdArg<String>())
+            true
+        }
+        val coordinator = AgentRunCoordinator(context, chats, mockk(), settings, mockk())
+        coordinator.resumeProviderRequests(listOf(request))
+        val (saved, status) = withTimeout(10_000) { committed.await() }
+        withTimeout(10_000) { coordinator.activeRuns.first { it.isEmpty() } }
+        assertEquals("BLOCKED", status)
+        val failure = requireNotNull(saved.timeline.last().profileFailure)
+        assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", failure.category)
+        assertEquals(false, failure.dispatched)
+        assertEquals("lifecycle", failure.phase)
+        coVerify(exactly = 0) { chats.publishCombinedRetainedFallback(any(), any()) }
+    }
+
     @Test fun resumedWaitCannotAdoptPermissionChangesAfterItsIndependentLaunch() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val chats = mockk<ChatRepository>()

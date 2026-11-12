@@ -42,6 +42,10 @@ class GitHubProviderToolCheckpointTest {
         val changed = JsonObject(saved + ("draft" to JsonPrimitive("A newer owner changed this boundary")))
         val error = runCatching { GitHubProviderToolCheckpoint.binding(scope, "new", expected(saved), changed) }.exceptionOrNull()
         assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", error?.message)
+        assertTrue(error is ProviderRecoveryFailure)
+        val details = (error as ProviderRecoveryFailure).event().failureDetails
+        assertEquals(JsonPrimitive(false), details?.get("dispatched"))
+        assertEquals(JsonPrimitive(expected(saved).digest), details?.get("checkpoint_digest"))
     }
 
     @Test fun anotherTaskProfileOrTurnCannotBeSubstitutedEvenWithAMatchingDigest() {

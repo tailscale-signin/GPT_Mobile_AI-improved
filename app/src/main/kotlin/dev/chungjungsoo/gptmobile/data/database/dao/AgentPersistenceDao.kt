@@ -98,7 +98,7 @@ interface AgentPersistenceDao :
         val now = System.currentTimeMillis() / 1000
         updateRunStatus(prior.runId, "INTERRUPTED", prior.startedAt, now, "KNOWN_PROVIDER_REJECTION_RESUMED")
         val result = persistAgentRetry(request)
-        val ready = saved.copy(mode = dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.INITIAL, deferredStage = null)
+        val ready = saved.closeWait(System.currentTimeMillis()).copy(mode = dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.INITIAL, deferredStage = null)
         saveProviderWait(waiting.copy(runId = result.run.runId, fence = result.run.ownershipFence, checkpoint = codec.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint.serializer(), ready)))
         return result
     }
@@ -135,7 +135,7 @@ interface AgentPersistenceDao :
         val result = persistAgentRetry(request)
         // Discovery after a crash must dispatch this never-started successor, never
         // re-claim the predecessor or lose the typed text-only recovery descriptor.
-        val ready = saved.copy(mode = dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.INITIAL, deferredStage = null)
+        val ready = saved.closeWait(System.currentTimeMillis()).copy(mode = dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.INITIAL, deferredStage = null)
         saveProviderWait(waiting.copy(runId = result.run.runId, fence = result.run.ownershipFence, checkpoint = codec.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint.serializer(), ready)))
         return result
     }
@@ -153,23 +153,93 @@ interface AgentPersistenceDao :
     @Query("UPDATE agent_runs SET status = 'QUEUED' WHERE run_id = :runId AND ownership_fence = :fence AND status = 'WAITING_PROVIDER_LIMIT' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = :fence)")
     suspend fun claimProviderWait(runId: String, fence: Long): Int
 
+    @Transaction
+    suspend fun claimCurrentProviderWait(expected: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, claimed: dev.chungjungsoo.gptmobile.data.agent.ProviderWait): Boolean {
+        require(expected.runId == claimed.runId && expected.fence == claimed.fence && expected.scope == claimed.scope && expected.retryAt == claimed.retryAt)
+        if (rawProviderWait(expected.runId) != expected || expected.retryAt > System.currentTimeMillis()) return false
+        val run = recoveryRun(expected.runId) ?: return false
+        val message = recoveryMessage(run.assistantMessageId) ?: return false
+        if (run.ownershipFence != expected.fence || message.currentRunId != run.runId || message.ownershipFence != expected.fence) return false
+        if (run.status == "WAITING_PROVIDER_LIMIT") {
+            if (claimProviderWait(run.runId, expected.fence) != 1) return false
+        } else if (run.status != "QUEUED") {
+            return false
+        }
+        saveProviderWait(claimed)
+        return true
+    }
+
     @Query("UPDATE agent_runs SET status = 'WAITING_PROVIDER_LIMIT', terminal_error = NULL WHERE run_id = :runId AND ownership_fence = :fence AND status = 'QUEUED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = :fence)")
     suspend fun markClaimedProviderWaiting(runId: String, fence: Long): Int
 
     @Transaction
-    suspend fun redeferClaimedProvider(expected: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait): Boolean {
+    suspend fun redeferClaimedProvider(expected: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, claimId: String? = null): Boolean {
         if (expected.runId != row.runId || expected.fence != row.fence || rawProviderWait(row.runId) != expected) return false
+        val saved = runCatching { kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(expected.checkpoint) }.getOrNull() ?: return false
+        if (saved.resumeClaimId != claimId) return false
         if (markClaimedProviderWaiting(row.runId, row.fence) != 1) return false
         saveProviderWait(row)
         return true
     }
 
-    @Query("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = :reason WHERE run_id = :runId AND status IN ('WAITING_PROVIDER_LIMIT','QUEUED') AND EXISTS (SELECT 1 FROM provider_waits w JOIN messages_v2 m ON m.message_id = agent_runs.assistant_message_id WHERE w.runId = agent_runs.run_id AND w.fence = agent_runs.ownership_fence AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)")
-    suspend fun blockProviderWait(runId: String, reason: String): Int
+    @Query("UPDATE agent_runs SET status = 'RUNNING', started_at = COALESCE(started_at, :startedAt), completed_at = NULL, terminal_error = NULL WHERE run_id = :runId AND ownership_fence = :fence AND status = 'QUEUED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = :fence)")
+    suspend fun markProviderResumeRunning(runId: String, fence: Long, startedAt: Long): Int
 
     @Transaction
-    suspend fun blockCurrentProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, reason: String) {
-        if (rawProviderWait(row.runId) == row) blockProviderWait(row.runId, reason)
+    suspend fun startClaimedProviderWait(runId: String, claimId: String, resumedAtMillis: Long): Boolean {
+        val row = rawProviderWait(runId) ?: return false
+        val codec = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
+        val saved = codec.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(row.checkpoint)
+        if (saved.resumeClaimId != claimId || markProviderResumeRunning(runId, row.fence, resumedAtMillis / 1000) != 1) return false
+        saveProviderWait(row.copy(checkpoint = codec.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint.serializer(), saved.copy(lastResumedAtMillis = resumedAtMillis))))
+        return true
+    }
+
+    @Transaction
+    suspend fun releaseUnstartedProviderWait(runId: String, claimId: String): dev.chungjungsoo.gptmobile.data.agent.ProviderWait? {
+        val row = rawProviderWait(runId) ?: return null
+        val run = recoveryRun(runId) ?: return null
+        val message = recoveryMessage(run.assistantMessageId) ?: return null
+        if (run.status != "QUEUED" || run.ownershipFence != row.fence || message.currentRunId != runId || message.ownershipFence != row.fence) return null
+        val codec = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
+        val saved = codec.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(row.checkpoint)
+        if (saved.resumeClaimId != claimId) return null
+        val released = row.copy(checkpoint = codec.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint.serializer(), saved.copy(resumeClaimId = null, resumeOwnerId = null, resumeClaimedAtMillis = null, waitStartedAtMillis = System.currentTimeMillis())))
+        updateRunStatus(runId, "WAITING_PROVIDER_LIMIT", run.startedAt, null, null)
+        saveProviderWait(released)
+        return released
+    }
+
+    @Query("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = :reason, completed_at = :completedAt WHERE run_id = :runId AND status IN ('WAITING_PROVIDER_LIMIT', 'QUEUED') AND EXISTS (SELECT 1 FROM provider_waits w JOIN messages_v2 m ON m.message_id = agent_runs.assistant_message_id WHERE w.runId = agent_runs.run_id AND w.fence = agent_runs.ownership_fence AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = w.fence)")
+    suspend fun blockProviderWait(runId: String, reason: String, completedAt: Long = System.currentTimeMillis() / 1000): Int
+
+    @Transaction
+    suspend fun blockCurrentProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, reason: String): Boolean {
+        if (rawProviderWait(row.runId) != row || blockProviderWait(row.runId, reason) != 1) return false
+        recordCurrentProviderRecovery(row, dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure(reason).event().failureDetails!!)
+        return true
+    }
+
+    @Transaction
+    suspend fun recordCurrentProviderRecovery(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, failure: kotlinx.serialization.json.JsonObject): Boolean {
+        if (rawProviderWait(row.runId) != row) return false
+        val run = recoveryRun(row.runId) ?: return false
+        val message = recoveryMessage(run.assistantMessageId) ?: return false
+        if (run.ownershipFence != row.fence || message.currentRunId != row.runId || message.ownershipFence != row.fence) return false
+        val codec = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            encodeDefaults = true
+        }
+        val saved = runCatching { codec.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(row.checkpoint) }.getOrNull() ?: return false
+        val retained = kotlinx.serialization.json.JsonObject(failure + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.correlation(saved.decision?.gitHubCheckpoint, saved.resumeClaimId, row.fence, row.runId))
+        saveProviderWait(row.copy(checkpoint = codec.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint.serializer(), saved.closeWait(System.currentTimeMillis()).copy(recoveryFailure = retained))))
+        return true
     }
 
     @Update
@@ -1140,6 +1210,11 @@ interface AgentPersistenceDao :
         }
         val current = requireNotNull(recoveryMessage(request.assistantMessage.id)) { "The answer slot was deleted." }
         val priorOwner = current.currentRunId?.let { recoveryRun(it) }
+        val activeWait = priorOwner?.takeIf { it.status in setOf("WAITING_PROVIDER_LIMIT", "QUEUED", "RUNNING") }
+            ?.let { owner -> rawProviderWait(owner.runId)?.takeIf { it.fence == owner.ownershipFence && it.fence == current.ownershipFence } }
+        check(activeWait == null || request.automaticAppendDecision != null) {
+            "PROVIDER_WAIT_ALREADY_SCHEDULED: Saved work already owns this answer and will resume when the provider is eligible."
+        }
         if (request.run.synthesisKey != null) {
             val decoder = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
             val incoming = request.run.synthesisSnapshot?.let { raw -> runCatching { decoder.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.CombinedInputSnapshot>(raw) }.getOrNull() }
@@ -1187,6 +1262,14 @@ interface AgentPersistenceDao :
             // The complete wait/cursor check and new owner are committed by this transaction.
             // A strict single-request writer can never pass the accepted append validation.
             val now = System.currentTimeMillis() / 1000
+            automaticWait?.let { waiting ->
+                val waitCodec = kotlinx.serialization.json.Json {
+                    ignoreUnknownKeys = true
+                    encodeDefaults = true
+                }
+                val waitState = waitCodec.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(waiting.checkpoint)
+                saveProviderWait(waiting.copy(checkpoint = waitCodec.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint.serializer(), waitState.closeWait(System.currentTimeMillis()))))
+            }
             updateRunStatus(prior.runId, "INTERRUPTED", prior.startedAt, now, "KNOWN_PROVIDER_REJECTION_RESUMED")
             prior.copy(status = "INTERRUPTED", completedAt = now, terminalError = "KNOWN_PROVIDER_REJECTION_RESUMED")
         } ?: priorOwner
@@ -1337,7 +1420,7 @@ interface AgentPersistenceDao :
                 encodeDefaults = true
             }
             val saved = codec.decodeFromString<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint>(waiting.checkpoint)
-            val ready = saved.copy(mode = dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.INITIAL, deferredStage = null)
+            val ready = saved.closeWait(System.currentTimeMillis()).copy(mode = dev.chungjungsoo.gptmobile.data.agent.ProviderWaitMode.INITIAL, deferredStage = null)
             // A crash after insertion keeps this queued generation discoverable. The new
             // run restores the predecessor cursor before any possible physical dispatch.
             saveProviderWait(waiting.copy(runId = run.runId, fence = run.ownershipFence, checkpoint = codec.encodeToString(dev.chungjungsoo.gptmobile.data.agent.ProviderWaitCheckpoint.serializer(), ready)))

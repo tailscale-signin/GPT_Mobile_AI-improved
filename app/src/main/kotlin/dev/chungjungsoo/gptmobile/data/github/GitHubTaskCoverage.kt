@@ -79,9 +79,9 @@ internal object GitHubTaskCoverage {
             }
         }
 
-    fun render(receipts: Map<String, JsonObject>, task: String = "test all tools", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, acceptedContract: JsonObject? = null): String = buildString {
+    fun render(receipts: Map<String, JsonObject>, task: String = "test all tools", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null): String = buildString {
         if (GitHubTestChecklist.integration(task)) {
-            append(GitHubIntegrationReport.render(task, receipts, tools, remainingToolCalls, acceptedContract))
+            append(GitHubIntegrationReport.render(task, receipts, tools, remainingToolCalls, stageBudget, acceptedContract))
             return@buildString
         }
         val complete = GitHubTestChecklist.apiComplete(task, receipts, tools)

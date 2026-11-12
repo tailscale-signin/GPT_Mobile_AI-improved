@@ -65,8 +65,8 @@ internal object GitHubIntegrationReport {
         }
     }
 
-    fun render(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, remainingToolCalls: Int? = null, acceptedContract: JsonObject? = null): String = buildString {
-        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, acceptedContract = acceptedContract)
+    fun render(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null): String = buildString {
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, stageBudget = stageBudget, acceptedContract = acceptedContract)
         val capabilities = checkpoint.array("capabilities")
         val criteria = checkpoint.array("requirements")
         val catalog = checkpoint["authorized_catalog"] as JsonObject
@@ -160,10 +160,10 @@ internal object GitHubIntegrationReport {
         }
         append("\n### Repository inventory and stop reason\n\n")
         checkpoint.array("inventory_coverage").forEach { row -> append("- ${safe(row.text("tool"))}/${safe(row.text("operation"))}: ${safe(GitHubTestChecklist.inventorySummary(row))}.\n") }
-        val stop = stopReason(task, receipts, tools, remainingToolCalls)
-        append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
         val budget = checkpoint["stage_budget"] as JsonObject
-        append("\nEffective tool-call limit: ${budget.text("effective_call_limit").ifBlank { "not recorded" }} (${budget.text("limit_source")}). Budget remaining: ${budget.text("remaining_calls").ifBlank { "not recorded" }}; verification reserve: ${budget.text("verification_reserve")}. ${budget.text("limit_rule")} Elapsed run time is not inferred from tool counts. The checkpoint preserves unmet criteria, exact continuation recipes, fixture state and receipt IDs for resumption.\n")
+        val stop = stopReason(task, receipts, tools, budget.number("remaining_calls"))
+        append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
+        append("\nEffective tool-call limit: ${budget.text("effective_call_limit").ifBlank { "not recorded" }} (${budget.text("limit_source")}). Calls used: ${budget.text("used_calls").ifBlank { "not recorded" }}. Budget remaining: ${budget.text("remaining_calls").ifBlank { "not recorded" }}; verification reserve: ${budget.text("verification_reserve")}. ${budget.text("limit_rule")} Elapsed run time is not inferred from tool counts. The checkpoint preserves unmet criteria, exact continuation recipes, fixture state and receipt IDs for resumption.\n")
         append("\n**Overall integration health: Not measured.** API response acceptance, traversal completeness, new CI execution and current-device tests are independent.\n")
     }
 

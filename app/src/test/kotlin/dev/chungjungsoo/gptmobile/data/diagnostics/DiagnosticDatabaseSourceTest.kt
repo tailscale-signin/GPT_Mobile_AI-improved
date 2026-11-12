@@ -71,6 +71,65 @@ class DiagnosticDatabaseSourceTest {
         research.close()
     }
 
+    @Test fun fencedWaitRecoveryExplainsTerminalStateWhenWorkspaceStillHasTheOriginalInterruption() = runBlocking {
+        val chat = createRun("wait-run", "PROVIDER_WAIT_CHECKPOINT_CHANGED")
+        val run = requireNotNull(database.agentPersistenceDao().recoveryRun("wait-run"))
+        val message = requireNotNull(database.agentPersistenceDao().recoveryMessage(run.assistantMessageId))
+        database.agentPersistenceDao().updateMessage(message.copy(currentRunId = run.runId, ownershipFence = run.ownershipFence))
+        val original = buildJsonObject {
+            put("code", "429")
+            put(
+                "details",
+                buildJsonObject {
+                    put("http_status", 429)
+                    put("invocation_id", "old-invocation")
+                }
+            )
+        }
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", original)
+        val saved = buildJsonObject {
+            put("recoveryFailure", requireNotNull(failure.event().failureDetails))
+            put("lastResumedAtMillis", 20_000)
+            put("accumulatedProviderWaitMillis", 15_000)
+            put("private_policy", "must not enter the narrow wait projection")
+        }
+        database.agentPersistenceDao().saveProviderWait(dev.chungjungsoo.gptmobile.data.agent.ProviderWait(run.runId, run.ownershipFence, "scope", 1000, saved.toString()))
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-evidence:binding:verification_current_snapshot",
+            chat,
+            run.runId,
+            buildJsonObject {
+                put("completion_verified", false)
+                put("failure_code", "429")
+            }
+        )
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-output:binding",
+            chat,
+            run.runId,
+            buildJsonObject {
+                put("state", "WAITING_PROVIDER_LIMIT")
+                put("failure_code", "429")
+                put("resume_allowed", true)
+            }
+        )
+        val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("PROVIDER_WAIT_CHECKPOINT_CHANGED"), summary["failure_code"])
+        assertEquals(JsonPrimitive("lifecycle"), summary["failed_stage"])
+        assertEquals(JsonPrimitive("REVIEW_SAVED_RECOVERY"), summary["recovery_action"])
+        assertEquals(JsonNull, summary["invocation_id"])
+        assertEquals(original, summary["original_interruption"])
+        val latest = mutableListOf<JsonObject>()
+        source.capture(chat, "latest_state", 16_384, {}, { latest += it }, {})
+        val wait = latest.single { it["table"] == JsonPrimitive("provider_waits") }.getValue("fields").jsonObject
+        assertEquals(JsonPrimitive(15_000), wait.getValue("recovery").jsonObject["accumulatedProviderWaitMillis"])
+        assertFalse(wait.toString().contains("private_policy"))
+        database.agentRunDao().updateStatus(run.runId, "COMPLETED", run.startedAt, 25, null)
+        val completed = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertFalse(completed["failure_code"] == JsonPrimitive("PROVIDER_WAIT_CHECKPOINT_CHANGED"))
+        assertFalse(completed.toString().contains("provider_waits:"))
+    }
+
     @Test fun byteBoundSkipsOversizedUnicodeWhileRetainingOtherRowsAndChatScope() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Selected")).toInt()
         val other = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Other")).toInt()

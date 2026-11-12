@@ -91,7 +91,8 @@ data class ProviderFailureReceipt(
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
             "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM"
-        ) + dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES +
+        ) + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
+            dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES +
             dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes +
             dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.entries.map { it.code } +
             dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason.entries.map { "GATEWAY_${it.name}" }
@@ -155,6 +156,7 @@ data class ProviderFailureReceipt(
                 failureDomain = when {
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
                     code == "GITHUB_TASK_INCOMPLETE" || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
+                    code in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES -> FailureDomain.APPLICATION_VERIFICATION
                     code in setOf("TOOL_OUTCOME_UNKNOWN", "INVALID_ARGUMENTS", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "GITHUB_OPERATION_BLOCKED") -> FailureDomain.TOOL_EXECUTION
                     invocationId != null || status != null || code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES || code in setOf("TRANSPORT_ERROR", "OUTPUT_LIMIT", "INCOMPLETE_PROVIDER_STREAM", "PROVIDER_INVOCATION_FAILED") -> FailureDomain.PROVIDER
                     else -> FailureDomain.UNKNOWN

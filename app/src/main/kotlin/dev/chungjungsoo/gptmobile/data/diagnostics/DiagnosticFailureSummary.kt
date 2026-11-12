@@ -36,6 +36,19 @@ internal fun diagnosticMessageFailureEvidence(messageId: Long, timeline: JsonEle
         text("dispatchState", Regex("NOT_DISPATCHED|PRECHECK_REJECTED|DISPATCHED|FAILED|COMPLETED|UNKNOWN"))?.let { put("dispatch_state", it) }
         val recovery = (failure["recoveryActions"] as? JsonArray)?.singleOrNull() as? JsonPrimitive
         recovery?.takeIf { it.isString && it.content.matches(Regex("[A-Z][A-Z0-9_]{2,95}")) }?.let { put("recovery_action", it) }
+        dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedDetails(failure["recoveryDetails"] as? JsonObject)?.let { details ->
+            put(
+                "latest_recovery_failure",
+                JsonObject(
+                    details + buildJsonObject {
+                        put("code", category)
+                        put("failed_stage", "lifecycle")
+                        put("task_outcome", "BLOCKED")
+                        for ((stored, projected) in listOf("dispatched" to "dispatched", "retryAllowed" to "retryable", "requestReplayAllowed" to "request_replay_allowed", "remoteAcceptance" to "remote_acceptance", "dispatchState" to "dispatch_state")) failure[stored]?.let { put(projected, it) }
+                    }
+                )
+            )
+        }
     }
     return DiagnosticFailureEvidence("messages_v2:$messageId:profileFailure", "MESSAGE_PROFILE_FAILURE", payload)
 }
@@ -60,24 +73,36 @@ internal fun diagnosticFailureSummary(
     // These application-owned guards stop a local resume, after the provider
     // interruption has already been checkpointed. That older HTTP failure must
     // not become the current verdict or lend its invocation to the failed resume.
-    val terminalRecoveryCode = if (runStatus in setOf("FAILED", "PARTIAL", "BLOCKED")) {
+    val legacyTerminalRecoveryCode = if (runStatus in setOf("FAILED", "PARTIAL", "BLOCKED", "INTERRUPTED")) {
         terminalRecoveryCodePattern.find(terminalError.orEmpty().trim())?.groupValues?.get(1)
     } else {
         null
     }
     val verification = evidence.firstOrNull { it.source == "VERIFICATION_CURRENT" } ?: evidence.firstOrNull { it.source == "VERIFICATION_EVENT" }
     val reviewResolved = runStatus == "COMPLETED" || verification?.payload?.get("completion_verified") == JsonPrimitive(true)
-    val retained = evidence.filter {
+    val recovery = evidence.takeUnless { reviewResolved }.orEmpty().mapNotNull { item ->
+        (item.payload["latest_recovery_failure"] as? JsonObject)?.takeIf { it["failure_origin"] == JsonPrimitive("local_recovery") }
+            ?.let { DiagnosticFailureEvidence(item.recordId, "RECOVERY_CHECKPOINT", it) }
+    }
+    val terminalRecoveryCode = legacyTerminalRecoveryCode.takeIf { recovery.isEmpty() && !reviewResolved }
+    val retained = (recovery + evidence).filter {
+        if (reviewResolved && it.payload["latest_recovery_failure"] != null) return@filter false
         when (it.source) {
             "REVIEW_CHECKPOINT" -> !reviewResolved && unresolvedGitHubReviewFailure(it.payload)
             "MESSAGE_PROFILE_FAILURE" -> !reviewResolved
             else -> true
         }
     }
-        .sortedBy { if (it.source == "REVIEW_CHECKPOINT") 0 else 1 }
+        .sortedBy {
+            when (it.source) {
+                "RECOVERY_CHECKPOINT" -> 0
+                "REVIEW_CHECKPOINT" -> 1
+                else -> 2
+            }
+        }
     // Review failure owns its causal invocation. Missing reviewer evidence cannot
     // be filled with the ID/stage/recovery of a successful earlier generation.
-    val causal = if (terminalRecoveryCode != null) emptyList() else retained.filter { it.source == "REVIEW_CHECKPOINT" }.ifEmpty { retained }
+    val causal = retained.filter { it.source == "RECOVERY_CHECKPOINT" }.ifEmpty { if (terminalRecoveryCode != null) emptyList() else retained.filter { it.source == "REVIEW_CHECKPOINT" }.ifEmpty { retained } }
     fun JsonObject.text(key: String): String? = (this[key] as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
     data class Value(val value: String, val source: String)
     fun readFrom(items: List<DiagnosticFailureEvidence>, vararg keys: String): Value? {
@@ -109,15 +134,15 @@ internal fun diagnosticFailureSummary(
         ?: retained.firstNotNullOfOrNull { item -> (item.payload["stop_reason"] as? JsonObject)?.text("code")?.let { Value(it, item.source) } }
         ?: terminalCode?.let { Value(it, "TERMINAL_ERROR") }
     val failure = terminalRecoveryCode?.let { Value(it, "TERMINAL_ERROR") } ?: retainedFailure
-    val taskState = terminalRecoveryCode?.let { Value(requireNotNull(runStatus), "AGENT_RUN") } ?: read("task_state")
+    val taskState = if (terminalRecoveryCode != null || recovery.isNotEmpty()) Value(runStatus ?: "BLOCKED", "AGENT_RUN") else read("task_state")
     val taskOutcome = read("task_outcome")
     val approvalState = read("approval_state")
     val stopCode = if (terminalRecoveryCode != null) failure else read("stop_code") ?: failure
-    val failedStage = terminalRecoveryCode?.let { Value("provider_recovery", "FAILURE_CODE_POLICY") } ?: readFrom(causal, "failed_stage")
+    val failedStage = terminalRecoveryCode?.let { Value("lifecycle", "FAILURE_CODE_POLICY") } ?: readFrom(causal, "failed_stage")
         ?: readFrom(causal, "phase")?.takeIf { it.value.matches(Regex("[a-z][a-z0-9_]{1,63}")) }
         ?: Regex(";\\s*([a-z][a-z0-9_]{2,63})\\)").find(terminalError.orEmpty())?.groupValues?.get(1)?.let { Value(it, "TERMINAL_ERROR") }
-    val recovery = readFrom(causal, "recovery_action") ?: when (failure?.value) {
-        "PROVIDER_WAIT_CHECKPOINT_CHANGED", "RESEARCH_RECOVERY_ACTION_CHANGED" -> "RECONCILE_SAVED_CHECKPOINT"
+    val recoveryAction = readFrom(causal, "recovery_action", "next_action") ?: when (failure?.value) {
+        "PROVIDER_WAIT_CHECKPOINT_CHANGED", "RESEARCH_RECOVERY_ACTION_CHANGED" -> "REVIEW_SAVED_RECOVERY"
         "conversation_conflict", "CONVERSATION_CONFLICT" -> "RECONCILE_ACTIVE_GATEWAY_JOB"
         "tool_results_required", "GATEWAY_TOOL_RESULTS_REQUIRED", "CLIENT_TOOL_RESULTS_REQUIRED" -> "RESUME_WITH_RETAINED_TOOL_RESULTS"
         "EXECUTION_SELECTION_INVALID" -> "REFRESH_SELECTED_PROFILE_AND_GATEWAY_READINESS"
@@ -179,7 +204,8 @@ internal fun diagnosticFailureSummary(
         if (terminalRecoveryCode != null && retainedFailure != null && retainedFailure.value != terminalRecoveryCode) {
             put("prior_interruption_code", record("prior_interruption_code", retainedFailure))
         }
-        put("recovery_action", record("recovery_action", recovery))
+        put("recovery_action", record("recovery_action", recoveryAction))
+        recovery.firstNotNullOfOrNull { it.payload["original_interruption"] }?.let { put("original_interruption", it) }
         for (key in listOf("dispatched", "retryable", "request_replay_allowed", "remote_acceptance", "dispatch_state")) {
             causal.firstOrNull { it.payload[key] != null && it.payload[key] != JsonNull }?.let { item ->
                 put(key, item.payload.getValue(key))
@@ -191,7 +217,7 @@ internal fun diagnosticFailureSummary(
         put("observed_head_sha", record("observed_head_sha", observedSha))
         put("observed_head_scope", "Observed or expected revision only; no test execution implied")
         put("field_sources", JsonObject(sources))
-        put("source_record_ids", JsonArray(retained.map { JsonPrimitive(it.recordId) }))
+        put("source_record_ids", JsonArray(retained.map { JsonPrimitive(it.recordId) }.distinct()))
         put("projection_limitations", JsonArray(limitations))
         put("scope", "SAME_RUN_RETAINED_EVIDENCE; failure-code recovery is a recommended action, not an observed recovery")
         put("captured_at_millis", capturedAtMillis)

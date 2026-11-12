@@ -52,6 +52,28 @@ class ProtectedSynthesisCheckpointTest {
         database.close()
     }
 
+    @Test fun conditionalRecoveryCheckpointCannotReplaceChangedEvidenceOrASupersededOwner() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Recovery")).toInt()
+        val user = database.agentPersistenceDao().insertMessage(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = chat, content = "Task", platformType = null)).toInt()
+        val answer = database.agentPersistenceDao().insertMessage(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = chat, platformType = "profile", currentRunId = "run", ownershipFence = 3)).toInt()
+        database.agentRunDao().upsert(dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("run", chat, user, answer, "profile", "CUSTOM", "model", "RUNNING", ownershipFence = 3))
+        val repository = WorkspaceRepository(database, vault)
+        val first = buildJsonObject { put("state", "WAITING_PROVIDER_LIMIT") }
+        val newer = buildJsonObject { put("state", "COMPLETED") }
+        val blocked = buildJsonObject { put("state", "BLOCKED_RECOVERY") }
+        repository.saveProtectedSynthesisCheckpoint("boundary", chat, "run", first)
+        val firstDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(first.toString())
+        repository.saveProtectedSynthesisCheckpoint("boundary", chat, "run", newer)
+        assertFalse(repository.saveProtectedSynthesisCheckpoint("boundary", chat, "run", blocked, expectedDigest = firstDigest, expectedRunFence = 3))
+        assertEquals(newer, repository.protectedSynthesisCheckpoint("boundary"))
+        val currentDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(newer.toString())
+        assertFalse(repository.saveProtectedSynthesisCheckpoint("boundary", chat, "run", blocked, expectedDigest = currentDigest, expectedRunFence = 2))
+        assertEquals(newer, repository.protectedSynthesisCheckpoint("boundary"))
+        assertTrue(repository.saveProtectedSynthesisCheckpoint("boundary", chat, "run", blocked, expectedDigest = currentDigest, expectedRunFence = 3))
+        assertEquals(blocked, repository.protectedSynthesisCheckpoint("boundary"))
+        assertEquals(1, secrets.size)
+    }
+
     @Test fun largeUnicodeReportSurvivesReopenWithoutPlaintextInMetadata() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Checkpoint")).toInt()
         val report = "Private 🌍 evidence ".repeat(5000)

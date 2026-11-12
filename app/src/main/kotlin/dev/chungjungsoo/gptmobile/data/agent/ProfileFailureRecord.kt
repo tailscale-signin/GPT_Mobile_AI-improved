@@ -37,7 +37,9 @@ data class ProfileFailureRecord(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val dispatchState: String? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val recoveryActions: List<String> = emptyList()
+    val recoveryActions: List<String> = emptyList(),
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val recoveryDetails: JsonObject? = null
 ) {
     /** An expired local view needs its original source receipt, never a generic cursor retry. */
     val isSavedViewUnavailable: Boolean get() = category == "SAVED_VIEW_UNAVAILABLE"
@@ -83,8 +85,9 @@ data class ProfileFailureRecord(
             }
             val rejectedStatus = (details?.get("http_status") as? JsonPrimitive)?.contentOrNull in setOf("409", "422")
             val code = errorCode?.uppercase(java.util.Locale.ROOT)?.takeIf {
-                it in setOf("WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED") || executionCode.matches(it) || it in continuationCodes || it in typedCodes || it in repositoryAdmissionCodes || it in githubSchemaAdmissionCodes || it in capacityCodes || it in gatewayAdmissionCodes || it in engineeringPreflightCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
+                it in setOf("WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED") || it in ProviderRecoveryFailure.CODES || executionCode.matches(it) || it in continuationCodes || it in typedCodes || it in repositoryAdmissionCodes || it in githubSchemaAdmissionCodes || it in capacityCodes || it in gatewayAdmissionCodes || it in engineeringPreflightCodes || it in readinessCodes || it in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || it in dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes
             } ?: "REQUEST_REJECTED".takeIf { rejectedStatus }
+                ?: "429".takeIf { errorCode == "429" || details?.get("http_status") == JsonPrimitive(429) }
             val observed = classify(listOfNotNull(if (code == "EXECUTION_OPERATION_UNKNOWN_OUTCOME") GatewayOutcomeRecovery.ERROR_CODE else code, message).joinToString(": "))
             val serverRequestId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((details?.get("server_request_id") as? JsonPrimitive)?.contentOrNull)
             val generationCompleted = (details?.get("generation_completed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
@@ -106,17 +109,19 @@ data class ProfileFailureRecord(
                     generationCompleted = generationCompleted,
                     requestReplayAllowed = false,
                     causeTypes = causeTypes,
-                    recoveryActions = recoveryActions
+                    recoveryActions = recoveryActions,
+                    recoveryDetails = ProviderRecoveryFailure.retainedDetails(details)
                 )
             }
             val authoritative = code?.let {
                 when {
                     it == "PROVIDER_INVOCATION_FAILED" -> ProfileFailureRecord(it, retryAllowed = false, phase = "model_invocation")
+                    it in ProviderRecoveryFailure.CODES -> ProfileFailureRecord(it, retryAllowed = false, phase = "lifecycle")
                     executionCode.matches(it) -> ProfileFailureRecord(it, retryAllowed = false, phase = "provider_admission")
                     else -> classify(it)
                 }
             }
-            val legacy = if (code == "PROVIDER_INVOCATION_FAILED") {
+            val legacy = if (code == "PROVIDER_INVOCATION_FAILED" || code in ProviderRecoveryFailure.CODES) {
                 // An unknown model exception contributes no dispatch or cooldown
                 // facts from its message. Structured observations are applied below.
                 requireNotNull(authoritative)
@@ -146,6 +151,10 @@ data class ProfileFailureRecord(
             val catalogPrecheck = dispatched == false && (legacy.category == "STALE_INVENTORY" && stage in setOf("inventory_pagination", "tool_precheck") || legacy.category in readinessCodes && stage == "tool_readiness")
             val repositoryPrecheck = dispatched == false && legacy.category in repositoryAdmissionCodes && stage == "repository_admission"
             val retryAfter = (details?.get("retry_after_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 0L..86_400_000L }
+            val retryAt = (details?.get("retry_at_ms") as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it > 0 }
+            val typedProviderCooldown = legacy.category == "RATE_LIMIT" &&
+                stage in setOf("model_invocation", "provider_admission", "response_stream") &&
+                ((details?.get("http_status") as? JsonPrimitive)?.takeUnless { it.isString }?.contentOrNull == "429" || dispatchState == "precheck_rejected")
             val observedAcceptance = when ((details?.get("remote_acceptance") as? JsonPrimitive)?.contentOrNull) {
                 "YES", "ACCEPTED" -> RemoteRequestAcceptance.YES
                 "NO", "NOT_ACCEPTED" -> RemoteRequestAcceptance.NO
@@ -159,7 +168,13 @@ data class ProfileFailureRecord(
                 retryAllowed = legacy.retryAllowed && (logicalContinuation || details?.get("retryable") != JsonPrimitive(false)),
                 dispatched = dispatched,
                 remoteAcceptance = if (localCircuitRejection || authorityPrecheck || catalogPrecheck || repositoryPrecheck || dispatchState in setOf("not_dispatched", "precheck_rejected")) RemoteRequestAcceptance.NO else observedAcceptance,
-                retryAfterMillis = if ((localCircuitRejection || repositoryPrecheck) && retryAfter != null) System.currentTimeMillis() + retryAfter else legacy.retryAfterMillis,
+                retryAfterMillis = if (typedProviderCooldown) {
+                    retryAt ?: retryAfter?.let { System.currentTimeMillis() + it } ?: legacy.retryAfterMillis
+                } else if ((localCircuitRejection || repositoryPrecheck) && retryAfter != null) {
+                    System.currentTimeMillis() + retryAfter
+                } else {
+                    legacy.retryAfterMillis
+                },
                 invocationId = invocationId,
                 serverRequestId = serverRequestId,
                 generationCompleted = generationCompleted,
@@ -167,7 +182,8 @@ data class ProfileFailureRecord(
                     ?: (details?.get("request_replay_allowed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull,
                 causeTypes = causeTypes,
                 dispatchState = dispatchState?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("NOT_DISPATCHED", "PRECHECK_REJECTED", "DISPATCHED", "FAILED", "COMPLETED", "UNKNOWN") },
-                recoveryActions = recoveryActions
+                recoveryActions = recoveryActions,
+                recoveryDetails = ProviderRecoveryFailure.retainedDetails(details)
             )
         }
 

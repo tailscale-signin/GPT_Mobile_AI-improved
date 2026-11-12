@@ -8,6 +8,8 @@ import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -171,6 +173,100 @@ class GitHubOutputContinuationSessionTest {
         val output = resumed.streamRound(listOf(tool), journals[resumed.toolCheckpointBinding].orEmpty()).toList()
         assertTrue(output.none { it is ProviderEvent.ToolCall })
         assertEquals("Finished from saved results.", output.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+    }
+
+    @Test fun evictedProviderReplayRequiresMatchingDurableIdentitiesAndUnknownEffectsRemainBlocked() = runBlocking {
+        for (scenario in listOf("retained", "changed-source", "missing", "unknown", "changed-checkpoint", "same-replay-source", "same-replay-dispatch", "same-replay-error", "same-replay-fingerprint", "same-replay-id", "same-replay-duplicate", "lost-cas")) {
+            val call = ProviderEvent.ToolCall("saved", tool.name, JsonObject(emptyMap()))
+            val result = ToolHandoffReceipt.identifySource(AgentToolResult(call.callId, ToolResultContent.Text("Retained original receipt"), false))
+            val receipt = ToolHandoffReceipt.from(call, result).copy(receiptSource = "TOOL_BATCH_CHECKPOINT")
+            var checkpoint: JsonObject? = null
+            var requests = 0
+            val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("TEST", "profile", "model", 30_000, "scope", "PROVIDER_RATE_LIMITED", true)
+            val originalFailure = ProviderEvent.Failed(
+                "Provider rejected the request",
+                errorCode = "429",
+                providerLimit = limit,
+                failureDetails = buildJsonObject {
+                    put("http_status", 429)
+                    put("invocation_id", "original-invocation")
+                    put("dispatched", true)
+                }
+            )
+            val rejected = GitHubOutputContinuationSession(
+                session(originalFailure),
+                checkpointContext = buildJsonObject { put("task_binding", "a".repeat(64)) },
+                saveCheckpoint = { checkpoint = it }
+            ) { _, _, _ -> error("The durable wait owns recovery") }.streamRound(listOf(tool), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList().filterIsInstance<ProviderEvent.Failed>().single()
+            val expected = requireNotNull(rejected.providerLimit?.gitHubCheckpoint)
+            if (scenario == "changed-checkpoint") checkpoint = JsonObject(requireNotNull(checkpoint) + ("draft" to JsonPrimitive("Newer owner draft")))
+            val before = checkpoint
+            val durable = when (scenario) {
+                "missing" -> emptyList()
+                "changed-source", "same-replay-source", "lost-cas" -> listOf(receipt.copy(sourceResultSha256 = "f".repeat(64)))
+                "same-replay-dispatch" -> listOf(receipt.copy(dispatched = !receipt.dispatched))
+                "same-replay-error" -> listOf(receipt.copy(errorCode = "TOOL_UNAVAILABLE"))
+                "same-replay-fingerprint" -> listOf(receipt.copy(invocationFingerprint = "f".repeat(64)))
+                "same-replay-id" -> listOf(receipt.copy(callId = "another-call"))
+                "same-replay-duplicate" -> listOf(receipt, receipt.copy(callId = "another-call"))
+                "unknown" -> listOf(receipt.copy(requiresReconciliation = true, errorCode = "TOOL_OUTCOME_UNKNOWN"))
+                else -> listOf(receipt)
+            }
+            val restored = GitHubOutputContinuationSession(
+                session(),
+                expectedProviderCheckpoint = expected,
+                readCheckpoint = { checkpoint },
+                saveCheckpoint = { checkpoint = it },
+                durableToolReceipts = { durable },
+                saveRecoveryCheckpoint = { _, updated ->
+                    if (scenario == "lost-cas") {
+                        checkpoint = buildJsonObject {
+                            put("state", "COMPLETED")
+                            put("draft", "Newer checkpoint")
+                        }
+                        false
+                    } else {
+                        checkpoint = updated
+                        true
+                    }
+                }
+            ) { _, _, _ ->
+                requests++
+                session(ProviderEvent.TextDelta("Completed from durable receipts"), ProviderEvent.Completed)
+            }
+            val replay = if (scenario.startsWith("same-replay")) listOf(AgentToolExchange(listOf(call), listOf(result))) else emptyList()
+            val outcome = runCatching { restored.streamRound(listOf(tool), replay).toList() }
+            if (scenario == "retained") {
+                assertTrue(outcome.isSuccess)
+                assertEquals(1, requests)
+                assertEquals(JsonPrimitive("COMPLETED"), checkpoint?.get("state"))
+            } else {
+                val failure = outcome.exceptionOrNull() as ProviderRecoveryFailure
+                assertEquals(
+                    if (scenario == "unknown") {
+                        "PROVIDER_WAIT_OUTCOME_UNKNOWN"
+                    } else if (scenario in setOf("changed-checkpoint", "lost-cas")) {
+                        "PROVIDER_WAIT_CHECKPOINT_CHANGED"
+                    } else {
+                        "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE"
+                    },
+                    failure.code
+                )
+                assertEquals(0, requests)
+                if (scenario == "lost-cas") {
+                    assertEquals(JsonPrimitive("COMPLETED"), checkpoint?.get("state"))
+                    assertEquals(JsonPrimitive("Newer checkpoint"), checkpoint?.get("draft"))
+                } else if (scenario == "changed-checkpoint") {
+                    assertEquals(before, checkpoint)
+                } else {
+                    assertEquals(JsonPrimitive("BLOCKED_RECOVERY"), checkpoint?.get("state"))
+                    assertEquals(JsonPrimitive(false), checkpoint?.get("resume_allowed"))
+                    assertEquals(before?.get("completed_results"), checkpoint?.get("completed_results"))
+                    assertEquals(JsonPrimitive("429"), (checkpoint?.get("original_interruption") as JsonObject)["code"])
+                    assertEquals(JsonPrimitive(failure.code), (checkpoint?.get("latest_recovery_failure") as JsonObject)["recovery_code"])
+                }
+            }
+        }
     }
 
     @Test fun continuationCanRequestRemainingWorkWithoutDispatchingItInsideTheWrapper() = runBlocking {

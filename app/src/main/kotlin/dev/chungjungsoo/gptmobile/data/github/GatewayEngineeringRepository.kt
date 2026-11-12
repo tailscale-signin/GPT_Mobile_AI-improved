@@ -26,6 +26,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 @Singleton
@@ -200,6 +201,28 @@ class GatewayEngineeringRepository @Inject constructor(
         val identity = if (capability.conversationSync) history.identity(frozenConfig) else null
         check(identity == null || identity.principalId == principal) { "The authenticated gateway account changed before binding admission." }
         if (savedBinding != null) check(savedBinding.principalId == principal && savedBinding.gatewayId == identity?.gatewayId) { "The original gateway or account changed. The saved conversation was retained." }
+        val admissionConfig = identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig
+        val savedSnapshot = savedBinding?.snapshot?.let { Json { ignoreUnknownKeys = true }.decodeFromString<GatewayConversationSnapshot>(it) }
+        val connection = profile.providerConnectionUid?.let { settings.getProviderConnection(it) }
+        val originalExecution = savedSnapshot?.executionBinding
+        val privacyScope = originalExecution?.get("privacy_scope")?.jsonPrimitive?.content ?: "$principal/chat/$chatId/repository/$repository"
+        val selection = executionSelection(profile, connection, privacyScope)
+        val originalAdmission = originalExecution?.let { GatewayExecutionAdmission(it, JsonObject(emptyMap())) }
+        if (originalAdmission != null) {
+            try {
+                validateOriginalBinding(admissionConfig, selection, originalAdmission)
+            } catch (rejected: GatewayExecutionRejected) {
+                // The host checks the retained backend before observing readiness.
+                // Only these typed observations permit waking that exact binding.
+                if (rejected.code !in setOf("EXECUTION_MODEL_NOT_LOADED", "EXECUTION_MODEL_LOADING") ||
+                    rejected.retryable != true ||
+                    rejected.httpStatus !in setOf(409, 503) ||
+                    rejected.inferenceAttempted == true
+                ) {
+                    throw rejected
+                }
+            }
+        }
         check(settings.fetchPlatformV2s().singleOrNull { it.uid == gateway.uid && it.enabled }?.engineeringConfig() == frozenConfig) { "The gateway configuration changed before model preparation." }
         if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed before model preparation. The draft was not submitted.")
         val reasoningMode = ReasoningPolicy.preference(storedProfile.reasoning, featuresAtAdmission.llamaReasoningModes[profile.uid], featuresAtAdmission.conversationReasoning[chatId])
@@ -215,7 +238,6 @@ class GatewayEngineeringRepository @Inject constructor(
         check(afterPreparation != null && ConfiguredDispatchAuthority.profileRevision(afterPreparation) == ConfiguredDispatchAuthority.profileRevision(storedProfile) && currentFeatures.llamaReasoningModes[profile.uid] == featuresAtAdmission.llamaReasoningModes[profile.uid] && currentFeatures.conversationReasoning[chatId] == featuresAtAdmission.conversationReasoning[chatId]) { "The selected model or reasoning setting changed during preparation. Review the retained draft before sending it." }
         check(savedBinding != null || currentFeatures.githubProfileOverrides[profile.uid]?.engineeringGatewayProfileUid == gateway.uid) { "The engineering gateway changed during model preparation." }
         val preferences = currentFeatures.githubProfileOverrides[profile.uid] ?: GitHubChatProfileOverride()
-        val savedSnapshot = savedBinding?.snapshot?.let { Json { ignoreUnknownKeys = true }.decodeFromString<GatewayConversationSnapshot>(it) }
         val batchMode = if (savedSnapshot != null) savedSnapshot.executionMode ?: "standard" else preferences.executionBatchMode
         check(batchMode in setOf("standard", "smart", "full")) { "Choose a supported Gateway execution mode." }
         check(
@@ -226,13 +248,12 @@ class GatewayEngineeringRepository @Inject constructor(
         ) { "This Windows Gateway has not enabled $batchMode batching. Choose Standard or configure the execution mode on the host." }
         check(capability.samplingPolicyProtocol == 1) { "Update the desktop Gateway to support per-stage creativity before starting a new saved job. Existing saved jobs remain resumable." }
         val budgetSelection = options.resolveBudget(capability, preferences.engineeringMode, objective, featuresAtAdmission.tokenBudget.totalRunTokens)
-        val connection = profile.providerConnectionUid?.let { settings.getProviderConnection(it) }
-        val originalExecution = savedSnapshot?.executionBinding
-        val privacyScope = originalExecution?.get("privacy_scope")?.jsonPrimitive?.content ?: "$principal/chat/$chatId/repository/$repository"
-        val selection = executionSelection(profile, connection, privacyScope)
         check(settings.fetchPlatformV2s().singleOrNull { it.uid == gateway.uid && it.enabled }?.engineeringConfig() == frozenConfig) { "The gateway configuration changed before binding admission." }
-        val admission = client.prepareBinding(identity?.let { frozenConfig.withGatewayIdentity(it) } ?: frozenConfig, selection)
-        originalExecution?.let { GatewayExecutionAdmission(it, admission.capabilities).verify(selection) }
+        val admission = if (originalAdmission == null) {
+            client.prepareBinding(admissionConfig, selection)
+        } else {
+            validateOriginalBinding(admissionConfig, selection, originalAdmission)
+        }
         val current = settings.fetchPlatformV2s().singleOrNull { it.uid == profile.uid && it.enabled }
             ?: error("The selected profile was disabled during admission.")
         check(executionSelection(current.copy(model = profile.model, reasoning = profile.reasoning), current.providerConnectionUid?.let { settings.getProviderConnection(it) }, selection.privacyScope) == selection) { "The selected profile changed during admission. Review it before starting." }
@@ -275,6 +296,13 @@ class GatewayEngineeringRepository @Inject constructor(
         settings.mutateFeatureSettings { it.copy(githubEngineeringSettings = options.copy(acceptance = emptyList())) }
         schedule()
         reconnect(commandId, admissionAllowed)
+    }
+
+    private suspend fun validateOriginalBinding(config: ProviderRequestConfig, selection: GatewayExecutionSelection, original: GatewayExecutionAdmission): GatewayExecutionAdmission {
+        original.verifySelection(selection)
+        return client.bindingCapabilities(config, selection, original.bindingId).also {
+            check(it.binding == original.binding) { "The original saved execution binding changed. Restore its configured backend before continuing." }
+        }
     }
 
     suspend fun schedule() = scheduling.withLock {

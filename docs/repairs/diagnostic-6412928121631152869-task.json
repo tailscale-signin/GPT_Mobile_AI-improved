@@ -90,9 +90,14 @@
     "Historical native crash root cause requires a usable native stack and device reproduction."
   ],
   "publication": {
-    "mode": "FAST_FORWARD_ONLY",
+    "mode": "GUARDED_FAST_FORWARD_ONLY",
     "expected_remote_head": "b1fb5b444a572ad3578945677ab7431993faf71d",
     "target_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
-    "merge_authorized": false
+    "merge_authorized": false,
+    "source_commit": "5ce8cb4ad198386415499159af32fb85972eb62a",
+    "validated_upload_tree": "0ef45da0924c3095db787183d7637403df97dd5c",
+    "validated_local_publication_commit": "4e53a9e6edd1528be3a8c72848d0962653777f0e",
+    "transport": "GITHUB_GIT_DATA_API",
+    "force": false
   }
 }

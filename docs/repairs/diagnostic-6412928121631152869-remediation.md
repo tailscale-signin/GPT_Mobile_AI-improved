@@ -15,8 +15,8 @@ Changes were developed in isolated worktrees and integrated over the other
 contributors' commits, including `b4118042030a824e22b197408fd3c4e00d3e3774`
 `b8ce3e697a3b226b167e590bba1779210c86d02a`, and the browser repair at
 `b1fb5b444a572ad3578945677ab7431993faf71d`. Shared checkouts and their
-uncommitted changes were not modified. Publication uses a normal fast-forward
-push after a fresh remote reconciliation. This work does not authorize merging
+uncommitted changes were not modified. Publication uses a guarded fast-forward
+reference update after a fresh remote reconciliation. This work does not authorize merging
 the PR.
 
 ## Audit disposition
@@ -70,8 +70,18 @@ the PR.
 
 ## Validation record
 
-The final code candidate is `a2c99b12131b4dd361bf4f263df4bd145b77cb14`.
-The publication commit adds the regenerated inventories/manifest and this record.
+The tested local code candidate is `a2c99b12131b4dd361bf4f263df4bd145b77cb14`.
+The published source candidate is `5ce8cb4ad198386415499159af32fb85972eb62a`.
+Its complete tree, `0ef45da0924c3095db787183d7637403df97dd5c`, exactly matches
+the local publication candidate `4e53a9e6edd1528be3a8c72848d0962653777f0e`,
+which adds the regenerated inventories and validation record to the tested code.
+A final metadata commit pins the Gateway manifest and this record to that published
+source candidate.
+
+Publication used the authenticated GitHub Git data API because the checkout had no
+Git push credentials. Every uploaded blob was checked against its local Git SHA
+and the assembled tree was checked before creating the source commit. The branch
+update requires the expected remote head and disallows force updates.
 
 | Check | Observed result | Scope and limitations |
 |---|---|---|

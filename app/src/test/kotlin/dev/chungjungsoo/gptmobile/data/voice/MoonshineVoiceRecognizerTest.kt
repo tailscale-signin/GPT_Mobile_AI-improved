@@ -14,6 +14,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoonshineVoiceRecognizerTest {
+    @Test fun systemSilencedCapturePreservesItsCauseWithoutAutomaticRetryOrSpeech() {
+        val failure = LocalVoiceCaptureException(
+            "Android is silencing microphone input",
+            "MICROPHONE_CAPTURE_SILENCED",
+            "capture_start",
+            audioFocusResult = 0
+        )
+        val capture = FakeCapture(startFailure = failure)
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder, capture = capture)
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            // The public code is already supported by existing report services.
+            assertEquals(listOf("VOICE_MICROPHONE_BUSY"), fixture.codes)
+            assertSame(failure, fixture.causes.single())
+            assertTrue(fixture.retryableErrors.isEmpty())
+            assertTrue(fixture.finals.isEmpty())
+            assertEquals(1, capture.closeCount.get())
+            assertEquals(1, fixture.releases.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
     @Test fun deniedAudioFocusKeepsItsCauseAndDefersRetryUntilTheSessionBackoff() {
         val failure = LocalVoiceCaptureException(
             "Another audio session holds focus",

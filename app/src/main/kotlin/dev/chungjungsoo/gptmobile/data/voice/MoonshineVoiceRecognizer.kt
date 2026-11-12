@@ -281,6 +281,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             "NATIVE_MEMORY_PRESSURE" -> "VOICE_RECOGNIZER_MEMORY_PRESSURE"
             "NO_SPEECH" -> "VOICE_NO_SPEECH"
             "AUDIO_QUEUE_OVERFLOW" -> "VOICE_AUDIO_QUEUE_OVERFLOW"
+            "MICROPHONE_CAPTURE_SILENCED" -> "VOICE_MICROPHONE_BUSY"
             else -> if (failure.cause is LocalVoiceCaptureException) "VOICE_${failure.code}" else "VOICE_RECOGNIZER_FAILED"
         }
         run.listener.failure(
@@ -506,11 +507,23 @@ internal interface LocalVoiceCapture {
 }
 
 /** Capture release is owned by the recording thread; stop only unblocks capture. No PCM is persisted. */
-private class AndroidVoiceCapture(private val context: Context) : LocalVoiceCapture {
+internal class AndroidVoiceCapture(
+    private val context: Context,
+    private val manager: AudioManager? = context.getSystemService(AudioManager::class.java),
+    private val minimumBufferSize: () -> Int = { AudioRecord.getMinBufferSize(16_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT) },
+    private val createRecorder: (Int) -> AudioRecord = { bufferSize ->
+        AudioRecord.Builder()
+            .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+            .setAudioFormat(AudioFormat.Builder().setSampleRate(16_000).setChannelMask(AudioFormat.CHANNEL_IN_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+            .setBufferSizeInBytes(bufferSize)
+            .build()
+    }
+) : LocalVoiceCapture {
     private val lock = Any()
-    private val manager = context.getSystemService(AudioManager::class.java)
     private var recorder: AudioRecord? = null
-    private var focus: AudioFocusRequest? = null
+
+    @Volatile private var focus: AudioFocusRequest? = null
+    private var focusResult: Int? = null
     private val buffer = ShortArray(1600)
     private var filled = 0
     private var capturedSamples = 0L
@@ -528,45 +541,55 @@ private class AndroidVoiceCapture(private val context: Context) : LocalVoiceCapt
         val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT_EXCLUSIVE)
             .setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_ASSISTANT).setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setOnAudioFocusChangeListener { change ->
-                if (change != AudioManager.AUDIOFOCUS_GAIN) {
+                if (change != AudioManager.AUDIOFOCUS_GAIN && focus != null && !stopped) {
                     focusLost = true
                     stop()
                 }
             }
             .build()
-        val focusResult = manager?.requestAudioFocus(request)
+        // Output focus reduces interruptions; Android admits microphone input separately
+        // through RECORD_AUDIO, foreground access and the AudioRecord capture policy.
+        focus = request
+        focusResult = try {
+            manager?.requestAudioFocus(request)
+        } catch (_: RuntimeException) {
+            null
+        }
         if (focusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-            throw LocalVoiceCaptureException(
-                "Microphone audio is busy. Finish the other audio session and try again.",
-                "MICROPHONE_FOCUS_DENIED",
-                "audio_focus",
-                retryable = focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED,
-                audioFocusResult = focusResult
+            focus = null
+            runCatching { manager?.abandonAudioFocusRequest(request) }
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
+                "VoiceEngine",
+                "microphone_output_focus_unavailable",
+                mapOf("audioFocusResult" to focusResult)
             )
         }
-        focus = request
-        val minimum = AudioRecord.getMinBufferSize(16_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
+        if (focusLost) throw focusLostFailure()
+        if (stopped) return@synchronized
+        val minimum = minimumBufferSize()
         if (minimum <= 0) throw LocalVoiceCaptureException("This microphone route does not support local speech. Select another audio route.", "MICROPHONE_FORMAT_UNSUPPORTED", "capture_configuration", platformCode = minimum)
-        val record = AudioRecord.Builder()
-            .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
-            .setAudioFormat(AudioFormat.Builder().setSampleRate(16_000).setChannelMask(AudioFormat.CHANNEL_IN_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-            .setBufferSizeInBytes(maxOf(minimum, 16_000))
-            .build()
+        val record = createRecorder(maxOf(minimum, 16_000))
         recorder = record
+        if (stopped) return@synchronized
         if (record.state != AudioRecord.STATE_INITIALIZED) throw captureFailure(record, "MICROPHONE_UNINITIALIZED", "capture_initialization", "The microphone could not initialize. Check your audio route.", retryable = true)
         try {
             record.startRecording()
         } catch (failure: IllegalStateException) {
             throw captureFailure(record, "MICROPHONE_START_FAILED", "capture_start", "The microphone did not start recording. Check microphone access.", retryable = true, cause = failure)
         }
+        if (stopped) return@synchronized
         if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) throw captureFailure(record, "MICROPHONE_NOT_RECORDING", "capture_start", "The microphone did not start recording. Check microphone access.", retryable = true)
+        requireCaptureNotSilenced(record, "capture_start")
     }
 
     override fun read(): FloatArray {
-        if (focusLost) throw LocalVoiceCaptureException("Voice paused because another app needs audio. Tap to resume when it is available.", "MICROPHONE_FOCUS_LOST", "audio_focus", capturedSamples = capturedSamples)
+        if (focusLost) throw focusLostFailure()
         if (stopped) return FloatArray(0)
         val record = synchronized(lock) { recorder } ?: return FloatArray(0)
+        requireCaptureNotSilenced(record, "capture_read")
+        if (stopped) return FloatArray(0)
         val count = record.read(buffer, filled, buffer.size - filled, AudioRecord.READ_NON_BLOCKING)
+        if (stopped) return FloatArray(0)
         if (count < 0 && !stopped) {
             val code = when (count) {
                 AudioRecord.ERROR_DEAD_OBJECT -> "MICROPHONE_DEAD_OBJECT"
@@ -580,12 +603,35 @@ private class AndroidVoiceCapture(private val context: Context) : LocalVoiceCapt
             Thread.sleep(10)
             return FloatArray(0)
         }
+        requireCaptureNotSilenced(record, "capture_read")
+        if (stopped) return FloatArray(0)
         capturedSamples += count
         filled += count
         if (filled < buffer.size) return FloatArray(0)
         filled = 0
         return FloatArray(buffer.size) { buffer[it] / 32768f }
     }
+
+    private fun requireCaptureNotSilenced(record: AudioRecord, phase: String) {
+        // A missing configuration is unknown, not evidence of permission or silencing.
+        if (record.activeRecordingConfiguration?.isClientSilenced != true || stopped) return
+        val failure = captureFailure(
+            record,
+            "MICROPHONE_CAPTURE_SILENCED",
+            phase,
+            "Android is silencing microphone input. Keep Voice open in the foreground, finish any active call or other recording, and try again."
+        )
+        stop()
+        throw failure
+    }
+
+    private fun focusLostFailure() = LocalVoiceCaptureException(
+        "Voice paused because another app needs audio. Tap to resume when it is available.",
+        "MICROPHONE_FOCUS_LOST",
+        "audio_focus",
+        capturedSamples = capturedSamples,
+        audioFocusResult = focusResult
+    )
 
     private fun captureFailure(
         record: AudioRecord,
@@ -596,13 +642,13 @@ private class AndroidVoiceCapture(private val context: Context) : LocalVoiceCapt
         retryable: Boolean = false,
         cause: Throwable? = null
     ) = LocalVoiceCaptureException(
-        message, code, phase, platformCode, record.state, record.recordingState, retryable, cause, capturedSamples
+        message, code, phase, platformCode, record.state, record.recordingState, retryable, cause, capturedSamples, focusResult
     )
 
-    override fun stop() = synchronized(lock) {
+    override fun stop() {
+        // Publish cancellation before waiting for a platform call held by start().
         stopped = true
-        runCatching { recorder?.stop() }
-        Unit
+        synchronized(lock) { runCatching { recorder?.stop() } }
     }
 
     override fun close() = synchronized(lock) {

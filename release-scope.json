@@ -94,7 +94,9 @@
     "Share response-anchored gateway polling deadlines, prepare the exact selected model for durable Gateway sends, and retain independent readiness and ownership checks.",
     "Move transcript receipt parsing off composition, reuse bounded immutable projections, retain accepted integration budgets and exact repository action prerequisites, and separate factual support from unmeasured scope.",
     "Negotiate bounded context-v4 recovery, extraction and tool-precheck causes while preserving approved context-v1/v2/v3 bytes; stop unknown extraction outcomes without schema-repair replay and align combined-module JUnit reconciliation with its collector.",
-    "Spoken replies project safe readable text while preserving captions and begin bounded system/local speech chunks without waiting for a complete sentence; no physical latency claim."
+    "Spoken replies project safe readable text while preserving captions and begin bounded system/local speech chunks without waiting for a complete sentence; no physical latency claim.",
+    "Revalidate captured provider authority at queued exact-model preparation boundaries, preserving the saved prompt when permission changes during suspended metadata, and distinguish completed malformed extraction from an unfinished stream without replay.",
+    "Separate CodeQL source generation and production compilation into bounded traced Gradle processes, forcing actual Kotlin and Java compilation without increasing memory limits or bypassing analysis."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2353,6 +2355,7 @@
     "docs/repairs/evidence/diagnostic-a74d18ed-2026-11-12/recovery-policy-jvm.log",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayJobPollingReconciliationTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayJobPollingReconciliationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationAuthorityTest.kt"
   ]
 }

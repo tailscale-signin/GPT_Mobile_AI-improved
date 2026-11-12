@@ -335,23 +335,39 @@ class GitHubEvidencePolicyTest {
     @Test fun failedOrTruncatedExtractorKeepsTheTaskIncompleteWithoutPublishingDraftOrReceipts() = runBlocking {
         val cases = listOf(
             Triple(flowOf(ProviderEvent.TextDelta("private broken JSON"), ProviderEvent.Failed("output limit", errorCode = "OUTPUT_LIMIT")), "OUTPUT_LIMIT", listOf(8)),
-            Triple(flowOf(ProviderEvent.TextDelta("{\"claims\":")), "GITHUB_EXTRACTION_INVALID_RESPONSE", listOf(8, 4, 2, 1))
+            Triple(flowOf(ProviderEvent.TextDelta("{\"claims\":")), "GITHUB_EXTRACTION_FAILED", listOf(8)),
+            Triple(flowOf(ProviderEvent.TextDelta("{\"claims\":"), ProviderEvent.Completed), "GITHUB_EXTRACTION_INVALID_RESPONSE", listOf(8, 4, 2, 1))
         )
         for ((extractor, code, expectedLimits) in cases) {
             val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci"), { 1000 })
             book.observe(ProviderEvent.ToolCall("read", "github_ci", json("{}")), AgentToolResult("read", ToolResultContent.Json(json("""{"count":3,"content":"private source"}""")), false))
             val limits = mutableListOf<Int>()
+            var publication: JsonObject? = null
             val gate = GitHubVerifiedSession(session("all 99 tests passed"), book, "fix", { 8192 }, { prompt ->
                 limits += json(prompt).getValue("claim_limit").jsonPrimitive.content.toInt()
                 object : AgentProviderSession {
                     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = extractor
                 }
-            }, {}, {}, { 1000 })
+            }, {}, {}, { 1000 }, onPublication = { publication = it })
             val events = gate.streamRound(emptyList(), emptyList()).toList()
             assertEquals(expectedLimits, limits)
             val terminal = events.last() as ProviderEvent.Failed
             assertEquals("PARTIAL", terminal.taskOutcome)
             assertEquals(code, terminal.errorCode)
+            assertEquals(code == "GITHUB_EXTRACTION_INVALID_RESPONSE", terminal.transportComplete)
+            if (code == "GITHUB_EXTRACTION_FAILED") {
+                val details = requireNotNull(terminal.failureDetails)
+                val retainedFailure = requireNotNull(publication).getValue("verification_failure").jsonObject
+                for (failure in listOf(details, retainedFailure)) {
+                    assertEquals(JsonPrimitive("claim_extraction"), failure["failed_stage"])
+                    assertEquals(JsonPrimitive("INCOMPLETE_PROVIDER_STREAM"), failure["provider_error_code"])
+                    assertEquals(JsonPrimitive("UNKNOWN"), failure["remote_acceptance"])
+                    for (key in listOf("retryable", "request_replay_allowed", "logical_continuation_allowed")) assertEquals(JsonPrimitive(false), failure[key])
+                    for (key in listOf("invocation_id", "dispatched", "http_status")) assertFalse(failure.containsKey(key))
+                }
+                assertEquals(JsonPrimitive(false), retainedFailure["transport_complete"])
+                assertEquals(null, terminal.invocationId)
+            }
             assertFalse(events.contains(ProviderEvent.Completed))
             val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
             assertTrue(text.contains("Task incomplete"))

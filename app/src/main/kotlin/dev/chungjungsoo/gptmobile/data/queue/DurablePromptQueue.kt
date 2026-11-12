@@ -6,6 +6,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
 import dev.chungjungsoo.gptmobile.data.agent.temperatureFor
+import dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
 import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
@@ -306,7 +307,7 @@ class DurablePromptQueue @Inject constructor(
             database.agentRunDao().rawObserveActive().first().none { it.runId != ownedRunId && (it.chatId == chatId || it.profileUid == profileUid) } &&
             gatewayStore.externalWorkBlocker() == null
 
-    private suspend fun modelPreparationAdmission(owner: String, chatId: Int, payload: PendingPromptPayload, observed: GatewayAvailability?, ownsSend: suspend () -> Boolean): GatewayQueuedChatState? {
+    internal suspend fun modelPreparationAdmission(owner: String, chatId: Int, payload: PendingPromptPayload, observed: GatewayAvailability?, ownsSend: suspend () -> Boolean): GatewayQueuedChatState? {
         val selected = requireNotNull(payload.gateway)
         val profile = settings.fetchPlatformV2s().singleOrNull { it.uid == selected.profileUid }
         val features = settings.getFeatureSettings()
@@ -315,17 +316,22 @@ class DurablePromptQueue @Inject constructor(
             modelPreparations.cancel(owner)
             return GatewayQueuedChatState(GatewayQueuedState.BLOCKED, message = "The queued message or its Gateway credentials changed. Restore the accepted selection or review this saved message.")
         }
+        val authority = ConfiguredDispatchAuthority.capture(settings, profile.copy(model = selected.model), chatId)
         val mode = ReasoningPolicy.preference(profile.reasoning, features.llamaReasoningModes[profile.uid], payload.tools.reasoning)
         val request = GatewayQueuedModelPreparation.Request(owner, profile.copy(model = selected.model), mode, revision)
         return modelPreparations.admission(request, observed) {
             val current = settings.fetchPlatformV2s().singleOrNull { it.uid == selected.profileUid }
             val currentFeatures = settings.getFeatureSettings()
-            current != null &&
+            val stillCurrent = current != null &&
                 selected.validate(current) == null &&
                 currentFeatures.conversationGateway[chatId] == selected &&
                 ReasoningPolicy.preference(current.reasoning, currentFeatures.llamaReasoningModes[current.uid], payload.tools.reasoning) == mode &&
                 gatewayScopes.configurationRevision(current) == revision &&
                 ownsSend()
+            // Preparation runs in its own scope. Recheck the captured authority
+            // after other suspended checks, before authorizing the load boundary.
+            authority.validate()
+            stillCurrent
         }
     }
 

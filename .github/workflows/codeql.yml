@@ -81,13 +81,28 @@ jobs:
         ram: 4096
 
     - if: matrix.build-mode == 'manual'
-      name: Build for CodeQL
+      name: Generate production sources for CodeQL
+      timeout-minutes: 20
       env:
         GRADLE_OPTS: "-Dorg.gradle.caching=false -Dkotlin.incremental=false -Dkotlin.compiler.execution.strategy=in-process"
       run: |
-        python3 scripts/build_metrics.py --label codeql-build --output build/reports/profile/codeql-metrics.json -- python3 scripts/gradle_retry.py -- :app:clean :app:compileDebugKotlin :app:compileDebugJavaWithJavac \
+        # Run 43309682669 exhausted the bounded heap while retaining generation
+        # and compilation graphs together. Keep both phases inside CodeQL tracing.
+        python3 scripts/build_metrics.py --label codeql-generation --output build/reports/profile/codeql-generation-metrics.json -- python3 scripts/gradle_retry.py -- :app:clean :app:kspDebugKotlin :app:kaptDebugKotlin \
           -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8" \
-          --no-daemon --no-build-cache --rerun-tasks --stacktrace --info --profile
+          -Pkotlin.incremental=false --no-daemon --no-build-cache --rerun-tasks --max-workers=1 --stacktrace --info --profile
+
+    - if: matrix.build-mode == 'manual'
+      name: Compile production sources for CodeQL
+      timeout-minutes: 30
+      env:
+        GRADLE_OPTS: "-Dorg.gradle.caching=false -Dkotlin.incremental=false -Dkotlin.compiler.execution.strategy=in-process"
+      run: |
+        # Force these compilers, while reusing the freshly generated sources so
+        # KSP/KAPT graphs can be released with the preceding Gradle process.
+        python3 scripts/build_metrics.py --label codeql-build --output build/reports/profile/codeql-metrics.json -- python3 scripts/gradle_retry.py -- :app:compileDebugKotlin --rerun :app:compileDebugJavaWithJavac --rerun \
+          -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8" \
+          -Pkotlin.incremental=false --no-daemon --no-build-cache --max-workers=1 --stacktrace --info --profile
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4

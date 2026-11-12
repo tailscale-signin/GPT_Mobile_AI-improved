@@ -21,6 +21,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayEngineeringClientTest {
+    @Test fun selectionRejectionRetainsSafeMissingFieldEvidenceThroughFailureDelivery() = runTest {
+        val selection = GatewayExecutionSelection("profile", "revision", "provider", "provider-revision", "LLAMA", config.apiUrl, "selected", kotlinx.serialization.json.JsonObject(emptyMap()), "PRIVATE")
+        http(
+            MockEngine {
+                respond("""{"error":{"code":"EXECUTION_SELECTION_INVALID","failed_stage":"provider_admission","inference_attempted":false,"reasonCode":"SELECTION_SCHEMA_INVALID","missing_fields":["tool_owner","required_capability_policy"],"invalid_fields":["private-secret"],"unknown_field_count":1,"message":"private request"}}""", HttpStatusCode.Conflict)
+            }
+        ).use { http ->
+            val rejected = runCatching { GatewayEngineeringClient(http).prepareBinding(config, selection) }.exceptionOrNull() as GatewayExecutionRejected
+            val failure = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.AgentFailureEvidence.exception(rejected))
+            val details = requireNotNull(failure.failureDetails)
+            assertEquals("SELECTION_SCHEMA_INVALID", details.getValue("reasonCode").jsonPrimitive.content)
+            assertEquals(Json.parseToJsonElement("""["tool_owner","required_capability_policy"]"""), details["missing_fields"])
+            assertFalse(details.containsKey("invalid_fields"))
+            assertFalse(details.toString().contains("private"))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["dispatched"])
+            assertEquals(rejected.diagnosticDetails, rejected.withCommandOutcomeUnknown(true).diagnosticDetails)
+        }
+    }
+
+    @Test fun bindingRequestIncludesDefaultedAuthorityFieldsRequiredByTheGateway() = runTest {
+        val selection = GatewayExecutionSelection("profile", "revision", "connection", "connection-revision", "LLAMA", "http://localhost:8080/v1", "selected-model", kotlinx.serialization.json.JsonObject(emptyMap()), "private-chat")
+        var calls = 0
+        http(
+            MockEngine { request ->
+                calls++
+                assertTrue(request.url.encodedPath.endsWith("/engineering/bindings"))
+                val sent = Json.parseToJsonElement((request.body as TextContent).text).jsonObject.getValue("selection").jsonObject
+                assertEquals("GATEWAY", sent.getValue("tool_owner").jsonPrimitive.content)
+                assertEquals(Json.parseToJsonElement("""["SELECTED_ONLY","MODEL_IDENTITY","CONTEXT_BUDGET"]"""), sent["required_capability_policy"])
+                val required = setOf("profile_uid", "profile_revision", "provider_connection_id", "provider_connection_revision", "provider_kind", "configured_endpoint", "requested_model_id", "generation_parameters", "privacy_scope", "tool_owner", "required_capability_policy")
+                assertTrue(sent.keys.containsAll(required))
+                respond("""{"binding":{"binding_id":"bind_${"a".repeat(32)}","routing_policy":"SELECTED_ONLY","profile_uid":"profile","profile_revision":"revision","provider_connection_id":"connection","provider_connection_revision":"connection-revision","provider_kind":"LLAMA","requested_model_id":"selected-model","privacy_scope":"private-chat","tool_owner":"GATEWAY","configured_endpoint_identity":"${selectionDigest(kotlinx.serialization.json.JsonPrimitive(selection.configuredEndpoint))}","generation_parameters":{}},"capabilities":{"requested_model_id":"selected-model","reported_model_id":"selected-model"}}""")
+            }
+        ).use { http ->
+            assertEquals("bind_" + "a".repeat(32), GatewayEngineeringClient(http).prepareBinding(config, selection).bindingId)
+        }
+        assertEquals(1, calls)
+    }
+
     @Test fun explicitHostRepairCheckRefreshesTheExactGatewayWithoutSubmittingAJob() = runTest {
         val selected = ProviderRequestConfig("http://127.0.0.1:29980/v1", "host-access")
         var reads = 0

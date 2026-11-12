@@ -20,6 +20,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReadRetryTest {
+    @Test fun readWaitsForOneCircuitProbeWithoutCreatingAnotherToolCall() = runTest {
+        val circuit = GitHubRequestCircuit(threshold = 1, cooldownMillis = 30_000, now = { testScheduler.currentTime })
+        circuit.failed(circuit.admit(), IOException("connection reset"))
+        var admitted = 0
+        val result = GitHubReadRetry.run {
+            val permit = circuit.admit()
+            admitted++
+            circuit.succeeded(permit)
+            "same read"
+        }
+        assertEquals("same read", result)
+        assertEquals(1, admitted)
+        assertEquals(30_000L, testScheduler.currentTime)
+    }
+
+    @Test fun circuitRecoveryNeverWaitsForWritesOrLongCooldowns() = runTest {
+        for ((readOnly, wait) in listOf(false to 1000L, true to 30_001L)) {
+            var attempts = 0
+            val failure = runCatching {
+                GitHubReadRetry.run(readOnly) {
+                    attempts++
+                    throw GitHubRequestCircuit.Open(wait)
+                }
+            }.exceptionOrNull()
+            assertTrue(failure is GitHubRequestCircuit.Open)
+            assertEquals(1, attempts)
+            assertEquals(0L, testScheduler.currentTime)
+        }
+    }
+
+    @Test fun aRepeatedOpenCircuitCannotExtendTheReadRecoveryBudget() = runTest {
+        var attempts = 0
+        val failure = runCatching {
+            GitHubReadRetry.run {
+                attempts++
+                throw GitHubRequestCircuit.Open(1000)
+            }
+        }.exceptionOrNull()
+        assertTrue(failure is GitHubRequestCircuit.Open)
+        assertEquals(2, attempts)
+        assertEquals(1000L, testScheduler.currentTime)
+    }
+
     @Test fun wrappedTlsFailureIsReportedWithoutRetryingOrTrippingTheCircuit() = runTest {
         var attempts = 0
         val http = HttpClient(

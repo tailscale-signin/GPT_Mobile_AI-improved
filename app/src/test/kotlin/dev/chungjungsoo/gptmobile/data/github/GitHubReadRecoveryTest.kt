@@ -25,9 +25,8 @@ class GitHubReadRecoveryTest {
 
     private class Fixture(val session: GitHubRepositorySession, val blobs: AtomicInteger)
 
-    private fun fixture(available: List<String> = paths, truncated: Boolean = false): Fixture {
+    private fun fixture(available: List<String> = paths, truncated: Boolean = false, source: String = "fun needle() = 1\nfun another() = 2"): Fixture {
         val blobs = AtomicInteger()
-        val source = "fun needle() = 1\nfun another() = 2"
         val session = GitHubRepositorySession("account", "connection", "chat", "task", GitHubRepositoryStateStore(), { path ->
             when {
                 "/commits/" in path -> buildJsonObject {
@@ -162,6 +161,29 @@ class GitHubReadRecoveryTest {
         assertNotEquals(first["search_id"], otherCommit["search_id"])
     }
 
+    @Test fun omittedSearchBindingCanOnlyRecoverAnIssuedBoundaryOfTheExactRetainedDefinition() = runBlocking {
+        val fixture = fixture()
+        val first = fixture.session.execute("search_repository", "owner", "repo", search()).jsonObject
+        val issued = first.getValue("continuation").jsonObject
+        val unbound = JsonObject(issued - "search_id")
+        val failure = runCatching { fixture.session.execute("search_repository", "owner", "repo", unbound) }.exceptionOrNull() as GitHubReadValidation
+        val corrected = requireNotNull(GitHubSourceReadRecovery.correctedArguments("github_search", unbound, failure.details))
+        assertEquals(issued.getValue("search_id"), corrected["search_id"])
+        val next = fixture.session.execute("search_repository", "owner", "repo", corrected).jsonObject
+        assertEquals(JsonPrimitive(2), next["interval_start"])
+        for (changed in listOf(
+            JsonObject(unbound + ("query" to JsonPrimitive("README"))),
+            JsonObject(unbound + ("index_cursor" to JsonPrimitive(1))),
+            JsonObject(unbound + ("commit_sha" to JsonPrimitive("c".repeat(40))))
+        )) {
+            val rejected = runCatching { fixture.session.execute("search_repository", "owner", "repo", changed) }.exceptionOrNull() as GitHubReadValidation
+            assertFalse(rejected.details.containsKey("correction_call"))
+        }
+        val crossRepo = runCatching { fixture.session.execute("search_repository", "owner", "another-repo", unbound) }.exceptionOrNull() as GitHubReadValidation
+        assertFalse(crossRepo.details.containsKey("correction_call"))
+        assertEquals(0, fixture.blobs.get())
+    }
+
     @Test fun missingAndMovedPathsUsePinnedCandidatesWithoutLosingSuccessfulEvidence() = runBlocking {
         val fixture = fixture(listOf("README.md", "src/moved/Config.kt", "src/other/Config.kt"))
         val original = fixture.session.execute("read_ranges", "owner", "repo", read("README.md")).jsonObject
@@ -172,6 +194,7 @@ class GitHubReadRecoveryTest {
             assertEquals(JsonPrimitive(false), failure.details["read_dispatched"])
             val candidates = failure.details.getValue("candidates").jsonArray.map { it.jsonObject.getValue("path").jsonPrimitive.content }
             assertTrue(if (missing.endsWith("README.md")) candidates == listOf("README.md") else candidates == listOf("src/moved/Config.kt", "src/other/Config.kt"))
+            assertEquals(missing.endsWith("README.md"), failure.details.containsKey("correction_call"))
         }
         assertEquals(1, fixture.blobs.get())
         val moved = fixture.session.execute("read_ranges", "owner", "repo", read("src/moved/Config.kt")).jsonObject
@@ -187,5 +210,28 @@ class GitHubReadRecoveryTest {
         assertEquals("GITHUB_TREE_INCOMPLETE", failure.code)
         assertEquals(JsonPrimitive(false), failure.details["tree_complete"])
         assertEquals(0, fixture.blobs.get())
+    }
+
+    @Test fun batchedAndSubsequentReadsExposeCompleteImmutableRangeCoverage() = runBlocking {
+        val fixture = fixture(source = (1..217).joinToString("\n") { "line $it" })
+        val ranges = JsonArray(
+            listOf(1..50, 51..100, 101..150, 151..200, 201..217).map { range ->
+                buildJsonObject {
+                    put("path", "src/A.kt")
+                    put("start_line", range.first)
+                    put("end_line", range.last)
+                }
+            }
+        )
+        val first = fixture.session.execute("read_ranges", "owner", "repo", JsonObject(read("src/A.kt") - "path" + ("ranges" to ranges))).jsonObject
+        assertTrue(first.getValue("items").jsonArray.all { it.jsonObject["complete_file"] == JsonPrimitive(false) })
+        val coverage = first.getValue("source_coverage").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive(true), coverage["complete_file"])
+        assertEquals(JsonPrimitive(false), coverage["read_required"])
+        val repeated = fixture.session.execute("read_ranges", "owner", "repo", read("src/A.kt")).jsonObject
+        assertEquals(JsonPrimitive(true), repeated.getValue("source_coverage").jsonArray.single().jsonObject["already_read"])
+        assertEquals(1, fixture.blobs.get())
+        val movedHead = fixture.session.execute("read_ranges", "owner", "repo", JsonObject(read("src/A.kt") + ("commit_sha" to JsonPrimitive("d".repeat(40))))).jsonObject
+        assertEquals(JsonPrimitive(false), movedHead.getValue("source_coverage").jsonArray.single().jsonObject["already_read"])
     }
 }

@@ -175,8 +175,9 @@ internal object ToolExchangeCompactor {
 
         // Result compaction alone cannot bound replay when dozens of tool-call argument
         // objects accumulate. If metadata still exceeds the hard budget, retain complete
-        // call/result pairs newest-first and evict older pairs. This makes maxReplayTokens
-        // an actual upper bound instead of a warning threshold.
+        // call/result pairs newest-first and evict older pairs. The latest real handoff
+        // remains exact; an irreducible pending batch must fail replay admission instead
+        // of changing its arguments or losing a terminal result.
         return if (estimateTokens(compacted, renderCache) <= hardBudget) compacted else hardBound(compacted, hardBudget, renderCache)
     }
 
@@ -224,40 +225,52 @@ internal object ToolExchangeCompactor {
     }
 
     private fun hardBound(exchanges: List<AgentToolExchange>, hardBudget: Int, renderCache: RenderCache?): List<AgentToolExchange> {
-        var remaining = hardBudget
-        val retained = mutableListOf<AgentToolExchange>()
-        for (exchange in exchanges.asReversed()) {
+        // Automatic saved-view reads may follow a still-pending provider batch.
+        // Preserve that whole batch before spending space on local or older history.
+        val pendingIndex = exchanges.indexOfLast { !SavedViewRecoveryBatch.isComplete(it) }.takeIf { it >= 0 } ?: exchanges.lastIndex
+        var pending = exchanges[pendingIndex]
+        if (estimateTokens(listOf(pending), renderCache) > hardBudget) {
+            pending = pending.copy(results = pending.results.map { result -> result.copy(content = semanticContent(result) ?: ToolResultContent.Text(OMITTED_RESULT)) })
+        }
+        if (estimateTokens(listOf(pending), renderCache) > hardBudget) {
+            pending = pending.copy(results = pending.results.map { it.copy(content = ToolResultContent.Text(OMITTED_RESULT)) })
+        }
+        val pendingCost = estimateTokens(listOf(pending), renderCache)
+        if (pendingCost > hardBudget) return listOf(pending)
+        var remaining = hardBudget - pendingCost
+        val retained = mutableMapOf(pendingIndex to pending)
+        for (index in exchanges.indices.reversed()) {
+            if (index == pendingIndex) continue
+            val exchange = exchanges[index]
             val resultByCallId = exchange.results.associateBy { it.callId }
             val keptPairs = mutableListOf<Pair<ProviderEvent.ToolCall, AgentToolResult>>()
             for (call in exchange.calls.asReversed()) {
                 val result = resultByCallId[call.callId] ?: continue
-                var keptCall = call
                 var keptResult = result
-                var cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))), renderCache)
+                var cost = estimateTokens(listOf(AgentToolExchange(listOf(call), listOf(keptResult))), renderCache)
                 if (cost > remaining) {
-                    // Arguments and consumed payload are no longer needed to execute the call;
-                    // preserving the id/name/result pairing is sufficient for provider replay.
-                    keptCall = call.copy(arguments = buildJsonObject { }, originalInvocationFingerprint = ToolHandoffReceipt.fingerprint(call))
+                    // A fingerprint field does not replace the original wire arguments.
+                    // Shrink result bodies or evict whole historical pairs instead.
                     keptResult = result.copy(content = semanticContent(result) ?: ToolResultContent.Text(OMITTED_RESULT))
-                    cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))), renderCache)
+                    cost = estimateTokens(listOf(AgentToolExchange(listOf(call), listOf(keptResult))), renderCache)
                     if (cost > remaining) {
                         keptResult = result.copy(content = ToolResultContent.Text(OMITTED_RESULT))
-                        cost = estimateTokens(listOf(AgentToolExchange(listOf(keptCall), listOf(keptResult))), renderCache)
+                        cost = estimateTokens(listOf(AgentToolExchange(listOf(call), listOf(keptResult))), renderCache)
                     }
                 }
                 if (cost <= remaining) {
-                    keptPairs += keptCall to keptResult
+                    keptPairs += call to keptResult
                     remaining -= cost
                 }
                 if (remaining <= 0) break
             }
             if (keptPairs.isNotEmpty()) {
                 val ordered = keptPairs.asReversed()
-                retained += AgentToolExchange(ordered.map { it.first }, ordered.map { it.second })
+                retained[index] = AgentToolExchange(ordered.map { it.first }, ordered.map { it.second })
             }
             if (remaining <= 0) break
         }
-        return retained.asReversed()
+        return retained.toSortedMap().values.toList()
     }
 
     fun estimateTokens(exchanges: List<AgentToolExchange>, renderCache: RenderCache? = null): Int =

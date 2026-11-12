@@ -220,6 +220,8 @@ internal suspend fun writeStagedChatDiagnostics(
                         put("drawTimingScope", "Measured FIRST_VISIBLE_TEXT records observe Compose drawContent completion for the owned run/fence/part, with outputOrigin, processSession and monotonicNanos. Exact-byte provenance may link a model invocation; provider-to-draw timing requires MODEL_TEXT plus matching INVOCATION_STARTED and FIRST_TEXT in the same process. System errors, progress notices and ambiguous output are not provider latency. Draw completion does not confirm display presentation; per-HTTP first_ui_paint_ms remains unmeasured without explicit lineage.")
                         put("sourceDigests", "Record digests describe their original stored representations. Credential redaction can change text; stage file hashes certify the bytes in this export.")
                         put("logSnapshotScope", "Logs are frozen independently per log section and capture session, then retained for interrupted stages. Resume does not replace captured evidence after ring rotation. Start a new capture to collect newer logs.")
+                        put("logRecorderScope", "Network diagnostics and the application log recorder are independent settings. If application recording was disabled, enable it, reproduce the issue, then start a new capture; resuming cannot create missing historical logs.")
+                        put("acceptedPolicyLocations", "Accepted GitHub policy references are indexed in tool-catalog.jsonl and retained as workspace records in latest-state.jsonl and full-history workspace.jsonl. Empty legacy policy tables do not establish that no accepted policy was retained.")
                         put("profileScope", "Current configured profiles; actual routing evidence is in runs and invocations, not inferred from settings.")
                         put("memoryMeasurements", "Native allocated heap and ART counters where available; null does not mean zero.")
                         put("privacy", "Credentials are redacted; this user-requested export can contain private conversation text.")
@@ -250,6 +252,13 @@ internal suspend fun writeStagedChatDiagnostics(
                 }
             },
             DiagnosticCaptureStage("tool_catalog", "tool-catalog.jsonl", lowMemorySafe = true, refreshOnResume = true) { sink ->
+                sink.emit(
+                    database.latestPolicyReferences(room.id) {
+                        authorized()
+                        sink.checkBudget()
+                    },
+                    evidence = false
+                )
                 // Current process inventories do not stand in for a past run's admissions.
                 dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.snapshot().filter { it["kind"] != JsonPrimitive("run_tool_admission") }.forEach { row ->
                     sink.emit(row, evidence = row["kind"] == JsonPrimitive("tool_catalog_stage"))

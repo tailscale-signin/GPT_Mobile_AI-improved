@@ -136,7 +136,7 @@ class AgentPolicyInvalidationTest {
                 assertEquals(original.isError, result.isError)
                 assertTrue(result.dispatched)
                 assertEquals(if (unknown) "RECONCILIATION_REQUIRED" else code, terminal(events).errorCode)
-                val retained = checkpoint.recoverySnapshot().completedExchanges.first().results.single()
+                val retained = checkpoint.recoverySnapshot().completedExchanges.flatMap { it.results }.single { it.callId == original.callId }
                 assertEquals(original.content, retained.content)
                 assertEquals(original.errorCode, retained.errorCode)
                 assertEquals(1, writes)

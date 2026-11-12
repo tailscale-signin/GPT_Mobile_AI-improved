@@ -382,8 +382,10 @@ object StagedDiagnosticCapture {
             put("capturedFully", false)
             put("sourceCompleteness", "Retained app records only; deleted, evicted or uncaptured events and provider wire payloads are unavailable.")
             put("usefulRecords", usefulRecords)
+            put("usefulRecordsScope", "Exported evidence JSONL records; chunks and repeated projections are counted separately. This is not a count of unique events or independent failures.")
             put("criticalEvidenceAvailable", receipts.any { it["critical"] == JsonPrimitive(true) && (it.long("evidenceRecords") ?: 0) > 0 })
             put("emptyCriticalEvidence", emptyCritical)
+            put("evidenceAvailability", evidenceAvailability(receipts))
             put("retryRecommended", retry)
             val canResume = continuationAvailable || retryableCollectionFailure
             put("resumable", canResume)
@@ -796,8 +798,24 @@ object StagedDiagnosticCapture {
         val emptyCritical = rows.any { it["critical"] == JsonPrimitive(true) && (it.long("evidenceRecords") ?: 0) == 0L }
         require(saved["captureCompleted"] == JsonPrimitive(complete) && saved["capturedFully"] == JsonPrimitive(false))
         require(saved["criticalEvidenceAvailable"] == JsonPrimitive(criticalAvailable) && saved["emptyCriticalEvidence"] == JsonPrimitive(emptyCritical))
+        saved["evidenceAvailability"]?.let { require(it == evidenceAvailability(rows)) { "DIAGNOSTIC_EVIDENCE_AVAILABILITY_MISMATCH" } }
         require(saved["retryRecommended"] == JsonPrimitive(!complete || emptyCritical || count == 0L))
         return saved
+    }
+
+    private fun evidenceAvailability(rows: List<JsonObject>): JsonObject = buildJsonObject {
+        val critical = rows.filter { it["critical"] == JsonPrimitive(true) }
+        val available = critical.filter { (it.long("evidenceRecords") ?: 0) > 0 }
+        val empty = critical.filter { (it.long("evidenceRecords") ?: 0) == 0L }
+        val incomplete = critical.filter { it.text("status") !in setOf("COMPLETED", "EMPTY") }
+        put("criticalSectionCount", critical.size)
+        put("criticalSectionsWithEvidence", available.size)
+        put("criticalSectionsWithoutEvidence", empty.size)
+        put("incompleteCriticalSections", incomplete.size)
+        put("availableCriticalSections", JsonArray(available.map { it["id"] ?: JsonNull }))
+        put("emptyCriticalSections", JsonArray(empty.map { it["id"] ?: JsonNull }))
+        put("applicationLogRecords", rows.filter { it.text("id") in setOf("critical_logs", "recent_logs") }.sumOf { it.long("evidenceRecords") ?: 0 })
+        put("scope", "Available means at least one retained observation, not complete coverage; empty refers to another critical section and can coexist with available evidence.")
     }
 
     private fun pruneCheckpoints(root: File, retainedSession: String?) {

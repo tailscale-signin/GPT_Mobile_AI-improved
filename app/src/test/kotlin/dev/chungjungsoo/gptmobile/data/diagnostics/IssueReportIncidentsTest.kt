@@ -107,6 +107,17 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun activeGatewayJobAndExecutionSelectionFailuresKeepDistinctSafeReportCodes() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val conflict = ErrorClassification.classify(IllegalStateException("code=conversation_conflict active_job_id=private-job"))
+        IssueReportIncidents.chatFailure(conflict.errorCode, false)
+        IssueReportIncidents.chatFailure("EXECUTION_SELECTION_INVALID", false)
+
+        assertEquals(listOf("CONVERSATION_CONFLICT", "EXECUTION_SELECTION_INVALID"), IssueReportIncidents.pending.value.map { it.errorCode })
+        assertFalse(IssueReportIncidents.pending.value.flatMap { it.events }.any { "private-job" in it || "active_job_id" in it })
+    }
+
+    @Test
     fun reportAllowlistCoversProviderContractsAndSpecificErrorCategories() {
         val specificCategories = ErrorCategory.entries.map { it.name }.toSet() - setOf("CLIENT_CANCELLED", "UNKNOWN")
         val missing = (ProviderContractFailure.codes + specificCategories) - IssueReportCodes.allowed

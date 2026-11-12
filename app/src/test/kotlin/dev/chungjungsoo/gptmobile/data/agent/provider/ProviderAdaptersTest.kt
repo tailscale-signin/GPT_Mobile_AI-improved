@@ -1216,6 +1216,56 @@ class ProviderAdaptersTest {
         assertNull(RequestConstraints(restoredGatewayJob = binding).forRole("github-review").restoredGatewayJob)
     }
 
+    @Test fun gatewayToolImagesKeepTheirBytesBeforeTheExactPendingResultSuffix() = runBlocking {
+        val imageUrl = "data:image/png;base64,AAECAw=="
+        val encoder = object : ProviderAttachmentEncoder(ContextWrapper(null)) {
+            override fun gatewayPerformanceHeaders(): Map<String, String> = emptyMap()
+            override suspend fun toolMedia(exchanges: List<AgentToolExchange>, audio: Boolean): List<ProviderAttachmentEncoder.EncodedToolMedia> {
+                assertEquals(listOf(call.callId), exchanges.flatMap { it.results }.map { it.callId })
+                return listOf(ProviderAttachmentEncoder.EncodedToolMedia(call.callId, "image/png", "AAECAw=="))
+            }
+        }
+        for ((type, finalizing) in listOf(ClientType.LLAMA to false, ClientType.LLAMA to true, ClientType.CUSTOM to false)) {
+            val profile = platform(type)
+            val saved = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobResult(
+                "saved-image-job",
+                "waiting_for_client_tool",
+                job = dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySavedJob(model = profile.model, jobId = "saved-image-job", pendingClientToolCallIds = listOf(call.callId)),
+                result = ChatCompletionChunk(model = profile.model, choices = listOf(Choice(message = Delta(toolCalls = listOf(ChatToolCallDelta(id = call.callId, function = ChatFunctionDelta(name = call.name, arguments = call.arguments.toString())))))))
+            )
+            val binding = if (type == ClientType.LLAMA) {
+                dev.chungjungsoo.gptmobile.data.network.gateway.GatewayContinuationBinding.verified(profile.uid, profile.apiUrl, profile.model, "saved-image-job", saved)
+            } else {
+                null
+            }
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), encoder)
+                .openSession(turns(), profile, RequestConstraints(restoredGatewayJob = binding))
+                .streamRound(if (finalizing) emptyList() else listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
+            val messages = requestJson(api.chatRequests.single()).getValue("messages").jsonArray.map { it.jsonObject }
+            val imageIndex = messages.indexOfFirst { message ->
+                message["content"]?.jsonArray.orEmpty().any { it.jsonObject["type"] == JsonPrimitive("image_url") }
+            }
+            assertTrue(imageIndex >= 0)
+            val image = messages[imageIndex].getValue("content").jsonArray.single { it.jsonObject["type"] == JsonPrimitive("image_url") }.jsonObject
+            assertEquals(imageUrl, image.getValue("image_url").jsonObject.getValue("url").jsonPrimitive.content)
+            assertEquals(JsonPrimitive("user"), messages[imageIndex]["role"])
+            val assistantIndex = messages.indexOfLast { it["tool_calls"]?.jsonArray?.isNotEmpty() == true }
+            val resultIndex = messages.indexOfLast { it["role"] == JsonPrimitive("tool") }
+            assertEquals(call.callId, messages[resultIndex].getValue("tool_call_id").jsonPrimitive.content)
+            val wireCall = messages[assistantIndex].getValue("tool_calls").jsonArray.single().jsonObject
+            assertEquals(call.callId, wireCall.getValue("id").jsonPrimitive.content)
+            assertEquals(call.arguments.toString(), wireCall.getValue("function").jsonObject.getValue("arguments").jsonPrimitive.content)
+            if (type == ClientType.LLAMA) {
+                assertTrue(imageIndex < assistantIndex)
+                assertEquals(messages.lastIndex, resultIndex)
+                assertEquals("saved-image-job", api.configs.single().extraHeaders["X-Gateway-Job-ID"])
+            } else {
+                assertTrue(imageIndex > resultIndex)
+            }
+        }
+    }
+
     @Test fun verifiedTerminalStageKeepsRealUserBoundaryUntilNewJobArrivesThenUsesItsLiveIds() = runBlocking {
         val original = turns().single().copy(userMessage = MessageV2(content = "Check the repository", platformType = null), isCurrentTurn = false)
         val continuation = turns().single().copy(userMessage = MessageV2(content = "Continue unfinished work", platformType = null))

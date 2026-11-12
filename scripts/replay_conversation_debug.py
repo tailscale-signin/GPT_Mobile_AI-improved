@@ -341,6 +341,21 @@ def load_staged_snapshot(archive: zipfile.ZipFile, manifest: dict) -> dict:
             or manifest.get("emptyCriticalEvidence") is not empty_critical
             or manifest.get("retryRecommended") is not (not complete or empty_critical or useful == 0)):
         raise ValueError("Diagnostic completeness claims disagree with stage evidence")
+    availability = manifest.get("evidenceAvailability")
+    if availability is not None:
+        critical_stages = [stage for stage in stages if stage.get("critical") is True]
+        expected = {
+            "criticalSectionCount": len(critical_stages),
+            "criticalSectionsWithEvidence": sum(stage["evidenceRecords"] > 0 for stage in critical_stages),
+            "criticalSectionsWithoutEvidence": sum(stage["evidenceRecords"] == 0 for stage in critical_stages),
+            "incompleteCriticalSections": sum(stage["status"] not in {"COMPLETED", "EMPTY"} for stage in critical_stages),
+            "applicationLogRecords": sum(stage["evidenceRecords"] for stage in stages if stage["id"] in {"critical_logs", "recent_logs"}),
+        }
+        if (not isinstance(availability, dict)
+                or any(type(availability.get(key)) is not int or availability[key] != value for key, value in expected.items())
+                or availability.get("availableCriticalSections") != [stage["id"] for stage in critical_stages if stage["evidenceRecords"] > 0]
+                or availability.get("emptyCriticalSections") != [stage["id"] for stage in critical_stages if stage["evidenceRecords"] == 0]):
+            raise ValueError("Diagnostic evidence availability disagrees with stage evidence")
     return manifest
 
 

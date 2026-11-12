@@ -55,6 +55,7 @@ internal object GitHubReadRetry {
 
     private suspend fun <T> retry(readOnly: Boolean, request: suspend () -> T, onAttempt: () -> Unit = {}, onRecovered: () -> Unit = {}): T {
         var retries = 0
+        var circuitWaited = false
         while (true) {
             currentCoroutineContext().ensureActive()
             try {
@@ -65,6 +66,15 @@ internal object GitHubReadRetry {
                 return result
             } catch (cancelled: CancellationException) {
                 throw cancelled
+            } catch (open: GitHubRequestCircuit.Open) {
+                currentCoroutineContext().ensureActive()
+                // Keep the original tool call and authority while the credential's
+                // circuit cools down. Writes and long waits require explicit recovery.
+                // A second open observation cannot extend this bounded read allowance.
+                if (!readOnly || circuitWaited || retries >= 2 || open.retryAfterMs !in 1L..GitHubTransportRecovery.MAX_WAIT_MILLIS) throw open
+                circuitWaited = true
+                delay(open.retryAfterMs)
+                retries++
             } catch (failure: IOException) {
                 currentCoroutineContext().ensureActive()
                 if (!readOnly || retries >= 2 || failure is HttpFailure && !transientStatus(failure.status)) throw failure

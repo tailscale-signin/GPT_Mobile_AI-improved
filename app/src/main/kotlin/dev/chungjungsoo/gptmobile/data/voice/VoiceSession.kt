@@ -176,8 +176,8 @@ class VoiceSession(
         engaged = true
         reply("replay:$generation", state.reply)
     }
-    private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null) {
-        if (next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
+    private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null, reportFailure: Boolean = true) {
+        if (reportFailure && next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
             IssueReportIncidents.failure(ReportFeature.VOICE, errorCode, error)
         }
         state = next.copy(awaitingReply = waiting, hasDraft = draftPending)
@@ -221,7 +221,12 @@ class VoiceSession(
         }
         val remaining = maxOf(audio.retryAfterMillis(), (state.retryAtMillis - now()).coerceAtLeast(0))
         if (remaining > 0) {
-            update(state.copy(phase = VoicePhase.ERROR, retryAtMillis = now() + remaining, notice = "Speech service is busy. Your chat is still available."))
+            // A blocked retry did not start another recognition attempt. Keep the
+            // original repair guidance without inventing a generic failure report.
+            update(
+                state.copy(phase = VoicePhase.ERROR, retryAtMillis = now() + remaining, notice = state.notice ?: "Speech service is busy. Your chat is still available."),
+                reportFailure = false
+            )
             return
         }
         engaged = true

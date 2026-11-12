@@ -4764,10 +4764,12 @@ class ChatRepositoryImpl(
             onToolResultCommitted = outputContinuation?.let { continuation -> { call, result -> continuation.observeToolResult(call, result) } },
             onToolResultsRestored = { exchanges ->
                 exchanges.forEach { exchange ->
-                    val call = exchange.calls.single()
-                    val result = exchange.results.single()
-                    reviewEvidence?.observe(call, result)
-                    verifiedEvidence?.observe(call, result)
+                    val results = exchange.results.associateBy { it.callId }
+                    exchange.calls.forEach { call ->
+                        val result = results.getValue(call.callId)
+                        reviewEvidence?.observe(call, result)
+                        verifiedEvidence?.observe(call, result)
+                    }
                 }
                 outputContinuation?.restoreToolResults(exchanges)
             },

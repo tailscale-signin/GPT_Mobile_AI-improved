@@ -20,6 +20,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonArray
@@ -284,6 +285,134 @@ class DiagnosticDatabaseSourceTest {
         assertFalse(rows.toString().contains("must-never-export"))
         assertFalse(rows.toString().contains("workspace-memory-"))
         assertTrue(omissions.isEmpty())
+    }
+
+    @Test fun oversizedVerificationUsesMatchingCompactEventAndOutputWithoutDroppingTheFailure() = runBlocking {
+        val chat = createRun("large-summary", "A job is active · code=conversation_conflict · dispatch=not_dispatched")
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-evidence:binding:verification_current_snapshot",
+            chat,
+            "large-summary",
+            buildJsonObject {
+                put("failure_code", "conversation_conflict")
+                put("large_checklist", "x".repeat(364_489))
+            }
+        )
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-evidence:binding:verification_event_after",
+            chat,
+            "large-summary",
+            buildJsonObject {
+                put("snapshot_id", "verification_current_snapshot")
+                put("task_state", "BLOCKED")
+                put("task_outcome", "PARTIAL")
+                put("failure_code", "conversation_conflict")
+                put("phase", "INTERRUPTED")
+            },
+            appendOnly = true
+        )
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-output:binding",
+            chat,
+            "large-summary",
+            buildJsonObject {
+                put(
+                    "failure_details",
+                    buildJsonObject {
+                        put("code", "conversation_conflict")
+                        put("invocation_id", "rejected-send")
+                        put("failed_stage", "provider_admission")
+                        put("dispatch_state", "not_dispatched")
+                    }
+                )
+            }
+        )
+        val omissions = mutableListOf<String>()
+        val summary = source.latestFailureSummary(chat, "test", 141, "app-commit", {}, omissions::add)
+        assertEquals("conversation_conflict", summary.getValue("failure_code").jsonPrimitive.content)
+        assertEquals("BLOCKED", summary.getValue("task_state").jsonPrimitive.content)
+        assertEquals("PARTIAL", summary.getValue("task_outcome").jsonPrimitive.content)
+        assertEquals("provider_admission", summary.getValue("failed_stage").jsonPrimitive.content)
+        assertEquals("rejected-send", summary.getValue("invocation_id").jsonPrimitive.content)
+        assertEquals("RECONCILE_ACTIVE_GATEWAY_JOB", summary.getValue("recovery_action").jsonPrimitive.content)
+        assertEquals("VERIFICATION_EVENT", summary.getValue("field_sources").jsonObject.getValue("failure_code").jsonPrimitive.content)
+        assertEquals("FAILURE_CODE_POLICY", summary.getValue("field_sources").jsonObject.getValue("recovery_action").jsonPrimitive.content)
+        assertEquals("PROTECTED_PAYLOAD_BYTE_LIMIT", summary.getValue("projection_limitations").jsonArray.single().jsonObject.getValue("reason").jsonPrimitive.content)
+        assertTrue(omissions.isEmpty())
+        assertTrue(summary.toString().length < 4096)
+
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-evidence:binding:verification_event_unrelated",
+            chat,
+            "large-summary",
+            buildJsonObject {
+                put("snapshot_id", "verification_current_unrelated")
+                put("task_state", "VERIFIED")
+                put("failure_code", "GITHUB_UNRELATED_FAILURE")
+            },
+            appendOnly = true
+        )
+        val mismatched = source.latestFailureSummary(chat, "test", 141, "app-commit", {}, omissions::add)
+        assertEquals("conversation_conflict", mismatched.getValue("failure_code").jsonPrimitive.content)
+        assertEquals(kotlinx.serialization.json.JsonNull, mismatched["task_state"])
+        assertFalse(mismatched.toString().contains("GITHUB_UNRELATED_FAILURE"))
+        assertTrue(mismatched.getValue("projection_limitations").jsonArray.any { it.jsonObject["reason"] == JsonPrimitive("LATEST_FAILURE_SNAPSHOT_MISMATCH") })
+    }
+
+    @Test fun admissionFailureCannotBorrowAnotherRunsVerdictAndRetainsItsTypedRecovery() = runBlocking {
+        val chat = createRun("prior", null)
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-evidence:old:verification_current_snapshot",
+            chat,
+            "prior",
+            buildJsonObject {
+                put("failure_code", "GITHUB_UNRELATED_FAILURE")
+                put("tested_sha", "f".repeat(40))
+            }
+        )
+        val user = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "new request", platformType = null)).toInt()
+        val assistant = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "", platformType = null)).toInt()
+        database.agentPersistenceDao().insertRun(AgentRun("current", chat, user, assistant, "profile", "provider", "model", status = "FAILED", terminalError = "The selected profile could not be verified (EXECUTION_SELECTION_INVALID; provider_admission)."))
+        val summary = source.latestFailureSummary(chat, "test", 141, "build-commit", {}, {})
+        assertEquals("current", summary.getValue("run_id").jsonPrimitive.content)
+        assertEquals("EXECUTION_SELECTION_INVALID", summary.getValue("failure_code").jsonPrimitive.content)
+        assertEquals("provider_admission", summary.getValue("failed_stage").jsonPrimitive.content)
+        assertEquals("REFRESH_SELECTED_PROFILE_AND_GATEWAY_READINESS", summary.getValue("recovery_action").jsonPrimitive.content)
+        assertEquals("TERMINAL_ERROR", summary.getValue("field_sources").jsonObject.getValue("failure_code").jsonPrimitive.content)
+        assertEquals("NOT_RETAINED", summary.getValue("tested_sha_status").jsonPrimitive.content)
+        assertTrue(summary.getValue("source_record_ids").jsonArray.isEmpty())
+    }
+
+    @Test fun plainCheckpointAndWorkspacePolicyRemainDiscoverableWithoutLegacyPolicyRows() = runBlocking {
+        val chat = createRun("plain-run", null)
+        workspace.saveSynthesisCheckpoint(
+            "github-evidence:plain:verification_current_snapshot",
+            chat,
+            "plain-run",
+            buildJsonObject { put("failure_code", "GITHUB_EVIDENCE_MISSING") }
+        )
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-run-policy:plain-run:digest",
+            chat,
+            "plain-run",
+            buildJsonObject { put("schema", "github.run-policy.v1") },
+            appendOnly = true
+        )
+        val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals("GITHUB_EVIDENCE_MISSING", summary.getValue("failure_code").jsonPrimitive.content)
+        val references = source.latestPolicyReferences(chat) {}
+        assertEquals("github-run-policy:plain-run:digest", references.getValue("references").jsonArray.single().jsonObject.getValue("record_id").jsonPrimitive.content)
+        val latest = mutableListOf<JsonObject>()
+        source.capture(chat, "latest_state", 4096, {}, { latest += it }, {})
+        assertTrue(latest.any { it["fields"]?.jsonObject?.get("id") == JsonPrimitive("github-run-policy:plain-run:digest") })
+    }
+
+    private suspend fun createRun(id: String, terminalError: String?): Int {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = id)).toInt()
+        val user = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "request", platformType = null)).toInt()
+        val assistant = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "", platformType = null)).toInt()
+        database.agentPersistenceDao().insertRun(AgentRun(id, chat, user, assistant, "profile", "provider", "model", status = "FAILED", terminalError = terminalError))
+        return chat
     }
 
     @Test fun sourceBudgetRetainsOversizedAssistantForRedactedChunking() = runBlocking {

@@ -66,6 +66,42 @@ class VoiceFailureReportingTest {
     }
 
     @Test
+    fun resumingDuringCooldownKeepsTheOriginalFailureWithoutReportingAnotherAttempt() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val attempts = mutableListOf<VoiceAudio.Listener>()
+        val audio = object : VoiceAudio {
+            override fun listen(listener: VoiceAudio.Listener) {
+                attempts += listener
+            }
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val session = VoiceSession(audio, { false }, {}, { 1000L })
+        session.access(true, true, true)
+        session.resume()
+        attempts.single().failure(
+            "Review the speech service settings.",
+            "VOICE_RECOGNIZER_RATE_LIMITED",
+            retryMillis = 15_000,
+            recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE
+        )
+        val originalReport = IssueReportIncidents.pending.value.single()
+        repeat(3) {
+            session.pause()
+            session.resume()
+        }
+        assertEquals(1, attempts.size)
+        assertEquals(originalReport, IssueReportIncidents.pending.value.single())
+        assertFalse(IssueReportIncidents.recentEvents().any { "VOICE_SESSION_FAILED" in it })
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+        assertEquals(16_000L, session.state.retryAtMillis)
+        assertEquals("Review the speech service settings.", session.state.notice)
+        assertEquals(VoiceRecoveryAction.SPEECH_SERVICE, session.state.recoveryAction)
+        session.close()
+    }
+
+    @Test
     fun nonStreamingPlaybackFailureKeepsItsSpecificCodeAndTheCompleteAnswer() {
         LocalDiagnosticsPolicy.setEnabled(true)
         lateinit var capture: VoiceAudio.Listener

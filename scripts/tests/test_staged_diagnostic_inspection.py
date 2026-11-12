@@ -65,6 +65,23 @@ class StagedDiagnosticInspectionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory, self.assertRaises(ValueError):
             replay.load_snapshot(self.write(directory, manifest, body))
 
+    def test_critical_availability_counts_and_source_names_are_verified(self):
+        manifest, body = self.fixture()
+        manifest["evidenceAvailability"] = dict(
+            criticalSectionCount=1, criticalSectionsWithEvidence=1,
+            criticalSectionsWithoutEvidence=0, incompleteCriticalSections=0,
+            availableCriticalSections=["critical_logs"], emptyCriticalSections=[],
+            applicationLogRecords=1,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(manifest, replay.load_snapshot(self.write(directory, manifest, body)))
+            for key, invalid in (("criticalSectionsWithoutEvidence", 1), ("availableCriticalSections", []),
+                                 ("criticalSectionCount", True), ("applicationLogRecords", 0)):
+                broken = copy.deepcopy(manifest)
+                broken["evidenceAvailability"][key] = invalid
+                with self.subTest(key=key), self.assertRaisesRegex(ValueError, "evidence availability"):
+                    replay.load_snapshot(self.write(directory, broken, body))
+
     def test_rejects_malformed_manifest_or_stage_with_validation_error(self):
         manifest, body = self.fixture()
         invalid_values = [[], dict(manifest, stages=[None])]

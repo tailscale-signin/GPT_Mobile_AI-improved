@@ -53,7 +53,8 @@ data class ToolBatchRecoverySnapshot(
     val failedCount: Int = 0,
     val jobContext: ToolBatchJobContext? = null,
     val completedExchanges: List<AgentToolExchange> = emptyList(),
-    val consumedCallIds: Set<String> = emptySet()
+    val consumedCallIds: Set<String> = emptySet(),
+    val pendingCompletedExchange: AgentToolExchange? = null
 ) {
     val unknownCount: Int get() = unsettledCalls.size
 }
@@ -70,7 +71,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
 
     @Serializable private data class Entry(val call: Call, val started: Boolean = false, val result: Result? = null, val priorBudgetRejection: Result? = null)
 
-    @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap(), val jobContext: ToolBatchJobContext? = null, val consumedCallIds: Set<String> = emptySet())
+    @Serializable private data class State(val binding: String, val schemaVersion: Int = 1, val pending: List<String> = emptyList(), val entries: Map<String, Entry> = emptyMap(), val jobContext: ToolBatchJobContext? = null, val consumedCallIds: Set<String> = emptySet(), val batches: List<List<String>> = emptyList())
     private val mutex = file?.let { locks.computeIfAbsent(it.absolutePath) { Mutex() } } ?: Mutex()
     private val json = Json {
         encodeDefaults = true
@@ -86,6 +87,8 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         require(saved.binding == binding) { "Tool recovery authorization changed." }
         require(saved.entries.size <= 1024 && saved.pending.distinct().size == saved.pending.size && saved.pending.all(saved.entries::containsKey)) { "Tool recovery journal has invalid call identities." }
         require(saved.entries.all { (id, entry) -> id.isNotBlank() && id == entry.call.id }) { "Tool recovery journal has inconsistent receipts." }
+        require(saved.batches.size <= 1024 && saved.batches.sumOf { it.size } <= 8192 && saved.batches.all { batch -> batch.isNotEmpty() && batch.distinct().size == batch.size && batch.all(saved.entries::containsKey) }) { "Tool recovery journal has invalid batch identities." }
+        require(saved.batches.isEmpty() || saved.pending.isEmpty() || saved.batches.last() == saved.pending) { "Tool recovery pending batch no longer matches its original grouping." }
         require(saved.consumedCallIds.size <= 1024 && saved.consumedCallIds.all { saved.entries[it]?.result != null }) { "Tool recovery ledger has invalid consumed identities." }
         if (initialJob != null && saved.jobContext != null) {
             require(initialJob.objective == saved.jobContext.objective && initialJob.repository == saved.jobContext.repository) { "Saved engineering objective or repository changed; reconcile the previous job before starting another." }
@@ -141,6 +144,13 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
     suspend fun pending(): List<ProviderEvent.ToolCall> = locked {
         val state = read()
         state.pending.map { state.entries.getValue(it).call.event() }
+    }
+
+    /** Older journals prove only their current pending batch; unrelated history stays separate. */
+    private fun State.orderedBatches(): List<List<String>> {
+        val recorded = batches.ifEmpty { listOfNotNull(pending.takeIf { it.isNotEmpty() }) }
+        val grouped = recorded.flatten().toSet()
+        return entries.keys.filterNot { it in grouped }.map { listOf(it) } + recorded
     }
 
     /** Resolve exact handoff identities without parsing or replaying retained payload bodies. */
@@ -205,12 +215,14 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         // after releasing the file lock so another completed tool can checkpoint.
         val state = locked { read() }
         return withContext(Dispatchers.Default) {
-            // Settled pending rows are receipts to replay to the model, never executable work.
-            val pendingIds = state.pending.filter { state.entries.getValue(it).result == null }
+            // Resume a partially settled batch as one original assistant batch.
+            // execute() returns its completed members from receipts without dispatch.
+            val pendingIds = state.pending.takeIf { ids -> ids.any { state.entries.getValue(it).result == null } }.orEmpty()
             val pending = pendingIds.map { state.entries.getValue(it).call.event() }
             val dispatchedCount = state.entries.values.count { it.countsAsDispatched() }
             val pendingDispatchedIds = pendingIds.filterTo(mutableSetOf()) { state.entries.getValue(it).countsAsDispatched() }
             val pendingRetainedIds = pendingIds.filterTo(mutableSetOf()) { state.entries.getValue(it).let { entry -> entry.started || entry.result != null } }
+            val pendingCompleted = pendingIds.map { state.entries.getValue(it) }.filter { it.result != null }
             val elapsed = ((System.nanoTime() - started) / 1_000_000).coerceAtLeast(0)
             ToolBatchRecoverySnapshot(
                 pending = pending,
@@ -226,10 +238,16 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 rejectedCount = state.entries.values.count { it.result?.let { result -> result.error && !result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
                 failedCount = state.entries.values.count { it.result?.let { result -> result.error && result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
                 jobContext = state.jobContext,
-                completedExchanges = state.entries.values.filter { it.result != null }.map { entry ->
-                    AgentToolExchange(listOf(entry.call.event()), listOf(requireNotNull(entry.result).restore(entry.call.id)))
+                completedExchanges = state.orderedBatches().mapNotNull { batch ->
+                    val settled = batch.filter { it !in pendingIds }.map { state.entries.getValue(it) }.filter { it.result != null }
+                    if (settled.isEmpty()) null else AgentToolExchange(settled.map { it.call.event() }, settled.map { requireNotNull(it.result).restore(it.call.id) })
                 },
-                consumedCallIds = state.consumedCallIds
+                consumedCallIds = state.consumedCallIds,
+                // Observe these receipts once, but replay the assistant batch only
+                // after its unsettled members also have terminal results.
+                pendingCompletedExchange = pendingCompleted.takeIf { it.isNotEmpty() }?.let { settled ->
+                    AgentToolExchange(settled.map { it.call.event() }, settled.map { requireNotNull(it.result).restore(it.call.id) })
+                }
             )
         }
     }
@@ -237,6 +255,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         val state = read()
         require(calls.map { it.callId }.distinct().size == calls.size) { "Duplicate tool call IDs cannot be checkpointed." }
         val incoming = calls.map { it.callId }
+        val restoring = state.pending.isNotEmpty() && (state.pending == incoming || state.pending.filter { state.entries.getValue(it).result == null } == incoming)
         require(
             state.pending == incoming ||
                 state.pending.filter { state.entries.getValue(it).result == null } == incoming ||
@@ -251,7 +270,9 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             entries.putIfAbsent(call.callId, Entry(row))
         }
         require(entries.size <= 1024) { "Tool recovery call capacity reached before dispatch." }
-        write(state.copy(pending = calls.map { it.callId }, entries = entries))
+        val batches = state.orderedBatches().let { if (restoring || incoming.isEmpty()) it else it + listOf(incoming) }
+        require(batches.size <= 1024 && batches.sumOf { it.size } <= 8192) { "Tool recovery batch capacity reached before dispatch." }
+        write(state.copy(pending = if (restoring) state.pending else incoming, entries = entries, batches = batches))
     }
     suspend fun execute(call: ProviderEvent.ToolCall, replayableRead: Boolean = false, dispatch: suspend () -> AgentToolResult): AgentToolResult {
         val restored = locked {

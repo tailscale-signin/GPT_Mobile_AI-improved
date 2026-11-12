@@ -613,7 +613,14 @@ internal class GitHubRepositorySession(
             throw searchValidation("GITHUB_SEARCH_CURSOR_UNAVAILABLE", context, definition, "The search_id was not issued for a retained search in this task. Start with index_cursor=0 without search_id; no candidate files were scanned.")
         }
         if (requestedCursor > 0 && requestedSearchId.isBlank()) {
-            throw searchValidation("GITHUB_SEARCH_CURSOR_UNBOUND", context, definition, "A nonzero index_cursor requires the search_id from the exact continuation. Reset index_cursor=0 to begin a new read-only search.")
+            val retainedDefinition = store.read(scope, "search-definition:$searchId")
+            val issuedBoundary = store.read(scope, "search-coverage:$searchId:$requestedCursor")
+            val correction = if (retainedDefinition == definition && issuedBoundary != null) {
+                JsonObject(args + mapOf("owner" to JsonPrimitive(context.owner), "repo" to JsonPrimitive(context.repo), "commit_sha" to JsonPrimitive(context.commitSha), "search_id" to JsonPrimitive(searchId)))
+            } else {
+                null
+            }
+            throw searchValidation("GITHUB_SEARCH_CURSOR_UNBOUND", context, definition, "A nonzero index_cursor requires the search_id from the exact continuation. Use the retained correction_call when available; otherwise reset index_cursor=0 to begin a new read-only search.", correction)
         }
         val recovery = if (changed) {
             buildJsonObject {
@@ -654,7 +661,7 @@ internal class GitHubRepositorySession(
         return SearchRequest(query, mode, options, extension, pathPrefix, batchSize, maxNewBlobs, searchId, all, cursor, data["truncated"]?.jsonPrimitive?.booleanOrNull != true, priorCoverage, recovery)
     }
 
-    private fun searchValidation(code: String, context: GitHubTaskSnapshot, definition: JsonObject, message: String) = GitHubReadValidation(
+    private fun searchValidation(code: String, context: GitHubTaskSnapshot, definition: JsonObject, message: String, correction: JsonObject? = null) = GitHubReadValidation(
         code,
         buildJsonObject {
             put("schema", "github.read_validation.v1")
@@ -663,8 +670,20 @@ internal class GitHubRepositorySession(
             put("failed_stage", "search_continuation")
             put("read_dispatched", false)
             put("retry_unchanged", false)
+            put("owner", context.owner)
+            put("repo", context.repo)
+            put("ref", context.ref)
             put("commit_sha", context.commitSha)
             put("message", message)
+            correction?.let {
+                put(
+                    "correction_call",
+                    buildJsonObject {
+                        put("tool", "github_search")
+                        put("arguments", it)
+                    }
+                )
+            }
             put(
                 "corrective_actions",
                 JsonArray(
@@ -969,7 +988,27 @@ internal class GitHubRepositorySession(
         val treeComplete = pinnedTree["truncated"]?.jsonPrimitive?.booleanOrNull != true
         val selected = withContext(Dispatchers.Default) {
             ranges.map { it.jsonObject.s("path") }.distinct().associateWith { path ->
-                GitHubPinnedPathResolver.resolve(path, entries, context.commitSha, treeComplete)
+                try {
+                    GitHubPinnedPathResolver.resolve(path, entries, context.commitSha, treeComplete)
+                } catch (failure: GitHubReadValidation) {
+                    val validation = JsonObject(failure.details + mapOf("owner" to JsonPrimitive(context.owner), "repo" to JsonPrimitive(context.repo), "ref" to JsonPrimitive(context.ref)))
+                    val correction = GitHubSourceReadRecovery.correctedArguments("github_read", args, validation)
+                    throw GitHubReadValidation(
+                        failure.code,
+                        if (correction == null) {
+                            validation
+                        } else {
+                            JsonObject(
+                                validation + (
+                                    "correction_call" to buildJsonObject {
+                                        put("tool", "github_read")
+                                        put("arguments", JsonObject(correction - "action"))
+                                    }
+                                    )
+                            )
+                        }
+                    )
+                }
             }
         }
         val permits = Semaphore(2)
@@ -1019,6 +1058,7 @@ internal class GitHubRepositorySession(
                 put("start_offset", offset)
                 put("content", excerpt)
                 put("truncated", truncated || end < lines.size || start > 1 || offset > 0)
+                put("range_complete", offset == 0 && !truncated)
                 put("complete_file", start == 1 && end >= lines.size && offset == 0 && !truncated)
                 put("has_more", truncated || end < lines.size)
                 if (truncated) {
@@ -1061,10 +1101,23 @@ internal class GitHubRepositorySession(
         updateSnapshot { pinned ->
             pinned.copy(evidenceHandles = (pinned.evidenceHandles + evidenceId).distinct().takeLast(128), updatedAt = System.currentTimeMillis())
         }
+        val coverage = results.groupBy { it.s("path") }.map { (path, items) ->
+            val identity = buildJsonObject {
+                put("owner", context.owner)
+                put("repo", context.repo)
+                put("commit_sha", context.commitSha)
+                put("blob_sha", selected.getValue(path).getValue("sha"))
+                put("path", path)
+                put("total_lines", items.first().getValue("total_lines"))
+            }
+            val key = "source-coverage:" + GitHubRepositoryStateStore.digest(identity.toString())
+            store.update(scope, key) { previous -> GitHubSourceReadCoverage.merge(previous, identity, evidenceId, items) }
+        }
         return buildJsonObject {
             put("evidence_id", evidenceId)
             put("commit_sha", context.commitSha)
             put("tree_sha", context.treeSha)
+            put("source_coverage", JsonArray(coverage))
             put("items", JsonArray(results))
             put("context_graph", contextGraph)
             put("concurrent_blob_limit", 2)

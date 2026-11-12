@@ -477,13 +477,11 @@ internal object GitHubTestChecklist {
 
     private fun readOnly(capability: Capability): Boolean = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(capability.tool, buildJsonObject { if (capability.action.isNotBlank()) put("action", capability.action) })
 
-    fun rows(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), task: String = "", fixturePreflight: JsonObject? = null): JsonArray {
+    private data class CoverageCatalog(val active: List<Capability>, val historical: List<JsonObject>, val cumulative: List<Capability>)
+
+    private fun coverageCatalog(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>): CoverageCatalog {
         val historical = receipts.values.filter { it["trusted"] == JsonPrimitive(true) || it["success"] == JsonPrimitive(false) && it["dispatched"] == JsonPrimitive(false) }
-        val allTrusted = trusted(receipts)
-        val readyReads = GitHubSelfTestReads.available(tools, allTrusted).associateBy { it.name.substringBefore("__") to it.arguments.text("action") }
-        val pendingApprovals = GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()
         val active = catalog(tools)
-        val integrationCoverage = integration(task)
         val union = (
             active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").substringBefore("__") == "repository_graph") && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
                 val name = it.text("tool").substringBefore("__")
@@ -491,8 +489,25 @@ internal object GitHubTestChecklist {
                 Capability(name, action, "$name / ${action.ifBlank { "default" }}")
             }
             ).distinctBy { it.tool to it.action }
+        return CoverageCatalog(active, historical, union)
+    }
+
+    fun rows(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), task: String = "", fixturePreflight: JsonObject? = null): JsonArray =
+        rows(receipts, tools, task, fixturePreflight, coverageCatalog(receipts, tools), observedOnly = false)
+
+    private fun rows(receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, task: String, fixturePreflight: JsonObject?, coverage: CoverageCatalog, observedOnly: Boolean): JsonArray {
+        val historical = coverage.historical
+        val active = coverage.active
+        // Ordinary task checkpoints retain actual observations, including rejected
+        // and ineligible receipts, without evaluating unrelated catalog blockers.
+        val selected = if (observedOnly) coverage.cumulative.filter { capability -> historical.any { matches(it, capability) } } else coverage.cumulative
+        if (selected.isEmpty()) return JsonArray(emptyList())
+        val allTrusted = trusted(receipts)
+        val readyReads = GitHubSelfTestReads.available(tools, allTrusted).associateBy { it.name.substringBefore("__") to it.arguments.text("action") }
+        val pendingApprovals = GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()
+        val integrationCoverage = integration(task)
         return JsonArray(
-            union.map { capability ->
+            selected.map { capability ->
                 val observed = historical.filter { matches(it, capability) }
                 val discovered = tools.any { it.name.substringBefore("__") == capability.tool }
                 fun permitted(receipt: JsonObject): Boolean {
@@ -805,9 +820,16 @@ internal object GitHubTestChecklist {
     fun checkpoint(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, fixturePreflight: JsonObject? = null): JsonObject = buildJsonObject {
         put("schema", "github.test-checklist.v3")
         put("request_digest", GitHubEvidenceBook.digest(task))
-        val capabilities = rows(receipts, tools, task, fixturePreflight)
+        val integrationCoverage = integration(task)
+        val catalog = coverageCatalog(receipts, tools)
+        val capabilities = rows(receipts, tools, task, fixturePreflight, catalog, observedOnly = !integrationCoverage)
         put("capabilities", capabilities)
-        val requirements = if (integration(task)) {
+        put("coverage_scope", if (integrationCoverage) "FULL_CATALOG" else "OBSERVED_CAPABILITIES")
+        put("catalog_capability_count", catalog.cumulative.size)
+        put("retained_capability_count", capabilities.size)
+        put("omitted_unobserved_capability_count", catalog.cumulative.size - capabilities.size)
+        put("catalog_count_scope", "Known catalog and historical observations; not a final authorized denominator or task acceptance count.")
+        val requirements = if (integrationCoverage) {
             GitHubIntegrationAcceptance.requirements(task, receipts, tools, fixturePreflight = fixturePreflight)
         } else {
             JsonArray(
@@ -843,7 +865,7 @@ internal object GitHubTestChecklist {
         put("acceptance_ledger", GitHubAcceptanceLedger.snapshot(requirements = requirements, capabilities = capabilities, requestDigest = GitHubEvidenceBook.digest(task)))
         put("coverage_source", if (tools.isEmpty()) "BASELINE_CATALOG" else "AUTHORIZED_TOOL_ACTION_SCHEMAS")
         put("pagination_policy", "Reuse complete persisted originals and their exact remote recipes; consume display fragments only when no complete original was retained; up to 32 definition pages per revision independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
-        val acceptance = if (integration(task)) {
+        val acceptance = if (integrationCoverage) {
             listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Complete durable sources or required local fragments, and remote pages, consumed or explicitly pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up")
         } else {
             listOf("Only the user's requested outputs are required acceptance criteria", "Every claim cites matching branch/PR/SHA receipts", "Read-only reviews require exact comparison revisions and relevant source reads, not unrelated mutation fixtures", "Unverified outputs and pending remote pages remain explicit")

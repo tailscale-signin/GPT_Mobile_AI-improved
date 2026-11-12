@@ -6,15 +6,55 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubCheckpointCompactionTest {
+    @Test fun ordinaryProgressRetainsReceiptsAndRequirementsWithoutUnobservedCatalogRows() = runTest {
+        val saved = linkedMapOf<String, JsonObject>()
+        val schema = buildJsonObject {
+            put("type", "object")
+            put("properties", buildJsonObject { put("action", buildJsonObject { put("enum", JsonArray((listOf("status") + (1..123).map { "unused_$it" }).map(::JsonPrimitive))) }) })
+        }
+        val tools = listOf(AgentToolDefinition("github_context", "Status and catalog fixture", schema))
+        val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_context"), load = { saved[it] }, save = { id, value -> saved[id] = value })
+        val args = Json.parseToJsonElement("""{"action":"status"}""").jsonObject
+        val data = Json.parseToJsonElement("""{"branch":"main","commit_sha":"${"a".repeat(40)}","repository":{"default_branch":"main"}}""").jsonObject
+        val call = ProviderEvent.ToolCall("status", "github_context", args)
+        book.observe(call, AgentToolResult(call.callId, ToolResultContent.Json(data), false))
+        val receipts = book.snapshot().first
+        val task = "Review the selected branch against its base."
+        book.retainProgress(task, tools)
+        val progress = saved.filterKeys { it.startsWith("verification_current_") }.values.single()
+        val checkpoint = progress["test_checklist"] as JsonObject
+        val capabilities = checkpoint["capabilities"] as JsonArray
+        assertEquals(JsonPrimitive("OBSERVED_CAPABILITIES"), checkpoint["coverage_scope"])
+        assertEquals(JsonPrimitive(124), checkpoint["catalog_capability_count"])
+        assertEquals(JsonPrimitive(1), checkpoint["retained_capability_count"])
+        assertEquals(JsonPrimitive(123), checkpoint["omitted_unobserved_capability_count"])
+        assertEquals(JsonPrimitive("github_context:status"), capabilities.single().jsonObject["id"])
+        assertEquals(JsonPrimitive(false), capabilities.single().jsonObject["required"])
+        assertEquals(1, ((progress["acceptance_ledger"] as JsonObject)["capability_inventory"] as JsonArray).size)
+        assertTrue((progress["requirements"] as JsonArray).isNotEmpty())
+        assertEquals(progress["requirements"], progress["remaining_requirements"])
+        assertEquals(JsonPrimitive(false), progress["completion_verified"])
+        assertEquals(JsonPrimitive(false), (progress["acceptance_ledger"] as JsonObject)["completion_verified"])
+        assertFalse(progress.toString().contains("unused_123"))
+        assertTrue("Observed checkpoint should be smaller than the unrelated catalog rows alone", progress.toString().length < GitHubTestChecklist.rows(receipts, tools, task).toString().length)
+        val restored = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_context"), load = { saved[it] }, retainedIds = { saved.keys.filter { it.startsWith("ev_") } })
+        restored.restore()
+        assertEquals(receipts, restored.snapshot().first)
+        assertEquals(data, restored.snapshot().first.values.single()["result"])
+    }
+
     @Test fun identicalCurrentSnapshotsDoNotAppendJournalWrites() = runTest {
         val saved = linkedMapOf<String, JsonObject>()
         var writes = 0

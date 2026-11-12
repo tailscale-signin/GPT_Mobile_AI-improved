@@ -127,18 +127,58 @@ class GitHubAuditEvidenceTest {
         assertTrue(report.contains(head))
     }
 
-    @Test fun normalReviewHasOnlyRequestedAcceptanceCriteriaAndKeepsCatalogSeparately() {
+    @Test fun normalReviewHasOnlyRequestedAcceptanceCriteriaAndCountsUnobservedCatalog() {
         val checkpoint = GitHubTestChecklist.checkpoint(task, emptyMap(), tools, 21)
         val capabilities = checkpoint["capabilities"] as JsonArray
-        assertTrue(capabilities.isNotEmpty())
-        assertTrue(capabilities.all { (it as JsonObject)["required"] == JsonPrimitive(false) })
+        val catalogSize = GitHubTestChecklist.rows(emptyMap(), tools, task).size
+        assertTrue(catalogSize > 0)
+        assertTrue(capabilities.isEmpty())
+        assertEquals(JsonPrimitive("OBSERVED_CAPABILITIES"), checkpoint["coverage_scope"])
+        assertEquals(JsonPrimitive(catalogSize), checkpoint["catalog_capability_count"])
+        assertEquals(JsonPrimitive(0), checkpoint["retained_capability_count"])
+        assertEquals(JsonPrimitive(catalogSize), checkpoint["omitted_unobserved_capability_count"])
         val ledger = checkpoint["acceptance_ledger"] as JsonObject
         assertTrue((ledger["capabilities"] as JsonArray).isEmpty())
-        assertEquals(capabilities.size, (ledger["capability_inventory"] as JsonArray).size)
+        assertTrue((ledger["capability_inventory"] as JsonArray).isEmpty())
         assertTrue((ledger["requirements"] as JsonArray).isNotEmpty())
+        assertEquals(JsonPrimitive(false), ledger["completion_verified"])
         assertTrue(((checkpoint["resume_plan"] as JsonObject)["pending_capabilities"] as JsonArray).isEmpty())
-        val integration = GitHubTestChecklist.checkpoint("Test all authorized GitHub integration tools", emptyMap(), tools)
+        val integrationTask = "Test all authorized GitHub integration tools"
+        val integration = GitHubTestChecklist.checkpoint(integrationTask, emptyMap(), tools)
+        assertEquals(GitHubTestChecklist.rows(emptyMap(), tools, integrationTask), integration["capabilities"])
         assertTrue((integration["capabilities"] as JsonArray).any { (it as JsonObject)["required"] == JsonPrimitive(true) })
+        assertEquals(JsonPrimitive("FULL_CATALOG"), integration["coverage_scope"])
+        assertEquals(JsonPrimitive(catalogSize), integration["retained_capability_count"])
+        assertEquals(JsonPrimitive(0), integration["omitted_unobserved_capability_count"])
+    }
+
+    @Test fun normalReviewRetainsObservedSuccessesRejectionsAndIneligibleHistory() {
+        val rejected = JsonObject(
+            receipt("rejected", "github_issue", json("""{"action":"headers","state":"open"}"""), json("{}")) +
+                mapOf("trusted" to JsonPrimitive(false), "success" to JsonPrimitive(false), "dispatched" to JsonPrimitive(false), "error_code" to JsonPrimitive("INVALID_ARGUMENTS"))
+        )
+        val ineligible = JsonObject(receipt("ineligible", "github_pr", json("""{"action":"get","number":1}"""), json("{}")) + ("verification_eligible" to JsonPrimitive(false)))
+        val obsolete = JsonObject(receipt("obsolete", "github_retired", json("""{"action":"retired"}"""), json("{}")) + ("verification_eligible" to JsonPrimitive(false)))
+        val view = receipt("view", "github_ci", json("""{"view_cursor":"source:0:4096"}"""), json("{}"))
+        val untrusted = JsonObject(noPulls() + ("trusted" to JsonPrimitive(false)))
+        val receipts = linkedMapOf("status" to status(), "rejected" to rejected, "ineligible" to ineligible, "obsolete" to obsolete, "view" to view, "untrusted" to untrusted)
+        val full = GitHubTestChecklist.rows(receipts, tools, task)
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools)
+        val capabilities = (checkpoint["capabilities"] as JsonArray).filterIsInstance<JsonObject>()
+        assertEquals(full.filter { ((it as JsonObject)["receipt_ids"] as JsonArray).isNotEmpty() }, capabilities)
+        assertEquals(setOf("github_context:status", "github_issue:headers", "github_pr:get", "github_retired:retired"), capabilities.map { (it["id"] as JsonPrimitive).content }.toSet())
+        assertEquals(setOf("status", "rejected", "ineligible", "obsolete"), capabilities.flatMap { (it["receipt_ids"] as JsonArray).map { id -> (id as JsonPrimitive).content } }.toSet())
+        assertTrue(capabilities.all { it["required"] == JsonPrimitive(false) && it["acceptance_role"] == JsonPrimitive("DIAGNOSTIC_ONLY") })
+        assertEquals(JsonPrimitive(1), capabilities.single { it["id"] == JsonPrimitive("github_issue:headers") }["rejected_before_dispatch"])
+        assertEquals(setOf(JsonPrimitive("ineligible"), JsonPrimitive("obsolete")), capabilities.flatMap { (it["excluded_receipt_ids"] as JsonArray).toList() }.toSet())
+        assertEquals(JsonPrimitive(full.size), checkpoint["catalog_capability_count"])
+        assertEquals(JsonPrimitive(4), checkpoint["retained_capability_count"])
+        assertEquals(JsonPrimitive(full.size - 4), checkpoint["omitted_unobserved_capability_count"])
+        assertEquals(GitHubTestChecklist.checkpoint(task, emptyMap(), tools)["requirements"], checkpoint["requirements"])
+        assertEquals(JsonPrimitive(false), (checkpoint["acceptance_ledger"] as JsonObject)["completion_verified"])
+        assertTrue(((checkpoint["resume_plan"] as JsonObject)["pending_capabilities"] as JsonArray).isEmpty())
+        val integrationTask = "Test all authorized GitHub integration tools"
+        assertEquals(GitHubTestChecklist.rows(receipts, tools, integrationTask), GitHubTestChecklist.checkpoint(integrationTask, receipts, tools)["capabilities"])
     }
 
     @Test fun invalidIssueHeadersOffersValidatedListRecoveryWithoutDispatch() = runBlocking {
@@ -215,6 +255,35 @@ class GitHubAuditEvidenceTest {
         assertEquals(JsonPrimitive(true), plan.checkpoint["user_input_required"])
         assertNull(plan.nextCall)
         assertFalse(plan.checkpoint.containsKey("base_sha"))
+    }
+
+    @Test fun missingBaselineStopsTheProviderAndReviewProbeAfterIdentityReads() = runBlocking {
+        val book = GitHubEvidenceBook("task", "owner/repo", "main", tools.map { it.name }.toSet(), now = { 1000L })
+        suspend fun observe(id: String, tool: String, source: JsonObject, arguments: JsonObject) {
+            book.observe(ProviderEvent.ToolCall(id, tool, arguments), AgentToolResult(id, ToolResultContent.Json(source), false))
+        }
+        observe("status", "github_context", status("main")["result"] as JsonObject, json("""{"action":"status"}"""))
+        observe("prs", "github_pr", noPulls()["result"] as JsonObject, json("""{"action":"list","state":"open","per_page":100}"""))
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("An unresolved baseline must not reach generation or its review probe")
+        }
+        for (remaining in listOf(62, 0)) {
+            var published: JsonObject? = null
+            val session = GitHubVerifiedSession(
+                provider, book, task, { 8192 }, { error("No claim extraction for a missing baseline") }, {}, {},
+                now = { 1000L }, remainingToolCalls = { remaining }, onPublication = { published = it }
+            )
+            val events = session.streamRound(tools, emptyList()).toList()
+            assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals("REVIEW_INPUT_REQUIRED", failure.errorCode)
+            assertEquals("BLOCKED", failure.taskOutcome)
+            assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Which commit or tag"))
+            assertEquals(JsonPrimitive(true), published?.get("user_input_required"))
+            assertEquals(JsonPrimitive("SELECT_REVIEW_BASELINE"), published?.get("next_action"))
+            assertEquals(JsonPrimitive("PROVIDE_MISSING_REVIEW_INPUT"), published?.get("recovery_action"))
+        }
+        assertEquals(2, book.snapshot().first.size)
     }
 
     @Test fun quotedBranchCommandsDoNotTriggerComparisonAcquisition() {

@@ -335,7 +335,7 @@ class AgentRunner(
                     val identified = if (restoringBatch) call else call.copy(originalInvocationFingerprint = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}"))
                     resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
                 }
-                resolvedCalls.forEach { emit(AgentRunEvent.Provider(it)) }
+                resolvedCalls.filterNot { it.callId in restoredCompleted }.forEach { emit(AgentRunEvent.Provider(it)) }
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
                 savedResultRecovery.record(calls)
                 if (calls.isEmpty()) {
@@ -357,7 +357,7 @@ class AgentRunner(
                 val completed = processToolCalls(
                     calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
                     initialSchemaTokens, replayTokens, toolCallsByName, consecutiveToolFailures, blockedReadScopes,
-                    remainingCalls, toolCallCount, restoredDispatched, restoredRetained, roundLimitReached, finalResponseRequested,
+                    remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
                     retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery
                 ) ?: return
                 executableToolByName = completed.tools
@@ -365,6 +365,7 @@ class AgentRunner(
                 toolCallCount = completed.toolCallCount
                 restoredDispatched = emptySet()
                 restoredRetained = emptySet()
+                restoredCompleted = emptySet()
                 toolMayHaveExecuted = toolMayHaveExecuted || completed.executedAny
                 suppressedReadRounds = completed.suppressedReadRounds
                 replayTokens = completed.batch.replayTokens
@@ -417,6 +418,7 @@ class AgentRunner(
         var restoredCalls = recovery?.pending.orEmpty()
         var restoredDispatched = recovery?.pendingDispatchedIds.orEmpty()
         var restoredRetained = recovery?.pendingRetainedIds.orEmpty()
+        var restoredCompleted = emptySet<String>()
         val toolCallsByName = mutableMapOf<String, Int>()
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
@@ -434,46 +436,57 @@ class AgentRunner(
     ): Boolean {
         with(state) {
             if (limits.githubTask) {
-                val retained = recovery?.completedExchanges.orEmpty().filter { it.calls.single().name in toolByName }
+                val completed = recovery?.completedExchanges.orEmpty().filter { exchange -> exchange.calls.all { it.name in toolByName } }
+                val pendingCompleted = recovery?.pendingCompletedExchange?.takeIf { exchange -> exchange.calls.all { it.name in toolByName } }
+                val retained = completed + listOfNotNull(pendingCompleted)
                 if (retained.isEmpty()) return true
                 // Restore current authorization/evidence once, before provider work.
                 // Completion callbacks persist new work and must not replay here.
-                var observedExchange: AgentToolExchange? = null
+                var observedPair: Pair<ProviderEvent.ToolCall, AgentToolResult>? = null
                 try {
                     if (onToolResultsRestored != null) {
                         onToolResultsRestored.invoke(retained)
                     } else {
                         for (exchange in retained) {
-                            observedExchange = exchange
-                            onToolResult?.invoke(exchange.calls.single(), exchange.results.single())
+                            val results = exchange.results.associateBy { it.callId }
+                            for (call in exchange.calls) {
+                                val result = results.getValue(call.callId)
+                                observedPair = call to result
+                                onToolResult?.invoke(call, result)
+                            }
                         }
                     }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    val observed = observedExchange ?: retained.first()
-                    val failure = ToolFailureMetadata.withAuthorityFailure(observed.results.single(), error, "delivery") ?: throw error
-                    observedExchange?.let { emit(AgentRunEvent.ToolFinished(it.calls.single(), failure)) }
+                    val observed = observedPair ?: (retained.first().calls.first() to retained.first().results.first())
+                    val failure = ToolFailureMetadata.withAuthorityFailure(observed.second, error, "delivery") ?: throw error
+                    observedPair?.let { emit(AgentRunEvent.ToolFinished(it.first, failure)) }
                     emit(AgentRunEvent.Provider(ToolFailureMetadata.authorityFailure(failure, retainedUnknownOutcome)))
                     return false
                 }
                 retained.forEach { exchange ->
-                    val call = exchange.calls.single()
-                    val result = exchange.results.single()
-                    if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
-                        unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                    val results = exchange.results.associateBy { it.callId }
+                    for (call in exchange.calls) {
+                        if (results.getValue(call.callId).errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
+                            unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
+                        }
                     }
                 }
-                exchanges += retained
-                emit(AgentRunEvent.ToolResultsRestored(retained.size))
+                // A partial batch must remain one assistant call group when its
+                // remaining members finish. These receipts are observations only.
+                restoredCompleted = pendingCompleted?.calls.orEmpty().mapTo(hashSetOf()) { it.callId }
+                exchanges += completed
+                emit(AgentRunEvent.ToolResultsRestored(retained.sumOf { it.results.size }))
                 return true
             }
             // Restore all settled batches before model finalization, without executing them.
             // Full GitHub receipts are reloaded by call identity by the evidence observer.
             for (exchange in recovery?.completedExchanges.orEmpty()) {
-                val call = exchange.calls.single()
-                if (call.name in toolByName) {
-                    val result = exchange.results.single()
+                if (exchange.calls.any { it.name !in toolByName }) continue
+                val results = exchange.results.associateBy { it.callId }
+                for (call in exchange.calls) {
+                    val result = results.getValue(call.callId)
                     val restored = try {
                         onToolResult?.invoke(call, result)
                         onToolResultCommitted?.invoke(call, result)
@@ -488,12 +501,12 @@ class AgentRunner(
                     if (result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead(call, toolByName[call.name])) {
                         unknownOutcomes += call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                     }
-                    exchanges += exchange
                     if (restored !== result) {
                         emit(AgentRunEvent.Provider(ToolFailureMetadata.authorityFailure(restored, retainedUnknownOutcome || unknownOutcomes.isNotEmpty())))
                         return false
                     }
                 }
+                exchanges += exchange
             }
         }
         return true
@@ -820,6 +833,7 @@ class AgentRunner(
         initialToolCallCount: Int,
         restoredDispatched: Set<String>,
         restoredRetained: Set<String>,
+        restoredCompleted: Set<String>,
         roundLimitReached: Boolean,
         initialFinalResponseRequested: Boolean,
         retriedWithoutTools: Boolean,
@@ -856,7 +870,7 @@ class AgentRunner(
         }
 
         checkpoint?.enqueue(calls)
-        executableCalls.forEach { emit(AgentRunEvent.ToolStarted(it)) }
+        executableCalls.filterNot { it.callId in restoredCompleted }.forEach { emit(AgentRunEvent.ToolStarted(it)) }
         val invalidatedAuthority = AtomicReference<AgentToolResult?>(null)
         val deliveredResults = mutableMapOf<String, AgentToolResult>()
         val executedResults = mutableListOf<AgentToolResult>()
@@ -868,7 +882,7 @@ class AgentRunner(
             unknownOutcomes,
             invalidatedAuthority,
             completed = { call, result ->
-                deliveredResults[call.callId] = completeTool(call, result, invalidatedAuthority)
+                deliveredResults[call.callId] = if (call.callId in restoredCompleted) result else completeTool(call, result, invalidatedAuthority)
             },
             progress = { emit(AgentRunEvent.BatchProgress(it)) },
             plannedCalls = dependencyCalls
@@ -1454,6 +1468,21 @@ class AgentRunner(
                     "PRIMARY_REPLAY_BUDGET_OVERRUN · replayTokens=$compactedReplayTokens · budget=${limits.maxReplayTokens} · exchanges=${exchanges.size}",
                     "W"
                 )
+                emit(
+                    ProviderEvent.Failed(
+                        "The exact saved tool-call identities do not fit the replay allowance. Increase the available context or reduce the request's output reservation before resuming; saved tool results remain intact.",
+                        errorCode = "REPLAY_EVIDENCE_REQUIRED",
+                        taskOutcome = "BLOCKED",
+                        failureDetails = buildJsonObject {
+                            put("failed_stage", "planning")
+                            put("dispatched", false)
+                            put("retryable", false)
+                            put("replay_tokens", compactedReplayTokens)
+                            put("replay_allowance", limits.maxReplayTokens)
+                        }
+                    )
+                )
+                return@flow
             }
             // Include synchronous stream construction failures in the upstream boundary.
             val preparedExchanges = replayExchanges.map { exchange -> exchange.copy(results = exchange.results.map { dev.chungjungsoo.gptmobile.data.assist.OptionalAssistArtifacts.ready(it) }) }

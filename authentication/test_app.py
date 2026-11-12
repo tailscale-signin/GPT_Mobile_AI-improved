@@ -158,6 +158,15 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertEqual(422, self.submit({**report, "reportId": str(uuid4()), **change}).status_code)
         self.assertFalse(self.issued)
 
+    def test_active_gateway_job_and_profile_admission_reports_keep_distinct_codes(self):
+        for code in ("CONVERSATION_CONFLICT", "EXECUTION_SELECTION_INVALID"):
+            with self.subTest(code=code):
+                report = {**self.metadata(), "source": "debug", "feature": "gateway", "errorCode": code,
+                          "events": [f"-001ms E gateway {code}"]}
+                self.assertEqual(200, self.submit(report).status_code)
+                self.assertIn(code, self.issued[-1]["title"])
+                self.assertIn(f"-001ms E gateway {code}", self.issued[-1]["body"])
+
     def test_android_public_codes_match_service_and_keep_the_failure_identity(self):
         source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt").read_text()
         declaration = source.split("val allowed = setOf(", 1)[1].split("\n    )", 1)[0]

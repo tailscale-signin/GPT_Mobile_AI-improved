@@ -1089,8 +1089,12 @@ class EngineeringService:
         self.store.recover()
         self.stop.clear()
         def work():
+            recovery_pending = False
             while not self.stop.is_set():
                 try:
+                    if recovery_pending:
+                        self.store.recover()
+                        recovery_pending = False
                     for job_id in ([] if getattr(self.store.runtime, "gateway_draining", False) else self.store.due()):
                         if self.stop.is_set():
                             break
@@ -1099,10 +1103,9 @@ class EngineeringService:
                     # Only this worker owns leases under the process state lock.
                     # A failed journal save must not strand a job until restart.
                     logging.getLogger(__name__).warning('Engineering checkpoint unavailable: %s', type(error).__name__)
-                    try:
-                        self.store.recover()
-                    except Exception:
-                        pass
+                    # Keep retrying recovery before admitting work: a transient
+                    # recovery failure otherwise leaves leases hidden from due().
+                    recovery_pending = True
                 self.wake.wait(2)
                 self.wake.clear()
         self.thread = threading.Thread(target=work, name='engineering-supervisor', daemon=True)

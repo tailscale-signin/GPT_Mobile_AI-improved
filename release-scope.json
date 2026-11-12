@@ -78,7 +78,8 @@
     "Preserve stable recovery tool contracts, restore exact native approvals in ordinary chats, and recover only verified source-bound saved reads with qualified legacy inventory counts.",
     "Stop sustained repetitive prose with bounded text-only repair, deliver continuation text incrementally, retain output ownership through rendering, bound long paragraph layouts, and reduce diagnostic export allocation.",
     "Distinguish local observer Stop from remote Gateway cancellation receipts and close exact-model preparation test resources before Windows cleanup.",
-    "Prevent uncertain Gateway instruction replay and stale-job redirection, preserve confirmed acceptance through rejection races, retain live GitHub read evidence after bounded retry, recover stalled Android recognition and preserve actionable public report codes."
+    "Prevent uncertain Gateway instruction replay and stale-job redirection, preserve confirmed acceptance through rejection races, retain live GitHub read evidence after bounded retry, recover stalled Android recognition and preserve actionable public report codes.",
+    "Repair the November 12 execution-selection wire contract, exact pending gateway handoffs and restart grouping, bounded GitHub read/circuit recovery, review baseline and source evidence, compact observed-capability checkpoints and typed diagnostic summaries; retain explicit unresolved incident and device acceptance limits."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2213,6 +2214,17 @@
     "gateway/desktop/benchmark_panel.py",
     "gateway/desktop/dashboard_model.py",
     "gateway/tests/test_gateway_desktop_benchmark.py",
-    "docs/repairs/strict-off-admission-ci-2026-11-12-task.json"
+    "docs/repairs/strict-off-admission-ci-2026-11-12-task.json",
+    ".gitignore",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/SavedViewRecoveryBatch.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticFailureSummary.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLink.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadCoverage.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadRecovery.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSourceReadRecoveryIntegrationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticFailureSummaryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEvidenceLinkTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadCoverageTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSourceReadRecoveryTest.kt"
   ]
 }

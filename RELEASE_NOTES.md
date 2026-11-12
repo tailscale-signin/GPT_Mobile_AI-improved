@@ -4,6 +4,14 @@ Android build 141. Scoped reliability release covering the changes since [0.9.66
 
 This release brings together persistent gateway conversations and jobs, more reliable GitHub task recovery and acceptance evidence, application audits, safer diagnostics, and the November 7–9 integration repairs. The latest repair also addresses the Gateway conversations crash and the Android method-size and regression failures found while reviewing PR #815.
 
+## November 12 candidate repairs
+
+These unreleased repairs preserve the selected gateway request contract and the original pending tool batch through local result reads, images, compaction and app restart. Completed calls retain their receipts without new execution events. Conflict and selection failures carry bounded recovery details, and explicit continuation prohibitions remain effective after a new run starts.
+
+GitHub reads can recover from a proven path or retained search recipe, and eligible reads wait through one bounded circuit cooldown. Reviews require a valid comparison baseline, preserve typed source links and immutable read coverage, and retain observed capability rows without duplicating the unused integration catalog. Diagnostic exports retain bounded failure summaries, critical-section counts and separate logging availability. Voice cooldown re-entry does not create an incident without a new recognition attempt.
+
+These fixes require matching Android and gateway deployment. Passing host or emulator regressions does not identify the cause of older generic incident reports or qualify physical-device behavior. Unified Reliability v2 is not complete; the 99 outstanding acceptance cases and device/release evidence remain outstanding, and no acceptance results are promoted by these changes.
+
 ## PR #816 candidate addendum: Gateway 16 and engineering completion
 
 These are unreleased branch changes on top of the versioned notes below. This addendum does not publish, install or qualify a release; it keeps the bounded release scope consistent with the combined PR.

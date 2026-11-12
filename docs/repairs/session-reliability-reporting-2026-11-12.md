@@ -24,7 +24,7 @@ Implementation and regression evidence must remain separate from a successful de
 | R02 | Send became available before service/account availability was known. | The reporting screen resolves availability before submission and offers connection setup or saving for later. It distinguishes the approved hosted-service route from native GitHub delivery. | Exercise the actual account and device navigation. |
 | R03 | A locally rejected report received the warning that GitHub might already have received it. | Delivery warnings distinguish an attempt that never dispatched from an uncertain remote outcome. Retry/confirmation actions reflect the retained route and dispatch state. | Verify the UI for missing configuration, unauthorized account and lost-response cases. |
 | R04 | Saved-report recovery could be unhelpful or risk duplicate submission. | Approval binds report ID, body digest, account/repository and destination. A durable marker precedes native issue creation. Once a POST might have occurred, recovery performs read-only exact reconciliation; an absent or incomplete search never grants permission to create again. | Submit one approved disposable report, interrupt the response, restart and confirm the same issue/report ID is recovered. |
-| R05 | A hosted service still needs real deployment and credentials. | Hosted readiness negotiates the exact report contract before dispatch. Original v1/v2 remain supported; new review fields use v3. Retained extended-v2 reports require both v2 and v3 support without rewriting their approved bytes. Native delivery provides an explicitly approved alternative; no live endpoint or credential is invented. | Configure a real service origin and verify `/health/ready`, or use the approved native account route. |
+| R05 | A hosted service still needs real deployment and credentials. | Hosted readiness negotiates the exact report contract before dispatch. Original v1/v2 remain supported; review fields use v3 and recovery/extraction/precheck context uses v4. Retained extended-v2 reports require both v2 and v3 support without rewriting their approved bytes. Native delivery provides an explicitly approved alternative; no live endpoint or credential is invented. | Configure a real service origin and verify `/health/ready`, or use the approved native account route. |
 
 An old report known to have failed before dispatch can bind a newly approved route without changing its ID or approved payload. An older uncertain attempt whose destination was never recorded remains stopped for manual verification; the update cannot safely guess where it might have been submitted.
 
@@ -72,7 +72,7 @@ Primary implementation: `VoiceCaptureFailure`, `MoonshineVoiceRecognizer`, `Voic
 | R25 | Private MCP port 8101 refused connections; one saved credential was invalid. | The app exposes specific repair guidance and affected-connection navigation while preserving backoff/configuration pauses. | Restore the listener/interface/port and reauthorize the exact saved connection; then discover and execute a bounded tool. |
 | R26 | Started probes and network admission were difficult to reconcile. | Per-result admission evidence and separate started/admitted/local-rejection/unknown counts clarify accounting. | Verify a new audit with a locally rejected credential and actual admitted probes. |
 | R27 | A high measured score obscured a large untested plan. | Audit presentation separates measured quality, execution coverage, configuration checks, local fixtures and live metadata. Disabled plugins and optional absent plugins are presented as configuration, with dependent untested checks grouped. | Collect actual receipts for the untested capabilities; configuration cannot promote them to pass. |
-| R28 | Gateway readiness for one model could be confused with another selected model. | Capability/readiness caches include endpoint, credentials, configuration and runtime revision; model readiness remains tied to exact selected identity. Model preparation uses the configured exact ID. | Refresh the real catalogue and prepare the selected model only if advertised as loadable; rerun its named benchmark. |
+| R28 | Gateway readiness for one model could be confused with another selected model. | Capability/readiness caches include endpoint, credentials, configuration and runtime revision; model readiness remains tied to exact selected identity. Model preparation uses the configured exact ID and revalidates captured provider authority after suspended ownership checks, including before loading. | Refresh the real catalogue and prepare the selected model only if advertised as loadable; rerun its named benchmark and permission-revocation regression. |
 | R29 | Burst metadata requests and repeated preflight added overhead. | Matching metadata reads share short-lived results and in-flight work. Explicit audit-owned live reads preserve separate receipts. The read-only engineering preflight has bounded connection recovery; mutating jobs and approvals are not automatically replayed. Duplicate disconnect notifications persist only the first real transition. A failed journal commit restores the prior in-memory state under the existing registry lock so the next notification can retry. | Measure actual request counts and latency under the same navigation sequence. |
 | R30 | Gateway guard rejection was described as a changed conversation regardless of cause. | Typed allowlisted input/prerequisite reasons and safe fields replace arbitrary exception text. Unknown guard stage remains explicitly unknown/guard-scoped; previous unknown remote acceptance is preserved. | Exercise the deployed service version and client together. |
 
@@ -151,11 +151,13 @@ The 23 numbered findings in the later user-supplied diagnostic analysis map to t
 
 The reporting investigation maps to R01–R05. The audit's four MCP failures and credential blocker map to R22–R26; disabled and absent optional integrations, measured-score interpretation, all 67 untested checks and source/deployment/device evidence limitations map to R27–R28 and the external acceptance below. A plan, fixture catalogue, source inventory, or successful capability response does not upgrade those historical checks to verified execution.
 
-The current integrated source checkpoint is `2ba80781e2be158a76e797420c8ca6c1063b05f4`. It includes the test-fixture corrections below on top of the published `9781a4fb` integration. It preserves concurrent recovery changes through `b330796aa2b5c5a09f233920b87cd423549c60e3` and incorporates the reviewed receipt-set correction `c1495ebc`. The earlier application source at `e1a75433` passed its complete JVM run as checkout merge `f71b0d355a84c46e34d4c88632c86e64d523a643`. The later recovery, polling and integration changes, together with the corrected downstream CI gate, require their own published-head run; earlier results remain tied to their stated revisions.
+The earlier integrated source checkpoint recorded here is `2ba80781e2be158a76e797420c8ca6c1063b05f4`. It includes the test-fixture corrections below on top of the published `9781a4fb` integration. It preserves concurrent recovery changes through `b330796aa2b5c5a09f233920b87cd423549c60e3` and incorporates the reviewed receipt-set correction `c1495ebc`. The earlier application source at `e1a75433` passed its complete JVM run as checkout merge `f71b0d355a84c46e34d4c88632c86e64d523a643`. The later recovery, polling and integration changes, together with the corrected downstream CI gate, require their own published-head run; earlier results remain tied to their stated revisions.
 
-Legacy context-v1/v2 approvals remain byte-stable. The hosted service now advertises versions `[1, 2, 3]`; original v2 reports still work with v2 services, while review-extension reports require v3. A retained extended-v2 approval requires both versions 2 and 3. Unsupported readiness stops before the dispatch marker and POST; a later upgrade sends the same approved bytes. Actual HTTP 422 rejection remains nonretryable. Pending-report reconciliation tests use original-v2 and extended-v2 issue-body digests independently reproduced from immutable publisher `7aaa9731`; they find the existing issue without another publish. Sender readiness, byte-preservation, native approval and backend-attempt receipt regressions are included in the successful `e1a75433` JVM run. The later diagnostic-schema enum addition repins gateway source to `52eacb7fa189ae878e06277dfe9c4ef2847fbc61`; all 218 current file hashes were independently checked against both the manifest and that immutable source. The earlier full gateway test result remains bound to `9155a1a2`.
+Legacy context-v1/v2 approvals remain byte-stable. At that earlier checkpoint, the hosted service advertised versions `[1, 2, 3]`; original v2 reports still work with v2 services, while review-extension reports require v3. A retained extended-v2 approval requires both versions 2 and 3. Unsupported readiness stops before the dispatch marker and POST; a later upgrade sends the same approved bytes. Actual HTTP 422 rejection remains nonretryable. Pending-report reconciliation tests use original-v2 and extended-v2 issue-body digests independently reproduced from immutable publisher `7aaa9731`; they find the existing issue without another publish. Sender readiness, byte-preservation, native approval and backend-attempt receipt regressions are included in the successful `e1a75433` JVM run. The later diagnostic-schema enum addition repins gateway source to `52eacb7fa189ae878e06277dfe9c4ef2847fbc61`; all 218 current file hashes were independently checked against both the manifest and that immutable source. The earlier full gateway test result remains bound to `9155a1a2`.
 
-## Verification ledger
+## Historical verification ledger
+
+The entries below retain their original source and execution checkpoints. Later validation does not change those identities; the stable-candidate follow-up at the end records subsequent results separately.
 
 | Validation | Command or scope | Observed result |
 | --- | --- | --- |
@@ -226,3 +228,78 @@ The subsequent `b330796a` follow-up anchors terminal recovery-code parsing to kn
 The `9781a4fb` run passed scope, diagnostic preflight, formatting, host/gateway/authentication contracts, and Android production compilation. The preview job then found four test compilation sites: three newly added `MessageV2` fixtures omitted required `content`, and the event-only `AgentPersistenceDao` fake lacked two newly added abstract methods. Commit `2ba80781` supplies empty content for those unsent/retained-owner answer fixtures and adds the fake's no-row/no-transition overrides. Assertions, run identities, ownership fences, checkpoints and production code are unchanged. All four files pass pinned ktlint; the canonical host gate passes 477 tests. Full Android test compilation, JVM execution, receipt reconciliation and constrained heaps remain required on the corrected head.
 
 The [Windows installer artifact from `9781a4fb`](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43301643424/artifacts/13982047735) was independently downloaded and verified: archive SHA-256 `27b3c543cbd128a4c9c52f568087d5ec159316b9ee5f2c029a4b1647167bb0e8`, both inner package hashes, 1,357 portable-package file hashes, and 218 gateway source hashes. Its bundled manifest matches source `52eacb7f`; release metadata and the actual checkout identify head `9781a4fb` directly. The bundled CI smoke receipt records 11 passes. No installer was executed on the user's machine, and the subsequent test-fixture correction changes no gateway source.
+
+### Stable validation and queued-preparation authority
+
+Draft [PR #881](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/881)
+retains a stable candidate independently of concurrent updates to PR #838. Its
+initial source was `77c55ccbd0891e4b1500adb3d41a6dcc51951686`, with PR checkout
+`0d7e17e605e63320aa1b1ec82584911b65a6dc3a`; their tracked source trees match.
+The current hosted reporting contract supports versions `[1, 2, 3, 4]` as described
+in the reporting setup instructions. The v3-only records above are historical.
+
+At that initial stable source, the [preview JVM run](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43309682809)
+compiled and executed 9,757 app cases in 1,452 XML reports: 9,751 passed, one
+failed, and five constrained-heap cases were intentionally skipped. The failed
+case expected four extraction attempts from a stream that never emitted a
+completion event. The conservative implementation correctly stopped after one
+attempt. The corrected fixture now distinguishes a completed malformed response
+(which may use bounded smaller-batch repair) from an unfinished provider stream
+(which must remain incomplete without replay). Partial-outcome, private-draft,
+and private-receipt assertions remain required. This failed run is not a full
+validation pass and supplies no fresh portable-domain, coverage or heap result.
+
+A final source review also found that queued model preparation checked selection,
+credentials and ownership but omitted the provider's permission revision. The
+narrow follow-up captures `ConfiguredDispatchAuthority` for the accepted model
+and chat, then validates it after the existing suspended checks, before returning
+authorization at the preparation boundary. Three Room-backed regressions cover
+revocation during suspended metadata, unchanged permission, and initial activation
+rejection. They retain the saved prompt and assert no generation dispatch. The
+new regressions require execution on the corrected candidate; source review and
+formatting are not execution evidence.
+
+The [initial stable contract run](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43309682746)
+passed 482 host checks, 60 authentication tests and seven browser tests. The
+[gateway matrix](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43309683079)
+passed on Python 3.12 and 3.13 on both operating systems: each Ubuntu job ran
+910 cases with 909 passes and one platform-specific skip; each Windows job
+passed all 910. These are repeated platform runs of the same 69 modules.
+
+The [Windows package from this initial stable source](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43309682753/artifacts/13987435012)
+was independently downloaded and verified. Archive SHA-256 is
+`0fa6131f3e3dd553bb7ebbd1eebba7622d06c93132428cb014e2c916ea83e3e7`;
+both package hashes, all 1,357 packaged-file hashes, and 218 gateway source hashes
+match. Its package metadata identifies `77c55ccb`, its gateway manifest identifies
+`52eacb7f`, and its retained CI smoke receipt records 11 passes. No binary was
+executed locally or installed on the user's device.
+
+The [same-source CodeQL build](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43309682669)
+exhausted its 4 GiB Java heap while source generation and compilation shared one
+Gradle process. This is a build-resource failure before completed analysis, not a
+successful security scan. The correction separates KSP/KAPT generation from
+production compilation into two traced, no-daemon processes. Both retain the
+existing 4 GiB heap and 1 GiB metaspace limits and disable incremental compilation
+and build-output caching. Individual compiler tasks are forced in the second
+phase without forcing source-generation dependencies again. Manual Java/Kotlin
+analysis and its required gate remain enabled. The existing retry-wrapper
+regression now checks preservation of the repeated per-task `--rerun` options;
+it still retries only transient dependency errors, not compiler or test failures.
+The corrected CodeQL build and analysis require their own successful CI run.
+
+## Draft PR integration and merge validation — November 12, 2026
+
+PRs #838 and #883 share source `7ad3ae53803911e563a36e7b874de1e883ac8ccc`. PR #881 adds the unique correction `9b03295a68e400e7b1297ba3b5894b8465453dbc`. The combined candidate preserves both histories, including the newer accepted-turn lease implementation. The queued-model authority check is revalidated after suspended ownership reads, with real Room regressions covering metadata revocation, unchanged permission, initial activation rejection and a late ownership suspension before model load.
+
+The candidate also preserves the incomplete-stream extraction regression and splits CodeQL generation and production compilation into bounded traced processes. Android lint found duplicate MissingPermission findings at the same deferred recorder factory; permission is now checked immediately before recorder creation, with a regression that revokes permission after startup admission and verifies typed failure and focus cleanup. No lint suppression, baseline relaxation or verification bypass is introduced.
+
+The final integrated source requires its own hosted unit, heap, Android lint, CodeQL, emulator, native, gateway and packaging results. Historical green runs and local host checks do not establish these new results. All three PR branches will be advanced by guarded fast-forwards to the same corrected source before final merge checks.
+
+
+### Deferred microphone factory permission check
+
+The exact `9b03295` candidate's main JVM suite, strict report reconciliation, constrained heaps, review APK, gateway contracts, API 34/36 and native runtime jobs passed. Android lint subsequently failed with two `MissingPermission` entries for the same `AudioRecord.Builder()` location in the deferred default recorder factory (`MoonshineVoiceRecognizer.kt:515`). These are one source finding, not two independent microphone bugs. The [lint job](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43316086583/job/131524625524) and verified artifact `13992546971` retain that failure. The canonical aggregate requires this lint prerequisite to pass; it was still queued when the failure was reviewed.
+
+The factory now checks `RECORD_AUDIO` immediately before creating the recorder, in addition to the existing initial capture check. This covers permission revocation while focus or buffer configuration is being resolved and makes the deferred API boundary visible to lint. Permission loss still follows the typed `MICROPHONE_PERMISSION_CHANGED` path and releases any held focus through the capture owner's cleanup; it does not authorize transient recorder retry. There is no lint suppression, baseline change, memory increase or gate bypass.
+
+Two behavioral regressions cover revocation during buffer configuration using the real default factory, plus a newly created capture after permission is granted again. All prior `9b03295` execution receipts remain tied to that head. This correction requires its own hosted test/lint and canonical aggregate results before being called validated.

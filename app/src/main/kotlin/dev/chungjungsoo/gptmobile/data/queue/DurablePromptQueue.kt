@@ -328,6 +328,9 @@ class DurablePromptQueue @Inject constructor(
                 check(jobs.unsettledSubmissions().isEmpty() && jobs.legacyUnsettledRuns().isEmpty() && jobs.cachedJobs().none { Json.decodeFromString<GatewayJobSummary>(it.snapshot).group != GatewayJobGroup.RECENT }) {
                     "An existing Gateway job needs reconciliation before loading this model."
                 }
+                // Preparation runs in its own scope. Ownership reads may suspend,
+                // so recheck the captured authority before the load boundary.
+                configured.validate()
             }
             validate()
             if (!GatewayQueueModelAdmission.mayPrepare(observation, android.os.SystemClock.elapsedRealtime()) || observation?.gatewayProfileUid != selected.profileUid) {

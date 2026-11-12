@@ -97,7 +97,10 @@
     "Spoken replies project safe readable text while preserving captions and begin bounded system/local speech chunks without waiting for a complete sentence; no physical latency claim.",
     "Repair exact provider journal/research recovery, bounded claim extraction and precheck evidence, queued selected-model preparation, readable low-buffer speech, required integration stop reasons, and complete bounded JVM report reconciliation; record incident-specific evidence and closure limits.",
     "Preserve the full protected tool-journal boundary across compacted provider replay, project extended shared cooldown deadlines without changing saved ownership, and retain numeric speech link labels and legacy chat-owned voice incidents.",
-    "Add bounded incident-owned provider, tool, acceptance, voice, gateway and app diagnostics, explicit manual capture preview/refresh, immutable linked follow-up reports and strict context-v5 app/service validation while preserving approved legacy payloads and uncertain-delivery reconciliation."
+    "Add bounded incident-owned provider, tool, acceptance, voice, gateway and app diagnostics, explicit manual capture preview/refresh, immutable linked follow-up reports and strict context-v5 app/service validation while preserving approved legacy payloads and uncertain-delivery reconciliation.",
+    "Revalidate captured provider authority at queued exact-model preparation boundaries, preserving the saved prompt when permission changes during suspended metadata, and distinguish completed malformed extraction from an unfinished stream without replay.",
+    "Separate CodeQL source generation and production compilation into bounded traced Gradle processes, forcing actual Kotlin and Java compilation without increasing memory limits or bypassing analysis.",
+    "Recheck microphone permission inside the deferred default recorder factory before AudioRecord creation, with revocation-during-configuration and fresh-capture permission-regrant regressions; retain strict lint and cleanup behavior."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2397,6 +2400,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
     "authentication/issue_report_diagnostics.py",
     "docs/repairs/report-diagnostic-followup-2026-11-12-task.json",
-    "docs/repairs/report-diagnostic-followup-2026-11-12.md"
+    "docs/repairs/report-diagnostic-followup-2026-11-12.md",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationAuthorityTest.kt"
   ]
 }

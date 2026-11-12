@@ -169,12 +169,28 @@ class GitHubRunAcceptanceTest {
     }
 
     @Test fun explicitRejectionSurvivesCaptureAsASeparateNonSuccessfulOutcome() {
+        val requirements = JsonArray(
+            (1..65).map { index ->
+                buildJsonObject {
+                    put("id", "criterion-$index")
+                    put("requirement", "Verify criterion $index")
+                    put("required", true)
+                    put("state", "PASS")
+                }
+            }
+        )
+        val incompleteDiagnostics = buildJsonObject {
+            put("completion_verified", true)
+            put("requirements", requirements)
+            put("diagnostic_projection", GitHubAcceptanceDiagnostics.snapshot(GitHubAcceptanceLedger.snapshot(requirements = requirements)))
+        }
         val rejected = JsonObject(
             report() + mapOf(
                 "task_outcome" to JsonPrimitive("REJECTED"),
                 "task_state" to JsonPrimitive("REJECTED"),
                 "stop_code" to JsonPrimitive("APPROVAL_REJECTED"),
                 "approval_state" to JsonPrimitive("REJECTED"),
+                "acceptance_ledger" to incompleteDiagnostics,
                 "execution_ledger" to buildJsonObject {
                     put("requested_task", "REJECTED")
                     put("unresolved_remote_outcomes", 0)
@@ -202,6 +218,7 @@ class GitHubRunAcceptanceTest {
         )
         val acceptance = assess(rejected)
         assertEquals("REJECTED", acceptance.verification)
+        assertEquals(false, acceptance.diagnosticsComplete)
         assertEquals("REJECTED", acceptance.taskState)
         assertEquals("APPROVAL_REJECTED", acceptance.stopCode)
         assertEquals("REJECTED", acceptance.approvalState)

@@ -14,20 +14,20 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-/** Dedicated 256 MiB JVM gate: the raw source corpus exceeds the process heap and resumes after interruption. */
+/** Dedicated 64 MiB JVM gate: the raw source corpus exceeds the process heap and resumes after interruption. */
 class StagedDiagnosticCaptureHeapTest {
     @get:Rule
     val temporary = TemporaryFolder()
 
     @Test
     fun streamsAndResumesHistoryLargerThanHeapWithIndependentFailure() = runBlocking(Dispatchers.Default) {
-        assumeTrue("Requires the diagnostic 256 MiB heap gate", java.lang.Boolean.getBoolean("gptmobile.diagnosticHeapStress"))
+        assumeTrue("Requires the diagnostic 64 MiB heap gate", java.lang.Boolean.getBoolean("gptmobile.diagnosticHeapStress"))
         val heap = Runtime.getRuntime().maxMemory()
-        assertTrue("The gate must actually constrain the test JVM to 256 MiB", heap <= 256L * 1024 * 1024 && heap > 192L * 1024 * 1024)
+        assertTrue("The gate must actually constrain the test JVM to 64 MiB", heap <= 64L * 1024 * 1024)
         val records = 40_000
         val payload = "a".repeat(8192)
         val generatedBytes = records.toLong() * payload.length
-        assertTrue("Generated source must exceed the process heap", generatedBytes > heap)
+        assertTrue("Generated source must be larger than twice the process heap", generatedBytes > heap * 2)
         val directory = temporary.newFolder("capture")
         var toolHealthy = false
         var conversationCaptures = 0

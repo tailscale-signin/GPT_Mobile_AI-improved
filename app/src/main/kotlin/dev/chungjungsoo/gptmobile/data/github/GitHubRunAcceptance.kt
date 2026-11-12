@@ -123,8 +123,8 @@ internal object GitHubRunAcceptance {
         val state = when {
             unresolved != null && unresolved > 0 -> "UNKNOWN_OUTCOME"
             pendingApproval -> "WAITING_FOR_APPROVAL"
-            !diagnosticsComplete -> "PARTIAL_EVIDENCE"
             rejectedApproval -> "REJECTED"
+            !diagnosticsComplete -> "PARTIAL_EVIDENCE"
             complete -> "VERIFIED"
             report.text("task_outcome") in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> "BLOCKED"
             report.text("task_outcome") == "FAILED" || criteria.any { it["state"] == JsonPrimitive("FAIL") } -> "FAILED"
@@ -187,6 +187,7 @@ internal object GitHubRunAcceptance {
         val finalState = when {
             unresolved > 0 -> "UNKNOWN_OUTCOME"
             recorded == "WAITING_FOR_APPROVAL" -> "WAITING_FOR_APPROVAL"
+            recorded == "REJECTED" -> "REJECTED"
             !diagnosticsComplete -> "PARTIAL_EVIDENCE"
             else -> state
         }

@@ -110,6 +110,10 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         selectedReportId.value = null
     }
 
+    internal fun completeSetup() {
+        if (setupInProgress.compareAndSet(expect = true, update = false)) refreshAvailability()
+    }
+
     internal fun closeSubmission() {
         val saved = submission.value
         viewModelScope.launch {

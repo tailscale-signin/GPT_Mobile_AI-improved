@@ -60,6 +60,55 @@ class AndroidVoiceCaptureTest {
         }
     }
 
+    @Test fun permissionRevokedDuringConfigurationBlocksTheDefaultRecorderFactory() {
+        val context = RuntimeEnvironment.getApplication()
+        val manager = mock(AudioManager::class.java)
+        shadowOf(context).grantPermissions(Manifest.permission.RECORD_AUDIO)
+        `when`(manager.requestAudioFocus(any(AudioFocusRequest::class.java))).thenReturn(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
+        val capture = AndroidVoiceCapture(
+            context = context,
+            manager = manager,
+            minimumBufferSize = {
+                shadowOf(context).denyPermissions(Manifest.permission.RECORD_AUDIO)
+                3200
+            }
+        )
+        val request = ArgumentCaptor.forClass(AudioFocusRequest::class.java)
+        try {
+            val failure = assertThrows(SecurityException::class.java) { capture.start() }
+            assertEquals("Microphone permission was revoked before recorder creation.", failure.message)
+            assertTrue(capture.read().isEmpty())
+            verify(manager).requestAudioFocus(request.capture())
+            verify(manager, never()).abandonAudioFocusRequest(any(AudioFocusRequest::class.java))
+        } finally {
+            capture.close()
+        }
+        verify(manager).abandonAudioFocusRequest(request.value)
+    }
+
+    @Test fun permissionRegrantAllowsANewCaptureAfterPermissionRejection() {
+        val rejected = Fixture()
+        shadowOf(rejected.context).denyPermissions(Manifest.permission.RECORD_AUDIO)
+        try {
+            assertThrows(SecurityException::class.java) { rejected.capture.start() }
+            assertEquals(0, rejected.recorderCreations)
+            verify(rejected.manager, never()).requestAudioFocus(any(AudioFocusRequest::class.java))
+        } finally {
+            rejected.capture.close()
+        }
+        val restored = Fixture()
+        try {
+            restored.capture.start()
+            assertEquals(1, restored.recorderCreations)
+            verify(restored.record).startRecording()
+            assertArrayEquals(FloatArray(1600) { .5f }, restored.capture.read(), 0f)
+        } finally {
+            restored.capture.close()
+        }
+        verify(restored.record).release()
+        verify(rejected.record, never()).startRecording()
+    }
+
     @Test fun focusLossDuringTheFocusRequestCannotStartARecorder() {
         val fixture = Fixture(AudioManager.AUDIOFOCUS_REQUEST_GRANTED)
         `when`(fixture.manager.requestAudioFocus(any(AudioFocusRequest::class.java))).thenAnswer {

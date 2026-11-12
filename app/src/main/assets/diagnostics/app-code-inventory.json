@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "95a031ec5bbb2f914805714bbc3afafc7e2244baea3e54dba20d5d564ce33af6",
+  "source_digest": "889f18549f9b94eb8e04fd55592cd19393e42a2b2bfd158810a5dc025f99f792",
   "file_count": 2504,
-  "indexed_line_count": 399246,
+  "indexed_line_count": 399249,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -148,7 +148,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 20,
-      "indexed_line_count": 4001
+      "indexed_line_count": 4004
     },
     {
       "id": "portable_domain",
@@ -11427,8 +11427,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "f8aff552ff815fe7d4acf7329136a5ba49ab108c1e6d2059f4be0c15cf04d4a5",
-      "indexed_lines": 661
+      "sha256": "d2c0ca24498a6e60c7ee7763abb3cf977fe7dedba8f187734c17f7acb863e5ee",
+      "indexed_lines": 664
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/RecognitionStartGate.kt",

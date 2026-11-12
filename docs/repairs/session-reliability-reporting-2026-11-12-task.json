@@ -478,5 +478,34 @@
   },
   "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
   "checkpoint_storage": "repository_file",
-  "checkpoint_updated_at": "2026-11-12T20:50:12.682769+00:00"
+  "checkpoint_updated_at": "2026-11-12T23:07:05.948765+00:00",
+  "stable_validation_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "working_branch": "verify/session-reliability-77c55cc-2026-11-12",
+    "parent_head": "9b03295a68e400e7b1297ba3b5894b8465453dbc",
+    "parent_pull_request": 838,
+    "pull_request": 881,
+    "state": "IMPLEMENTED_PENDING_TARGETED_HOSTED_TESTS_AND_LINT",
+    "intent": "Recheck microphone permission at the deferred default AudioRecord factory, preserving startup validation, typed permission failure and cleanup; do not suppress lint. Add revoke-during-configuration and fresh-capture regrant regressions.",
+    "failure_evidence": {
+      "run_id": 43316086583,
+      "job_id": 131524625524,
+      "artifact_id": 13992546971,
+      "artifact_sha256": "c589c79d5e5d02a4bca1c17fdf109ffb1fee2c26795ca831534deba9b719287e",
+      "rule": "MissingPermission",
+      "source": "MoonshineVoiceRecognizer.kt:515",
+      "error_entries": 2,
+      "unique_locations": 1
+    },
+    "prior_head_validation": "Main 9764 JVM cases:9759pass5deferred; all5 deferred passed in11 bounded heap executions. API34/36:66passes each. Native3pass2explicitcapabilityskips. CodeQL completed with one retained alert in unchanged code. Parent lint failed and aggregate was queued; none of these results is a new-head pass.",
+    "local_validation": {
+      "canonical_fast": "PASS_482_TESTS",
+      "pinned_ktlint_1_3_1": "PASS",
+      "independent_source_review": "PASS",
+      "new_android_regressions": "PENDING_HOSTED_EXECUTION",
+      "lint": "PENDING_HOSTED_EXECUTION"
+    }
+  }
 }

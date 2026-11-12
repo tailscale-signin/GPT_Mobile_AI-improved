@@ -286,3 +286,12 @@ analysis and its required gate remain enabled. The existing retry-wrapper
 regression now checks preservation of the repeated per-task `--rerun` options;
 it still retries only transient dependency errors, not compiler or test failures.
 The corrected CodeQL build and analysis require their own successful CI run.
+
+
+### Deferred microphone factory permission check
+
+The exact `9b03295` candidate's main JVM suite, strict report reconciliation, constrained heaps, review APK, gateway contracts, API 34/36 and native runtime jobs passed. Android lint subsequently failed with two `MissingPermission` entries for the same `AudioRecord.Builder()` location in the deferred default recorder factory (`MoonshineVoiceRecognizer.kt:515`). These are one source finding, not two independent microphone bugs. The [lint job](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43316086583/job/131524625524) and verified artifact `13992546971` retain that failure. The canonical aggregate requires this lint prerequisite to pass; it was still queued when the failure was reviewed.
+
+The factory now checks `RECORD_AUDIO` immediately before creating the recorder, in addition to the existing initial capture check. This covers permission revocation while focus or buffer configuration is being resolved and makes the deferred API boundary visible to lint. Permission loss still follows the typed `MICROPHONE_PERMISSION_CHANGED` path and releases any held focus through the capture owner's cleanup; it does not authorize transient recorder retry. There is no lint suppression, baseline change, memory increase or gate bypass.
+
+Two behavioral regressions cover revocation during buffer configuration using the real default factory, plus a newly created capture after permission is granted again. All prior `9b03295` execution receipts remain tied to that head. This correction requires its own hosted test/lint and canonical aggregate results before being called validated.

@@ -278,6 +278,7 @@
       "connect",
       "connection",
       "connection_preflight",
+      "conversation_admission",
       "decode",
       "delivery",
       "discovery",
@@ -400,6 +401,7 @@
       "CONNECT_TIMEOUT",
       "CONTEXT_BUDGET_EXCEEDED",
       "CONTINUITY_IDENTITY_REQUIRED",
+      "CONVERSATION_CONFLICT",
       "DISPATCH_OUTCOME_UNKNOWN",
       "DISPATCH_POLICY_CHANGED",
       "DNS_FAILED",
@@ -835,6 +837,7 @@
       "CONNECT_TIMEOUT",
       "CONTEXT_BUDGET_EXCEEDED",
       "CONTINUITY_IDENTITY_REQUIRED",
+      "CONVERSATION_CONFLICT",
       "DISPATCH_OUTCOME_UNKNOWN",
       "DISPATCH_POLICY_CHANGED",
       "DNS_FAILED",
@@ -1139,7 +1142,12 @@
       "retry_read",
       "inspect_failure",
       "retry_discovery",
-      "reconnect_server"
+      "reconnect_server",
+      "open_active_job",
+      "return_client_tool_results",
+      "wait_for_active_job",
+      "queue_instruction",
+      "resolve_active_job"
     ],
     "recovery_condition": [
       "none",

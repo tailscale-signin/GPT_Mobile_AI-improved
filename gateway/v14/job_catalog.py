@@ -131,7 +131,7 @@ def install_routes(app, conversations, engineering, service, ownership):
         except CursorExpired:
             return JSONResponse({'error': {'code': 'cursor_expired', 'message': 'Refresh the saved conversation snapshot before continuing this read.'}}, status_code=409)
         except ConversationConflict as error:
-            return JSONResponse({'error': {'code': 'conversation_conflict', 'message': str(error), 'retryable': False}}, status_code=409)
+            return JSONResponse({'error': error.error_payload()}, status_code=409)
         except KeyError:
             return JSONResponse({'error': {'code': 'not_found'}}, status_code=404)
         except (ValueError, TypeError):

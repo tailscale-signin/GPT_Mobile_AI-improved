@@ -11,10 +11,17 @@ import uuid
 from urllib.parse import urlsplit, urlunsplit
 
 
+SELECTION_REQUIRED_FIELDS = frozenset({'profile_uid', 'profile_revision', 'provider_connection_id', 'provider_connection_revision',
+                                     'provider_kind', 'configured_endpoint', 'requested_model_id', 'generation_parameters',
+                                     'privacy_scope', 'tool_owner', 'required_capability_policy'})
+SELECTION_OPTIONAL_FIELDS = frozenset({'credential_reference', 'credential_account_identity', 'approved_alias_mapping'})
+
+
 class ExecutionBindingError(ValueError):
-    def __init__(self, code, message, status=409):
+    def __init__(self, code, message, status=409, *, observation=None):
         super().__init__(message)
         self.code, self.status, self.retryable = code, status, False
+        self.observation = copy.deepcopy(observation or {})
 
     def error_payload(self, *, stage=None):
         """Retain typed recovery evidence without exposing a backend response body."""
@@ -31,6 +38,16 @@ class ExecutionBindingError(ValueError):
             value = observed.get(key)
             if type(value) in {bool, int} or isinstance(value, str) and re.fullmatch(r'[A-Za-z0-9_.:-]{1,128}', value):
                 result[key] = value
+        # Field names are safe only when they belong to the fixed selection
+        # schema. Unknown names and all submitted field values stay private.
+        for key in ('missing_fields', 'invalid_fields'):
+            value = observed.get(key)
+            if isinstance(value, (list, tuple)):
+                result[key] = sorted({item for item in value if isinstance(item, str) and
+                                      item in SELECTION_REQUIRED_FIELDS | SELECTION_OPTIONAL_FIELDS})
+        count = observed.get('unknown_field_count')
+        if type(count) is int and count >= 0:
+            result['unknown_field_count'] = count
         return result
 
 
@@ -84,18 +101,25 @@ def configured_route(runtime, provider_kind):
 
 
 def selection(value):
-    required = {'profile_uid', 'profile_revision', 'provider_connection_id', 'provider_connection_revision',
-                'provider_kind', 'configured_endpoint', 'requested_model_id', 'generation_parameters',
-                'privacy_scope', 'tool_owner', 'required_capability_policy'}
-    optional = {'credential_reference', 'credential_account_identity', 'approved_alias_mapping'}
-    if not isinstance(value, dict) or not required <= value.keys() or value.keys() - required - optional:
-        raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'Supply the complete selected profile snapshot.')
+    required, optional = SELECTION_REQUIRED_FIELDS, SELECTION_OPTIONAL_FIELDS
+    if not isinstance(value, dict):
+        raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'Supply the complete selected profile snapshot.',
+                                    observation={'reasonCode': 'SELECTION_NOT_OBJECT'})
+    missing, unknown = required - value.keys(), value.keys() - required - optional
+    if missing or unknown:
+        raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'Supply the complete selected profile snapshot.',
+                                    observation={'reasonCode': 'SELECTION_SCHEMA_INVALID',
+                                                 'missing_fields': sorted(missing), 'unknown_field_count': len(unknown)})
     result = copy.deepcopy(value)
+    invalid = []
     for key in required - {'generation_parameters', 'required_capability_policy', 'configured_endpoint'}:
         item = result[key]
         maximum = 512 if key == 'privacy_scope' else 256
         if not isinstance(item, str) or not 1 <= len(item) <= maximum or item != item.strip() or any(ord(c) < 32 for c in item):
-            raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'Selected profile identity fields must be bounded non-empty strings.')
+            invalid.append(key)
+    if invalid:
+        raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'Selected profile identity fields must be bounded non-empty strings.',
+                                    observation={'reasonCode': 'SELECTION_IDENTITY_INVALID', 'invalid_fields': sorted(invalid)})
     if result['provider_kind'] not in {'LLAMA', 'OLLAMA'} or result['tool_owner'] != 'GATEWAY':
         raise ExecutionBindingError('SELECTED_ONLY_UNSUPPORTED', 'The selected provider or execution owner is not supported by this adapter.')
     result['configured_endpoint'] = endpoint(result['configured_endpoint'])
@@ -119,11 +143,15 @@ def selection(value):
                 valid = valid and type(item) is int
         if not valid:
             raise ExecutionBindingError('EXECUTION_PARAMETERS_INVALID', 'A selected generation parameter is outside its supported range.')
+    invalid = []
     for key in ('credential_reference', 'credential_account_identity'):
         item = result.get(key)
         if item is not None and (not isinstance(item, str) or not 1 <= len(item) <= 256 or any(ord(c) < 32 for c in item)):
-            raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'Credential identity must be a reference, not a credential value.')
+            invalid.append(key)
         result[key] = item
+    if invalid:
+        raise ExecutionBindingError('EXECUTION_SELECTION_INVALID', 'Credential identity must be a reference, not a credential value.',
+                                    observation={'reasonCode': 'SELECTION_CREDENTIAL_REFERENCE_INVALID', 'invalid_fields': sorted(invalid)})
     aliases = result.get('approved_alias_mapping') or {}
     if not isinstance(aliases, dict) or len(aliases) > 1 or any(key != result['requested_model_id'] or not isinstance(item, str) or not 1 <= len(item) <= 256 for key, item in aliases.items()):
         raise ExecutionBindingError('EXECUTION_MODEL_ALIAS_INVALID', 'Only an explicitly selected, advertised alias mapping is permitted.')

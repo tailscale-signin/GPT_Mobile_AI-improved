@@ -986,6 +986,17 @@ def register_gateway_job(
             if existing.get("pending_client_tool_call_ids"):
                 # The admission boundary validated every result before resume.
                 # A consumed handoff is not the current segment's saved result.
+                # This acknowledgement and the queued continuation payload are
+                # committed together by the durable conversation projection.
+                existing["client_tool_acknowledgement"] = {
+                    "schema_version": 1,
+                    "job_id": job_id,
+                    "generation": existing.get("generation"),
+                    "handoff_sequence": existing.get("client_tool_handoff_sequence"),
+                    "call_ids": list(existing["pending_client_tool_call_ids"]),
+                    "call_fingerprints": dict(existing.get("pending_client_tool_fingerprints") or {}),
+                    "acknowledged_at": now,
+                }
                 existing["_result"] = None
             existing.pop("pending_client_tool_call_ids", None)
             existing.pop("pending_client_tool_fingerprints", None)
@@ -1197,6 +1208,8 @@ def finish_gateway_job(
                 register_remote_handoff(call["id"], job_id)
             job["pending_client_tool_call_ids"] = [call["id"] for call in result["choices"][0]["message"]["tool_calls"]]
             job["pending_client_tool_fingerprints"] = {call["id"]: tool_call_fingerprint(call) for call in result["choices"][0]["message"]["tool_calls"]}
+            sequence = job.get("client_tool_handoff_sequence", 0)
+            job["client_tool_handoff_sequence"] = (sequence if type(sequence) is int and sequence >= 0 else 0) + 1
             # Persist the original assistant handoff for read-only recovery after
             # restart. result_available remains false: this is not a final answer.
             job["_result"] = result
@@ -2055,11 +2068,13 @@ def resolve_root_job_id(incoming_payload, request_headers=None):
         metadata = {"job_id": job_id, "pending_client_tool_call_ids": list(pending),
                     "failed_stage": "tool_continuation", "dispatch_state": "not_dispatched"}
         try:
-            completed = validate_tool_message_pairs(normalize_backend_messages(incoming_payload.get("messages", [])))
+            completed = validate_tool_message_pairs(
+                normalize_backend_messages(incoming_payload.get("messages", [])), pending_call_ids=pending,
+            )
         except GatewayContractError as error:
             error.details.update(metadata)
             raise
-        if not set(pending).issubset(completed):
+        if set(pending) != set(completed):
             raise GatewayContractError("Return the pending client tool results before continuing this job. No tool was replayed.",
                                        "client_tool_results_required", 409, details=metadata)
         fingerprints = existing.get("pending_client_tool_fingerprints") or {}

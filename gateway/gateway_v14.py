@@ -232,7 +232,7 @@ async def chat(request: Request):
     except QueueFull:
         return JSONResponse({'error': {'code': 'queue_full', 'retryable': True, 'dispatch_state': 'not_dispatched'}}, status_code=429)
     except ConversationConflict as error:
-        return JSONResponse({'error': {'code': 'conversation_conflict', 'message': str(error), 'retryable': False, 'dispatch_state': 'not_dispatched'}}, status_code=409)
+        return JSONResponse({'error': error.error_payload()}, status_code=409)
     except DurableCommitError:
         return JSONResponse({"error": {"code": "durable_commit_failed", "failureCode": "persistence_failed",
                                          "message": "The gateway could not durably commit this run.", "retryable": True}}, status_code=503)

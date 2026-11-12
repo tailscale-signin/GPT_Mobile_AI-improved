@@ -1,5 +1,6 @@
 """Strict local-template, failed-tool and response provenance regressions."""
 import copy
+import hashlib
 import json
 import sys
 import unittest
@@ -164,6 +165,37 @@ class MessageContractTests(unittest.TestCase):
             self.run_chat(session, dict(payload(), messages=messages))
         self.assertEqual('invalid_tool_history', error.exception.code)
         self.assertFalse(session.calls)
+
+    def test_pending_handoff_survives_only_valid_trailing_saved_view_exchanges(self):
+        from gateway_v13_runtime import tool_call_fingerprint
+        pending = tool('client_search', 'pending-call')
+        name, cursor = 'github_context__github_api', 'saved-view:0:4096'
+        local = {'id': 'saved-result-consume-' + hashlib.sha256((name + ':' + cursor).encode()).hexdigest()[:24],
+                 'function': {'name': name, 'arguments': json.dumps({'view_cursor': cursor})}}
+        def pair(call):
+            return [{'role': 'assistant', 'tool_calls': [call]},
+                    {'role': 'tool', 'tool_call_id': call['id'], 'content': 'Retained terminal result'}]
+        history = [{'role': 'user', 'content': 'Inspect'}] + pair(pending)
+        self.assertEqual({pending['id']: tool_call_fingerprint(pending)},
+                         validate_tool_message_pairs(history + pair(local), pending_call_ids=[pending['id']]))
+        # Ordinary protocol validation still returns the most recent batch.
+        self.assertEqual({local['id']: tool_call_fingerprint(local)}, validate_tool_message_pairs(history + pair(local)))
+        for later in (tool('client_search', 'new-real-call'),
+                      dict(local, id='saved-result-consume-unbound'),
+                      dict(local, function=dict(local['function'], arguments='{"action":"write"}'))):
+            with self.subTest(later=later):
+                self.assertNotIn(pending['id'], validate_tool_message_pairs(history + pair(later), pending_call_ids=[pending['id']]))
+        self.assertEqual({}, validate_tool_message_pairs(history + [{'role': 'user', 'content': 'New turn'}] + pair(local),
+                                                       pending_call_ids=[pending['id']]))
+        reused = dict(pending, function=dict(pending['function'], arguments='{"query":"changed"}'))
+        self.assertEqual({pending['id']: tool_call_fingerprint(reused)},
+                         validate_tool_message_pairs(history + pair(reused) + pair(local), pending_call_ids=[pending['id']]))
+
+    def test_saved_view_classification_does_not_mask_malformed_call_identity(self):
+        for call in ({'id': [], 'function': {}}, {'id': 'saved-result-consume-bad', 'function': 'invalid'}):
+            with self.subTest(call=call), self.assertRaises(GatewayContractError) as failure:
+                validate_tool_message_pairs([{'role': 'assistant', 'tool_calls': [call]}], pending_call_ids=['pending'])
+            self.assertEqual('invalid_tool_history', failure.exception.code)
 
     def test_template_start_and_jinja_render_errors_are_deterministic(self):
         from gateway_v13_runtime import backend_template_error

@@ -125,13 +125,42 @@ def tool_call_fingerprint(call):
     return hashlib.sha256(json.dumps(body, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def validate_tool_message_pairs(messages):
+def _saved_view_recovery_call(call):
+    """Recognize the client's bounded local saved-view exchange, never a new action.
+
+    The reserved ID binds the exact tool and cursor. This is only a history
+    classification: it never authorizes executing a call or accepting its result
+    for a different pending handoff.
+    """
+    function = call.get("function")
+    if not isinstance(function, dict):
+        return False
+    name, arguments = function.get("name"), function.get("arguments")
+    if not isinstance(name, str) or not re.fullmatch(r"github_[A-Za-z0-9_]+(?:__[A-Za-z0-9_]+)?", name):
+        return False
+    try:
+        arguments = json.loads(arguments) if isinstance(arguments, str) else arguments
+    except ValueError:
+        return False
+    if not isinstance(arguments, dict) or set(arguments) != {"view_cursor"}:
+        return False
+    cursor = arguments["view_cursor"]
+    if not isinstance(cursor, str) or not re.fullmatch(r"[^:\s]{1,256}:[0-9]{1,10}:[0-9]{1,10}", cursor):
+        return False
+    identity = hashlib.sha256((name + ":" + cursor).encode("utf-8")).hexdigest()[:24]
+    return call.get("id") == "saved-result-consume-" + identity
+
+
+def validate_tool_message_pairs(messages, *, pending_call_ids=None):
     """Never infer a missing result or detach it from the assistant call that owns it.
 
     Failed, denied and empty tool results are legitimate terminal evidence and
     stay verbatim. They must have the same call ID as the preceding request.
     """
     pending, completed = {}, {}
+    handoff = {}
+    expected = set(pending_call_ids) if pending_call_ids is not None else None
+    saved_view_batch = False
     for message in messages:
         role = message.get("role")
         if role in {"system", "developer"}:
@@ -143,16 +172,28 @@ def validate_tool_message_pairs(messages):
             if not isinstance(message.get("content"), (str, list)):
                 raise GatewayContractError("A tool result is missing its terminal content. Preserve success or failure under its original call ID.", "invalid_tool_history", 422)
             completed[identifier] = pending.pop(identifier)
+            if not pending and not saved_view_batch:
+                handoff = dict(completed)
             continue
         if pending:
             raise GatewayContractError("Return every pending tool result before continuing the conversation. No tool was replayed.", "client_tool_results_required", 409,
                                        details={"pending_client_tool_call_ids": list(pending), "dispatch_state": "not_dispatched"})
         if role != "assistant" or not message.get("tool_calls"):
+            # A newer user turn or assistant answer cannot satisfy a pending
+            # handoff using otherwise valid results from older conversation.
+            handoff = {}
             continue
         calls = message["tool_calls"]
         if not isinstance(calls, list):
             raise GatewayContractError("Assistant tool calls must be an array.", "invalid_tool_history", 422)
         completed = {}
+        saved_view_batch = bool(expected is not None and calls and all(
+            isinstance(call, dict) and isinstance(call.get("id"), str) and
+            call["id"] not in expected and _saved_view_recovery_call(call)
+            for call in calls
+        ))
+        if not saved_view_batch:
+            handoff = {}
         for call in calls:
             identifier = call.get("id") if isinstance(call, dict) else None
             if not isinstance(identifier, str) or not identifier or identifier in pending or not isinstance(call.get("function"), dict):
@@ -164,7 +205,10 @@ def validate_tool_message_pairs(messages):
     if pending:
         raise GatewayContractError("Return every pending tool result before continuing the conversation. No tool was replayed.", "client_tool_results_required", 409,
                                    details={"pending_client_tool_call_ids": list(pending), "dispatch_state": "not_dispatched"})
-    return completed
+    # Keep the latest actual handoff across trailing local saved-view reads.
+    # Never search backwards for an arbitrary historical matching call ID: a
+    # later real batch, even with reused IDs, supersedes every earlier batch.
+    return handoff if expected is not None else completed
 
 
 _CONTROL_NAMES = ("think", "analysis", "reasoning", "tool_call")

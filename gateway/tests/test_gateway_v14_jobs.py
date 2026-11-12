@@ -1,6 +1,7 @@
 """Real SQLite upgrade, streaming admission and restart regressions."""
 import asyncio
 import importlib
+import hashlib
 import json
 import sqlite3
 import sys
@@ -299,9 +300,15 @@ class JournalTests(unittest.TestCase):
                     tool_result = {'role': 'tool', 'tool_call_id': call['id'],
                                    'content': '{"error":{"code":"NOT_FOUND","retryable":false}}' if restart else 'Two workflows found'}
                     changed_call = dict(call, function=dict(call['function'], arguments='{"action":"different"}'))
+                    unrelated_call = dict(call, id='new-unrelated-call')
+                    unrelated_result = dict(tool_result, tool_call_id=unrelated_call['id'])
                     for suffix, code in (([tool_result], 'invalid_tool_history'),
                                          ([tool_message, tool_result, tool_result], 'invalid_tool_history'),
-                                         ([dict(tool_message, tool_calls=[changed_call]), tool_result], 'client_tool_result_identity_mismatch')):
+                                         ([dict(tool_message, tool_calls=[changed_call]), tool_result], 'client_tool_result_identity_mismatch'),
+                                         ([tool_message, tool_result, dict(tool_message, tool_calls=[changed_call]), tool_result], 'client_tool_result_identity_mismatch'),
+                                         ([dict(tool_message, tool_calls=[call, unrelated_call]), tool_result, unrelated_result], 'client_tool_results_required'),
+                                         ([tool_message, tool_result, dict(tool_message, tool_calls=[unrelated_call]), unrelated_result], 'client_tool_results_required'),
+                                         ([tool_message, tool_result, {'role': 'user', 'content': 'An unrelated new turn'}], 'client_tool_results_required')):
                         malformed = dict(body, messages=body['messages'] + suffix)
                         rejected = client.post('/v1/chat/completions', json=malformed, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
                         self.assertEqual(422 if code == 'invalid_tool_history' else 409, rejected.status_code, rejected.text)
@@ -309,14 +316,27 @@ class JournalTests(unittest.TestCase):
                         self.assertEqual(job_id, rejected.json()['error']['job_id'])
                         self.assertEqual('waiting_for_client_tool', self.runtime.job_registry[job_id]['status'])
                         self.assertEqual(1, backend.call_count)
-                    body['messages'] += [tool_message, tool_result]
+                    local_name, cursor = 'github_ci__github_api', 'retained-local-view:0:4096'
+                    local_call = {'id': 'saved-result-consume-' + hashlib.sha256((local_name + ':' + cursor).encode()).hexdigest()[:24],
+                                  'type': 'function', 'function': {'name': local_name, 'arguments': json.dumps({'view_cursor': cursor})}}
+                    local_result = {'role': 'tool', 'tool_call_id': local_call['id'], 'content': 'Locally retained page'}
+                    body['messages'] += [tool_message, tool_result, {'role': 'assistant', 'tool_calls': [local_call]}, local_result]
                     second = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
                     self.assertEqual(200, second.status_code, second.text)
                     self.assertEqual(job_id, second.headers['x-gateway-job-id'])
                     self.assertIn('Verified workflow reply', second.text)
                     self.assertEqual(2, backend.call_count)
                     self.assertEqual('completed', self.runtime.job_registry[job_id]['status'])
-                    self.assertEqual(tool_result, backend.call_args.args[0]['messages'][-1])
+                    self.assertEqual(tool_result, backend.call_args.args[0]['messages'][-3])
+                    self.assertEqual(local_result, backend.call_args.args[0]['messages'][-1])
+                    acknowledgement = self.runtime.job_registry[job_id]['client_tool_acknowledgement']
+                    self.assertEqual(job_id, acknowledgement['job_id'])
+                    self.assertEqual([call['id']], acknowledgement['call_ids'])
+                    self.assertEqual(1, acknowledgement['handoff_sequence'])
+                    self.assertEqual({call['id']: self.runtime.tool_call_fingerprint(call)}, acknowledgement['call_fingerprints'])
+                    duplicate = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
+                    self.assertEqual(200, duplicate.status_code, duplicate.text)
+                    self.assertEqual(2, backend.call_count)
                     # A completed answer remains terminal; a new payload cannot resurrect it.
                     body['messages'].append({'role': 'user', 'content': 'Another task'})
                     terminal = client.post('/v1/chat/completions', json=body, headers=dict(headers, **{'X-Gateway-Job-ID': job_id}))
@@ -341,6 +361,7 @@ class JournalTests(unittest.TestCase):
                     self.assertEqual('Verified workflow reply', recovered.json()['content'])
                     self.assertIsInstance(recovered.json()['completed_at'], (int, float))
                     proof = recovered.json()['job']
+                    self.assertEqual(acknowledgement, proof['client_tool_acknowledgement'])
                     self.assertEqual(1, proof['execution_isolation_schema'])
                     self.assertEqual('entire_job', proof['execution_isolation_scope'])
                     self.assertEqual('github_client_owned', proof['execution_isolation'])

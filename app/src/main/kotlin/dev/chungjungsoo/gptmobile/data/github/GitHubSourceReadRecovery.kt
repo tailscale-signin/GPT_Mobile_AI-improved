@@ -65,7 +65,16 @@ internal object GitHubSourceReadRecovery {
         val cursor = (arguments["index_cursor"] as? JsonPrimitive)?.intOrNull?.takeIf { it > 0 } ?: return null
         val recipe = validation["correction_call"] as? JsonObject ?: return null
         if (recipe.text("tool").substringBefore("__") != "github_search") return null
-        val corrected = recipe["arguments"] as? JsonObject ?: return null
+        val retained = recipe["arguments"] as? JsonObject ?: return null
+        // The native executor supplies the selected ref when the facade caller
+        // only supplied commit_sha. Remove that default only when its identity
+        // agrees with the pinned validation context; never rewrite a caller ref.
+        val corrected = if ("ref" !in arguments && "ref" in retained) {
+            if (retained.text("ref") != validation.text("ref")) return null
+            JsonObject(retained - "ref")
+        } else {
+            retained
+        }
         if (!corrected.text("search_id").matches(Regex("[a-fA-F0-9]{64}")) || corrected["index_cursor"] != JsonPrimitive(cursor)) return null
         // The executor restored this one omitted field from an exact persisted
         // definition and issued boundary. It may not change query, filters or ref.

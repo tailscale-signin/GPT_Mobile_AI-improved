@@ -83,7 +83,6 @@ class GitHubSourceReadRecoveryIntegrationTest {
 
     private fun read(path: String) = buildJsonObject {
         put("commit_sha", head)
-        put("ref", "main")
         put(
             "ranges",
             JsonArray(
@@ -184,7 +183,12 @@ class GitHubSourceReadRecoveryIntegrationTest {
                 }
             )
             assertFalse(first.toString(), first.isError)
-            val issued = data(first).getValue("continuation").jsonObject
+            val envelope = ToolResultEnvelope.element(first.content).jsonObject
+            assertEquals(JsonPrimitive(true), envelope["local_page_complete"])
+            val continuation = envelope.getValue("continuation_call").jsonObject
+            assertEquals(JsonPrimitive(tool.definition.name), continuation["tool"])
+            val issued = continuation.getValue("arguments").jsonObject
+            assertEquals(data(first)["search_id"], issued["search_id"])
             val next = tool.execute("provider-search-page-2", JsonObject(issued - "search_id"))
             assertFalse(next.toString(), next.isError)
             assertEquals("provider-search-page-2", next.callId)

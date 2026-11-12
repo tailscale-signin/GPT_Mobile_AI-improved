@@ -159,13 +159,13 @@ class GitHubSourceReadRecoveryTest {
         put("index_cursor", 1000)
     }
 
-    private fun searchValidation() = JsonObject(
+    private fun searchValidation(arguments: JsonObject = JsonObject(search() + ("search_id" to JsonPrimitive("d".repeat(64))))) = JsonObject(
         validation("GITHUB_SEARCH_CURSOR_UNBOUND") + buildJsonObject {
             put(
                 "correction_call",
                 buildJsonObject {
                     put("tool", "github_search")
-                    put("arguments", JsonObject(search() + ("search_id" to JsonPrimitive("d".repeat(64)))))
+                    put("arguments", arguments)
                 }
             )
         }
@@ -192,5 +192,27 @@ class GitHubSourceReadRecoveryTest {
             put("arguments", corrected)
         }
         assertNull(GitHubSourceReadRecovery.correctedArguments("github_search", search(), JsonObject(searchValidation() + ("correction_call" to wrongCall))))
+    }
+
+    @Test fun searchRecoveryRemovesOnlyTheExecutorsMatchingSelectedRefDefault() {
+        val original = JsonObject(search() - "ref")
+        val expected = JsonObject(original + ("search_id" to JsonPrimitive("d".repeat(64))))
+        assertEquals(expected, GitHubSourceReadRecovery.correctedArguments("github_search", original, searchValidation()))
+
+        val differentRef = JsonObject(expected + ("ref" to JsonPrimitive("other")))
+        assertNull(GitHubSourceReadRecovery.correctedArguments("github_search", original, searchValidation(differentRef)))
+        val unprovenRef = JsonObject(expected + ("ref" to JsonPrimitive(commit)))
+        assertNull(GitHubSourceReadRecovery.correctedArguments("github_search", original, searchValidation(unprovenRef)))
+    }
+
+    @Test fun searchRecoveryPreservesAnExplicitCallerRefWithoutSubstitution() {
+        for (ref in listOf("main", commit)) {
+            val original = JsonObject(search() + ("ref" to JsonPrimitive(ref)))
+            val expected = JsonObject(original + ("search_id" to JsonPrimitive("d".repeat(64))))
+            assertEquals(expected, GitHubSourceReadRecovery.correctedArguments("github_search", original, searchValidation(expected)))
+            assertNull(GitHubSourceReadRecovery.correctedArguments("github_search", original, searchValidation(JsonObject(expected - "ref"))))
+        }
+        val pinnedRef = JsonObject(search() + ("ref" to JsonPrimitive(commit)))
+        assertNull(GitHubSourceReadRecovery.correctedArguments("github_search", pinnedRef, searchValidation()))
     }
 }

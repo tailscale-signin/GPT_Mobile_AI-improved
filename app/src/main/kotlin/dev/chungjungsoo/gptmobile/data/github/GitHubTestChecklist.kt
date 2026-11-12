@@ -65,7 +65,12 @@ internal object GitHubTestChecklist {
     private fun sameCall(receipt: JsonObject, recipe: JsonObject, issuer: JsonObject? = null): Boolean {
         if (issuer != null && (issuer["binding"] != receipt["binding"] || issuer["repository"] != receipt["repository"])) return false
         val arguments = recipe["arguments"] as? JsonObject ?: return false
-        return receipt.text("tool") == recipe.text("tool") && (receipt["arguments"] == arguments || GitHubActionIdentity.matches(recipe.text("tool"), arguments, receipt))
+        if (receipt.text("tool") != recipe.text("tool")) return false
+        if (receipt["arguments"] == arguments || GitHubActionIdentity.matches(recipe.text("tool"), arguments, receipt)) return true
+        val actual = receipt["arguments"] as? JsonObject ?: return false
+        if (actual["verify_live"] != JsonPrimitive(true) || arguments["verify_live"] == JsonPrimitive(true)) return false
+        val live = JsonObject(arguments + ("verify_live" to JsonPrimitive(true)))
+        return actual == live || GitHubActionIdentity.matches(recipe.text("tool"), live, receipt)
     }
 
     /** Follow only exact issued read recipes. Local fragments and remote pages are independent. */
@@ -78,25 +83,78 @@ internal object GitHubTestChecklist {
             if (observations.drop(index + 1).none { it["success"] == JsonPrimitive(true) && sameCall(it, recovery, receipt) }) return@mapIndexedNotNull null
             receipt.text("tool") to receipt["arguments"]
         }.toSet()
-        return observations.flatMap { issuer ->
+        data class Page(val issuer: JsonObject, val recipe: JsonObject)
+        val pages = observations.flatMap { issuer ->
             issuedPages(issuer).filter { recipe ->
                 val local = (recipe["arguments"] as? JsonObject)?.containsKey("view_cursor") == true
                 (local || !retired(issuer)) && completed.none { sameCall(it, recipe, issuer) } && recipe.text("tool") to recipe["arguments"] !in recovered
-            }
-        }.distinct().let { recipes ->
-            recipes.filter { weak ->
-                val args = weak["arguments"] as? JsonObject ?: return@filter true
-                recipes.none { strong ->
-                    val bound = strong["arguments"] as? JsonObject
-                    strong !== weak &&
-                        strong["tool"] == weak["tool"] &&
-                        strong.filterKeys { it != "arguments" } == weak.filterKeys { it != "arguments" } &&
-                        bound != null &&
-                        bound.size > args.size &&
-                        args.all { (key, value) -> bound[key] == value } &&
-                        (bound.keys - args.keys).all { it in setOf("expected_head_sha", "expected_blob_sha", "commit_sha") }
+            }.map { Page(issuer, it) }
+        }.distinctBy { listOf(it.issuer["binding"], it.issuer["repository"], it.issuer["source_head_sha"], it.recipe) }
+        return pages.filter { weak ->
+            val args = weak.recipe["arguments"] as? JsonObject ?: return@filter true
+            pages.none { strong ->
+                val bound = strong.recipe["arguments"] as? JsonObject ?: return@none false
+                if (strong === weak ||
+                    strong.recipe.filterKeys { it != "arguments" } != weak.recipe.filterKeys { it != "arguments" } ||
+                    strong.issuer["binding"] != weak.issuer["binding"] ||
+                    strong.issuer["repository"] != weak.issuer["repository"] ||
+                    strong.issuer["source_head_sha"] != weak.issuer["source_head_sha"]
+                ) {
+                    return@none false
                 }
+                val upgrades = bound.keys - args.keys
+                val strongerLive = bound["verify_live"] == JsonPrimitive(true) && args["verify_live"] != JsonPrimitive(true)
+                val same = args.all { (key, value) -> if (key == "verify_live" && strongerLive) true else bound[key] == value }
+                same &&
+                    (upgrades.isNotEmpty() || strongerLive) &&
+                    upgrades.all { key ->
+                        when (key) {
+                            "verify_live" -> bound[key] == JsonPrimitive(true)
+                            "expected_head_sha", "commit_sha" -> bound[key] == weak.issuer["source_head_sha"]
+                            "expected_blob_sha" -> bound[key] == weak.issuer["source_blob_sha"]
+                            else -> false
+                        }
+                    }
             }
+        }.map { it.recipe }
+    }
+
+    /** UI resume proof is re-derived from current, authorized receipts; it never retries the dead cursor. */
+    fun sourceReadRecovery(tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): JsonObject? {
+        if (GitHubPendingApproval.snapshot(receipts).isNotEmpty() || receipts.values.any { GitHubExecutionLedger.receiptState(it) == GitHubExecutionLedger.ReceiptState.UNKNOWN_OUTCOME }) return null
+        val next = continuation("", tools, receipts, localOnly = false) ?: return null
+        if ("view_cursor" in next.arguments) return null
+        val observations = trusted(receipts)
+        val failed = observations.lastOrNull { receipt ->
+            receipt.text("error_code") == "SAVED_VIEW_UNAVAILABLE" && savedReadRecovery(receipt)?.let { it.text("tool") == next.name && it["arguments"] == next.arguments } == true
+        } ?: return null
+        if (failed.text("call_id").isBlank() || failed.text("binding").isBlank()) return null
+        val source = observations.lastOrNull { issuer ->
+            issuer["success"] == JsonPrimitive(true) &&
+                issuer["binding"] == failed["binding"] &&
+                issuer["repository"] == failed["repository"] &&
+                sameCall(
+                    issuer,
+                    buildJsonObject {
+                        put("tool", next.name)
+                        put("arguments", next.arguments)
+                    },
+                    failed
+                ) &&
+                issuedPages(issuer).any { sameCall(failed, it, issuer) }
+        } ?: return null
+        if (source.text("receipt_id").isBlank()) return null
+        return buildJsonObject {
+            put("schema", "github.saved-read-recovery.v1")
+            put("available", true)
+            put("read_only", true)
+            put("source_bound", true)
+            put("failed_call_id", failed.text("call_id"))
+            put("tool_name", next.name)
+            put("arguments", next.arguments)
+            put("source_receipt_id", source.text("receipt_id"))
+            put("binding", source.getValue("binding"))
+            source["source_head_sha"]?.let { put("source_head_sha", it) }
         }
     }
 
@@ -446,18 +504,19 @@ internal object GitHubTestChecklist {
                 val successes = eligible.mapNotNull { receipt ->
                     if (receipt["success"] != JsonPrimitive(true) || data(receipt)?.text("schema") == "github.repeat.v1") {
                         null
-                    } else if (GitHubPendingApproval.taskId(receipt) != null) {
+                    } else if (!readOnly(capability) && GitHubPendingApproval.taskId(receipt) != null) {
                         GitHubPendingApproval.publication(receipt, allTrusted)
-                    } else if ((capability.tool != "github_stage_patch" || (receipt["arguments"] as? JsonObject)?.get("commit_immediately") == JsonPrimitive(true)) && GitHubOperationOutcome.snapshot(receipt)["proposal_prepared"] == JsonPrimitive(true)) {
+                    } else if (!readOnly(capability) && (capability.tool != "github_stage_patch" || (receipt["arguments"] as? JsonObject)?.get("commit_immediately") == JsonPrimitive(true)) && GitHubOperationOutcome.snapshot(receipt)["proposal_prepared"] == JsonPrimitive(true)) {
                         null
                     } else {
                         receipt
                     }
                 }.distinct()
-                val waitingApproval = eligible.any { receipt ->
-                    GitHubPendingApproval.taskId(receipt)?.let { id -> pendingApprovals.any { it.text("engineering_task_id") == id } }
-                        ?: (GitHubOperationOutcome.snapshot(receipt)["approval_pending"] == JsonPrimitive(true))
-                }
+                val waitingApproval = !readOnly(capability) &&
+                    eligible.any { receipt ->
+                        GitHubPendingApproval.taskId(receipt)?.let { id -> pendingApprovals.any { it.text("engineering_task_id") == id } }
+                            ?: (GitHubOperationOutcome.snapshot(receipt)["approval_pending"] == JsonPrimitive(true))
+                    }
                 val failures = observed.filter { it["success"] != JsonPrimitive(true) }
                 val latest = eligible.lastOrNull()
                 val immediatePublication = capability.tool == "github_stage_patch" && (latest?.get("arguments") as? JsonObject)?.get("commit_immediately") == JsonPrimitive(true)
@@ -819,7 +878,7 @@ internal object GitHubTestChecklist {
             val item = raw as JsonObject
             val filters = item["filters"] as? JsonObject
             val scope = filters.orEmpty().entries.joinToString(", ") { (key, value) -> "$key=${(value as? JsonPrimitive)?.contentOrNull.orEmpty().replace(Regex("[\\p{Cntrl}<>`*\\[\\]|]"), " ")}" }
-            append("\n**${item.text("tool").substringBefore("__")} / ${item.text("operation")} inventory:** ${item.text("retrieved")} of ${item.text("total")} retrieved; ${item.text("coverage")}." + scope.takeIf(String::isNotBlank)?.let { " Filters: $it." }.orEmpty() + "\n")
+            append("\n**${item.text("tool").substringBefore("__")} / ${item.text("operation")} inventory:** ${inventorySummary(item)}." + scope.takeIf(String::isNotBlank)?.let { " Filters: $it." }.orEmpty() + "\n")
         }
         val pages = pendingPages(receipts)
         if (pages.isNotEmpty()) {
@@ -867,6 +926,12 @@ internal object GitHubTestChecklist {
         }
     }
 
+    fun inventorySummary(row: JsonObject): String = if (row["fetched_count_scope"] == JsonPrimitive("QUALIFIED_DISPATCH_PAGE_METADATA")) {
+        "${row.text("fetched")} of ${row.text("total")} fetched according to retained upstream page metadata; unique item identities and consumption are not fully retained; ${row.text("coverage")}"
+    } else {
+        "${row.text("retrieved")} of ${row.text("total")} retrieved; ${row.text("coverage")}"
+    }
+
     fun inventoryCoverage(receipts: Map<String, JsonObject>): JsonArray {
         val pending = pendingPages(receipts)
         val trusted = trusted(receipts)
@@ -890,15 +955,16 @@ internal object GitHubTestChecklist {
                     ((receipt["arguments"] as? JsonObject)?.get("page") as? JsonPrimitive)?.longOrNull
                         ?: (data(receipt)?.get("page") as? JsonPrimitive)?.longOrNull ?: 1L
                 }.mapValues { (_, versions) -> versions.last() }
-                val pages = byPage.toSortedMap().values.mapNotNull(::data)
+                val pages = byPage.toSortedMap().values.mapNotNull(GitHubInventoryObservation::planningRoot)
                 val inventories = byPage.toSortedMap().values.map(GitHubInventoryObservation::of)
-                val canonical = inventories.all { it != null }
+                val counted = inventories.all { it != null }
+                val canonical = counted && inventories.none { it?.get("scope") == JsonPrimitive("QUALIFIED_DISPATCH_PAGE_METADATA") }
                 val arrays = pages.mapNotNull { page -> (page["workflows"] ?: page["items"] ?: page["pull_requests"] ?: page["workflow_runs"] ?: page["tags"] ?: page["recent_commits"] ?: page["commits"] ?: page["issues"] ?: page["releases"] ?: page["branches"]) as? JsonArray }
                 val records = arrays.flatMap { it.mapNotNull { item -> item as? JsonObject } }
-                val identities = if (canonical) inventories.flatMap { (it?.get("record_keys") as? JsonArray).orEmpty() }.distinct() else records.mapNotNull { item -> item["id"] ?: item["number"] ?: item["name"] ?: item["sha"] }.distinct()
-                val fetched = if (canonical) inventories.sumOf { (it?.get("fetched") as? JsonPrimitive)?.longOrNull ?: 0 } else records.size.toLong()
+                val identities = if (counted) inventories.flatMap { (it?.get("record_keys") as? JsonArray).orEmpty() }.distinct() else records.mapNotNull { item -> item["id"] ?: item["number"] ?: item["name"] ?: item["sha"] }.distinct()
+                val fetched = if (counted) inventories.sumOf { (it?.get("fetched") as? JsonPrimitive)?.longOrNull ?: 0 } else records.size.toLong()
                 val displayed = inventories.mapNotNull { (it?.get("displayed") as? JsonPrimitive)?.longOrNull }.takeIf { it.size == inventories.size }?.sum()
-                val coveragePages = if (canonical) inventories.filterNotNull() else pages
+                val coveragePages = if (counted) inventories.filterNotNull() else pages
                 val totals = coveragePages.mapNotNull { (it["total_count"] as? JsonPrimitive)?.longOrNull }.distinct()
                 val total = totals.singleOrNull()
                 val viewIds = observations.mapNotNull { receipt ->
@@ -946,9 +1012,18 @@ internal object GitHubTestChecklist {
                     put("pending_continuations", pending.count(::belongs))
                     put("filters", key.third)
                     put("retrieved", identities.size)
-                    put("fetched", if (canonical) JsonPrimitive(fetched) else kotlinx.serialization.json.JsonNull)
+                    put("fetched", if (counted) JsonPrimitive(fetched) else kotlinx.serialization.json.JsonNull)
                     put("fetched_lower_bound", fetched)
-                    put("fetched_count_scope", if (canonical) "CANONICAL_RETURNED_PAGES" else "RETAINED_PROJECTION_ONLY")
+                    put(
+                        "fetched_count_scope",
+                        if (canonical) {
+                            "CANONICAL_RETURNED_PAGES"
+                        } else if (counted) {
+                            "QUALIFIED_DISPATCH_PAGE_METADATA"
+                        } else {
+                            "RETAINED_PROJECTION_ONLY"
+                        }
+                    )
                     put("displayed", displayed?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
                     put("consumed", kotlinx.serialization.json.JsonNull)
                     put("consumption_status", "NOT_RECORDED")

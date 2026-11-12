@@ -1,6 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewaySubmissionRecord
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,5 +34,19 @@ class GatewayCommandReconciliationTest {
         assertTrue(GatewayCommandReconciliation.due(deferred, 50_000_000))
         assertEquals("OUTCOME_UNKNOWN", deferred.state)
         assertTrue(GatewayCommandReconciliation.due(original.copy(receipt = "legacy receipt"), 1_000_000))
+    }
+
+    @Test fun persistedCheckpointIncludesItsTypeAndRetainsEarlierMarkerlessBackoff() {
+        val saved = GatewayCommandReconciliation.deferred(original, 1_000_000)
+        val checkpoint = Json.parseToJsonElement(requireNotNull(saved.receipt)).jsonObject
+        assertEquals(JsonPrimitive("gateway_command_lookup_v1"), checkpoint["kind"])
+        val legacy = original.copy(receipt = JsonObject(checkpoint - "kind").toString())
+        assertFalse(GatewayCommandReconciliation.due(legacy, 1_009_999))
+        assertTrue(GatewayCommandReconciliation.due(legacy, 1_010_000))
+        val upgraded = GatewayCommandReconciliation.deferred(legacy, 1_010_000)
+        assertEquals(JsonPrimitive("gateway_command_lookup_v1"), Json.parseToJsonElement(requireNotNull(upgraded.receipt)).jsonObject["kind"])
+        assertFalse(GatewayCommandReconciliation.due(upgraded, 1_029_999))
+        assertTrue(GatewayCommandReconciliation.due(upgraded, 1_030_000))
+        assertEquals(original.copy(receipt = upgraded.receipt), upgraded)
     }
 }

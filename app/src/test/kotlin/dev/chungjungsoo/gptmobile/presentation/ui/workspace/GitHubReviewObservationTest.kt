@@ -49,18 +49,21 @@ class GitHubReviewObservationTest {
     private val scope = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), "profile")
     private val engineering = mockk<GitHubEngineeringController>()
     private val approvalStore = GitHubRepositoryStateStore()
+    private lateinit var connections: ToolConnectionRepository
+    private lateinit var workspace: WorkspaceRepository
     private lateinit var model: GitHubReviewViewModel
 
     @Before fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
-        val connections = mockk<ToolConnectionRepository>()
-        val workspace = mockk<WorkspaceRepository>()
+        connections = mockk()
+        workspace = mockk()
         val dao = mockk<WorkspaceDao>(relaxed = true)
         every { workspace.dao } returns dao
         every { workspace.json } returns Json
         coEvery { dao.list("github") } returns emptyList()
         coEvery { connections.listConnections() } returns emptyList()
         coEvery { engineering.recent() } returns emptyList()
+        coEvery { engineering.recoveryTasks() } coAnswers { engineering.recent() }
         coEvery { engineering.verifiedPublication(any()) } returns null
         model = GitHubReviewViewModel(connections, mockk(), workspace, engineering, gitHubRepositoryState = approvalStore)
     }
@@ -69,6 +72,107 @@ class GitHubReviewObservationTest {
         model.viewModelScope.cancel()
         Dispatchers.resetMain()
     }
+
+    @Test fun standardChatRestoresOnlyItsBoundFrozenPatchAcrossRestart() = runBlocking {
+        val task = savedConversationTask()
+        val foreign = task.copy(taskId = "foreign")
+        val frozen = savedConversationRun()
+        coEvery { engineering.recoveryTasks() } returns listOf(foreign, task)
+        coEvery { engineering.run("task") } returns frozen
+        coEvery { engineering.run("foreign") } returns frozen.copy(taskId = "foreign")
+        coEvery { engineering.events("task") } returns emptyList()
+        GitHubApprovalBinding.bind(approvalStore, "task", scope, task.workingBranch, 31, 42, expectedHeadSha = task.baseSha, patchDigest = frozen.patchDigest)
+        GitHubApprovalBinding.bind(approvalStore, "foreign", scope, task.workingBranch, 99, 42, expectedHeadSha = task.baseSha, patchDigest = frozen.patchDigest)
+
+        // An active task remains reviewable after it has fallen outside recent history.
+        model.refreshConversationApproval(31, setOf("github"))
+        assertEquals("task", model.pendingEngineeringTask.value)
+        assertEquals(listOf("task"), model.engineeringTasks.value.map { it.taskId })
+        assertEquals(scope, model.programmerScope.value)
+        assertEquals(frozen.patchDigest, model.selectedEngineeringRun.value?.patchDigest)
+        assertEquals("42", model.review.value?.files?.single()?.after)
+
+        model.viewModelScope.cancel()
+        model = GitHubReviewViewModel(connections, mockk(), workspace, engineering, gitHubRepositoryState = approvalStore)
+        model.refreshConversationApproval(31, setOf("github"))
+        assertEquals("task", model.pendingEngineeringTask.value)
+        assertTrue(model.conversationApproval.value?.awaitingApproval == true)
+        coVerify(exactly = 0) { engineering.approve(any(), any()) }
+        coVerify(exactly = 0) { engineering.execute(any()) }
+    }
+
+    @Test fun savedApprovalDeepLinkRejectsAnotherChatAndChangedFrozenDigest() = runBlocking {
+        val task = savedConversationTask()
+        val frozen = savedConversationRun()
+        coEvery { engineering.recoveryTasks() } returns listOf(task)
+        coEvery { engineering.run("task") } returns frozen
+        GitHubApprovalBinding.bind(approvalStore, "task", scope, task.workingBranch, 31, 42, expectedHeadSha = task.baseSha, patchDigest = frozen.patchDigest)
+
+        model.refreshConversationApproval(99, setOf("github"), "task")
+        assertNull(model.pendingEngineeringTask.value)
+        assertNull(model.programmerScope.value)
+        assertTrue(model.conversationApproval.value?.message?.contains("unavailable") == true)
+
+        coEvery { engineering.run("task") } returns frozen.copy(patchDigest = "b".repeat(64))
+        model.refreshConversationApproval(31, setOf("github"), "task")
+        assertNull(model.pendingEngineeringTask.value)
+        assertFalse(model.conversationApproval.value?.available == true)
+        coVerify(exactly = 0) { engineering.approve(any(), any()) }
+    }
+
+    @Test fun disabledConnectionPreservesSavedApprovalUntilAccessIsRestored() = runBlocking {
+        val task = savedConversationTask()
+        val frozen = savedConversationRun()
+        coEvery { engineering.recoveryTasks() } returns listOf(task)
+        coEvery { engineering.run("task") } returns frozen
+        coEvery { engineering.events("task") } returns emptyList()
+        GitHubApprovalBinding.bind(approvalStore, "task", scope, task.workingBranch, 31, 42, expectedHeadSha = task.baseSha, patchDigest = frozen.patchDigest)
+
+        model.refreshConversationApproval(31, emptySet())
+        assertTrue(model.conversationApproval.value?.awaitingApproval == true)
+        assertFalse(model.conversationApproval.value?.available == true)
+        assertNull(model.pendingEngineeringTask.value)
+        assertNull(model.review.value)
+
+        model.refreshConversationApproval(31, setOf("github"))
+        assertTrue(model.conversationApproval.value?.available == true)
+        assertEquals("task", model.pendingEngineeringTask.value)
+    }
+
+    @Test fun ordinaryChatObservesDurableBindingsCreatedAfterTheTask() = runBlocking {
+        val task = savedConversationTask()
+        val frozen = savedConversationRun()
+        val inspected = CompletableDeferred<Unit>()
+        coEvery { engineering.recoveryTasks() } coAnswers {
+            inspected.complete(Unit)
+            listOf(task)
+        }
+        coEvery { engineering.run("task") } returns frozen
+        coEvery { engineering.events("task") } returns emptyList()
+        every { engineering.observeChanges() } returns flow { emit(setOf("engineering_tasks")) }
+        val observer = launch { model.observeConversationApproval(31, setOf("github")) }
+        try {
+            withTimeout(5000) { inspected.await() }
+            assertNull(model.pendingEngineeringTask.value)
+            GitHubApprovalBinding.bind(approvalStore, "task", scope, task.workingBranch, 31, 42, expectedHeadSha = task.baseSha, patchDigest = frozen.patchDigest)
+            withTimeout(5000) { model.pendingEngineeringTask.first { it == "task" } }
+            assertEquals("42", model.review.value?.files?.single()?.after)
+        } finally {
+            observer.cancelAndJoin()
+        }
+    }
+
+    private fun savedConversationTask() = EngineeringTaskRow("task", scope.owner, scope.repo, "codex-self-test/${"a".repeat(20)}", scope.commitSha, state = "AWAITING_APPROVAL", updatedAtEpochMs = 0)
+
+    private fun savedConversationRun() = EngineeringRunRow(
+        "task",
+        "github",
+        GitHubEngineeringAuthorization.patchJson(listOf(EngineeringFilePatch("A.kt", "41", "42"))),
+        "a".repeat(64),
+        "Fix answer",
+        0,
+        "main"
+    )
 
     @Test fun automaticPatchLeavesProtectedDestinationsAndHighImpactChangesForReview() {
         val fixtureId = "a".repeat(20)

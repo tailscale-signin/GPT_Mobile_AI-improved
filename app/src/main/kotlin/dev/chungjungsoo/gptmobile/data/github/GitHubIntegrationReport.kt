@@ -159,7 +159,7 @@ internal object GitHubIntegrationReport {
             append("| $name | ${value.text("count")} | ${if (name == "HISTORICAL_CI_OBSERVATION") "Observed remote CI; does not establish a newly executed app/device test" else value.text("status").ifBlank { "${ids(value["receipt_ids"] as? JsonArray)}" }} |\n")
         }
         append("\n### Repository inventory and stop reason\n\n")
-        checkpoint.array("inventory_coverage").forEach { row -> append("- ${safe(row.text("tool"))}/${safe(row.text("operation"))}: ${row.text("retrieved")} of ${row.text("total")} retrieved; ${safe(row.text("coverage"))}.\n") }
+        checkpoint.array("inventory_coverage").forEach { row -> append("- ${safe(row.text("tool"))}/${safe(row.text("operation"))}: ${safe(GitHubTestChecklist.inventorySummary(row))}.\n") }
         val stop = stopReason(task, receipts, tools, remainingToolCalls)
         append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
         val budget = checkpoint["stage_budget"] as JsonObject

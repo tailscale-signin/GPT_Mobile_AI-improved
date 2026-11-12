@@ -81,7 +81,7 @@ class ProgressiveToolCatalog(
         return if (failedAcquisitionRevision == state.revision) acquisitionCode else state.readinessCode
     }
 
-    private fun contractFingerprint(tool: AgentToolDefinition): String = fingerprint(tool.contractVersion.toString() + ":" + ToolContractFingerprint.schema(tool.inputSchema))
+    private fun contractFingerprint(tool: AgentToolDefinition): String = fingerprint(tool.contractVersion.toString() + ":" + ToolContractFingerprint.definition(tool))
 
     @Synchronized
     internal fun recordObservation(name: String, result: AgentToolResult, observedAtEpochMillis: Long = System.currentTimeMillis()) {
@@ -352,7 +352,7 @@ class ProgressiveToolCatalog(
                     inventory.map { tool ->
                         buildJsonObject {
                             put("name", tool.name)
-                            put("semantic_schema_fingerprint", ToolContractFingerprint.schema(tool.inputSchema))
+                            put("semantic_schema_fingerprint", ToolContractFingerprint.definition(tool))
                             put("invocation_contract_version", tool.contractVersion.toString())
                             put("dependencies", JsonArray(tool.dependsOn.sorted().map(::JsonPrimitive)))
                             put("workflow_links", workflowLinks(tool))
@@ -448,7 +448,7 @@ class ProgressiveToolCatalog(
                                             it.errorCode?.let { code -> put("observed_error_code", code) }
                                         }
                                         put("schema_fingerprint", schema)
-                                        put("semantic_schema_fingerprint", ToolContractFingerprint.schema(tool.inputSchema))
+                                        put("semantic_schema_fingerprint", ToolContractFingerprint.definition(tool))
                                         put("invocation_contract_version", tool.contractVersion.toString())
                                         put("invocation_contract_supported", tool.contractVersion.supported)
                                         val dependencies = tool.dependsOn.sorted()

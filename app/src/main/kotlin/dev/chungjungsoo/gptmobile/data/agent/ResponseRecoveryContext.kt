@@ -188,21 +188,23 @@ internal class ResponseRecoveryContext(
         override val definition = if (rootWorkId == null || readOnly) {
             tool.definition
         } else {
+            val schema = JsonObject(
+                tool.definition.inputSchema + (
+                    "properties" to JsonObject(
+                        (tool.definition.inputSchema["properties"] as? JsonObject).orEmpty() +
+                            (
+                                "_recovery_effect_id" to buildJsonObject {
+                                    put("type", "string")
+                                    put("description", "Saved effect ID from read_recovery_context")
+                                }
+                                )
+                    )
+                    )
+            )
             tool.definition.copy(
                 description = tool.definition.description + " On explicit recovery, _recovery_effect_id identifies a saved completed receipt; it never retries an uncertain action.",
-                inputSchema = JsonObject(
-                    tool.definition.inputSchema + (
-                        "properties" to JsonObject(
-                            (tool.definition.inputSchema["properties"] as? JsonObject).orEmpty() +
-                                (
-                                    "_recovery_effect_id" to buildJsonObject {
-                                        put("type", "string")
-                                        put("description", "Saved effect ID from read_recovery_context")
-                                    }
-                                    )
-                        )
-                        )
-                )
+                inputSchema = schema,
+                schemaProjection = AgentToolSchemaProjection(tool.definition.contractSchema, schema)
             )
         }
         override val managesExecutionBudget get() = tool.managesExecutionBudget

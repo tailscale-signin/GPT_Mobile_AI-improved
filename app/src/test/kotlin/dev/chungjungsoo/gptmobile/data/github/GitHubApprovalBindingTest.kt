@@ -40,6 +40,33 @@ class GitHubApprovalBindingTest {
         }
     }
 
+    @Test fun standardChatRestoresOnlyItsOriginalExactApprovalWorkspace() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val branch = "codex-self-test/" + "b".repeat(20)
+        val patch = "c".repeat(64)
+        GitHubApprovalBinding.bind(store, "saved", workspace, branch, 31, 42, "model", "profile-contract", workspace.commitSha, patch)
+        suspend fun restored(chat: Int = 31, account: String = "account", repository: String = "repo", head: String = workspace.commitSha, digest: String = patch) = GitHubApprovalBinding.boundWorkspace(store, "saved", chat, account, "owner", repository, branch, head, digest)
+        assertEquals(workspace, restored())
+        assertEquals(restored(), restored())
+        assertNull(restored(chat = 32))
+        assertNull(restored(account = "other"))
+        assertNull(restored(repository = "other"))
+        assertNull(restored(head = "d".repeat(40)))
+        assertNull(restored(digest = "d".repeat(64)))
+        assertFalse(requireNotNull(restored()).autoApproveTools)
+    }
+
+    @Test fun legacyApprovalUsesTheFrozenPatchButNeverChangesItsBoundSourceOrProfile() = runBlocking {
+        val store = GitHubRepositoryStateStore()
+        val branch = "codex-self-test/" + "b".repeat(20)
+        GitHubApprovalBinding.bind(store, "legacy", workspace, branch, 31, 42, "model", "contract")
+        val restored = requireNotNull(GitHubApprovalBinding.boundWorkspace(store, "legacy", 31, "account", "owner", "repo", branch, "d".repeat(40), "c".repeat(64)))
+        assertEquals(workspace.ref, restored.ref)
+        assertEquals(workspace.mainProfileUid, restored.mainProfileUid)
+        assertEquals(workspace.commitSha, restored.commitSha)
+        assertEquals(GitHubApprovalBinding.Source(31, 42, "model", "contract"), GitHubApprovalBinding.source(store, "legacy", restored, branch))
+    }
+
     @Test fun publicationWakeupKeepsOriginalChatAndStopsOnlyAfterQueueAcceptance() = runBlocking {
         val directory = Files.createTempDirectory("github-publication-wakeup").toFile()
         try {

@@ -56,7 +56,9 @@ data class AssistantTimelineItem(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val responseSource: ResponseSource? = null,
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
-    val progressSequence: Long? = null
+    val progressSequence: Long? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val outputLineage: dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage? = null
 )
 
 // Fallback for callers without a resource context; keep in sync with R.string.legacy_assistant_order_unavailable.
@@ -93,7 +95,9 @@ internal fun List<AssistantTimelineItem>.appendChronologicalText(text: String): 
     if (text.isEmpty()) return this
     val last = lastOrNull()
     return if (last?.type == AssistantTimelineItemType.TEXT && last.toolSequence == null) {
-        dropLast(1) + last.copy(content = last.content + text)
+        // This helper appends unowned application text; it cannot inherit the
+        // provider attribution of the preceding fragment.
+        dropLast(1) + last.copy(content = last.content + text, outputLineage = null)
     } else {
         this + AssistantTimelineItem(AssistantTimelineItemType.TEXT, content = text, responseSource = lastOrNull { it.generation?.responseSource != null }?.generation?.responseSource)
     }

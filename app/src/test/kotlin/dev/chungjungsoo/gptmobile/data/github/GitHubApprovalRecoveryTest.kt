@@ -97,6 +97,26 @@ class GitHubApprovalRecoveryTest {
         assertEquals(JsonPrimitive("saved-stage"), approval["stage_id"])
     }
 
+    @Test fun successfulRecoveryReadPassesWhileItsObservedMutationStillAwaitsApproval() {
+        val read = JsonObject(
+            pending() + mapOf(
+                "receipt_id" to JsonPrimitive("recovery-read"),
+                "call_id" to JsonPrimitive("read-status"),
+                "tool" to JsonPrimitive("github_context"),
+                "arguments" to buildJsonObject {
+                    put("action", "recovery")
+                    put("engineering_task_id", "approval-42")
+                }
+            )
+        )
+        val receipts = linkedMapOf("pending" to pending(), "read" to read)
+        val rows = GitHubTestChecklist.rows(receipts).filterIsInstance<JsonObject>().associateBy { it["id"] }
+        assertEquals(JsonPrimitive("PASSED"), rows.getValue(JsonPrimitive("github_context:recovery"))["status"])
+        assertEquals(JsonPrimitive("PASS"), rows.getValue(JsonPrimitive("github_context:recovery"))["acceptance_state"])
+        assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), rows.getValue(JsonPrimitive("github_write:commit"))["status"])
+        assertEquals(1, GitHubPendingApproval.snapshot(receipts).size)
+    }
+
     @Test fun onlyMatchingNativeRemoteProofResolvesSavedApproval() {
         assertTrue(GitHubPendingApproval.snapshot(linkedMapOf("pending" to pending(), "wrong" to proof("other"))).isNotEmpty())
         assertTrue(GitHubPendingApproval.snapshot(linkedMapOf("pending" to pending(), "foreign" to JsonObject(proof() + ("binding" to JsonPrimitive("foreign"))))).isNotEmpty())

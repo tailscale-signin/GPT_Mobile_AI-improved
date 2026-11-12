@@ -5,6 +5,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSelfTestReadsTest {
@@ -19,6 +20,18 @@ class GitHubSelfTestReadsTest {
         assertEquals(listOf("github_issue", "github_release__tags", "github_release__list"), available.take(3).map { it.name })
         assertEquals("github_ci", available.last().name)
         assertEquals(listOf(true, true, true, false, false), available.map(GitHubSelfTestReads::isDependency))
+    }
+
+    @Test fun legacyInventoryReacquiresItsExactSourceOnceBeforeSelectingDependencies() {
+        val sha = "a".repeat(40)
+        val legacy = json("""{"receipt_id":"legacy","call_id":"old","binding":"task","trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs","commit_sha":"$sha","page":1},"result":{"observationTruncated":true,"excerpt":{"workflow_runs":[{"id":7,"head_sha":"$sha","status":"completed","conclusion":"skipped"}]}}}""")
+        val tools = listOf(tool("github_ci", "runs"))
+        val next = requireNotNull(GitHubSelfTestReads.next(tools, listOf(legacy)))
+        assertTrue(next.callId.startsWith("inventory-source-"))
+        assertEquals(legacy["arguments"], next.arguments)
+        val failed = JsonObject(legacy + mapOf("call_id" to JsonPrimitive(next.callId + "-1"), "success" to JsonPrimitive(false)))
+        assertEquals(null, GitHubSelfTestReads.next(tools, listOf(legacy, failed)))
+        assertEquals(null, GitHubSelfTestReads.next(emptyList(), listOf(legacy)))
     }
 
     @Test fun firstLiveRequiredReadBypassesCacheOnlyWhenItsExactSchemaSupportsIt() {

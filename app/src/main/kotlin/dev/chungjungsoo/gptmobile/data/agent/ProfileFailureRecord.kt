@@ -39,6 +39,8 @@ data class ProfileFailureRecord(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val recoveryActions: List<String> = emptyList()
 ) {
+    /** An expired local view needs its original source receipt, never a generic cursor retry. */
+    val isSavedViewUnavailable: Boolean get() = category == "SAVED_VIEW_UNAVAILABLE"
     val isTaskVerification: Boolean get() = category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED") ||
         category.startsWith("GITHUB_EXTRACTION_") ||
         category in setOf(

@@ -6,6 +6,14 @@ import kotlin.math.ceil
 internal object LongResponsePolicy {
     private val wordGoal = Regex("(?i)(?<![\\p{L}\\d])([1-9]\\d{0,5}(?:[,\\u00a0 ]\\d{3})*(?:\\.\\d+)?\\s*[kK]?)\\s*[-–]?\\s*(?:words?|mots)\\b")
     private val word = Regex("[\\p{L}\\p{N}]+(?:['’\\-][\\p{L}\\p{N}]+)*")
+    private val literalRepetition = Regex("(?i)^\\s*(?:please\\s+)?(?:repeat|write|print|say)\\s+(?:(?:the\\s+)?(?:word|phrase|sentence|line)\\s+)?[\"“']([^\"”'\\n]{1,160})[\"”']\\s+(?:exactly\\s+)?([1-9]\\d{0,3})\\s+times\\b")
+
+    /** A numeric literal task gets a bounded allowance, never a keyword-only exemption. */
+    fun requestedRepetitionCharacters(prompt: String): Int {
+        val request = literalRepetition.find(prompt) ?: return 0
+        val count = request.groupValues[2].toInt()
+        return (count.toLong() * (request.groupValues[1].length + 8) + 256).coerceAtMost(131_072).toInt()
+    }
 
     fun requestedWords(prompt: String): Int? = wordGoal.findAll(prompt).mapNotNull { match ->
         val prefix = prompt.substring(0, match.range.first).takeLast(40)
@@ -29,7 +37,7 @@ internal object LongResponsePolicy {
     fun needsMore(text: String, words: Int?): Boolean = words != null && countWords(text) < words * 9 / 10
 
     /** A bounded model view of the saved answer; the complete answer remains in the session. */
-    fun continuationContext(draft: String, maxTokens: Int): String = LongResponseContinuationContext.build(draft, maxTokens)
+    fun continuationContext(draft: String, maxTokens: Int, requestedRepetitionCharacters: Int = 0): String = LongResponseContinuationContext.build(draft, maxTokens, requestedRepetitionCharacters)
 
     /** Queue completion says nothing about whether a worker finished its answer. */
     fun unfinishedQueuedPacket(text: String, finishReason: String?, outputCap: Int?): Boolean {

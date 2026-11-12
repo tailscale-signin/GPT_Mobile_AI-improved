@@ -49,7 +49,10 @@ class GitHubNativeApprovalRecovery @Inject constructor(
         val task = engineering.task(taskId) ?: return true
         val frozen = engineering.run(taskId) ?: return true
         val chatId = GitHubApprovalBinding.originalChat(store, taskId) ?: return true
-        val scope = settings.getFeatureSettings().conversationGitHub[chatId] ?: return true
+        val originalScope = GitHubApprovalBinding.boundWorkspace(store, taskId, chatId, frozen.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, frozen.patchDigest) ?: return true
+        val configuredScope = settings.getFeatureSettings().conversationGitHub[chatId]
+        val scope = configuredScope ?: originalScope
+        if (!scope.sameWorkspace(originalScope)) return true
         if (scope.connectionUid != frozen.connectionUid || !scope.owner.equals(task.repositoryOwner, true) || !scope.repo.equals(task.repositoryName, true)) return true
         val source = GitHubApprovalBinding.source(store, taskId, scope, task.workingBranch)?.takeIf { it.chatId == chatId } ?: return true
         val expiresAt = frozen.approvalExpiresAtEpochMs
@@ -75,10 +78,29 @@ class GitHubNativeApprovalRecovery @Inject constructor(
         if (source.model != profile.model || source.profileContract != GitHubApprovalBinding.profileContract(profile.compatibleType.name, profile.apiUrl, profile.providerConnectionUid, profile.reasoning)) return true
         if (settings.providerActivationRequired(profile) || FreeProviderPreflight.check(profile) != null) return true
 
+        suspend fun workspaceStillCurrent(): Boolean {
+            val features = settings.getFeatureSettings()
+            val current = features.conversationGitHub[chatId]
+            if (current != null) return current.sameWorkspace(scope)
+            val selected = settings.fetchPlatformV2s().singleOrNull { it.uid == scope.mainProfileUid } ?: return false
+            return configuredScope == null &&
+                selected.enabled &&
+                !selected.disableAllTools &&
+                !selected.disableRemoteTools &&
+                selected.model == source.model &&
+                GitHubApprovalBinding.profileContract(selected.compatibleType.name, selected.apiUrl, selected.providerConnectionUid, selected.reasoning) == source.profileContract &&
+                features.remoteMcpConnections &&
+                features.isToolPluginEnabledForProfile(selected.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB) &&
+                features.isToolPluginEnabledForProfile(selected.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(scope.connectionUid)) &&
+                GitHubApprovalBinding.boundWorkspace(store, taskId, chatId, frozen.connectionUid, task.repositoryOwner, task.repositoryName, task.workingBranch, task.baseSha, frozen.patchDigest) == originalScope
+        }
+
         suspend fun continuationPayload(bound: GitHubConversationContext) = PendingPromptPayload(
             profileUids = listOf(profile.uid),
             models = mapOf(profile.uid to profile.model),
-            tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(scope.connectionUid), github = bound),
+            // Ordinary-chat recovery keeps ordinary profile policy. Injecting a
+            // GitHub context here would also activate workspace tool/budget overrides.
+            tools = ChatMcpToolConfig(allowAllByDefault = false, enabledToolIds = setOf(scope.connectionUid), github = bound.takeIf { configuredScope != null }),
             recovery = GitHubNativeContinuation.recovery(taskId, source, profile.uid, database.agentPersistenceDao().getMessages(chatId))
         )
 
@@ -87,7 +109,7 @@ class GitHubNativeApprovalRecovery @Inject constructor(
             val continuation = GitHubApprovalBinding.continuation(store, taskId, scope, task.workingBranch, publication) ?: return true
             val commit = continuation.sha
             val bound = if (scope.ref == continuation.branch) scope.copy(commitSha = commit, stagedFileCount = 0, recentCommits = emptyList(), observedAtMillis = null) else scope
-            if (settings.getFeatureSettings().conversationGitHub[chatId]?.sameWorkspace(scope) != true) return false
+            if (!workspaceStillCurrent()) return false
             val retainedFixture = GitHubApprovalBinding.fixtureKept(store, taskId)
             val text = "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${bound.ref}\n\n" + GitHubNativeContinuation.publication(commit, retainedFixture)
             queue.enqueue(
@@ -119,7 +141,7 @@ class GitHubNativeApprovalRecovery @Inject constructor(
             val isIntegrationFixture = GitHubTestChecklist.integration(original.content) &&
                 eligibleAutomaticEngineeringPatch(task.workingBranch, frozen.policyBranch, changes)
             if (isIntegrationFixture && !GitHubApprovalBinding.cancellationContinuationQueued(store, taskId)) {
-                if (settings.getFeatureSettings().conversationGitHub[chatId]?.sameWorkspace(scope) != true) return false
+                if (!workspaceStillCurrent()) return false
                 val retainFixture = GitHubApprovalBinding.fixtureKept(store, taskId)
                 val text = "GitHub workspace: ${scope.owner}/${scope.repo}\nBranch: ${scope.ref}\n\n" + GitHubNativeContinuation.cancellation(taskId, retainFixture)
                 queue.enqueue(

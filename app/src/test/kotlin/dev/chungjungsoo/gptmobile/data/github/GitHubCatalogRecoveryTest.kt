@@ -124,10 +124,11 @@ class GitHubCatalogRecoveryTest {
         }
         val tools = listOf(catalog.definition, wrapped.definition)
         val before = GitHubAuthorizedCatalog.snapshot(observations(catalog, "before"), tools)
-        assertEquals(JsonPrimitive("CATALOG_CONTRACT_CHANGED"), before["blocker"])
-        val change = before.getValue("contract_changes").jsonArray.single().jsonObject
-        assertEquals(JsonPrimitive(source.definition.name), change["name"])
-        assertEquals(JsonPrimitive(ToolContractFingerprint.schema(wrapped.definition.inputSchema)), change["expected_schema_fingerprint"])
+        assertEquals(JsonPrimitive(true), before["complete"])
+        assertNull(GitHubAuthorizedCatalog.next(tools, observations(catalog, "retained")))
+        assertEquals(ToolContractFingerprint.definition(source.definition), ToolContractFingerprint.definition(wrapped.definition))
+        assertEquals(JsonPrimitive(true), GitHubAuthorizedCatalog.snapshot(mapOf("legacy" to receipt(source.definition, false)), tools)["complete"])
+        assertEquals(JsonPrimitive(true), GitHubAuthorizedCatalog.snapshot(mapOf("legacy" to receipt(wrapped.definition, false)), tools)["complete"])
 
         val unauthorized = source.definition.copy(name = "github_unassigned")
         catalog.bindExecutionContracts(listOf(wrapped.definition, unauthorized))

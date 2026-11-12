@@ -20,6 +20,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkspaceDiagnosticPayloadTest {
+    @Test fun sourceGrowthAfterMeasurementFailsClosedAndClearsTheDecryptedChunk() = runBlocking {
+        val changed = "{\"value\":\"${"x".repeat(1000)}\"}".toByteArray()
+        val result = readWorkspaceDiagnosticPayload(
+            7,
+            metadata(listOf("workspace-memory-7-one"), "{}"),
+            1_048_576,
+            {},
+            { true },
+            { 40L },
+            { changed },
+            {}
+        )
+        assertEquals("PROTECTED_PAYLOAD_BYTE_LIMIT", result.omissionReason)
+        assertNull(result.payload)
+        assertTrue(changed.all { it == 0.toByte() })
+    }
+
     @Test fun boundedChunksRestoreEvidenceAndRedactNestedArchiveSecrets() = runBlocking {
         val archive = ArchivedTextCodec.encode("Bearer abcdef0123456789 " + "evidence ".repeat(100))
         val text = JsonObject(mapOf("result" to JsonPrimitive(archive), "token" to JsonPrimitive("must-be-redacted"))).toString()

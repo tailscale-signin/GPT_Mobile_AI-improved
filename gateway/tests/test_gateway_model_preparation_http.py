@@ -62,6 +62,8 @@ class ModelPreparationHttpTests(unittest.TestCase):
         self.assertEqual('http://127.0.0.1:8080/models/load', url)
         model = kwargs['json']['model']
         # Check the real committed SQLite fence at the external dispatch boundary.
+        # sqlite3's context manager commits/rolls back but does not close the
+        # handle. Windows keeps jobs.db locked until it is explicitly closed.
         with closing(self.connect()) as db:
             rows = db.execute('SELECT receipt FROM gateway_model_preparations WHERE model=? AND unresolved=1', (model,)).fetchall()
         self.assertEqual(1, len(rows))
@@ -82,7 +84,9 @@ class ModelPreparationHttpTests(unittest.TestCase):
         return app
 
     def client(self, config=None, service=None, peer='127.0.0.1', lifecycle=False):
-        return TestClient(self.app(config, service, lifecycle), base_url='http://127.0.0.1:8090', client=(peer, 1234))
+        client = TestClient(self.app(config, service, lifecycle), base_url='http://127.0.0.1:8090', client=(peer, 1234))
+        self.addCleanup(client.close)
+        return client
 
     def request(self, client=None, *, model='selected', operation='selection-1', path='/gateway/models/prepare', headers=None):
         return (client or self.client()).post(path, json={'model': model, 'operationId': operation}, headers=headers)

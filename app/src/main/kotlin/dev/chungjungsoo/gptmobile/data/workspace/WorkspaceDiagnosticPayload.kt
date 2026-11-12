@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.workspace
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRecordChunks
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticJsonShapeFailure
 import dev.chungjungsoo.gptmobile.data.diagnostics.diagnosticNodeBudget
@@ -67,7 +68,11 @@ internal suspend fun readWorkspaceDiagnosticPayload(
         physicalBytes += size
         if (physicalBytes > maximumBytes.toLong() + references.size * 64L) return missing("PROTECTED_PAYLOAD_BYTE_LIMIT")
     }
-    val output = ByteArray(maximumBytes)
+    // Authenticated vault envelopes are larger than their plaintext. Size the
+    // scratch buffer from measured entries instead of allocating the full 1 MiB
+    // export allowance for every small workspace receipt. Reads still fail
+    // closed if the source grows after measurement, and all buffers are cleared.
+    val output = ByteArray(minOf(maximumBytes.toLong(), physicalBytes).toInt())
     var used = 0
     try {
         for (reference in references) {
@@ -88,8 +93,7 @@ internal suspend fun readWorkspaceDiagnosticPayload(
             }
         }
         if (expectedDigest != null) {
-            val digest = MessageDigest.getInstance("SHA-256").apply { update(output, 0, used) }
-                .digest().joinToString("") { "%02x".format(it) }
+            val digest = DiagnosticRecordChunks.hex(MessageDigest.getInstance("SHA-256").apply { update(output, 0, used) }.digest())
             if (digest != expectedDigest) return missing("PROTECTED_DIGEST_MISMATCH")
         }
         val text = try {

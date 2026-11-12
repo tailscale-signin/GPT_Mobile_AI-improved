@@ -498,8 +498,10 @@ private class StreamingMessageBuffer(
             githubAnswerPrefix.setLength(0)
             contentSnapshot = null
             content.append(chunk)
-            contentLineage.append(effectiveLineage)
-            if (dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(chunk).isNotBlank()) outputPublications.observe(effectiveLineage, chunk.length)
+            fun observeOutput(text: String, owner: OutputLineage) {
+                contentLineage.append(owner)
+                if (dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.text(text).isNotBlank()) outputPublications.observe(owner, text.length)
+            }
             var offset = 0
             while (offset < chunk.length && restoredIndex < restoredText.size) {
                 val prior = restoredText[restoredIndex]
@@ -508,7 +510,10 @@ private class StreamingMessageBuffer(
                     restoredIndex = restoredText.size
                     break
                 }
-                appendTimelineText(AssistantTimelineItemType.TEXT, chunk.substring(offset, offset + length), prior.responseSource)
+                val restored = chunk.substring(offset, offset + length)
+                val retainedOwner = OutputLineage(OutputOrigin.RETAINED_CONTENT)
+                observeOutput(restored, retainedOwner)
+                appendTimelineText(AssistantTimelineItemType.TEXT, restored, prior.responseSource, retainedOwner)
                 offset += length
                 restoredOffset += length
                 if (restoredOffset == prior.content.length) {
@@ -516,7 +521,11 @@ private class StreamingMessageBuffer(
                     restoredOffset = 0
                 }
             }
-            if (offset < chunk.length) appendTimelineText(AssistantTimelineItemType.TEXT, chunk.substring(offset), responseSource)
+            if (offset < chunk.length) {
+                val novel = chunk.substring(offset)
+                observeOutput(novel, effectiveLineage)
+                appendTimelineText(AssistantTimelineItemType.TEXT, novel, responseSource, effectiveLineage)
+            }
         }
     }
 
@@ -741,7 +750,7 @@ private class StreamingMessageBuffer(
         lastPublishedAtNanos = publishedAtNanos
     }
 
-    private fun appendTimelineText(type: AssistantTimelineItemType, chunk: String, source: dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource? = null) {
+    private fun appendTimelineText(type: AssistantTimelineItemType, chunk: String, source: dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource? = null, lineage: OutputLineage? = null) {
         val last = timeline.lastOrNull()
         if (last?.type != type || last.toolSequence != null || last.responseSource != source) {
             flushTimelineText()
@@ -751,6 +760,11 @@ private class StreamingMessageBuffer(
             flushTimelineText()
             pendingTimelineIndex = timeline.lastIndex
             pendingTimelineText.append(timeline.last().content)
+        }
+        if (type == AssistantTimelineItemType.TEXT && chunk.isNotEmpty()) {
+            val previous = timeline.last()
+            val owner = if (pendingTimelineText.isEmpty()) lineage else previous.outputLineage.takeIf { it == lineage }
+            if (previous.outputLineage != owner) timeline[timeline.lastIndex] = previous.copy(outputLineage = owner)
         }
         pendingTimelineText.append(chunk)
         timelineVersion += 1

@@ -62,15 +62,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.mikepenz.markdown.annotator.annotatorSettings
+import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString
 import com.mikepenz.markdown.compose.LocalMarkdownTypography
 import com.mikepenz.markdown.compose.LocalReferenceLinkHandler
 import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
 import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
-import com.mikepenz.markdown.compose.elements.MarkdownParagraph
 import com.mikepenz.markdown.compose.elements.MarkdownTable
 import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
 import com.mikepenz.markdown.compose.elements.MarkdownTableRow
+import com.mikepenz.markdown.compose.elements.MarkdownText
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownTypography
 import com.mikepenz.markdown.model.MarkdownAnnotator
@@ -145,6 +146,20 @@ private data class PreparedChatMarkdown(
     val sourceLinkRanges: List<IntRange> = emptyList(),
     val outputTrace: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner? = null
 )
+
+@Composable
+private fun contentDrawCallback(
+    owner: dev.chungjungsoo.gptmobile.data.diagnostics.OutputTraceOwner?,
+    onContentDrawn: (() -> Unit)?
+): () -> Unit {
+    val firstDrawn = remember(owner?.runId, owner?.fence, owner?.origin, owner?.invocationId) { java.util.concurrent.atomic.AtomicBoolean() }
+    return {
+        onContentDrawn?.invoke()
+        if (owner != null && firstDrawn.compareAndSet(false, true)) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.firstVisibleDraw(owner)
+        }
+    }
+}
 
 @Composable
 fun ChatMarkdown(
@@ -294,14 +309,10 @@ private fun ChatMarkdownContent(
         }
     }
     val parsed = rendered.parsed
-    val drawnOwner = if (formattingFailed) outputTrace else rendered.outputTrace
-    val firstDrawn = remember(drawnOwner?.runId, drawnOwner?.fence, drawnOwner?.origin, drawnOwner?.invocationId) { java.util.concurrent.atomic.AtomicBoolean() }
-    val contentDrawn = {
-        onContentDrawn?.invoke()
-        if (drawnOwner != null && firstDrawn.compareAndSet(false, true)) {
-            dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnostics.journal?.firstVisibleDraw(drawnOwner)
-        }
-    }
+    val contentDrawn = contentDrawCallback(rendered.outputTrace, onContentDrawn)
+    // All fallback modes draw current raw content, including parser failure or
+    // timeout while a previous prepared snapshot is still retained.
+    val fallbackContentDrawn = contentDrawCallback(outputTrace, onContentDrawn)
     val combinedMarkdown = rendered.markdown
     val renderedDigest = rendered.contentDigest
     val profileIndex = rendered.profileIndex
@@ -696,16 +707,23 @@ private fun ChatMarkdownContent(
             Box(Modifier.heightIn(min = if (awaitingContent) minimumPendingHeight else 0.dp), propagateMinConstraints = true) {
                 if (formattingFailed || parserTimedOut || parserFailed) {
                     val fallbackContent = dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(content)
+                    val fallbackPages = remember(fallbackContent) { paragraphPages(AnnotatedString(fallbackContent)) }
+                    var visibleFallbackPages by remember(contentIdentity) { mutableIntStateOf(1) }
                     Column(modifier) {
-                        Text(
-                            fallbackContent,
-                            style = answerBodyStyle(),
-                            color = normalTextColor,
-                            modifier = Modifier.drawWithContent {
-                                drawContent()
-                                if (size.width > 0 && size.height > 0 && fallbackContent.isNotBlank()) contentDrawn()
-                            }
-                        )
+                        fallbackPages.take(visibleFallbackPages).forEach { page ->
+                            Text(
+                                page,
+                                style = answerBodyStyle(),
+                                color = normalTextColor,
+                                modifier = Modifier.drawWithContent {
+                                    drawContent()
+                                    if (size.width > 0 && size.height > 0 && page.isNotBlank()) fallbackContentDrawn()
+                                }
+                            )
+                        }
+                        if (visibleFallbackPages < fallbackPages.size) {
+                            TextButton(onClick = { visibleFallbackPages++ }) { Text("Show more text · ${fallbackPages.size - visibleFallbackPages} sections remaining") }
+                        }
                         Text("Formatting unavailable. Your response is preserved.", modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
                         TextButton(onClick = { formattingAttempt++ }) { Text(stringResource(R.string.chat_retry_formatting)) }
                     }
@@ -1073,20 +1091,47 @@ private fun DefaultParagraph(
     style: TextStyle,
     annotator: MarkdownAnnotator
 ) {
-    MarkdownParagraph(
-        content,
-        node,
-        Modifier,
-        style,
-        annotatorSettings(
-            LocalMarkdownTypography.current.textLink,
-            LocalMarkdownTypography.current.inlineCode.toSpanStyle(),
-            annotator,
-            LocalReferenceLinkHandler.current,
-            LocalUriHandler.current,
-            null
-        )
+    val linkStyle = LocalMarkdownTypography.current.textLink
+    val inlineCodeStyle = LocalMarkdownTypography.current.inlineCode.toSpanStyle()
+    val referenceHandler = LocalReferenceLinkHandler.current
+    val uriHandler = LocalUriHandler.current
+    val settings = annotatorSettings(
+        linkStyle,
+        inlineCodeStyle,
+        annotator,
+        referenceHandler,
+        uriHandler,
+        null
     )
+    // The renderer rebuilds annotations on every composition. Retain settled
+    // paragraphs, and do not hand a pathological unbroken answer to one layout.
+    // annotatorSettings creates a new identity on every composition; key this
+    // cache by its actual inputs so unrelated updates do not rebuild spans.
+    val annotated = remember(content, node, style, linkStyle, inlineCodeStyle, annotator, referenceHandler, uriHandler) {
+        AnnotatedString.Builder().apply {
+            pushStyle(style.toSpanStyle())
+            buildMarkdownAnnotatedString(content, node, settings)
+            pop()
+        }.toAnnotatedString()
+    }
+    val pages = remember(annotated, node) {
+        // Image promotion uses offsets into the complete paragraph. Keep that
+        // path intact; ordinary prose retains all inline annotations per page.
+        fun hasImage(current: org.intellij.markdown.ast.ASTNode): Boolean =
+            current.type == org.intellij.markdown.MarkdownElementTypes.IMAGE || current.children.any(::hasImage)
+        if (hasImage(node)) listOf(annotated) else paragraphPages(annotated)
+    }
+    var visiblePages by remember(node.startOffset) { mutableIntStateOf(1) }
+    Column {
+        pages.take(visiblePages).forEachIndexed { index, page ->
+            key(index) { MarkdownText(page, node, Modifier, style, sourceContent = content) }
+        }
+        if (visiblePages < pages.size) {
+            TextButton(onClick = { visiblePages++ }) {
+                Text("Show more text · ${pages.size - visiblePages} sections remaining")
+            }
+        }
+    }
 }
 
 private fun extractNodeText(

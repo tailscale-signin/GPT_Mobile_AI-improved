@@ -369,6 +369,7 @@ internal fun NavGraphBuilder.chatScreenNavigation(navController: NavHostControll
             navArgument("enabledPlatforms") { defaultValue = "" },
             navArgument("conversationMode") { defaultValue = ConversationMode.STANDARD },
             navArgument("incomingShare") { defaultValue = "" },
+            navArgument("approvalTaskId") { defaultValue = "" },
             navArgument("regenerate") {
                 type = NavType.BoolType
                 defaultValue = false
@@ -404,15 +405,32 @@ internal fun NavGraphBuilder.chatScreenNavigation(navController: NavHostControll
             )
         } else {
             val conversation: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = hiltViewModel()
-            dev.chungjungsoo.gptmobile.presentation.ui.chat.AdaptiveConversationLayout(it.arguments?.getInt("chatRoomId") ?: 0, { id -> conversation.leaveConversation { navController.navigate("chat_room/$id") { popUpTo(Route.CHAT_ROOM) { inclusive = true } } } }) {
-                ChatScreen(
-                    onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
-                    onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) },
-                    chatViewModel = conversation,
-                    onBackAction = { navController.navigateUp() },
-                    onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
-                    onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") }
-                )
+            val activeChat by conversation.chatRoom.collectAsStateWithLifecycle()
+            val availableConnections = routing?.let { current ->
+                current.connections.filter { connection ->
+                    connection.type == ToolConnectionType.GITHUB &&
+                        current.features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB) &&
+                        current.features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(connection.connectionUid))
+                }.map { connection -> connection.connectionUid }.toSet()
+            }.orEmpty()
+            dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubConversationApprovalHost(
+                chatId = activeChat.id.takeIf { id -> id > 0 } ?: chatId,
+                availableConnectionUids = availableConnections,
+                requestedTaskId = it.arguments?.getString("approvalTaskId")?.takeIf(String::isNotBlank),
+                onApprovalPendingChanged = conversation::bindGitHubApprovalPending,
+                onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) }
+            ) { approvalContent ->
+                dev.chungjungsoo.gptmobile.presentation.ui.chat.AdaptiveConversationLayout(chatId, { id -> conversation.leaveConversation { navController.navigate("chat_room/$id") { popUpTo(Route.CHAT_ROOM) { inclusive = true } } } }) {
+                    ChatScreen(
+                        onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                        onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) },
+                        chatViewModel = conversation,
+                        onBackAction = { navController.navigateUp() },
+                        onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
+                        onOpenConversation = { id, regenerate -> navController.navigate("chat_room/$id?regenerate=$regenerate") },
+                        bottomInteractionContent = approvalContent
+                    )
+                }
             }
         }
     }

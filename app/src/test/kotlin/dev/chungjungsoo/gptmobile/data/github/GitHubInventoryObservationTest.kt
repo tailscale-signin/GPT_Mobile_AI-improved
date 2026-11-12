@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -70,5 +71,36 @@ class GitHubInventoryObservationTest {
         val broken = GitHubTestChecklist.inventoryCoverage(mapOf("broken" to receipt(malformed))).single().jsonObject
         assertEquals(JsonPrimitive(1), broken["fetched"])
         assertTrue(broken["coverage"] != JsonPrimitive("retrieval complete at observation"))
+    }
+
+    @Test fun legacyDispatchCountsRemainQualifiedWithoutInventingMissingRowsOrConsumption() {
+        val legacy = Json.parseToJsonElement("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs","page":1,"per_page":30},"result":{"observationTruncated":true,"excerpt":{"workflow_runs":[{"id":7}],"total_count":67}},"execution":{"schema":"github.dispatch.v1","parent_result_successful":true,"pagination_progress":{"schema":"github.pagination-progress.v1","remote_page":1,"upstream_rows_returned":30,"reported_total":67}},"retained_remote_continuations":[{"call":{"tool":"github_ci","arguments":{"action":"runs","page":2,"per_page":30}}}]}""").jsonObject
+        val row = GitHubTestChecklist.inventoryCoverage(mapOf("legacy" to legacy)).single().jsonObject
+        assertEquals(JsonPrimitive(30), row["fetched"])
+        assertEquals(JsonPrimitive("67"), row["total"])
+        assertEquals(JsonPrimitive(1), row["retrieved"])
+        assertEquals(JsonPrimitive("QUALIFIED_DISPATCH_PAGE_METADATA"), row["fetched_count_scope"])
+        assertEquals(JsonNull, row["consumed"])
+        assertTrue(GitHubTestChecklist.inventorySummary(row).contains("30 of 67 fetched"))
+        assertTrue(row["coverage"] != JsonPrimitive("retrieval complete at observation"))
+        val otherPage = JsonObject(
+            legacy + (
+                "arguments" to buildJsonObject {
+                    put("action", "runs")
+                    put("page", 2)
+                }
+                )
+        )
+        assertEquals(null, GitHubInventoryObservation.of(otherPage))
+        assertEquals(null, GitHubInventoryObservation.of(JsonObject(legacy + ("success" to JsonPrimitive(false)))))
+    }
+
+    @Test fun canonicalRunSelectorsSurviveAProjectionThatRetainsOnlyTheFirstSkippedRun() {
+        val original = source()
+        val observed = receipt(original)
+        val runs = GitHubObservedWorkflowRuns.current(listOf(observed), JsonPrimitive("a".repeat(40)))
+        assertEquals(18, runs.size)
+        assertEquals(7, runs.count { it["conclusion"] == JsonPrimitive("success") })
+        assertEquals(JsonPrimitive(18), GitHubInventoryObservation.of(observed)?.get("fetched"))
     }
 }

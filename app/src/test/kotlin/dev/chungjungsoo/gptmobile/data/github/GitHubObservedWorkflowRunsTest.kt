@@ -20,6 +20,13 @@ class GitHubObservedWorkflowRunsTest {
         assertEquals(JsonPrimitive("in_progress"), current["status"])
     }
 
+    @Test fun legacyExcerptSuppliesOnlyItsObservedExactRevisionRunSelectors() {
+        val original = list(run(1, "completed"))
+        val legacy = JsonObject(original + ("result" to json("""{"observationTruncated":true,"excerpt":${original["result"]}}""")))
+        assertEquals(JsonPrimitive(7), GitHubObservedWorkflowRuns.current(listOf(legacy), JsonPrimitive(sha)).single()["id"])
+        assertTrue(GitHubObservedWorkflowRuns.current(listOf(legacy), JsonPrimitive("b".repeat(40))).isEmpty())
+    }
+
     @Test fun olderListPageCannotRollBackANewerAttempt() {
         val current = GitHubObservedWorkflowRuns.current(listOf(status(run(2, "in_progress", "")), list(run(1, "completed"))), JsonPrimitive(sha)).single()
         assertEquals(JsonPrimitive(2), current["run_attempt"])

@@ -6,6 +6,16 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun unavailableSavedViewRequiresSourceProofWithoutEnablingGenericRetry() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"retryable":true,"source_read_recovery":{"available":true}}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("The saved view expired", "SAVED_VIEW_UNAVAILABLE", details)
+        assertTrue(failure.isSavedViewUnavailable)
+        assertFalse(failure.retryAllowed)
+        assertEquals("inventory_pagination", failure.phase)
+        assertFalse(ProfileFailureRecord.classify("SAVED_VIEW_CURSOR_ALTERED").isSavedViewUnavailable)
+        assertFalse(ProfileFailureRecord.classify("SAVED_VIEW_WRONG_OPERATION").isSavedViewUnavailable)
+    }
+
     @Test fun laterVerificationCodesAreMatchedAgainstTheActualFailureBeforeChoosingAStopReason() {
         for (code in listOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "SAVED_VIEW_CURSOR_ALTERED", "DEPENDENCY_DEFERRED")) {
             assertEquals(code, ProfileFailureRecord.classify("$code: retained verification work").category)

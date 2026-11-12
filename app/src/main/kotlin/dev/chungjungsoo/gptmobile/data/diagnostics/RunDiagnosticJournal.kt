@@ -766,7 +766,7 @@ internal class RunDiagnosticJournal(
     private val minimalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INVOCATION_STARTED, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.FIRST_TEXT, RunDiagnosticKind.FIRST_REASONING, RunDiagnosticKind.FIRST_TOOL, RunDiagnosticKind.FIRST_PROGRESS, RunDiagnosticKind.FIRST_VISIBLE_ANSWER, RunDiagnosticKind.FIRST_SYSTEM_ERROR, RunDiagnosticKind.FIRST_APPLICATION_REPORT, RunDiagnosticKind.FIRST_RETAINED_CONTENT, RunDiagnosticKind.FIRST_UNATTRIBUTED_OUTPUT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.TOOL_ADMITTED, RunDiagnosticKind.TOOL_RESULT, RunDiagnosticKind.TOOL_RESULTS_RESTORED, RunDiagnosticKind.CONTINUATION_SELECTED, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE, RunDiagnosticKind.RUN_TERMINAL)
     private val criticalKinds = setOf(RunDiagnosticKind.FAILURE_RECEIPT, RunDiagnosticKind.INTENT_CONVERSATIONAL, RunDiagnosticKind.INTENT_SUBSTANTIVE, RunDiagnosticKind.VERIFICATION_REJECTED, RunDiagnosticKind.ANSWER_REWRITE) + setOf(RunDiagnosticKind.RUN_TERMINAL, RunDiagnosticKind.INVOCATION_FINISHED, RunDiagnosticKind.SEGMENT_COMMITTED, RunDiagnosticKind.PROGRESS_DEADLINE, RunDiagnosticKind.CAPTURE_GAP)
 
-    private fun identity(value: String) = java.security.MessageDigest.getInstance("SHA-256").digest(value.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
+    private fun identity(value: String) = DiagnosticRecordChunks.sha256(value).take(24)
     private fun safeId(value: String) = value.length in 1..192 && value.all { it.isLetterOrDigit() || it in "_.:-" }
 }
 

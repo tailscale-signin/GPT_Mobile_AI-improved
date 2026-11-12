@@ -14,7 +14,27 @@ private val jsonNumber = Regex("-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-
  * consume both new diagnostics and historical trees containing [profile-a,profile-b].
  */
 internal fun diagnosticJsonValue(value: JsonElement): JsonElement = when (value) {
-    is JsonObject -> JsonObject(value.mapValues { (_, child) -> diagnosticJsonValue(child) })
-    is JsonArray -> JsonArray(value.map(::diagnosticJsonValue))
+    is JsonObject -> {
+        var changed: MutableMap<String, JsonElement>? = null
+        value.forEach { (key, child) ->
+            val normalized = diagnosticJsonValue(child)
+            if (normalized !== child) {
+                if (changed == null) changed = LinkedHashMap(value)
+                changed[key] = normalized
+            }
+        }
+        changed?.let(::JsonObject) ?: value
+    }
+    is JsonArray -> {
+        var changed: MutableList<JsonElement>? = null
+        value.forEachIndexed { index, child ->
+            val normalized = diagnosticJsonValue(child)
+            if (normalized !== child) {
+                if (changed == null) changed = value.toMutableList()
+                changed[index] = normalized
+            }
+        }
+        changed?.let(::JsonArray) ?: value
+    }
     is JsonPrimitive -> if (value.isString || value === JsonNull || value.content in setOf("true", "false") || jsonNumber.matches(value.content)) value else JsonPrimitive(value.content)
 }

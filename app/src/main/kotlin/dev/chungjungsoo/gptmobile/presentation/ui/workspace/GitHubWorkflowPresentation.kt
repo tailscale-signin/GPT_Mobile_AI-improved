@@ -48,7 +48,8 @@ internal data class GitHubWorkflowSnapshot(
     val recoveryExplanation: String,
     val reconciliationRequired: Boolean = false,
     val lastFreshObservationMillis: Long? = null,
-    val exactBlocker: String? = null
+    val exactBlocker: String? = null,
+    val sourceReadRecoveryAvailable: Boolean = false
 )
 
 /** Presentation uses persisted verifier output. API success never becomes acceptance evidence. */
@@ -132,8 +133,15 @@ internal object GitHubWorkflowPresentation {
             (verification?.get("execution_ledger") as? JsonObject)?.text("recovery") == "RECONCILE_REMOTE_OUTCOME"
         val recoverable = run.status in terminal && (run.status != AgentRunStatus.COMPLETED || acceptance != GitHubAcceptanceStatus.PASS)
         val reconcileReceipts = failure.category == "OUTPUT_CONTINUATION_PENDING_TOOLS"
+        val sourceReadRecovery = failure.isSavedViewUnavailable &&
+            retained == true &&
+            !evidenceReadFailed &&
+            !unknown &&
+            !unresolvedRemoteOutcome &&
+            !pendingApproval &&
+            verifiedSourceReadRecovery(verification, observed)
         val recovery = buildList {
-            if (recoverable && !pendingApproval && (!deterministic || reconcileReceipts) && !waiting && !unreconciledGateway) add(TaskRecoveryAction.CONTINUE_RUN)
+            if (recoverable && !pendingApproval && (!deterministic || reconcileReceipts || sourceReadRecovery) && !waiting && !unreconciledGateway) add(TaskRecoveryAction.CONTINUE_RUN)
             if (recoverable && !pendingApproval && !deterministic && !waiting && !unknown && !unresolvedRemoteOutcome && run.status == AgentRunStatus.FAILED) add(TaskRecoveryAction.RETRY_FAILED_STAGE)
         }
         return GitHubWorkflowSnapshot(
@@ -141,6 +149,7 @@ internal object GitHubWorkflowPresentation {
             when {
                 unresolvedRemoteOutcome -> "Remote outcome needs reconciliation"
                 pendingApproval -> "Approval required"
+                sourceReadRecovery -> "Saved read can be restored"
                 failure.category == "OUTPUT_CONTINUATION_PENDING_TOOLS" -> "Receipt reconciliation required"
                 else -> when (run.status) {
                     AgentRunStatus.COMPLETED -> "Answer ready"
@@ -163,6 +172,7 @@ internal object GitHubWorkflowPresentation {
                 unreconciledGateway -> "The gateway outcome is unknown and no saved job can be reconciled. Inspect the remote operation before continuing; Resume and Retry are unavailable to prevent repeating a possible mutation."
                 unresolvedRemoteOutcome -> "Check the saved remote operation before approving or repeating a change. Its outcome is still unconfirmed."
                 pendingApproval -> "Review the existing proposed changes card in Chat to approve or reject the saved patch. Repeating preparation does not resolve its approval."
+                sourceReadRecovery -> "Restore the original read from its saved source receipt, then continue this request. The expired cursor is not repeated; completed changes remain retained."
                 reconcileReceipts -> "The model response and completed tool receipts are retained. Reconcile saved results to continue from the first unfinished step. If a matching terminal receipt is missing, the app reports that dependency; operations with unknown outcomes remain pending."
                 !recoverable -> "Recovery is available after an interrupted or incomplete run."
                 deterministic -> "Update the blocked configuration, authorization or request first, then continue the saved request in Chat. Details retain the recorded failure."
@@ -174,8 +184,33 @@ internal object GitHubWorkflowPresentation {
             lastFreshObservationMillis = observed.filter { it.status == ToolEventStatus.COMPLETED && !it.isError }
                 .mapNotNull { it.completedAt }.maxOrNull(),
             exactBlocker = criteria.firstOrNull { it.status != GitHubAcceptanceStatus.PASS }?.detail
-                ?: run.terminalError?.takeIf(String::isNotBlank)
+                ?: run.terminalError?.takeIf(String::isNotBlank),
+            sourceReadRecoveryAvailable = sourceReadRecovery
         )
+    }
+
+    private fun verifiedSourceReadRecovery(verification: JsonObject?, events: List<ToolEvent>): Boolean {
+        val proof = verification?.get("source_read_recovery") as? JsonObject ?: return false
+        if (proof.text("schema") != "github.saved-read-recovery.v1" ||
+            proof["available"] != JsonPrimitive(true) ||
+            proof["read_only"] != JsonPrimitive(true) ||
+            proof["source_bound"] != JsonPrimitive(true) ||
+            proof.text("source_receipt_id").isNullOrBlank() ||
+            proof.text("binding").isNullOrBlank()
+        ) {
+            return false
+        }
+        val tool = proof.text("tool_name")?.takeIf(String::isNotBlank) ?: return false
+        val arguments = proof["arguments"] as? JsonObject ?: return false
+        if ("view_cursor" in arguments || !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)) return false
+        val failed = events.singleOrNull { it.callId == proof.text("failed_call_id") } ?: return false
+        if (!failed.isError && failed.status != ToolEventStatus.FAILED) return false
+        if (tool !in setOf(failed.toolName, failed.modelToolName)) return false
+        val cursor = jsonObject(failed.arguments)?.get("view_cursor") as? JsonPrimitive ?: return false
+        if (!cursor.isString || cursor.content.isBlank()) return false
+        val result = jsonObject(failed.result)
+        val failure = listOfNotNull(failed.error, result?.text("error_code"), result?.text("code")).joinToString(" ")
+        return ProfileFailureRecord.classify(failure).isSavedViewUnavailable
     }
 
     fun groups(events: List<ToolEvent>): List<GitHubOperationGroup> = events.groupBy { event ->

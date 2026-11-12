@@ -5,6 +5,14 @@ import dev.chungjungsoo.gptmobile.data.context.ContextPlan
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 
+/** The repair replaces only the unfinished suffix; completed text and tool effects stay committed. */
+internal fun responseContinuationInstruction(trigger: ContinuationTrigger, draft: String): String = when {
+    trigger == ContinuationTrigger.REPETITIVE_OUTPUT -> "\n\nThe previous stream was stopped because it repeated the same prose without progress. Continue after the saved useful text with the next unfinished topic. Do not repeat the last list, names, phrase or earlier sections; do not restart the answer. This is the one permitted repair attempt. "
+    trigger == ContinuationTrigger.NO_PROGRESS -> "\n\nThe prior continuation added no new answer. Regenerate only new continuation after the exact saved tail; never restart or duplicate earlier sections. "
+    draft.isBlank() -> "\n\nThe previous packet contained no visible answer. Write the first substantive section now with minimal reasoning. "
+    else -> "\n\nContinue the same answer at its stopping point. "
+}
+
 /** The output reserved during admission is also the maximum sent to the provider. */
 internal fun responseOutputAllowance(settings: TokenBudgetSettings, routeOutputCap: Int): Int {
     require(routeOutputCap > 0) { "The provider output allowance must be positive." }
@@ -43,7 +51,8 @@ internal fun planResponseContinuation(
     require(draft.isBlank() || tailBudget >= 48) {
         "CONTINUATION_CONTEXT_CAPACITY: The original request, completed evidence, selected tool schemas and output allowance leave no room for a saved answer tail. The full partial answer is retained."
     }
-    val replay = LongResponsePolicy.continuationContext(draft, tailBudget.coerceAtLeast(0))
+    val repetitionAllowance = LongResponsePolicy.requestedRepetitionCharacters(turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty())
+    val replay = LongResponsePolicy.continuationContext(draft, tailBudget.coerceAtLeast(0), repetitionAllowance)
     val continued = appendResponseContinuationContext(turns, instruction, replay, exchanges)
     val plan = if (preserveFullInput && advertisedTools.isEmpty()) {
         ContextBudgetService.planFullInput(continued, system, limits)

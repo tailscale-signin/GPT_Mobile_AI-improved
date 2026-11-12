@@ -14,6 +14,8 @@ internal object ToolContractFingerprint {
 
     fun schema(value: JsonObject): String = digest(normalize(value).toString())
 
+    fun definition(value: AgentToolDefinition): String = schema(value.contractSchema)
+
     private fun normalize(value: JsonElement): JsonElement = when (value) {
         is JsonObject -> JsonObject(
             value.toSortedMap().filterKeys { it !in annotations }.mapValues { (key, child) ->

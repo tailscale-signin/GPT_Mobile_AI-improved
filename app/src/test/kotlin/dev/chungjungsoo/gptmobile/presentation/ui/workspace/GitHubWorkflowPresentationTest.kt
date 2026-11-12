@@ -6,6 +6,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -138,6 +140,62 @@ class GitHubWorkflowPresentationTest {
             assertTrue(snapshot.recovery.isEmpty())
         }
     }
+
+    @Test fun unavailableSavedViewResumesOnlyThroughItsVerifiedSourceRead() {
+        val read = event("one", """{"view_cursor":"saved:page:2"}""", ToolEventStatus.FAILED, error = "SAVED_VIEW_UNAVAILABLE")
+        val snapshot = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.FAILED), listOf(read), true, savedReadProof())
+
+        assertEquals(listOf(TaskRecoveryAction.CONTINUE_RUN), snapshot.recovery)
+        assertTrue(snapshot.sourceReadRecoveryAvailable)
+        assertEquals("Saved read can be restored", snapshot.phase)
+        assertTrue(snapshot.recoveryExplanation.contains("original read"))
+        assertFalse(TaskRecoveryAction.RETRY_FAILED_STAGE in snapshot.recovery)
+    }
+
+    @Test fun savedSourceProofCannotAuthorizeAnotherCallCursorMutationOrRun() {
+        val read = event("one", """{"view_cursor":"saved:page:2"}""", ToolEventStatus.FAILED, error = "SAVED_VIEW_UNAVAILABLE")
+        val proof = savedReadProof()
+        val original = proof.getValue("source_read_recovery") as JsonObject
+        val invalid = listOf(
+            JsonObject(original + ("failed_call_id" to JsonPrimitive("other"))),
+            JsonObject(original + ("source_bound" to JsonPrimitive(false))),
+            JsonObject(original + ("source_receipt_id" to JsonPrimitive(""))),
+            JsonObject(original + ("binding" to JsonPrimitive(""))),
+            JsonObject(original + ("arguments" to Json.parseToJsonElement("""{"view_cursor":"saved:page:2"}"""))),
+            JsonObject(original + mapOf("tool_name" to JsonPrimitive("github_write"), "arguments" to Json.parseToJsonElement("""{"action":"commit"}""")))
+        )
+        invalid.forEach { changed ->
+            val snapshot = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.FAILED), listOf(read), true, JsonObject(proof + ("source_read_recovery" to changed)))
+            assertTrue(snapshot.recovery.isEmpty())
+        }
+        val unrelated = GitHubWorkflowPresentation.snapshot(run(AgentRunStatus.FAILED).copy(terminalError = "SAVED_VIEW_UNAVAILABLE"), listOf(read.copy(runId = "other")), true, proof)
+        assertTrue(unrelated.recovery.isEmpty())
+    }
+
+    @Test fun savedSourceProofDoesNotOverrideMissingEvidenceApprovalOrUnknownMutation() {
+        val read = event("one", """{"view_cursor":"saved:page:2"}""", ToolEventStatus.FAILED, error = "SAVED_VIEW_UNAVAILABLE")
+        val proof = savedReadProof()
+        val failed = run(AgentRunStatus.FAILED).copy(terminalError = "SAVED_VIEW_UNAVAILABLE")
+        val variants = listOf(
+            GitHubWorkflowPresentation.snapshot(failed, listOf(read), false, proof),
+            GitHubWorkflowPresentation.snapshot(failed, listOf(read), true, proof, evidenceReadFailed = true),
+            GitHubWorkflowPresentation.snapshot(failed, listOf(read), true, JsonObject(proof + ("evidence_retention_complete" to JsonPrimitive(false)))),
+            GitHubWorkflowPresentation.snapshot(failed, listOf(read), true, JsonObject(proof + ("pending_approvals" to Json.parseToJsonElement("""[{"engineering_task_id":"task"}]""")))),
+            GitHubWorkflowPresentation.snapshot(failed, listOf(read, event("write", """{"action":"commit"}""", ToolEventStatus.FAILED, "github_write", "MUTATION_OUTCOME_UNKNOWN")), true, proof)
+        )
+        variants.forEach { snapshot ->
+            assertTrue(snapshot.recovery.isEmpty())
+            assertFalse(snapshot.sourceReadRecoveryAvailable)
+        }
+        for (code in listOf("SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "AUTH_REQUIRED", "POLICY_STALE")) {
+            val snapshot = GitHubWorkflowPresentation.snapshot(failed.copy(terminalError = code), listOf(read.copy(error = code)), true, proof)
+            assertTrue("Unexpected recovery for $code", snapshot.recovery.isEmpty())
+        }
+    }
+
+    private fun savedReadProof() = Json.parseToJsonElement(
+        """{"evidence_retention_complete":true,"source_read_recovery":{"schema":"github.saved-read-recovery.v1","available":true,"read_only":true,"source_bound":true,"failed_call_id":"one","tool_name":"github_read","arguments":{"path":"A.kt","commit_sha":"${"a".repeat(40)}"},"source_receipt_id":"source-receipt","binding":"original-task-binding"}}"""
+    ) as JsonObject
 
     @Test fun distinctRunAndCallIdentityExcludeReplayedOrUnrelatedActivity() {
         val one = event("one")

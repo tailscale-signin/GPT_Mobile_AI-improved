@@ -101,7 +101,9 @@ internal fun GitHubWorkflowExecutionContent(
                             enabled = state.chatId != null && !approvalPending && state.approvals.isEmpty() && !state.submitting && state.pending.isEmpty()
                         ) {
                             Text(
-                                if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.reconciliationRequired) {
+                                if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.sourceReadRecoveryAvailable) {
+                                    "Restore saved read"
+                                } else if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.reconciliationRequired) {
                                     "Reconcile saved results"
                                 } else if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.exactBlocker?.contains(Regex("(?i)stale|missing evidence|not measured|receipt")) == true) {
                                     "Refresh evidence"

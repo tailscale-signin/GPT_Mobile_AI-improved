@@ -63,6 +63,7 @@ internal object GitHubApprovalBinding {
             put("owner", workspace.owner.lowercase(java.util.Locale.ROOT))
             put("repository", workspace.repo.lowercase(java.util.Locale.ROOT))
             put("workspace_branch", workspace.ref)
+            put("workspace_head_sha", workspace.commitSha)
             put("target_branch", branch)
             put("profile_uid", workspace.mainProfileUid)
             put("chat_id", chatId)
@@ -130,6 +131,38 @@ internal object GitHubApprovalBinding {
     suspend fun source(store: GitHubRepositoryStateStore, taskId: String, workspace: GitHubConversationContext, branch: String): Source? {
         val binding = store.read(SCOPE, key(taskId))?.takeIf { matches(it, taskId, workspace, branch) } ?: return null
         return source(binding)
+    }
+
+    /** Recover only the original task scope; this grants neither tool access nor approval. */
+    suspend fun boundWorkspace(
+        store: GitHubRepositoryStateStore,
+        taskId: String,
+        chatId: Int,
+        connectionUid: String,
+        owner: String,
+        repo: String,
+        targetBranch: String,
+        expectedHeadSha: String,
+        patchDigest: String
+    ): GitHubConversationContext? {
+        if (!expectedHeadSha.matches(Regex("[a-fA-F0-9]{40}")) || !patchDigest.matches(Regex("[a-fA-F0-9]{64}"))) return null
+        val binding = store.read(SCOPE, key(taskId)) ?: return null
+        val original = source(binding)?.takeIf { it.chatId == chatId } ?: return null
+        if (binding.text("connection_uid") != connectionUid || !binding.text("owner").equals(owner, true) || !binding.text("repository").equals(repo, true)) return null
+        val scope = runCatching {
+            GitHubConversationContext(
+                connectionUid,
+                binding.text("owner"),
+                binding.text("repository"),
+                binding.text("workspace_branch"),
+                binding.text("workspace_head_sha").ifBlank { expectedHeadSha },
+                binding.text("profile_uid")
+            )
+        }.getOrNull() ?: return null
+        if (!matches(binding, taskId, scope, targetBranch, expectedHeadSha, patchDigest)) return null
+        val savedDigest = binding.text("approval_binding_sha256")
+        if (savedDigest.isNotBlank() && savedDigest != dedupeKey(original.chatId, "$owner/$repo", targetBranch, expectedHeadSha, patchDigest, taskId)) return null
+        return scope
     }
 
     private fun source(binding: JsonObject): Source? {

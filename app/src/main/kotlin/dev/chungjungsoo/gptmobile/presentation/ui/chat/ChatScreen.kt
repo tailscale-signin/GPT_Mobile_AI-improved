@@ -1185,6 +1185,16 @@ private fun ChatScreenContent(
                             }
                         }
                     }
+                    if (!githubPromptMode && bottomInteractionContent != null) {
+                        Column(
+                            Modifier.fillMaxWidth()
+                                .heightIn(max = (viewportHeight * 0.42f).coerceAtMost(320.dp))
+                                .verticalScroll(rememberScrollState())
+                                .testTag("github_saved_action_notifications")
+                        ) {
+                            bottomInteractionContent()
+                        }
+                    }
                     if (githubPromptMode) {
                         Column(
                             Modifier.fillMaxWidth()

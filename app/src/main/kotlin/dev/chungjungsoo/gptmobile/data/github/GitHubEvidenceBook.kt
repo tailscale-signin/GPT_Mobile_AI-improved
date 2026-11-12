@@ -89,8 +89,9 @@ internal class GitHubEvidenceBook(
                 (saved["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
             }
             epoch = maxOf(epoch, savedEpoch)
-            if (!originalComplete(id, saved)) overflow = true
-            retain(id, revalidate(saved))
+            val original = restoredOriginal(id, saved)
+            if (original == null) overflow = true
+            retain(id, revalidate(original ?: saved))
         }
     }
 
@@ -113,7 +114,12 @@ internal class GitHubEvidenceBook(
             }
         )
         val revalidated = GitHubPolicyReadRecovery.revalidated(current, authorizationDigest)
-        return if (revalidated == null) current else JsonObject(current + (GitHubPolicyReadRecovery.REVALIDATED to JsonPrimitive(revalidated)))
+        val migrated = if (current["inventory_observation"] == null) {
+            GitHubInventoryObservation.of(current)?.let { JsonObject(current + ("inventory_observation" to it)) } ?: current
+        } else {
+            current
+        }
+        return if (revalidated == null) migrated else JsonObject(migrated + (GitHubPolicyReadRecovery.REVALIDATED to JsonPrimitive(revalidated)))
     }
 
     suspend fun observe(call: ProviderEvent.ToolCall, result: AgentToolResult) = mutex.withLock {
@@ -127,8 +133,9 @@ internal class GitHubEvidenceBook(
                 (existing["source_head_sha"] as? JsonPrimitive)?.contentOrNull?.let { observedHead = it }
             }
             epoch = maxOf(epoch, savedEpoch)
-            if (!originalComplete(id, existing)) overflow = true
-            retain(id, revalidate(existing))
+            val original = restoredOriginal(id, existing)
+            if (original == null) overflow = true
+            retain(id, revalidate(original ?: existing))
             return@withLock
         }
         val content = when (val body = result.retainedContent ?: result.content) {
@@ -387,7 +394,7 @@ internal class GitHubEvidenceBook(
         if (key != "original_${id}_${originalHash.take(24)}_$page") return@withLock null
         val chunk = load(key) ?: return@withLock null
         val text = (chunk["text"] as? JsonPrimitive)?.contentOrNull ?: return@withLock null
-        if (chunk["binding"] != JsonPrimitive(binding) || chunk["receipt_id"] != JsonPrimitive(id) || chunk["index"] != JsonPrimitive(page) || chunk["offset_utf16"] != ref["offset_utf16"] || ref["sha256"] != JsonPrimitive(digest(text))) return@withLock null
+        if (chunk["binding"] != JsonPrimitive(binding) || chunk["receipt_id"] != JsonPrimitive(id) || chunk["index"] != JsonPrimitive(page) || chunk["offset_utf16"] != ref["offset_utf16"] || ref["characters"] != JsonPrimitive(text.length) || chunk["sha256"] != ref["sha256"] || ref["sha256"] != JsonPrimitive(digest(text))) return@withLock null
         JsonObject(
             chunk + buildJsonObject {
                 put("complete", page == chunks.lastIndex)
@@ -397,26 +404,33 @@ internal class GitHubEvidenceBook(
         )
     }
 
-    private suspend fun originalComplete(id: String, manifest: JsonObject): Boolean {
-        val chunks = manifest["original_chunks"] as? JsonArray ?: return true
-        if (chunks.size !in 1..64) return false
-        val expectedHash = (manifest["original_receipt_sha256"] as? JsonPrimitive)?.contentOrNull ?: return false
-        val expectedCharacters = (manifest["original_receipt_characters"] as? JsonPrimitive)?.longOrNull ?: return false
-        if (expectedCharacters !in 1..8L * 1024 * 1024) return false
+    private suspend fun restoredOriginal(id: String, manifest: JsonObject): JsonObject? {
+        val chunks = manifest["original_chunks"] as? JsonArray ?: return manifest
+        if (chunks.size !in 1..64) return null
+        val expectedHash = (manifest["original_receipt_sha256"] as? JsonPrimitive)?.contentOrNull ?: return null
+        val expectedCharacters = (manifest["original_receipt_characters"] as? JsonPrimitive)?.longOrNull ?: return null
+        if (expectedCharacters !in 1..8L * 1024 * 1024) return null
         val hasher = MessageDigest.getInstance("SHA-256")
+        val original = StringBuilder()
         var characters = 0L
         for ((index, raw) in chunks.withIndex()) {
-            val ref = raw as? JsonObject ?: return false
-            val key = (ref["id"] as? JsonPrimitive)?.contentOrNull ?: return false
-            if (key != "original_${id}_${expectedHash.take(24)}_$index") return false
-            val chunk = load(key) ?: return false
-            val text = (chunk["text"] as? JsonPrimitive)?.contentOrNull ?: return false
-            if (chunk["binding"] != JsonPrimitive(binding) || chunk["receipt_id"] != JsonPrimitive(id) || chunk["index"] != JsonPrimitive(index) || (chunk["offset_utf16"] as? JsonPrimitive)?.longOrNull != characters || ref["sha256"] != JsonPrimitive(digest(text))) return false
+            val ref = raw as? JsonObject ?: return null
+            val key = (ref["id"] as? JsonPrimitive)?.contentOrNull ?: return null
+            if (key != "original_${id}_${expectedHash.take(24)}_$index") return null
+            val chunk = load(key) ?: return null
+            val text = (chunk["text"] as? JsonPrimitive)?.contentOrNull ?: return null
+            if (chunk["binding"] != JsonPrimitive(binding) || chunk["receipt_id"] != JsonPrimitive(id) || chunk["index"] != JsonPrimitive(index) || (chunk["offset_utf16"] as? JsonPrimitive)?.longOrNull != characters || chunk["offset_utf16"] != ref["offset_utf16"] || ref["characters"] != JsonPrimitive(text.length) || chunk["sha256"] != ref["sha256"] || ref["sha256"] != JsonPrimitive(digest(text))) return null
             hasher.update(text.encodeToByteArray())
             characters += text.length
-            if (characters > expectedCharacters) return false
+            if (characters > expectedCharacters) return null
+            original.append(text)
         }
-        return characters == expectedCharacters && hasher.digest().joinToString("") { "%02x".format(it) } == expectedHash
+        if (characters != expectedCharacters || hasher.digest().joinToString("") { "%02x".format(it) } != expectedHash) return null
+        val restored = runCatching { Json.parseToJsonElement(original.toString()) as? JsonObject }.getOrNull() ?: return null
+        if (listOf("binding", "receipt_id", "call_id", "tool", "repository", "arguments", "result_sha256").any { restored[it] != manifest[it] }) return null
+        // Restore exact data before constructing today's projection and inventory metadata.
+        // The immutable saved manifest and chunks are never rewritten during migration.
+        return restored
     }
 
     suspend fun snapshot(): Pair<Map<String, JsonObject>, Long> {
@@ -624,7 +638,7 @@ internal class GitHubEvidenceBook(
                     tools.filter { it.modelVisible }.sortedBy { it.name }.map { tool ->
                         buildJsonObject {
                             put("name", tool.name)
-                            put("contract_digest", dev.chungjungsoo.gptmobile.data.agent.ToolContractFingerprint.schema(tool.inputSchema))
+                            put("contract_digest", dev.chungjungsoo.gptmobile.data.agent.ToolContractFingerprint.definition(tool))
                             put("contract_digest_kind", "SEMANTIC_SCHEMA_V1")
                         }
                     }
@@ -691,6 +705,7 @@ internal class GitHubEvidenceBook(
                 put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
                 put("test_checklist", checkpoint)
                 put("evidence_count", receipts.size)
+                if (retention["evidence_retention_complete"] == JsonPrimitive(true)) GitHubTestChecklist.sourceReadRecovery(tools, receipts)?.let { put("source_read_recovery", it) }
             },
             receipts
         )
@@ -749,7 +764,18 @@ internal class GitHubEvidenceBook(
         }
         val execution = GitHubExecutionLedger.attach(checked, receipts)
         val checkpoint = JsonObject(execution + ("task_state" to JsonPrimitive(GitHubTaskLifecycle.terminal(execution).name)))
-        val durable = JsonObject(checkpoint + ("binding" to JsonPrimitive(binding)))
+        val sourceRecovery = if (retention["evidence_retention_complete"] == JsonPrimitive(true)) {
+            val tools = currentToolContracts.map { (name, schema) -> dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition(name, "", schema) }
+            GitHubTestChecklist.sourceReadRecovery(tools, receipts)
+        } else {
+            null
+        }
+        val durable = JsonObject(
+            checkpoint.filterKeys { it != "source_read_recovery" } + buildJsonObject {
+                put("binding", binding)
+                sourceRecovery?.let { put("source_read_recovery", it) }
+            }
+        )
         saveCurrent("verification", durable)
         return durable
     }
@@ -758,23 +784,25 @@ internal class GitHubEvidenceBook(
     private suspend fun saveCurrent(kind: String, value: JsonObject) {
         val id = "${kind}_current_" + digest(binding).take(24)
         val previous = load(id)
+        if (previous?.filterKeys { it != "observed_at_ms" } == value.filterKeys { it != "observed_at_ms" }) return
         fun summary(snapshot: JsonObject): JsonObject = buildJsonObject {
             put("schema", "github.verification-event.v1")
             put("binding", binding)
             put("snapshot_id", id)
-            listOf("phase", "task_state", "task_outcome", "failure_code", "verification_failure", "completion_verified", "response_prepared", "response_delivered", "evidence_count", "progress_state").forEach { field -> snapshot[field]?.let { put(field, it) } }
+            listOf("phase", "task_state", "task_outcome", "failure_code", "verification_failure", "completion_verified", "response_prepared", "response_delivered", "progress_state").forEach { field -> snapshot[field]?.let { put(field, it) } }
             (snapshot["stop_reason"] as? JsonObject)?.get("code")?.let { put("stop_code", it) }
             val requirements = (snapshot["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             put("requirements", JsonArray(requirements.take(64).map { row -> JsonObject(row.filterKeys { it in setOf("id", "status", "acceptance_state") }) }))
             ((snapshot["acceptance_ledger"] as? JsonObject)?.get("diagnostic_projection") as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)?.let { projection ->
-                put("acceptance_diagnostics_sha256", digest(projection.toString()))
+                val states = JsonArray((projection["criteria"] as JsonArray).filterIsInstance<JsonObject>().map { row -> JsonObject(row.filterKeys { it in setOf("id_sha256", "state", "blocker", "next_action") }) })
+                put("acceptance_states_sha256", digest(states.toString()))
                 put("criterion_count", projection.getValue("criterion_count"))
                 put("criteria_omitted", projection.getValue("omitted_count"))
                 put(
                     "acceptance_criteria",
                     JsonArray(
                         (projection["criteria"] as JsonArray).filterIsInstance<JsonObject>().filter { it["kind"] == JsonPrimitive("REQUIREMENT") }.map { row ->
-                            JsonObject(row.filterKeys { it in setOf("ordinal", "id_sha256", "category", "label", "operation", "state", "blocker", "next_action", "evidence_receipt_count", "evidence_class_counts") })
+                            JsonObject(row.filterKeys { it in setOf("ordinal", "id_sha256", "category", "label", "operation", "state", "blocker", "next_action") })
                         }
                     )
                 )
@@ -782,6 +810,7 @@ internal class GitHubEvidenceBook(
             val checklist = (snapshot["test_checklist"] as? JsonObject) ?: snapshot
             val capabilities = (checklist["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             put("capability_states", buildJsonObject { capabilities.groupingBy { (it["status"] as? JsonPrimitive)?.content.orEmpty() }.eachCount().toSortedMap().forEach { (state, count) -> put(state, count) } })
+            put("capability_states_sha256", digest(JsonArray(capabilities.map { row -> JsonObject(row.filterKeys { it in setOf("id", "status", "acceptance_state", "blocker_code") }) }).toString()))
             (checklist["authorized_catalog"] as? JsonObject)?.get("inventory_version")?.let { put("inventory_version", it) }
         }
         val event = summary(value)
@@ -792,6 +821,7 @@ internal class GitHubEvidenceBook(
                 event + buildJsonObject {
                     put("observed_at_ms", observed)
                     put("snapshot_sha256", digest(value.toString()))
+                    value["evidence_count"]?.let { put("evidence_count", it) }
                 }
             )
             save("verification_event_" + digest("$binding|$kind|$delta").take(24), delta)

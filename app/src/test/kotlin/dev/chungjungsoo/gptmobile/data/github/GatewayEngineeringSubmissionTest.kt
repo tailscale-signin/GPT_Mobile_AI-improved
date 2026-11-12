@@ -1,7 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import android.content.Context
-import androidx.work.WorkInfo
+import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.WorkManager
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase
 import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
@@ -18,6 +18,7 @@ import io.mockk.mockk
 import io.mockk.mockkObject
 import io.mockk.slot
 import io.mockk.unmockkObject
+import io.mockk.verify
 import java.io.IOException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.flowOf
@@ -38,6 +39,7 @@ import org.junit.Test
 
 class GatewayEngineeringSubmissionTest {
     private val context = mockk<Context>()
+    private val workManager = mockk<WorkManager>()
     private val settings = mockk<SettingRepository>()
     private val client = mockk<GatewayEngineeringClient>()
     private val store = mockk<GatewayEngineeringStore>()
@@ -50,6 +52,10 @@ class GatewayEngineeringSubmissionTest {
     private fun repository() = GatewayEngineeringRepository(context, settings, client, mockk(), store, conversations, history, modelPreparation)
 
     @Before fun admissionDefaults() {
+        mockkObject(WorkManager.Companion)
+        every { WorkManager.getInstance(context) } returns workManager
+        every { workManager.getWorkInfosForUniqueWorkFlow(GatewayEngineeringRepository.OBSERVER_WORK_NAME) } returns flowOf(emptyList())
+        every { workManager.enqueueUniquePeriodicWork(GatewayEngineeringRepository.OBSERVER_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, any()) } returns mockk()
         coEvery { store.bindings(8) } returns emptyList()
         coEvery { store.hasMigratedAdmission(any(), any()) } returns false
         coEvery { store.commandLookupDue(any()) } returns true
@@ -60,17 +66,8 @@ class GatewayEngineeringSubmissionTest {
         coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf(selected.uid to GitHubChatProfileOverride(githubTools = true)))
     }
 
-    @After fun releaseWorkManagerFixture() {
+    @After fun restoreWorkManager() {
         unmockkObject(WorkManager.Companion)
-    }
-
-    private fun retainExistingObserver() {
-        val manager = mockk<WorkManager>()
-        val observer = mockk<WorkInfo>()
-        mockkObject(WorkManager.Companion)
-        every { WorkManager.getInstance(context) } returns manager
-        every { observer.state } returns WorkInfo.State.RUNNING
-        every { manager.getWorkInfosForUniqueWorkFlow(any()) } returns flowOf(listOf(observer))
     }
 
     @Test fun importedConversationUsesFrozenServerDestinationAndModelWithoutPhoneWorkspace() = runTest {
@@ -206,7 +203,6 @@ class GatewayEngineeringSubmissionTest {
     }
 
     @Test fun repeatedMissingReceiptsAfterDispatchNeverReplayEvenOnExplicitReconnect() = runTest {
-        retainExistingObserver()
         val pending = GatewayEngineeringBinding(originalGateway.uid, originalGateway.apiUrl, GatewayEngineeringRequest("owner/repo", "work", "main", "Original task", selected.model, chatId = 8, requestId = "original-command", profileId = selected.uid), principalId = "owner", gatewayId = "gateway")
         coEvery { store.bindings(null) } returns listOf(pending)
         coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
@@ -221,6 +217,7 @@ class GatewayEngineeringSubmissionTest {
         }
         coVerify(exactly = 9) { history.command(any(), "original-command") }
         coVerify(exactly = 9) { store.deferCommandLookup("original-command") }
+        verify(exactly = 9) { workManager.enqueueUniquePeriodicWork(GatewayEngineeringRepository.OBSERVER_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, any()) }
         coVerify(exactly = 0) {
             client.bindingCapabilities(any(), any(), any())
             client.create(any(), any())
@@ -310,7 +307,6 @@ class GatewayEngineeringSubmissionTest {
     }
 
     @Test fun lostCreateResponseAndObserverCancellationRecoverAcceptedJobWithoutAnotherPostOrStop() = runTest {
-        retainExistingObserver()
         var binding = retainedBinding()
         val request = binding.request
         var state = "PENDING"
@@ -348,5 +344,6 @@ class GatewayEngineeringSubmissionTest {
         coVerify(exactly = 1) { client.create(any(), request) }
         coVerify(exactly = 1) { store.deferCommandLookup("command") }
         coVerify(exactly = 0) { client.control(any(), any(), any()) }
+        verify(exactly = 1) { workManager.enqueueUniquePeriodicWork(GatewayEngineeringRepository.OBSERVER_WORK_NAME, ExistingPeriodicWorkPolicy.KEEP, any()) }
     }
 }

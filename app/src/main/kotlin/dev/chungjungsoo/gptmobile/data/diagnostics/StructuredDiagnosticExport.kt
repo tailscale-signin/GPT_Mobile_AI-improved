@@ -22,7 +22,7 @@ private val acceptanceSchemas = setOf(JsonPrimitive("github.acceptance-criterion
 
 /** Keep every record and continuation. A duplicate is not the same thing as a non-issue. */
 internal fun diagnosticEventIdentity(line: String): String = eventIdPattern.find(line)?.groupValues?.get(1)
-    ?: java.security.MessageDigest.getInstance("SHA-256").digest(redactLogMessage(line).toByteArray()).joinToString("") { "%02x".format(it) }
+    ?: DiagnosticRecordChunks.sha256(redactLogMessage(line))
 
 internal fun structuredDiagnosticLine(
     line: String,
@@ -61,11 +61,12 @@ internal fun structuredDiagnosticLine(
     val capturedAt = number("capturedAtMillis") ?: recordTime.takeUnless { historical }
     val exitConfirmed = (parsedFields["workerExitConfirmed"] as? JsonPrimitive)?.booleanOrNull
         ?: (parsedFields["exitConfirmed"] as? JsonPrimitive)?.booleanOrNull
+    val identity = captureIdentity ?: diagnosticEventIdentity(line)
     return buildJsonObject {
         put("schema", 7)
-        put("incidentId", incidentId ?: text("incidentId") ?: text("incident_id") ?: parentEventId ?: captureIdentity ?: diagnosticEventIdentity(line))
+        put("incidentId", incidentId ?: text("incidentId") ?: text("incident_id") ?: parentEventId ?: identity)
         put("incidentRoot", incidentRoot)
-        put("eventId", captureIdentity ?: diagnosticEventIdentity(line))
+        put("eventId", identity)
         parentEventId?.let { put("parentEventId", it) }
         put("sequence", sequence)
         put("captureSource", captureSource)

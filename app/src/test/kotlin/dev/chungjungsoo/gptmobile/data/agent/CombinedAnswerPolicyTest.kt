@@ -35,6 +35,8 @@ class CombinedAnswerPolicyTest {
         assertEquals("2026-10-16", context.date)
         assertEquals("America/Toronto", context.timezone)
         assertTrue(context.instruction().contains("tool results take precedence"))
+        assertTrue(context.instruction().contains("greetings do not need a date assertion"))
+        assertTrue(context.instruction().contains("use this local date and timezone"))
     }
 
     @Test fun requestedLengthControlsContinuationAllowanceEvenWithHugeContributorCorpus() {

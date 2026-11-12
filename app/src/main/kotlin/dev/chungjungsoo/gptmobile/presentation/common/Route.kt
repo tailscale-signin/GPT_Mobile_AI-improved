@@ -29,7 +29,7 @@ object Route {
     const val NEW_CHAT_TYPE = "new_chat/type"
     const val NEW_CHAT_PROFILES = "new_chat/profiles"
     const val MULTI_CHAT_WORKSPACE = "multi_chat_workspace/{rootChatId}"
-    const val CHAT_ROOM = "chat_room/{chatRoomId}?enabled={enabledPlatforms}&mode={conversationMode}&targetMessageId={targetMessageId}&regenerate={regenerate}&incomingShare={incomingShare}"
+    const val CHAT_ROOM = "chat_room/{chatRoomId}?enabled={enabledPlatforms}&mode={conversationMode}&targetMessageId={targetMessageId}&regenerate={regenerate}&incomingShare={incomingShare}&approvalTaskId={approvalTaskId}"
 
     const val SETTING_ROUTE = "setting_route"
     const val SETTINGS = "settings"

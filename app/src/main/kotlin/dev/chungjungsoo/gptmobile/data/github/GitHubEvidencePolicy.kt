@@ -636,7 +636,31 @@ internal object GitHubEvidencePolicy {
         java.net.URLEncoder.encode(it, Charsets.UTF_8.name()).replace("+", "%20")
     }
 
-    private fun label(pointer: String, receipt: JsonObject? = null): String = when (pointer) {
+    private fun label(pointer: String, receipt: JsonObject? = null): String {
+        val field = fieldLabel(pointer, receipt)
+        val arguments = receipt?.get("arguments") as? JsonObject
+        val envelope = receipt?.get("result") as? JsonObject
+        val root = (envelope?.get("data") as? JsonObject) ?: envelope
+        fun identifier(argument: String, result: String = "id"): String? = ((arguments?.get(argument) ?: root?.get(result)) as? JsonPrimitive)?.contentOrNull
+        val subject = when (receipt?.string("tool")?.substringBefore("__")) {
+            "github_pr" -> identifier("pull_number", "number")?.let { "PR #$it" }
+            "github_issue" -> identifier("issue_number", "number")?.let { "Issue #$it" }
+            "github_ci" -> when {
+                arguments?.get("job_id") != null -> identifier("job_id")?.let { "Job #$it" }
+                arguments?.get("run_id") != null -> identifier("run_id")?.let { "Workflow run #$it" }
+                else -> null
+            }
+            "github_context" -> if (arguments?.string("action") in setOf("status", "branch")) {
+                ((arguments?.get("branch") ?: arguments?.get("ref") ?: root?.get("branch") ?: root?.get("ref")) as? JsonPrimitive)?.contentOrNull?.let { "Branch $it" }
+            } else {
+                null
+            }
+            else -> null
+        }
+        return if (subject.isNullOrBlank() || field.startsWith("$subject ·")) field else "${safe(subject)} · $field"
+    }
+
+    private fun fieldLabel(pointer: String, receipt: JsonObject? = null): String = when (pointer) {
         "/data/branch" -> "Observed branch"
         "/state", "/data/state" -> when (receipt?.string("tool")?.substringBefore("__")) {
             "github_pr" -> "Pull request state"

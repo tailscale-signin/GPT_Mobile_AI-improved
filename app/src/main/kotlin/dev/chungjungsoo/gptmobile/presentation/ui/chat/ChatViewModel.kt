@@ -2018,30 +2018,73 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    private var gitHubWorkflowRecoveryJob: kotlinx.coroutines.Job? = null
+
     /** A workspace recovery action targets one saved run, never an unrelated latest message. */
     fun recoverGitHubRun(runId: String, action: dev.chungjungsoo.gptmobile.data.agent.TaskRecoveryAction) {
         val run = _agentRunsById.value[runId] ?: return
-        if (_chatToolConfig.value.github == null || run.chatId != _chatRoom.value.id || isGenerationBusy()) {
+        if (run.chatId != _chatRoom.value.id || isGenerationBusy() || gitHubWorkflowRecoveryJob?.isActive == true) {
             _attachmentNotice.value = "Wait for the current request to finish before resuming this workflow."
             return
         }
-        val allowed = dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowPresentation.snapshot(
-            run,
-            _toolEventsByRun.value[runId].orEmpty(),
-            eventWindowComplete = true
-        ).recovery
-        if (action !in allowed) {
-            _attachmentNotice.value = "This recovery action is no longer available. Open Status to review the saved workflow."
-            return
+        gitHubWorkflowRecoveryJob = viewModelScope.launch {
+            val evidence = try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    diagnosticWorkspace?.let { dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowRecovery.load(it, run) }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+            val current = _agentRunsById.value[runId]
+            if (evidence == null ||
+                current == null ||
+                !dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowRecovery.sameAttempt(evidence.run, current) ||
+                current.chatId != _chatRoom.value.id ||
+                isGenerationBusy()
+            ) {
+                _attachmentNotice.value = "The saved response or its evidence changed. Reopen the workflow to review its current recovery action."
+                return@launch
+            }
+            // Older ordinary chats may own a native workflow without a GitHub display context.
+            // Its durable task is retained; normal retry admission still checks today's tool policy.
+            if ((_chatToolConfig.value.github == null && !evidence.hasSavedTask) || action !in evidence.snapshot.recovery) {
+                _attachmentNotice.value = "This recovery action is no longer available. Open Status to review the saved workflow."
+                return@launch
+            }
+            if (evidence.snapshot.sourceReadRecoveryAvailable) {
+                val sourceConnection = evidence.sourceConnectionUid
+                val permitted = try {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        val features = settingRepository.getFeatureSettings()
+                        val profile = settingRepository.fetchPlatformV2s().firstOrNull { it.uid == current.profileUid && it.enabled }
+                        val connection = sourceConnection?.let { toolConnectionRepository.getConnection(it) }
+                        profile != null &&
+                            connection?.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.GITHUB &&
+                            features.isToolPluginEnabledForProfile(profile.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB) &&
+                            features.isToolPluginEnabledForProfile(profile.uid, dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(connection.connectionUid))
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    false
+                }
+                if (!permitted) {
+                    _attachmentNotice.value = "Restore the saved profile's GitHub access before restoring this read. Its source receipt is retained."
+                    return@launch
+                }
+            }
+            if (_chatRoom.value.id != current.chatId || isGenerationBusy() || _agentRunsById.value[runId]?.let { dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubWorkflowRecovery.sameAttempt(current, it) } != true) return@launch
+            val turnIndex = _groupedMessages.value.userMessages.indexOfFirst { it.id == current.userMessageId }
+            val row = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty()
+            val platformIndex = row.indexOfFirst { it.currentRunId == runId && it.platformType == current.profileUid }
+            if (platformIndex < 0) {
+                _attachmentNotice.value = "The saved response has changed. Open Status to select its current recovery action."
+                return@launch
+            }
+            retryChat(turnIndex, platformIndex, action)
         }
-        val turnIndex = _groupedMessages.value.userMessages.indexOfFirst { it.id == run.userMessageId }
-        val row = _groupedMessages.value.assistantMessages.getOrNull(turnIndex).orEmpty()
-        val platformIndex = row.indexOfFirst { it.currentRunId == runId && it.platformType == run.profileUid }
-        if (platformIndex < 0) {
-            _attachmentNotice.value = "The saved response has changed. Open Status to select its current recovery action."
-            return
-        }
-        retryChat(turnIndex, platformIndex, action)
     }
 
     /** Recovery controls are bound to the card's persisted original turn, never latest chat text. */

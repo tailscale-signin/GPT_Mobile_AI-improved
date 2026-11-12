@@ -5187,6 +5187,7 @@ class ChatRepositoryImpl(
                 firstSession,
                 maxContinuations = continuationLimit,
                 targetWords = remainingWordGoal,
+                requestedRepetitionCharacters = dev.chungjungsoo.gptmobile.data.agent.LongResponsePolicy.requestedRepetitionCharacters(contextPlan.turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()),
                 adaptToObservedOutput = true,
                 recoverTransientFailures = contextPlan.multipass == null && (!editorialPass || chatToolConfig?.combined?.requested?.singlePass != true),
                 initialDraft = restoredDraft,
@@ -5203,11 +5204,7 @@ class ChatRepositoryImpl(
                     requestPlatform.systemPrompt.orEmpty(),
                     limits.copy(outputTokens = resolvedOutputCap),
                     draft,
-                    when {
-                        continuationTrigger == dev.chungjungsoo.gptmobile.data.agent.ContinuationTrigger.NO_PROGRESS -> "\n\nThe prior continuation added no new answer. Regenerate only new continuation after the exact saved tail; never restart or duplicate earlier sections. "
-                        draft.isBlank() -> "\n\nThe previous packet contained no visible answer. Write the first substantive section now with minimal reasoning. "
-                        else -> "\n\nContinue the same answer at its stopping point. "
-                    } +
+                    dev.chungjungsoo.gptmobile.data.agent.responseContinuationInstruction(continuationTrigger, draft) +
                         "Preserve completed facts and evidence; do not restart or repeat tools. " +
                         (wordGoal?.takeUnless { structuredEditorial }?.let { "Goal: approximately $it words total; ${previousAnswerWords + dev.chungjungsoo.gptmobile.data.agent.CombinedWordCounter.count(draft)} already saved. Develop remaining topics without padding or invented facts. " } ?: "Complete the remaining requested topics. ") +
                         "Keep the established order and formatting. If the last paragraph is complete, start a new paragraph.",

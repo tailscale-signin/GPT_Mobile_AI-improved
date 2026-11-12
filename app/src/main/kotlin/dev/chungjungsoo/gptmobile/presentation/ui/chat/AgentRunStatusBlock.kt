@@ -102,7 +102,7 @@ fun AgentRunStatusBlock(run: AgentRun?, modifier: Modifier = Modifier) {
         return
     }
 
-    val status = when (run.status) {
+    val status = dev.chungjungsoo.gptmobile.data.agent.gatewayRunStopState(run)?.label ?: when (run.status) {
         AgentRunStatus.PARTIAL -> stringResource(R.string.agent_run_partial)
         AgentRunStatus.EVIDENCE_MISSING -> stringResource(R.string.agent_run_evidence_missing)
         AgentRunStatus.BLOCKED -> stringResource(R.string.agent_run_blocked)

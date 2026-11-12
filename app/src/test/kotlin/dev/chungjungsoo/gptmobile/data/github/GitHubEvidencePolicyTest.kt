@@ -206,6 +206,7 @@ class GitHubEvidencePolicyTest {
         assertTrue(text.contains("[fix/feature](https://github.com/other/project/tree/fix/feature)"))
         assertTrue(text.contains("[$sha](https://github.com/other/project/commit/$sha)"))
         assertTrue(text.contains("[42](https://github.com/other/project/pull/42)"))
+        assertTrue(text, text.contains("| Historical observation · PR 42 · Head sha |"))
         assertTrue(text.contains("As of (UTC)"))
         assertTrue(text.contains("1970-01-01T00:00:01Z"))
         assertTrue(text.contains("Recommendation (inference)"))

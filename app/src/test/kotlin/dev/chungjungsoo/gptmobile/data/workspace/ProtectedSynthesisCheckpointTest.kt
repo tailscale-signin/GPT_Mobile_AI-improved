@@ -55,7 +55,7 @@ class ProtectedSynthesisCheckpointTest {
     @Test fun conditionalRecoveryCheckpointCannotReplaceChangedEvidenceOrASupersededOwner() = runBlocking {
         val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Recovery")).toInt()
         val user = database.agentPersistenceDao().insertMessage(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = chat, content = "Task", platformType = null)).toInt()
-        val answer = database.agentPersistenceDao().insertMessage(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = chat, platformType = "profile", currentRunId = "run", ownershipFence = 3)).toInt()
+        val answer = database.agentPersistenceDao().insertMessage(dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = chat, content = "", platformType = "profile", currentRunId = "run", ownershipFence = 3)).toInt()
         database.agentRunDao().upsert(dev.chungjungsoo.gptmobile.data.database.entity.AgentRun("run", chat, user, answer, "profile", "CUSTOM", "model", "RUNNING", ownershipFence = 3))
         val repository = WorkspaceRepository(database, vault)
         val first = buildJsonObject { put("state", "WAITING_PROVIDER_LIMIT") }

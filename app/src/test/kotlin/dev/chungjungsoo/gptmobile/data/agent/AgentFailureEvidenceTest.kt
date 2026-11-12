@@ -34,7 +34,7 @@ class AgentFailureEvidenceTest {
 
     @Test fun coordinatorDoesNotApplyAnEarlierProviderDispatchToTheCurrentRecoveryRefusal() {
         val prior = ProfileFailureRecord("RATE_LIMIT", true, dispatched = true, remoteAcceptance = RemoteRequestAcceptance.NO, phase = "model_invocation", invocationId = "earlier")
-        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = 1, platformType = "profile", timeline = listOf(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, profileFailure = prior)))
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = 1, content = "", platformType = "profile", timeline = listOf(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, profileFailure = prior)))
         val failure = requireNotNull(coordinatorFailureRecord(message, ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED"), false))
         assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", failure.category)
         assertEquals(false, failure.dispatched)

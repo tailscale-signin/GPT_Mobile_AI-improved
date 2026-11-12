@@ -49,11 +49,11 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class ProviderWaitRecoveryTest {
-    private class Fixture(val partial: String = "") {
+    private class Fixture(val partial: String = "", token: String? = null) {
         val context = RuntimeEnvironment.getApplication()
         val database = Room.inMemoryDatabaseBuilder(context, ChatDatabaseV2::class.java).build()
         val dao = database.agentPersistenceDao()
-        val original = PlatformV2(uid = "p", name = "Provider", compatibleType = ClientType.CUSTOM, apiUrl = "https://writer.example/v1", model = "model", enabled = true)
+        val original = PlatformV2(uid = "p", name = "Provider", compatibleType = ClientType.CUSTOM, apiUrl = "https://writer.example/v1", model = "model", enabled = true, token = token)
         var current = original
         var helpers = emptyList<PlatformV2>()
         var features = AppFeatureSettings()
@@ -127,6 +127,31 @@ class ProviderWaitRecoveryTest {
         collectionDecisions = decisions
     )
 
+    @Test fun paidSharedCooldownDefersBeforeMarkingRunningOrPreparingTheModelRequest() = runBlocking {
+        val fixture = Fixture(token = "test-${java.util.UUID.randomUUID()}")
+        mockkObject(ProviderLimitResumeWorker.Companion)
+        try {
+            every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            fixture.initialize()
+            fixture.dao.updateRunStatus("run", "QUEUED", null, null, null)
+            dev.chungjungsoo.gptmobile.data.network.ProviderCooldown.defer(dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig(fixture.original.apiUrl, fixture.original.token), "60")
+            val repository = repository(fixture)
+            coordinator(fixture, repository, CombinedCollectionDecisionStore(fixture.context)).start(listOf(fixture.request))
+            assertEquals("WAITING_PROVIDER_LIMIT", fixture.dao.recoveryRun("run")?.status)
+            assertNull(fixture.dao.recoveryRun("run")?.startedAt)
+            val wait = fixture.codec.decodeFromString<ProviderWaitCheckpoint>(requireNotNull(fixture.dao.rawProviderWait("run")).checkpoint)
+            assertEquals("LOCAL_COOLDOWN_ACTIVE", wait.decision?.category)
+            assertNull(wait.decision?.httpStatus)
+            assertTrue(requireNotNull(wait.decision).knownNotAccepted)
+            assertTrue(wait.decision.retryAt > System.currentTimeMillis())
+            coVerify(exactly = 0) { repository.markAgentRunRunning(any(), any()) }
+            coVerify(exactly = 0) { repository.completeChat(any(), any(), any(), any(), any(), any()) }
+        } finally {
+            unmockkObject(ProviderLimitResumeWorker.Companion)
+            fixture.database.close()
+        }
+    }
+
     @Test fun githubWaitResumesTheSameRunAndFenceWithAnEmptyAnswer() = runBlocking {
         val fixture = Fixture()
         mockkObject(ProviderLimitResumeWorker.Companion)
@@ -147,6 +172,83 @@ class ProviderWaitRecoveryTest {
             assertEquals(3L, resumed.assistantMessage.ownershipFence)
             assertEquals(checkpoint, resumed.providerGitHubCheckpoint)
             assertEquals("QUEUED", fixture.dao.recoveryRun("run")?.status)
+            assertEquals(5L, fixture.dao.recoveryRun("run")?.startedAt)
+            // A process restart after claiming preserves both the owner and its first start.
+            assertEquals(0, fixture.database.agentRunDao().interruptActiveRuns(100))
+            assertEquals("run", fixture.store.readyActions(limit.scope).single().request.runId)
+            assertEquals(1, fixture.database.agentRunDao().markRunning("run", 200))
+            assertEquals(5L, fixture.dao.recoveryRun("run")?.startedAt)
+        } finally {
+            unmockkObject(ProviderLimitResumeWorker.Companion)
+            fixture.database.close()
+        }
+    }
+
+    @Test fun githubTerminalFailureReconcilesItsRetainedCheckpointAfterResume() = runBlocking {
+        val fixture = Fixture()
+        val secrets = mutableMapOf<String, ByteArray>()
+        val vault = object : dev.chungjungsoo.gptmobile.data.security.SecretVault {
+            override suspend fun put(secretRef: String, secret: ByteArray) {
+                secrets[secretRef] = secret.copyOf()
+            }
+            override suspend fun read(secretRef: String): ByteArray? = secrets[secretRef]?.copyOf()
+            override suspend fun delete(secretRef: String) {
+                secrets.remove(secretRef)
+            }
+        }
+        val workspace = dev.chungjungsoo.gptmobile.data.workspace.WorkspaceRepository(fixture.database, vault)
+        val store = ProviderWaitStore(fixture.context, fixture.database, fixture.settings, workspace)
+        mockkObject(ProviderLimitResumeWorker.Companion)
+        try {
+            every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } just Runs
+            fixture.initialize()
+            val value = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"draft":"Retained draft","completed_results":[{"call_id":"write-1","status":"SUCCEEDED"}],"failure_code":"429"}""") as kotlinx.serialization.json.JsonObject
+            val checkpoint = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint("b".repeat(64), researchHash(value.toString()))
+            val id = "github-output:${checkpoint.binding}"
+            workspace.saveProtectedSynthesisCheckpoint(id, 1, "run", value)
+            val limit = fixture.decision().copy(gitHubCheckpoint = checkpoint)
+            assertTrue(store.deferRunning(fixture.request, limit))
+            assertEquals("run", store.resumeGitHubStep(store.readyActions(limit.scope).single())?.runId)
+            assertEquals(1, fixture.database.agentRunDao().markRunning("run", 200))
+            assertEquals(1, fixture.database.agentRunDao().finishActive("run", "FAILED", 210, "PROVIDER_WAIT_CHECKPOINT_CHANGED"))
+            assertTrue(store.reconcileTerminalCheckpoint("run"))
+            val result = requireNotNull(workspace.protectedSynthesisCheckpoint(id))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("FAILED"), result["state"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), result["resume_allowed"])
+            assertEquals(value["completed_results"], result["completed_results"])
+            assertEquals(value["draft"], result["draft"])
+            assertTrue(store.pendingIds().isEmpty())
+            assertFalse(store.reconcileTerminalCheckpoint("run"))
+        } finally {
+            unmockkObject(ProviderLimitResumeWorker.Companion)
+            fixture.database.close()
+        }
+    }
+
+    @Test fun anUnreadableTerminalCheckpointDoesNotPreventSchedulingAnotherActiveWait() = runBlocking {
+        val fixture = Fixture()
+        val scheduled = mutableListOf<String>()
+        mockkObject(ProviderLimitResumeWorker.Companion)
+        try {
+            every { ProviderLimitResumeWorker.enqueue(any(), any(), any(), any()) } answers { scheduled += arg<String>(1) }
+            fixture.initialize()
+            val value = Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true}""") as kotlinx.serialization.json.JsonObject
+            fixture.gitHubCheckpoint = value
+            val limit = fixture.decision().copy(gitHubCheckpoint = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint("b".repeat(64), researchHash(value.toString())))
+            assertTrue(fixture.store.deferRunning(fixture.request, limit))
+            assertEquals(1, fixture.database.agentRunDao().finishActive("run", "FAILED", 10, "PROVIDER_WAIT_CHECKPOINT_CHANGED"))
+            val retained = fixture.dao.rawProviderWait("run")
+            fixture.database.messageDao().addMessages(MessageV2(id = 3, chatId = 1, platformType = "p", linkedMessageId = 1, currentRunId = "active", ownershipFence = 4))
+            fixture.database.agentRunDao().upsert(AgentRun("active", 1, 1, 3, "p", "CUSTOM", "model", ownershipFence = 4))
+            val active = fixture.row(fixture.decision().copy(scope = "active-scope")).copy(runId = "active", fence = 4)
+            assertTrue(fixture.dao.deferProvider(active))
+            coEvery { fixture.workspace.protectedSynthesisCheckpoint(any()) } throws java.io.IOException("Unreadable encrypted checkpoint")
+            scheduled.clear()
+            fixture.store.reconcile()
+            assertEquals(listOf("active-scope"), scheduled)
+            assertEquals("WAITING_PROVIDER_LIMIT", fixture.dao.recoveryRun("active")?.status)
+            assertEquals(retained, fixture.dao.rawProviderWait("run"))
+            coVerify(exactly = 0) { fixture.workspace.finishProviderCheckpoint(any(), any(), any(), any(), any(), any(), any()) }
         } finally {
             unmockkObject(ProviderLimitResumeWorker.Companion)
             fixture.database.close()

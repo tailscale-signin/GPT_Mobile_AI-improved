@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobReadCoordinator
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
 import io.ktor.client.HttpClient
@@ -36,15 +37,14 @@ import kotlinx.serialization.json.intOrNull
 class GatewayJobClient internal constructor(
     private val http: HttpClient,
     private val evictIdleConnections: suspend () -> Unit = {},
-    private val now: () -> Long = { System.nanoTime() / 1_000_000 }
+    private val now: () -> Long = { System.nanoTime() / 1_000_000 },
+    private val jobReads: GatewayJobReadCoordinator = GatewayJobReadCoordinator.shared
 ) {
     @Inject constructor(network: NetworkClient) : this(network.gatewayReadClient(), network::evictIdleConnections)
     private val json = Json { ignoreUnknownKeys = true }
-    private data class CommandObservation(val receipt: GatewayCommandReceipt?, val misses: Int)
+    private data class CommandObservation(val receipt: GatewayCommandReceipt?, val interval: Long, val runtime: String)
     private val commandMisses = linkedMapOf<String, Int>()
-    private val commandObservations = RouteCapabilityCache<CommandObservation>(now, valueTtl = {
-        if (it.receipt == null) (5_000L shl (it.misses - 1).coerceIn(0, 4)).coerceAtMost(60_000L) else 0L
-    })
+    private val commandObservations = RouteCapabilityCache<CommandObservation>(now, valueTtl = { it.interval })
 
     private suspend fun read(config: ProviderRequestConfig, path: String, maxBytes: Int = 2_000_000): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
@@ -191,11 +191,8 @@ class GatewayJobClient internal constructor(
 
     private suspend fun lookupCommand(config: ProviderRequestConfig, commandId: String, forceRefresh: Boolean): GatewayCommandReceipt? {
         pathId(commandId)
-        val authority = config.extraHeaders.entries
-            .filter { it.key.equals("X-Gateway-Installation-ID", true) || it.key.equals("X-Gateway-Principal-ID", true) }
-            .sortedBy { it.key.lowercase() }.joinToString("\n") { "${it.key.lowercase()}:${it.value}" }
-        val key = gatewayIdentityKey(GatewaySurfacePolicy.identity(config), authority, commandId)
-        return commandObservations.getOrLoad(key, forceRefresh = forceRefresh) {
+        val key = gatewayIdentityKey(GatewayJobReadCoordinator.scope(config), commandId)
+        return commandObservations.getOrLoad(key, forceRefresh = forceRefresh, isCurrent = { it?.runtime == GatewayClientDiagnostics.runtimeEpoch(config) }) {
             val receipt = readCommand(config, commandId)
             val misses = synchronized(commandMisses) {
                 if (receipt == null) {
@@ -206,7 +203,14 @@ class GatewayJobClient internal constructor(
                     0
                 }
             }
-            CommandObservation(receipt, misses)
+            val interval = if (receipt == null) {
+                (5_000L shl (misses - 1).coerceIn(0, 4)).coerceAtMost(60_000L)
+            } else {
+                // Accepted command identity is immutable. Passive loops must not
+                // reread it before their job-result polling deadline either.
+                maxOf(60_000L, jobReads.remaining(config, receipt.jobId))
+            }
+            CommandObservation(receipt, interval, GatewayClientDiagnostics.runtimeEpoch(config))
         }?.receipt
     }
 

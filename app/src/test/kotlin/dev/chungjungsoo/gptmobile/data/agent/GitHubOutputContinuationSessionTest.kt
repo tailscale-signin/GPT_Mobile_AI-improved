@@ -134,11 +134,14 @@ class GitHubOutputContinuationSessionTest {
 
     @Test fun providerCooldownRestoresTheSameToolBoundaryWithNoVisibleDraft() = runBlocking {
         val binding = "a".repeat(64)
-        val context = JsonObject(mapOf("task_binding" to JsonPrimitive(binding)))
+        val scope = "2:17:profile"
+        val journalKey = GitHubProviderToolCheckpoint.binding(scope, "original-dispatch-guard", null, null)
+        val context = JsonObject(mapOf("task_binding" to JsonPrimitive(binding), "tool_checkpoint_binding" to JsonPrimitive(journalKey)))
         val calls = listOf("context", "search").map { id -> ProviderEvent.ToolCall(id, tool.name, JsonObject(emptyMap())) }
         val results = calls.map { AgentToolResult(it.callId, ToolResultContent.Text("Saved ${it.callId}"), false) }
         val receipts = listOf(AgentToolExchange(calls, results))
         val restored = calls.zip(results).map { (call, result) -> AgentToolExchange(listOf(call), listOf(result)) }
+        val journals = mapOf(journalKey to restored)
         val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OPENROUTER", "profile", "model", 30_000, "scope", "PROVIDER_RATE_LIMITED", true)
         val rateLimited = ProviderEvent.Failed("Provider limit", errorCode = "429", providerLimit = limit)
         var checkpoint: JsonObject? = null
@@ -152,10 +155,11 @@ class GitHubOutputContinuationSessionTest {
         val saved = requireNotNull(rejected.providerLimit?.gitHubCheckpoint)
         assertEquals(JsonPrimitive("WAITING_PROVIDER_LIMIT"), checkpoint?.get("state"))
         assertTrue(saved.matches(requireNotNull(checkpoint)))
-        val output = GitHubOutputContinuationSession(
+        val resumed = GitHubOutputContinuationSession(
             session(),
             recoveryRevision = "same-run",
             expectedProviderCheckpoint = saved,
+            toolCheckpointBinding = GitHubProviderToolCheckpoint.binding(scope, "resumed-provider-wait-guard", saved, checkpoint),
             checkpointContext = context,
             readCheckpoint = { checkpoint },
             saveCheckpoint = { checkpoint = it }
@@ -163,7 +167,8 @@ class GitHubOutputContinuationSessionTest {
             assertEquals("", draft)
             assertEquals(restored, exchanges)
             session(ProviderEvent.TextDelta("Finished from saved results."), ProviderEvent.Completed)
-        }.streamRound(listOf(tool), restored).toList()
+        }
+        val output = resumed.streamRound(listOf(tool), journals[resumed.toolCheckpointBinding].orEmpty()).toList()
         assertTrue(output.none { it is ProviderEvent.ToolCall })
         assertEquals("Finished from saved results.", output.filterIsInstance<ProviderEvent.TextDelta>().single().text)
     }

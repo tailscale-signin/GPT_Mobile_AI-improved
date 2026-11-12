@@ -108,10 +108,39 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
 
     /** Each encrypted chunk fits the vault limit. Publish metadata only after all chunks exist. */
     suspend fun saveProtectedSynthesisCheckpoint(id: String, chatId: Int, runId: String, payload: kotlinx.serialization.json.JsonObject, appendOnly: Boolean = false, engineeringMemory: Boolean = false) {
-        if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return
+        writeProtectedSynthesisCheckpoint(id, chatId, runId, payload, appendOnly, engineeringMemory)
+    }
+
+    /** Terminal reconciliation is a compare-and-set of the exact saved bytes and their current owner. */
+    internal suspend fun finishProviderCheckpoint(
+        id: String,
+        chatId: Int,
+        runId: String,
+        fence: Long,
+        expectedDigest: String,
+        expectedStatus: String,
+        payload: kotlinx.serialization.json.JsonObject
+    ): Boolean {
+        require(expectedDigest.matches(Regex("[a-f0-9]{64}")))
+        require(expectedStatus in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal)
+        return writeProtectedSynthesisCheckpoint(id, chatId, runId, payload, expectedDigest = expectedDigest, expectedFence = fence, expectedStatus = expectedStatus)
+    }
+
+    private suspend fun writeProtectedSynthesisCheckpoint(
+        id: String,
+        chatId: Int,
+        runId: String,
+        payload: kotlinx.serialization.json.JsonObject,
+        appendOnly: Boolean = false,
+        engineeringMemory: Boolean = false,
+        expectedDigest: String? = null,
+        expectedFence: Long? = null,
+        expectedStatus: String? = null
+    ): Boolean {
+        if (chatId <= 0 || database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return false
         if (appendOnly && dao.get(id) != null) {
             check(protectedSynthesisCheckpoint(id) == payload) { "Existing evidence is immutable" }
-            return
+            return true
         }
         val bytes = payload.toString().encodeToByteArray()
         require(bytes.size <= 1_500_000) { "Synthesis checkpoint exceeds retention limit" }
@@ -133,10 +162,28 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                 put("protectedChunks", kotlinx.serialization.json.JsonArray(references.map { kotlinx.serialization.json.JsonPrimitive(it) }))
                 put("digest", kotlinx.serialization.json.JsonPrimitive(payloadDigest))
             }
-            val previous = dao.get(id)?.payload?.let { Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }
+            var previous: kotlinx.serialization.json.JsonObject? = null
             committed = database.withTransaction {
                 if (database.chatRoomDao().getChatRoomsByIds(listOf(chatId)).singleOrNull()?.isTemporary != false) return@withTransaction false
-                check(!appendOnly || dao.get(id) == null) { "Evidence was already appended; refresh before retrying" }
+                val existing = dao.get(id)
+                previous = existing?.payload?.let { Json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }
+                if (expectedDigest != null) {
+                    val run = database.agentPersistenceDao().rawRecoveryRun(runId) ?: return@withTransaction false
+                    val owner = database.agentPersistenceDao().rawRecoveryMessage(run.assistantMessageId) ?: return@withTransaction false
+                    if (existing?.runId != runId ||
+                        existing.chatId != chatId ||
+                        previous?.get("digest") != kotlinx.serialization.json.JsonPrimitive(expectedDigest) ||
+                        run.chatId != chatId ||
+                        run.ownershipFence != expectedFence ||
+                        run.status != expectedStatus ||
+                        owner.chatId != chatId ||
+                        owner.currentRunId != runId ||
+                        owner.ownershipFence != expectedFence
+                    ) {
+                        return@withTransaction false
+                    }
+                }
+                check(!appendOnly || existing == null) { "Evidence was already appended; refresh before retrying" }
                 dao.save(
                     WorkspaceRecord(
                         id,
@@ -165,7 +212,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                 kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                     references.forEach { reference -> runCatching { vault.delete(reference) } }
                 }
-                return
+                return false
             }
             kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
                 (previous?.get("protectedChunks") as? kotlinx.serialization.json.JsonArray).orEmpty().forEach {
@@ -174,6 +221,7 @@ class WorkspaceRepository @Inject constructor(val database: ChatDatabaseV2, priv
                     }
                 }
             }
+            return true
         } catch (error: Exception) {
             // Unpublished chunks are safe to remove; a published record must remain readable.
             if (!committed) {

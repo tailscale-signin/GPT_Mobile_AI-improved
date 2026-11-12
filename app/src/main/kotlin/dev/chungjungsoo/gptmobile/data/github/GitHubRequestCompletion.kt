@@ -168,7 +168,8 @@ internal object GitHubRequestCompletion {
         val informational = informational(task)
         val sessionReview = informational && sessionReview(requestText(task))
         val acceptedClaimStatuses = if (sessionReview) setOf("VERIFIED", "INFERRED", "HISTORICAL") else setOf("VERIFIED", "INFERRED")
-        val verified = claims.isNotEmpty() && claims.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
+        val assertions = claims.filterNot(GitHubEvidencePolicy::explicitlyUnmeasured)
+        val verified = assertions.isNotEmpty() && assertions.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
         val requirements = requirements(task)
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts).isNotEmpty()

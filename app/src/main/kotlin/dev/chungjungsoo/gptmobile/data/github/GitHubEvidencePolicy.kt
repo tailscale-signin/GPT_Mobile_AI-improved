@@ -126,6 +126,9 @@ internal object GitHubEvidencePolicy {
         }
     }
 
+    /** An explicit limitation is not an affirmative fact with missing evidence. */
+    internal fun explicitlyUnmeasured(claim: JsonObject): Boolean = claim.string("kind") == "not_measured" && claim.string("status") == "NOT_MEASURED"
+
     /** Reuse a completed batch only if its claims still verify against the current receipt set. */
     fun canReuseExtractionBatch(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String): Boolean {
         val claims = answer["claims"] as? JsonArray ?: return false
@@ -133,10 +136,11 @@ internal object GitHubEvidencePolicy {
         val checked = runCatching { render(answer, receipts, now, epoch, task).second["claims"] as? JsonArray }.getOrNull() ?: return false
         if (checked.size != claims.size) return false
         val allowed = if (informationalReview(task)) setOf("VERIFIED", "INFERRED", "HISTORICAL") else setOf("VERIFIED", "INFERRED")
-        return checked.filterIsInstance<JsonObject>().all { it.string("status") in allowed }
+        val assertions = checked.filterIsInstance<JsonObject>().filterNot(::explicitlyUnmeasured)
+        return assertions.isNotEmpty() && assertions.all { it.string("status") in allowed }
     }
 
-    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null): Pair<String, JsonObject> {
+    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, acceptedContract: JsonObject? = null): Pair<String, JsonObject> {
         val claims = answer["claims"] as? JsonArray ?: error("Missing claim-level evidence response")
         require(claims.size in 1..128) { "Claim count exceeds the verification bound" }
         val checked = mutableListOf<JsonObject>()
@@ -208,12 +212,14 @@ internal object GitHubEvidencePolicy {
                     checked += buildJsonObject {
                         put("kind", "not_measured")
                         put("status", "NOT_MEASURED")
+                        put("subject", safe(claim.string("subject").take(160)))
                     }
                     "- **Not available / Not measured:** ${safe(claim.string("subject").take(160))}"
                 }
                 else -> error("Unsupported claim kind")
             }
         }
+        val assertions = checked.filterNot(::explicitlyUnmeasured)
         val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now)
         val report = buildJsonObject {
             put("schema", "github.verification.v1")
@@ -221,23 +227,24 @@ internal object GitHubEvidencePolicy {
             put("claims", JsonArray(checked))
             put("verified_claim_count", checked.count { it.string("status") in setOf("VERIFIED", "HISTORICAL") })
             put("historical_claim_count", checked.count { it.string("status") == "HISTORICAL" })
-            put("unresolved_claims", JsonArray(checked.filter { it.string("status") !in setOf("VERIFIED", "INFERRED", "HISTORICAL") }))
+            put("unresolved_claims", JsonArray(assertions.filter { it.string("status") !in setOf("VERIFIED", "INFERRED", "HISTORICAL") }))
+            put("unmeasured_scope", JsonArray(checked.filter(::explicitlyUnmeasured)))
             put("completion_verified", completion.getValue("completion_verified"))
             put("partial", completion["completion_verified"] != JsonPrimitive(true))
             put("response_prepared", true)
             put("response_delivered", false)
-            put("claims_verified", checked.isNotEmpty() && checked.all { it.string("status") in setOf("VERIFIED", "HISTORICAL") })
+            put("claims_verified", assertions.isNotEmpty() && assertions.all { it.string("status") in setOf("VERIFIED", "HISTORICAL") })
             put("task_outcome", completion.getValue("task_outcome"))
             put("task", task)
             put("operation_coverage", JsonArray(GitHubTaskCoverage.rows(receipts)))
-            if (GitHubTaskCoverage.matches(task)) put("test_checklist", GitHubTestChecklist.checkpoint(task, receipts, tools))
+            if (GitHubTaskCoverage.matches(task)) put("test_checklist", GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, acceptedContract = acceptedContract))
             completion.forEach { (key, value) -> put(key, value) }
         }
         val questions = (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.take(4)
         val facts = lines.filter { it.startsWith("| ") }.distinct()
         val notes = lines.filter { it.isNotBlank() && !it.startsWith("| ") }.distinct()
         val text = if (GitHubTaskCoverage.matches(task)) {
-            "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task, tools, remainingToolCalls) +
+            "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task, tools, remainingToolCalls, acceptedContract) +
                 if (facts.isNotEmpty()) "\n## Verified observations\n\n| Detail | Result | As of (UTC) |\n| --- | --- | --- |\n" + facts.joinToString("\n") else ""
         } else {
             GitHubAnswerPresentation.render(task, facts, notes, excerpts, questions.map { safe(it.take(240)) })
@@ -255,8 +262,8 @@ internal object GitHubEvidencePolicy {
     }
 
     /** A formatter outage cannot turn a private draft into proof or erase retained observations. */
-    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null): Pair<String, JsonObject> {
-        if (GitHubTaskCoverage.matches(task)) return testing(receipts, now, epoch, task)
+    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, acceptedContract: JsonObject? = null): Pair<String, JsonObject> {
+        if (GitHubTaskCoverage.matches(task)) return testing(receipts, now, epoch, task, tools, remainingToolCalls, acceptedContract)
         val allowHistorical = historicalReview(task)
         val claims = mutableListOf<JsonObject>()
         for ((id, receipt) in receipts.entries.sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }) {
@@ -406,7 +413,7 @@ internal object GitHubEvidencePolicy {
     }
 
     /** Deterministic test reporting does not need another model to rediscover execution receipts. */
-    fun testing(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null): Pair<String, JsonObject> {
+    fun testing(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, acceptedContract: JsonObject? = null): Pair<String, JsonObject> {
         val claims = mutableListOf<JsonObject>()
         val operations = mutableSetOf<String>()
         for ((id, receipt) in receipts.entries.reversed()) {
@@ -432,7 +439,7 @@ internal object GitHubEvidencePolicy {
             put("kind", "not_measured")
             put("subject", "Full requested test coverage requires execution evidence")
         }
-        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, tools, remainingToolCalls)
+        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, tools, remainingToolCalls, acceptedContract)
         val complete = GitHubTestChecklist.apiComplete(task, receipts, tools)
         return text to JsonObject(
             report + buildJsonObject {

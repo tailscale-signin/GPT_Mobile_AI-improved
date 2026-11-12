@@ -17,7 +17,8 @@ internal object GitHubIntegrationPreparation {
         tools: List<AgentToolDefinition>,
         capabilities: JsonArray,
         remainingToolCalls: Int?,
-        approval: JsonObject?
+        approval: JsonObject?,
+        acceptedContract: JsonObject? = null
     ): JsonObject {
         val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
         val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remainingToolCalls)
@@ -50,7 +51,7 @@ internal object GitHubIntegrationPreparation {
             put("automatic_permission_changes", false)
             put("automatic_budget_increase", false)
             put("scope", "Prepare exact authorized reads and the supported task-owned content fixture. Missing IDs, approval or cleanup recipes remain explicit prerequisites.")
-            put("budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools)))
+            put("budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools), acceptedContract))
             put("ready_read_count", readCalls.size)
             put("ready_reads", JsonArray(readCalls.take(16).map(::call)))
             put("additional_ready_read_count", (readCalls.size - 16).coerceAtLeast(0))
@@ -97,6 +98,7 @@ internal object GitHubIntegrationPreparation {
         "CHECK_SUBSCRIPTION_REQUIRED" -> listOf("Observed run/PR and exact head SHA", "Bounded inline observation or separately verified saved-chat subscription")
         "RELEASE_OR_TAG_REQUIRED" -> listOf("Tag or release from the selected repository inventory")
         "REPOSITORY_INPUT_REQUIRED" -> listOf("Authorized repository/ref", "Observed immutable revision and source path")
+        "REPOSITORY_LIFECYCLE_REQUIRED" -> listOf("Retained create/fork/import/clone operation", "Gateway operation_id or native expected_repository_id with its original destination and operation")
         "AUTHORIZATION_REQUIRED", "HISTORICAL_CONTRACT_CHANGED" -> listOf("Current operation authorization and catalog binding")
         "CONTINUATION_REQUIRED" -> listOf("Exact issued continuation and sufficient remaining read allowance")
         else -> listOf("The retained criterion's exact blocker and current authorized tool contract")

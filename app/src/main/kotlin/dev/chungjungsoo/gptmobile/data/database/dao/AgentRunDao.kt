@@ -72,7 +72,7 @@ interface AgentRunDao : RunPolicySnapshotAccess {
     )
 
     @Query(
-        "UPDATE agent_runs SET status = 'RUNNING', started_at = :startedAt, " +
+        "UPDATE agent_runs SET status = 'RUNNING', started_at = COALESCE(started_at, :startedAt), " +
             "completed_at = NULL, terminal_error = NULL WHERE run_id = :runId AND status = 'QUEUED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)"
     )
     suspend fun markRunning(runId: String, startedAt: Long): Int
@@ -112,7 +112,7 @@ interface AgentRunDao : RunPolicySnapshotAccess {
 
     @Query(
         "UPDATE agent_runs SET status = 'INTERRUPTED', completed_at = :completedAt " +
-            "WHERE status IN ('QUEUED', 'RUNNING') AND NOT (status = 'QUEUED' AND started_at IS NULL AND EXISTS (SELECT 1 FROM provider_waits w WHERE w.runId = agent_runs.run_id AND w.fence = agent_runs.ownership_fence))"
+            "WHERE status IN ('QUEUED', 'RUNNING') AND NOT (status = 'QUEUED' AND EXISTS (SELECT 1 FROM provider_waits w WHERE w.runId = agent_runs.run_id AND w.fence = agent_runs.ownership_fence))"
     )
     suspend fun interruptActiveRuns(completedAt: Long): Int
 

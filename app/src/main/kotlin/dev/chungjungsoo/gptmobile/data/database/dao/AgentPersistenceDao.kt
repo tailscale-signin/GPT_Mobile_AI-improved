@@ -50,6 +50,9 @@ interface AgentPersistenceDao :
     @Query("SELECT * FROM provider_waits WHERE runId = :runId")
     suspend fun rawProviderWait(runId: String): dev.chungjungsoo.gptmobile.data.agent.ProviderWait?
 
+    @Query("SELECT w.runId FROM provider_waits w JOIN agent_runs r ON r.run_id = w.runId JOIN messages_v2 m ON m.message_id = r.assistant_message_id WHERE r.status IN ('COMPLETED', 'FAILED', 'CANCELED', 'INTERRUPTED', 'PARTIAL', 'EVIDENCE_MISSING', 'BLOCKED', 'WAITING_FOR_APPROVAL') AND r.ownership_fence = w.fence AND m.current_run_id = r.run_id AND m.ownership_fence = w.fence")
+    suspend fun terminalProviderWaitIds(): List<String>
+
     @Query("UPDATE agent_runs SET status = 'WAITING_PROVIDER_LIMIT', terminal_error = NULL WHERE run_id = :runId AND ownership_fence = :fence AND status = 'RUNNING' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = :fence)")
     suspend fun markRunningProviderWaiting(runId: String, fence: Long): Int
 
@@ -147,10 +150,21 @@ interface AgentPersistenceDao :
         return true
     }
 
-    @Query("UPDATE agent_runs SET status = 'QUEUED', started_at = NULL WHERE run_id = :runId AND ownership_fence = :fence AND status = 'WAITING_PROVIDER_LIMIT' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = :fence)")
+    @Query("UPDATE agent_runs SET status = 'QUEUED' WHERE run_id = :runId AND ownership_fence = :fence AND status = 'WAITING_PROVIDER_LIMIT' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = :fence)")
     suspend fun claimProviderWait(runId: String, fence: Long): Int
 
-    @Query("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = :reason WHERE run_id = :runId AND (status = 'WAITING_PROVIDER_LIMIT' OR (status = 'QUEUED' AND started_at IS NULL))")
+    @Query("UPDATE agent_runs SET status = 'WAITING_PROVIDER_LIMIT', terminal_error = NULL WHERE run_id = :runId AND ownership_fence = :fence AND status = 'QUEUED' AND EXISTS (SELECT 1 FROM messages_v2 m WHERE m.message_id = agent_runs.assistant_message_id AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = :fence)")
+    suspend fun markClaimedProviderWaiting(runId: String, fence: Long): Int
+
+    @Transaction
+    suspend fun redeferClaimedProvider(expected: dev.chungjungsoo.gptmobile.data.agent.ProviderWait, row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait): Boolean {
+        if (expected.runId != row.runId || expected.fence != row.fence || rawProviderWait(row.runId) != expected) return false
+        if (markClaimedProviderWaiting(row.runId, row.fence) != 1) return false
+        saveProviderWait(row)
+        return true
+    }
+
+    @Query("UPDATE agent_runs SET status = 'INTERRUPTED', terminal_error = :reason WHERE run_id = :runId AND status IN ('WAITING_PROVIDER_LIMIT','QUEUED') AND EXISTS (SELECT 1 FROM provider_waits w JOIN messages_v2 m ON m.message_id = agent_runs.assistant_message_id WHERE w.runId = agent_runs.run_id AND w.fence = agent_runs.ownership_fence AND m.current_run_id = agent_runs.run_id AND m.ownership_fence = agent_runs.ownership_fence)")
     suspend fun blockProviderWait(runId: String, reason: String): Int
 
     @Transaction

@@ -227,6 +227,7 @@ class OpenAIAPIImpl @Inject constructor(
                     dispatchRetryGuard.dispatched()
                     requestDispatched = true
                     diagnosticHeaders = GatewayClientDiagnostics.requestHeaders(config, "chat", "POST")
+                    dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobReadCoordinator.continuing(config)
                     networkClient().preparePost(endpoint) {
                         applyPlatformStreamingTimeout(timeoutSeconds, workerBudget, connectionTimeout)
                         contentType(ContentType.Application.Json)
@@ -606,6 +607,7 @@ class OpenAIAPIImpl @Inject constructor(
                     definitelyNotTransmitted = !dispatchStarted || error is java.net.UnknownHostException || error is java.nio.channels.UnresolvedAddressException
                     throw error
                 } finally {
+                    if (dispatchStarted) dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobReadCoordinator.continuing(config)
                     GatewayClientDiagnostics.finished(diagnosticHeaders)
                     FreeAiRequestLimiter.shared.settle(quotaReservation, usageReceipt.settledTokens(), definitelyNotTransmitted)
                 }

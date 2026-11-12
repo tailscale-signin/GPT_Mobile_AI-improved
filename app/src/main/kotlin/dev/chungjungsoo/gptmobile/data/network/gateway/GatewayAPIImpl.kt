@@ -34,9 +34,11 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.intOrNull
 
-class GatewayAPIImpl @Inject constructor(
-    private val networkClient: NetworkClient
+class GatewayAPIImpl internal constructor(
+    private val networkClient: NetworkClient,
+    private val jobReads: GatewayJobReadCoordinator
 ) : GatewayAPI {
+    @Inject constructor(networkClient: NetworkClient) : this(networkClient, GatewayJobReadCoordinator.shared)
     private data class CapabilityAttempt(val runtimeIdentity: String, val value: GatewayCapabilities? = null, val failure: GatewayCapabilityDiscoveryException? = null)
     private val capabilities = dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache<CapabilityAttempt>(
         { System.nanoTime() / 1_000_000 },
@@ -217,6 +219,14 @@ class GatewayAPIImpl @Inject constructor(
         config: ProviderRequestConfig
     ): GatewayJobResult? {
         require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
+        return jobReads.result(config, jobId) {
+            var retryAfter: String? = null
+            val value = readJobResult(jobId, config) { retryAfter = it }
+            GatewayJobReadObservation(value, retryAfter)
+        }
+    }
+
+    private suspend fun readJobResult(jobId: String, config: ProviderRequestConfig, onRetryAfter: (String?) -> Unit): GatewayJobResult? {
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/result")
         return try {
             LocalEndpointConnectionPolicy.probe(endpoint, networkClient::evictIdleConnections) {
@@ -233,6 +243,7 @@ class GatewayAPIImpl @Inject constructor(
                         }
                     }.execute { response ->
                         GatewayClientDiagnostics.observe(config, response.status.value, response.call.request.headers["traceparent"]) { response.headers[it] }
+                        onRetryAfter(response.headers[HttpHeaders.RetryAfter])
                         when {
                             response.status.isSuccess() -> {
                                 val body = response.boundedMetadata(4 * 1024 * 1024)
@@ -279,6 +290,7 @@ class GatewayAPIImpl @Inject constructor(
     ): GatewayCancelResult? {
         require(jobId.matches(Regex("[A-Za-z0-9_-]{1,128}"))) { "Invalid Gateway job identifier." }
         val endpoint = config.buildEndpoint("gateway/jobs/$jobId/cancel")
+        jobReads.changed(config, jobId)
         return try {
             val responseBody = gatewayClientExchange(config, "job", safeRead = false, method = "POST") { requestHeaders ->
                 networkClient().preparePost(endpoint) {
@@ -300,6 +312,8 @@ class GatewayAPIImpl @Inject constructor(
             throw cancellation
         } catch (_: Exception) {
             null
+        } finally {
+            jobReads.changed(config, jobId)
         }
     }
 

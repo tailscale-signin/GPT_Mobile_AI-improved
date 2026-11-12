@@ -9,6 +9,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Dependency-aware smoke reads. Identifiers retain the resource type that supplied them. */
@@ -94,6 +95,8 @@ internal object GitHubSelfTestReads {
                 )
             }
             listOf("resolve", "index", "efficiency", "capabilities", "repository", "recovery").forEach { recipe("github_context", it) }
+            recipe("github_repository", "capabilities")
+            repositoryStatusArguments(observations)?.let { add("github_repository" to it) }
             if (sha != null) {
                 recipe("github_context", "commit", "commit_sha" to sha)
                 recipe("github_context", "commit_search", "query" to JsonPrimitive("hash:${sha.content}"))
@@ -174,6 +177,46 @@ internal object GitHubSelfTestReads {
             ready += ProviderEvent.ToolCall("checklist-" + GitHubEvidenceBook.digest("${tool.name}:$args").take(24), tool.name, args)
         }
         return ready.sortedBy(::priority)
+    }
+
+    /** Lifecycle status uses its own creation/transfer identity, never a workspace SHA or CI job ID. */
+    internal fun repositoryStatusArguments(receipts: List<JsonObject>): JsonObject? = receipts.asReversed().firstNotNullOfOrNull { receipt ->
+        if (receipt["trusted"] != JsonPrimitive(true) || receipt["success"] != JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false) || receipt.text("tool").substringBefore("__") != "github_repository") return@firstNotNullOfOrNull null
+        val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
+        val operation = when (args.text("action")) {
+            "create" -> "create_repository"
+            "fork" -> "fork_repository"
+            "import" -> "import_repository"
+            "clone" -> "clone_repository"
+            else -> return@firstNotNullOfOrNull null
+        }
+        val result = GitHubInventoryObservation.planningRoot(receipt) ?: return@firstNotNullOfOrNull null
+        if (result.text("schema") != "github.repository-lifecycle.v1" || result.text("operation") != operation) return@firstNotNullOfOrNull null
+        val operationId = result.text("operation_id").takeIf { it.matches(Regex("repoop_[a-f0-9]{32}")) }
+        if (operationId != null) {
+            return@firstNotNullOfOrNull buildJsonObject {
+                put("action", "status")
+                put("operation", operation)
+                put("operation_id", operationId)
+            }
+        }
+        val id = (result["repository_id"] as? JsonPrimitive)?.longOrNull?.takeIf { it > 0 } ?: return@firstNotNullOfOrNull null
+        val destination = "${args.text("destination_owner")}/${args.text("destination_repo")}"
+        if (args.text("destination_owner").isBlank() ||
+            args.text("destination_repo").isBlank() ||
+            args.text("owner_type") !in setOf("user", "organization") ||
+            args.text("visibility") !in setOf("public", "private") ||
+            !result.text("destination_repository").equals(destination, ignoreCase = true) ||
+            result["visibility"]?.let { it != args["visibility"] } == true
+        ) {
+            return@firstNotNullOfOrNull null
+        }
+        buildJsonObject {
+            put("action", "status")
+            put("operation", operation)
+            put("expected_repository_id", id)
+            listOf("destination_owner", "destination_repo", "owner_type", "visibility").forEach { put(it, args.getValue(it)) }
+        }
     }
 
     fun isDependency(call: ProviderEvent.ToolCall): Boolean = priority(call) <= 1

@@ -232,7 +232,7 @@ internal class GitHubVerifiedSession(
             val fixturePreflight = evidence.fixtureApprovalPreflight()
             val (checkpoint, planned, missing) = withContext(computationDispatcher) {
                 Triple(
-                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remainingToolCalls(), fixturePreflight),
+                    GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, remainingToolCalls(), fixturePreflight, evidence.acceptedPromptContract()),
                     GitHubTestChecklist.nextCall(task, tools, receipts, remainingToolCalls(), fixturePreflight),
                     authorizedTools.filter { definition -> definition.name.startsWith("github_") && tools.none { it.name == definition.name } && receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) } }.take(12)
                 )
@@ -640,7 +640,7 @@ internal class GitHubVerifiedSession(
             }
             val coverage = if (GitHubTaskCoverage.matches(task)) {
                 withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, remainingToolCalls())
+                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, remainingToolCalls(), evidence.acceptedPromptContract())
                 }
             } else {
                 null
@@ -686,7 +686,7 @@ internal class GitHubVerifiedSession(
             }
             val (checklist, progressDigest) = withContext(computationDispatcher) {
                 val fixturePreflight = if (coverage != null && GitHubTestChecklist.integration(task)) evidence.fixtureApprovalPreflight() else null
-                val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, publicationReceipts, authorizedTools, remainingToolCalls(), fixturePreflight) else null
+                val checklist = if (coverage != null) GitHubTestChecklist.checkpoint(task, publicationReceipts, authorizedTools, remainingToolCalls(), fixturePreflight, evidence.acceptedPromptContract()) else null
                 checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, publicationReceipts, authorizedTools, fixturePreflight) }
             }
             val previous = evidence.diagnostic()
@@ -1004,7 +1004,7 @@ internal class GitHubVerifiedSession(
     )
 
     private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null): Pair<String, JsonObject> = withContext(computationDispatcher) {
-        GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode)
+        GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode, authorizedTools, remainingToolCalls(), evidence.acceptedPromptContract())
     }
 
     private suspend fun claimExtractionContext(receipts: Map<String, JsonObject>, epoch: Long): String = withContext(computationDispatcher) {

@@ -1,10 +1,30 @@
 package dev.chungjungsoo.gptmobile.data.network
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderThrottleRegistryTest {
+    @Test fun cooldownObservationIsReadOnlyAndDistinguishesTransientDelayFromProviderReset() {
+        var now = 0L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        registry.defer("transient", 5000)
+        registry.defer("reset", 10_000, authoritativeReset = true)
+        repeat(3) {
+            assertEquals(ProviderThrottleRegistry.Cooldown(5000, 0, false), registry.cooldown("transient"))
+            assertEquals(ProviderThrottleRegistry.Cooldown(10_000, 0, true), registry.cooldown("reset"))
+            assertNull(registry.cooldown("available"))
+        }
+        registry.reject("rejected", 10_000)
+        assertEquals(ProviderThrottleRegistry.Cooldown(10_000, 1, false), registry.cooldown("rejected"))
+        now = 10_000
+        assertNull(registry.cooldown("reset"))
+        assertTrue(registry.admit("reset").ownsProbe)
+        assertFalse(registry.admit("reset").ownsProbe)
+    }
+
     @Test fun announcedResetDefersRequestsBeforeAnyProviderRejection() {
         var now = 0L
         val registry = ProviderThrottleRegistry({ now }, { 0 })

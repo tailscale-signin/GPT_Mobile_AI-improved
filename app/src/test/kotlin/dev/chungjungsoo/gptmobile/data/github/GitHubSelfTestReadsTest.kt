@@ -24,6 +24,61 @@ class GitHubSelfTestReadsTest {
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
     private fun tool(name: String, action: String) = AgentToolDefinition(name, action, json("""{"type":"object","properties":{"action":{"const":"$action"}}}"""))
 
+    @Test fun repositoryCapabilitiesNeedNoResourceAndQualifyOnlyTheirLocalResponseScope() {
+        val definition = tool("github_repository", "capabilities")
+        val call = requireNotNull(GitHubSelfTestReads.next(listOf(definition), emptyList()))
+        assertEquals(json("""{"action":"capabilities"}"""), call.arguments)
+        val receipt = json("""{"trusted":true,"success":true,"evidence_origin":"LOCAL","tool":"github_repository","arguments":${call.arguments},"result":{"schema":"github.repository-capabilities.v1","create":true}}""")
+        val row = GitHubTestChecklist.rows(mapOf("capabilities" to receipt), listOf(definition), "test all tools").single() as JsonObject
+        assertEquals(JsonPrimitive("PASSED"), row["status"])
+        assertEquals(JsonPrimitive("RETAINED_RESPONSE"), row["acceptance_basis"])
+        assertEquals(JsonPrimitive(false), row["requires_live_transport"])
+        assertEquals(JsonPrimitive(false), row["live_verified"])
+        assertEquals(null, GitHubSelfTestReads.next(listOf(definition), listOf(receipt)))
+    }
+
+    @Test fun repositoryStatusDoesNotInventALifecycleFromWorkspaceOrCiEvidence() {
+        val definition = tool("github_repository", "status")
+        val workspace = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"${"a".repeat(40)}","repository":{"id":7}}}""")
+        val job = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"jobs"},"result":{"jobs":[{"id":7,"status":"completed"}]}}""")
+        val receipts = mapOf("workspace" to workspace, "ci" to job)
+        assertEquals(null, GitHubSelfTestReads.next(listOf(definition), receipts.values.toList()))
+        val preset = "Test the authorized GitHub integration using the supported fixture test matrix. [github-workflow-preset:test_integration]"
+        val row = GitHubTestChecklist.rows(receipts, listOf(definition), preset).filterIsInstance<JsonObject>().single { it["id"] == JsonPrimitive("github_repository:status") }
+        assertEquals(JsonPrimitive("CONDITIONAL"), row["status"])
+        assertEquals(JsonPrimitive(false), row["required"])
+        assertEquals(JsonPrimitive("REPOSITORY_LIFECYCLE_REQUIRED"), row["blocker_code"])
+        assertTrue(row["blocker"].toString().contains("operation_id"))
+        assertTrue(row["blocker"].toString().contains("expected_repository_id"))
+        val broad = GitHubTestChecklist.rows(receipts, listOf(definition), "test all tools").filterIsInstance<JsonObject>().single { it["id"] == JsonPrimitive("github_repository:status") }
+        assertEquals(JsonPrimitive(true), broad["required"])
+        assertEquals(JsonPrimitive("BLOCKED"), broad["status"])
+    }
+
+    @Test fun repositoryStatusUsesTheExactNativeCreationIdentityAndDestination() {
+        val definition = tool("github_repository", "status")
+        val creation = json("""{"trusted":true,"success":true,"tool":"github_repository","arguments":{"action":"create","destination_owner":"owner","destination_repo":"new","owner_type":"user","visibility":"private"},"result":{"schema":"github.repository-lifecycle.v1","operation":"create_repository","repository_id":123,"destination_repository":"owner/new","visibility":"private"}}""")
+        val call = requireNotNull(GitHubSelfTestReads.next(listOf(definition), listOf(creation)))
+        assertEquals(json("""{"action":"status","operation":"create_repository","expected_repository_id":123,"destination_owner":"owner","destination_repo":"new","owner_type":"user","visibility":"private"}"""), call.arguments)
+        val result = creation["result"] as JsonObject
+        val invalid = listOf(
+            JsonObject(creation + ("trusted" to JsonPrimitive(false))),
+            JsonObject(creation + ("verification_eligible" to JsonPrimitive(false))),
+            JsonObject(creation + ("result" to JsonObject(result + ("destination_repository" to JsonPrimitive("other/new"))))),
+            JsonObject(creation + ("result" to JsonObject(result + ("repository_id" to JsonPrimitive(0)))))
+        )
+        invalid.forEach { assertEquals(null, GitHubSelfTestReads.next(listOf(definition), listOf(it))) }
+    }
+
+    @Test fun repositoryGatewayStatusUsesTheRetainedTransferIdWithoutChangingItsOperation() {
+        val definition = tool("github_repository", "status")
+        val id = "repoop_" + "a".repeat(32)
+        val transfer = json("""{"trusted":true,"success":true,"tool":"github_repository","arguments":{"action":"clone"},"result":{"schema":"github.repository-lifecycle.v1","operation":"clone_repository","operation_id":"$id"}}""")
+        assertEquals(json("""{"action":"status","operation":"clone_repository","operation_id":"$id"}"""), GitHubSelfTestReads.next(listOf(definition), listOf(transfer))?.arguments)
+        val changed = JsonObject(transfer + ("result" to JsonObject((transfer["result"] as JsonObject) + ("operation" to JsonPrimitive("import_repository")))))
+        assertEquals(null, GitHubSelfTestReads.next(listOf(definition), listOf(changed)))
+    }
+
     @Test fun dependencyInventoriesPrecedeOptionalMetadataAndDefinitionPages() {
         val tools = listOf(tool("github_context", "resolve"), tool("github_issue", "list"), tool("github_release__tags", "tags"), tool("github_release__list", "list"), tool("github_ci", "definitions"))
         val sha = "a".repeat(40)

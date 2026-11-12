@@ -275,7 +275,7 @@ class AgentRunCoordinator @Inject constructor(
         val included = incoming.filterNot { stopExcludedContributor(it) }
         val participantsBeforeWait = included.groupBy { rootWorkId(it.userMessages, it.runId) }.mapValues { (_, runs) -> runs.map { it.platform.uid }.distinct() }
         val requests = included.map { it.copy(researchParticipantUids = it.researchParticipantUids.ifEmpty { participantsBeforeWait[rootWorkId(it.userMessages, it.runId)].orEmpty() }) }.filter { request ->
-            val cooldown = dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(request.platform)
+            val cooldown = dev.chungjungsoo.gptmobile.data.network.providerPreflightLimit(request.platform)
             val deadline = cooldown?.retryAt
             val deferred = deadline != null && deadline > System.currentTimeMillis() && providerWaits?.defer(request) == true
             !deferred
@@ -1231,7 +1231,10 @@ class AgentRunCoordinator @Inject constructor(
                 }.onFailure { failure -> finishUnavailablePolicy(failure) }
             }
         } finally {
-            withContext(NonCancellable) { checkpoints.cancelAndJoin() }
+            withContext(NonCancellable) {
+                checkpoints.cancelAndJoin()
+                providerWaits?.reconcileTerminalCheckpointSafely(request.runId)
+            }
         }
         if (committedForHandoff && request.chatToolConfig?.combined?.role?.finalization == true) {
             try {

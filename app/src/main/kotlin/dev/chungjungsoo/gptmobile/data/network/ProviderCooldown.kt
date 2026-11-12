@@ -90,6 +90,27 @@ internal object ProviderCooldown {
         return remaining.takeIf { it > 0 }?.let { ProviderRetryPolicy.deadlineMillis(System.currentTimeMillis(), it) }
     }
 
+    /** Read-only admission before prompt preparation. Never reserve or rotate a credential here. */
+    fun preflight(profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2): ProviderLimitDecision? {
+        if (profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl) != null) return null
+        val candidates = ApiCredentialRotator.parseKeys(profile.token).ifEmpty { listOf("") }
+        val now = System.currentTimeMillis()
+        val waiting = candidates.map { credential ->
+            val config = ProviderRequestConfig(profile.apiUrl, credential.takeIf(String::isNotBlank))
+            val identity = key(config)
+            val cooldown = registry.cooldown(identity) ?: return null
+            ProviderLimitDecision(
+                profile.compatibleType.name, profile.uid, profile.model,
+                ProviderRetryPolicy.deadlineMillis(now, cooldown.waitMillis), scope(config),
+                FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE.name, knownNotAccepted = true,
+                retrySource = if (cooldown.rejectionCount == 0 && cooldown.authoritativeReset) "RATE_LIMIT_RESET" else "SHARED_COOLDOWN",
+                consecutiveRejections = cooldown.rejectionCount
+            )
+        }
+        // A provider with multiple accepted credentials can proceed as soon as one is ready.
+        return waiting.minByOrNull { it.retryAt }
+    }
+
     suspend fun <T> withPermit(config: ProviderRequestConfig, block: suspend () -> T): T {
         if (!durableRateLimits() || config.freeProvider != null) {
             await(config)

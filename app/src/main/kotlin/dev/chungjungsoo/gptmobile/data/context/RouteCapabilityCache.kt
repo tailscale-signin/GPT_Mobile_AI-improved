@@ -4,7 +4,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
 /** One refresh per route. A slow/absent endpoint cannot block unrelated connections. */
-internal class RouteCapabilityCache<T>(private val now: () -> Long, private val positiveTtl: Long = 300_000L, private val negativeTtl: Long = 15_000L, private val valueTtl: ((T) -> Long)? = null) {
+internal class RouteCapabilityCache<T>(private val now: () -> Long, private val positiveTtl: Long = 300_000L, private val negativeTtl: Long = 15_000L, private val valueTtl: ((T) -> Long)? = null, private val maxEntries: Int = 128) {
+    init {
+        require(maxEntries > 0)
+    }
     private data class Cached<T>(val value: T?, val expires: Long, val explicitlyRefreshed: Boolean)
     private class Refresh(val mutex: Mutex = Mutex(), var subscribers: Int = 0)
     private val lock = Any()
@@ -30,9 +33,10 @@ internal class RouteCapabilityCache<T>(private val now: () -> Long, private val 
                 val result = load()
                 synchronized(lock) {
                     if (generation != epoch) return@withLock null
-                    if (entries.size >= 128 && key !in entries) entries.remove(entries.keys.first())
+                    if (entries.size >= maxEntries && key !in entries) entries.remove(entries.keys.first())
                     val ttl = if (result == null) negativeTtl else valueTtl?.invoke(result) ?: positiveTtl
-                    entries[key] = Cached(result, now() + ttl, forceRefresh)
+                    val observedAt = now()
+                    entries[key] = Cached(result, if (ttl > 0 && observedAt > Long.MAX_VALUE - ttl) Long.MAX_VALUE else observedAt + ttl, forceRefresh)
                     result
                 }
             }

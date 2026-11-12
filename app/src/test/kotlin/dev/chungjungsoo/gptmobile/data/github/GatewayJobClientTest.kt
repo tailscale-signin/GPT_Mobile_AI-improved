@@ -166,13 +166,15 @@ class GatewayJobClientTest {
             assertEquals("job", client.command(config, "saved")?.jobId)
             assertEquals(2, calls)
             assertEquals("job", client.observeCommand(config, "saved")?.jobId)
-            assertEquals(3, calls)
+            assertEquals(2, calls)
             accepted = false
+            // An accepted mapping is immutable; only passive freshness expires.
+            now = 60_000
+            assertEquals(null, client.observeCommand(config, "saved"))
+            assertEquals(3, calls)
+            now = 65_000
             assertEquals(null, client.observeCommand(config, "saved"))
             assertEquals(4, calls)
-            now = 5_000
-            assertEquals(null, client.observeCommand(config, "saved"))
-            assertEquals(5, calls)
         }
     }
 

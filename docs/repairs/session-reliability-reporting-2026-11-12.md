@@ -187,3 +187,17 @@ A generated source inventory, a named test file or an unexecuted qualification p
 8. Bind each deployed gateway's artifact digest, instance identity and source revision to the observed service. Missing or declared-only identity must remain explicit; capability readiness does not supply independent deployment attestation.
 
 Optional marketplace integrations and deliberately disabled plugins are user choices. This repair does not silently install, enable or grant them access. The supplied captures do not establish an app crash, ANR, OOM, rate-limit cancellation, diagnostic truncation, or the availability of every advertised MCP tool; none is claimed as an additional confirmed defect or as fixed by this branch.
+
+## Follow-up: diagnostic a74d18ed
+
+The subsequently supplied diagnostic session `a74d18ed-d2eb-43d2-bde1-cc82a48cff83`
+was independently reconstructed and checked. Its
+[15-finding repair log](diagnostic-a74d18ed-2026-11-12.md) records the bugs,
+implemented fixes, existing branch coverage, and remaining device acceptance.
+It adds retained journal identity and semantic policy recovery, exact terminal
+checkpoint reconciliation, provider cooldown admission, immutable first-start
+timestamps, shared gateway polling deadlines, truthful integration budgets and
+prerequisites, explicit unmeasured claim scope, and bounded transcript observation.
+The associated [task checkpoint](diagnostic-a74d18ed-2026-11-12-task.json)
+records validation for these additional changes; earlier counts above remain tied
+to their original revisions.

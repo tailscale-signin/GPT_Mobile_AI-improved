@@ -2560,26 +2560,34 @@ class ChatRepositoryImpl(
         rebuild || resume
     }.catch { error ->
         if (error is CancellationException || error is dev.chungjungsoo.gptmobile.data.research.ResearchProviderDeferred) throw error
+        // Preparation and recovery can fail before a ProviderEvent exists. Bind
+        // those failures to this run without inventing an invocation or dispatch.
+        fun failureContext(details: kotlinx.serialization.json.JsonObject? = null) = kotlinx.serialization.json.JsonObject(
+            details.orEmpty() + mapOf(
+                "run_id" to kotlinx.serialization.json.JsonPrimitive(runId),
+                "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name)
+            )
+        )
         val readiness = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16)
             .filterIsInstance<dev.chungjungsoo.gptmobile.data.agent.RequiredToolReadinessFailure>().firstOrNull()
         if (readiness != null) {
-            emit(ApiState.Error(readiness.message.orEmpty(), errorCode = readiness.errorCode, taskOutcome = "BLOCKED", failureDetails = readiness.failureDetails))
+            emit(ApiState.Error(readiness.message.orEmpty(), errorCode = readiness.errorCode, taskOutcome = "BLOCKED", failureDetails = failureContext(readiness.failureDetails)))
             return@catch
         }
         val bindingFailure = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16)
             .firstNotNullOfOrNull { dev.chungjungsoo.gptmobile.data.agent.AgentFailureEvidence.exception(it, partialOutput = rebuildFence.hasAttempted) }
         if (bindingFailure != null) {
-            emit(ApiState.Error(bindingFailure.message, errorCode = bindingFailure.errorCode, taskOutcome = bindingFailure.taskOutcome, failureDetails = bindingFailure.failureDetails))
+            emit(ApiState.Error(bindingFailure.message, errorCode = bindingFailure.errorCode, taskOutcome = bindingFailure.taskOutcome, failureDetails = failureContext(bindingFailure.failureDetails)))
             return@catch
         }
         val detail = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16)
             .filterIsInstance<Exception>().firstNotNullOfOrNull { dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(it, partialOutput = rebuildFence.hasAttempted) }
         if (detail != null) {
-            emit(ApiState.Error(detail.message.orEmpty(), errorCode = detail.code, taskOutcome = if (detail.failureDetails?.get("failed_stage") == kotlinx.serialization.json.JsonPrimitive("repository_admission")) "BLOCKED" else null, failureDetails = detail.failureDetails))
+            emit(ApiState.Error(detail.message.orEmpty(), errorCode = detail.code, taskOutcome = if (detail.failureDetails?.get("failed_stage") == kotlinx.serialization.json.JsonPrimitive("repository_admission")) "BLOCKED" else null, failureDetails = failureContext(detail.failureDetails)))
             return@catch
         }
         val classified = ErrorClassification.classify(error)
-        emit(ApiState.Error(classified.userMessage, errorCode = classified.errorCode))
+        emit(ApiState.Error(classified.userMessage, errorCode = classified.errorCode, failureDetails = failureContext()))
     }.onCompletion { failure ->
         if (failure == null) emit(ApiState.Done)
     }.let { upstream ->
@@ -4336,7 +4344,13 @@ class ChatRepositoryImpl(
                 targetSources = chatToolConfig?.combined?.requested?.acceptedResearch?.sourceGoal?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: research.customSourceTarget ?: dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings.targetForEffort(chatToolConfig?.research?.depth ?: research.effort),
                 requestedModels = chatToolConfig?.combined?.requested?.requestedModels ?: admittedProfiles.associate { it.uid to it.model }
             )?.let { accepted -> stage?.acceptedTask?.validate(accepted) }
-            if (taskRecovery != null) researchSessions?.recordResume(turnKey, resumeDescriptor?.generationId ?: recoveryActionId, taskRecovery.action.name, profileUid, settingsRevision, persistent)
+            if (taskRecovery != null) {
+                val recoveryPolicy = dev.chungjungsoo.gptmobile.data.research.ResearchResumePolicy.revision(
+                    dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.policyRevision(admittedFeatures, profileUid, chatId),
+                    kotlinx.serialization.json.Json.encodeToJsonElement(ChatMcpToolConfig.serializer(), chatToolConfig ?: ChatMcpToolConfig()) as kotlinx.serialization.json.JsonObject
+                )
+                researchSessions?.recordResume(turnKey, resumeDescriptor?.generationId ?: recoveryActionId, taskRecovery.action.name, profileUid, recoveryPolicy, persistent, currentLegacyPolicyRevision = settingsRevision)
+            }
         }
         if (taskRecovery != null) researchSessions?.resumeGeneration(chatId, turnKey, resumeDescriptor?.generationId ?: recoveryActionId, persistent)
     }
@@ -4754,7 +4768,8 @@ class ChatRepositoryImpl(
                 maxReplayResultTokens = if (githubTask) minOf(limits.contextTokens / 16, 2_048).coerceAtLeast(64) else delegationSettings.primaryReplayResultTokens
             ),
             checkpoint = latestUser?.let { user ->
-                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, "${user.chatId}:${toolBudgetSourceMessageId ?: user.id}:${platform.uid}:${dispatchAuthority.revision}", persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false, jobContext = checkpointJob)
+                val binding = outputContinuation?.toolCheckpointBinding ?: "${user.chatId}:${toolBudgetSourceMessageId ?: user.id}:${platform.uid}:${dispatchAuthority.revision}"
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, binding, persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false, jobContext = checkpointJob)
             },
             healthCatalog = catalog,
             retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures,
@@ -5627,17 +5642,28 @@ class ChatRepositoryImpl(
             }
             val githubContinuedSession = if (verifiedEvidence != null && latestUser != null) {
                 val checkpointKey = "github-output:${verifiedEvidence.checkpointBinding()}"
+                val expectedCheckpoint = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext]?.checkpoint
+                dispatchAuthority.validate()
+                check(validateSavedEvidence())
+                val toolCheckpointBinding = dev.chungjungsoo.gptmobile.data.agent.GitHubProviderToolCheckpoint.binding(
+                    "${latestUser.chatId}:${toolBudgetSourceMessageId ?: latestUser.id}:${platform.uid}",
+                    dispatchAuthority.revision,
+                    expectedCheckpoint,
+                    expectedCheckpoint?.let { workspace?.protectedSynthesisCheckpoint(checkpointKey) }
+                )
                 dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession(
                     adaptiveSession,
                     maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 }?.coerceAtMost(1_048_576) ?: 1_048_576,
                     continuationRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${limits.contextTokens}:$resolvedOutputCap"),
                     recoveryRevision = runId,
-                    expectedProviderCheckpoint = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext]?.checkpoint,
+                    expectedProviderCheckpoint = expectedCheckpoint,
+                    toolCheckpointBinding = toolCheckpointBinding,
                     checkpointContext = buildJsonObject {
                         put("profile_uid", platform.uid)
                         put("provider", platform.compatibleType.name)
                         put("model", platform.model)
                         put("task_binding", verifiedEvidence.checkpointBinding())
+                        put("tool_checkpoint_binding", toolCheckpointBinding)
                         put("accepted_task", verifiedEvidence.acceptedTaskRequest() ?: githubEffectiveTask)
                         chatToolConfig?.github?.let {
                             put("repository", "${it.owner}/${it.repo}")
@@ -5658,7 +5684,7 @@ class ChatRepositoryImpl(
                         dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(
                             context.filesDir,
                             latestUser.chatId,
-                            "${latestUser.chatId}:${toolBudgetSourceMessageId ?: latestUser.id}:${platform.uid}:${dispatchAuthority.revision}",
+                            toolCheckpointBinding,
                             persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false
                         ).handoffReceipts(fingerprints)
                     },

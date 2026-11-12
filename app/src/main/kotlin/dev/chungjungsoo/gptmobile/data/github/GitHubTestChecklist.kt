@@ -476,6 +476,7 @@ internal object GitHubTestChecklist {
     internal fun requiresLiveTransport(tool: String, action: String): Boolean = when (tool.substringBefore("__")) {
         "github_context" -> action !in setOf("status", "resolve", "index", "efficiency", "capabilities", "recovery")
         "github_search", "github_read", "github_stage_patch", "repository_graph" -> false
+        "github_repository" -> action != "capabilities"
         else -> tool.startsWith("github_")
     }
 
@@ -554,6 +555,12 @@ internal object GitHubTestChecklist {
                 val notRequested = GitHubChecklistScope.readOnly(task) && !readOnly(capability) || GitHubChecklistScope.supportedFixturePlan(task) && unsupportedFixture || ciActionWithoutRun
                 val readyCall = if (authorized && readOnly(capability) && eligible.isEmpty()) readyReads[capability.tool to capability.action] else null
                 val conditionalDecision = capability.tool == "github_decide" && observed.isEmpty()
+                val lifecycleStatus = capability.tool == "github_repository" && capability.action == "status"
+                val conditionalLifecycle = lifecycleStatus &&
+                    observed.isEmpty() &&
+                    readyCall == null &&
+                    GitHubChecklistScope.supportedFixturePlan(task) &&
+                    allTrusted.none { it.text("tool").substringBefore("__") == "github_repository" && (it["arguments"] as? JsonObject)?.text("action") in setOf("create", "fork", "import", "clone") }
                 val fixtureApprovalConditional = !readOnly(capability) &&
                     GitHubSelfTestFixtures.supports(capability.tool, capability.action) &&
                     fixturePreflight?.get("state") != JsonPrimitive("READY") &&
@@ -572,6 +579,7 @@ internal object GitHubTestChecklist {
                     failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + GitHubVerificationRecovery.advice(failures)
                     readyCall != null -> "Ready to execute using retained repository/resource evidence; no qualifying execution has been observed."
                     conditionalDecision -> "Conditional user-decision behavior has no genuine decision in this task. It remains untested; test it in the interaction harness."
+                    lifecycleStatus -> "Requires a retained repository create/fork/import/clone receipt: operation_id for a gateway transfer, or expected_repository_id, operation and the exact original destination for native creation. A workspace SHA or CI job ID cannot satisfy this prerequisite. No repository is created only to exercise this status read."
                     capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run bound to the selected revision. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
                     !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
@@ -584,7 +592,7 @@ internal object GitHubTestChecklist {
                     notRequested -> "NOT_REQUESTED"
                     excluded -> "OUT_OF_SCOPE"
                     waitingApproval -> "WAITING_FOR_APPROVAL"
-                    fixtureApprovalConditional -> "CONDITIONAL"
+                    fixtureApprovalConditional || conditionalLifecycle -> "CONDITIONAL"
                     incomplete || tools.isNotEmpty() && !authorized -> "BLOCKED"
                     latest?.get("success") == JsonPrimitive(false) -> if (latest["dispatched"] == JsonPrimitive(false)) "PREFLIGHT_REJECTED" else "FAILED"
                     transportMissing -> unqualifiedStatus
@@ -615,15 +623,16 @@ internal object GitHubTestChecklist {
                     capability.tool == "github_pr" -> GitHubCriterionBlocker.PULL_REQUEST_ID_REQUIRED
                     capability.tool == "github_ci" -> GitHubCriterionBlocker.WORKFLOW_RUN_OR_JOB_REQUIRED
                     capability.tool == "github_release" -> GitHubCriterionBlocker.RELEASE_OR_TAG_REQUIRED
+                    lifecycleStatus -> GitHubCriterionBlocker.REPOSITORY_LIFECYCLE_REQUIRED
                     else -> GitHubCriterionBlocker.REPOSITORY_INPUT_REQUIRED
                 }
                 buildJsonObject {
                     put("id", "${capability.tool}:${capability.action}")
                     put("scope", capability.scope)
-                    put("required", integrationCoverage && !excluded && !notRequested && !conditionalDecision)
+                    put("required", integrationCoverage && !excluded && !notRequested && !conditionalDecision && !conditionalLifecycle)
                     put(
                         "applicability",
-                        if (ciActionWithoutRun) {
+                        if (ciActionWithoutRun || conditionalLifecycle) {
                             "CONDITIONAL_RESOURCE_NOT_PRESENT"
                         } else if (fixtureApprovalConditional) {
                             "CONDITIONAL_APPROVAL_MODE"
@@ -826,7 +835,7 @@ internal object GitHubTestChecklist {
         }.toString()
     )
 
-    fun checkpoint(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, fixturePreflight: JsonObject? = null): JsonObject = buildJsonObject {
+    fun checkpoint(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, fixturePreflight: JsonObject? = null, acceptedContract: JsonObject? = null): JsonObject = buildJsonObject {
         put("schema", "github.test-checklist.v3")
         put("request_digest", GitHubEvidenceBook.digest(task))
         val integrationCoverage = integration(task)
@@ -860,8 +869,8 @@ internal object GitHubTestChecklist {
         put("runtime_binding", GitHubIntegrationAcceptance.binding(receipts.values))
         fixturePreflight?.let { put("fixture_approval_preflight", it) }
         put("evidence_classes", GitHubIntegrationAcceptance.evidenceClasses(receipts))
-        put("stage_budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools)))
-        if (integrationCoverage) put("preparation", GitHubIntegrationPreparation.snapshot(task, receipts, tools, capabilities, remainingToolCalls, fixturePreflight))
+        put("stage_budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools), acceptedContract))
+        if (integrationCoverage) put("preparation", GitHubIntegrationPreparation.snapshot(task, receipts, tools, capabilities, remainingToolCalls, fixturePreflight, acceptedContract))
         put(
             "resume_plan",
             buildJsonObject {

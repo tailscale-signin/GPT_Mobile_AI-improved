@@ -12,6 +12,18 @@ internal class ProviderThrottleRegistry(
     private val activeProbes = mutableSetOf<String>()
 
     data class Admission(val waitMillis: Long = 0, val ownsProbe: Boolean = false, val rejectionCount: Int = 0)
+    data class Cooldown(val waitMillis: Long, val rejectionCount: Int, val authoritativeReset: Boolean)
+
+    /** Admission UI/scheduling must not consume a permit or turn a transient wait into a provider reset. */
+    @Synchronized
+    fun cooldown(identity: String): Cooldown? {
+        val now = nowMillis()
+        val state = states[identity] ?: return null
+        val remaining = ProviderRetryPolicy.remainingMillis(state.blockedUntil, now)
+        if (remaining <= 0) return null
+        val count = rejections[identity]?.takeIf { it.rememberUntil > now }?.count ?: 0
+        return Cooldown(remaining, count, state.authoritativeReset)
+    }
 
     @Synchronized
     fun admit(identity: String): Admission {

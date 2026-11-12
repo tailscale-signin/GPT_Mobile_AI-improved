@@ -65,8 +65,8 @@ internal object GitHubIntegrationReport {
         }
     }
 
-    fun render(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, remainingToolCalls: Int? = null): String = buildString {
-        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls)
+    fun render(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, remainingToolCalls: Int? = null, acceptedContract: JsonObject? = null): String = buildString {
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, acceptedContract = acceptedContract)
         val capabilities = checkpoint.array("capabilities")
         val criteria = checkpoint.array("requirements")
         val catalog = checkpoint["authorized_catalog"] as JsonObject

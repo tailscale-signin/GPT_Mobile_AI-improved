@@ -15,6 +15,63 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class DiagnosticFailureSummaryTest {
+    @Test fun terminalRecoveryGuardOutranksSavedRateLimitWithoutBorrowingItsInvocation() {
+        val interruption = DiagnosticFailureEvidence(
+            "current",
+            "VERIFICATION_CURRENT",
+            Json.parseToJsonElement("""{"failure_code":"429","task_state":"PARTIAL","task_outcome":"PARTIAL","failed_stage":"model_invocation","invocation_id":"old-provider-attempt","retryable":true,"request_replay_allowed":true,"remote_acceptance":"NO","dispatched":true}""").jsonObject
+        )
+        val waiting = DiagnosticFailureEvidence(
+            "output",
+            "OUTPUT_CHECKPOINT",
+            Json.parseToJsonElement("""{"state":"WAITING_PROVIDER_LIMIT","resume_allowed":true,"failure_details":{"code":"429","invocation_id":"old-provider-attempt","failed_stage":"model_invocation","retry_after_ms":120000}}""").jsonObject
+        )
+        for (code in listOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "RESEARCH_RECOVERY_ACTION_CHANGED")) {
+            val result = summary("An unexpected error occurred: $code; private provider text", listOf(interruption, waiting))
+            assertEquals(JsonPrimitive(code), result["latest_verdict"])
+            assertEquals(JsonPrimitive(code), result["failure_code"])
+            assertEquals(JsonPrimitive(code), result["stop_code"])
+            assertEquals(JsonPrimitive("FAILED"), result["task_state"])
+            assertEquals(JsonPrimitive("429"), result["prior_interruption_code"])
+            assertEquals(JsonPrimitive("TERMINAL_ERROR"), result.getValue("field_sources").jsonObject["failure_code"])
+            assertEquals(JsonPrimitive("VERIFICATION_CURRENT"), result.getValue("field_sources").jsonObject["prior_interruption_code"])
+            assertEquals(JsonPrimitive("provider_recovery"), result["failed_stage"])
+            assertEquals(JsonPrimitive("RECONCILE_SAVED_CHECKPOINT"), result["recovery_action"])
+            assertEquals(JsonNull, result["invocation_id"])
+            assertFalse(result.containsKey("dispatched"))
+            assertFalse(result.containsKey("retryable"))
+            assertFalse(result.containsKey("request_replay_allowed"))
+            assertFalse(result.containsKey("remote_acceptance"))
+            assertFalse(result.toString().contains("private provider text"))
+        }
+    }
+
+    @Test fun completedRunDoesNotReviveHistoricalRecoveryGuard() {
+        val result = diagnosticFailureSummary("run", "COMPLETED", "PROVIDER_WAIT_CHECKPOINT_CHANGED", "test", 141, "build", emptyList())
+        assertEquals(JsonPrimitive("COMPLETED"), result["latest_verdict"])
+        assertEquals(JsonNull, result["failure_code"])
+        assertFalse(result.containsKey("prior_interruption_code"))
+    }
+
+    @Test fun incidentalGuardWordsDoNotReplaceTheRecordedFailureOrItsInvocation() {
+        val failure = DiagnosticFailureEvidence(
+            "current",
+            "VERIFICATION_CURRENT",
+            Json.parseToJsonElement("""{"failure_code":"HTTP_ERROR","failed_stage":"model_invocation","invocation_id":"actual-provider-attempt","dispatched":true}""").jsonObject
+        )
+        for (code in listOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "RESEARCH_RECOVERY_ACTION_CHANGED")) {
+            val result = summary("An unexpected error occurred: Provider mentioned $code in its response", listOf(failure))
+            assertEquals(JsonPrimitive("HTTP_ERROR"), result["latest_verdict"])
+            assertEquals(JsonPrimitive("model_invocation"), result["failed_stage"])
+            assertEquals(JsonPrimitive("actual-provider-attempt"), result["invocation_id"])
+            assertEquals(JsonPrimitive(true), result["dispatched"])
+            assertFalse(result.containsKey("prior_interruption_code"))
+            for (terminal in listOf(code, "$code: Reconcile the retained results", "An unexpected error occurred: $code")) {
+                assertEquals(JsonPrimitive(code), summary(terminal, emptyList())["latest_verdict"])
+            }
+        }
+    }
+
     @Test fun ownedMessageFailureRetainsTypedGuardWithoutInventingDispatchOrTestEvidence() {
         val evidence = requireNotNull(diagnosticMessageFailureEvidence(14, Json.parseToJsonElement("""[{"type":"NOTICE","modelAuthored":false,"text":"private explanation","profileFailure":{"category":"ENGINEERING_STATE_OR_INPUT_CHANGED","phase":"engineering_guard","retryAllowed":false,"requestReplayAllowed":false}}]""")))
         val result = summary("private terminal explanation", listOf(evidence))

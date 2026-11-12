@@ -23,6 +23,33 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class ProviderWaitPersistenceTest {
+    @Test fun claimedWaitRetainsItsOriginalStartWhenSharedCooldownIsRenewed() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
+        try {
+            db.chatRoomDao().addChatRoom(ChatRoomV2(id = 1, title = "Waiting"))
+            db.messageDao().addMessages(MessageV2(id = 1, chatId = 1, content = "Question", platformType = null), MessageV2(id = 2, chatId = 1, platformType = "p", currentRunId = "run", ownershipFence = 3))
+            db.agentRunDao().upsert(AgentRun("run", 1, 1, 2, "p", "CUSTOM", "model", "WAITING_PROVIDER_LIMIT", startedAt = 5, ownershipFence = 3))
+            val dao = db.agentPersistenceDao()
+            val prior = ProviderWait("run", 3, "scope", 1, "accepted-checkpoint")
+            dao.saveProviderWait(prior)
+            assertEquals(1, dao.claimProviderWait("run", 3))
+            assertEquals(5L, dao.recoveryRun("run")?.startedAt)
+            val renewed = prior.copy(retryAt = 20_000)
+            assertFalse(dao.redeferClaimedProvider(prior.copy(checkpoint = "stale"), renewed))
+            assertTrue(dao.redeferClaimedProvider(prior, renewed))
+            assertEquals(5L, dao.recoveryRun("run")?.startedAt)
+            assertEquals("WAITING_PROVIDER_LIMIT", dao.recoveryRun("run")?.status)
+            assertEquals(1, dao.claimProviderWait("run", 3))
+            assertEquals(1, db.agentRunDao().markRunning("run", 100))
+            assertEquals(5L, dao.recoveryRun("run")?.startedAt)
+            assertFalse(dao.redeferClaimedProvider(renewed, renewed.copy(retryAt = 30_000)))
+            assertEquals(1, db.agentRunDao().finishActive("run", "CANCELED", 101, null))
+            assertFalse(dao.redeferClaimedProvider(renewed, renewed.copy(retryAt = 40_000)))
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun onlyNeverDispatchedOwnersCanWaitAndCancellationPreventsClaim() = runBlocking {
         val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), ChatDatabaseV2::class.java).build()
         try {

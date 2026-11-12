@@ -101,6 +101,8 @@ class ResearchTaskStoreTest {
             second.resume(request, true)
             assertEquals(request, second.resume(request.copy(requestedAt = 300, checkpointId = "newer display"), true))
             assertTrue(runCatching { second.resume(request.copy(destinationProfileUid = "unaccepted"), true) }.isFailure)
+            assertEquals("RESEARCH_RECOVERY_ACTION_CHANGED", runCatching { second.resume(request.copy(policyRevision = "revoked permissions"), true) }.exceptionOrNull()?.message)
+            assertEquals("RESEARCH_RECOVERY_ACTION_CHANGED", runCatching { second.resume(request.copy(requestedStage = "RETRY_WRITING"), true) }.exceptionOrNull()?.message)
         } finally {
             dir.deleteRecursively()
         }
@@ -116,6 +118,30 @@ class ResearchTaskStoreTest {
             store.clearChat(1)
             assertNull(store.accepted("1:10", false))
             assertNotNull(store.accepted("2:10", false))
+        } finally {
+            dir.deleteRecursively()
+        }
+    }
+
+    @Test fun legacyActionMigratesOnlyWithAnExactCurrentLegacyPolicyAndPreservesItsEvidence() = kotlinx.coroutines.runBlocking {
+        val dir = Files.createTempDirectory("legacy-research-policy").toFile()
+        try {
+            val legacy = researchHash("complete unchanged settings and chat configuration")
+            val chat = kotlinx.serialization.json.Json.parseToJsonElement("""{"github":{"owner":"owner","repo":"repo","ref":"main","observedAtMillis":10}}""") as kotlinx.serialization.json.JsonObject
+            val semantic = ResearchResumePolicy.revision("configured-permissions", chat)
+            val first = ResearchTaskStore(dir)
+            first.accept(task(), true)
+            val old = ResearchResumeRequest("tap", task().taskId, "1:10", "accepted-checkpoint", "RETRY_FAILED_STAGE", "a", "accepted-evidence", legacy, 200)
+            first.resume(old, true)
+            val reopened = ResearchTaskStore(dir)
+            val requested = old.copy(policyRevision = semantic, checkpointId = "newer display", evidenceRevision = "newer display", requestedAt = 300)
+            assertEquals("RESEARCH_RECOVERY_ACTION_CHANGED", runCatching { reopened.resume(requested, true, "changed-permissions") }.exceptionOrNull()?.message)
+            assertEquals("RESEARCH_RECOVERY_ACTION_CHANGED", runCatching { reopened.resume(requested.copy(requestedStage = "RETRY_WRITING"), true, legacy) }.exceptionOrNull()?.message)
+            val migrated = reopened.resume(requested, true, legacy)
+            assertEquals(old.copy(policyRevision = semantic), migrated)
+            val observed = kotlinx.serialization.json.Json.parseToJsonElement("""{"github":{"owner":"owner","repo":"repo","ref":"main","observedAtMillis":20}}""") as kotlinx.serialization.json.JsonObject
+            assertEquals(migrated, ResearchTaskStore(dir).resume(requested.copy(policyRevision = ResearchResumePolicy.revision("configured-permissions", observed)), true, "observation-updated-legacy"))
+            assertEquals("RESEARCH_RECOVERY_ACTION_CHANGED", runCatching { reopened.resume(requested.copy(policyRevision = ResearchResumePolicy.revision("revoked-permissions", observed)), true, legacy) }.exceptionOrNull()?.message)
         } finally {
             dir.deleteRecursively()
         }

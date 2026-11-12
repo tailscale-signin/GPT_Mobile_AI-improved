@@ -372,6 +372,9 @@ private fun ChatScreenContent(
     }
     val hiddenTurnCount = firstVisibleTurn
     val visibleTurnCount = groupedMessages.userMessages.size - firstVisibleTurn
+    val visibleUserMessages = remember(groupedMessages.userMessages, firstVisibleTurn) {
+        groupedMessages.userMessages.drop(firstVisibleTurn)
+    }
     val historyHeaderCount = (if (hiddenTurnCount > 0) 1 else 0) + (if (hasOlderHistory) 1 else 0)
     // Existing expanded/retained turn counts, not a claim about viewport visibility.
     val transcriptTiming = remember(visibleTurnCount, groupedMessages.userMessages.size) {
@@ -386,6 +389,11 @@ private fun ChatScreenContent(
         messageCount = visibleTurnCount + historyHeaderCount,
         hasTargetMessage = hasTargetMessage
     )
+    // Layout offsets change on every scroll/animation frame. Only a viewport
+    // resize changes the reserved height; avoid invalidating long answer rows.
+    val transcriptViewportHeight by remember(listState) {
+        derivedStateOf { listState.layoutInfo.viewportSize.height }
+    }
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     var isFollowingBottom by remember { mutableStateOf(!hasTargetMessage) }
     var isHoldingEntryCenter by remember { mutableStateOf(hasTargetMessage) }
@@ -934,17 +942,24 @@ private fun ChatScreenContent(
                     }
                 }
                 itemsIndexed(
-                    items = groupedMessages.userMessages.drop(firstVisibleTurn),
+                    items = visibleUserMessages,
                     key = { visibleIndex, message ->
                         chatMessagePairKey(message, firstVisibleTurn + visibleIndex)
-                    }
+                    },
+                    contentType = { _, _ -> "chat_turn" }
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
+                    val pairKey = chatMessagePairKey(message, index)
+                    // Read acknowledgment needs visibility transitions, not each
+                    // measured position of every item during smooth scrolling.
+                    val replyVisible by remember(listState, pairKey) {
+                        derivedStateOf { listState.layoutInfo.visibleItemsInfo.any { it.key == pairKey } }
+                    }
                     ChatMessagePair(
                         awaitingGitHubTurn = index == lastMessageIndex && awaitingGitHubTurn,
-                        reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { listState.layoutInfo.viewportSize.height.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
+                        reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { transcriptViewportHeight.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
                         replyRevision = pendingReplies.hashCode().toLong(),
-                        replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
+                        replyVisible = replyVisible,
                         onAnswerDisplayed = { displayed -> chatViewModel.acknowledgeDisplayedReplies(listOf(displayed), pendingReplies) },
                         currentResearchTools = { chatViewModel.chatToolConfig.value },
                         githubAssistantReferences = githubResponseLinkContext,

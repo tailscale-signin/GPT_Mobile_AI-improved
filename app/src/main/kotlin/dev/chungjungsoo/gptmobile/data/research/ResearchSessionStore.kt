@@ -168,14 +168,14 @@ class ResearchSessionStore @Inject constructor(@ApplicationContext context: Cont
     suspend fun restoreAcceptedTasks(tasks: List<AcceptedResearchTask>) = withContext(Dispatchers.IO) {
         tasks.filter { it.chatId !in deletedChats }.forEach { task -> taskStore.accept(task, true) }
     }
-    suspend fun recordResume(rootWorkId: String, actionId: String, stage: String, destination: String, policyRevision: String, persistent: Boolean) = withContext(Dispatchers.IO) {
+    suspend fun recordResume(rootWorkId: String, actionId: String, stage: String, destination: String, policyRevision: String, persistent: Boolean, currentLegacyPolicyRevision: String? = null) = withContext(Dispatchers.IO) {
         val task = taskStore.accepted(rootWorkId, persistent) ?: return@withContext
         val scopes = taskStore.manifest(rootWorkId, persistent)?.revisions.orEmpty().mapTo(linkedSetOf()) { it.authority }
         val candidates = mutable.value.values.filter { it.turnId == rootWorkId } + taskStore.retainedEvidence(rootWorkId, scopes, persistent)
         val strongest = richestResearchSnapshot(candidates.map { it.snapshot })
         val latest = candidates.firstOrNull { it.snapshot == strongest }
         val revision = latest?.snapshot?.let { researchHash(it.json().toString()) }.orEmpty()
-        taskStore.resume(ResearchResumeRequest(actionId, task.taskId, rootWorkId, latest?.runId.orEmpty(), stage, destination, revision, policyRevision, System.currentTimeMillis()), persistent)
+        taskStore.resume(ResearchResumeRequest(actionId, task.taskId, rootWorkId, latest?.runId.orEmpty(), stage, destination, revision, policyRevision, System.currentTimeMillis()), persistent, currentLegacyPolicyRevision)
     }
 
     fun stop(runId: String) {

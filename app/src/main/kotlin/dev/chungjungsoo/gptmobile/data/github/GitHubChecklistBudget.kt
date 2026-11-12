@@ -36,13 +36,29 @@ internal object GitHubChecklistBudget {
         (budget["limit"] as JsonPrimitive).intOrNull!! - (budget["used"] as JsonPrimitive).intOrNull!!
     }
 
-    fun checkpoint(receipts: Map<String, JsonObject>, current: Int? = null, fixtureCalls: Int = FIXTURE_CALLS): JsonObject = buildJsonObject {
+    fun checkpoint(receipts: Map<String, JsonObject>, current: Int? = null, fixtureCalls: Int = FIXTURE_CALLS, acceptedContract: JsonObject? = null): JsonObject = buildJsonObject {
         val remaining = remaining(receipts, current)
         val receipt = recorded(receipts)
         val observed = receipt?.get("tool_budget") as? JsonObject
-        observed?.get("limit")?.let { put("effective_call_limit", it) }
+        // The accepted task contract exists before the first tool receipt and is
+        // independent from transport telemetry. A receipt can tighten this ceiling,
+        // but cannot raise an explicit allowance when a task is resumed.
+        val acceptedLimit = (acceptedContract?.get("tool_call_limit") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
+        val observedLimit = (observed?.get("limit") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
+        val effectiveLimit = listOfNotNull(acceptedLimit, observedLimit).minOrNull()
+        effectiveLimit?.let { put("effective_call_limit", it) }
         observed?.get("configured")?.let { put("configured_call_limit", it) }
-        put("limit_source", if (observed != null) "RECORDED_EXECUTION_ALLOWANCE" else "NOT_RECORDED")
+        put(
+            "limit_source",
+            when {
+                acceptedLimit != null && effectiveLimit == acceptedLimit -> "AUTHORIZED_RUN_CONTRACT"
+                observedLimit != null -> "RECORDED_EXECUTION_ALLOWANCE"
+                else -> "NOT_RECORDED"
+            }
+        )
+        if (effectiveLimit != null && remaining != null && current != null && remaining <= effectiveLimit) {
+            put("used_calls", effectiveLimit - remaining)
+        }
         put("limit_rule", "Minimum of the profile/chat allowance, workflow/task policy and explicit request ceiling.")
         remaining?.let { put("remaining_calls", it) }
         put(

@@ -6,6 +6,47 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun githubVerificationAndReviewPhasesAndActionsSurviveSerializationWithoutRetryAuthorization() {
+        for ((stage, action) in listOf("acceptance_verification" to "RESUME_UNFINISHED_WORK", "review_comparison" to "SELECT_REVIEW_BASELINE", "review_comparison" to "RESTORE_REVIEW_COMPARISON_EVIDENCE", "approval" to null)) {
+            val details = kotlinx.serialization.json.buildJsonObject {
+                put("failed_stage", kotlinx.serialization.json.JsonPrimitive(stage))
+                action?.let { put(if (stage == "review_comparison") "next_action" else "recovery_action", kotlinx.serialization.json.JsonPrimitive(it)) }
+            }
+            val code = if (stage == "approval") "WAITING_FOR_APPROVAL" else "GITHUB_TASK_INCOMPLETE"
+            val failure = ProfileFailureRecord.fromProvider("Unfinished task", code, details)
+            val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+            assertEquals(stage, restored.phase)
+            assertEquals(listOfNotNull(action), restored.recoveryActions)
+            assertFalse(restored.retryAllowed)
+            assertEquals(null, restored.requestReplayAllowed)
+            assertEquals(null, restored.dispatched)
+            assertEquals(null, restored.invocationId)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, restored.remoteAcceptance)
+        }
+    }
+
+    @Test fun reconciliationGuidanceCannotWeakenAnUnknownRemoteOutcome() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"acceptance_verification","recovery_action":"RECONCILE_REMOTE_OUTCOME","dispatched":false,"remote_acceptance":"NO","retryable":true,"request_replay_allowed":true}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("An earlier operation has no result", "RECONCILIATION_REQUIRED", details)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertEquals("TOOL_OUTCOME_UNKNOWN", restored.category)
+        assertEquals("tool_dispatch", restored.phase)
+        assertEquals(listOf("RECONCILE_REMOTE_OUTCOME"), restored.recoveryActions)
+        assertFalse(restored.retryAllowed)
+        assertEquals(false, restored.requestReplayAllowed)
+        assertEquals(null, restored.dispatched)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, restored.remoteAcceptance)
+    }
+
+    @Test fun explicitRecoveryActionTakesPrecedenceAndPrivateActionsRemainExcluded() {
+        val explicit = kotlinx.serialization.json.Json.parseToJsonElement("""{"recovery_action":"RESUME_UNFINISHED_WORK","next_action":"SELECT_REVIEW_BASELINE"}""") as kotlinx.serialization.json.JsonObject
+        assertEquals(listOf("RESUME_UNFINISHED_WORK"), ProfileFailureRecord.fromProvider("", "GITHUB_TASK_INCOMPLETE", explicit).recoveryActions)
+        for (raw in listOf("""{"recovery_action":"https://private.example/path","next_action":"SELECT_REVIEW_BASELINE"}""", """{"next_action":"REPLAY_MUTATION","allowed_recovery_actions":["private-action",42]}""")) {
+            val details = kotlinx.serialization.json.Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonObject
+            assertEquals(emptyList<String>(), ProfileFailureRecord.fromProvider("", "GITHUB_TASK_INCOMPLETE", details).recoveryActions)
+        }
+    }
+
     @Test fun typedPrivacyRejectionKeepsItsSetupRecoveryEvenWithoutMessageText() {
         val api = dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException("private account policy").asApiError("run-privacy")
         val failure = ProfileFailureRecord.fromProvider("", api.errorCode, api.failureDetails)

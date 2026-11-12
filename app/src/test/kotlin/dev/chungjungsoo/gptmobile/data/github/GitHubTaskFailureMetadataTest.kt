@@ -123,4 +123,29 @@ class GitHubTaskFailureMetadataTest {
         assertFalse(unrecorded.containsKey("dispatched"))
         assertFalse(unrecorded.containsKey("failure_domain"))
     }
+
+    @Test fun retainedReviewRecoveryKeepsExplicitActionAndUncertainOutcomePrecedence() {
+        val original = buildJsonObject {
+            put("failed_stage", "review_comparison")
+            put("next_action", "SELECT_REVIEW_BASELINE")
+            put("dispatched", true)
+            put("invocation_id", "private-past-invocation")
+        }
+        val verdict = buildJsonObject {
+            put("original_failure", original)
+            put("execution_ledger", buildJsonObject { put("recovery", "RESUME_VERIFICATION") })
+        }
+        val details = GitHubTaskLifecycle.acceptanceFailureDetails(verdict)
+        assertEquals(JsonPrimitive("review_comparison"), details["failed_stage"])
+        assertEquals(JsonPrimitive("SELECT_REVIEW_BASELINE"), details["recovery_action"])
+        assertFalse(details.containsKey("dispatched"))
+        assertFalse(details.containsKey("invocation_id"))
+        val explicit = JsonObject(verdict + ("original_failure" to JsonObject(original + ("recovery_action" to JsonPrimitive("RESTORE_REVIEW_COMPARISON_EVIDENCE")))))
+        assertEquals(JsonPrimitive("RESTORE_REVIEW_COMPARISON_EVIDENCE"), GitHubTaskLifecycle.acceptanceFailureDetails(explicit)["recovery_action"])
+        val unresolved = JsonObject(explicit + ("execution_ledger" to buildJsonObject { put("unresolved_remote_outcomes", 1) }))
+        val reconcile = GitHubTaskLifecycle.acceptanceFailureDetails(unresolved)
+        assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), reconcile["recovery_action"])
+        assertFalse(reconcile.containsKey("dispatched"))
+        assertFalse(reconcile.containsKey("invocation_id"))
+    }
 }

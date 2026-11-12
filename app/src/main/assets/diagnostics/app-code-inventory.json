@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "656394fc7e1d3665dd3f7455f4580f0ac9d56342477531105a797a04fa98418a",
+  "source_digest": "025115c88aed3e0fce18840037472b2e7e5c827deb13dbe560b518f0480de8cc",
   "file_count": 2494,
-  "indexed_line_count": 396972,
+  "indexed_line_count": 396975,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 216,
-      "indexed_line_count": 36350
+      "indexed_line_count": 36352
     },
     {
       "id": "agent_tools",
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 85,
-      "indexed_line_count": 10553
+      "indexed_line_count": 10554
     },
     {
       "id": "benchmark",
@@ -1697,8 +1697,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "c7c79f7dbafa6f4a4c376a09172fabe496b8f53dfc13f12ffa83863c393627dc",
-      "indexed_lines": 309
+      "sha256": "d82b10ccc5e8c0b8d39fa17ca73e185c6ba44754ec67613f7704745aa4ca5960",
+      "indexed_lines": 311
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressWatchdogSession.kt",
@@ -5414,8 +5414,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "a195c3e99ed36d00d11f035a4918a72f2b53bfa75511ef051760fa2bdbcbde42",
-      "indexed_lines": 181
+      "sha256": "ff51be73cfff76d0d70c7e69150d66e079d9f06164d579b8708971263dfd0c48",
+      "indexed_lines": 182
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCorrelationIndex.kt",
@@ -7283,7 +7283,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskLifecycle.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "8ecd4021bb85ea341c5a235be185d07b3ebc84fe964c9c618991edfcf62dbe57",
+      "sha256": "c03cab1a0131e74fc1dbf4427c655e73a111b61996e7687859b77b00a814bc9b",
       "indexed_lines": 135
     },
     {
@@ -16572,7 +16572,7 @@
       "path": "authentication/issue_reports.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "a2037628cf875266f1d965bd89f031a733dd3b86ea24de1f9915b39f2ebe0cd8",
+      "sha256": "699d2ff913d0807aa546c57a4d7c962dd1374681ace0374dea4346b32576524d",
       "indexed_lines": 643
     },
     {

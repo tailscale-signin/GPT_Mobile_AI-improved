@@ -202,6 +202,27 @@ class IssueReportHttpTest(unittest.TestCase):
                     self.assertNotIn("| Verified acceptance criteria |", body)
                     self.assertIn("`verifiedCriteria`", body.split("Unavailable fields:", 1)[1])
 
+    def test_retained_review_and_approval_context_do_not_invent_dispatch_or_invocation(self):
+        for stage, action in (("review_comparison", "SELECT_REVIEW_BASELINE"),
+                              ("review_comparison", "RESTORE_REVIEW_COMPARISON_EVIDENCE"), ("approval", None)):
+            with self.subTest(stage=stage, action=action):
+                observed = {"stage": stage}
+                if action is not None:
+                    observed["recoveryAction"] = action
+                report = {**self.metadata(), "source": "debug", "feature": "chat", "errorCode": "GITHUB_TASK_INCOMPLETE",
+                          "context": self.context(schemaVersion=2, **observed)}
+                self.assertEqual(200, self.submit(report).status_code)
+                body = self.issued[-1]["body"]
+                self.assertIn(f"| Failure stage | `{stage}` |", body)
+                if action is not None:
+                    self.assertIn(f"| Recovery action | `{action}` |", body)
+                self.assertNotIn("| Dispatched |", body)
+                self.assertNotIn("| Invocation identity SHA-256 |", body)
+                self.assertIn("`dispatched`", body.split("Unavailable fields:", 1)[1])
+                self.assertIn("`invocationIdHash`", body.split("Unavailable fields:", 1)[1])
+                legacy = {**report, "reportId": str(uuid4()), "context": self.context(**observed)}
+                self.assertEqual(422, self.submit(legacy).status_code)
+
     def test_acceptance_context_rejects_unbounded_or_inconsistent_counts_and_wrong_schema(self):
         invalid_counts = [{field: value} for field in ("requiredCriteria", "verifiedCriteria", "remainingCriteria")
                           for value in (-1, 100_001, True, 1.5, "5", None)]

@@ -15,6 +15,35 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportContextTest {
+    @Test fun githubStagesAndRecoveryActionsUseVersionTwoWithoutInventingDispatchOrInvocationEvidence() {
+        for (stage in listOf("acceptance_verification", "review_comparison", "approval")) {
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to stage))
+            assertEquals(2, context.schemaVersion)
+            assertEquals(stage, context.stage)
+            assertFalse("stage" in context.unavailableFields)
+            assertNull(context.dispatched)
+            assertNull(context.remoteAcceptance)
+            assertNull(context.invocationIdHash)
+            assertTrue("dispatched" in context.unavailableFields)
+            assertTrue("invocationIdHash" in context.unavailableFields)
+        }
+        for (action in listOf("RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE")) {
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("next_action" to action))
+            assertEquals(2, context.schemaVersion)
+            assertEquals(action, context.recoveryAction)
+            assertFalse("recoveryAction" in context.unavailableFields)
+            assertNull(context.retryable)
+            assertNull(context.resumeAllowed)
+        }
+        val explicit = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("recovery_action" to "RESUME_UNFINISHED_WORK", "next_action" to "SELECT_REVIEW_BASELINE"))
+        assertEquals("RESUME_UNFINISHED_WORK", explicit.recoveryAction)
+        for (fields in listOf(mapOf("next_action" to "https://private.example/path"), mapOf("recovery_action" to "private-action", "next_action" to "SELECT_REVIEW_BASELINE"))) {
+            val rejected = IssueReportContext.fromFields("CHAT_FAILURE", fields)
+            assertNull(rejected.recoveryAction)
+            assertTrue("recoveryAction" in rejected.unavailableFields)
+        }
+    }
+
     @Test fun projectionKeepsExactFailureFactsAndSeparatesOwnedAndBlockingJobIdentities() {
         val fields = mapOf(
             "run_id" to "exact-run",

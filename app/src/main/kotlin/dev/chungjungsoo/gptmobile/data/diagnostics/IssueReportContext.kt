@@ -59,6 +59,7 @@ internal data class IssueReportContext(
         val jobStates = setOf("QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED")
         val recoveryActions = setOf("OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RECONCILE_ACTIVE_GATEWAY_JOB", "REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "RECONCILE_OUTCOME", "REVIEW_AUTHORIZATION", "RETRY_AFTER_BACKOFF", "RETRY_AFTER_CONFIGURATION_CHANGE", "MICROPHONE_PERMISSION", "RETRY_RECOGNITION", "RETRY_PLAYBACK", "SPEECH_SERVICE", "SPEECH_LANGUAGE", "LOCAL_MODEL")
         val reasonCodes = setOf("SELECTION_NOT_OBJECT", "SELECTION_SCHEMA_INVALID", "SELECTION_IDENTITY_INVALID", "SELECTION_CREDENTIAL_REFERENCE_INVALID")
+        private val acceptanceStages = setOf("acceptance_verification", "review_comparison", "approval")
         private val acceptanceReasonCodes = setOf(
             "UNVERIFIED_ACCEPTANCE_CRITERIA", "ACCEPTED_TASK_DEADLINE_REACHED", "ACCEPTANCE_EVIDENCE_MISSING",
             "TOOL_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "FIXTURE_CLEANUP_UNVERIFIED",
@@ -72,7 +73,7 @@ internal data class IssueReportContext(
             "RECONCILE_CATALOG_CONTRACTS", "RESUME_ISSUED_CATALOG_CONTINUATION", "RECONCILE_CATALOG_SNAPSHOT",
             "RESOLVE_BOUND_APPROVAL", "RECHECK_OWNED_FIXTURE_PREFLIGHT", "RECONCILE_OWNED_FIXTURE",
             "REVIEW_REMAINING_SCOPE_AND_BUDGET", "RESOLVE_CAPABILITY_PREREQUISITE", "NEW_TASK_REQUIRED",
-            "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE"
+            "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE"
         )
         private val acceptanceFields = listOf("requiredCriteria", "verifiedCriteria", "remainingCriteria")
         val selectionFields = setOf("profile_uid", "profile_revision", "provider_connection_id", "provider_connection_revision", "provider_kind", "configured_endpoint", "requested_model_id", "generation_parameters", "privacy_scope", "tool_owner", "required_capability_policy", "credential_reference", "credential_account_identity", "approved_alias_mapping")
@@ -119,7 +120,7 @@ internal data class IssueReportContext(
                 else -> null
             }
             val stage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)
-                ?.takeIf { it in stages || it == "acceptance_verification" }
+                ?.takeIf { it in stages || it in acceptanceStages }
             val recoveryAction = text("recovery_action", "next_action", "recoveryAction", "nextAction")?.uppercase(Locale.ROOT)
                 ?.takeIf { it in recoveryActions || it in acceptanceRecoveryActions }
             val reasonCode = text("reasonCode", "reason_code", "stop_reason")?.uppercase(Locale.ROOT)
@@ -134,7 +135,7 @@ internal data class IssueReportContext(
             val requiredCriteria = required.takeIf { consistent }
             val verifiedCriteria = verified.takeIf { consistent }
             val remainingCriteria = remaining.takeIf { consistent }
-            val acceptanceContext = stage == "acceptance_verification" ||
+            val acceptanceContext = stage in acceptanceStages ||
                 reasonCode in acceptanceReasonCodes ||
                 recoveryAction in acceptanceRecoveryActions ||
                 requiredCriteria != null ||

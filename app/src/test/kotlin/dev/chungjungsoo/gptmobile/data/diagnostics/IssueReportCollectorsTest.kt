@@ -40,6 +40,50 @@ class IssueReportCollectorsTest {
         IssueReportIncidents.clearRecent()
     }
 
+    @Test fun reviewComparisonAndApprovalSurviveTheActualCollectorWithoutBorrowingGenerationFacts() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val failures = listOf(
+            Triple("REVIEW_INPUT_REQUIRED", "review_comparison", "SELECT_REVIEW_BASELINE"),
+            Triple("GITHUB_REVIEW_COMPARISON_REQUIRED", "review_comparison", "RESTORE_REVIEW_COMPARISON_EVIDENCE"),
+            Triple("WAITING_FOR_APPROVAL", "approval", null)
+        )
+        for ((index, failure) in failures.withIndex()) {
+            val (code, stage, action) = failure
+            val runId = "owned-review-run-$index"
+            var retainedStage: String? = null
+            flowOf(
+                ApiState.Error(
+                    "private review details https://private.example",
+                    errorCode = code,
+                    taskOutcome = "BLOCKED",
+                    failureDetails = buildJsonObject {
+                        put("run_id", runId)
+                        put("provider_kind", "OPENROUTER")
+                        put("failed_stage", stage)
+                        put("dispatched", false)
+                        put("retryable", false)
+                        action?.let { put("next_action", it) }
+                        put("private_detail", "private comparison paths")
+                    }
+                )
+            ).collectApiStateUpdates(onUpdate = { _, _, timeline -> retainedStage = timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.phase })
+            val report = IssueReportIncidents.pending.value.last()
+            val context = requireNotNull(report.context)
+            assertEquals(2, context.schemaVersion)
+            assertEquals(stage, context.stage)
+            assertEquals(stage, retainedStage)
+            assertEquals(action, context.recoveryAction)
+            assertEquals("OPENROUTER", context.provider)
+            assertEquals(false, context.dispatched)
+            assertEquals(false, context.retryable)
+            assertEquals(null, context.remoteAcceptance)
+            assertEquals(null, context.invocationIdHash)
+            assertEquals(IssueReportContext.identifierHash("run", runId), context.runIdHash)
+            assertFalse(report.approvedPayload().contains("private"))
+            assertFalse(report.approvedPayload().contains(runId))
+        }
+    }
+
     @Test fun typedPrivacyAdmissionSurvivesActualChatCollectorWithoutPublishingPrivateText() = runBlocking {
         LocalDiagnosticsPolicy.setEnabled(true)
         val runId = "exact-admission-run"

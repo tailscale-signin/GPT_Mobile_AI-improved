@@ -79,7 +79,7 @@ internal object GitHubTaskLifecycle {
         if (domain != null || originalFailure == null) put("failure_domain", domain ?: JsonPrimitive("APPLICATION_VERIFICATION"))
         val ledger = verdict["execution_ledger"] as? JsonObject
         val unresolved = (ledger?.get("unresolved_remote_outcomes") as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true
-        val recovery = if (unresolved) JsonPrimitive("RECONCILE_REMOTE_OUTCOME") else originalFailure?.get("recovery_action") ?: stop?.get("recovery_action") ?: ledger?.get("recovery")
+        val recovery = if (unresolved) JsonPrimitive("RECONCILE_REMOTE_OUTCOME") else originalFailure?.get("recovery_action") ?: originalFailure?.get("next_action") ?: stop?.get("recovery_action") ?: ledger?.get("recovery")
         if (recovery != null || originalFailure == null) put("recovery_action", recovery ?: JsonPrimitive("RESUME_UNFINISHED_WORK"))
         automaticContinuations?.let { put("automatic_continuations", it) }
         listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger?.get(key)?.let { put(key, it) } }

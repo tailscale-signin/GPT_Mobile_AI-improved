@@ -564,5 +564,33 @@
       "correction_scope": "PASS"
     },
     "prior_execution": "9b exact JVM/heap/emulator/native/gateway evidence remains historical; 9b lint and aggregate failed. 832 verification was cancelled by the owner consolidation. Neither is current integrated-head execution proof."
+  },
+  "windows_status_publication_followup": {
+    "parent_head": "1caf601660d90f8eec2def3cfd38eda96c03cf9b",
+    "gateway_source_commit": "7e90e579c96686ca9a2b43a2523b8cdbbcc8dd0a",
+    "state": "IMPLEMENTED_PENDING_EXACT_CORRECTED_CI",
+    "repair_id": "R38",
+    "failure_run": 43329441647,
+    "failure_job": 131570155391,
+    "passing_same_head_installer_run": 43329439643,
+    "observed_error": "WinError 5 replacing status.json after rollback runtime startup; exact holder unknown",
+    "correction": "Only supervisor status publication retries the same fsynced temporary bytes on Windows errors 5 or 32, at most six attempts and 310 ms scheduled backoff; prior in-memory and file state survive failure. Other writers and errors do not retry.",
+    "local_validation": {
+      "targeted_tests": 13,
+      "targeted_result": "PASS",
+      "fast": "PASS_484_TESTS",
+      "gateway": {
+        "modules": 69,
+        "tests": 914,
+        "passed": 912,
+        "skipped": 2,
+        "failures": 0,
+        "errors": 0
+      },
+      "scope": "REQUIRED_PUBLICATION_PREFLIGHT",
+      "browser": "PASS_7_TESTS",
+      "inventory_ktlint": "PASS"
+    },
+    "external_validation": "Actual corrected Windows installer smoke remains required. Historical successful and failed same-head runs remain separate."
   }
 }

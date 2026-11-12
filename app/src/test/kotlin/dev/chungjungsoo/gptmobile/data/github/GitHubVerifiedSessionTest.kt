@@ -24,10 +24,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -554,6 +557,91 @@ class GitHubVerifiedSessionTest {
         val checkpoint = stored.entries.single { it.key.startsWith("claim_extraction_current_") }.value
         assertEquals(JsonPrimitive(false), checkpoint["pending"])
         assertEquals(2, checkpoint.getValue("batches").jsonArray.size)
+    }
+
+    @Test fun currentSessionReviewReusesVerifiedClaimsAndReextractsOnlyStalePrCiBatch() = runBlocking {
+        var clock = 1_000L
+        val stored = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook(
+            "b", "o/r", "main", setOf("github_pr", "github_ci"), now = { clock },
+            load = { stored[it] }, save = { key, value -> stored[key] = value }
+        )
+        fun read(callId: String, tool: String, action: String, result: String) {
+            val call = ProviderEvent.ToolCall(callId, tool, Json.parseToJsonElement("""{"action":"$action","pull_number":42,"verify_live":true}""").jsonObject)
+            book.observe(call, AgentToolResult(callId, ToolResultContent.Json(Json.parseToJsonElement(result).jsonObject), false, dispatched = true))
+        }
+        read("old-pr", "github_pr", "context", """{"data":{"number":42,"title":"Old title"}}""")
+        read("old-ci", "github_ci", "runs", """{"data":{"workflow_runs":[{"conclusion":"failure"}]}}""")
+
+        val task = """Review the saved session capture and report current PR and CI status.
+- Explain the original failure.
+- Identify the related PR.
+- Summarize the observed workflow.
+- State the current result.
+- Give the next action."""
+        val requirements = GitHubRequestCompletion.requirements(task).distinct().chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH)
+        assertEquals(2, requirements.size)
+        val requirementIds = requirements.map { group -> group.map(GitHubRequestCompletion::id).toSet() }
+        val oldPrId = book.snapshot().first.entries.single { it.value["call_id"] == JsonPrimitive("old-pr") }.key
+        val oldCiId = book.snapshot().first.entries.single { it.value["call_id"] == JsonPrimitive("old-ci") }.key
+        fun fact(receipt: String, pointer: String, value: JsonPrimitive) = buildJsonObject {
+            put("kind", "fact")
+            put("receipt_id", receipt)
+            put("pointer", pointer)
+            put("value", value)
+        }
+        val completedBatch = buildJsonObject {
+            put("claims", JsonArray(listOf(fact(oldPrId, "/data/number", JsonPrimitive(42))))
+            put("requirement_claims", JsonObject(emptyMap()))
+            put("acceptance", JsonObject(emptyMap()))
+            put("questions", JsonArray(emptyList()))
+        }
+        val staleBatch = buildJsonObject {
+            put("claims", JsonArray(listOf(fact(oldPrId, "/data/title", JsonPrimitive("Old title")), fact(oldCiId, "/data/workflow_runs/0/conclusion", JsonPrimitive("failure"))))
+            put("requirement_claims", JsonObject(emptyMap()))
+            put("acceptance", JsonObject(emptyMap()))
+            put("questions", JsonArray(emptyList()))
+        }
+        book.retainClaimBatches("old-context", "old-plan", "Private saved draft", listOf(completedBatch, staleBatch), requirementIds, pending = true)
+
+        clock = 200_000L
+        read("fresh-pr", "github_pr", "context", """{"data":{"number":42,"title":"Current title"}}""")
+        read("fresh-ci", "github_ci", "runs", """{"data":{"workflow_runs":[{"conclusion":"success"}]}}""")
+        val fresh = book.snapshot().first
+        val freshPrId = fresh.entries.single { it.value["call_id"] == JsonPrimitive("fresh-pr") }.key
+        val freshCiId = fresh.entries.single { it.value["call_id"] == JsonPrimitive("fresh-ci") }.key
+        val extractedBatches = mutableListOf<Int>()
+        val session = GitHubVerifiedSession(
+            delegate = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("The retained session draft must be reused")
+            },
+            evidence = book,
+            task = task,
+            inputLimit = { 16_384 },
+            openVerifier = { prompt ->
+                val request = Json.parseToJsonElement(prompt).jsonObject
+                extractedBatches += (request["batch"] as JsonPrimitive).content.toInt()
+                require(extractedBatches.last() == 2) { "Only the stale PR/CI batch should be extracted again" }
+                answer(
+                    """{"claims":[{"kind":"fact","receipt_id":"$freshPrId","pointer":"/data/title","value":"Current title"},{"kind":"fact","receipt_id":"$freshCiId","pointer":"/data/workflow_runs/0/conclusion","value":"success"}],"requirement_claims":{},"acceptance":{},"questions":[]}"""
+                )
+            },
+            validatePublication = {},
+            progress = {},
+            now = { clock },
+            resumeClaimExtraction = true,
+            currentRequest = "Continue"
+        )
+
+        session.streamRound(emptyList(), emptyList()).toList()
+
+        assertEquals(listOf(2), extractedBatches)
+        val retained = requireNotNull(book.retainedClaimExtraction())
+        val batches = retained.getValue("batches").jsonArray
+        assertEquals("/data/number", batches[0].jsonObject.getValue("claims").jsonArray.single().jsonObject.getValue("pointer").toString().trim('"'))
+        val refreshed = batches[1].jsonObject.getValue("claims").jsonArray
+        assertTrue(refreshed.any { it.jsonObject["receipt_id"] == JsonPrimitive(freshPrId) })
+        assertTrue(refreshed.any { it.jsonObject["receipt_id"] == JsonPrimitive(freshCiId) })
     }
 
     @Test fun evidenceArrivingDuringVerificationCannotPublishAStaleCompletion() = runBlocking {

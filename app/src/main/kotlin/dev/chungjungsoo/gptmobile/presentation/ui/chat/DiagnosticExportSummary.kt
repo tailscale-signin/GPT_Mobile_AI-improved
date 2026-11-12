@@ -10,6 +10,7 @@ internal fun diagnosticExportSummary(manifest: JsonObject): String {
     fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.content.orEmpty()
     val logs = stages.filter { it.text("id") in setOf("critical_logs", "recent_logs") }.sumOf { it.text("evidenceRecords").toLongOrNull() ?: 0 }
     val unfinished = stages.count { it.text("status") in setOf("FAILED", "PARTIAL") }
+    val pendingSections = stages.filter { it.text("status") in setOf("FAILED", "PARTIAL") }.map { it.text("id") }.filter(String::isNotBlank)
     val resumable = manifest["resumable"] != JsonPrimitive(false)
     val continuation = resumable && manifest["continuationAvailable"] == JsonPrimitive(true)
     val resume = if (continuation) "Choose Resume diagnostic capture to export the next archive part with new history records." else "Choose Resume diagnostic capture to retry unfinished sections."
@@ -19,7 +20,8 @@ internal fun diagnosticExportSummary(manifest: JsonObject): String {
         unfinished > 0 ->
             "Partial diagnostics: $logs retained log records; " +
                 (if (unfinished == 1) "1 section is incomplete. " else "$unfinished sections are incomplete. ") +
-                (if (resumable) resume else "Choose Low-memory diagnostics to start a new capture. Temporary captures cannot be resumed.")
+                (if (resumable) resume else "Choose Low-memory diagnostics to start a new capture. Temporary captures cannot be resumed.") +
+                if (pendingSections.isNotEmpty()) " Pending sections: ${pendingSections.joinToString(", ")}." else ""
         manifest["reducedMemory"] == JsonPrimitive(true) -> "Low-memory diagnostics prepared with $logs retained log records. The manifest lists the captured sections and retention limits."
         else -> "Diagnostics prepared with $logs retained log records. The manifest lists the captured sections and retention limits."
     }

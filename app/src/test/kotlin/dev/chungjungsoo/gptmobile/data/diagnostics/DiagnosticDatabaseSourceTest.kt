@@ -22,6 +22,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.long
@@ -211,6 +212,47 @@ class DiagnosticDatabaseSourceTest {
             DiagnosticCaptureStorage.deleteChat(context, chat)
             destination.deleteRecursively()
         }
+    }
+
+    @Test fun compactFailureSummaryLeadsWithBoundedCausalEvidenceAndExactBuildBinding() = runBlocking {
+        val chat = database.chatRoomDao().addChatRoom(ChatRoomV2(title = "Failure summary")).toInt()
+        val user = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "request", platformType = null)).toInt()
+        val assistant = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "partial response", platformType = null)).toInt()
+        database.agentPersistenceDao().insertRun(AgentRun("run-summary", chat, user, assistant, "profile", "provider", "model", status = "PARTIAL"))
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-evidence:repo-binding:verification_current_0123456789abcdef01234567",
+            chat,
+            "run-summary",
+            buildJsonObject {
+                put("task_state", "PARTIAL")
+                put("task_outcome", "PARTIAL")
+                put("stop_code", "GITHUB_EVIDENCE_MISSING")
+                put("failure_code", "GITHUB_EXTRACTION_OUTPUT_LIMIT")
+                put("invocation_id", "claim-batch-3")
+                put("failed_stage", "claim_extraction")
+                put("recovery_action", "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT")
+                put("tested_sha", "a".repeat(40))
+                put("acceptance_ledger", buildJsonObject {
+                    put("requirements", JsonArray(listOf(buildJsonObject {
+                        put("id", "verify-current-ci")
+                        put("requirement", "Refresh the PR check for the pinned head SHA")
+                        put("acceptance_state", "BLOCKED")
+                        put("missing_evidence_ids", JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("receipt-ci-7"))))
+                    })))
+                })
+            },
+            appendOnly = true
+        )
+
+        val summary = source.latestFailureSummary(chat, "0.9.test", 999, "build-sha", {}, {})
+        assertEquals("run-summary", summary.getValue("run_id").jsonPrimitive.content)
+        assertEquals("0.9.test", summary.getValue("app_version").jsonPrimitive.content)
+        assertEquals(999, summary.getValue("app_build").jsonPrimitive.int)
+        assertEquals("GITHUB_EXTRACTION_OUTPUT_LIMIT", summary.getValue("latest_verdict").jsonPrimitive.content)
+        assertEquals("Refresh the PR check for the pinned head SHA", summary.getValue("failed_criterion").jsonPrimitive.content)
+        assertEquals("receipt-ci-7", summary.getValue("causal_receipt_ids").jsonArray.single().jsonPrimitive.content)
+        assertEquals("claim-batch-3", summary.getValue("invocation_id").jsonPrimitive.content)
+        assertEquals("a".repeat(40), summary.getValue("tested_sha").jsonPrimitive.content)
     }
 
     @Test fun protectedEvidenceIsRestoredWithinBudgetInsteadOfExportingOnlyChunkReferences() = runBlocking {

@@ -55,6 +55,8 @@ import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterModelItem
 import dev.chungjungsoo.gptmobile.llama.AdvancedSettings
 import dev.chungjungsoo.gptmobile.llama.GatewayPerformancePreferences
 import java.util.ArrayDeque
@@ -81,6 +83,22 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun githubClaimExtractionSendsStrictSchemaAndUsesLowAdvertisedReasoning() = runBlocking {
+        OpenRouterCatalogLimits.remember(listOf(OpenRouterModelItem("audit/claim-extraction", supportedParameters = listOf("reasoning"))))
+        val schema = """{"type":"json_schema","json_schema":{"name":"github_evidence_claims","strict":true,"schema":{"type":"object","properties":{"claims":{"type":"array","items":{"type":"string"}}},"required":["claims"],"additionalProperties":false}}}"""
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(
+                turns(),
+                platform(ClientType.OPENROUTER).copy(apiUrl = "https://openrouter.ai/api/v1", model = "audit/claim-extraction", reasoning = true),
+                RequestConstraints(finalResponseSchemaJson = schema, requestRole = "github-claim-extraction")
+            )
+            .streamRound(emptyList(), emptyList()).toList()
+        val request = api.chatRequests.single()
+        assertEquals(NetworkClient.json.parseToJsonElement(schema).jsonObject, request.responseFormat)
+        assertEquals("low", request.reasoning?.effort)
+    }
+
     @Test fun adaptiveOverridesOllamaAdvancedSamplingOnWireWithoutChangingProfile() = runBlocking {
         val original = platform(ClientType.OLLAMA).copy(temperature = .9f, topP = .8f, ollamaOptions = "{\"temperature\":1.2,\"top_p\":0.7}")
         val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow(), emptyFlow())))

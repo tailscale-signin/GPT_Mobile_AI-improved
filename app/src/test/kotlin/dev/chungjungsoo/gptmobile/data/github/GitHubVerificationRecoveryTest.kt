@@ -73,7 +73,7 @@ class GitHubVerificationRecoveryTest {
         assertTrue(text.contains("RUNNING"))
         assertEquals(JsonPrimitive(task), report["task"])
         assertEquals(JsonPrimitive(false), report["completion_verified"])
-        assertEquals(JsonPrimitive(false), report["resume_required"])
+        assertEquals(JsonPrimitive(true), report["resume_required"])
         assertEquals(JsonPrimitive(true), report["answer_available"])
         assertEquals(JsonPrimitive("GITHUB_REVIEW_INVALID_VERDICT"), report["failure_code"])
         val book = GitHubEvidenceBook("binding", "o/r", "main", emptySet(), { 1000 })

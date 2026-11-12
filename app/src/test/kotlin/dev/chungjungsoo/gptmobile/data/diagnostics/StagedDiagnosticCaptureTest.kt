@@ -26,6 +26,23 @@ import org.junit.Test
 class StagedDiagnosticCaptureTest {
     private val available = DiagnosticCaptureOptions(minimumHeadroomBytes = 0)
 
+    @Test fun heapDeferredSectionIsRetriedOnceAfterMeasuredHeadroomReturns() = temporary { directory ->
+        runBlocking {
+            var attempts = 0
+            val stage = DiagnosticCaptureStage("receipts", "receipts.jsonl", lowMemorySafe = true) { sink ->
+                attempts++
+                if (attempts == 1) throw JavaHeapWorkDeferred()
+                sink.record("retained receipt")
+            }
+            val result = StagedDiagnosticCapture.capture(directory, "heap-retry", listOf(stage), available.copy(
+                memorySampler = { DiagnosticExportMemory.sample().copy(javaHeadroomBytes = 32L * 1024 * 1024) }
+            ))
+            assertTrue(result.complete)
+            assertEquals(2, attempts)
+            assertEquals(JsonPrimitive(true), receipt(result, "receipts")["heapPressureRetry"])
+        }
+    }
+
     @Test fun missingUnrecordedLogsRequireNewCaptureInsteadOfImpossibleResume() = temporary { directory ->
         runBlocking {
             val result = StagedDiagnosticCapture.capture(directory, "logs-disabled", listOf(stage("logs") { it.omit("TRACKING_DISABLED_NO_RETAINED_LOGS") }), available)

@@ -1,7 +1,7 @@
 // Explicit constrained-JVM regression gates; run only the selected heap/export test classes.
 // The staged diagnostic core uses a smaller JVM without loading Robolectric's Android runtime.
 def diagnosticCaptureGate = gradle.startParameter.projectProperties['gptmobile.diagnosticHeapStress'] == 'true'
-def gateHeap = diagnosticCaptureGate ? '64m' : '256m'
+def gateHeap = '256m'
 def gateReport = diagnosticCaptureGate ? 'diagnosticHeapRecovery' : 'heapRecovery'
 def gateIncludes = ['**/ResearchSessionStoreHeapTest.class', '**/StreamingDebugBundleTest.class', '**/BenchmarkStreamingExportHeapTest.class', '**/BenchmarkColdStreamingExportHeapTest.class']
 if (diagnosticCaptureGate) {

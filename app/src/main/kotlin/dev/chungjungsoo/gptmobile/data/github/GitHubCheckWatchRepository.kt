@@ -157,14 +157,22 @@ class GitHubCheckWatchRepository @Inject constructor(
         }
         val initial = prepareWatch(connectionUid, profileUid, chatId, args, background = true)
         val id = initial.id
+        var durableWatch = initial
+        var reattached = false
         mutex.withLock {
             val existing = workspace.dao.get(id)?.let(::decode)
             val replace = existing == null || existing.terminal || existing.headSha != initial.headSha
             require(existing?.terminal == false || workspace.dao.forChat(chatId).filter { it.kind == "github_checks" }.mapNotNull(::decode).count { !it.terminal } < 20) { "Stop an existing check watch before adding another (20 active watches per chat)." }
             if (replace) {
                 save(initial)
+                durableWatch = initial
             } else if (requireNotNull(existing).followPullRequest != initial.followPullRequest) {
                 save(existing.copy(followPullRequest = initial.followPullRequest))
+                durableWatch = existing.copy(followPullRequest = initial.followPullRequest)
+                reattached = true
+            } else {
+                durableWatch = requireNotNull(existing)
+                reattached = true
             }
             val work = OneTimeWorkRequestBuilder<GitHubCheckWatchWorker>()
                 .setInputData(workDataOf("watch_id" to id, "watch_trigger" to trigger.name))
@@ -177,6 +185,10 @@ class GitHubCheckWatchRepository @Inject constructor(
         }
         buildJsonObject {
             put("watch_id", id)
+            put("subscription_id", id)
+            put("subscription_state", if (reattached) "REATTACHED" else "SUBSCRIBED")
+            put("lifecycle_state", durableWatch.status)
+            put("observation_state", "WAITING_FOR_FIRST_LIVE_CHECK_OBSERVATION")
             put("head_sha", initial.headSha)
             initial.pullNumber?.let { put("pr_number", it) }
             initial.runId?.let { put("run_id", it) }
@@ -190,6 +202,10 @@ class GitHubCheckWatchRepository @Inject constructor(
 
     private fun watchObservation(watch: GitHubCheckWatch): JsonObject = buildJsonObject {
         put("status", watch.status)
+        put("subscription_id", watch.id)
+        put("subscription_state", if (watch.terminal) "TERMINAL" else "ACTIVE")
+        put("lifecycle_state", watch.status)
+        put("observation_state", "LIVE_CHECK_OBSERVATION")
         put("head_sha", watch.headSha)
         put("detail", watch.detail)
         put("observed_at_ms", watch.updatedAt)

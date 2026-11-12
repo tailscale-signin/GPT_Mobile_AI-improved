@@ -500,6 +500,9 @@ class OpenAICompatibleAdapter @Inject constructor(
             } else {
                 null
             },
+            responseFormat = constraints.finalResponseSchemaJson
+                ?.takeIf { isOpenRouter || isLlama }
+                ?.let { runCatching { json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }.getOrNull() },
             sessionId = openRouterSessionId,
             options = parsedOllamaOptions?.let { if (constraints.githubSampling == null) it else it.copy(temperature = effectiveTemperature, topP = null) }
         ).let { baseRequest ->

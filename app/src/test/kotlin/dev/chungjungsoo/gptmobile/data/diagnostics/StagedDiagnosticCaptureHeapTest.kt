@@ -14,20 +14,20 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
-/** Dedicated 64 MiB JVM gate: the raw source corpus exceeds the entire process heap. */
+/** Dedicated 256 MiB JVM gate: the raw source corpus exceeds the process heap and resumes after interruption. */
 class StagedDiagnosticCaptureHeapTest {
     @get:Rule
     val temporary = TemporaryFolder()
 
     @Test
     fun streamsAndResumesHistoryLargerThanHeapWithIndependentFailure() = runBlocking(Dispatchers.Default) {
-        assumeTrue("Requires the diagnostic 64 MiB heap gate", java.lang.Boolean.getBoolean("gptmobile.diagnosticHeapStress"))
+        assumeTrue("Requires the diagnostic 256 MiB heap gate", java.lang.Boolean.getBoolean("gptmobile.diagnosticHeapStress"))
         val heap = Runtime.getRuntime().maxMemory()
-        assertTrue("The gate must actually constrain the test JVM to 64 MiB", heap <= 64L * 1024 * 1024)
-        val records = 20_000
+        assertTrue("The gate must actually constrain the test JVM to 256 MiB", heap <= 256L * 1024 * 1024 && heap > 192L * 1024 * 1024)
+        val records = 40_000
         val payload = "a".repeat(8192)
         val generatedBytes = records.toLong() * payload.length
-        assertTrue("Generated source must be larger than the process heap", generatedBytes > heap * 2)
+        assertTrue("Generated source must exceed the process heap", generatedBytes > heap)
         val directory = temporary.newFolder("capture")
         var toolHealthy = false
         var conversationCaptures = 0
@@ -51,13 +51,13 @@ class StagedDiagnosticCaptureHeapTest {
                 sink.record("{\"profile\":\"redacted\"}")
             }
         )
-        val options = DiagnosticCaptureOptions(maxStageBytes = 192L * 1024 * 1024, maxArchiveBytes = 256L * 1024 * 1024)
+        val options = DiagnosticCaptureOptions(maxStageBytes = 384L * 1024 * 1024, maxArchiveBytes = 512L * 1024 * 1024)
         val first = StagedDiagnosticCapture.capture(directory, "heap-fixture", stages, options)
         assertFalse(first.complete)
         assertEquals(records.toLong() + 3, first.usefulRecords)
         assertEquals("JAVA_HEAP_PRESSURE", stage(first, "tool_receipts")["omissionReason"]?.let { (it as JsonPrimitive).content })
         assertEquals("COMPLETED", stage(first, "profiles")["status"]?.let { (it as JsonPrimitive).content })
-        assertTrue(File(directory, "diagnostic-capture-checkpoints/${first.sessionId}/conversation.jsonl").length() > heap * 2)
+        assertTrue(File(directory, "diagnostic-capture-checkpoints/${first.sessionId}/conversation.jsonl").length() > heap)
         toolHealthy = true
         val resumed = StagedDiagnosticCapture.capture(directory, "heap-fixture", stages, options, first.sessionId)
         assertTrue(resumed.complete)

@@ -56,6 +56,19 @@ internal object GitHubPendingApproval {
         }
     }
 
+    /** A user rejection is distinct from remote cancellation and is accepted only from a durable card event. */
+    fun isRejectedResolution(receipt: JsonObject): Boolean {
+        if (receipt["trusted"] != JsonPrimitive(true) ||
+            receipt["verification_eligible"] == JsonPrimitive(false) ||
+            receipt["success"] != JsonPrimitive(true) ||
+            receipt["local_resolution_event"] != JsonPrimitive("approval_card_rejected")
+        ) return false
+        val result = root(receipt) ?: return false
+        return result.text("approval_state") == "CANCELLED_BEFORE_PUBLICATION" &&
+            result["cancellation_confirmed"] == JsonPrimitive(true) &&
+            result["remote_mutation_performed"] == JsonPrimitive(false)
+    }
+
     private fun resolutionMatches(previous: JsonObject, candidate: JsonObject): Boolean {
         if (candidate["trusted"] != JsonPrimitive(true) ||
             candidate["verification_eligible"] == JsonPrimitive(false) ||

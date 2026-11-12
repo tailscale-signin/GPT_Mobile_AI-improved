@@ -39,7 +39,16 @@ data class ProfileFailureRecord(
     @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
     val recoveryActions: List<String> = emptyList()
 ) {
-    val isTaskVerification: Boolean get() = category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED")
+    val isTaskVerification: Boolean get() = category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED") ||
+        category.startsWith("GITHUB_EXTRACTION_") ||
+        category in setOf(
+            "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION",
+            "GITHUB_TOOL_BUDGET_EXHAUSTED",
+            "GITHUB_TASK_BUDGET_EXHAUSTED",
+            "TOOL_BUDGET_EXHAUSTED",
+            "TASK_BUDGET_EXHAUSTED",
+            "VERIFICATION_RESERVE_REACHED"
+        )
     val isUnsentSetup: Boolean get() = dispatched == false &&
         remoteAcceptance == RemoteRequestAcceptance.NO &&
         (
@@ -61,7 +70,7 @@ data class ProfileFailureRecord(
         private val engineeringPreflightCodes = setOf("ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED", "VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED", "SOURCE_REVISION_REQUIRED", "VALIDATION_REVISION_UNAVAILABLE", "VALIDATION_RUNTIME_UNAVAILABLE", "ENGINEERING_REPOSITORY_ACCESS_REQUIRED", "SOURCE_REVISION_CHANGED")
         private val gatewayAdmissionCodes = dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason.entries.mapTo(hashSetOf()) { "GATEWAY_${it.name}" }
         private val continuationCodes = setOf("OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_NO_PROGRESS", "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED")
-        private val typedCodes = setOf("GITHUB_REPOSITORY_TARGET_REQUIRED", "GITHUB_REPOSITORY_TARGET_AMBIGUOUS", "REQUEST_REJECTED", "CIRCUIT_BREAKER_OPEN", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY", "SERIALIZATION_ERROR", "PARSING_ERROR", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "REPLAY_EVIDENCE_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
+        private val typedCodes = setOf("GITHUB_REPOSITORY_TARGET_REQUIRED", "GITHUB_REPOSITORY_TARGET_AMBIGUOUS", "REQUEST_REJECTED", "CIRCUIT_BREAKER_OPEN", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "DISPATCH_POLICY_CHANGED", "POLICY_STALE", "STALE_INVENTORY", "SERIALIZATION_ERROR", "PARSING_ERROR", "SERVICE_UNAVAILABLE", "PROVIDER_UNAVAILABLE", "GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION", "GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_TOOL_BUDGET_EXHAUSTED", "GITHUB_TASK_BUDGET_EXHAUSTED", "TOOL_BUDGET_EXHAUSTED", "TASK_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED", "SAVED_VIEW_UNAVAILABLE", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "DEPENDENCY_DEFERRED", "REPLAY_EVIDENCE_REQUIRED", "TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_OUTCOME_UNKNOWN", "GATEWAY_TOOL_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")
 
         /** Preserve typed stage/dispatch facts; arbitrary provider text is never promoted to evidence. */
         fun fromProvider(message: String, errorCode: String? = null, details: JsonObject? = null): ProfileFailureRecord {
@@ -171,6 +180,20 @@ data class ProfileFailureRecord(
             val repositoryAdmission = repositoryAdmissionCodes.firstOrNull { details.contains(it, true) }
             val githubSchemaAdmission = githubSchemaAdmissionCodes.firstOrNull { details.contains(it, true) }
             val continuationCode = continuationCodes.firstOrNull { details.contains(it, true) }
+            val verificationCode = typedCodes.firstOrNull {
+                it.startsWith("GITHUB_EXTRACTION_") || it in setOf(
+                    "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION",
+                    "GITHUB_TOOL_BUDGET_EXHAUSTED",
+                    "GITHUB_TASK_BUDGET_EXHAUSTED",
+                    "TOOL_BUDGET_EXHAUSTED",
+                    "TASK_BUDGET_EXHAUSTED",
+                    "VERIFICATION_RESERVE_REACHED",
+                    "SAVED_VIEW_UNAVAILABLE",
+                    "SAVED_VIEW_WRONG_OPERATION",
+                    "SAVED_VIEW_CURSOR_ALTERED",
+                    "DEPENDENCY_DEFERRED"
+                )
+            }?.takeIf { details.contains(it, true) }
             val category = when {
                 listOf("TOOL_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "DISPATCH_OUTCOME_UNKNOWN", "TOOL_RESULT_ID_MISMATCH", "RECONCILIATION_REQUIRED", "GATEWAY_TOOL_OUTCOME_UNKNOWN").any { details.contains(it, true) } -> "TOOL_OUTCOME_UNKNOWN"
                 details.contains("DISPATCH_POLICY_CHANGED", true) || details.contains("POLICY_STALE", true) -> "POLICY_STALE"
@@ -180,6 +203,7 @@ data class ProfileFailureRecord(
                 githubSchemaAdmission != null -> githubSchemaAdmission
                 details.contains("WAITING_FOR_APPROVAL", true) -> "WAITING_FOR_APPROVAL"
                 continuationCode != null -> continuationCode
+                verificationCode != null -> verificationCode
                 contract != null -> contract.code
                 engineeringPreflight != null -> engineeringPreflight
                 gatewayAdmission != null -> gatewayAdmission
@@ -228,7 +252,7 @@ data class ProfileFailureRecord(
             }
             return ProfileFailureRecord(
                 category,
-                !incompatible && !unavailablePolicy && engineeringPreflight == null && repositoryAdmission == null && githubSchemaAdmission == null && gatewayAdmission == null && (continuationCode == null || continuationCode == "OUTPUT_CONTINUATION_UNAVAILABLE") && (readinessCode == null || readinessCode == "REQUIRED_TOOL_ACQUISITION_TIMED_OUT") && contract == null && githubCode?.let { dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.requiresCorrection(it) } != true && category !in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED", "REQUEST_REJECTED", "POLICY_STALE", "STALE_INVENTORY", "REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR", "WAITING_FOR_APPROVAL"),
+                !incompatible && !unavailablePolicy && engineeringPreflight == null && repositoryAdmission == null && githubSchemaAdmission == null && gatewayAdmission == null && (continuationCode == null || continuationCode == "OUTPUT_CONTINUATION_UNAVAILABLE") && verificationCode == null && (readinessCode == null || readinessCode == "REQUIRED_TOOL_ACQUISITION_TIMED_OUT") && contract == null && githubCode?.let { dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.requiresCorrection(it) } != true && category !in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED", "REQUEST_REJECTED", "POLICY_STALE", "STALE_INVENTORY", "REVIEW_INPUT_REQUIRED", "PRIVACY_CONFIGURATION", "QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "ENDPOINT_RETIRED", "BILLING_UNAVAILABLE", "TOOL_OUTCOME_UNKNOWN", "TLS_FAILURE", "CLIENT_CANCELLED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "SERIALIZATION_ERROR", "WAITING_FOR_APPROVAL"),
                 retryAt.takeUnless { category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED") },
                 dispatched = false.takeIf { !circuit && category !in setOf("POLICY_STALE", "STALE_INVENTORY") && (details.contains("dispatched=false", true) || details.contains("No request was dispatched", true)) },
                 phase = when {
@@ -246,6 +270,10 @@ data class ProfileFailureRecord(
                     category == "TOOL_OUTCOME_UNKNOWN" -> "tool_dispatch"
                     category == "WAITING_FOR_APPROVAL" -> "tool_continuation"
                     category == "OUTPUT_CONTINUATION_PENDING_TOOLS" -> "tool_reconciliation"
+                    category.startsWith("GITHUB_EXTRACTION_") -> "claim_extraction"
+                    category in setOf("GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION", "GITHUB_TOOL_BUDGET_EXHAUSTED", "GITHUB_TASK_BUDGET_EXHAUSTED", "TOOL_BUDGET_EXHAUSTED", "TASK_BUDGET_EXHAUSTED", "VERIFICATION_RESERVE_REACHED") -> "verification"
+                    category == "DEPENDENCY_DEFERRED" -> "tool_admission"
+                    category.startsWith("SAVED_VIEW_") -> "inventory_pagination"
                     continuationCode != null -> "final_synthesis"
                     category == "STALE_INVENTORY" -> "inventory_pagination"
                     category in readinessCodes -> "tool_readiness"

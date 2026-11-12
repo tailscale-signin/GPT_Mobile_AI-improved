@@ -36,11 +36,12 @@ internal fun GitHubWorkflowExecutionPanel(
     onRecovery: (GitHubRecoveryRequest) -> Unit,
     onExport: () -> Unit,
     model: GitHubWorkflowViewModel = hiltViewModel(),
-    approvalPending: Boolean = false
+    approvalPending: Boolean = false,
+    onReviewApproval: () -> Unit = {}
 ) {
     LaunchedEffect(state.chatId) { model.bind(state.chatId) }
     val evidence by model.evidence.collectAsStateWithLifecycle()
-    GitHubWorkflowExecutionContent(state, evidence, onRecovery, onExport, approvalPending)
+    GitHubWorkflowExecutionContent(state, evidence, onRecovery, onExport, approvalPending, onReviewApproval)
 }
 
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
@@ -50,7 +51,8 @@ internal fun GitHubWorkflowExecutionContent(
     evidence: GitHubWorkflowEvidence,
     onRecovery: (GitHubRecoveryRequest) -> Unit,
     onExport: () -> Unit,
-    approvalPending: Boolean = false
+    approvalPending: Boolean = false,
+    onReviewApproval: () -> Unit = {}
 ) {
     val latestMessageRun = state.messages.lastOrNull { it.currentRunId != null }?.currentRunId
     val run = state.runs.firstOrNull { it.runId == latestMessageRun }
@@ -71,6 +73,11 @@ internal fun GitHubWorkflowExecutionContent(
                     GitHubAcceptanceStatus.entries.joinToString(" · ") { status -> "${snapshot.criteria.count { it.status == status }} ${status.label.lowercase()}" },
                     style = MaterialTheme.typography.bodySmall
                 )
+                snapshot.lastFreshObservationMillis?.let { observedAt ->
+                    val time = remember(observedAt) { java.time.format.DateTimeFormatter.ISO_INSTANT.format(java.time.Instant.ofEpochMilli(observedAt)) }
+                    Text("Last fresh observation: $time", style = MaterialTheme.typography.bodySmall)
+                }
+                snapshot.exactBlocker?.let { Text("Blocker: $it", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
                 val unfinished = snapshot.criteria.filter { it.status != GitHubAcceptanceStatus.PASS }
                 val preview = (unfinished + snapshot.criteria.filter { it.status == GitHubAcceptanceStatus.PASS }).take(3)
                 preview.forEach { criterion ->
@@ -83,6 +90,7 @@ internal fun GitHubWorkflowExecutionContent(
                 if (!snapshot.eventWindowComplete) Text("Activity shows ${snapshot.observedOperations} of ${state.eventCountsByRun[snapshot.runId] ?: 0} recorded operations for this run.", style = MaterialTheme.typography.bodySmall)
                 if (approvalPending && !snapshot.reconciliationRequired) {
                     Text("Review the existing proposed changes card in Chat before continuing this work.", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = onReviewApproval) { Text("Review approval") }
                 } else if (snapshot.reconciliationRequired || snapshot.recovery.isNotEmpty() || snapshot.failureCategory != null) {
                     Text(snapshot.recoveryExplanation, style = MaterialTheme.typography.bodySmall)
                 }
@@ -95,6 +103,8 @@ internal fun GitHubWorkflowExecutionContent(
                             Text(
                                 if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.reconciliationRequired) {
                                     "Reconcile saved results"
+                                } else if (action == TaskRecoveryAction.CONTINUE_RUN && snapshot.exactBlocker?.contains(Regex("(?i)stale|missing evidence|not measured|receipt")) == true) {
+                                    "Refresh evidence"
                                 } else if (action == TaskRecoveryAction.CONTINUE_RUN) {
                                     "Resume"
                                 } else {

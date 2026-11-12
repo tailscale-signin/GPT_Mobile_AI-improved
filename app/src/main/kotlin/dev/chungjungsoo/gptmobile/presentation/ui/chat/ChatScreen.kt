@@ -1721,6 +1721,13 @@ internal fun ChatMessagePair(
         activeProfileUids = activePlatformUids - disabledPlatformUids,
         eventsByRun = toolEventsByRun
     )
+    val receiptScopedGitHubReferences = remember(githubAssistantReferences, provenanceToolEvents) {
+        githubAssistantReferences?.withReceiptReferences(
+            provenanceToolEvents.map { event ->
+                GitHubReferenceReceipt(event.toolName, event.arguments, event.result)
+            }
+        )
+    }
     val canShowPreviousRevision = !isSourceResponse &&
         (
             selectedAssistantMessage?.let { assistantMessage ->
@@ -1900,7 +1907,7 @@ internal fun ChatMessagePair(
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 8.dp)
                     )
                 }
-                androidx.compose.runtime.CompositionLocalProvider(LocalGitHubAssistantReferences provides githubAssistantReferences) {
+                androidx.compose.runtime.CompositionLocalProvider(LocalGitHubAssistantReferences provides receiptScopedGitHubReferences) {
                     OpponentChatBubble(
                         modifier = Modifier
                             .fillMaxWidth()

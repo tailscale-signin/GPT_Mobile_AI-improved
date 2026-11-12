@@ -108,7 +108,7 @@ class GitHubAnswerPresentationTest {
         val source = json("""{"trusted":true,"success":true,"observed_at_ms":1000,"epoch":0,"result":{"state":"RUNNING","commit_sha":"$revision"}}""")
         val (text, report) = GitHubEvidencePolicy.partial(mapOf("r" to source), 1000, 0)
         assertTrue(text.contains("RUNNING"))
-        assertEquals(JsonPrimitive(false), report["resume_required"])
+        assertEquals(JsonPrimitive(true), report["resume_required"])
         assertEquals(JsonPrimitive(false), report["completion_verified"])
     }
 }

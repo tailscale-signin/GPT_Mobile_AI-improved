@@ -50,4 +50,34 @@ class GitHubAssistantReferencesTest {
         assertTrue(rendered, rendered.contains("`#12`"))
         assertTrue(rendered, rendered.contains("[`#13`](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/13)"))
     }
+
+    @Test fun receiptRepositoryWinsForMultiRepositoryBranchCommitAndPullRequestLinks() {
+        val scoped = context.withReceiptReferences(
+            listOf(
+                GitHubReferenceReceipt(
+                    toolName = "github_pr__headers",
+                    arguments = """{"owner":"tailscale-signin","repo":"GatewayTools","pull_number":44}""",
+                    result = """{"html_url":"https://github.com/tailscale-signin/GatewayTools/pull/44","head_sha":"${"b".repeat(40)}","head_ref":"fix/agent-recovery"}"""
+                )
+            )
+        )
+        val sha = "b".repeat(40)
+        val rendered = linkifyGitHubAssistantReferences("Branch fix/agent-recovery, commit $sha, and PR #44.", scoped)
+        assertTrue(rendered, rendered.contains("https://github.com/tailscale-signin/GatewayTools/tree/fix/agent-recovery"))
+        assertTrue(rendered, rendered.contains("https://github.com/tailscale-signin/GatewayTools/commit/$sha"))
+        assertTrue(rendered, rendered.contains("https://github.com/tailscale-signin/GatewayTools/pull/44"))
+        assertTrue(rendered, !rendered.contains("https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/44"))
+    }
+
+    @Test fun ambiguousReceiptReferenceIsNotMislinkedToTheSelectedRepository() {
+        val branch = "fix/shared-name"
+        val scoped = context.withReceiptReferences(
+            listOf(
+                GitHubReferenceReceipt("github_file", """{"owner":"org-one","repo":"repo-one","branch":"$branch"}""", "{}"),
+                GitHubReferenceReceipt("github_file", """{"owner":"org-two","repo":"repo-two","branch":"$branch"}""", "{}")
+            )
+        )
+        val rendered = linkifyGitHubAssistantReferences("Use branch $branch.", scoped)
+        assertEquals("Use branch $branch.", rendered)
+    }
 }

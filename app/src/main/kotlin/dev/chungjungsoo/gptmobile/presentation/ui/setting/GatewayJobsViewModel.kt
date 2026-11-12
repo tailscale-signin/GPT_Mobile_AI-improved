@@ -149,7 +149,9 @@ class GatewayJobsViewModel @Inject constructor(
                     delay(mutable.value.refreshDelayMillis)
                 }
                 refresh(automatic = true)
-                delay(mutable.value.refreshDelayMillis)
+                val current = mutable.value
+                val active = current.counts?.let { it.running + it.queued > 0 } ?: current.rows.any { it.summary.group in setOf(dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup.RUNNING, dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup.QUEUED) }
+                delay(if (active) current.refreshDelayMillis else maxOf(current.refreshDelayMillis, 30_000L))
             }
         } finally {
             if (visibility == visibleEpoch) {
@@ -203,6 +205,12 @@ class GatewayJobsViewModel @Inject constructor(
             consecutiveCatalogFailures = 0
             suspendedCatalogRoute = null
             suspendedCatalogMessage = null
+            val activeGatewayWork = page.counts?.let { it.running + it.queued > 0 } ?: page.items.any {
+                it.group in setOf(
+                    dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup.RUNNING,
+                    dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup.QUEUED
+                )
+            }
             mutable.update {
                 val reset = !it.loaded || restart || !loadMore && (!it.hasMore || page.complete)
                 val pageKeys = page.items.map { job -> gatewayIdentityKey(page.gatewayId, page.principalId, job.jobKind, job.jobId) }.toSet()
@@ -210,7 +218,7 @@ class GatewayJobsViewModel @Inject constructor(
                 val complete = if (reset || loadMore) page.complete else it.inventoryComplete
                 it.copy(
                     loading = false, error = null, legacy = false, loaded = true, counts = page.counts,
-                    automaticRefreshAllowed = true, refreshDelayMillis = 5_000,
+                    automaticRefreshAllowed = true, refreshDelayMillis = if (activeGatewayWork) 5_000 else 30_000,
                     catalogState = GatewayCatalogState.CURRENT,
                     hasMore = if (reset || loadMore) page.hasMore else it.hasMore,
                     nextCursor = if (reset || loadMore) page.nextCursor else it.nextCursor, serverNow = page.serverNow,

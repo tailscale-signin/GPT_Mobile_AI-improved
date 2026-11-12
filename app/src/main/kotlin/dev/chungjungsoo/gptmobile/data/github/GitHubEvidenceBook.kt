@@ -577,15 +577,23 @@ internal class GitHubEvidenceBook(
 
     private fun claimBatchKey() = "claim_extraction_current_" + digest(binding).take(24)
 
-    suspend fun retainedClaimExtraction(context: String): JsonObject? = load(claimBatchKey())?.takeIf { saved ->
+    suspend fun retainedClaimExtraction(context: String? = null): JsonObject? = load(claimBatchKey())?.takeIf { saved ->
         saved["schema"] == JsonPrimitive("github.claim-extraction.v1") &&
             saved["binding"] == JsonPrimitive(binding) &&
-            saved["context"] == JsonPrimitive(context) &&
+            (context == null || saved["context"] == JsonPrimitive(context)) &&
             saved["authorization"] == (authorizationDigest?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
     }
 
-    suspend fun retainClaimBatches(context: String, plan: String, draft: String, batches: List<JsonObject>, pending: Boolean) {
+    suspend fun retainClaimBatches(
+        context: String,
+        plan: String,
+        draft: String,
+        batches: List<JsonObject?>,
+        requirementIds: List<Set<String>>,
+        pending: Boolean
+    ) {
         require(batches.size <= GitHubClaimBatches.MAX_BATCHES)
+        require(batches.size == requirementIds.size)
         require(draft.length <= 1_048_576) { "Claim extraction draft exceeds the accepted session bound" }
         save(
             claimBatchKey(),
@@ -596,8 +604,11 @@ internal class GitHubEvidenceBook(
                 put("plan", plan)
                 put("authorization", authorizationDigest)
                 put("pending", pending)
-                if (pending) put("draft", draft)
-                put("batches", JsonArray(batches))
+                // Keep the bounded source draft and finished batches after extraction.
+                // A later read can then invalidate only claims that no longer verify.
+                put("draft", draft)
+                put("batch_requirement_ids", JsonArray(requirementIds.map { ids -> JsonArray(ids.sorted().map(::JsonPrimitive)) }))
+                put("batches", JsonArray(batches.map { it ?: JsonNull }))
             }
         )
     }

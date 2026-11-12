@@ -46,7 +46,9 @@ internal data class GitHubWorkflowSnapshot(
     val failureCategory: String?,
     val recovery: List<TaskRecoveryAction>,
     val recoveryExplanation: String,
-    val reconciliationRequired: Boolean = false
+    val reconciliationRequired: Boolean = false,
+    val lastFreshObservationMillis: Long? = null,
+    val exactBlocker: String? = null
 )
 
 /** Presentation uses persisted verifier output. API success never becomes acceptance evidence. */
@@ -168,7 +170,11 @@ internal object GitHubWorkflowPresentation {
                 unknown -> "Resume checks saved outcomes before continuing. An unfinished operation or incomplete activity history prevents direct retry."
                 else -> "Recovery continues this saved request and preserves its completed operation receipts."
             },
-            reconciliationRequired = reconcileReceipts || unresolvedRemoteOutcome
+            reconciliationRequired = reconcileReceipts || unresolvedRemoteOutcome,
+            lastFreshObservationMillis = observed.filter { it.status == ToolEventStatus.COMPLETED && !it.isError }
+                .mapNotNull { it.completedAt }.maxOrNull(),
+            exactBlocker = criteria.firstOrNull { it.status != GitHubAcceptanceStatus.PASS }?.detail
+                ?: run.terminalError?.takeIf(String::isNotBlank)
         )
     }
 

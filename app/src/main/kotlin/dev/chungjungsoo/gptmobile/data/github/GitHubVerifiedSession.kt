@@ -201,10 +201,9 @@ internal class GitHubVerifiedSession(
             return@flow
         }
         if (resumeCommitSha == null && (resumeClaimExtraction || GitHubTaskContinuity.control(currentRequest))) {
-            val (receipts, epoch) = evidence.snapshot()
-            val saved = evidence.retainedClaimExtraction(claimExtractionContext(receipts, epoch))
+            val saved = evidence.retainedClaimExtraction()
             val draft = (saved?.get("draft") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
-            if (saved?.get("pending") == JsonPrimitive(true) && draft != null) {
+            if (draft != null) {
                 emitAll(publish(draft))
                 return@flow
             }
@@ -820,14 +819,26 @@ internal class GitHubVerifiedSession(
         val (text, partial, report) = publication
         val retained = evidence.snapshot().first
         val currentProgress = GitHubExecutionContinuation.progressKeys(retained)
+        val staleReceiptIds = (report["unresolved_claims"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .filter { it["status"] == JsonPrimitive("STALE") }
+            .mapNotNull { (it["receipt_id"] as? JsonPrimitive)?.content }.distinct()
+        val targetedStaleRefresh = staleReceiptIds.isNotEmpty() && progressCorrections == 0
+        val newEvidenceProgress = (currentProgress - correctionProgress).isNotEmpty()
+        val currentSessionReview = GitHubRequestCompletion.requiresLiveSessionReviewRefresh(task)
         if (partial &&
             originalFailure == null &&
             openExecutionContinuation != null &&
             continuationTools.isNotEmpty() &&
             progressCorrections < 3 &&
-            (currentProgress - correctionProgress).isNotEmpty() &&
-            GitHubRequestCompletion.requiresRepositoryEvidence(task) &&
-            GitHubExecutionContinuation.canResume(report, retained, remainingToolCalls(), evidence.remainingTaskMillis())
+            (newEvidenceProgress || targetedStaleRefresh) &&
+            (GitHubRequestCompletion.requiresRepositoryEvidence(task) || currentSessionReview) &&
+            GitHubExecutionContinuation.canResume(
+                report,
+                retained,
+                remainingToolCalls(),
+                evidence.remainingTaskMillis(),
+                allowVerificationResume = newEvidenceProgress || targetedStaleRefresh
+            )
         ) {
             // Keep the exact acceptance gaps durable before another selected-profile round.
             // The existing runner still owns tool admission, original budgets and mutation deduplication.
@@ -836,7 +847,19 @@ internal class GitHubVerifiedSession(
             progressCorrections++
             validatePublication()
             progress("Continuing the first unfinished acceptance criterion from saved receipts")
-            val correction = collectDraft(openExecutionContinuation.invoke(GitHubExecutionContinuation.prompt(task, currentRequest, retained, report)), continuationTools, continuationExchanges)
+            val correction = collectDraft(
+                openExecutionContinuation.invoke(
+                    GitHubExecutionContinuation.prompt(
+                        task,
+                        currentRequest,
+                        retained,
+                        report,
+                        readOnlyRefresh = currentSessionReview
+                    )
+                ),
+                continuationTools,
+                continuationExchanges
+            )
             if (correction.failed || !correction.completed) {
                 emit(correction.failure ?: ProviderEvent.Failed("Task continuation was interrupted. Its saved checkpoint is retained.", errorCode = "GITHUB_TASK_INCOMPLETE", taskOutcome = "PARTIAL"))
                 return@flow
@@ -966,17 +989,29 @@ internal class GitHubVerifiedSession(
         val plan = withContext(computationDispatcher) {
             GitHubEvidenceBook.digest("github.claim-extraction.v1|$epoch|" + requests.joinToString("\n") { GitHubEvidenceBook.digest(it.payload) })
         }
-        val saved = evidence.retainedClaimExtraction(context)?.takeIf { it["plan"] == JsonPrimitive(plan) }
-        val completed = mutableListOf<JsonObject>()
-        for ((batch, request) in (saved?.get("batches") as? JsonArray).orEmpty().zip(requests)) {
-            val answer = batch as? JsonObject ?: break
-            completed += runCatching { GitHubClaimBatches.validate(answer, request) }.getOrNull() ?: break
+        val saved = evidence.retainedClaimExtraction()
+        val savedBatches = (saved?.get("batches") as? JsonArray).orEmpty()
+        val savedRequirementIds = (saved?.get("batch_requirement_ids") as? JsonArray).orEmpty().map { value ->
+            (value as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content }.toSet()
         }
+        val samePlan = saved != null && saved["context"] == JsonPrimitive(context) && saved["plan"] == JsonPrimitive(plan)
+        val completed = MutableList<JsonObject?>(requests.size) { null }
+        requests.forEachIndexed { index, request ->
+            val priorIndex = if (samePlan) index else savedRequirementIds.indexOfFirst { it == request.requirementIds }
+            val prior = savedBatches.getOrNull(priorIndex) as? JsonObject ?: return@forEachIndexed
+            val validated = runCatching { GitHubClaimBatches.validate(prior, request) }.getOrNull() ?: return@forEachIndexed
+            val stillValid = samePlan || withContext(computationDispatcher) {
+                GitHubEvidencePolicy.canReuseExtractionBatch(validated, receipts, now(), epoch, task)
+            }
+            if (stillValid) completed[index] = validated
+        }
+        fun completedCount() = completed.count { it != null }
+        val requirementIds = requests.map { it.requirementIds }
         suspend fun failed(code: String, providerFailure: ProviderEvent.Failed? = null): Pair<String, JsonObject> {
             val (text, report) = partial(receipts, epoch, code)
             return text to JsonObject(
                 report + buildJsonObject {
-                    put("extraction_batches_completed", completed.size)
+                    put("extraction_batches_completed", completedCount())
                     put("extraction_batches_total", requests.size)
                     put("resume_required", true)
                     put(
@@ -985,7 +1020,16 @@ internal class GitHubVerifiedSession(
                             providerFailure?.failureDetails?.forEach { (key, value) -> put(key, value) }
                             put("code", code)
                             put("failed_stage", "claim_extraction")
-                            if (completed.size < requests.size) put("batch", completed.size + 1)
+                            put("recovery_action", when (code) {
+                                "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_THIS_BATCH_WITH_A_SMALLER_CLAIM_LIMIT"
+                                "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "RESUME_THIS_BATCH_WITH_STRICT_SCHEMA"
+                                "GITHUB_EXTRACTION_TIMEOUT" -> "RESUME_UNFINISHED_EXTRACTION_BATCHES"
+                                else -> "INSPECT_THE_RECORDED_PROVIDER_FAILURE"
+                            })
+                            providerFailure?.invocationId?.let { put("invocation_id", it) }
+                            providerFailure?.errorCode?.let { put("provider_error_code", it) }
+                            val nextBatch = completed.indexOfFirst { it == null }
+                            if (nextBatch >= 0) put("batch", nextBatch + 1)
                             providerFailure?.message?.let { put("message", it) }
                         }
                     )
@@ -994,20 +1038,20 @@ internal class GitHubVerifiedSession(
         }
         return try {
             withTimeoutOrNull(90_000) {
-                if (completed.isEmpty()) evidence.retainClaimBatches(context, plan, draft, completed, pending = true)
-                for (request in requests.drop(completed.size)) {
+                evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = true)
+                for ((index, request) in requests.withIndex()) {
+                    if (completed[index] != null) continue
                     validatePublication()
                     val result = extractBatch(request)
                     validatePublication()
-                    completed += result
-                    evidence.retainClaimBatches(context, plan, draft, completed, pending = true)
+                    completed[index] = result
+                    evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = true)
                 }
+                val batches = completed.map { requireNotNull(it) }
                 val result = withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.render(GitHubClaimBatches.combine(completed), receipts, now(), epoch, task)
+                    GitHubEvidencePolicy.render(GitHubClaimBatches.combine(batches), receipts, now(), epoch, task)
                 }
-                if (saved?.get("pending") != JsonPrimitive(false) || completed.size != (saved?.get("batches") as? JsonArray)?.size) {
-                    evidence.retainClaimBatches(context, plan, draft, completed, pending = false)
-                }
+                evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = false)
                 result
             } ?: failed("GITHUB_EXTRACTION_TIMEOUT")
         } catch (failure: ExtractionFailed) {
@@ -1015,7 +1059,19 @@ internal class GitHubVerifiedSession(
         }
     }
 
-    private suspend fun extractBatch(request: GitHubClaimBatches.Request): JsonObject = try {
+    private suspend fun extractBatch(request: GitHubClaimBatches.Request): JsonObject {
+        var current = request
+        while (true) {
+            try {
+                return extractBatchOnce(current)
+            } catch (failure: ExtractionFailed) {
+                if (failure.code !in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE") || current.maxClaims <= 1) throw failure
+                current = GitHubClaimBatches.withClaimLimit(current, maxOf(1, current.maxClaims / 2))
+            }
+        }
+    }
+
+    private suspend fun extractBatchOnce(request: GitHubClaimBatches.Request): JsonObject = try {
         val response = StringBuilder()
         var complete = false
         var finishReason: String? = null
@@ -1063,7 +1119,9 @@ internal class GitHubVerifiedSession(
         if (groups.size > GitHubClaimBatches.MAX_BATCHES) return null
         val catalog by lazy { JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()) }
         val requests = groups.mapIndexed { index, requirements ->
-            val candidate = if (groups.size == 1) draft else draftExcerpt(draft, requirements)
+            // Never replay a history-sized saved report into the extractor. Completed
+            // reads remain in the evidence ledger; this bounded excerpt is only context.
+            val candidate = draftExcerpt(draft, requirements)
             val ids = requirements.map(GitHubRequestCompletion::id)
             fun payload(selected: List<kotlinx.serialization.json.JsonElement>) = buildJsonObject {
                 put("task", task)
@@ -1092,7 +1150,7 @@ internal class GitHubVerifiedSession(
             val baseTokens = TextTokenEstimate.estimate(request)
             if (baseTokens > hardLimit) return null
             val limit = minOf(hardLimit, maxOf(6_000, baseTokens + 2_048))
-            val query = if (groups.size == 1) "$task\n$draft" else requirements.joinToString("\n") + "\n" + candidate
+            val query = "$task\n${requirements.joinToString("\n")}\n$candidate"
             val selected = mutableListOf<kotlinx.serialization.json.JsonElement>()
             for (entry in GitHubVerificationCatalog.select(catalog, query)) {
                 val next = payload(selected + entry)

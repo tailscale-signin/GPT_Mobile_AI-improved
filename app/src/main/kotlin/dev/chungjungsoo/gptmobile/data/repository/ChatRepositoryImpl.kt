@@ -4924,7 +4924,8 @@ class ChatRepositoryImpl(
             passOutputTokens: Int? = null,
             combinedOverride: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext? = null,
             extraInstruction: String = "",
-            continuationPrefixDigest: String? = null
+            continuationPrefixDigest: String? = null,
+            responseSchemaJson: String? = null
         ): AgentProviderSession {
             chatToolConfig?.github?.let { github ->
                 check(github.mainProfileUid == platform.uid && requestPlatform.uid == platform.uid && requestPlatform.model == platform.model && requestPlatform.compatibleType == platform.compatibleType && requestPlatform.apiUrl == platform.apiUrl) {
@@ -4954,7 +4955,11 @@ class ChatRepositoryImpl(
             if (recalled.facts.isNotEmpty()) send(ApiState.MemoryRecalled(recalled.references))
             val passCombined = prepareCombinedDeliveryWork(combinedOverride ?: chatToolConfig?.combined, kind, runId, platform.uid, turns, invocationPlatform.systemPrompt.orEmpty(), listOfNotNull(passOutputTokens, requestConstraints.maxOutputTokens).minOrNull())
             val constraints = (if (textOnly) requestConstraints.withoutTools() else requestConstraints)
-                .copy(combined = passCombined, continuationPrefixDigest = continuationPrefixDigest)
+                .copy(
+                    combined = passCombined,
+                    continuationPrefixDigest = continuationPrefixDigest,
+                    finalResponseSchemaJson = responseSchemaJson ?: requestConstraints.finalResponseSchemaJson
+                )
                 .forRole(kind)
                 .let { original ->
                     if (passOutputTokens != null) {
@@ -5761,7 +5766,8 @@ class ChatRepositoryImpl(
                             kind = "github-claim-extraction",
                             textOnly = true,
                             passOutputTokens = githubStageBudget("github-claim-extraction").output.takeIf { it > 0 } ?: error("GITHUB_EVIDENCE_CAPACITY: No claim-rendering allowance remains."),
-                            extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION
+                            extraInstruction = dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.INSTRUCTION + "\n" + dev.chungjungsoo.gptmobile.data.github.GitHubEvidencePolicy.REVIEW_INSTRUCTION,
+                            responseSchemaJson = dev.chungjungsoo.gptmobile.data.github.GitHubClaimBatches.responseSchemaJson()
                         )
                     },
                     validatePublication = {
@@ -6903,6 +6909,11 @@ class ChatRepositoryImpl(
                     "reason" to terminal.reason,
                     "errorCode" to terminal.reason.takeUnless { status == AgentRunStatus.COMPLETED },
                     "failedStage" to terminal.stage,
+                    "recoveryAction" to terminal.recoveryAction,
+                    "taskState" to terminal.taskState,
+                    "stopCode" to terminal.stopCode,
+                    "approvalState" to terminal.approvalState,
+                    "taskOutcome" to terminal.taskOutcome,
                     "retryable" to (failure?.retryAllowed ?: false),
                     "dispatched" to terminal.dispatched,
                     "executionState" to terminal.executionState,

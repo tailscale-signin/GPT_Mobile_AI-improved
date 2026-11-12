@@ -53,11 +53,32 @@ class GitHubProgressContinuationTest {
     @Test fun budgetApprovalAndUncertainOutcomesCannotAutomaticallyContinue() {
         val receipts = mapOf("one" to receipt())
         assertTrue(GitHubExecutionContinuation.canResume(report(), receipts, 10, 1000))
+        assertFalse("One remaining call is reserved for final verification", GitHubExecutionContinuation.canResume(report(), receipts, 1, 1000))
         assertFalse(GitHubExecutionContinuation.canResume(report(), receipts, 0, 1000))
         assertFalse(GitHubExecutionContinuation.canResume(report(), receipts, 10, 0))
         for (recovery in listOf("WAITING_FOR_APPROVAL", "USER_INPUT_REQUIRED", "RECONCILE_REMOTE_OUTCOME", "RESTORE_AUTHORIZED_CONFIGURATION", "RESUME_VERIFICATION")) {
             assertFalse(recovery, GitHubExecutionContinuation.canResume(report(recovery), receipts, 10, 1000))
         }
+        assertTrue(
+            "A fresh evidence delta may resume only the verification stage",
+            GitHubExecutionContinuation.canResume(
+                JsonObject(report("RESUME_VERIFICATION") + ("failure_code" to JsonPrimitive("GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION"))),
+                receipts,
+                10,
+                1000,
+                allowVerificationResume = true
+            )
+        )
+        assertFalse(
+            "Provider and budget failures are not retried as missing evidence",
+            GitHubExecutionContinuation.canResume(
+                JsonObject(report("RESUME_VERIFICATION") + ("failure_code" to JsonPrimitive("GITHUB_EXTRACTION_OUTPUT_LIMIT"))),
+                receipts,
+                10,
+                1000,
+                allowVerificationResume = true
+            )
+        )
         assertFalse(GitHubExecutionContinuation.canResume(report(), receipts + ("failed" to receipt(success = false)), 10, 1000))
         assertFalse(GitHubExecutionContinuation.canResume(JsonObject(report() + ("completion_verified" to JsonPrimitive(true))), receipts, 10, 1000))
         assertTrue(GitHubExecutionContinuation.incompleteMessage(report(), receipts).contains("1 of 3 acceptance criteria"))

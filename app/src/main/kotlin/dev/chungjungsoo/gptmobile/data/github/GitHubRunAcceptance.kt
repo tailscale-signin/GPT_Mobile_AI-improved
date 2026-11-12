@@ -58,6 +58,9 @@ internal object GitHubRunAcceptance {
         check(acceptance.verification != "PARTIAL_EVIDENCE") {
             "PARTIAL_EVIDENCE: Acceptance diagnostics are missing or incomplete pages; a final acceptance verdict cannot be issued."
         }
+        check(acceptance.verification != "REJECTED") {
+            "APPROVAL_REJECTED: The exact staged mutation was rejected; do not retry or report the change as completed."
+        }
         check(acceptance.verification == "VERIFIED") {
             (if (acceptance.unresolvedOutcomes > 0) "RECONCILIATION_REQUIRED" else "GITHUB_TASK_INCOMPLETE") +
                 ": The delivered response does not satisfy this run's verified acceptance criteria."
@@ -75,14 +78,30 @@ internal object GitHubRunAcceptance {
         val delivered = report["response_delivered"] == JsonPrimitive(true)
         val responseHash = report.text("response_sha256").takeIf { it.matches(Regex("[a-f0-9]{64}")) }
         val pendingApprovals = (execution?.get("pending_approvals") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        val resolvedApprovals = (execution?.get("resolved_approvals") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        val rejectedApproval = resolvedApprovals.any { it.text("decision_outcome") == "REJECTED" || it.text("local_resolution_event") == "approval_card_rejected" }
         val pendingApproval = pendingApprovals.isNotEmpty() || report.text("task_state") == "WAITING_FOR_APPROVAL" || report.text("blocking_condition") == "WAITING_FOR_APPROVAL"
-        val taskState = report.text("task_state").ifBlank { if (pendingApproval) "WAITING_FOR_APPROVAL" else "" }
+        val taskState = when {
+            pendingApproval -> "WAITING_FOR_APPROVAL"
+            rejectedApproval -> "REJECTED"
+            else -> report.text("task_state")
+        }
         val stopReason = report["stop_reason"] as? JsonObject
-        val stopCode = report.text("stop_code").ifBlank { stopReason?.text("code").orEmpty() }.takeIf(String::isNotBlank)
-        val approvalState = pendingApprovals.firstOrNull()?.text("approval_state")?.takeIf(String::isNotBlank)
-            ?: pendingApprovals.firstOrNull()?.text("state")?.takeIf(String::isNotBlank)
-            ?: if (pendingApproval) "WAITING_FOR_APPROVAL" else report.text("approval_state").takeIf(String::isNotBlank)
-        val taskOutcome = report.text("task_outcome").ifBlank { if (pendingApproval) "WAITING_FOR_APPROVAL" else "" }
+        val stopCode = when {
+            pendingApproval -> "WAITING_FOR_APPROVAL"
+            rejectedApproval -> "APPROVAL_REJECTED"
+            else -> report.text("stop_code").ifBlank { stopReason?.text("code").orEmpty() }.takeIf(String::isNotBlank)
+        }
+        val approvalState = when {
+            pendingApproval -> pendingApprovals.firstNotNullOfOrNull { it.text("approval_state").takeIf(String::isNotBlank) ?: it.text("state").takeIf(String::isNotBlank) } ?: "WAITING_FOR_APPROVAL"
+            rejectedApproval -> "REJECTED"
+            else -> report.text("approval_state").takeIf(String::isNotBlank)
+        }
+        val taskOutcome = when {
+            pendingApproval -> "WAITING_FOR_APPROVAL"
+            rejectedApproval -> "REJECTED"
+            else -> report.text("task_outcome")
+        }
         val diagnostics = (acceptance?.get("diagnostic_projection") as? JsonObject)?.takeIf(GitHubAcceptanceDiagnostics::valid)
             ?: GitHubAcceptanceDiagnostics.snapshot(acceptance ?: JsonObject(emptyMap()))
         val pages = (acceptance?.get("diagnostic_pages") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
@@ -92,6 +111,7 @@ internal object GitHubRunAcceptance {
             responseHash != null &&
             report["completion_verified"] == JsonPrimitive(true) &&
             report.text("task_outcome") == "COMPLETED" &&
+            !rejectedApproval &&
             report.text("task_state") == "COMPLETED" &&
             report["evidence_retention_complete"] == JsonPrimitive(true) &&
             acceptance?.get("completion_verified") == JsonPrimitive(true) &&
@@ -104,6 +124,7 @@ internal object GitHubRunAcceptance {
             unresolved != null && unresolved > 0 -> "UNKNOWN_OUTCOME"
             pendingApproval -> "WAITING_FOR_APPROVAL"
             !diagnosticsComplete -> "PARTIAL_EVIDENCE"
+            rejectedApproval -> "REJECTED"
             complete -> "VERIFIED"
             report.text("task_outcome") in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") -> "BLOCKED"
             report.text("task_outcome") == "FAILED" || criteria.any { it["state"] == JsonPrimitive("FAIL") } -> "FAILED"
@@ -146,7 +167,7 @@ internal object GitHubRunAcceptance {
         val required = value.number("required_criteria")?.takeIf { it >= 0 } ?: return null
         val verified = value.number("verified_criteria")?.takeIf { it in 0..required } ?: return null
         val unresolved = value.number("unresolved_remote_outcomes") ?: return null
-        val recorded = value.text("verification").takeIf { it in setOf("VERIFIED", "PARTIAL", "PARTIAL_EVIDENCE", "BLOCKED", "FAILED", "UNKNOWN_OUTCOME", "WAITING_FOR_APPROVAL") } ?: return null
+        val recorded = value.text("verification").takeIf { it in setOf("VERIFIED", "PARTIAL", "PARTIAL_EVIDENCE", "BLOCKED", "FAILED", "UNKNOWN_OUTCOME", "WAITING_FOR_APPROVAL", "REJECTED") } ?: return null
         val state = when {
             unresolved > 0 -> "UNKNOWN_OUTCOME"
             recorded == "VERIFIED" &&

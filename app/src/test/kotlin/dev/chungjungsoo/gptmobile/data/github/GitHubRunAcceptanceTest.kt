@@ -168,6 +168,45 @@ class GitHubRunAcceptanceTest {
         assertTrue(failure.message.orEmpty().contains("WAITING_FOR_APPROVAL"))
     }
 
+    @Test fun explicitRejectionSurvivesCaptureAsASeparateNonSuccessfulOutcome() {
+        val rejected = JsonObject(report() + mapOf(
+            "task_outcome" to JsonPrimitive("REJECTED"),
+            "task_state" to JsonPrimitive("REJECTED"),
+            "stop_code" to JsonPrimitive("APPROVAL_REJECTED"),
+            "approval_state" to JsonPrimitive("REJECTED"),
+            "execution_ledger" to buildJsonObject {
+                put("requested_task", "REJECTED")
+                put("unresolved_remote_outcomes", 0)
+                put("receipt_count", 2)
+                put("pending_approvals", JsonArray(emptyList()))
+                put("resolved_approvals", JsonArray(listOf(buildJsonObject {
+                    put("task_id", "task-123")
+                    put("branch", "codex-self-test/fixture")
+                    put("expected_head_sha", "a".repeat(40))
+                    put("patch_digest", "b".repeat(64))
+                    put("state", "REJECTED")
+                    put("decision_outcome", "REJECTED")
+                    put("local_resolution_event", "approval_card_rejected")
+                    put("remote_state_verified", false)
+                })))
+            }
+        ))
+        val acceptance = assess(rejected)
+        assertEquals("REJECTED", acceptance.verification)
+        assertEquals("REJECTED", acceptance.taskState)
+        assertEquals("APPROVAL_REJECTED", acceptance.stopCode)
+        assertEquals("REJECTED", acceptance.approvalState)
+        assertEquals("REJECTED", acceptance.taskOutcome)
+        val terminal = AgentRunTerminalDiagnostics.from(AgentRunStatus.PARTIAL, null, acceptance)
+        assertEquals("REJECTED", terminal.executionState)
+        assertEquals("REJECTED", terminal.taskVerification)
+        assertEquals("RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION", terminal.recoveryAction)
+        val failure = assertThrows(IllegalStateException::class.java) {
+            GitHubRunAcceptance.requireCompletion(true, true, acceptance)
+        }
+        assertTrue(failure.message.orEmpty().contains("APPROVAL_REJECTED"))
+    }
+
     @Test fun allAcceptancePagesSurviveRunCaptureAssessmentAndExport() {
         val requirements = JsonArray(
             (1..109).map { index ->

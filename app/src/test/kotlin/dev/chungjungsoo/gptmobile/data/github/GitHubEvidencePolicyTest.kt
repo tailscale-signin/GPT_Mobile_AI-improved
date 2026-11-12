@@ -57,6 +57,64 @@ class GitHubEvidencePolicyTest {
         assertEquals(JsonPrimitive("STALE"), GitHubEvidencePolicy.verify(json("""{"receipt_id":"$id","pointer":"/count","value":3}"""), receipts, 200_000, 0)["status"])
     }
 
+    @Test fun rejectedFixtureIsReportedAsPausedReconciliationRatherThanTaskFailure() {
+        val head = "a".repeat(40)
+        val patchDigest = "b".repeat(64)
+        val proposal = buildJsonObject {
+            put("tool", "github_write")
+            put("receipt_id", "proposal")
+            put("binding", "bound-task")
+            put("repository", "owner/repo")
+            put("success", true)
+            put("trusted", true)
+            put("arguments", buildJsonObject {
+                put("branch", "codex-self-test/fixture")
+                put("expected_head_sha", head)
+            })
+            put("result", buildJsonObject {
+                put("status", "AWAITING_APPROVAL")
+                put("committed", false)
+                put("engineering_task_id", "engineering-task")
+                put("branch", "codex-self-test/fixture")
+                put("expected_head_sha", head)
+                put("patch_digest", patchDigest)
+            })
+        }
+        val rejection = buildJsonObject {
+            put("tool", "github_context")
+            put("receipt_id", "rejection")
+            put("binding", "bound-task")
+            put("repository", "owner/repo")
+            put("success", true)
+            put("trusted", true)
+            put("evidence_origin", "LOCAL_DURABLE_APPROVAL_EVENT")
+            put("local_resolution_event", "approval_card_rejected")
+            put("arguments", buildJsonObject {
+                put("action", "recovery")
+                put("engineering_task_id", "engineering-task")
+                put("branch", "codex-self-test/fixture")
+            })
+            put("result", buildJsonObject {
+                put("engineering_task_id", "engineering-task")
+                put("branch", "codex-self-test/fixture")
+                put("expected_head_sha", head)
+                put("patch_digest", patchDigest)
+                put("approval_state", "CANCELLED_BEFORE_PUBLICATION")
+                put("cancellation_confirmed", true)
+                put("remote_mutation_performed", false)
+                put("keep_fixture", false)
+            })
+        }
+        val (text, report) = GitHubEvidencePolicy.partial(mapOf("proposal" to proposal, "rejection" to rejection), 10_000, 0, "Review fixture change")
+        assertTrue(text.contains("Change rejected"))
+        assertTrue(text.contains("queued for cleanup reconciliation"))
+        assertEquals(JsonPrimitive("REJECTED"), report["task_state"])
+        assertEquals(JsonPrimitive("REJECTED"), report["task_outcome"])
+        assertEquals(JsonPrimitive("APPROVAL_REJECTED"), report["stop_code"])
+        assertEquals(JsonPrimitive("RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION"), report["recovery_action"])
+        assertEquals(JsonPrimitive(false), report["retryable_without_new_input"])
+    }
+
     @Test fun partiallyAcceptedOrUncertainWriteInvalidatesEarlierFactsEvenWhenTheToolFails() = runBlocking {
         for (phase in listOf("accepted_mutations", "unknown_mutations")) {
             val book = GitHubEvidenceBook("binding", "owner/repo", "main", setOf("github_ci", "github_write"), { 1000 })
@@ -118,6 +176,68 @@ class GitHubEvidencePolicyTest {
         val (text, report) = GitHubEvidencePolicy.render(response, mapOf("r" to receipt), 1000, 0)
         assertFalse(text.contains("90"))
         assertEquals(JsonPrimitive(false), report["completion_verified"])
+    }
+
+    @Test fun sessionReviewPreservesReceiptTimeAndLinksCrossRepositoryReferences() {
+        val sha = "a".repeat(40)
+        val task = "Review this saved GitHub session and give recommendations."
+        val requirements = GitHubRequestCompletion.requirements(task)
+        val answer = json(
+            """{"claims":[{"kind":"fact","receipt_id":"r","pointer":"/data/branch","value":"fix/feature"},{"kind":"fact","receipt_id":"r","pointer":"/data/head_sha","value":"$sha"},{"kind":"fact","receipt_id":"r","pointer":"/data/number","value":42},{"kind":"recommendation","text":"Refresh the observed branch before continuing.","sources":[{"receipt_id":"r","pointer":"/data/branch","value":"fix/feature"}]}],"requirement_claims":{"${GitHubRequestCompletion.id(requirements.first())}":[0,1,2,3],"${GitHubRequestCompletion.id(requirements.single { it.startsWith("Evidence-backed findings") })}":[0,1,2],"${GitHubRequestCompletion.id(requirements.single { it.startsWith("Recommendations are clearly labeled") })}":[3]}}"""
+        )
+        val receipt = json("""{"trusted":true,"success":true,"verification_eligible":true,"observed_at_ms":1000,"epoch":0,"tool":"github_pr","repository":"other/project","result":{"html_url":"https://github.com/other/project/pull/42","data":{"branch":"fix/feature","head_sha":"$sha","number":42}}}""")
+        val (text, report) = GitHubEvidencePolicy.render(answer, mapOf("r" to receipt), 200_000, 1, task)
+        assertEquals(JsonPrimitive(true), report["completion_verified"])
+        assertTrue(text.contains("[fix/feature](https://github.com/other/project/tree/fix/feature)"))
+        assertTrue(text.contains("[$sha](https://github.com/other/project/commit/$sha)"))
+        assertTrue(text.contains("[42](https://github.com/other/project/pull/42)"))
+        assertTrue(text.contains("As of (UTC)"))
+        assertTrue(text.contains("1970-01-01T00:00:01Z"))
+        assertTrue(text.contains("Recommendation (inference)"))
+    }
+
+    @Test fun historicalReviewNeedsARealObservationTimeAndLabelsExpiredFacts() {
+        val task = "Review this saved session capture."
+        val claim = json("""{"receipt_id":"r","pointer":"/state","value":"OPEN"}""")
+        val agedReceipt = json("""{"trusted":true,"success":true,"observed_at_ms":1000,"epoch":0,"result":{"state":"OPEN"}}""")
+        assertEquals(
+            JsonPrimitive("HISTORICAL"),
+            GitHubEvidencePolicy.verify(claim, mapOf("r" to agedReceipt), 2_000_000, 1, allowHistorical = true)["status"]
+        )
+        assertEquals(
+            JsonPrimitive("STALE"),
+            GitHubEvidencePolicy.verify(claim, mapOf("r" to agedReceipt), 2_000_000, 1)["status"]
+        )
+        val unknownTime = JsonObject(agedReceipt - "observed_at_ms")
+        assertEquals(
+            JsonPrimitive("STALE"),
+            GitHubEvidencePolicy.verify(claim, mapOf("r" to unknownTime), 2_000_000, 1, allowHistorical = true)["status"]
+        )
+        val (text) = GitHubEvidencePolicy.partial(mapOf("r" to agedReceipt), 2_000_000, 1, task, "GITHUB_EXTRACTION_TIMEOUT")
+        assertTrue(text.contains("Historical observation"))
+        assertTrue(text.contains("As of (UTC)"))
+    }
+
+    @Test fun savedReviewLabelsOldPrAndCiFactsButOnlyRefreshesThemWhenCurrentStatusWasRequested() {
+        val task = "Review the saved session capture and summarize its PR and CI observations."
+        val currentTask = "Review the saved session capture and report current PR and CI status."
+        val claims = json("""{"claims":[{"kind":"fact","receipt_id":"pr","pointer":"/data/title","value":"Old title"},{"kind":"fact","receipt_id":"ci","pointer":"/data/workflow_runs/0/conclusion","value":"failure"}],"requirement_claims":{},"acceptance":{},"questions":[]}""")
+        val receipts = mapOf(
+            "pr" to json("""{"tool":"github_pr","trusted":true,"success":true,"verification_eligible":true,"observed_at_ms":1000,"epoch":0,"result":{"data":{"number":42,"title":"Old title"}}}"""),
+            "ci" to json("""{"tool":"github_ci","trusted":true,"success":true,"verification_eligible":true,"observed_at_ms":1000,"epoch":0,"result":{"data":{"workflow_runs":[{"conclusion":"failure"}]}}}""")
+        )
+
+        assertFalse(GitHubRequestCompletion.requiresLiveSessionReviewRefresh(task))
+        assertTrue(GitHubRequestCompletion.requiresLiveSessionReviewRefresh(currentTask))
+        assertTrue(GitHubEvidencePolicy.canReuseExtractionBatch(claims, receipts, 200_000, 1, task))
+        assertFalse("Current mutable facts need a targeted refresh", GitHubEvidencePolicy.canReuseExtractionBatch(claims, receipts, 200_000, 1, currentTask))
+
+        val historical = GitHubEvidencePolicy.render(claims, receipts, 200_000, 1, task).first
+        assertTrue(historical.contains("Historical observation"))
+        assertTrue(historical.contains("1970-01-01T00:00:01Z"))
+        val current = GitHubEvidencePolicy.render(claims, receipts, 200_000, 1, currentTask).second
+        assertEquals(JsonPrimitive("STALE"), current.getValue("claims").jsonArray.first().jsonObject["status"])
+        assertEquals(JsonPrimitive("STALE"), current.getValue("claims").jsonArray.last().jsonObject["status"])
     }
 
     @Test fun mutationsInvalidateOldMutableReceiptsAndRestartDoesNotRefreshTheirTimestamp() = runBlocking {
@@ -230,7 +350,7 @@ class GitHubEvidencePolicyTest {
             assertTrue(text.contains("Task incomplete"))
             assertTrue(text.contains("retained evidence"))
             assertEquals(JsonPrimitive(true), report["partial"])
-            assertEquals(JsonPrimitive(false), report["resume_required"])
+            assertEquals(JsonPrimitive(true), report["resume_required"])
             assertEquals(JsonPrimitive(false), report["completion_verified"])
         }
     }
@@ -244,8 +364,22 @@ class GitHubEvidencePolicyTest {
         assertFalse(text.contains("124918855388"))
         assertFalse(text.contains("actions/runs"))
         assertFalse(text.contains("emulator (34, pixel_2)"))
-        assertEquals(JsonPrimitive(false), report["resume_required"])
+        assertEquals(JsonPrimitive(true), report["resume_required"])
         assertTrue(report.getValue("claims").jsonArray.isNotEmpty())
+    }
+
+    @Test fun approvalWaitIsReportedAsPausedAndRetainsTheExistingFixture() {
+        val branch = "codex-self-test/approval-fixture"
+        val receipt = json(
+            """{"trusted":true,"success":true,"tool":"github_write__github_api","repository":"owner/repo","receipt_id":"approval-receipt","arguments":{"branch":"$branch","expected_head_sha":"${"a".repeat(40)}"},"result":{"status":"AWAITING_APPROVAL","committed":false,"engineering_task_id":"task-123","branch":"$branch","expected_head_sha":"${"a".repeat(40)}","patch_digest":"${"b".repeat(64)}"}}"""
+        )
+        val (text, report) = GitHubEvidencePolicy.partial(mapOf("approval" to receipt), 1000, 0)
+        assertTrue(text.contains("Waiting for approval"))
+        assertTrue(text.contains("Fixture intentionally retained pending approval"))
+        assertFalse(text.contains("Task incomplete"))
+        assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), report["task_state"])
+        assertEquals(JsonPrimitive("WAITING_FOR_APPROVAL"), report["approval_state"])
+        assertEquals(JsonPrimitive("REVIEW_EXISTING_APPROVAL_CARD"), report["recovery_action"])
     }
 
     @Test fun providerFailureWithoutReceiptsPreservesItsCauseWithoutPublishingItsDraft() = runBlocking {

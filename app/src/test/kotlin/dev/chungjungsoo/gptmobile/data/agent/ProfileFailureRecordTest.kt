@@ -31,6 +31,22 @@ class ProfileFailureRecordTest {
         assertFalse(uncertain.retryAllowed)
     }
 
+    @Test fun extractionStaleEvidenceAndBudgetStopsKeepDistinctVerificationRecoveryReasons() {
+        val cases = mapOf(
+            "GITHUB_EXTRACTION_OUTPUT_LIMIT" to "claim_extraction",
+            "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION" to "verification",
+            "GITHUB_TOOL_BUDGET_EXHAUSTED" to "verification"
+        )
+        for ((code, phase) in cases) {
+            val failure = ProfileFailureRecord.fromProvider("The saved task stopped at $code", code)
+            assertEquals(code, failure.category)
+            assertEquals(phase, failure.phase)
+            assertTrue(failure.isTaskVerification)
+            assertFalse(failure.retryAllowed)
+            assertEquals(null, failure.retryAfterMillis)
+        }
+    }
+
     @Test fun gatewayContractReceiptsRetainStageAndDoNotBecomeRetryableConnectionFailures() {
         val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"tool_continuation","dispatch_state":"not_dispatched","retryable":false}""") as kotlinx.serialization.json.JsonObject
         val failure = ProfileFailureRecord.fromProvider("The saved connection needs tool results", "client_tool_results_required", details)

@@ -16,7 +16,7 @@ internal class ContinuationTextProgress(previous: String = "", requestedRepetiti
     fun append(text: String): String = if (stopped) "" else prose.append(overlap.append(text))
 
     /** Drain confirmed text without resolving a possible overlap or resetting prose history. */
-    fun flushBoundary(): String = prose.finish()
+    fun flushBoundary(): String = prose.flushBoundary()
 
     fun finish(): String = prose.append(overlap.finish()) + prose.finish()
 }
@@ -70,8 +70,9 @@ private class ContinuationOverlap(private val previous: String) {
 
 /**
  * A conservative literal prose-loop guard, not a semantic similarity filter. A possible
- * second occurrence is held until it diverges or proves a sustained loop. The first
- * occurrence is already useful text; duplicate tokens never have to be retracted from UI.
+ * second occurrence is held until it diverges or proves a sustained loop. Visible event
+ * boundaries publish buffered text in order but retain the candidate for loop detection;
+ * already published text is never retracted from UI.
  * Markdown code, tables and quoted passages are intentionally outside this heuristic.
  */
 internal class RepetitiveProseGuard(previous: String = "", private val requestedRepetitionCharacters: Int = 0) {
@@ -82,6 +83,7 @@ internal class RepetitiveProseGuard(previous: String = "", private val requested
     private val token = StringBuilder()
     private var tokenEndsWithSpace = false
     private var pendingCharacters = 0
+    private var publishedPendingTokens = 0
     private var lineStart = true
     private var indentation = 0
     private var lineProtected = false
@@ -136,6 +138,17 @@ internal class RepetitiveProseGuard(previous: String = "", private val requested
         return output.toString()
     }
 
+    fun flushBoundary(): String {
+        if (repetitive) return ""
+        val output = StringBuilder()
+        acceptToken(output)
+        if (!repetitive) {
+            for (index in publishedPendingTokens until pending.size) output.append(pending[index].raw)
+            publishedPendingTokens = pending.size
+        }
+        return output.toString()
+    }
+
     private fun acceptToken(output: StringBuilder) {
         if (token.isEmpty()) return
         val raw = token.toString()
@@ -172,25 +185,27 @@ internal class RepetitiveProseGuard(previous: String = "", private val requested
                     repetitive = true
                     pending.clear()
                     pendingCharacters = 0
+                    publishedPendingTokens = 0
                 }
                 return
             }
             val accepted = pending.removeAt(0)
             pendingCharacters -= accepted.raw.length
-            output.append(accepted.raw)
+            if (publishedPendingTokens > 0) publishedPendingTokens-- else output.append(accepted.raw)
             history += accepted
             if (history.size > MAXIMUM_PERIOD_WORDS) history.removeAt(0)
         }
     }
 
     private fun flushPending(output: StringBuilder) {
-        pending.forEach {
-            output.append(it.raw)
-            history += it
+        pending.forEachIndexed { index, item ->
+            if (index >= publishedPendingTokens) output.append(item.raw)
+            history += item
             if (history.size > MAXIMUM_PERIOD_WORDS) history.removeAt(0)
         }
         pending.clear()
         pendingCharacters = 0
+        publishedPendingTokens = 0
     }
 
     private fun advanceFormatting(raw: String): Boolean {

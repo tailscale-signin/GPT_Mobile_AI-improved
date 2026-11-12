@@ -16,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.any
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.times
@@ -208,6 +209,96 @@ class AndroidRecognitionRecoveryTest {
         audio.close()
         platform.onError(SpeechRecognizer.ERROR_TOO_MANY_REQUESTS)
         assertTrue(listener.failures.isEmpty())
+    }
+
+    @Test fun stalledReadyRecognitionRequestsFinalTextBeforeReleasingTheMicrophone() {
+        val service = Service()
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            val platform = service.listener()
+            platform.onReadyForSpeech(Bundle())
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(29))
+            verify(service.engine, never()).stopListening()
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+            verify(service.engine).stopListening()
+            assertTrue(listener.failures.isEmpty())
+            platform.onResults(Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("Retain the finished words")) })
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+            assertEquals("Retain the finished words", listener.final)
+            assertTrue(listener.failures.isEmpty())
+            assertTrue(VoiceMicrophoneLease.acquire("finished-deadline-test"))
+        } finally {
+            audio.close()
+            VoiceMicrophoneLease.release("finished-deadline-test")
+        }
+    }
+
+    @Test fun stalledCaptureRetainsPartialSpeechAndDuplicateCallbacksCannotExtendItsDeadline() {
+        val service = Service()
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val submitted = mutableListOf<String>()
+        val session = VoiceSession(audio, {
+            submitted += it
+            true
+        }, {}).apply { autoContinue = true }
+        try {
+            session.access(true, true, true)
+            session.resume()
+            val platform = service.listener()
+            platform.onReadyForSpeech(Bundle())
+            platform.onPartialResults(Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("Keep my partial words")) })
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(29))
+            platform.onReadyForSpeech(Bundle())
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+            assertEquals(VoicePhase.FINALIZING, session.state.phase)
+            verify(service.engine).stopListening()
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(7))
+            platform.onEndOfSpeech()
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+            assertEquals(VoicePhase.ERROR, session.state.phase)
+            assertTrue(session.state.hasDraft)
+            assertEquals("Keep my partial words", session.state.transcript)
+            verify(service.engine).destroy()
+            assertTrue(VoiceMicrophoneLease.acquire("stalled-deadline-test"))
+            platform.onResults(Bundle().apply { putStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION, arrayListOf("Stale words")) })
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMinutes(1))
+            session.tick()
+            verify(service.engine, times(1)).startListening(any(Intent::class.java))
+            assertTrue(submitted.isEmpty())
+            session.resume()
+            assertEquals(VoicePhase.REVIEWING, session.state.phase)
+            assertEquals("Keep my partial words", session.state.transcript)
+        } finally {
+            session.close()
+            VoiceMicrophoneLease.release("stalled-deadline-test")
+        }
+    }
+
+    @Test fun captureFinalizationExceptionReleasesItsLeaseAndRetainsServiceRepairCause() {
+        val service = Service()
+        val failure = IllegalStateException("Speech binder disconnected")
+        doThrow(failure).`when`(service.engine).stopListening()
+        val audio = audio(service, RecognitionStartGate { 0L })
+        val listener = Listener()
+        try {
+            audio.listen(listener)
+            service.listener().onReadyForSpeech(Bundle())
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+            assertEquals(listOf("VOICE_RECOGNIZER_UNAVAILABLE"), listener.codes)
+            assertEquals(listOf(VoiceRecoveryAction.SPEECH_SERVICE), listener.repairs)
+            assertEquals(listOf(failure), listener.causes)
+            assertEquals(0, listener.retryable)
+            assertEquals(5000L, audio.retryAfterMillis())
+            assertTrue(VoiceMicrophoneLease.acquire("failed-finalization-test"))
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10))
+            assertEquals(1, listener.codes.size)
+            verify(service.engine).destroy()
+        } finally {
+            audio.close()
+            VoiceMicrophoneLease.release("failed-finalization-test")
+        }
     }
 
     @Test fun missingPermissionAndClosedLifecycleNeverStartRecognition() {

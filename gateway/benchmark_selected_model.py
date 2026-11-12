@@ -58,7 +58,8 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
     content_digest = hashlib.sha256()
     usage, timings, done, finish = None, None, False, None
     payload = {'model': model, 'messages': messages, 'max_tokens': output_tokens,
-               'temperature': 0, 'stream': True, 'stream_options': {'include_usage': True}}
+               'temperature': 0, 'stream': True, 'stream_options': {'include_usage': True},
+               'tools': [], 'tool_choice': 'none'}
     if gateway_options is not None:
         payload['gateway'] = gateway_options
     with post(endpoint + '/v1/chat/completions', json=payload, headers=headers or {},

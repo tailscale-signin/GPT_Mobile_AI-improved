@@ -78,7 +78,10 @@ def discover(root):
 
 def models(client, origin):
     catalog = get_json(client, origin + '/v1/models')
-    return sorted({row['id'] for row in catalog.get('data', []) if isinstance(row, dict)
+    entries = catalog.get('data')
+    if not isinstance(entries, list):
+        raise ValueError('Gateway returned an invalid model catalog')
+    return sorted({row['id'] for row in entries if isinstance(row, dict)
                    and isinstance(row.get('id'), str) and 0 < len(row['id']) <= 512})
 
 

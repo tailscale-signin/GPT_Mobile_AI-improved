@@ -1051,6 +1051,55 @@ class OutputLimitRecoverySessionTest {
         assertTrue(events.none { it == ProviderEvent.Completed })
     }
 
+    @Test fun recurringVisibleBoundariesStopRepetitionWithoutReplayingEitherSessionType() = runTest {
+        val repeated = "This repeating passage is not new evidence. "
+        for (internalTools in listOf(false, true)) {
+            val kinds = if (internalTools) listOf("thinking", "notice", "call", "result") else listOf("thinking", "notice")
+            for (kind in kinds) {
+                val saved = mutableListOf<String>()
+                var requests = 0
+                var chunks = 0
+                var cleanedUp = false
+                val provider = object : AgentProviderSession {
+                    override val handlesToolsInternally = internalTools
+                    override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                        requests++
+                        try {
+                            repeat(100) { index ->
+                                chunks++
+                                emit(ProviderEvent.TextDelta(repeated))
+                                val call = ProviderEvent.ToolCall("owned-$index", "read", buildJsonObject {})
+                                emit(
+                                    when (kind) {
+                                        "thinking" -> ProviderEvent.ThinkingDelta("Checking the evidence")
+                                        "notice" -> ProviderEvent.Notice("Evidence checked")
+                                        "call" -> call
+                                        else -> ProviderEvent.ToolResult(call, AgentToolResult(call.callId, ToolResultContent.Text("Saved evidence"), false))
+                                    }
+                                )
+                            }
+                            emit(ProviderEvent.Completed)
+                        } finally {
+                            cleanedUp = true
+                        }
+                    }
+                }
+                val wrapper = OutputLimitRecoverySession(provider, maxContinuations = 0, saveProgress = { draft, _, _, _ -> saved += draft }) { _, _ -> error("The stream must not replay") }
+                val events = wrapper.streamRound(emptyList(), emptyList()).toList()
+                val text = events.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text }
+                val label = "handlesToolsInternally=$internalTools boundary=$kind"
+                assertTrue(label, cleanedUp)
+                assertTrue(label, chunks < 100)
+                assertEquals(label, 1, requests)
+                assertTrue(label, text.startsWith(repeated))
+                assertTrue(label, text.length < repeated.length * 10)
+                assertTrue(label, saved.isNotEmpty() && saved.all { it == text })
+                assertTrue(label, events.any { it is ProviderEvent.Failed })
+                assertTrue(label, events.none { it == ProviderEvent.Completed })
+            }
+        }
+    }
+
     @Test fun internallyManagedToolsKeepTheirLiveEventsButRepetitiveAnswerCannotReplayThem() = runTest {
         val call = ProviderEvent.ToolCall("already-owned", "read", buildJsonObject {})
         val received = mutableListOf<ProviderEvent>()

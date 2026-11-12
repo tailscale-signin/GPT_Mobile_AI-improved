@@ -2220,7 +2220,7 @@ class GitHubTool(
             credential.refAvailability.requireAvailable(resourcePath)
             rateLimits.requireAvailable(if (url.contains("/search/")) "search" else "core")
             scheduler.recordRequest()
-            val observationId = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false)
+            val observationId = dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting.started(false, resourcePath)
             httpClient.githubRequest(url) {
                 header(HttpHeaders.Accept, "application/vnd.github+json")
                 header(HttpHeaders.UserAgent, "GPT-Mobile-App")

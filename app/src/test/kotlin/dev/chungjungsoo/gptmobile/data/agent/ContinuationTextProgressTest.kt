@@ -102,4 +102,39 @@ class ContinuationTextProgressTest {
         assertTrue(runaway.repetitive)
         assertTrue(output.length <= 1500)
     }
+
+    @Test fun repeatedVisibleBoundariesKeepThePendingRepetitionLimit() {
+        val repeated = "This repeating passage is not new evidence. "
+        val progress = ContinuationTextProgress()
+        val output = StringBuilder()
+        var chunks = 0
+        while (chunks < 100 && !progress.stopped) {
+            chunks++
+            output.append(progress.append(repeated))
+            output.append(progress.flushBoundary())
+        }
+        output.append(progress.finish())
+        assertTrue(progress.repetitive)
+        assertTrue(chunks < 100)
+        assertTrue(output.startsWith(repeated))
+        assertTrue(output.length < repeated.length * 10)
+    }
+
+    @Test fun publishedRepetitionCandidateIsNotDuplicatedWhenItDivergesOrFinishes() {
+        val shared = "This is a deliberately shared opening. "
+        for (ending in listOf("", "A different conclusion follows.", "\n```text\nliteral example\n```")) {
+            val progress = ContinuationTextProgress()
+            val output = StringBuilder()
+            repeat(2) {
+                output.append(progress.append(shared))
+                output.append(progress.flushBoundary())
+                assertEquals("", progress.flushBoundary())
+            }
+            output.append(progress.append(ending))
+            output.append(progress.finish())
+            assertEquals(shared.repeat(2) + ending, output.toString())
+            assertEquals("", progress.finish())
+            assertFalse(progress.stopped)
+        }
+    }
 }

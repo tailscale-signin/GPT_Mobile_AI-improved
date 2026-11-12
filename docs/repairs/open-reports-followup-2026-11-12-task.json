@@ -1,0 +1,139 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "e62bded83b3861816c2c6e97116b30c9eb0920f1",
+  "working_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
+  "starting_head": "0df839f0bc2f11810e598885bf146bae51bc3a86",
+  "parent_pr": 819,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "open-reports-followup-2026-11-12",
+  "state": "IMPLEMENTED_VALIDATED_PENDING_HOSTED_CI",
+  "intent": "Repair remaining reproducible failures on PR 819, validate the combined source and close only issues whose reported failures are established as resolved.",
+  "open_issues": [
+    674,
+    820,
+    821,
+    822,
+    823,
+    824,
+    825,
+    826,
+    827,
+    828,
+    829,
+    830
+  ],
+  "observations": {
+    "issue_evidence": "Reports 820 through 830 contain generic failure codes and event timing, without original causes. The newer reports name build 58690d69dbc450002906727029f6968f1638cfe8.",
+    "related_capture": "The retained 7aa34f86 diagnostic capture uses the same build and records a GitHub circuit-open blocker. Shared build identity alone does not establish that the capture and any issue describe the same failure.",
+    "formal_acceptance": "Issue 674 requires separate case-bound, physical-device, live-service and release evidence. Host or general CI success cannot promote missing acceptance cases."
+  },
+  "workstreams": {
+    "gateway_instructions": "Review and repair uncertain instruction retry and accepted/rejected receipt reconciliation.",
+    "voice": "Review remaining startup, recognition, playback and lifecycle failures.",
+    "reporting": "Preserve bounded application-owned failure classifications without raw provider messages.",
+    "github_transport": "Review saved diagnostic circuit-open failure and current transport recovery.",
+    "validation": "Run relevant behavior regressions and canonical fast checks; inspect hosted checks for the published revision.",
+    "benchmark": "Keep model fixtures tool-free and recover desktop controls after malformed model catalog responses.",
+    "streaming_boundaries": "Preserve sustained repetition detection across visible reasoning, notice and tool boundaries without duplicate publication."
+  },
+  "validation": {
+    "integrated_voice_and_incidents": {
+      "status": "PASS",
+      "tests": 130,
+      "suites": 15,
+      "compiled_source_files": 66,
+      "compiled_revision": "43f326bca2aeed8c5de86805091b43e36811a0ae",
+      "receipt_sha256": "809636055f912cc031d09603edb7766b63630aad34d763c5d59b396afc941875",
+      "includes": "VoiceEntryViewModel current source and existing regression; current model-preparation dependencies compiled without behavior stubs"
+    },
+    "reporting": {
+      "status": "PASS",
+      "tests": 15,
+      "compiled_source_files": 16,
+      "source_manifest_sha256": "d6f03934f7737c029d31b62f5f4b9a92ad3009f11d49f825943d206af6e32651",
+      "baseline_regressions": 2
+    },
+    "gateway_instructions": {
+      "status": "PASS",
+      "tests": 44,
+      "review": "NO_REMAINING_SCOPED_BLOCKERS",
+      "production_sha256": "77bef3dea57c2a5a7c29c349ab74afbc31b720ad6c581bac00ed7269e9ae91f9",
+      "test_sha256": "13eeb6ac46fbb6ec83c11d956057fad1760a4551883c07f71767eff0955ce528"
+    },
+    "github_read_recovery": {
+      "status": "PASS",
+      "tests": 26,
+      "scope": "Current retry/accounting/native GitHubTool/WorkspaceClient sources with Ktor MockEngine; exact path, query and final attempt binding.",
+      "source_manifest_sha256": "e14a04cf4db703af284095b9ead4c2bd41a5b4c22431e83b3d782d5056ecfede",
+      "compiled_source_files": 11
+    },
+    "authentication_service": {
+      "status": "PASS",
+      "tests": 36,
+      "command": "python -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker"
+    },
+    "focused_host_limitations": "Relevant source owners compiled with cached supporting app/platform dependencies; generated Room/Hilt dependencies are reused. These results do not claim a complete Gradle, APK, JNI, installed speech-service or physical-device run.",
+    "full_hosted_ci": {
+      "status": "PENDING_PUBLISHED_HEAD"
+    },
+    "canonical_fast": {
+      "status": "PASS",
+      "tests": 462,
+      "literal_android_regex_patterns": 1551,
+      "resource_xml_files": 34,
+      "command": "bash scripts/validate-local.sh fast",
+      "log": "final-integrated-boundary-fast.log"
+    },
+    "formatting": {
+      "status": "PASS",
+      "tool": "ktlint 1.3.1",
+      "whitespace": "PASS"
+    },
+    "release_scope": {
+      "status": "PASS",
+      "existing_wiring_exact_paths_added": 19,
+      "concurrent_gateway_exact_paths_added": 4,
+      "pr_gate": "check_release_scope.py --commit \"$GITHUB_SHA\" with full checkout history; existing strict qualification retained",
+      "concurrent_admission_checkpoint_exact_paths_added": 1
+    },
+    "gateway_benchmark": {
+      "status": "PASS",
+      "tests": 10,
+      "scope": "Selected-model benchmark, desktop benchmark and dashboard; actual tool-free POST payload and malformed model catalogs covered"
+    },
+    "streaming_boundaries": {
+      "status": "PASS",
+      "tests": 60,
+      "baseline_failures": 2,
+      "compiled_source_files": 4,
+      "receipt_sha256": "71b90a95fb2d302e0cefe6590badf6d7d95ecbffd18fdbb7f8515159be53d497",
+      "independent_review": "NO_REMAINING_SCOPED_BLOCKERS",
+      "scope": "Current continuation guard, actual output-recovery wrapper and tests; existing supporting classes. No full Android or live provider qualification."
+    }
+  },
+  "publication": {
+    "mode": "GUARDED_FAST_FORWARD_ONLY",
+    "force": false,
+    "expected_remote_head": "9b2f7c6332011bdea602e8bba1f09115607efbff",
+    "local_validation_commit": "dc3b2174da3ff8c1ac9a508c370e76561525b9bf",
+    "validated_tree": "9005517f806771989ae0a8eca812efb0a4e01879",
+    "implementation_commit": "2abed28ab3682571e5f0914da73205342b1981c4",
+    "tree_verified_identical": true,
+    "metadata_followup": "Package source commit and publication record only; tested production and regression source remains unchanged.",
+    "integrated_concurrent_heads": [
+      "3d7735064ffe6fd1c3bccb6504880e457500b152",
+      "eb2bd73d211343df46aef762ffd42095963119a2",
+      "35385b0ccebf72ae79e0354a176b12e0351c6dc7",
+      "9b2f7c6332011bdea602e8bba1f09115607efbff"
+    ]
+  },
+  "implementation_revision": "2abed28ab3682571e5f0914da73205342b1981c4",
+  "issue_closure": {
+    "closed": [],
+    "generic_reports": "Original cause unavailable; independent code regressions do not establish resolution of each historical report.",
+    "formal_acceptance": "NOT_COMPLETE; required case-bound, physical-device, live-service and release evidence remains outstanding."
+  },
+  "local_implementation_revision": "ab74540b88d75a7c1c83b660dc216dc021461629"
+}

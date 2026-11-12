@@ -264,12 +264,51 @@ class AndroidVoiceAudio internal constructor(
             }
             failedStage = "listener_configuration"
             var becameReady = false
+            var finalizing = false
             fun active() = !closed && recognitionActive && ticket == generation && recognizer === engine
+            fun finalizeCapture() {
+                if (!active() || finalizing) return
+                finalizing = true
+                listener.ending()
+                if (!active()) return
+                armWatchdog(8000) {
+                    if (active()) {
+                        terminal("timeout_final")
+                        recognitionFailure("SPEECH_FINALIZATION_TIMEOUT", "finalization", true, ticket)
+                        stop()
+                        listener.failure("Speech did not finish. Retry microphone or continue in chat.", "VOICE_RECOGNIZER_TIMED_OUT")
+                    }
+                }
+            }
             engine.setRecognitionListener(object : RecognitionListener {
                 override fun onReadyForSpeech(params: Bundle?) {
-                    if (active()) {
+                    if (active() && !becameReady && !finalizing) {
                         becameReady = true
-                        watchdog?.let(main::removeCallbacks)
+                        // Match the bounded local capture turn. A service can become ready
+                        // and then lose its terminal callback; request its final words before
+                        // falling back to the existing finalization timeout and draft recovery.
+                        armWatchdog(30_000) {
+                            if (active() && !finalizing) {
+                                event("recognition_capture_deadline", ticket)
+                                finalizeCapture()
+                                if (!active()) return@armWatchdog
+                                try {
+                                    engine.stopListening()
+                                } catch (failure: Exception) {
+                                    terminal("finalization_failed")
+                                    recognitionGate.bindingFailed(sessionId)
+                                    recognitionFailure("SPEECH_FINALIZATION_FAILED", "finalization", true, ticket)
+                                    stop()
+                                    listener.failure(
+                                        "The speech service could not finish this turn. Your captured words are kept; review its settings or continue in chat.",
+                                        "VOICE_RECOGNIZER_UNAVAILABLE",
+                                        recognitionGate.remainingMillis(),
+                                        recoveryAction = VoiceRecoveryAction.SPEECH_SERVICE,
+                                        cause = failure
+                                    )
+                                }
+                            }
+                        }
                         event("recognition_ready")
                         listener.ready()
                     }
@@ -280,17 +319,7 @@ class AndroidVoiceAudio internal constructor(
                 }
                 override fun onBufferReceived(buffer: ByteArray?) = Unit
                 override fun onEndOfSpeech() {
-                    if (active()) {
-                        listener.ending()
-                        armWatchdog(8000) {
-                            if (active()) {
-                                terminal("timeout_final")
-                                recognitionFailure("SPEECH_FINALIZATION_TIMEOUT", "finalization", true, ticket)
-                                stop()
-                                listener.failure("Speech did not finish. Retry microphone or continue in chat.", "VOICE_RECOGNIZER_TIMED_OUT")
-                            }
-                        }
-                    }
+                    finalizeCapture()
                 }
                 override fun onEvent(eventType: Int, params: Bundle?) = Unit
                 override fun onPartialResults(partialResults: Bundle?) {

@@ -8,6 +8,7 @@ import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
 import io.ktor.http.HttpStatusCode
 import java.io.IOException
+import javax.net.ssl.SSLHandshakeException
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonPrimitive
@@ -15,9 +16,39 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReadRetryTest {
+    @Test fun wrappedTlsFailureIsReportedWithoutRetryingOrTrippingTheCircuit() = runTest {
+        var attempts = 0
+        val http = HttpClient(
+            MockEngine {
+                if (++attempts <= 3) throw IOException("Transport failed", SSLHandshakeException("Untrusted certificate"))
+                respond("""{"total_count":0,"workflow_runs":[]}""")
+            }
+        )
+        try {
+            val tool = GitHubTool("token", http)
+            val arguments = buildJsonObject {
+                put("action", "list_workflow_runs")
+                put("owner", "o")
+                put("repo", "r")
+                put("verify_live", true)
+            }
+            repeat(3) { attempt ->
+                val result = tool.execute("tls-$attempt", arguments)
+                assertTrue(result.isError)
+                assertEquals("GITHUB_TLS_FAILURE", result.errorCode)
+                assertEquals(attempt + 1, attempts)
+            }
+            assertFalse(tool.execute("after-tls", arguments).isError)
+            assertEquals(4, attempts)
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun nativeCiReadRecoversFrom502WithoutRegeneration() = runTest {
         var attempts = 0
         val http = HttpClient(

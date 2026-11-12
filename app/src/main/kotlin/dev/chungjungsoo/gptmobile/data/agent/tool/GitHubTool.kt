@@ -14,6 +14,8 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubRequestCircuit
 import dev.chungjungsoo.gptmobile.data.github.GitHubWorkspaceClient
 import dev.chungjungsoo.gptmobile.data.github.githubRequest
 import dev.chungjungsoo.gptmobile.data.github.normalizeGitHubWorkflowSelector
+import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.request.header
@@ -1945,7 +1947,7 @@ class GitHubTool(
         if (throwable is kotlinx.serialization.SerializationException) {
             return AgentToolResult(callId, ToolResultContent.Text("GitHub returned a response that could not be decoded. Retain the resource and HTTP receipt; an accepted write must be reconciled before another mutation."), true, errorCode = "GITHUB_UNEXPECTED_RESPONSE")
         }
-        if (throwable is javax.net.ssl.SSLException) {
+        if (networkFailureKind(throwable) == NetworkFailureKind.TLS) {
             return AgentToolResult(callId, ToolResultContent.Text("GitHub TLS verification failed. Check the connection's certificate configuration; this failure is not automatically retried."), true, errorCode = "GITHUB_TLS_FAILURE")
         }
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected) {

@@ -1,5 +1,6 @@
 import base64
 import json
+import re
 import tempfile
 import threading
 import unittest
@@ -14,7 +15,7 @@ from fastapi.testclient import TestClient
 from authentication.app import create_app
 from authentication.github_broker import Config, challenge_for
 from authentication.issue_report_app import create_app as create_report_app
-from authentication.issue_reports import GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
+from authentication.issue_reports import ERROR_CODES, GitHubIssuePublisher, GitHubRequestError, IssueReporter, REPOSITORY, ReportError, issue_from_report, marker
 
 
 class HttpBoundaryTest(unittest.TestCase):
@@ -155,6 +156,21 @@ class IssueReportHttpTest(unittest.TestCase):
             with self.subTest(change=change):
                 self.assertEqual(422, self.submit({**report, "reportId": str(uuid4()), **change}).status_code)
         self.assertFalse(self.issued)
+
+    def test_android_public_codes_match_service_and_keep_the_failure_identity(self):
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt").read_text()
+        declaration = source.split("val allowed = setOf(", 1)[1].split("\n    )", 1)[0]
+        android_codes = set(re.findall(r'"([A-Z][A-Z0-9_]+)"', declaration))
+        self.assertEqual(android_codes, ERROR_CODES)
+        for code in sorted(android_codes):
+            with self.subTest(code=code):
+                report = {**self.metadata(), "source": "debug", "feature": "tools", "errorCode": code,
+                          "events": [f"-023ms W tools {code}", f"-001ms E tools {code}"]}
+                _, issue = issue_from_report(report)
+                self.assertIn(code, issue["title"])
+                self.assertIn(f"-023ms W tools {code}", issue["body"])
+                self.assertIn(f"-001ms E tools {code}", issue["body"])
+                self.assertIn(report["commit"], issue["body"])
 
     def test_typed_network_and_unknown_outcome_codes_survive_formatting(self):
         for code in ("DNS_RESOLUTION_FAILED", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "NETWORK_TIMEOUT",

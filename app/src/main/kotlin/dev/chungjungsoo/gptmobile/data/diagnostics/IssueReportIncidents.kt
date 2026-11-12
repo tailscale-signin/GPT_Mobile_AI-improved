@@ -70,7 +70,7 @@ internal object IssueReportIncidents {
             failure(feature, IssueReportCodes.select(code, "APP_ERROR"), error)
         } else {
             synchronized(lock) {
-                if (!isPrivate) addEvent(severity, feature)
+                if (!isPrivate) addEvent(severity, feature, IssueReportCodes.known(code))
             }
         }
     }

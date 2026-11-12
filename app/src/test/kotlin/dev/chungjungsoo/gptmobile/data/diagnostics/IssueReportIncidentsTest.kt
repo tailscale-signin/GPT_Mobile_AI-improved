@@ -129,6 +129,65 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun githubAndModelBlockersRemainDistinctAcrossToolAndChatReports() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val codes = listOf(
+            "GITHUB_CIRCUIT_OPEN",
+            "GITHUB_PRIMARY_RATE_LIMITED",
+            "GITHUB_ENDPOINT_PERMISSION_REQUIRED",
+            "GITHUB_LIVE_OBSERVATION_REQUIRED",
+            "MCP_INITIALIZATION_SCHEMA_INVALID",
+            "SELECTED_MODEL_NOT_LOADED"
+        )
+        for (code in codes) {
+            AppLogRecorder.record("Tool", "private operation context", "E", reportCode = code)
+            IssueReportIncidents.chatFailure(code, false)
+        }
+
+        assertEquals(codes.flatMap { listOf(it, it) }, IssueReportIncidents.pending.value.map { it.errorCode })
+        assertFalse(IssueReportIncidents.pending.value.any { it.errorCode in setOf("APP_ERROR", "CHAT_FAILED") })
+        assertFalse(IssueReportIncidents.recentEvents().any { "private" in it })
+    }
+
+    @Test
+    fun structuredFailureKeepsOnlyTheAllowlistedCodeAndWarningCause() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        AppLogRecorder.recordEvent(
+            "MCP",
+            "private event name",
+            mapOf("errorCode" to "MCP_AUTHENTICATION_REQUIRED", "connection" to "private connection"),
+            "W"
+        )
+        AppLogRecorder.recordEvent(
+            "Tool",
+            "private error event",
+            mapOf("error_code" to "GITHUB_CIRCUIT_OPEN", "message" to "private message"),
+            "E"
+        )
+
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("GITHUB_CIRCUIT_OPEN", report.errorCode)
+        assertTrue(report.events.any { it.endsWith("W tools MCP_AUTHENTICATION_REQUIRED") })
+        assertTrue(report.events.any { it.endsWith("E tools GITHUB_CIRCUIT_OPEN") })
+        assertFalse(IssueReport.json.encodeToString(IssueReport.serializer(), report).contains("private"))
+    }
+
+    @Test
+    fun structuredFailureNeverInfersACodeFromMessagesOrNonStringFields() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        AppLogRecorder.recordEvent(
+            "Tool",
+            "GITHUB_CIRCUIT_OPEN",
+            mapOf("errorCode" to listOf("GITHUB_CIRCUIT_OPEN"), "message" to "GITHUB_CIRCUIT_OPEN", "failure_code" to "PRIVATE_PROVIDER_TOKEN_VALUE"),
+            "E"
+        )
+
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("APP_ERROR", report.errorCode)
+        assertFalse(report.events.any { "GITHUB_CIRCUIT_OPEN" in it || "PRIVATE_PROVIDER_TOKEN_VALUE" in it })
+    }
+
+    @Test
     fun crashPersistsOnlySafeFramesWithoutTheExceptionMessage() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val error = IllegalStateException("private exception payload")

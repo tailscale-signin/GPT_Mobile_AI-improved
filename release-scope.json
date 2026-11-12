@@ -77,7 +77,8 @@
     "Repair autonomous Gateway checkpoint and lease recovery after transient storage failures, with committed-completion regression tests that preserve exactly-once mutation reconciliation.",
     "Preserve stable recovery tool contracts, restore exact native approvals in ordinary chats, and recover only verified source-bound saved reads with qualified legacy inventory counts.",
     "Stop sustained repetitive prose with bounded text-only repair, deliver continuation text incrementally, retain output ownership through rendering, bound long paragraph layouts, and reduce diagnostic export allocation.",
-    "Distinguish local observer Stop from remote Gateway cancellation receipts and close exact-model preparation test resources before Windows cleanup."
+    "Distinguish local observer Stop from remote Gateway cancellation receipts and close exact-model preparation test resources before Windows cleanup.",
+    "Prevent uncertain Gateway instruction replay and stale-job redirection, preserve confirmed acceptance through rejection races, retain live GitHub read evidence after bounded retry, recover stalled Android recognition and preserve actionable public report codes."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2180,6 +2181,35 @@
     "gateway/tests/test_gateway_command_outcomes.py",
     "gateway/tests/test_gateway_task_readiness.py",
     "gateway/v14/maintenance.py",
-    "gateway/v14/model_preparation_routes.py"
+    "gateway/v14/model_preparation_routes.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetry.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetryObservationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRetryTest.kt",
+    "docs/repairs/open-reports-followup-2026-11-12-task.json",
+    "docs/repairs/open-reports-followup-2026-11-12.md",
+    "docs/repairs/voice-capture-deadline-2026-11-12-task.json",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/PlatformPickerInstrumentedTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubNativeApprovalProgress.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubNativeContinuation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskEvidenceIdentity.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayModelPreparationAPI.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SelectPlatformUiState.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GatewayModelPreparationContent.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatProgressProjection.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportReceiptDelivery.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryViewModel.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubNativeContinuationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTaskEvidenceIdentityTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayModelPreparationAPITest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayModelEntryWiringTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SelectPlatformSelectionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatProgressProjectionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportReceiptDeliveryTest.kt",
+    "docs/repairs/branch-wiring-model-preparation-2026-11-12-task.json",
+    "docs/repairs/branch-wiring-model-preparation-2026-11-12.md",
+    "gateway/desktop/benchmark.py",
+    "gateway/desktop/benchmark_panel.py",
+    "gateway/desktop/dashboard_model.py",
+    "gateway/tests/test_gateway_desktop_benchmark.py"
   ]
 }

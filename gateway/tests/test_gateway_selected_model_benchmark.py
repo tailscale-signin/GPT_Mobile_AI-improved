@@ -40,3 +40,22 @@ class SelectedModelBenchmarkTest(unittest.TestCase):
         for stream in (Stream(model='reviewer-B'), Stream(terminal=False)):
             with self.assertRaises(ValueError):
                 measure(lambda *a, **kw: stream, 'http://localhost:8080', 'selected', [])
+
+    def test_scored_gateway_fixture_explicitly_disables_client_and_gateway_tools(self):
+        calls = []
+
+        def post(url, **kwargs):
+            calls.append((url, kwargs))
+            return Stream()
+
+        options = {'store_conversation': False, 'budget': {'totalDeadlineMs': 120_000}}
+        report = measure(post, 'http://localhost:8090', 'selected', [],
+                         gateway_options=options, validate_output=lambda text: text == 'first\n雪 tail')
+        self.assertIs(True, report['passed'])
+        self.assertEqual(1, len(calls))
+        self.assertEqual('http://localhost:8090/v1/chat/completions', calls[0][0])
+        sent = calls[0][1]['json']
+        self.assertEqual('none', sent['tool_choice'])
+        self.assertEqual([], sent['tools'])
+        self.assertEqual(options, sent['gateway'])
+        self.assertEqual('selected', sent['model'])

@@ -64,4 +64,35 @@ class VoiceFailureReportingTest {
         assertEquals(VoicePhase.ERROR, session.state.phase)
         session.close()
     }
+
+    @Test
+    fun nonStreamingPlaybackFailureKeepsItsSpecificCodeAndTheCompleteAnswer() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        lateinit var capture: VoiceAudio.Listener
+        lateinit var playbackError: (String) -> Unit
+        val audio = object : VoiceAudio {
+            override fun listen(listener: VoiceAudio.Listener) {
+                capture = listener
+            }
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) {
+                playbackError = error
+            }
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val session = VoiceSession(audio, { true }, {}).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.resume()
+        capture.final("Read the answer")
+        session.reply("accepted-turn", "The complete answer remains available.")
+        playbackError("The audio route is unavailable.")
+        playbackError("A stale duplicate failure")
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("VOICE_PLAYBACK_FAILED", report.errorCode)
+        assertFalse(report.events.any { "VOICE_SESSION_FAILED" in it })
+        assertEquals("The complete answer remains available.", session.state.reply)
+        assertEquals(VoicePhase.ERROR, session.state.phase)
+        assertFalse(session.state.awaitingReply)
+        session.close()
+    }
 }

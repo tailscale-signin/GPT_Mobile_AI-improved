@@ -57,3 +57,9 @@ class DesktopBenchmarkTest(unittest.TestCase):
     def test_json_validation_distinguishes_integer_and_boolean(self):
         self.assertFalse(benchmark.matches('{"active":1,"count":7}', {'active': True, 'count': 7}))
         self.assertFalse(benchmark.matches('{"active":true,"count":7.0}', {'active': True, 'count': 7}))
+
+    def test_malformed_model_catalog_uses_the_recoverable_validation_error_path(self):
+        for catalog in ({}, {'data': None}, {'data': 3}, {'data': {}}, {'data': 'model'}):
+            with self.subTest(catalog=catalog), patch.object(benchmark, 'get_json', return_value=catalog):
+                with self.assertRaisesRegex(ValueError, 'invalid model catalog'):
+                    benchmark.models(object(), 'http://127.0.0.1:8090')

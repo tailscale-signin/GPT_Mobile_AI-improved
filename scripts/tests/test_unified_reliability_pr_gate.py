@@ -58,6 +58,9 @@ class ReliabilityV2PrGateTest(unittest.TestCase):
         gate_job = source.split("\n  reliability_v2_completion:\n", 1)[1].split("\n  validate:\n", 1)[0]
         self.assertIn("name: Unified Reliability v2 scope / strict release gate", gate_job)
         self.assertIn("scripts/check_unified_reliability_pr.py", gate_job)
+        self.assertIn("fetch-depth: 0", gate_job)
+        self.assertIn('python3 scripts/check_release_scope.py --commit "$GITHUB_SHA"', gate_job)
+        self.assertNotIn("continue-on-error:", gate_job)
         self.assertIn("HEAD_REF: ${{ github.event.pull_request.head.ref || github.event.merge_group.head_ref || github.ref_name }}", gate_job)
         self.assertNotIn("pull_request.draft ==", gate_job)
         self.assertNotIn("if: github.event.pull_request.draft", gate_job)

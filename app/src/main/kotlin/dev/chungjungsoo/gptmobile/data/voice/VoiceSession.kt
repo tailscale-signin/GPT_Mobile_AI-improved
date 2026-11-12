@@ -444,7 +444,7 @@ class VoiceSession(
         update(state.copy(phase = VoicePhase.SPEAKING, level = 0f, notice = null))
         audio.speak(text, complete = {
             if (ticket == generation && playbackAllowed()) continueTurn()
-        }, error = { message -> if (ticket == generation) fail(message) })
+        }, error = { message -> if (ticket == generation) fail(message, "VOICE_PLAYBACK_FAILED") })
     }
 
     fun mute() {

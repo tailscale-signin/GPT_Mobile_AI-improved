@@ -29,11 +29,16 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The scoped release boundary may precede the PR base by many commits.
+          fetch-depth: 0
       - name: Enforce v2 completion independently of draft status
         env:
           # Keep branch names in data and support PR, merge queue, push and manual runs.
           HEAD_REF: ${{ github.event.pull_request.head.ref || github.event.merge_group.head_ref || github.ref_name }}
         run: python3 scripts/check_unified_reliability_pr.py --head-ref "$HEAD_REF"
+      - name: Verify scoped release files and disclosures
+        run: python3 scripts/check_release_scope.py --commit "$GITHUB_SHA"
 
   validate:
     name: Unit tests, heap checks and review APK

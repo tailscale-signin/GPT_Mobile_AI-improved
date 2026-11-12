@@ -288,7 +288,7 @@ object AppLogRecorder {
     fun recordEvent(tag: String, eventName: String, fields: Map<String, Any?>, level: String = "I") {
         val epoch = captureEpoch.get()
         if (privateSessionActive) return
-        IssueReportIncidents.log(tag, level, mutableEnabled.value)
+        IssueReportIncidents.log(tag, level, mutableEnabled.value, IssueReportCodes.fromFields(fields))
         if (operationCaptureCurrent(epoch)) recordCaptured(epoch, tag, structuredDiagnosticEventMessage(eventName, fields), level)
     }
 

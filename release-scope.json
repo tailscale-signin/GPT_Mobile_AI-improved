@@ -1587,6 +1587,8 @@
     "docs/repairs/app-audit-promotion-recovery-2026-11-07-task.json",
     "docs/repairs/app-audit-store-ci-2026-11-07-task.json",
     "docs/repairs/app-audit-ui-20261107-task.json",
+    "docs/repairs/audit-apk-heap-2026-11-12-task.json",
+    "docs/repairs/audit-apk-heap-2026-11-12.md",
     "docs/repairs/audit-execution-recovery-2026-11-09-task.json",
     "docs/repairs/audit-execution-recovery-2026-11-09.md",
     "docs/repairs/build138-diagnostic-followup.md",

@@ -1728,7 +1728,10 @@ internal fun ChatMessagePair(
     val waitingForProvider = agentRun?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT
     val waitingForApproval = agentRun?.status == AgentRunStatus.WAITING_FOR_APPROVAL
     val providerRetryAt = selectedRunId?.let(providerWaitDeadlines::get)?.takeIf { it.fence == agentRun?.ownershipFence }?.retryAt
-    val rawAssistantContent = if (selectedSourceReader != null) "" else dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
+    val effectiveAssistantContent = if (selectedSourceReader != null) "" else selectedAssistantMessage?.effectiveContent().orEmpty()
+    val rawAssistantContent = remember(effectiveAssistantContent) {
+        dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(effectiveAssistantContent)
+    }
     val assistantContent = when {
         selectedSourceReader != null -> ""
         rawAssistantContent.isBlank() && selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_REMOTE_JOB -> "Waiting for the saved remote job. Check its status without submitting another generation."
@@ -1789,13 +1792,16 @@ internal fun ChatMessagePair(
         activeProfileUids = activePlatformUids - disabledPlatformUids,
         eventsByRun = toolEventsByRun
     )
-    val receiptScopedGitHubReferences = remember(githubAssistantReferences, provenanceToolEvents) {
-        githubAssistantReferences?.withReceiptReferences(
-            provenanceToolEvents.map { event ->
+    val referenceReceipts = remember(githubAssistantReferences != null, provenanceToolEvents) {
+        if (githubAssistantReferences == null) {
+            emptyList()
+        } else {
+            provenanceToolEvents.takeLast(128).filter { it.arguments.length <= 8_192 && it.result.orEmpty().length <= 32_768 }.map { event ->
                 GitHubReferenceReceipt(event.toolName, event.arguments, event.result)
             }
-        )
+        }
     }
+    val receiptScopedGitHubReferences = if (githubAssistantReferences == null) null else rememberGitHubReceiptReferences(githubAssistantReferences, referenceReceipts)
     val canShowPreviousRevision = !isSourceResponse &&
         (
             selectedAssistantMessage?.let { assistantMessage ->

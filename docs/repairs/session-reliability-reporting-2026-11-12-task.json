@@ -57,7 +57,7 @@
   "validation": {
     "host": "PASSED_477_TESTS_AND_FAST_GATE_AFTER_COMPLETE_REPORT_SET_RECONCILIATION_REPAIR",
     "focused_behavior": "BACKEND_RECEIPT_AND_CONTEXT_V3_REGRESSIONS_PASSED_IN_EXACT_E1A_JVM_RUN;COLLECTOR_RECONCILER_41_PASSED",
-    "android": "E1A_9600_PASSED_5_HEAP_DEFERRED;LATER_52EACB_RECOVERY_SOURCE_AND_INTEGRATED_CI_CORRECTION_PENDING_EXACT_HEAD",
+    "android": "9781_PRODUCTION_COMPILE_PASSED_TEST_COMPILE_FAILED_4_FIXTURE_SITES;2BA_FIXTURE_CORRECTION_PENDING_HOSTED_EXECUTION",
     "gateway": "52EACB_SCHEMA_28_LOCAL_PASSED_218_HASHES_MATCHED;6567_LINUX_FULL_909_PASSED_1_PLATFORM_SKIP_AUTH56_BROWSER7;FINAL_INTEGRATED_HEAD_PENDING",
     "device": "NOT_RUN_NO_DEVICE",
     "live_services": "NOT_RUN_NO_USER_ENDPOINT_CREDENTIAL_ACCESS",
@@ -138,7 +138,7 @@
       "physical_device_verified": false
     },
     "combined_source": {
-      "code_commit": "1587c7f8b6a25e7672060e31eef17a542b0f03d7",
+      "code_commit": "2ba80781e2be158a76e797420c8ca6c1063b05f4",
       "gateway_code_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
       "host_tests_passed": 477,
       "authentication_tests_passed": 56,
@@ -160,7 +160,8 @@
         "authentication": "9f19ddaf3b4f1069996f000437591c7305323a8def9f2577df9016680d8ad987",
         "configuration": "820df82ef69f8eb24d268324c7896b481ab7a419ac3ec794780a2cd92d35ddba",
         "host_reconciliation": "aa599b466e9688b5f9eb6bfef4b5422f33a3c31862b79ee2756b6d81c725a203",
-        "host_integrated": "047a1dd32255707d28e7f9d7e7c1677fa0e6870ac839b806a1d11c4baef5df0f"
+        "host_integrated": "047a1dd32255707d28e7f9d7e7c1677fa0e6870ac839b806a1d11c4baef5df0f",
+        "host_test_fixture_correction": "7b66a6da3b44fbbb3288e0c74f36df3d5373e2330a1ae6195a8e1c6c8ca8183d"
       },
       "application_tested_head": "e1a754336d291ee1ad72878078d7f854d3d0735e"
     },
@@ -333,6 +334,114 @@
         "receipt_scope": "Incoming component evidence; exact Android execution pending",
         "canonical_integrated_host_tests_passed": 477
       }
+    },
+    "test_fixture_correction": {
+      "code_commit": "2ba80781e2be158a76e797420c8ca6c1063b05f4",
+      "observed_failure": {
+        "head": "9781a4fb1266e7539fe1127ee02cabe577415baa",
+        "merge": "92b5c67801bc5a66cd8b8832e0383969aaffce15",
+        "run": 43301643310,
+        "job": 131474261979,
+        "failed_step": "Compile isolated preview unit tests",
+        "task": ":app:compileDebugUnitTestKotlin",
+        "errors": {
+          "test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitRecoveryTest.kt:241:55": [
+            "No value passed for parameter 'seen0'.",
+            "No value passed for parameter 'thoughts'.",
+            "No value passed for parameter 'content'.",
+            "No value passed for parameter 'attachments'.",
+            "No value passed for parameter 'revisions'.",
+            "No value passed for parameter 'activeRevisionIndex'.",
+            "No value passed for parameter 'createdAt'.",
+            "No value passed for parameter 'timeline'.",
+            "No value passed for parameter 'isFavorite'.",
+            "No value passed for parameter 'timestamp'.",
+            "No value passed for parameter 'combinedSources'.",
+            "No value passed for parameter 'combinedManifest'.",
+            "No value passed for parameter 'serializationConstructorMarker'."
+          ],
+          "test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ProviderWaitPersistenceTest.kt:30:115": [
+            "No value passed for parameter 'seen0'.",
+            "No value passed for parameter 'thoughts'.",
+            "No value passed for parameter 'content'.",
+            "No value passed for parameter 'attachments'.",
+            "No value passed for parameter 'revisions'.",
+            "No value passed for parameter 'activeRevisionIndex'.",
+            "No value passed for parameter 'linkedMessageId'.",
+            "No value passed for parameter 'createdAt'.",
+            "No value passed for parameter 'timeline'.",
+            "No value passed for parameter 'isFavorite'.",
+            "No value passed for parameter 'timestamp'.",
+            "No value passed for parameter 'combinedSources'.",
+            "No value passed for parameter 'combinedManifest'.",
+            "No value passed for parameter 'serializationConstructorMarker'."
+          ],
+          "test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt:486:9": [
+            "Class 'FakeAgentPersistenceDao' is not abstract and does not implement abstract members:"
+          ],
+          "test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedSynthesisCheckpointTest.kt:95:13": [
+            "No value passed for parameter 'seen0'.",
+            "No value passed for parameter 'thoughts'.",
+            "No value passed for parameter 'content'.",
+            "No value passed for parameter 'attachments'.",
+            "No value passed for parameter 'revisions'.",
+            "No value passed for parameter 'activeRevisionIndex'.",
+            "No value passed for parameter 'createdAt'.",
+            "No value passed for parameter 'timeline'.",
+            "No value passed for parameter 'isFavorite'.",
+            "No value passed for parameter 'timestamp'.",
+            "No value passed for parameter 'combinedSources'.",
+            "No value passed for parameter 'combinedManifest'.",
+            "No value passed for parameter 'serializationConstructorMarker'."
+          ]
+        },
+        "abstract_members": [
+          "2026-11-12T20:46:00.1948495Z suspend fun terminalProviderWaitIds(): List<String>",
+          "2026-11-12T20:46:00.1949391Z suspend fun markClaimedProviderWaiting(runId: String, fence: Long): Int"
+        ]
+      },
+      "changed_files": 4,
+      "missing_content_fixtures": 3,
+      "missing_event_only_dao_methods": 2,
+      "production_changed": false,
+      "assertions_changed": false,
+      "ownership_or_checkpoint_data_changed": false,
+      "pinned_ktlint": "PASSED_ALL_4",
+      "host_fast_tests_passed": 477,
+      "local_gradle": "NOT_RUN_NO_ANDROID_SDK",
+      "corrected_head_android": "PENDING"
+    },
+    "latest_published_gate_observations": {
+      "head": "9781a4fb1266e7539fe1127ee02cabe577415baa",
+      "checkout_merge": "92b5c67801bc5a66cd8b8832e0383969aaffce15",
+      "scope": "PASS",
+      "diagnostic_preflight": "PASS",
+      "formatting": "PASS",
+      "host_tests_passed": 477,
+      "gateway_tests": 910,
+      "gateway_passed": 909,
+      "gateway_skipped": 1,
+      "authentication_passed": 56,
+      "browser_passed": 7,
+      "production_compilation": "PASS",
+      "test_compilation": "FAILED_4_FIXTURE_SITES",
+      "full_jvm": "NOT_REACHED_AT_CHECKPOINT",
+      "reconciliation": "NOT_REACHED_AT_CHECKPOINT",
+      "heap": "NOT_REACHED_AT_CHECKPOINT"
+    },
+    "verified_gateway_installer": {
+      "head": "9781a4fb1266e7539fe1127ee02cabe577415baa",
+      "gateway_source": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "workflow_run": 43301643424,
+      "artifact_id": 13982047735,
+      "archive_bytes": 49580958,
+      "archive_sha256": "27b3c543cbd128a4c9c52f568087d5ec159316b9ee5f2c029a4b1647167bb0e8",
+      "archive_and_inner_hashes_verified": true,
+      "portable_files_verified": 1357,
+      "gateway_source_files_verified": 218,
+      "ci_smoke_passed": 11,
+      "local_binary_execution": false,
+      "installed_deployment_verification": false
     }
   },
   "external_qualification": [
@@ -346,8 +455,8 @@
     "mode": "GUARDED_FAST_FORWARD_ONLY",
     "force": false,
     "state": "INTEGRATED_SOURCE_COMMITTED_GUARDED_PUBLICATION_CHECKPOINT",
-    "code_commit": "1587c7f8b6a25e7672060e31eef17a542b0f03d7",
-    "last_verified_remote_head_before_publication": "b330796aa2b5c5a09f233920b87cd423549c60e3",
+    "code_commit": "2ba80781e2be158a76e797420c8ca6c1063b05f4",
+    "last_verified_remote_head_before_publication": "9781a4fb1266e7539fe1127ee02cabe577415baa",
     "branch": "fix/session-reliability-reporting-2026-11-12",
     "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/838",
     "preserved_independent_updates": [
@@ -369,5 +478,5 @@
   },
   "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
   "checkpoint_storage": "repository_file",
-  "checkpoint_updated_at": "2026-11-12T20:34:19.411594+00:00"
+  "checkpoint_updated_at": "2026-11-12T20:50:12.682769+00:00"
 }

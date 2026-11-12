@@ -20,50 +20,50 @@
   "workstreams": [
     {
       "id": "review",
-      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
       "scope": "Canonical evidence, serialized review admission, bounded review recovery, probe reuse, failure usage and provenance"
     },
     {
       "id": "github_execution",
-      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
       "scope": "Action-specific duplicate protection, useful CI acquisition, current task authority, criteria, progress and factual partial reports"
     },
     {
       "id": "gateway",
-      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
       "scope": "Exact selected-model preparation, admission consistency and prerequisite read recovery"
     },
     {
       "id": "reporting",
-      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
       "scope": "Native Send and retry availability, approved payload identity, meaningful delivery state, build and service configuration"
     },
     {
       "id": "mcp_audit",
-      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
       "scope": "Typed discovery failures, configuration binding, connection repair, measured coverage and qualification"
     },
     {
       "id": "diagnostics_ui",
-      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
       "scope": "Early failure receipts, compact causal joins and bounded rendering/export work"
     },
     {
       "id": "voice",
-      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
       "scope": "Typed recorder startup and bounded recreation, partial-PCM preservation, playback ownership/drain and correlated native outcomes"
     }
   ],
   "validation": {
-    "host": "PASSED_473_TESTS_AND_FAST_GATE_AFTER_CONTEXT_V3_COMPATIBILITY_REPAIR",
-    "focused_behavior": "BACKEND_50_FOCUSED_AND_9_INCREMENTAL_PASSED_ANDROID_SOURCE_REVIEW_COMPLETE_HOSTED_EXECUTION_PENDING",
-    "android": "PRODUCTION_AND_TEST_COMPILATION_PASSED_AT_DDBEA3_BASELINE_FINAL_RECEIPT_FOLLOWUP_PENDING",
-    "gateway": "PASSED_908_SKIPPED_2_OF_910_BROWSER_PASSED_7_FOR_BACKEND_ATTEMPT_RECEIPTS",
+    "host": "PASSED_477_TESTS_AND_FAST_GATE_AFTER_COMPLETE_REPORT_SET_RECONCILIATION_REPAIR",
+    "focused_behavior": "BACKEND_RECEIPT_AND_CONTEXT_V3_REGRESSIONS_PASSED_IN_EXACT_E1A_JVM_RUN;COLLECTOR_RECONCILER_41_PASSED",
+    "android": "E1A_9600_PASSED_5_HEAP_DEFERRED;LATER_52EACB_RECOVERY_SOURCE_AND_INTEGRATED_CI_CORRECTION_PENDING_EXACT_HEAD",
+    "gateway": "52EACB_SCHEMA_28_LOCAL_PASSED_218_HASHES_MATCHED;6567_LINUX_FULL_909_PASSED_1_PLATFORM_SKIP_AUTH56_BROWSER7;FINAL_INTEGRATED_HEAD_PENDING",
     "device": "NOT_RUN_NO_DEVICE",
     "live_services": "NOT_RUN_NO_USER_ENDPOINT_CREDENTIAL_ACCESS",
     "authentication": "PASSED_56_TESTS_AFTER_CONTEXT_V3_COMPATIBILITY_REPAIR",
-    "kotlin_style": "PASSED_ALL_185_CHANGED_KOTLIN_FILES_WITH_PINNED_1_3_1",
-    "test_runtime": "Prior verified startup ByteBuddy agent and publisher-verified Robolectric SDKs eliminated local runtime failures. Workspace subsequently became unavailable; restored checkout awaits exact combined-head CI.",
+    "kotlin_style": "PASSED_E1A_CHANGED_KOTLIN_CI;PRIOR_LOCAL_185_FILES_PINNED_1_3_1;CI_SCRIPT_FIX_HAS_NO_KOTLIN_CHANGE",
+    "test_runtime": "Restored hosted execution completed at e1a/f71b with no JVM failures. Current receipt-set correction requires its own CI run; earlier interrupted execution remains unverified.",
     "jvm_initial": {
       "commit": "6d79262254559831a85742bd51f627539fb98894",
       "tests": 9502,
@@ -87,18 +87,30 @@
       "followups": "Usage event identity expectation and original status intent preservation through workspace setup corrected in a1f595e618f558e7163d3c3b6f0f8596e5ee3920"
     },
     "gateway_source_binding": {
-      "code_commit": "9155a1a23918578baf11261a6152d35d36559598",
-      "manifest_files_verified": 218,
-      "content_mismatches": 0,
-      "log_sha256": "9527e75e1d6a8020f368e4bdfd3ce61a4f1e8dd1b7a21a7f0c75a467808a3635"
+      "source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "files": 218,
+      "mismatches": [],
+      "result": "PASS",
+      "diagnostic_contract_tests_passed": 28,
+      "diagnostic_log_sha256": "ff7c8463b8b95a03455084a05cfa0ab1f14017a39fd9906982b4823a36fcd276",
+      "full_hosted_matrix": "PENDING_NEW_EXACT_HEAD",
+      "hosted_linux_contract": {
+        "head": "6567b4d13aa24d7f8cb80207a62d9fe2964e16ca",
+        "checkout_merge": "b4b4d54e74eb52fcbf1861787b6e7fa6497d4d1c",
+        "gateway_cases": 910,
+        "passed": 909,
+        "skipped": 1,
+        "authentication_passed": 56,
+        "browser_passed": 7
+      }
     },
     "ci": {
-      "head": "3b34cb3673964c327b05d4d14ad2406f6158b93a",
-      "checkout_merge": "db199af7511848ba62687c741acf52a186a1fcbe",
+      "head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "checkout_merge": "f71b0d355a84c46e34d4c88632c86e64d523a643",
       "base": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
-      "pr_validation_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43279859814",
-      "gateway_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43279859811",
-      "state": "SUPERSEDED_BY_CONCURRENT_DDBEA3_UPDATE"
+      "pr_validation_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697498",
+      "state": "JVM_AND_COLLECTION_PASSED_RECONCILIATION_FAILED_HEAP_SKIPPED",
+      "failure": "Collector included app and core-domain; reconciler received app only. Fixed without weakening exact receipt matching."
     },
     "jvm_latest_baseline": {
       "head": "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
@@ -116,7 +128,7 @@
       "measured_application_branch_percent": 43.786295964569774,
       "coverage_scope": "Application files in the JaCoCo report; excludes native, script and resource inventory."
     },
-    "qualification_collection": "FRESH_ANDROID_AND_PORTABLE_JVM_REPORTS_IN_ONE_EXECUTION_WINDOW;29_COLLECTOR_TESTS_PASSED_INCLUDING_STALE_SECOND_DIRECTORY_REJECTION",
+    "qualification_collection": "FRESH_APP_AND_PORTABLE_DOMAIN_JVM_REPORTS_IN_ONE_EXECUTION_WINDOW;1439_REPORTS_9605_CASES_ZERO_REPORT_ERRORS",
     "emulator_baseline": {
       "head": "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
       "api34_passed": 66,
@@ -126,14 +138,14 @@
       "physical_device_verified": false
     },
     "combined_source": {
-      "code_commit": "6ba181bd98a33446f208ee1b5370c17d407cdec2",
-      "gateway_code_commit": "9155a1a23918578baf11261a6152d35d36559598",
-      "host_tests_passed": 473,
+      "code_commit": "1587c7f8b6a25e7672060e31eef17a542b0f03d7",
+      "gateway_code_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "host_tests_passed": 477,
       "authentication_tests_passed": 56,
       "kotlin_files_checked": 185,
       "gateway_manifest_files_rechecked": 218,
       "gateway_content_mismatches": 0,
-      "android_execution": "PENDING_EXACT_COMBINED_HEAD_HOSTED_RUN",
+      "android_execution": "PENDING_FOR_52EACB_RECOVERY_CHANGES;PRIOR_E1A_9600_PASSED",
       "preserved_backend_accounting_commit": "53e3139889f57467c8e3ca1aa78e7a32183a26c6",
       "context_v3": {
         "configuration_tests_passed": 7,
@@ -141,12 +153,185 @@
         "original_v2_digest": "ff07f986847ec76f52f5d0e6035d32c4d871bf5ee016d49f3df8ea6241d54a12",
         "extended_v2_digest": "9c7c90f465bf47dea86a11fc091cbe22c2a6c8c41402b5b7adf7419fffe47852",
         "independent_source_review": "PASSED",
-        "android_execution": "PENDING_EXACT_HEAD_CI"
+        "android_execution": "PASSED_IN_E1A_JVM_RUN"
       },
       "logs_sha256": {
         "host": "1d6475283fb78be6b74d2a6a83ac56158949f6684c92819f30336110e7cd3a3a",
         "authentication": "9f19ddaf3b4f1069996f000437591c7305323a8def9f2577df9016680d8ad987",
-        "configuration": "820df82ef69f8eb24d268324c7896b481ab7a419ac3ec794780a2cd92d35ddba"
+        "configuration": "820df82ef69f8eb24d268324c7896b481ab7a419ac3ec794780a2cd92d35ddba",
+        "host_reconciliation": "aa599b466e9688b5f9eb6bfef4b5422f33a3c31862b79ee2756b6d81c725a203",
+        "host_integrated": "047a1dd32255707d28e7f9d7e7c1677fa0e6870ac839b806a1d11c4baef5df0f"
+      },
+      "application_tested_head": "e1a754336d291ee1ad72878078d7f854d3d0735e"
+    },
+    "ci_history": [
+      {
+        "head": "3b34cb3673964c327b05d4d14ad2406f6158b93a",
+        "checkout_merge": "db199af7511848ba62687c741acf52a186a1fcbe",
+        "base": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+        "pr_validation_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43279859814",
+        "gateway_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43279859811",
+        "state": "SUPERSEDED_BY_CONCURRENT_DDBEA3_UPDATE"
+      }
+    ],
+    "jvm_latest": {
+      "head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "checkout_merge": "f71b0d355a84c46e34d4c88632c86e64d523a643",
+      "reports": 1439,
+      "tests": 9605,
+      "passed": 9600,
+      "failed": 0,
+      "skipped": 5,
+      "modules": {
+        "android_app": {
+          "passed": 9596,
+          "tests": 9601,
+          "reports": 1438,
+          "skipped": 5
+        },
+        "portable_domain": {
+          "passed": 4,
+          "tests": 4,
+          "reports": 1
+        }
+      },
+      "dedicated_heap_gate": "SKIPPED_AFTER_RECONCILIATION_FAILURE;REQUIRES_CORRECTED_HEAD_RUN",
+      "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697498",
+      "artifact_id": 13978924883,
+      "archive_sha256": "9abdfbefcfb191000e6ace20fbba6a1a89f41541c6130453fb975f8612d9e8ec",
+      "junit_content_sha256": "22fdff2c2fa57622b0b2ffdefd2d02b53f755ab057246db95507954e9fe96378",
+      "coverage": {
+        "available": true,
+        "report_sha256": "06bd7ce513cd57f7e0027caf968852e8212d498b3320cdc8c2741b4a651b70c4",
+        "source_files": 2376,
+        "counters": {
+          "LINE": {
+            "covered": 110608,
+            "missed": 132831,
+            "percent": 45.43561220675405
+          },
+          "BRANCH": {
+            "covered": 106574,
+            "missed": 136274,
+            "percent": 43.88506390828831
+          }
+        },
+        "current_run_sessions": 23,
+        "scope": "Application source files present in this JaCoCo report; excludes native, script and resource inventory."
+      },
+      "qualification_area_statuses": {
+        "PARTIAL": 6,
+        "PASS": 16,
+        "NOT_QUALIFIED": 4
+      },
+      "qualification_harness_statuses": {
+        "PASS": 43,
+        "NOT_OBSERVED": 16
+      }
+    },
+    "reconciliation_correction": {
+      "code_commit": "c1495ebc419adcaa73e8b2f59a9eab885f303b02",
+      "focused_tests_passed": 12,
+      "collector_and_reconciler_tests_passed": 41,
+      "actual_combined_artifact_replay": "PASSED_EXACT_SOURCE_RUN_ATTEMPT_DIGEST_AND_FAIL_ON_CANDIDATE_REGRESSION",
+      "app_only_negative_control": "REJECTED_EXACT_SET_MISMATCH",
+      "tested_application_head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "checkout_merge": "f71b0d355a84c46e34d4c88632c86e64d523a643",
+      "workflow_attempt_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697498/attempts/1",
+      "formal_promotions": 0,
+      "historical_ledger": {
+        "PASS": 11,
+        "NOT_RUN": 99
+      },
+      "independent_source_review": "PASSED_NO_GATE_WEAKENING_NO_SCOPE_OR_INVENTORY_UPDATE_REQUIRED",
+      "host_fast_log_sha256": "aa599b466e9688b5f9eb6bfef4b5422f33a3c31862b79ee2756b6d81c725a203",
+      "published_head_ci": "PENDING",
+      "integrated_commit": "1587c7f8b6a25e7672060e31eef17a542b0f03d7"
+    },
+    "emulator_latest": {
+      "head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "api34_passed": 66,
+      "api36_passed": 66,
+      "api34_36_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697367",
+      "native_android16_passed": 3,
+      "native_android16_capability_skips": 2,
+      "native_failed": 0,
+      "native_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697636",
+      "physical_device_verified": false
+    },
+    "apk_latest_observed": {
+      "head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697690",
+      "artifact_id": 13977964681,
+      "build": "PASSED",
+      "ci_environment": {
+        "ISSUE_REPORT_GITHUB_ENABLED": true,
+        "ISSUE_REPORT_ORIGIN": ""
+      },
+      "archive_bytes": 732472486,
+      "github_declared_archive_sha256": "cb65ea2a343433d6a0abae3a41371cd40abc64937c21ad5d135579aa5a81d684",
+      "archive_digest_locally_verified": false,
+      "binary_inspection": "BLOCKED_CONNECTOR_MAX_536870912_BYTES",
+      "size_report_archive_verified": true,
+      "embedded_build_config_independently_read": false,
+      "individual_apk_sha256": null,
+      "signing_certificate_sha256": null,
+      "update_signing_compatibility": "NOT_OBSERVED",
+      "live_report_delivery": "NOT_RUN"
+    },
+    "gateway_source_binding_prior": {
+      "code_commit": "9155a1a23918578baf11261a6152d35d36559598",
+      "manifest_files_verified": 218,
+      "content_mismatches": 0,
+      "log_sha256": "9527e75e1d6a8020f368e4bdfd3ce61a4f1e8dd1b7a21a7f0c75a467808a3635"
+    },
+    "incoming_integration": {
+      "source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "metadata_commit": "6567b4d13aa24d7f8cb80207a62d9fe2964e16ca",
+      "scope_exact_paths_added": 26,
+      "scope_paths_checked": 2032,
+      "scope_regressions_passed": 6,
+      "scope_policy_changed": false,
+      "host_fast_tests_passed": 477,
+      "whitespace_check": "PASS_CONFIGURED_BASE_THROUGH_CURRENT_TREE",
+      "log_normalization": [
+        {
+          "path": "docs/repairs/evidence/diagnostic-a74d18ed-2026-11-12/classification-summary-jvm.log",
+          "original_commit": "b330796aa2b5c5a09f233920b87cd423549c60e3",
+          "original_bytes": 70,
+          "original_sha256": "133590ab115a53f2b28f7c5ca373598fcc1656d3bd9f63f414e20ab8c8e5787a",
+          "normalized_bytes": 69,
+          "normalized_sha256": "0855d74fa337947d2da793cd67d87e98a267bb37969fa078e4fb643435e566de",
+          "transformation": "Remove one empty trailing line; retain all test output lines and facts unchanged."
+        },
+        {
+          "path": "docs/repairs/evidence/diagnostic-a74d18ed-2026-11-12/integration-evidence-jvm.log",
+          "original_commit": "b330796aa2b5c5a09f233920b87cd423549c60e3",
+          "original_bytes": 120,
+          "original_sha256": "ac67d59631f8afba7d2750cfc1cd742769a1832bdc3c4f33f0012f03f85e4987",
+          "normalized_bytes": 119,
+          "normalized_sha256": "9df7be8cf0899daa553b8670251ee0aea9a4303f5204b66bf90ab7435688c040",
+          "transformation": "Remove one empty trailing line; retain all test output lines and facts unchanged."
+        },
+        {
+          "path": "docs/repairs/evidence/diagnostic-a74d18ed-2026-11-12/recovery-policy-jvm.log",
+          "original_commit": "b330796aa2b5c5a09f233920b87cd423549c60e3",
+          "original_bytes": 72,
+          "original_sha256": "58fe4e7bec7c3bb2895a3a404caf28e904f1bee94859486aaf8b8df37aef657e",
+          "normalized_bytes": 71,
+          "normalized_sha256": "79257f8cb3b39a1e6af41d56d40f5114a74929ed3bb80853ebbcca641bcae515",
+          "transformation": "Remove one empty trailing line; retain all test output lines and facts unchanged."
+        }
+      ],
+      "independent_review": "NO_BLOCKER_IN_RECOVERY_AUTHORITY_POLLING_SCHEMA",
+      "android_full_ci": "PENDING",
+      "raw_incoming_diagnostic_archive": "NOT_REAUDITED_BY_THIS_INTEGRATION",
+      "terminal_guard_followup": {
+        "commit": "b330796aa2b5c5a09f233920b87cd423549c60e3",
+        "review": "NO_BLOCKER_ANCHORED_APPLICATION_GRAMMAR",
+        "incoming_helper_test_receipt": 22,
+        "receipt_scope": "Incoming component evidence; exact Android execution pending",
+        "canonical_integrated_host_tests_passed": 477
       }
     }
   },
@@ -160,9 +345,9 @@
   "publication": {
     "mode": "GUARDED_FAST_FORWARD_ONLY",
     "force": false,
-    "state": "CONTEXT_V3_SOURCE_COMMITTED_METADATA_READY_FOR_GUARDED_PUBLICATION",
-    "code_commit": "6ba181bd98a33446f208ee1b5370c17d407cdec2",
-    "last_verified_remote_head_before_publication": "7aaa9731a2b14e77c65d831ca82d437f92eb4fd6",
+    "state": "INTEGRATED_SOURCE_COMMITTED_GUARDED_PUBLICATION_CHECKPOINT",
+    "code_commit": "1587c7f8b6a25e7672060e31eef17a542b0f03d7",
+    "last_verified_remote_head_before_publication": "b330796aa2b5c5a09f233920b87cd423549c60e3",
     "branch": "fix/session-reliability-reporting-2026-11-12",
     "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/838",
     "preserved_independent_updates": [
@@ -172,10 +357,17 @@
       "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
       "c880d5c9b9c8224f8aefd2e9ac4adfb0bac65e39",
       "831d3499cb82b928d640022992fda12e9048e8ca",
-      "7aaa9731a2b14e77c65d831ca82d437f92eb4fd6"
+      "7aaa9731a2b14e77c65d831ca82d437f92eb4fd6",
+      "0057d4e10808da00fc69bc64a8348639ab8b90bb",
+      "76dcfccee45688533222e8a035830f84cdf69470",
+      "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "6567b4d13aa24d7f8cb80207a62d9fe2964e16ca",
+      "b330796aa2b5c5a09f233920b87cd423549c60e3"
     ],
-    "gateway_code_commit": "9155a1a23918578baf11261a6152d35d36559598"
+    "gateway_code_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61"
   },
   "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
-  "checkpoint_storage": "repository_file"
+  "checkpoint_storage": "repository_file",
+  "checkpoint_updated_at": "2026-11-12T20:34:19.411594+00:00"
 }

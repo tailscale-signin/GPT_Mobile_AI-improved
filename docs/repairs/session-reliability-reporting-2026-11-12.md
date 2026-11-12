@@ -2,8 +2,10 @@
 
 ## Scope and evidence
 
-Branch: `fix/session-reliability-reporting-2026-11-12`  
-Base: `97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf`  
+Branch: `fix/session-reliability-reporting-2026-11-12`
+
+Base: `97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf`
+
 Requested scope: all findings supplied in the session, including the reporting-service investigation, app audit, and later GitHub/voice diagnostic analysis.
 
 The original session diagnostics archive was available for direct inspection. The later `app-audit-1794498632783.json` and `app-diagnostics-6729730838505374983.jsonl` were supplied as detailed analyses, not as their original files. Findings from those analyses are repair inputs; this branch does not claim to have independently revalidated their rows, hashes, timings or capture-specific aliases.

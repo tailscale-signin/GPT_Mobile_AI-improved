@@ -4,13 +4,15 @@
 
 This change addresses the 23 issue groups from the supplied `gateway-debug.zip` against PR #819, `fix/voice-chat-crash-and-diagnostics-2026-11-11`. Work started at `ab77b77dba3e9e7c928b153e2accf44e937d7e0c`, with `main` at `e62bded83b3861816c2c6e97116b30c9eb0920f1`. Existing model, argument-validation, bounded generation, acceptance-ledger, and cancellation safeguards on that branch are retained. Concurrent commit `aa51231a4` was merged, preserving its voice fixes, explicit/passive command reads, scoped negative cache, and request coalescing. Explicit receipt reads bypass polling delays without authorizing another POST.
 
+The integrated source at `9fe97ffa7466f308af75ef8d501c86f21c3d6dc9` preserves the subsequent configured-Gateway preparation, checkpoint, reconnect-fixture, queue-proof, recovery, approval, rendering, and diagnostic changes through `ee02e9135cfbec9169c05e1e1e2c06c5ebe1fb58`. The final guard validates a saved conversation's original execution binding before model preparation and again afterward, and retains that binding ID. Only explicit retryable sleeping/loading observations allow preparation to continue; changed configuration, mismatched identity, uncertain transport, and cancellation do not authorize a wake or a replacement binding.
+
 The source capture's transport SHA-256 is `915d458dbc0705c8621c3b18819ea1f41c5390e1f5d9f2f6a47e31dabdd362d6`; diagnostic SHA-256 is `55e9c61db05955df0f715cb1cbb2221b7e52d420e7b17319b4b10d5c739702fe`. The original export retained only part of its available history. Conclusions concern the captured windows; code validation cannot establish that a particular host listener is now running or that a physical phone meets a performance target.
 
 ## Issue-to-resolution register
 
 | # | Observed issue | Resolution and evidence boundary |
 | --- | --- | --- |
-| 1 | Selected model was sleeping after earlier readiness | Recheck on selection reuse and network changes; ordinary chat Send and engineering admission prepare the exact selected model before dispatch. Preparation preserves the frozen draft. A bounded server observer records completion of pending loads while the phone is detached. |
+| 1 | Selected model was sleeping after earlier readiness | Recheck on selection reuse and network changes; ordinary chat Send and engineering admission prepare the exact selected model before dispatch. Engineering preparation uses the verified configured Gateway. Saved conversations validate their original backend before and after preparation and retain the same binding. Preparation preserves the frozen draft. A bounded server observer records completion of pending loads while the phone is detached. |
 | 2 | Exact selected model was absent | Preserve exact identifiers and block promptly on definite model/access/configuration failures. No substitution. Missing host models still require host configuration or a different explicit user selection. |
 | 3 | Four configured connections, zero usable tool schemas | Expose passive per-connection schema state, tool count, freshness, cause, recovery action, and discovery retry timing through readiness and connections. Configured is distinct from discovered. |
 | 4 | MCP connection refused | Classify listener refusal safely; retry discovery with bounded backoff and recover the same configuration when its listener returns. Never export exception text, command arguments, addresses, or credentials as the diagnosis. Starting/fixing the external service remains a host action. |
@@ -44,9 +46,19 @@ Diagnostic evidence is intentionally limited to supported enums, digests, counts
 
 ## Validation
 
-The merged source passed `bash scripts/validate-local.sh fast` (462 script tests plus schema, dependency, resource, regex, policy and whitespace checks), 35 authentication tests, and the complete gateway runner (878 Python tests passed, two platform skips, and seven browser checks passed). The canonical v16 capability fixture was recaptured through real HTTP with zero inference requests.
+| Check | Result and scope |
+| --- | --- |
+| Canonical fast validation | `bash scripts/validate-local.sh fast` passed on the integrated source at `9fe97ffa7466f308af75ef8d501c86f21c3d6dc9`: 462 script tests plus schema, dependency, resource, regex, policy, inventory, and whitespace checks. |
+| Complete gateway runner | 878 Python tests passed, two platform skips, and seven browser checks passed. Gateway implementation files are unchanged by the later Android integration. The subsequently updated model-preparation HTTP fixture was rerun separately: all 29 tests passed. |
+| Authentication/reporting | 35 tests passed. |
+| Model, submission, receipt, and queue host tests | 144 tests passed across nine classes at `9fe97ffa7466f308af75ef8d501c86f21c3d6dc9`. The 100-production-file source set was compiled at `1a1f224600780b82226437cec8b1efb12e7dcd6c`; the final changed queue owner and its test were recompiled, with every reused source and class verified unchanged before rerunning all nine classes. Recorded source hashes remained stable. This includes the seven final binding-guard regressions and all 33 queue cases. |
+| Diagnostics, acceptance, terminal-stage, and frame host tests | 121 tests passed across 13 classes after compiling 98 production files from `1a1f224600780b82226437cec8b1efb12e7dcd6c`. Read-only comparison verified that all 100 exercised source owners, including all 13 test sources, are byte-identical at `9fe97ffa7466f308af75ef8d501c86f21c3d6dc9`. |
+| Changed Kotlin formatting | ktlint 1.3.1 and `git diff --check` passed. |
+| Complete Android build, packaging, and device checks | Final-head hosted CI remains authoritative and is not claimed as passed here. |
 
-Android validation remains pending: local Gradle processes disappeared during generation/compilation without a compiler verdict. Moving verified immutable dependency caches from RAM-backed storage to disk let KSP complete; a separate KAPT attempt and PR CI are the remaining build checks. No physical-device, Android unit-test, APK, or deployed-backend pass is claimed by this report.
+The focused Android checks use a current-source Kotlin/JUnit/Robolectric host harness with real cached supporting dependencies. Their scope includes the changed implementation and its exercised source dependencies, while prebuilt Room-generated implementations remain a documented limitation. These results do not replace complete Gradle/KSP/KAPT, dependency-injection, APK, or device validation. Local full Gradle processes disappeared during generation/compilation without a compiler verdict; KSP completed after verified immutable caches were moved to disk. No physical-device or deployed-backend pass is claimed.
+
+The canonical v16 capability fixture was recaptured through real HTTP with zero inference requests. The task checkpoint records the focused source-manifest identities and validation scope.
 
 Relevant suites cover exact task readiness, listener recovery, command receipt fencing, process-restart model reconciliation, multi-session export completeness, sampling without losing failures, acceptance-page projection, last-observed-stage privacy, and existing tool/generation limits.
 

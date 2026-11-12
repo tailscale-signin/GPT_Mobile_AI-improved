@@ -14,6 +14,129 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoonshineVoiceRecognizerTest {
+    @Test fun aRecorderLostBeforePcmIsRecreatedOnceAndOldDeadlinesCannotEndItsReplacement() {
+        val first = FakeCapture(readFailure = LocalVoiceCaptureException("Recorder unavailable", "MICROPHONE_DEAD_OBJECT", "capture_read", retryable = true))
+        val replacement = FakeCapture()
+        val factoryCalls = AtomicInteger()
+        val decoder = FakeDecoder { events(LocalSpeechEvent.Final("recovered words")) }
+        val fixture = Fixture(decoder, capture = first, captureFactory = {
+            if (factoryCalls.incrementAndGet() == 1) first else replacement.also { assertTrue(first.closed) }
+        })
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(replacement.started.await(3, TimeUnit.SECONDS))
+            // The scheduler can already have queued an old callback when cancellation runs.
+            fixture.deadlines.first { it.first == 12_000L }.second.invoke()
+            fixture.deadlines.first { it.first == 30_000L }.second.invoke()
+            replacement.chunks.add(FloatArray(1600))
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(2, factoryCalls.get())
+            assertEquals(1, first.closeCount.get())
+            assertEquals(1, replacement.closeCount.get())
+            assertEquals(listOf("recovered words"), fixture.finals)
+            assertTrue(fixture.codes.isEmpty())
+            assertEquals(1, fixture.releases.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun aPartialPlatformPcmBufferPreventsSilentCaptureRecreation() {
+        val failure = LocalVoiceCaptureException("Capture stopped", "MICROPHONE_DEAD_OBJECT", "capture_read", retryable = true, capturedSamples = 128)
+        val first = FakeCapture(readFailure = failure)
+        val calls = AtomicInteger()
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder, capture = first, captureFactory = {
+            assertEquals(1, calls.incrementAndGet())
+            first
+        })
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(1, calls.get())
+            assertEquals(listOf("VOICE_MICROPHONE_DEAD_OBJECT"), fixture.codes)
+            assertSame(failure, fixture.causes.single())
+            assertTrue(fixture.retryableErrors.isEmpty())
+            assertEquals(1, first.closeCount.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun aSecondInitializationFailureEndsTheTurnWithoutAnUnboundedRetry() {
+        val failure = LocalVoiceCaptureException("Recorder could not start", "MICROPHONE_START_FAILED", "capture_start", retryable = true)
+        val first = FakeCapture(startFailure = failure)
+        val second = FakeCapture(startFailure = failure)
+        val calls = AtomicInteger()
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder, captureFactory = {
+            when (calls.incrementAndGet()) {
+                1 -> first
+                2 -> second.also { assertTrue(first.closed) }
+                else -> error("Capture retry exceeded its limit")
+            }
+        })
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(2, calls.get())
+            assertEquals(listOf("VOICE_MICROPHONE_START_FAILED"), fixture.codes)
+            assertTrue(fixture.retryableErrors.isEmpty())
+            assertEquals(1, first.closeCount.get())
+            assertEquals(1, second.closeCount.get())
+            assertEquals(1, fixture.releases.get())
+        } finally {
+            fixture.close()
+        }
+    }
+
+    @Test fun cancellationDuringReplacementCreationClosesItWithoutStartingAnotherCapture() {
+        val first = FakeCapture(startFailure = LocalVoiceCaptureException("Recorder unavailable", "MICROPHONE_UNINITIALIZED", "capture_initialization", retryable = true))
+        val second = FakeCapture()
+        val entered = CountDownLatch(1)
+        val resume = CountDownLatch(1)
+        val calls = AtomicInteger()
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder, captureFactory = {
+            if (calls.incrementAndGet() == 1) {
+                first
+            } else {
+                entered.countDown()
+                assertTrue(resume.await(3, TimeUnit.SECONDS))
+                second
+            }
+        })
+        try {
+            fixture.audio.listen(fixture.listener)
+            assertTrue(entered.await(3, TimeUnit.SECONDS))
+            fixture.audio.stop()
+            resume.countDown()
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(2, calls.get())
+            assertEquals(1L, second.started.count)
+            assertEquals(1, first.closeCount.get())
+            assertEquals(1, second.closeCount.get())
+            assertTrue(fixture.codes.isEmpty())
+            assertTrue(fixture.finals.isEmpty())
+            assertEquals(1, fixture.releases.get())
+        } finally {
+            resume.countDown()
+            fixture.close()
+        }
+    }
+
     @Test fun closeDuringInferenceNeverFreesNativeStateUntilInferenceReturns() {
         val entered = CountDownLatch(1)
         val resume = CountDownLatch(1)
@@ -301,7 +424,8 @@ class MoonshineVoiceRecognizerTest {
         modelsPresent: Boolean = true,
         permission: Boolean = true,
         val capture: FakeCapture = FakeCapture(),
-        decoderFactoryFailure: Throwable? = null
+        decoderFactoryFailure: Throwable? = null,
+        captureFactory: (() -> LocalVoiceCapture)? = null
     ) {
         val callbacks = ConcurrentLinkedQueue<() -> Unit>()
         val worker = Executors.newSingleThreadExecutor()
@@ -334,7 +458,7 @@ class MoonshineVoiceRecognizerTest {
                 decoderFactoryFailure?.let { throw it }
                 decoder
             },
-            captureFactory = { capture },
+            captureFactory = captureFactory ?: { capture },
             worker = worker
         ).apply { languageTag = "en-CA" }
         val listener = object : VoiceAudio.Listener {
@@ -391,20 +515,25 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
-    private class FakeCapture(private val startFailure: Throwable? = null) : LocalVoiceCapture {
+    private class FakeCapture(private val startFailure: Throwable? = null, private val readFailure: Throwable? = null) : LocalVoiceCapture {
         val chunks = LinkedBlockingQueue<FloatArray>()
         val started = CountDownLatch(1)
         val released = CountDownLatch(1)
+        val closeCount = AtomicInteger()
 
         @Volatile var closed = false
         override fun start() {
             started.countDown()
             startFailure?.let { throw it }
         }
-        override fun read(): FloatArray = chunks.poll(20, TimeUnit.MILLISECONDS) ?: FloatArray(0)
+        override fun read(): FloatArray = chunks.poll(20, TimeUnit.MILLISECONDS) ?: run {
+            readFailure?.let { throw it }
+            FloatArray(0)
+        }
         override fun stop() = Unit
         override fun close() {
             closed = true
+            closeCount.incrementAndGet()
             released.countDown()
         }
     }

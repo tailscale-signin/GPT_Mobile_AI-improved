@@ -11,6 +11,20 @@ import kotlinx.serialization.json.put
 
 /** The task binding includes connection/account authority; resource and revision fields remain exact. */
 internal object GitHubActionIdentity {
+    /** Match the native facade default before tracing, deduplication and receipt binding. */
+    fun canonicalArguments(tool: String, arguments: JsonObject): JsonObject {
+        if (tool.substringBefore("__") != "github_ci" || "view_cursor" in arguments) return arguments
+        val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+        // Invalid non-string values remain invalid; normalization cannot bypass schema validation.
+        if (arguments.containsKey("action") && action == null) return arguments
+        val canonical = when (action) {
+            null, "" -> "workflows"
+            "rerun" -> "rerun_failed_jobs"
+            else -> action
+        }
+        return JsonObject(arguments + ("action" to JsonPrimitive(canonical)))
+    }
+
     fun bind(arguments: JsonObject, repository: GitHubRepositoryContext): JsonObject {
         val requested = normalizeGitHubRepository(string(arguments, "owner"), string(arguments, "repo"))
         require(requested.first?.equals(repository.owner, true) != false && requested.second?.equals(repository.repo, true) != false) { "The operation belongs to another repository." }
@@ -20,7 +34,7 @@ internal object GitHubActionIdentity {
     fun digest(binding: String, repository: String, tool: String, arguments: JsonObject): String? = runCatching {
         val (owner, repo) = normalizeGitHubRepository(null, repository)
         require(!binding.isBlank() && owner != null && repo != null)
-        val bounded = bind(arguments, GitHubRepositoryContext(owner.lowercase(), repo.lowercase(), ""))
+        val bounded = bind(canonicalArguments(tool, arguments), GitHubRepositoryContext(owner.lowercase(), repo.lowercase(), ""))
         GitHubEvidenceBook.digest(
             buildJsonObject {
                 put("schema", "github.action-identity.v1")

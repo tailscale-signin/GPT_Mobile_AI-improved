@@ -60,7 +60,7 @@ internal object GitHubTaskLifecycle {
     fun failureMetadata(failure: ProviderEvent.Failed): JsonObject {
         val classification = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
         val details = failure.failureDetails.orEmpty()
-        val review = failure.errorCode?.startsWith("GITHUB_REVIEW_") == true || classification.phase == "answer_review"
+        val review = failure.errorCode?.startsWith("GITHUB_REVIEW_") == true || classification.phase == "answer_review" || details["review_stage"] == JsonPrimitive("answer_review")
         val outcome = buildJsonObject {
             put("schema", "github.failure-outcome.v1")
             put("failure_code", failure.errorCode ?: classification.category)
@@ -68,6 +68,7 @@ internal object GitHubTaskLifecycle {
             put("failure_scope", "CURRENT_STAGE")
             if (classification.isTaskVerification) put("continuation_required", true)
             put("failed_stage", details["failed_stage"] ?: JsonPrimitive(if (review) "answer_review" else classification.phase.ifBlank { "stage_not_recorded" }))
+            if (review) put("review_stage", "answer_review")
             details["dispatched"]?.let { put("failed_stage_dispatched", it) }
                 ?: classification.dispatched?.let { put("failed_stage_dispatched", it) }
             put("retryable_without_new_input", details["retryable_without_new_input"] != JsonPrimitive(false) && failure.taskOutcome !in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") && classification.retryAllowed)
@@ -89,6 +90,7 @@ internal object GitHubTaskLifecycle {
             details["corrective_actions"]?.let { put("corrective_actions", it) }
             listOf(
                 "stop_reason", "next_action", "resume_allowed", "resume_kind", "user_input_required", "requires_reconciliation",
+                "automatic_retry_allowed", "user_resumable", "resume_requires_changed_input_or_configuration",
                 "pending_invocation_fingerprints", "continuations_used", "continuation_limit", "rounds_used", "round_limit",
                 "tool_calls_used", "tool_call_limit", "tool_calls_remaining", "execution_state"
             ).forEach { key -> details[key]?.let { put(key, it) } }

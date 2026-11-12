@@ -21,6 +21,31 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayDashboardClientTest {
+    @Test fun readyAndUnavailableModelsNeverShareEvidenceAndConfigurationEditsRecheck() = runTest {
+        val selected = config.copy(apiUrl = "https://model-scoped-readiness.example/v1", profileRevision = "a".repeat(64))
+        var calls = 0
+        http(
+            MockEngine { request ->
+                calls++
+                val model = requireNotNull(request.url.parameters["model"])
+                val ready = model == "available-model"
+                respond(readinessFixture(model, ready).toString(), if (ready) HttpStatusCode.OK else HttpStatusCode.ServiceUnavailable)
+            }
+        ).use { http ->
+            val client = GatewayDashboardClient(http)
+            val available = client.readiness(selected, "available-model")!!
+            val unavailable = client.readiness(selected, "unavailable-model")!!
+            assertTrue(available.ready)
+            assertFalse(unavailable.ready)
+            assertEquals(false, unavailable.selectedModelAvailable)
+            assertEquals(available, client.readiness(selected, "available-model"))
+            assertEquals(unavailable, client.readiness(selected, "unavailable-model"))
+            assertEquals(2, calls)
+            client.readiness(selected.copy(profileRevision = "b".repeat(64)), "available-model")
+            assertEquals(3, calls)
+        }
+    }
+
     private val config = ProviderRequestConfig("http://192.168.1.2:8090/v1", "selected-token", profileUid = "selected")
     private fun http(engine: MockEngine) = HttpClient(engine) {
         install(HttpTimeout)

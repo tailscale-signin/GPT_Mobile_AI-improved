@@ -112,7 +112,7 @@ private fun boundedRepairUsage(recovery: JsonObject?): JsonObject? {
         "usage_origin" to JsonPrimitive("PROVIDER_REPORTED"),
         "usage_estimated" to JsonPrimitive(false)
     )
-    for (key in listOf("attempts", "failed_attempt", "output_allowance")) {
+    for (key in listOf("attempts", "completed_attempts", "failed_attempt", "output_allowance")) {
         val value = (recovery[key] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
         if (value != null && value >= 0 && (key == "output_allowance" || value <= 8)) observed[key] = JsonPrimitive(value)
     }

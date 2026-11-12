@@ -242,7 +242,7 @@ internal class GitHubVerifiedSession(
             val catalogComplete = GitHubAuthorizedCatalog.snapshot(receipts, authorizedTools)["complete"] == kotlinx.serialization.json.JsonPrimitive(true)
             val discoveryArgs = buildJsonObject { put("names", JsonArray(missing.map { kotlinx.serialization.json.JsonPrimitive(it.name) })) }
             val discoveryAlreadyTried = receipts.values.any { it["tool"] == kotlinx.serialization.json.JsonPrimitive("discover_available_tools") && it["arguments"] == discoveryArgs }
-            val acquisitionAllowed = GitHubChecklistBudget.remaining(receipts, remainingToolCalls())?.let { it > GitHubChecklistBudget.VERIFICATION_RESERVE } != false
+            val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remainingToolCalls())
             val next = when {
                 planned != null && planned.name.substringBefore("__") == "github_commit" && planned.arguments["action"] in setOf(kotlinx.serialization.json.JsonPrimitive("delete_branch"), kotlinx.serialization.json.JsonPrimitive("delete_fixture_branch")) -> planned
                 acquisitionAllowed && catalogNext != null -> catalogNext
@@ -430,14 +430,11 @@ internal class GitHubVerifiedSession(
         if (failed || !completed) {
             // The runner owns retries and protocol repair. Do not turn a transient
             // failure into completion before that policy has had a chance to run.
-            if (!calls && providerFailure?.errorCode?.startsWith("GITHUB_REVIEW_") == true) {
-                val candidate = privateReviewCandidate()?.takeIf { it.isNotBlank() }
-                val (receipts, _) = evidence.snapshot()
-                if (candidate != null && receipts.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
-                    emitAll(publish(candidate, failureCode = providerFailure.errorCode, originalFailure = providerFailure))
-                } else {
-                    emitAll(retainedFailureResponse(requireNotNull(providerFailure)))
-                }
+            if (!calls && providerFailure?.let(::reviewOriginFailure) == true) {
+                // A review failure retains its provider code. Publish directly
+                // verified receipt observations without spending another model
+                // request extracting claims from the still-private candidate.
+                emitAll(retainedFailureResponse(requireNotNull(providerFailure)))
                 return
             }
             emit(providerFailure ?: ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
@@ -451,6 +448,10 @@ internal class GitHubVerifiedSession(
     }
 
     private data class DraftRound(val draft: String, val calls: Boolean, val completed: Boolean, val failed: Boolean, val failure: ProviderEvent.Failed?)
+
+    private fun reviewOriginFailure(failure: ProviderEvent.Failed): Boolean =
+        failure.errorCode?.startsWith("GITHUB_REVIEW_") == true ||
+            failure.failureDetails?.get("review_stage") in setOf(JsonPrimitive("answer_review"), JsonPrimitive("review_compatibility"))
 
     private fun deliverRetainedReport(): Flow<ProviderEvent> = flow {
         validatePublication()
@@ -565,7 +566,7 @@ internal class GitHubVerifiedSession(
         }
         if (failure.errorCode == "DISPATCH_POLICY_CHANGED" || failure.message.startsWith("DISPATCH_POLICY_CHANGED:")) {
             emit(failure.copy(errorCode = "DISPATCH_POLICY_CHANGED", taskOutcome = "CONFIGURATION_INVALIDATED"))
-        } else if (dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
+        } else if (!reviewOriginFailure(failure) && dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery.isConnectionUnavailable(failure.message)) {
             // A failed connection is not a claim-verification failure. Keep its actionable cause.
             emit(failure.copy(errorCode = failure.errorCode ?: "LOCAL_SERVICE_UNREACHABLE"))
         } else {
@@ -573,12 +574,12 @@ internal class GitHubVerifiedSession(
             if (receipts.values.none { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
                 // No GitHub work was observed. A provider denial is a failed request,
                 // not partial task verification, and must retain its recovery metadata.
-                if (failure.errorCode?.startsWith("GITHUB_REVIEW_") == true) {
+                if (reviewOriginFailure(failure)) {
                     validatePublication()
                     emit(
                         ProviderEvent.TextDelta(
                             "The answer review could not finish. The draft remains unverified, and no GitHub completion is claimed. " +
-                                "Saved operations are retained. Retry resumes only the bounded review recovery; it does not repeat a commit.\n\nRecorded failure: `${failure.errorCode}`.",
+                                "Saved operations are retained. Explicit resumption revalidates the review configuration and reuses receipts; completed operations are not repeated.\n\nRecorded failure: `${failure.errorCode}`.",
                             dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.SYSTEM_ERROR, failure.invocationId)
                         )
                     )
@@ -723,7 +724,12 @@ internal class GitHubVerifiedSession(
                         put("completion_verified", false)
                         put("task_outcome", if (originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL")
                     }
-                    put("model_round_finished", draft != null)
+                    put("model_round_finished", draft != null || originalFailure?.failureDetails?.get("draft_retained") == JsonPrimitive(true))
+                    if (originalFailure?.let(::reviewOriginFailure) == true) {
+                        put("review_candidate_retained", privateReviewCandidate()?.isNotBlank() == true || originalFailure.failureDetails?.get("draft_retained") == JsonPrimitive(true))
+                        put("delivery_mode", "DETERMINISTIC_RECEIPT_PARTIAL")
+                        put("additional_verification_model_dispatched", false)
+                    }
                     put("verification_elapsed_ms", ((System.nanoTime() - verificationStarted) / 1_000_000).coerceAtLeast(0))
                     put("verification_measurement", "Observed answer verification and rendering, including claim extraction when used")
                     originalFailure?.let { failure ->
@@ -958,7 +964,7 @@ internal class GitHubVerifiedSession(
                     } else {
                         failureCode ?: extractionCode ?: (delivered["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE"
                     },
-                    transportComplete = true,
+                    transportComplete = originalFailure?.transportComplete ?: true,
                     providerLimit = originalFailure?.providerLimit?.takeUnless { unresolved },
                     invocationId = originalFailure?.invocationId,
                     taskOutcome = if (approvalIsPrimary || originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",

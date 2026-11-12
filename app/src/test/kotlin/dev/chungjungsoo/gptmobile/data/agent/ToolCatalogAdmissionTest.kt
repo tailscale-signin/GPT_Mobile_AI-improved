@@ -76,7 +76,7 @@ class ToolCatalogAdmissionTest {
         }
         val turns = listOf(ConversationTurn(MessageV2(content = "check repo status", platformType = null), null, true))
         val plan = planAuthorizedToolContext(turns, "Use current schemas.", resolved, TokenBudgetSettings(contextTokens = 4096, outputTokens = 1024), true)
-        assertEquals(setOf("github_context", "github_search", "github_read", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
+        assertEquals(setOf("github_context", "github_pr", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
         assertFalse(plan.tools.any { !it.modelVisible })
         assertEquals(resolved.map { it.modelToolName }.toSet(), plan.authorizedTools.map { it.name }.toSet())
         println("GitHub ordinary admitted prompt: ${plan.promptTokens} estimated tokens, ${plan.tools.size} definitions")

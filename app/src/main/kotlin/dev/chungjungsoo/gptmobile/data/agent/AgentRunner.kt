@@ -268,9 +268,13 @@ class AgentRunner(
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
                 val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
+                val remoteRead = if (automaticRecovery != null && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextRemoteRead(exchanges, roundDefinitions, automaticRecovery) else null
                 val savedRead = if (automaticRecovery != null && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions, minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2), automaticRecovery) else null
                 val round = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
+                } else if (remoteRead != null) {
+                    emit(AgentRunEvent.Notice("Reading the next workflow page from the issued continuation.", persistent = false))
+                    RoundResult(calls = listOf(remoteRead), completed = true, observedCalls = 1)
                 } else if (savedRead != null) {
                     emit(AgentRunEvent.Notice("Reading the saved GitHub result; the remote operation is not being repeated.", persistent = false))
                     RoundResult(calls = listOf(savedRead), completed = true, observedCalls = 1)
@@ -333,7 +337,8 @@ class AgentRunner(
                 val resolvedCalls = round.calls.map { call ->
                     // Stamp live calls at the trusted routing boundary; restored journals retain their identity.
                     val identified = if (restoringBatch) call else call.copy(originalInvocationFingerprint = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}"))
-                    resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
+                    val resolved = resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
+                    resolved.copy(arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(resolved.name, resolved.arguments))
                 }
                 resolvedCalls.filterNot { it.callId in restoredCompleted }.forEach { emit(AgentRunEvent.Provider(it)) }
                 val calls = routeSearchCalls(resolvedCalls, executableToolByName)
@@ -1221,9 +1226,11 @@ class AgentRunner(
             limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
         val repeatLimited = allResults.any { toolResultText(it).contains("reached the per-response repeat limit", ignoreCase = true) }
         val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
+        val repeatedReadsRequireFinalization = repeatedReadSuppression &&
+            !((limits.githubMode || limits.githubTask) && hasActionableGitHubTools && canReadOtherSources)
         val mustFinalize = unavailableCallsOnly ||
             allResults.any { it.errorCode == "GITHUB_USER_STOP" } ||
-            repeatedReadSuppression ||
+            repeatedReadsRequireFinalization ||
             discoveryRequiresFinalization ||
             roundLimitReached ||
             contextNearLimit ||
@@ -1237,7 +1244,7 @@ class AgentRunner(
         } else if (unavailableCallsOnly) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice(if (repeatLimited) "Repeated calls were stopped. Finishing with the findings already collected." else "Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
-        } else if (repeatedReadSuppression) {
+        } else if (repeatedReadsRequireFinalization) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice("Repeated reads produced no new work. Finishing with the results already collected.", persistent = false))
         } else if (discoveryRequiresFinalization) {
@@ -1302,7 +1309,7 @@ class AgentRunner(
             allResults[allResults.lastIndex] = when {
                 unavailableCallsOnly && repeatLimited -> appendInstruction(allResults.last(), "Repeated identical calls reached their safety limit. This does not establish that GitHub read or write tools are disabled. Report completed work and remaining actions accurately; do not claim edits or commits without successful tool receipts. Finish this response from retained evidence.")
                 unavailableCallsOnly -> appendInstruction(allResults.last(), "These tools are disabled or unavailable. Use successful findings already collected to answer now. Do not request more tools in this response.")
-                repeatedReadSuppression -> appendInstruction(allResults.last(), "Repeated reads were skipped without acquiring new evidence. Summarize the results already collected and identify remaining gaps. Do not request more tools in this response.")
+                repeatedReadsRequireFinalization -> appendInstruction(allResults.last(), "Repeated reads were skipped without acquiring new evidence. Summarize the results already collected and identify remaining gaps. Do not request more tools in this response.")
                 discoveryRequiresFinalization -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")
                 roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
                 contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")
@@ -1311,6 +1318,9 @@ class AgentRunner(
                 outputBudgetExhausted -> appendInstruction(allResults.last(), OUTPUT_BUDGET_FINAL_RESPONSE_INSTRUCTION)
                 else -> appendFinalResponseInstruction(allResults.last())
             }
+        } else if (repeatedReadSuppression && allResults.isNotEmpty()) {
+            allResults[allResults.lastIndex] = appendInstruction(allResults.last(), "This exact read produced no new evidence and remains suppressed. Follow its issued remote continuation, or use a different required action or unread range. Other authorized tools remain available within the current task budget. Workflow definitions do not establish executed checks or repository health.")
+            emit(AgentRunEvent.Notice("Repeated reads were skipped. Continuing with remaining checks and unread pages.", persistent = false))
         } else if (suppressDiscovery && allResults.isNotEmpty()) {
             allResults[allResults.lastIndex] = appendInstruction(allResults.last(), "Repeated discovery returned no new schemas. Discovery is paused for this response. The attached authorized GitHub tools remain available; use their exact schemas to continue the requested work. Do not repeat discovery or claim that GitHub tools are unavailable.")
             emit(AgentRunEvent.Notice("Repeated discovery is paused. Continuing with the available GitHub tools.", persistent = false))
@@ -1415,6 +1425,8 @@ class AgentRunner(
         var roundFinishReason: String? = null
         var roundReasoningTokens: Long? = null
         var roundSettingsConfirmed = false
+        val usageInvocationIds = linkedSetOf<String>()
+        var unboundUsageObserved = false
         var deliveredCallIds: Set<String> = emptySet()
         var invocationStage = "planning"
         var invocationStarted = false
@@ -1435,7 +1447,8 @@ class AgentRunner(
                         inputSource = roundInput.source,
                         outputSource = roundOutput.source,
                         actualRuntime = roundRuntime,
-                        phase = if (listOf(roundInput, roundOutput, roundTotal).filter { it.value != null }.all { it.phase == ProviderUsagePhase.FINAL }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM
+                        phase = if (listOf(roundInput, roundOutput, roundTotal).filter { it.value != null }.all { it.phase == ProviderUsagePhase.FINAL }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM,
+                        invocationId = usageInvocationIds.singleOrNull().takeUnless { unboundUsageObserved }
                     )
                 )
             )
@@ -1623,6 +1636,7 @@ class AgentRunner(
                 is ProviderEvent.Notice -> emit(AgentRunEvent.Notice(event.message, event.persistent, event.researchDelivery))
 
                 is ProviderEvent.Usage -> {
+                    if (event.invocationId == null) unboundUsageObserved = true else usageInvocationIds += event.invocationId
                     event.reasoningTokens?.let { tokens ->
                         roundReasoningTokens = if (event.cumulative) maxOf(roundReasoningTokens ?: 0L, tokens.toLong()) else (roundReasoningTokens ?: 0L) + tokens
                     }

@@ -332,7 +332,11 @@ class AppAuditExportTest {
         )
         val document = export(batch(run(plan).copy(results = receipts, networkProbesDispatched = 3, networkProbesAttempted = 3)))
         val counters = document["run"]!!.jsonObject
-        assertEquals(2, counters["networkAccountingVersion"]!!.jsonPrimitive.int)
+        assertEquals(3, counters["networkAccountingVersion"]!!.jsonPrimitive.int)
+        assertEquals(4, counters["networkProbesStarted"]!!.jsonPrimitive.int)
+        assertEquals(3, counters["networkProbesAdmitted"]!!.jsonPrimitive.int)
+        assertEquals(4, counters["networkProbesAdmissionUnknown"]!!.jsonPrimitive.int)
+        assertTrue(document["results"]!!.jsonArray.all { it.jsonObject["networkAdmission"]!!.jsonPrimitive.content == "UNKNOWN" })
         assertEquals(3, counters["networkProbesAttempted"]!!.jsonPrimitive.int)
         assertEquals(1, counters["networkProbesDispatched"]!!.jsonPrimitive.int)
         assertEquals(1, counters["networkProbesConfirmed"]!!.jsonPrimitive.int)

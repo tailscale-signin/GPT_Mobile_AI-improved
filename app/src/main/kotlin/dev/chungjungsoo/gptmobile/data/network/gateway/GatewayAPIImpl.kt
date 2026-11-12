@@ -37,6 +37,11 @@ import kotlinx.serialization.json.intOrNull
 class GatewayAPIImpl @Inject constructor(
     private val networkClient: NetworkClient
 ) : GatewayAPI {
+    private data class CapabilityAttempt(val runtimeIdentity: String, val value: GatewayCapabilities? = null, val failure: GatewayCapabilityDiscoveryException? = null)
+    private val capabilities = dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache<CapabilityAttempt>(
+        { System.nanoTime() / 1_000_000 },
+        valueTtl = { if (it.failure == null) 4_000L else 2_000L }
+    )
     private val json = Json {
         ignoreUnknownKeys = true
         isLenient = true
@@ -45,6 +50,33 @@ class GatewayAPIImpl @Inject constructor(
 
     /** Null means a definite unsupported endpoint; transport/auth failures must not remove isolation controls. */
     override suspend fun getCapabilities(config: ProviderRequestConfig, forceRefresh: Boolean): GatewayCapabilities? {
+        val owned = kotlinx.coroutines.currentCoroutineContext()[GatewayCapabilityReadContext]?.requireOwnedFreshRead == true
+        val key = "${GatewayClientDiagnostics.routeIdentity(config)}|${dev.chungjungsoo.gptmobile.data.research.researchHash(config.profileRevision.orEmpty())}|${dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.networkEpoch}"
+        val attempt = capabilities.getOrLoad(
+            key,
+            forceRefresh = forceRefresh || owned,
+            isCurrent = {
+                it != null &&
+                    it.runtimeIdentity == GatewayClientDiagnostics.runtimeEpoch(config) &&
+                    (it.value != null || it.failure != null || GatewaySurfacePolicy.shared.rememberedStatus(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES) != null)
+            },
+            shareConcurrentRefresh = !owned
+        ) {
+            val runtime = GatewayClientDiagnostics.runtimeEpoch(config)
+            try {
+                val value = readCapabilities(config, forceRefresh || owned)
+                CapabilityAttempt(value?.instanceId ?: GatewayClientDiagnostics.runtimeEpoch(config), value)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: GatewayCapabilityDiscoveryException) {
+                CapabilityAttempt(runtime, failure = failure)
+            }
+        } ?: return null
+        attempt.failure?.let { throw it }
+        return attempt.value
+    }
+
+    private suspend fun readCapabilities(config: ProviderRequestConfig, forceRefresh: Boolean): GatewayCapabilities? {
         val surfaceIdentity = GatewaySurfacePolicy.identity(config)
         if (forceRefresh) {
             GatewaySurfacePolicy.shared.invalidate(surfaceIdentity, GatewaySurfacePolicy.Surface.CAPABILITIES)

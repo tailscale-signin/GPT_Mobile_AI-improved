@@ -7,6 +7,35 @@ import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
 internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, nowMillis: Long = System.currentTimeMillis()): ErrorDetail? {
+    if (error is dev.chungjungsoo.gptmobile.data.context.RequestCapacityException) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "local_admission",
+            code = error.code,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("code", error.code)
+                put("failed_stage", "provider_admission")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("retryable", false)
+                put("request_replay_allowed", false)
+                put("repair", "REPLAN_REQUEST_BUDGET")
+                put("prompt_tokens", error.promptTokens)
+                put("safety_tokens", error.safetyTokens)
+                error.outputTokens?.let { put("output_allowance", it) }
+                error.capacityTokens?.let { put("capacity_tokens", it) }
+                put("measurement", error.measurement.name)
+                put("partial_output_preserved", partialOutput)
+                // A rejected continuation cannot prove that an earlier physical
+                // request was unsent. Invocation accounting retains that history.
+                if (!partialOutput) {
+                    put("dispatched", false)
+                    put("dispatch_state", "PRECHECK_REJECTED")
+                    put("remote_acceptance", "NO")
+                }
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.github.GitHubRequestCircuit.Open) {
         return ErrorDetail(
             message = "GitHub is temporarily cooling down. Resume the saved request after the retry time.",

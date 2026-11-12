@@ -12,7 +12,7 @@ GitHub reads can recover from a proven path or retained search recipe, and eligi
 
 Native tool progress now updates the observed steps, failure count and next action after gateway preflight telemetry. Repeated privacy catalog notices are grouped by their actual denial reason and reported tool-entry count; all privacy filtering and per-tool diagnostics remain in place.
 
-The issue-report dialog now retains an approved report for direct native submission, visible delivery status and retry with the same report ID. Reports include bounded failure context and explicit missing observations, with hashed identities that can be matched to future diagnostic captures even when app logging is off. Review and debug APK workflows now receive the configured reporting-service origin. Context-bearing reports require the updated hosted reporter; an unconfigured or older service leaves the report available in the app with an explicit status. Send no longer opens a browser.
+The issue-report dialog now retains an approved report for direct native submission, visible delivery status and retry with the same report ID. Reports include bounded failure context and explicit missing observations, with hashed identities that can be matched to future diagnostic captures even when app logging is off. Review and debug APK workflows receive the reporting capability configuration. Hosted reports require the updated reporter; when native GitHub delivery is enabled, an explicitly approved verified account provides an alternative. Missing or incompatible destination configuration leaves the approved report available in the app with an explicit status. Send no longer opens a browser.
 
 Combined Mode also rejects demonstrated participant reversals that previously passed lexical matching, including passive wording and disputed-claim declarations. The guard preserves valid comparisons within independent answer clauses and leaves ambiguous relationships unresolved. It does not qualify the unfinished general semantic-provenance pipeline.
 
@@ -20,7 +20,19 @@ These fixes require matching Android and gateway deployment. Passing host or emu
 
 The [findings and remedies](docs/repairs/github-job-recovery-2026-11-12.md) describe the code changes, reporting rollout and remaining evidence requirements.
 
-Native issue-report delivery requires a deployed project-owned HTTPS reporter advertising the supported context schema and ISSUE_REPORT_ORIGIN configured for APK builds. Source changes and fake-publisher/transport regressions do not qualify that live deployment or identify historical generic incident causes.
+Hosted issue-report delivery requires a real project-owned HTTPS reporter advertising the supported context schema and ISSUE_REPORT_ORIGIN in the APK; enabled native GitHub delivery requires a verified account and explicit approval of the report and route. Host regressions do not qualify live delivery, and no live service, repository variable or credential was changed by the November 12 session repair.
+
+## November 12 session reliability and reporting addendum
+
+These candidate repairs cover the supplied reporting, app-audit, GitHub, voice and diagnostic findings. The version remains 0.9.66.7/build 141. The [session repair register](docs/repairs/session-reliability-reporting-2026-11-12.md) separates each implemented change, observed validation and remaining external acceptance.
+
+- Reporting shows the destination and verified GitHub account before approval, offers connection setup or saving for later, and preserves the original report ID and exact approved contents. A durable marker precedes native issue creation; uncertain delivery triggers read-only exact reconciliation, and an absent search result never authorizes another creation. Distributable APKs require an enabled reporting capability, while local unconfigured development needs an explicit opt-out.
+- GitHub review accounts for complete serialized inputs, bounded batches and repair limits. Saved candidates and explicit user-resume conditions survive private-review failure. Workflow pagination, repeated-read protection, scoped status schemas, current-task budgets and owned integration preparation retain their accepted authority and evidence limits.
+- Voice capture records typed initialization/read failures and allows at most one transient startup recreation before any PCM is captured. Recorder ownership stays attempt-specific. Terminal whitespace trimming no longer interrupts valid queued speech, and model completion permits playback to drain; first-audio, cancellation and drain observations support later device diagnosis.
+- MCP failures retain available phase, retryability, dispatch and configuration evidence with exact operation correlation. Selected-model readiness is bound to the observed configuration/runtime. Audit presentation separates measured results, execution coverage, disabled features, optional absence and remaining untested work.
+- Invocation-owned usage, typed capacity failures and exact-task review checkpoints preserve causal diagnostics without borrowing successful primary-generation provenance. Observed head revisions remain distinct from explicitly tested SHAs. Transcript export preparation runs off the UI thread; no measured frame, memory or device-performance improvement is claimed.
+
+Unified Reliability v2 is not complete; no acceptance results are promoted by this addendum. Current source and regression evidence does not qualify an installed APK, live account/service, selected model or physical device.
 
 ## PR #816 candidate addendum: Gateway 16 and engineering completion
 
@@ -97,6 +109,9 @@ The branch-filtered unsigned-release job was skipped and is not counted as a pas
 All scoped qualification limitations are retained below. Host and emulator results remain separate from physical-device and private-service measurements.
 
 ## Qualification and remaining work
+
+- The November 12 session repair requires installed-APK reporting reconciliation, exact-model generation, affected MCP listener/protocol/credential repair, owned integration fixtures and physical-device voice/lifecycle/frame/memory acceptance. Source and host checks do not establish those external results.
+- The later 141-check audit and diagnostic capture were supplied as analyses, not original files; their capture-specific rows and measurements were not independently revalidated. The audit's 67 untested checks remain untested until matching execution evidence is retained.
 
 - The November 8 diagnostic integration retains required matching PC/phone deployment, original MCP endpoint checks, private-account workflow execution and physical-device speech/DNS/frame qualification. Closed transport stubs and a disposable CI fixture are explicitly separate from live-account or device acceptance.
 

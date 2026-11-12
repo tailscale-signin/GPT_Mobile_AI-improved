@@ -14,6 +14,7 @@ internal object GitHubReplayRecovery {
     class State(calls: Collection<ProviderEvent.ToolCall> = emptyList()) {
         private val automaticCalls = mutableSetOf<String>()
         private val readPages = mutableSetOf<String>()
+        private val remoteReads = mutableSetOf<String>()
 
         init {
             record(calls)
@@ -21,7 +22,8 @@ internal object GitHubReplayRecovery {
 
         fun record(calls: Collection<ProviderEvent.ToolCall>) {
             calls.forEach { call ->
-                if (call.callId.startsWith("saved-result-consume-")) automaticCalls += call.callId
+                if (call.callId.startsWith("saved-result-consume-") || call.callId.startsWith("remote-result-consume-")) automaticCalls += call.callId
+                remoteReads += remoteKey(call.name, call.arguments)
                 (call.arguments["view_cursor"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.let { cursor ->
                     readPages += pageKey(call.name, cursor)
                 }
@@ -30,8 +32,58 @@ internal object GitHubReplayRecovery {
 
         fun exhausted() = automaticCalls.size >= 32
         fun hasRead(name: String, cursor: String) = pageKey(name, cursor) in readPages
+        fun hasRemoteRead(name: String, args: JsonObject) = remoteKey(name, args) in remoteReads
 
         private fun pageKey(name: String, cursor: String) = "$name:${cursor.split(':').take(2).joinToString(":")}"
+        private fun remoteKey(name: String, args: JsonObject) = remoteReadKey(name, args)
+    }
+
+    /** Advance only a native-issued, same-scope workflow page. No write or invented cursor is admitted. */
+    fun nextRemoteRead(exchanges: List<AgentToolExchange>, tools: Collection<AgentToolDefinition>, state: State? = null): ProviderEvent.ToolCall? {
+        if (state?.exhausted() == true) return null
+        val calls = exchanges.flatMap { it.calls }
+        if (calls.count { it.callId.startsWith("remote-result-consume-") } >= 32) return null
+        fun canonical(name: String, args: JsonObject) = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(name, args)
+        fun scope(args: JsonObject) = JsonObject((args - "page") + ("per_page" to (args["per_page"] ?: JsonPrimitive(30))))
+        for (exchange in exchanges.asReversed()) {
+            for (result in exchange.results.asReversed()) {
+                if (result.isError) continue
+                val issuer = exchange.calls.firstOrNull { it.callId == result.callId } ?: continue
+                val original = canonical(issuer.name, issuer.arguments)
+                if (GitHubOperationTool.operationName(issuer.name) != "github_ci" || original["action"] != JsonPrimitive("workflows")) continue
+                val source = envelope(result.content)
+                val recipes = listOfNotNull(source?.get("continuation_call") as? JsonObject) +
+                    listOf(source?.get("remote_continuations"), result.executionReceipt?.get("retained_remote_continuations"))
+                        .flatMap { (it as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it["call"] as? JsonObject }
+                for (recipe in recipes) {
+                    val name = (recipe["tool"] as? JsonPrimitive)?.content ?: continue
+                    val args = (recipe["arguments"] as? JsonObject)?.let { canonical(name, it) } ?: continue
+                    val page = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: continue
+                    val priorPage = (original["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
+                    if (name != issuer.name || page != priorPage + 1 || scope(args) != scope(original) || "view_cursor" in args) continue
+                    val tool = tools.firstOrNull { it.name == name && it.modelVisible } ?: continue
+                    if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty() ||
+                        state?.hasRemoteRead(name, args) == true ||
+                        calls.any { it.name == name && scope(canonical(name, it.arguments)) == scope(args) && it.arguments["page"] == args["page"] }
+                    ) {
+                        continue
+                    }
+                    val key = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(remoteReadKey(name, args)).take(24)
+                    return ProviderEvent.ToolCall("remote-result-consume-$key", name, args)
+                }
+            }
+        }
+        return null
+    }
+
+    private fun remoteReadKey(name: String, args: JsonObject): String {
+        val canonical = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(name, args)
+        val normalized = if (GitHubOperationTool.operationName(name) == "github_ci" && canonical["action"] == JsonPrimitive("workflows")) {
+            canonical + mapOf("page" to (canonical["page"] ?: JsonPrimitive(1)), "per_page" to (canonical["per_page"] ?: JsonPrimitive(30)))
+        } else {
+            canonical
+        }
+        return name + normalized.toSortedMap().toString()
     }
 
     /** Consume only an exact local read cursor issued by native replay recovery. */
@@ -144,33 +196,35 @@ internal object GitHubReplayRecovery {
             val id = exchange.calls.lastOrNull { toolRepeatKey(it) == key }?.callId
             exchange.results.lastOrNull { it.callId == id && (!it.isError || !it.dispatched && it.errorCode in deterministicErrors) }
         } ?: return null
-        if (previous.isError) return previous.copy(callId = call.callId, dispatched = false, sharedResult = true, retainedContent = null, traceContent = null)
+        if (previous.isError) return currentGitHubInvocationReceipt(previous.copy(callId = call.callId, dispatched = false, sharedResult = true, retainedContent = null, traceContent = null))
         val original = envelope(previous.content)
-        return AgentToolResult(
-            call.callId,
-            ToolResultContent.Json(
-                buildJsonObject {
-                    put("schema", "github.repeat.v1")
-                    put("operation", operation)
-                    put("status", "ALREADY_COMPLETED")
-                    put("message", message)
-                    put("previous_call_id", previous.callId)
-                    (previous.executionReceipt?.get("semantic_summary") ?: original?.get("semantic_summary"))?.let { put("semantic_summary", it) }
-                    previous.executionReceipt?.get("retained_original_complete")?.let { put("retained_original_complete", it) }
-                    original?.get("continuation_call")?.let { put("continuation_call", it) }
-                    original?.get("remote_continuations")?.let { put("remote_continuations", it) }
-                    original?.get("recovery_call")?.let { put("recovery_call", it) }
-                    original?.get("recovery_options")?.let { put("recovery_options", it) }
-                    original?.get("continuation_options")?.let { put("continuation_options", it) }
-                    original?.get("source_recovery_call")?.let { put("source_recovery_call", it) }
-                    put("retained_result_preview", previous.content.toString().take(1200))
-                    put("recovery", "Use the exact continuation_call above when present. The earlier call already completed; no action was repeated. Use a different unread range for additional source evidence.")
-                }
-            ),
-            isError = false,
-            dispatched = false,
-            sharedResult = true,
-            executionReceipt = previous.executionReceipt
+        return currentGitHubInvocationReceipt(
+            AgentToolResult(
+                call.callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("schema", "github.repeat.v1")
+                        put("operation", operation)
+                        put("status", "OBSERVATION_REUSED")
+                        put("message", message)
+                        put("previous_call_id", previous.callId)
+                        (previous.executionReceipt?.get("semantic_summary") ?: original?.get("semantic_summary"))?.let { put("semantic_summary", it) }
+                        previous.executionReceipt?.get("retained_original_complete")?.let { put("retained_original_complete", it) }
+                        original?.get("continuation_call")?.let { put("continuation_call", it) }
+                        original?.get("remote_continuations")?.let { put("remote_continuations", it) }
+                        original?.get("recovery_call")?.let { put("recovery_call", it) }
+                        original?.get("recovery_options")?.let { put("recovery_options", it) }
+                        original?.get("continuation_options")?.let { put("continuation_options", it) }
+                        original?.get("source_recovery_call")?.let { put("source_recovery_call", it) }
+                        put("retained_result_preview", previous.content.toString().take(1200))
+                        put("recovery", "Use the exact continuation_call above when present. The earlier call already completed; no action was repeated. Use a different unread range for additional source evidence.")
+                    }
+                ),
+                isError = false,
+                dispatched = false,
+                sharedResult = true,
+                executionReceipt = previous.executionReceipt
+            )
         )
     }
 

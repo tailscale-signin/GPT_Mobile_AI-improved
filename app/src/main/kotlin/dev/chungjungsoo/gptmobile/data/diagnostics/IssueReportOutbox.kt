@@ -11,6 +11,9 @@ internal class IssueReportOutbox(private val directory: File, private val now: (
     enum class State { QUEUED, SENDING, SENT, FAILED }
 
     @Serializable
+    enum class DeliveryEvidence { NOT_DISPATCHED, MAY_HAVE_BEEN_SUBMITTED, CONFIRMED }
+
+    @Serializable
     data class Entry(
         val reportId: String,
         val payload: String,
@@ -25,9 +28,19 @@ internal class IssueReportOutbox(private val directory: File, private val now: (
         val retryNotBeforeMillis: Long = 0,
         val automaticAttempts: Int = 0,
         val storedAtMillis: Long,
-        val updatedAtMillis: Long
+        val updatedAtMillis: Long,
+        val route: IssueReportRoute? = null,
+        val deliveryEvidence: DeliveryEvidence? = null
     ) {
         val receiptKey: String get() = "$reportId:$updatedAtMillis:${state.name}"
+
+        // Old outboxes did not retain transport evidence. A known local configuration
+        // rejection is safe; an attempted legacy request remains uncertain.
+        val mayHaveBeenSubmitted: Boolean get() = when (deliveryEvidence) {
+            DeliveryEvidence.NOT_DISPATCHED -> false
+            DeliveryEvidence.MAY_HAVE_BEEN_SUBMITTED, DeliveryEvidence.CONFIRMED -> true
+            null -> automaticAttempts > 0 || state in setOf(State.SENDING, State.SENT)
+        }
     }
 
     fun approve(report: IssueReport, payload: String = report.approvedPayload()): Entry = synchronized(lock) {
@@ -42,7 +55,7 @@ internal class IssueReportOutbox(private val directory: File, private val now: (
         // An unreadable entry is still retained approved work and consumes capacity.
         check(reportIds().size - known.count { it.state == State.SENT } < MAX_PENDING_REPORTS) { CAPACITY_MESSAGE }
         val time = now()
-        Entry(report.reportId, payload, report.title, report.feature, report.errorCode, storedAtMillis = time, updatedAtMillis = time).also(::save)
+        Entry(report.reportId, payload, report.title, report.feature, report.errorCode, storedAtMillis = time, updatedAtMillis = time, deliveryEvidence = DeliveryEvidence.NOT_DISPATCHED).also(::save)
     }
 
     fun load(reportId: String): Entry? = synchronized(lock) {
@@ -57,6 +70,7 @@ internal class IssueReportOutbox(private val directory: File, private val now: (
                 val report = IssueReport.json.decodeFromString(IssueReport.serializer(), it.payload)
                 check(report.reportId == reportId) { "Saved payload identity changed" }
                 check(it.state != State.SENT || (it.issueNumber ?: 0) > 0) { "Saved report receipt is invalid" }
+                check(it.route == null || it.route.valid()) { "Saved report destination is invalid" }
             }
         }
     }
@@ -71,10 +85,23 @@ internal class IssueReportOutbox(private val directory: File, private val now: (
 
     fun sending(reportId: String): Entry = update(reportId) { it.copy(state = State.SENDING, automaticAttempts = it.automaticAttempts + 1) }
 
+    fun bindRoute(reportId: String, route: IssueReportRoute): Entry = update(reportId) {
+        require(route.valid()) { "Report destination is invalid" }
+        check(it.route == route || !it.mayHaveBeenSubmitted) { "An uncertain report must keep its approved destination and account" }
+        it.copy(route = route)
+    }
+
+    /** Durable before any write bytes leave the app, including cancellation/process death. */
+    fun dispatching(reportId: String, expectedRoute: IssueReportRoute? = null): Entry = update(reportId) {
+        check(expectedRoute == null || it.route == expectedRoute) { "Approved report destination changed before dispatch" }
+        check(it.route?.kind != IssueReportRoute.Kind.GITHUB || !it.mayHaveBeenSubmitted) { "An uncertain GitHub create may only be reconciled" }
+        it.copy(deliveryEvidence = DeliveryEvidence.MAY_HAVE_BEEN_SUBMITTED)
+    }
+
     fun sent(reportId: String, number: Int): Entry = synchronized(lock) {
         val result = update(reportId) {
             require(number > 0)
-            it.copy(state = State.SENT, issueNumber = number, failureCode = null, httpStatus = null, retryable = false, retryNotBeforeMillis = 0)
+            it.copy(state = State.SENT, issueNumber = number, failureCode = null, httpStatus = null, retryable = false, retryNotBeforeMillis = 0, deliveryEvidence = DeliveryEvidence.CONFIRMED)
         }
         // Keep a small receipt history; never prune queued, uncertain or rejected reports.
         entries().filter { it.state == State.SENT }.drop(MAX_CONFIRMED_REPORTS).forEach { file(it.reportId).delete() }
@@ -92,7 +119,8 @@ internal class IssueReportOutbox(private val directory: File, private val now: (
             failureCode = failure.code,
             httpStatus = failure.httpStatus,
             retryable = failure.retryable,
-            retryNotBeforeMillis = maxOf(it.retryNotBeforeMillis, failure.retryNotBeforeMillis ?: 0)
+            retryNotBeforeMillis = maxOf(it.retryNotBeforeMillis, failure.retryNotBeforeMillis ?: 0),
+            deliveryEvidence = if (failure.creationRejected && it.route?.kind == IssueReportRoute.Kind.GITHUB) DeliveryEvidence.NOT_DISPATCHED else it.deliveryEvidence
         )
     }
 

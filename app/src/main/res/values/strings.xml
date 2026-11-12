@@ -1214,7 +1214,7 @@
     <string name="issue_report_saving">Saving…</string>
     <string name="issue_report_sending">Sending your approved report directly. Waiting for confirmation from GitHub.</string>
     <string name="issue_report_retry_queued">Your report is saved and will retry automatically. Each retry uses this same report. You can close this window.</string>
-    <string name="issue_report_unconfigured">Your report is saved. Reporting is not available in this app version. Install a version with reporting enabled to send it.</string>
+    <string name="issue_report_unconfigured">Your report is saved and has not been sent. Choose a connected GitHub account or an available reporting service, then retry with this same report.</string>
     <string name="issue_report_service_update">Your report is saved. The reporting service needs an update before it can accept this diagnostic format. Retry after the service is updated.</string>
     <string name="issue_report_rejected">The reporting service rejected this report. Your saved copy is available below. Review the status code before sending another report.</string>
     <string name="issue_report_too_large">The report is too large. Shorten the description before sending.</string>
@@ -1232,4 +1232,23 @@
     <string name="issue_report_context_unavailable">No correlated runtime context was captured for this report.</string>
     <string name="issue_report_remove_saved">Remove saved copy</string>
     <string name="issue_report_remove_explanation">Removing this saved copy does not delete an issue that GitHub may already have received.</string>
+    <string name="issue_report_not_sent">This report has not been submitted to GitHub. Removing it deletes only the saved copy on this device.</string>
+    <string name="issue_report_setup_required">Connect a GitHub account in Plugins &amp; Tools to send a public report, or use a configured reporting service. You can save the report here while setting this up.</string>
+    <string name="issue_report_destination">Send this approved report using</string>
+    <string name="issue_report_service_destination">Reporting service · %1$s</string>
+    <string name="issue_report_github_destination">GitHub · post publicly as @%1$s</string>
+    <string name="issue_report_choose_account">Choose an account before sending. Save for later keeps the report on this device.</string>
+    <string name="issue_report_connect_github">Connect or review GitHub</string>
+    <string name="issue_report_save_later">Save for later</string>
+    <string name="issue_report_review_saved">Review saved report</string>
+    <string name="issue_report_check_confirmation">Check confirmation</string>
+    <string name="issue_report_sign_in_required">Reconnect the GitHub account shown below before continuing. The approved report and its original account are retained.</string>
+    <string name="issue_report_github_permission">GitHub denied access to create an issue in this app’s repository. Review the connected account and its Issues permission, then retry.</string>
+    <string name="issue_report_github_confirmation">GitHub has not confirmed this report yet. Checking confirmation searches for the same approved report; it will not create another issue. The saved copy remains available.</string>
+    <string name="issue_report_legacy_destination">An older app attempted this report without retaining its destination. Check the repository for its report ID before sending another report. This saved copy will not be submitted again automatically.</string>
+    <string name="issue_report_delivery_blocked">This report was not submitted. Your approved copy is saved. Review the status and destination before retrying.</string>
+    <string name="issue_report_destination_wait">This app version cannot check the original destination. The report may already exist on GitHub. Keep the saved copy and restore the approved reporting route to check confirmation.</string>
+    <string name="issue_report_github_checking">Checking GitHub for the original approved report. No additional issue will be created.</string>
+    <string name="issue_report_github_confirmation_queued">Your report is saved. Confirmation will be checked when a connection is available. This check will not create another issue.</string>
+    <string name="issue_report_build_unavailable">This development build has no reporting destination enabled. Save the report here, then install a build with native GitHub reporting or a configured reporting service.</string>
 </resources>

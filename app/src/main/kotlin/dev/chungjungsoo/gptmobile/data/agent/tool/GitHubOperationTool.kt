@@ -34,13 +34,16 @@ internal class GitHubOperationTool(
     private val rejectedCalls = linkedMapOf<JsonObject, AgentToolResult>()
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        val arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, arguments)
         val started = System.nanoTime()
         val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }
         // Reuse an identical pre-dispatch rejection so a provider cannot spin on
         // the same invalid call. Never execute the suggested correction on its
         // behalf: saved-view selectors are an authorization boundary, and only
         // the caller can submit the exact cursor-only correction.
-        val result = previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
+        val result = dev.chungjungsoo.gptmobile.data.agent.currentGitHubInvocationReceipt(
+            previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
+        )
         if (result.isError && !result.dispatched && result.errorCode in setOf("INVALID_ARGUMENTS", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")) {
             synchronized(rejectedCalls) {
                 rejectedCalls[arguments] = result

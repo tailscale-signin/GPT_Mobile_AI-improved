@@ -40,25 +40,37 @@ val issueReportOrigin = providers.gradleProperty("ISSUE_REPORT_ORIGIN")
     .orElse(providers.environmentVariable("ISSUE_REPORT_ORIGIN"))
     .getOrElse("")
     .trimEnd('/')
+val issueReportGitHubEnabled = providers.gradleProperty("ISSUE_REPORT_GITHUB_ENABLED")
+    .orElse(providers.environmentVariable("ISSUE_REPORT_GITHUB_ENABLED")).getOrElse("true").let { value ->
+        require(value in setOf("true", "false")) { "ISSUE_REPORT_GITHUB_ENABLED must be true or false." }
+        value.toBoolean()
+    }
+val allowUnconfiguredIssueReporting = providers.gradleProperty("allowUnconfiguredIssueReporting").orNull == "true"
+require(!allowUnconfiguredIssueReporting || providers.environmentVariable("CI").orNull != "true") { "CI artifacts cannot disable every issue-reporting route." }
 val productionReleaseTasks = setOf("assembleRelease", "bundleRelease", "packageRelease", "packageReleaseBundle", "signReleaseBundle")
+val distributedPackagingTasks = productionReleaseTasks + setOf("assembleDebug", "bundleDebug", "packageDebug", "packageDebugBundle", "signDebugBundle")
 val issueReportOriginValid = runCatching { URI(issueReportOrigin) }.getOrNull()?.let { uri ->
     uri.scheme == "https" &&
         !uri.host.isNullOrBlank() &&
+        uri.host.lowercase() != "localhost" &&
+        listOf(".invalid", ".test", ".example").none { uri.host.lowercase().endsWith(it) } &&
+        listOf("example.com", "example.net", "example.org").none { uri.host.lowercase() == it || uri.host.lowercase().endsWith(".$it") } &&
         uri.userInfo == null &&
         uri.port in setOf(-1, 443) &&
         uri.path.isNullOrEmpty() &&
         uri.query == null &&
         uri.fragment == null
 } == true
-val missingProductionOrigin = "Production release builds require ISSUE_REPORT_ORIGIN to be the fixed HTTPS origin of the deployed issue-report service. Set -PISSUE_REPORT_ORIGIN or the ISSUE_REPORT_ORIGIN environment variable."
+val reportingAvailable = issueReportOriginValid || issueReportGitHubEnabled
+val missingReportingRoute = "Distributed APKs require native GitHub issue reporting (ISSUE_REPORT_GITHUB_ENABLED=true) or the valid HTTPS ISSUE_REPORT_ORIGIN of a deployed reporter. Local debug developers may explicitly opt out with -PallowUnconfiguredIssueReporting=true."
 
-// Compile and lint checks can validate the release variant before deployment.
-// A direct request to package the app checks its production origin immediately.
+// All user-installable variants share this guard, including review/debug APKs.
 val packagingRequested = gradle.startParameter.taskNames.any { task ->
     val taskProject = task.substringBeforeLast(':', "").removePrefix(":")
-    task.substringAfterLast(':') in productionReleaseTasks && (taskProject.isEmpty() || taskProject == project.path.removePrefix(":"))
+    task.substringAfterLast(':') in distributedPackagingTasks && (taskProject.isEmpty() || taskProject == project.path.removePrefix(":"))
 }
-if (packagingRequested && !issueReportOriginValid) throw GradleException(missingProductionOrigin)
+val releasePackagingRequested = gradle.startParameter.taskNames.any { it.substringAfterLast(':') in productionReleaseTasks }
+if (packagingRequested && !reportingAvailable && (!allowUnconfiguredIssueReporting || releasePackagingRequested)) throw GradleException(missingReportingRoute)
 
 // Separate preview APK: the two QAIRT distributions must never be merged with pickFirst.
 val geniexRuntime = providers.gradleProperty("geniexRuntime").orNull == "true"
@@ -212,6 +224,7 @@ extensions.configure<ApplicationExtension> {
         buildConfigField("String", "GITHUB_AUTH_CALLBACK_URI", "\"https://$githubCallbackHost/oauth/github/complete\"")
         require(issueReportOrigin.isEmpty() || issueReportOriginValid) { "Issue reporting requires a fixed HTTPS origin." }
         buildConfigField("String", "ISSUE_REPORT_ORIGIN", "\"$issueReportOrigin\"")
+        buildConfigField("boolean", "ISSUE_REPORT_GITHUB_ENABLED", issueReportGitHubEnabled.toString())
         manifestPlaceholders["githubAuthCallbackHost"] = githubCallbackHost
         manifestPlaceholders["githubPublicAuthEnabled"] = githubBroker.isNotBlank().toString()
         // App owner confirmed LLM7 integration approval on 2026-09-26.
@@ -428,17 +441,27 @@ extensions.configure<ApplicationAndroidComponentsExtension> {
     }
 }
 
-val verifyReleaseIssueReportOrigin = tasks.register("verifyReleaseIssueReportOrigin") {
+val verifyIssueReportingConfiguration = tasks.register("verifyIssueReportingConfiguration") {
     group = "verification"
-    description = "Require the hosted issue-report service before building a production release."
-    val validOrigin = issueReportOriginValid
-    val invalidOriginMessage = missingProductionOrigin
+    description = "Require a usable native GitHub or hosted issue-reporting route in distributed APKs."
+    val available = reportingAvailable
+    val localException = allowUnconfiguredIssueReporting
+    val invalidConfigurationMessage = missingReportingRoute
     doLast {
-        if (!validOrigin) throw GradleException(invalidOriginMessage)
+        if (!available && !localException) throw GradleException(invalidConfigurationMessage)
     }
 }
 
+val verifyReleaseIssueReportOrigin = tasks.register("verifyReleaseIssueReportOrigin") {
+    group = "verification"
+    description = "Require an issue-reporting route for production, without a local-development exception."
+    val available = reportingAvailable
+    val invalidConfigurationMessage = missingReportingRoute
+    doLast { if (!available) throw GradleException(invalidConfigurationMessage) }
+}
+
 tasks.configureEach {
+    if (name in distributedPackagingTasks) dependsOn(verifyIssueReportingConfiguration)
     if (name in productionReleaseTasks) {
         dependsOn(verifyReleaseIssueReportOrigin)
     }

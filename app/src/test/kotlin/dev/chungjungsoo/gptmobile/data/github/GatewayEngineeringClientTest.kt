@@ -21,6 +21,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayEngineeringClientTest {
+    @Test fun invalidInputGuardIsNotMisreportedAsAChangedConversation() = runTest {
+        http(
+            MockEngine {
+                respond("""{"error":{"code":"engineering_state_or_input_changed","reasonCode":"ENGINEERING_BRANCH_INVALID","invalid_fields":["branch","private-field"],"message":"private exception"}}""", HttpStatusCode.Conflict)
+            }
+        ).use { http ->
+            val request = GatewayEngineeringRequest("owner/repo", "feature", "main", "Inspect repository", "local", chatId = 1, requestId = "command")
+            val rejected = runCatching { GatewayEngineeringClient(http).preflight(config, request) }.exceptionOrNull() as GatewayEngineeringInputRejected
+            assertTrue(rejected.message.orEmpty().contains("branch"))
+            assertFalse(rejected.message.orEmpty().contains("conversation or job changed"))
+            val failure = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.AgentFailureEvidence.exception(rejected))
+            assertEquals("ENGINEERING_BRANCH_INVALID", failure.failureDetails?.get("reasonCode")?.jsonPrimitive?.content)
+            assertFalse(failure.failureDetails.toString().contains("private"))
+            assertEquals(rejected.diagnosticDetails, rejected.withCommandOutcomeUnknown(true).diagnosticDetails)
+        }
+    }
+
     @Test fun selectionRejectionRetainsSafeMissingFieldEvidenceThroughFailureDelivery() = runTest {
         val selection = GatewayExecutionSelection("profile", "revision", "provider", "provider-revision", "LLAMA", config.apiUrl, "selected", kotlinx.serialization.json.JsonObject(emptyMap()), "PRIVATE")
         http(

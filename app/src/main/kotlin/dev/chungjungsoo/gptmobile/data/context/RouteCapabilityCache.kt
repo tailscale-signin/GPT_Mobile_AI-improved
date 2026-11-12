@@ -12,7 +12,7 @@ internal class RouteCapabilityCache<T>(private val now: () -> Long, private val 
     private val refreshes = mutableMapOf<String, Refresh>()
     private var epoch = 0L
 
-    suspend fun getOrLoad(key: String, forceRefresh: Boolean = false, isCurrent: (T?) -> Boolean = { true }, load: suspend () -> T?): T? {
+    suspend fun getOrLoad(key: String, forceRefresh: Boolean = false, isCurrent: (T?) -> Boolean = { true }, shareConcurrentRefresh: Boolean = true, load: suspend () -> T?): T? {
         val (refresh, previous) = synchronized(lock) {
             val cached = entries[key]
             if (!forceRefresh && cached != null && cached.expires > now() && isCurrent(cached.value)) return cached.value
@@ -23,7 +23,7 @@ internal class RouteCapabilityCache<T>(private val now: () -> Long, private val 
                 val generation = synchronized(lock) {
                     // Only an overlapping explicit refresh can satisfy a queued repair probe.
                     entries[key]?.takeIf {
-                        it.expires > now() && isCurrent(it.value) && (!forceRefresh || it.explicitlyRefreshed && it !== previous)
+                        it.expires > now() && isCurrent(it.value) && (!forceRefresh || shareConcurrentRefresh && it.explicitlyRefreshed && it !== previous)
                     }?.let { return@withLock it.value }
                     epoch
                 }

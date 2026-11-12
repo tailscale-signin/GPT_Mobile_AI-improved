@@ -53,11 +53,26 @@ internal class InvocationRoundAccounting(
     private var providerGenerationCompleted = false
     val inputCounter = ProviderUsageCounter()
     val outputCounter = ProviderUsageCounter()
+    private val recoveryAttempts = linkedMapOf<String, GatewayRecoveryUsage>()
+    private fun recoveryUsage(): GatewayRecoveryUsage? {
+        val physical = dispatch.receipts.mapNotNull { it.physicalAttemptId }.toSet() - dispatch.provenUnsentAttemptIds()
+        return GatewayRecoveryUsage.combine(recoveryAttempts, physical.isEmpty() || recoveryAttempts.keys.containsAll(physical))
+    }
+    private fun applyRecoveryUsage() {
+        val usage = recoveryUsage()?.event(record.id) ?: return
+        inputCounter.accept(usage.inputTokens, true, usage.inputSource, usage.phase, authoritativeReceipt = true)
+        outputCounter.accept(usage.outputTokens, true, usage.outputSource, usage.phase, authoritativeReceipt = true)
+        input = inputCounter.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+        output = outputCounter.value?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+        inputSource = inputCounter.source
+        outputSource = outputCounter.source
+    }
+    fun recoveredUsageEvent(): ProviderEvent.Usage? = recoveryUsage()?.event(record.id)
     fun retainedInput(): Int = if (measuredUsageSource(inputSource)) input ?: record.inputTokens else maxOf(input ?: 0, record.inputTokens)
     fun retainedOutput(): Int = if (measuredUsageSource(outputSource)) output ?: 0 else maxOf(output ?: 0, ((generatedBytes + 2) / 3).coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
     fun retainedInputSource(): String = if (inputSource == "not_dispatched" || input != null && retainedInput() == input) inputSource else "estimated"
     fun retainedOutputSource(): String = if (outputSource == "not_dispatched" || output != null && retainedOutput() == output) outputSource else "estimated"
-    fun estimatedUsage(): Boolean = input == null || output == null || !measuredUsageSource(inputSource) || !measuredUsageSource(outputSource)
+    fun estimatedUsage(): Boolean = input == null || output == null || !measuredUsageSource(inputSource) || !measuredUsageSource(outputSource) || recoveryUsage()?.let { !it.inputComplete || !it.outputComplete } == true
     fun usageEvidence(costConfirmed: Boolean): String = kotlinx.serialization.json.buildJsonObject {
         put("invocation_id", kotlinx.serialization.json.JsonPrimitive(record.id))
         put("input_reservation", kotlinx.serialization.json.JsonPrimitive(record.inputTokens))
@@ -86,6 +101,12 @@ internal class InvocationRoundAccounting(
         gatewayProvenance?.let { put("gateway_provenance", it) }
         gatewayDelivery?.let { put("gateway_delivery", it) }
         responseParsing?.let { put("response_parsing", it) }
+        recoveryUsage()?.let { recovered ->
+            put("gateway_recovery", recovered.evidence)
+            recovered.inputTokens?.let { put("known_recovery_input_tokens", kotlinx.serialization.json.JsonPrimitive(it)) }
+            recovered.outputTokens?.let { put("known_recovery_output_tokens", kotlinx.serialization.json.JsonPrimitive(it)) }
+            put("recovery_usage_complete", kotlinx.serialization.json.JsonPrimitive(recovered.inputComplete && recovered.outputComplete))
+        }
         diagnosticFailure?.let { put("failure", kotlinx.serialization.json.Json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.serializer(), it)) }
         gatewayTiming?.observedFields()?.takeIf { it.isNotEmpty() }?.let { timings ->
             put(
@@ -121,6 +142,9 @@ internal class InvocationRoundAccounting(
             )
         )
         val rejection = dispatch.preflightRejection ?: return correlated
+        // A later local preflight cannot erase positive usage retained on the
+        // failed response itself, before observe() has ingested that response.
+        if (GatewayRecoveryUsage.from(correlated.failureDetails) != null) return correlated
         if (!hasNoExecutionEvidence() || !dispatch.provenEntirelyUnsent()) return correlated
         val details = kotlinx.serialization.json.JsonObject(
             correlated.failureDetails.orEmpty() + kotlinx.serialization.json.buildJsonObject {
@@ -135,6 +159,7 @@ internal class InvocationRoundAccounting(
     }
 
     private fun hasNoExecutionEvidence() = generatedBytes == 0L &&
+        recoveryAttempts.isEmpty() &&
         toolCallCount == 0 &&
         !hasVisibleAnswer &&
         (responseParsing?.get("http_status") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull() == null &&
@@ -192,6 +217,7 @@ internal class InvocationRoundAccounting(
                 )
             }
             is ProviderEvent.Usage -> {
+                if (event.invocationId != null && event.invocationId != record.id) return
                 event.reasoningControlReceipt?.let { requestSettings = it.evidence() }
                 event.gatewayProvenance?.let { gatewayProvenance = it }
                 event.gatewayDeliveryTiming?.evidence()?.let { gatewayDelivery = it }
@@ -210,6 +236,9 @@ internal class InvocationRoundAccounting(
                 actualRuntime = event.actualRuntime ?: actualRuntime
                 finishReason = event.finishReason?.take(80) ?: finishReason
                 settingsConfirmed = settingsConfirmed || event.effectiveSettingsConfirmed
+                // A final error receipt may describe several backend attempts.
+                // A later timing/interim frame must not replace that known sum.
+                applyRecoveryUsage()
             }
             is ProviderEvent.GatewayMetadataCaptured -> serverRequestId = event.metadata.requestId ?: serverRequestId
             ProviderEvent.Completed -> {
@@ -220,6 +249,13 @@ internal class InvocationRoundAccounting(
                 }
             }
             is ProviderEvent.Failed -> {
+                if (event.invocationId == null || event.invocationId == record.id) {
+                    GatewayRecoveryUsage.from(event.failureDetails)?.let { usage ->
+                        val physical = dispatch.receipts.lastOrNull()?.physicalAttemptId ?: record.id
+                        recoveryAttempts[physical] = usage
+                        applyRecoveryUsage()
+                    }
+                }
                 status = when {
                     event.errorCode == "QUEUE_JOB_PENDING" -> "WAITING_REMOTE_JOB"
                     generatedBytes > 0 && (dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(event.message) || event.errorCode == "STREAM_DEGRADED" || event.transportComplete) -> "PARTIAL"
@@ -230,9 +266,10 @@ internal class InvocationRoundAccounting(
                     val observedAcceptance = (responseParsing?.get("remote_acceptance") as? kotlinx.serialization.json.JsonPrimitive)?.content
                     val provenUnsent = hasNoExecutionEvidence() && dispatch.provenEntirelyUnsent()
                     failure.copy(
-                        dispatched = if (provenUnsent) false else failure.dispatched,
+                        dispatched = if (provenUnsent) false else true.takeIf { recoveryAttempts.isNotEmpty() } ?: failure.dispatched,
                         remoteAcceptance = when {
                             provenUnsent -> dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO
+                            recoveryAttempts.isNotEmpty() -> dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.YES
                             failure.remoteAcceptance == dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN ->
                                 dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.entries.firstOrNull { it.name == observedAcceptance } ?: failure.remoteAcceptance
                             else -> failure.remoteAcceptance
@@ -366,6 +403,7 @@ internal class InvocationRoundAccounting(
             usageObservations = kotlinx.serialization.json.buildJsonObject {
                 put("input", inputCounter.evidence())
                 put("output", outputCounter.evidence())
+                recoveryUsage()?.let { put("gateway_recovery", it.evidence) }
             }
         ).json()
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Model", "PROVIDER_RECEIPT · runId=$parentRunId · invocationId=${record.id} · receipt=$providerReceipt")
@@ -442,7 +480,8 @@ internal class InvocationRoundAccounting(
 
     fun failed(error: Exception) {
         status = "FAILED"
-        diagnosticFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(error.message.orEmpty())
+        val typed = dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, generatedBytes > 0 || toolCallCount > 0)
+        diagnosticFailure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(typed?.message ?: error.message.orEmpty(), typed?.code, typed?.failureDetails)
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
             "Model",
             "INVOCATION_FAILED",

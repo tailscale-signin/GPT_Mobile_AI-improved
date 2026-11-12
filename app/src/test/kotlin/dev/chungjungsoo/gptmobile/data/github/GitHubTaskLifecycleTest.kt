@@ -72,6 +72,45 @@ class GitHubTaskLifecycleTest {
         assertTrue(output.none { it is ProviderEvent.TextDelta })
     }
 
+    @Test fun reviewerProviderFailurePreservesOriginalPhaseAndExplicitResumePolicy() {
+        val metadata = GitHubTaskLifecycle.failureMetadata(
+            ProviderEvent.Failed(
+                "Reviewer exhausted its repair budget",
+                errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED",
+                taskOutcome = "BLOCKED",
+                failureDetails = buildJsonObject {
+                    put("failed_stage", "provider_generation")
+                    put("review_stage", "answer_review")
+                    put("automatic_retry_allowed", false)
+                    put("user_resumable", true)
+                    put("resume_requires_changed_input_or_configuration", true)
+                }
+            )
+        )
+        for (projection in listOf(metadata, metadata.getValue("failure_outcome") as JsonObject)) {
+            assertEquals(JsonPrimitive("COMPLETION_REPAIR_BUDGET_EXHAUSTED"), projection["failure_code"])
+            assertEquals(JsonPrimitive("provider_generation"), projection["failed_stage"])
+            assertEquals(JsonPrimitive("answer_review"), projection["review_stage"])
+            assertEquals(JsonPrimitive(false), projection["automatic_retry_allowed"])
+            assertEquals(JsonPrimitive(true), projection["user_resumable"])
+            assertEquals(JsonPrimitive(true), projection["resume_requires_changed_input_or_configuration"])
+            assertEquals(JsonPrimitive(false), projection["retryable_without_new_input"])
+            assertFalse(projection.containsKey("failed_stage_dispatched"))
+        }
+    }
+
+    @Test fun explicitReviewStageIdentifiesReviewEvenWithoutReviewPrefixedFailureCode() {
+        val metadata = GitHubTaskLifecycle.failureMetadata(
+            ProviderEvent.Failed(
+                "Reviewer failed before a detailed receipt was retained",
+                errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED",
+                failureDetails = buildJsonObject { put("review_stage", "answer_review") }
+            )
+        )
+        assertEquals(JsonPrimitive("answer_review"), metadata["failed_stage"])
+        assertEquals(JsonPrimitive("answer_review"), metadata["review_stage"])
+    }
+
     @Test fun changedReviewerResumesSameDraftButUnchangedReviewStaysBlocked() = runBlocking {
         val rows = mutableMapOf<String, JsonObject>()
         fun checkpoint() = GitHubReviewCheckpoint("task", { rows[it] }, { key, value -> rows[key] = value })

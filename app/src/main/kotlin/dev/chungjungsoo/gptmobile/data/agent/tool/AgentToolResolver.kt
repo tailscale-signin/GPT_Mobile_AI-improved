@@ -156,7 +156,7 @@ class AgentToolResolver @Inject constructor(
         ) { current, refreshed ->
             if (refreshed) {
                 val context = kotlinx.coroutines.currentCoroutineContext()[McpDiscoveryContext]
-                kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.OAUTH_REFRESH, context?.beforeOwnedDispatch, context?.onSource ?: {})) {
+                kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.OAUTH_REFRESH, context?.beforeOwnedDispatch, context?.onSource ?: {}, context?.onOwnedConfigurationRevision ?: {})) {
                     mcpClientManager.listToolsWithReceipt(current, true, awaitCompletion, false)
                 }
             } else {

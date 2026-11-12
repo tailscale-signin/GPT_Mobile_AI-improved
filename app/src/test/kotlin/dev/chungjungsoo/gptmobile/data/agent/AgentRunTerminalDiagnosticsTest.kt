@@ -56,6 +56,8 @@ class AgentRunTerminalDiagnosticsTest {
         val completed = AgentRunTerminalDiagnostics.from(AgentRunStatus.COMPLETED, failure)
         assertEquals(null, completed.dispatched)
         assertEquals(null, completed.invocationId)
+        assertEquals("NONE", completed.recoveryAction)
+        assertEquals(null, completed.stopCode)
     }
 
     @Test fun absentStageEvidenceIsNeverPresentedAsAnObservedProviderPhase() {

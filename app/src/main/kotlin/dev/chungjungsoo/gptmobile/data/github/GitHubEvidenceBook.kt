@@ -550,6 +550,10 @@ internal class GitHubEvidenceBook(
 
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
 
+    suspend fun acceptedPromptContract(): JsonObject? = (taskContract ?: load("task_contract"))?.let { contract ->
+        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "tool_call_limit", "tool_call_limit_source") })
+    }
+
     /** One bounded delivery snapshot, separate from immutable operation receipts and their verdict. */
     suspend fun retainAnswerIfCurrent(
         text: String,

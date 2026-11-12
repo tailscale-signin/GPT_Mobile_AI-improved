@@ -17,6 +17,8 @@ internal interface KokoroOutput {
     fun prewarm(voice: KokoroVoice) = Unit
     fun releaseWarmModel() = Unit
     fun stop()
+    fun stop(reason: String) = stop()
+    fun bindReply(id: String) = Unit
     fun close()
 }
 
@@ -91,7 +93,7 @@ internal class VoicePluginAudio(
     override fun listen(listener: VoiceAudio.Listener) {
         if (closed) return
         playbackGeneration++
-        kokoro?.stop()
+        kokoro?.stop("microphone_started")
         when (recognitionBackend) {
             VoiceRecognitionBackend.LOCAL_MOONSHINE -> {
                 system.stop()
@@ -132,11 +134,17 @@ internal class VoicePluginAudio(
         })
     }
 
-    override fun stop() {
+    override fun bindReply(id: String) {
+        kokoro?.bindReply(id)
+    }
+
+    override fun stop() = stop("audio_stop")
+
+    override fun stop(reason: String) {
         if (closed) return
         playbackGeneration++
         local.stop()
-        kokoro?.stop()
+        kokoro?.stop(reason)
         system.stop()
     }
 

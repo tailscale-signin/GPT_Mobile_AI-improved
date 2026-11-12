@@ -130,6 +130,15 @@ internal object GitHubSelfTestReads {
             if (sha != null) recipe("github_ci", "definitions", "commit_sha" to sha)
             run?.get("id")?.let { id ->
                 listOf("run", "status", "jobs", "artifacts").forEach { recipe("github_ci", it, "run_id" to id, "expected_head_sha" to sha) }
+                if (sha != null) {
+                    add(
+                        "github_watch_checks" to buildJsonObject {
+                            put("run_id", id)
+                            put("commit_sha", sha)
+                            put("wait_timeout_seconds", 1)
+                        }
+                    )
+                }
             }
             failedRun?.get("id")?.let { id -> recipe("github_ci", "failure", "run_id" to id, "expected_head_sha" to sha) }
             job?.get("id")?.let { id ->

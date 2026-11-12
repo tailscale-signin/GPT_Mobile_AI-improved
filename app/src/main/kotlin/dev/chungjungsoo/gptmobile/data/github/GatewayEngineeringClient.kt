@@ -127,11 +127,18 @@ class GatewayEngineeringClient internal constructor(
                         if (body != null && (response.status.value in 400..499 && response.status.value !in setOf(408, 499) || confirmedRejection)) {
                             val message = when (response.status.value) {
                                 401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
-                                409, 412 -> "The conversation or job changed. Refresh Jobs and review the original task before sending another command."
+                                409, 412 -> if (code == "engineering_state_or_input_changed") {
+                                    "The gateway rejected an input or state prerequisite. Review the saved draft and exact task; this response alone does not establish that the conversation changed."
+                                } else {
+                                    "The conversation or job prerequisite changed. Refresh Jobs and review the original task before sending another command."
+                                }
                                 429 -> "The gateway did not admit this command because its queue or request limit is full."
                                 else -> "The gateway rejected this command (HTTP ${response.status.value}). Review it before sending another command."
                             }
                             val safeCode = safeEngineeringRejectionCode(code)
+                            if (code == "engineering_state_or_input_changed") {
+                                throw GatewayEngineeringInputRejected(response.status.value, GatewayInputRejectionDetails.from(detail), detail?.get("command_outcome_unknown") == JsonPrimitive(true))
+                            }
                             throw GatewayEngineeringRequestRejected(response.status.value, message + safeCode?.let { " ($it; provider_admission)" }.orEmpty(), commandOutcomeUnknown = detail?.get("command_outcome_unknown") == JsonPrimitive(true), errorCode = safeCode, failedStage = "provider_admission")
                         }
                     }
@@ -151,7 +158,7 @@ class GatewayEngineeringClient internal constructor(
         // Bounded GETs may recover a stale idle socket once. A job POST or approval
         // keeps its original request identity and is never replayed by this layer.
         return try {
-            if (body == null) LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections, exchange) else exchange()
+            if (body == null || root == "gateway/engineering" && path == "preflight") LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections, exchange) else exchange()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: GatewayEngineeringRequestRejected) {

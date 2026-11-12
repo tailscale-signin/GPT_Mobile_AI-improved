@@ -78,7 +78,8 @@ data class McpConnectionHealth(
     val lastValidationRule: String? = null,
     val lastValidationField: String? = null,
     val lastDispatchEvidence: String? = null,
-    val lastRetryDecision: String? = null
+    val lastRetryDecision: String? = null,
+    val lastDeclaredRpcErrorCode: Int? = null
 ) {
     val failureRetryable: Boolean? get() = if (lastFailureAtMs == null || state == McpConnectionHealthState.CONNECTED) null else nextRetryAtMs?.let { it != Long.MAX_VALUE }
     val toolsReady: Boolean get() = state == McpConnectionHealthState.CONNECTED && toolReadiness == McpToolReadiness.READY
@@ -346,6 +347,7 @@ class McpClientManager internal constructor(
                 withTimeout(catalogueTimeoutMs) {
                     val epoch = catalogue.epoch
                     discoveryContext.beforeOwnedDispatch?.invoke()
+                    discoveryContext.onOwnedConfigurationRevision(config.configurationRevision)
                     val tools = fetchCatalogue(config, forceRefresh).toList()
                     kotlinx.coroutines.currentCoroutineContext().ensureActive()
                     val bytes = validateMcpCatalogue(tools)
@@ -397,7 +399,9 @@ class McpClientManager internal constructor(
             }
         }
         return try {
-            listToolsUnchecked(config, forceRefresh, observation)
+            withContext(dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt(0, observation.operationId)) {
+                listToolsUnchecked(config, forceRefresh, observation)
+            }
         } catch (cancelled: CancellationException) {
             AppLogRecorder.record("MCP", "CATALOG_ACQUISITION_CANCELLED · connection=${config.connectionUid} · owner=APPLICATION_DISCOVERY · reason=${if (cancelled is kotlinx.coroutines.TimeoutCancellationException) "CATALOG_DEADLINE" else "OWNER_CANCELLED_OR_INVALIDATED"} · transportFailure=${cancelled is kotlinx.coroutines.TimeoutCancellationException}")
             if (cancelled is kotlinx.coroutines.TimeoutCancellationException) recordFailure(config.connectionUid, McpCatalogueTimeoutException(catalogueTimeoutMs), observation = observation, stage = "discovery")
@@ -513,25 +517,27 @@ class McpClientManager internal constructor(
         val attemptId = java.util.UUID.randomUUID().toString()
         var outcome = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.UNKNOWN
         return try {
-            val result = modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId, metadata) }
-                ?: withSession(config, retryStale = false, recordFailures = false, observation = observation) {
-                    it.client.callTool(
-                        kotlinx.serialization.json.Json.decodeFromJsonElement(
-                            io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest.serializer(),
-                            kotlinx.serialization.json.buildJsonObject {
-                                put("method", kotlinx.serialization.json.JsonPrimitive("tools/call"))
-                                put(
-                                    "params",
-                                    kotlinx.serialization.json.buildJsonObject {
-                                        put("name", kotlinx.serialization.json.JsonPrimitive(toolName))
-                                        put("arguments", arguments)
-                                        metadata?.let { put("_meta", it) }
-                                    }
-                                )
-                            }
+            val result = withContext(dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt(0, observation.operationId)) {
+                modernTransport(config)?.let { it.callTool(config, toolName, arguments, callId, metadata) }
+                    ?: withSession(config, retryStale = false, recordFailures = false, observation = observation) {
+                        it.client.callTool(
+                            kotlinx.serialization.json.Json.decodeFromJsonElement(
+                                io.modelcontextprotocol.kotlin.sdk.types.CallToolRequest.serializer(),
+                                kotlinx.serialization.json.buildJsonObject {
+                                    put("method", kotlinx.serialization.json.JsonPrimitive("tools/call"))
+                                    put(
+                                        "params",
+                                        kotlinx.serialization.json.buildJsonObject {
+                                            put("name", kotlinx.serialization.json.JsonPrimitive(toolName))
+                                            put("arguments", arguments)
+                                            metadata?.let { put("_meta", it) }
+                                        }
+                                    )
+                                }
+                            )
                         )
-                    )
-                }
+                    }
+            }
             outcome = if (result.isError == true) dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.FAILURE else dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolOutcome.SUCCESS
             if (result.isError == true) {
                 healthOrder.publish(observation) {
@@ -694,6 +700,7 @@ class McpClientManager internal constructor(
                     lastHttpStatus = null,
                     lastValidationRule = null,
                     lastValidationField = null,
+                    lastDeclaredRpcErrorCode = null,
                     lastDispatchEvidence = null,
                     lastRetryDecision = null,
                     failedStage = null,
@@ -748,6 +755,7 @@ class McpClientManager internal constructor(
                     authenticationRequired -> "MCP_AUTHENTICATION_REQUIRED"
                     tlsFailed -> "TLS_FAILURE"
                     failureClass != dev.chungjungsoo.gptmobile.data.network.ConnectionHealth.UNKNOWN -> failureClass.name
+                    causes.any { it is java.io.IOException } -> "MCP_NETWORK_IO_FAILED"
                     else -> "MCP_FAILURE_UNCLASSIFIED"
                 }
                 val failedStage = localFailure?.phase ?: protocolFailure?.let {
@@ -784,6 +792,7 @@ class McpClientManager internal constructor(
                     lastHttpStatus = httpStatus?.takeIf { it in 100..599 },
                     lastValidationRule = localFailure?.validationRule ?: protocolFailure?.validationRule,
                     lastValidationField = localFailure?.validationField ?: protocolFailure?.validationField,
+                    lastDeclaredRpcErrorCode = protocolFailure?.declaredRpcErrorCode,
                     lastDispatchEvidence = when {
                         localFailure != null -> localFailure.dispatchEvidence
                         httpStatus != null -> "CONFIRMED"
@@ -802,7 +811,7 @@ class McpClientManager internal constructor(
                 "MCP_FAILURE",
                 mapOf(
                     "connection" to connectionUid,
-                    "operation_id" to dev.chungjungsoo.gptmobile.data.research.researchHash("mcp:$connectionUid:${observation.epoch}:${observation.request}"),
+                    "operation_id" to observation.operationId,
                     "mcpPhase" to if (stage == "discovery") {
                         "discovery"
                     } else if (stage == "execution") {
@@ -813,6 +822,10 @@ class McpClientManager internal constructor(
                     "failedStage" to updated.failedStage,
                     "errorCode" to updated.lastErrorCode,
                     "upstream_status" to updated.lastHttpStatus,
+                    "declaredRpcErrorCode" to updated.lastDeclaredRpcErrorCode,
+                    "validationRule" to updated.lastValidationRule,
+                    "validationField" to updated.lastValidationField,
+                    "configurationRevision" to updated.failureConfigurationRevision,
                     "retryable" to updated.failureRetryable,
                     "recoveryAction" to if (updated.state == McpConnectionHealthState.AUTHENTICATION_REQUIRED) {
                         "authorize"
@@ -959,7 +972,7 @@ class McpClientManager internal constructor(
             } else {
                 sessionConnectTimeoutMs
             }
-            AppLogRecorder.record("MCP", "Connect started · connection=${config.connectionUid} · host=$endpointHost · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs")
+            AppLogRecorder.record("MCP", "Connect started · operation_id=${observation.operationId} · connection=${config.connectionUid} · host=$endpointHost · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs")
             val result = runCatching {
                 val connectivity = dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared
                 val lease = connectivity.acquire(endpointHost) ?: error("DNS_RECOVERY: MCP connection is waiting for the single connectivity probe; retryAfterMs=${connectivity.recoveryDelayMillis(endpointHost)}.")
@@ -984,12 +997,12 @@ class McpClientManager internal constructor(
                     interactions?.let { handler -> client.setElicitationHandler { handler.request(dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(config.endpointUrl), it) } }
                     try {
                         val connected = withTimeoutOrNull(effectiveSessionTimeoutMs) {
-                            client.connect(transport)
+                            withContext(dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt(0, observation.operationId)) { client.connect(transport) }
                             true
                         }
                         if (connected == true) connectivity.success(endpointHost)
                         if (connected != true) throw McpInitializationTimeoutException()
-                        AppLogRecorder.record("MCP", "Connect completed · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs}")
+                        AppLogRecorder.record("MCP", "Connect completed · operation_id=${observation.operationId} · connection=${config.connectionUid} · host=$endpointHost · elapsedMs=${nowMs() - connectStartedAtMs}")
                         Session(key, client)
                     } catch (cancelled: CancellationException) {
                         withContext(NonCancellable) { runCatching { withTimeoutOrNull(2_000) { client.close() } } }
@@ -1002,7 +1015,7 @@ class McpClientManager internal constructor(
                         withContext(NonCancellable) { runCatching { withTimeoutOrNull(2_000) { client.close() } } }
                         val reportedFailure = when {
                             causes.any { it is StreamableHttpError && it.code == 400 } && !isMcpQuotaFailure(error.message.orEmpty()) ->
-                                McpProtocolConfigurationException("MCP_INITIALIZATION_SCHEMA_INVALID", "The server rejected the initialize handshake (HTTP 400). Validate the endpoint path, initialization request schema and supported protocol version.", 400, "INITIALIZE_REQUEST_ACCEPTANCE_REQUIRED", "initialize")
+                                mcpInitializationRejection(causes.filterIsInstance<StreamableHttpError>().first { it.code == 400 })
                             causes.any { it is StreamableHttpError && it.code == 404 } -> {
                                 if (configurationFailures.size >= 64) configurationFailures.keys.firstOrNull()?.let(configurationFailures::remove)
                                 configurationFailures[config.connectionUid] = config.quarantineIdentity()
@@ -1012,7 +1025,7 @@ class McpClientManager internal constructor(
                         }
                         AppLogRecorder.record(
                             "MCP",
-                            "Connect failed · connection=${config.connectionUid} · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · errorType=${error.javaClass.simpleName} · httpStatus=${httpStatus ?: "unavailable"}",
+                            "Connect failed · operation_id=${observation.operationId} · connection=${config.connectionUid} · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · errorType=${error.javaClass.simpleName} · httpStatus=${httpStatus ?: "unavailable"}",
                             "E",
                             reportCode = mcpConnectFailureReportCode(reportedFailure),
                             reportError = error

@@ -50,20 +50,30 @@ internal object GitHubStatusRequest {
         }
         return null
     }
-    fun matches(text: String): Boolean = GitHubTaskContinuity.request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '?', '!').trim() in setOf(
-        "status",
-        "repo status",
-        "status of repo",
-        "status of the repo",
-        "status of repository",
-        "status of the repository",
-        "repository status",
-        "github status",
-        "git status",
-        "show status",
-        "show repository status",
-        "what is the repository status"
-    )
+    fun matches(text: String): Boolean {
+        val request = GitHubTaskContinuity.request(text).lowercase(java.util.Locale.ROOT).trim().trimEnd('.', '?', '!').trim()
+        return request in setOf(
+            "status",
+            "repo status",
+            "status of repo",
+            "status of the repo",
+            "status of repository",
+            "status of the repository",
+            "repository status",
+            "github status",
+            "git status",
+            "show status",
+            "show repository status",
+            "what is the repository status"
+        ) ||
+            scopedInspection(request)
+    }
+
+    private fun scopedInspection(request: String): Boolean =
+        Regex("^(?:please\\s+)?(?:inspect|examine|review|check|show|summari[sz]e)\\b").containsMatchIn(request) &&
+            Regex("\\b(?:repo(?:sitory)?|github)\\b").containsMatchIn(request) &&
+            Regex("\\b(?:status|current state|recent commits|latest checks|ci|open (?:prs|pull requests))\\b").containsMatchIn(request) &&
+            !Regex("\\b(?:fix|repair|implement|create|merge|publish|deploy|run|test|audit|source|code|diff|architecture|security|every|all features|issues|delete|remove|close|reopen|cancel|build|install|uninstall|enable|disable|configure|update|change|edit|add|enhance)\\b").containsMatchIn(request)
 
     fun isGreeting(text: String): Boolean = GitHubTaskContinuity.request(text).lowercase(java.util.Locale.ROOT).trimEnd('.', '?', '!').trim() in setOf("hi", "hello", "hey", "good morning", "good afternoon", "good evening")
 

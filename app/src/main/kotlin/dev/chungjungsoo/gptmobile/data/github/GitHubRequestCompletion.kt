@@ -61,6 +61,14 @@ internal object GitHubRequestCompletion {
     }
 
     fun requirements(task: String): List<String> {
+        if (GitHubStatusRequest.matches(task)) {
+            return listOf(
+                "Identify the selected repository, branch and observed head revision",
+                "Report recent commits and open pull requests with their observed scope",
+                "Report exact-head check results and distinguish them from the latest workflow observation",
+                "Identify unavailable checks and unknown required-check policy without claiming unverified health"
+            )
+        }
         val requested = GitHubTaskContinuity.request(task).lineSequence().map(String::trim)
             .filter { it.isNotBlank() && it !in setOf("Acceptance criteria:", "Request details:") && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }
             .map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }

@@ -39,6 +39,21 @@ internal object GitHubPartialReport {
             val coverage = if (row["open_pull_request_inventory_complete"] == JsonPrimitive(true)) "complete captured list" else "captured page; inventory is incomplete"
             lines += "Open pull requests observed: ${row["open_pull_requests_observed"]} ($coverage)" + cite(row)
         }
+        observations.lastOrNull { "open_issue_count" in it || "open_pull_request_count" in it }?.let { row ->
+            val counts = listOfNotNull(
+                row["open_issue_count"]?.let { "$it open issues" },
+                row["open_pull_request_count"]?.let { "$it open pull requests" }
+            ).joinToString(" and ")
+            lines += "Repository counts at observation: $counts. Counts do not establish code or test health" + cite(row)
+        }
+        observations.lastOrNull { "latest_workflow" in it }?.let { row ->
+            val run = row["latest_workflow"] as JsonObject
+            lines += "Latest observed workflow: ${safe(run.text("name").ifBlank { "unnamed workflow" })}, status ${safe(run.text("status").ifBlank { "unknown" })}, conclusion ${safe(run.text("conclusion").ifBlank { "not available" })}. This is one workflow observation; skipped is not a passed test suite" + cite(row)
+        }
+        observations.lastOrNull { "workflow_definitions_observed" in it }?.let { row ->
+            val coverage = if (row["workflow_inventory_complete"] == JsonPrimitive(true)) "complete captured inventory" else "incomplete captured inventory"
+            lines += "Workflow definitions observed: ${row["workflow_definitions_observed"]} ($coverage). Listing definitions does not run or verify those workflows" + cite(row)
+        }
         observations.lastOrNull { "check_counts" in it }?.let { row ->
             val counts = row["check_counts"] as JsonObject
             val coverage = if (row["check_inventory_complete"] == JsonPrimitive(true)) "complete captured check list" else "partial captured check list"

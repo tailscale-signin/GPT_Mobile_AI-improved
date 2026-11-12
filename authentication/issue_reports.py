@@ -226,7 +226,7 @@ CONTEXT_ENUMS = {
               "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation",
               "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination",
               "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery",
-              "gateway_dispatch", "review_compatibility", "answer_review", "claim_extraction", "claim_verification", "verification",
+              "gateway_dispatch", "review_compatibility", "answer_review", "engineering_guard", "claim_extraction", "claim_verification", "verification",
               "final_synthesis", "delivery", "lifecycle", "voice_capture", "voice_recognition", "voice_playback"},
     "provider": {"OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OLLAMA", "OPENROUTER", "LLAMA", "GATEWAY", "LOCAL", "CUSTOM", "LITERT_LM", "FREE", "NVIDIA"},
     "operation": {"github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_commit",

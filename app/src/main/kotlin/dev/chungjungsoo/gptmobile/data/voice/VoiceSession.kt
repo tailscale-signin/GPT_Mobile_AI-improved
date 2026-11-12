@@ -42,6 +42,10 @@ interface VoiceAudio {
     val streamsReplies: Boolean get() = false
     fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? = null
     fun stop()
+
+    /** Diagnostic origin accompanies intentional cancellation; generation completion is not a stop. */
+    fun stop(reason: String) = stop()
+    fun bindReply(id: String) = Unit
     fun close()
 }
 
@@ -193,14 +197,14 @@ class VoiceSession(
         }
         return mapOf("failed_stage" to operation, "operation" to operation)
     }
-    private fun stopAudio() {
+    private fun stopAudio(reason: String = "session_reset") {
         generation++
         queuedSpeech.clear()
         chunkPlaying = false
         replyPlayback = null
         playbackFinished = false
         if (streamId != null) streamAudio = false
-        audio.stop()
+        audio.stop(reason)
     }
     private fun accessAllowed() = enabled && permission && foreground && state.phase != VoicePhase.CLOSED
     private fun playbackAllowed() = engaged && accessAllowed()
@@ -323,13 +327,14 @@ class VoiceSession(
         if (!waiting || state.phase == VoicePhase.CLOSED || (streamId != null && streamId != id)) return
         if (streamId == null) {
             streamId = id
+            audio.bindReply(id)
             streamAudio = playbackAllowed() && state.speaker
         }
         update(state.copy(reply = text))
         streamComplete = complete
         val chunks = speechBuffer.append(text, complete, earlyStart = audio.streamsReplies)
         if (chunks == null) {
-            stopAudio()
+            stopAudio("response_revised")
             update(state.copy(phase = VoicePhase.THINKING, notice = "The response was revised. The current answer is available in chat."))
         } else if (streamAudio) {
             queuedSpeech.addAll(chunks)
@@ -406,7 +411,7 @@ class VoiceSession(
 
     fun stopSpeaking() {
         if (state.phase != VoicePhase.SPEAKING) return
-        stopAudio()
+        stopAudio("user_stop_speaking")
         streamAudio = false
         if (waiting && !streamComplete) {
             update(state.copy(phase = VoicePhase.THINKING, level = 0f))
@@ -420,7 +425,7 @@ class VoiceSession(
     fun interrupt() {
         if (state.phase == VoicePhase.CLOSED) return
         waiting = false
-        stopAudio()
+        stopAudio("user_barge_in")
         resetStream()
         update(state.copy(phase = VoicePhase.PAUSED))
         resume()
@@ -483,7 +488,7 @@ class VoiceSession(
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
         engaged = false
         automaticRetry = false
-        stopAudio()
+        stopAudio("session_paused")
         update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
     }
 
@@ -505,7 +510,7 @@ class VoiceSession(
     }
     fun close() {
         if (state.phase == VoicePhase.CLOSED) return
-        stopAudio()
+        stopAudio("session_closed")
         waiting = false
         draftPending = false
         audio.close()

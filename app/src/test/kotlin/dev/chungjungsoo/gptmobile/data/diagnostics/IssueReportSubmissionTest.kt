@@ -129,4 +129,30 @@ class IssueReportSubmissionTest {
         }
         assertEquals(0, calls)
     }
+
+    @Test fun readinessFailuresDoNotMarkAReportAsPossiblySubmitted() {
+        val enriched = report.copy(context = IssueReportContext.fromFields("MANUAL_REPORT", occurredAtMillis = 1000L))
+        var writes = 0
+        var readiness = """{"service":"other-service","reportContextVersions":[1]}"""
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            if (chain.request().method == "GET") response(chain.request(), 200, readiness) else response(chain.request(), 200, """{"reportId":"${report.reportId}","number":742}""")
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        assertEquals("REPORT_SERVICE_UNAVAILABLE", (submission.send(report.reportId, enriched.approvedPayload()) { writes++ } as IssueReportSubmission.Failure).code)
+        assertEquals(0, writes)
+        readiness = """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1]}"""
+        assertEquals(IssueReportSubmission.Confirmed(742), submission.send(report.reportId, enriched.approvedPayload()) { writes++ })
+        assertEquals(1, writes)
+    }
+
+    @Test fun durableDispatchFailureStopsBeforeAnyPost() {
+        var requests = 0
+        val client = OkHttpClient.Builder().addInterceptor {
+            requests++
+            response(it.request(), 200, """{"number":742}""")
+        }.build()
+        val result = runCatching { IssueReportSubmission(origin, client).send(report.reportId, report.approvedPayload()) { error("Cannot persist dispatch marker") } }
+        assertTrue(result.isFailure)
+        assertEquals(0, requests)
+    }
 }

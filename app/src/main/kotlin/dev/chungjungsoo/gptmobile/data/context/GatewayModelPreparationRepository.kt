@@ -222,6 +222,7 @@ class GatewayModelPreparationRepository internal constructor(
             profile.apiUrl,
             profile.token,
             profileUid = profile.uid,
+            profileRevision = ConfiguredDispatchAuthority.profileRevision(profile),
             providerType = profile.compatibleType.name,
             requestRole = "selected-model-preparation",
             lockedModel = profile.model,

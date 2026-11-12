@@ -25,6 +25,18 @@ from requests import Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_invalid_branch_retains_exact_guard_reason_before_job_admission(self):
+        with patch.object(self.service, 'admit') as admit:
+            response = self.client.post('/gateway/engineering/jobs', json=dict(self.request, branch='../private-branch'), headers=self.headers)
+        self.assertEqual(409, response.status_code)
+        error = response.json()['error']
+        self.assertEqual('engineering_state_or_input_changed', error['code'])
+        self.assertEqual('ENGINEERING_BRANCH_INVALID', error['reasonCode'])
+        self.assertEqual(['branch'], error['invalid_fields'])
+        self.assertFalse(error['retryable'])
+        self.assertNotIn('private-branch', response.text)
+        admit.assert_not_called()
+
     def test_selection_rejection_explains_safe_fields_before_any_provider_probe(self):
         from test_gateway_selected_execution import selected
         base = selected(self.runtime.LLAMA_BASE)

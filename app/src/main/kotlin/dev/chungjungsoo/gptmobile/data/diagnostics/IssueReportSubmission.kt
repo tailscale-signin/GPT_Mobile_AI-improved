@@ -29,10 +29,11 @@ internal class IssueReportSubmission(
         val retryable: Boolean,
         val httpStatus: Int? = null,
         val retryNotBeforeMillis: Long? = null,
-        val automaticRetry: Boolean = retryable
+        val automaticRetry: Boolean = retryable,
+        val creationRejected: Boolean = false
     ) : Outcome
 
-    fun send(reportId: String, payload: String): Outcome {
+    fun send(reportId: String, payload: String, beforeDispatch: () -> Unit = {}): Outcome {
         if (!configured(origin)) return Failure("REPORT_SERVICE_UNCONFIGURED", retryable = true, automaticRetry = false)
         if (payload.encodeToByteArray().size > IssueReport.MAX_PAYLOAD_BYTES) return Failure("REPORT_TOO_LARGE", retryable = false)
         val parsed = runCatching { IssueReport.json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
@@ -45,6 +46,7 @@ internal class IssueReportSubmission(
         }
         val request = Request.Builder().url("${origin.trimEnd('/')}/v1/issue-reports")
             .post(payload.toRequestBody(JSON_MEDIA_TYPE)).build()
+        beforeDispatch()
         return try {
             client.newCall(request).execute().use { response ->
                 val transient = response.code in 500..599 || response.code in setOf(408, 425, 429)
@@ -121,7 +123,7 @@ internal object IssueReportDelivery {
     const val MAX_AUTOMATIC_ATTEMPTS = 5
     enum class Result { CONFIRMED, RETRY, FAILED }
 
-    suspend fun attempt(outbox: IssueReportOutbox, reportId: String, send: (String, String) -> IssueReportSubmission.Outcome, now: Long = System.currentTimeMillis(), onSending: suspend () -> Unit = {}): Result {
+    suspend fun attempt(outbox: IssueReportOutbox, reportId: String, send: suspend (String, String) -> IssueReportSubmission.Outcome, now: Long = System.currentTimeMillis(), onSending: suspend () -> Unit = {}): Result {
         val approved = checkNotNull(outbox.load(reportId)) { "Approved report is unavailable" }
         if (approved.state == IssueReportOutbox.State.SENT) return Result.CONFIRMED
         if (approved.state == IssueReportOutbox.State.FAILED) return Result.FAILED

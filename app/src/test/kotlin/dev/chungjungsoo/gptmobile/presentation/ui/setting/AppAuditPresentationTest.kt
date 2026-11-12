@@ -12,6 +12,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AppAuditPresentationTest {
+    @Test fun disabledAndAbsentTargetsAndTheirDependentChecksAreConfigurationAndEvidenceGaps() {
+        val disabled = auditEntry("disabled", AppAuditEvidenceKind.CONFIGURATION, "plugins").copy(targetId = "connection:disabled")
+        val absent = auditEntry("absent", AppAuditEvidenceKind.CONFIGURATION, "plugins").copy(targetId = "native:optional")
+        val disabledTool = auditEntry("disabled-tool", AppAuditEvidenceKind.TOOL_EXECUTION, "plugins").copy(targetId = disabled.targetId)
+        val absentTool = auditEntry("absent-tool", AppAuditEvidenceKind.TOOL_EXECUTION, "plugins").copy(targetId = absent.targetId)
+        val independentTool = auditEntry("independent-tool", AppAuditEvidenceKind.TOOL_EXECUTION, "plugins").copy(targetId = "connection:independent")
+        val configured = auditEntry("configured", AppAuditEvidenceKind.CONFIGURATION, "plugins")
+        val result = appAuditPresentation(
+            auditRun(
+                listOf(disabled, absent, disabledTool, absentTool, independentTool, configured),
+                listOf(
+                    auditResult(disabled, AppAuditOutcome.BLOCKED, reason = "PLUGIN_DISABLED", attempted = false),
+                    auditResult(absent, AppAuditOutcome.UNAVAILABLE, reason = "PLUGIN_NOT_INSTALLED", attempted = false),
+                    auditResult(disabledTool, AppAuditOutcome.UNTESTED, attempted = false),
+                    auditResult(absentTool, AppAuditOutcome.UNTESTED, attempted = false),
+                    auditResult(independentTool, AppAuditOutcome.UNTESTED, attempted = false),
+                    auditResult(configured, source = AppAuditObservationSource.CONFIGURATION)
+                )
+            )
+        )
+        assertEquals(0, result.summary.failed)
+        assertEquals(3, result.summary.untested)
+        assertNull(result.score.score)
+        assertTrue(result.configurationText.contains("1 configuration checks passed"))
+        assertTrue(result.configurationText.contains("1 disabled integrations · 1 optional integrations not installed"))
+        assertTrue(result.prerequisiteText.contains("2 execution checks depend"))
+        assertTrue(result.prerequisiteText.contains("not additional connection failures"))
+    }
+
     @Test fun recordedDiscoveryRulesSelectSchemaMethodAndEndpointRepairInstructions() {
         val entry = auditEntry("repair", AppAuditEvidenceKind.LIVE_METADATA)
         fun reason(rule: String): String {

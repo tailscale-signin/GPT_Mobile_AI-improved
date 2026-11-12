@@ -83,7 +83,7 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                     customPrimaryArgb = LocalCustomPrimaryArgb.current,
                     customPalette = dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette.current
                 ) {
-                    IssueReportHost(issueReportViewModel, showPrompts = isReady || startupError != null) { openReport ->
+                    IssueReportHost(issueReportViewModel, showPrompts = isReady || startupError != null, onOpenGitHubSettings = { if (isReady) navController.navigate(Route.TOOL_CONNECTIONS) { launchSingleTop = true } }) { openReport ->
                         if (startupError != null) {
                             StartupRecoveryScreen(requireNotNull(startupError), mainViewModel::retryStartup)
                         } else if (!isReady) {

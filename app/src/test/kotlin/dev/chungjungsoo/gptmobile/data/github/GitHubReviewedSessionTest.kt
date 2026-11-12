@@ -113,6 +113,11 @@ class GitHubReviewedSessionTest {
             val failure = result.filterIsInstance<ProviderEvent.Failed>().last()
             assertEquals(if (index < 2) "GITHUB_REVIEW_INVALID_VERDICT" else "GITHUB_REVIEW_BLOCKED", failure.errorCode)
             assertEquals(index == 0, dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(failure.message).retryAllowed)
+            if (index < 2) {
+                assertEquals(JsonPrimitive(false), failure.failureDetails?.get("automatic_retry_allowed"))
+                assertEquals(JsonPrimitive(true), failure.failureDetails?.get("user_resumable"))
+                assertEquals(JsonPrimitive(index != 0), failure.failureDetails?.get("resume_requires_changed_input_or_configuration"))
+            }
         }
         assertEquals(1, generation)
         assertEquals(4, reviews)

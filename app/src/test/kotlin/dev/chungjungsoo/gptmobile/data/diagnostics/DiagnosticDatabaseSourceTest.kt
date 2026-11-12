@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -381,6 +382,121 @@ class DiagnosticDatabaseSourceTest {
         assertEquals("TERMINAL_ERROR", summary.getValue("field_sources").jsonObject.getValue("failure_code").jsonPrimitive.content)
         assertEquals("NOT_RETAINED", summary.getValue("tested_sha_status").jsonPrimitive.content)
         assertTrue(summary.getValue("source_record_ids").jsonArray.isEmpty())
+    }
+
+    @Test fun exactBoundActiveReviewFailureOverridesSuccessfulOutputWithoutBorrowingAnotherTask() = runBlocking {
+        val runId = "review-run"
+        val chat = createRun(runId, null)
+        val verificationId = "github-evidence:bound-task:verification_current_snapshot"
+        val reviewId = "github-review:bound-task:active"
+        workspace.saveProtectedSynthesisCheckpoint(
+            verificationId,
+            chat,
+            runId,
+            buildJsonObject {
+                put("completion_verified", false)
+                put("head_sha", "a".repeat(40))
+            }
+        )
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-output:bound-task",
+            chat,
+            runId,
+            buildJsonObject {
+                put("state", "COMPLETED")
+                put("invocation_id", "successful-primary")
+            }
+        )
+        workspace.saveProtectedSynthesisCheckpoint(reviewId, chat, runId, activeReviewFailure("review-attempt"))
+        workspace.saveProtectedSynthesisCheckpoint("github-review:another-task:active", chat, runId, activeReviewFailure("unrelated-review"))
+
+        val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("review-attempt"), summary["invocation_id"])
+        assertEquals(JsonPrimitive("provider_admission"), summary["failed_stage"])
+        assertEquals(JsonPrimitive("EXECUTION_SELECTION_INVALID"), summary["failure_code"])
+        assertEquals(JsonPrimitive("REVIEW_CHECKPOINT"), summary.getValue("field_sources").jsonObject["invocation_id"])
+        assertEquals(JsonPrimitive(reviewId), summary.getValue("source_record_ids").jsonArray.first())
+        assertEquals(JsonNull, summary["tested_sha"])
+        assertEquals(JsonPrimitive("a".repeat(40)), summary["observed_head_sha"])
+        assertFalse(summary.toString().contains("unrelated-review"))
+
+        workspace.saveProtectedSynthesisCheckpoint(reviewId, chat, runId, activeReviewFailure(null))
+        val withoutInvocation = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonNull, withoutInvocation["invocation_id"])
+        assertEquals(JsonPrimitive("EXECUTION_SELECTION_INVALID"), withoutInvocation["failure_code"])
+
+        workspace.saveProtectedSynthesisCheckpoint(
+            verificationId,
+            chat,
+            runId,
+            buildJsonObject {
+                put("completion_verified", true)
+                put("head_sha", "a".repeat(40))
+                put("tested_sha", "b".repeat(40))
+            }
+        )
+        val verified = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("VERIFIED"), verified["latest_verdict"])
+        assertEquals(JsonNull, verified["failure_code"])
+        assertEquals(JsonPrimitive("b".repeat(40)), verified["tested_sha"])
+        assertEquals(JsonPrimitive("a".repeat(40)), verified["observed_head_sha"])
+        assertEquals(listOf(JsonPrimitive(verificationId)), verified.getValue("source_record_ids").jsonArray.toList())
+    }
+
+    @Test fun resolvedReviewFailureFieldsAreHistoricalAndDoNotOverrideCurrentEvidence() = runBlocking {
+        val chat = createRun("resolved-review", null)
+        workspace.saveProtectedSynthesisCheckpoint("github-evidence:binding:verification_current_snapshot", chat, "resolved-review", buildJsonObject { put("completion_verified", false) })
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-output:binding",
+            chat,
+            "resolved-review",
+            buildJsonObject {
+                put("state", "COMPLETED")
+                put("invocation_id", "successful-primary")
+            }
+        )
+        for (state in listOf("REVIEWED", "COMPLETED")) {
+            workspace.saveProtectedSynthesisCheckpoint(
+                "github-review:binding:active",
+                chat,
+                "resolved-review",
+                JsonObject(activeReviewFailure("historical-review") + ("state" to JsonPrimitive(state)))
+            )
+            val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+            assertEquals(JsonNull, summary["failure_code"])
+            assertEquals(JsonPrimitive("successful-primary"), summary["invocation_id"])
+            assertFalse(summary.getValue("source_record_ids").jsonArray.contains(JsonPrimitive("github-review:binding:active")))
+        }
+    }
+
+    @Test fun unboundOrEarlierRunReviewCannotSupplyFailureProvenance() = runBlocking {
+        val chat = createRun("earlier-review", null)
+        workspace.saveProtectedSynthesisCheckpoint("github-review:binding:active", chat, "earlier-review", activeReviewFailure("earlier-run-review"))
+        // Without a verification binding, even the same-run review is not joined by recency.
+        val unbound = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonNull, unbound["failure_code"])
+        assertEquals(JsonNull, unbound["invocation_id"])
+
+        val user = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "new request", platformType = null)).toInt()
+        val assistant = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "", platformType = null)).toInt()
+        database.agentPersistenceDao().insertRun(AgentRun("current-review", chat, user, assistant, "profile", "provider", "model", status = "FAILED"))
+        workspace.saveProtectedSynthesisCheckpoint("github-evidence:binding:verification_current_snapshot", chat, "current-review", buildJsonObject { put("completion_verified", false) })
+        val boundToAnotherRun = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("current-review"), boundToAnotherRun["run_id"])
+        assertEquals(JsonNull, boundToAnotherRun["failure_code"])
+        assertEquals(JsonNull, boundToAnotherRun["invocation_id"])
+        assertFalse(boundToAnotherRun.toString().contains("earlier-run-review"))
+    }
+
+    private fun activeReviewFailure(invocationId: String?) = buildJsonObject {
+        put("state", "BLOCKED")
+        put("generation_state", "COMPLETED")
+        put("review_state", "FAILED")
+        put("delivery_state", "WITHHELD")
+        put("failure_code", "EXECUTION_SELECTION_INVALID")
+        put("failed_stage", "provider_admission")
+        put("review_stage", "answer_review")
+        invocationId?.let { put("invocation_id", it) }
     }
 
     @Test fun plainCheckpointAndWorkspacePolicyRemainDiscoverableWithoutLegacyPolicyRows() = runBlocking {

@@ -30,6 +30,9 @@ class ProviderOutputLineageTest {
         val text = ProviderEvent.TextDelta("Retained provider text", OutputLineage(OutputOrigin.MODEL_TEXT, "original"))
         assertEquals(text, text.withInvocationLineage("later"))
         assertEquals("actual", (ProviderEvent.Failed("HTTP 429").withInvocationLineage("actual") as ProviderEvent.Failed).invocationId)
+        assertEquals("actual", (ProviderEvent.Usage(outputTokens = 1536).withInvocationLineage("actual") as ProviderEvent.Usage).invocationId)
+        val usage = ProviderEvent.Usage(outputTokens = 1133, invocationId = "primary")
+        assertEquals(usage, usage.withInvocationLineage("reviewer"))
     }
 
     @Test fun markupBufferPreservesIdentityAcrossSplitProviderFragments() = runTest {

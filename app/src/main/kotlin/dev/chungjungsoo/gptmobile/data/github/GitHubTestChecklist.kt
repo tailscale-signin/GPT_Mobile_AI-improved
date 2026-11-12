@@ -337,7 +337,7 @@ internal object GitHubTestChecklist {
         if (remaining == 0) return null
         // Preserve cleanup allowance, but qualify required live reads while their
         // owned resource still exists. A verified deletion retires those reads.
-        val acquisitionAllowed = remaining == null || remaining > GitHubChecklistBudget.VERIFICATION_RESERVE
+        val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remainingToolCalls)
         val cleanup = GitHubSelfTestFixtures.next(task, tools, receipts, allowCreate = false, cleanupOnly = true, abortIncomplete = !acquisitionAllowed)
         if (!acquisitionAllowed && cleanup != null) return cleanup
         // A deletion may already have happened. Reconcile its exact retained
@@ -367,7 +367,7 @@ internal object GitHubTestChecklist {
         // A cached observation is useful evidence but cannot qualify transport.
         // Retry that exact authorized read once with explicit cache bypass. The
         // retained argument prevents loops after process restart or another hit.
-        val liveRead = observations.asReversed().firstNotNullOfOrNull { receipt ->
+        val liveRead = observations.asReversed().takeIf { acquisitionAllowed }?.firstNotNullOfOrNull { receipt ->
             if (receipt["success"] != JsonPrimitive(true) || GitHubEvidenceOrigin.of(receipt) == "LIVE" || retiredRead(receipt)) return@firstNotNullOfOrNull null
             val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
             if (!requiresLiveTransport(Capability(receipt.text("tool").substringBefore("__"), args.text("action"), ""))) return@firstNotNullOfOrNull null
@@ -386,13 +386,14 @@ internal object GitHubTestChecklist {
         val selectedHead = observations.asReversed().firstNotNullOfOrNull { receipt ->
             if (!matches(receipt, capabilities.first()) || receipt["success"] != JsonPrimitive(true)) null else data(receipt)?.get("commit_sha")
         }
-        if (watch != null && selectedHead != null) {
+        if (acquisitionAllowed && watch != null && selectedHead != null) {
             for (run in GitHubObservedWorkflowRuns.current(observations, selectedHead as? JsonPrimitive)) {
                 if (run.text("status") !in setOf("queued", "in_progress", "waiting", "pending", "requested")) continue
                 val id = run["id"] ?: continue
                 val args = buildJsonObject {
                     put("run_id", id)
                     put("commit_sha", selectedHead)
+                    put("wait_timeout_seconds", 1)
                 }
                 if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, watch.inputSchema).isEmpty() && observations.none { it.text("tool") == watch.name && (it["arguments"] as? JsonObject)?.get("run_id") == id }) return call(watch.name, args)
             }
@@ -568,7 +569,7 @@ internal object GitHubTestChecklist {
                     failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + GitHubVerificationRecovery.advice(failures)
                     readyCall != null -> "Ready to execute using retained repository/resource evidence; no qualifying execution has been observed."
                     conditionalDecision -> "Conditional user-decision behavior has no genuine decision in this task. It remains untested; test it in the interaction harness."
-                    capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run and the active chat subscription."
+                    capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run bound to the selected revision. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
                     !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
                     capability.tool == "github_pr" -> "No pull request identifier observed from the pull request inventory."
@@ -668,6 +669,11 @@ internal object GitHubTestChecklist {
                     put("response_validated", eligible.any { it["success"] == JsonPrimitive(true) })
                     put("waiting_for_approval", waitingApproval)
                     put("requires_live_transport", liveRequired)
+                    if (capability.tool == "github_watch_checks") {
+                        val inline = successes.any { (it["arguments"] as? JsonObject)?.get("wait_timeout_seconds") != null }
+                        put("bounded_inline_observation_verified", inline)
+                        put("background_subscription_verified", successes.any { (it["arguments"] as? JsonObject)?.get("wait_timeout_seconds") == null && data(it)?.get("subscription_id") is JsonPrimitive })
+                    }
                     if (capability.tool == "github_stage_patch") put("publication_mode", if (immediatePublication) "IMMEDIATE_PUBLICATION" else "STAGED_ONLY")
                     put("fixture_state", if (readOnly(capability)) "NOT_APPLICABLE" else "REQUIRES_SEPARATE_VERIFICATION")
                     put(
@@ -852,6 +858,7 @@ internal object GitHubTestChecklist {
         fixturePreflight?.let { put("fixture_approval_preflight", it) }
         put("evidence_classes", GitHubIntegrationAcceptance.evidenceClasses(receipts))
         put("stage_budget", GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools)))
+        if (integrationCoverage) put("preparation", GitHubIntegrationPreparation.snapshot(task, receipts, tools, capabilities, remainingToolCalls, fixturePreflight))
         put(
             "resume_plan",
             buildJsonObject {

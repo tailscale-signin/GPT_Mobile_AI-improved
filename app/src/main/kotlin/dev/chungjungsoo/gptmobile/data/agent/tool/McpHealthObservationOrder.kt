@@ -2,7 +2,15 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 /** A response belongs to the configuration epoch and request that produced it. */
 internal class McpHealthObservationOrder {
-    data class Token(val connection: String, val key: String, val epoch: Long, val request: Long, val configurationRevision: String? = null)
+    data class Token(
+        val connection: String,
+        val key: String,
+        val epoch: Long,
+        val request: Long,
+        val configurationRevision: String? = null,
+        /** Created before dispatch; shared by transport and MCP terminal diagnostics. */
+        val operationId: String = java.util.UUID.randomUUID().toString().replace("-", "")
+    )
     private data class State(val key: String, val epoch: Long, val configurationRevision: String?, var published: Long = 0)
     private val states = mutableMapOf<String, State>()
     private var sequence = 0L

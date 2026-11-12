@@ -16,7 +16,7 @@ data class CurrentRequestContract(val intent: String, val originalRequestDigest:
         "GREETING" -> "Answer the current greeting briefly. Prior topics do not create a new request."
         "PROVIDER_TEST" -> "Acknowledge this provider connection test briefly. The application will summarize observed results across selected providers. Do not continue an earlier topic."
         "TEST" -> "Acknowledge this connection test briefly. Do not continue an earlier topic."
-        else -> "Answer the current user request and preserve its explicit answer constraints."
+        else -> "Answer the current user request and preserve its explicit answer constraints. Earlier task budgets and acceptance criteria apply only when the current accepted task explicitly resumes that work."
     }
     companion object {
         private fun isChatSmokeTest(text: String): Boolean {

@@ -19,7 +19,8 @@ internal data class McpFailurePresentation(
     val validationRule: String? = null,
     val validationField: String? = null,
     val observedAtEpochMs: Long? = null,
-    val configurationRevision: String? = null
+    val configurationRevision: String? = null,
+    val declaredRpcErrorCode: Int? = null
 ) {
     val waitingForRecovery: Boolean get() = outcome == "WAITING_RECOVERY"
     val authenticationRequired: Boolean get() = outcome == "AUTHENTICATION_REQUIRED" || validationRule == "CREDENTIAL_REAUTHORIZATION_REQUIRED"
@@ -34,14 +35,29 @@ internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealt
     val endpointFailure = causes.filterIsInstance<McpEndpointConfigurationException>().firstOrNull()
     val refreshFailure = causes.filterIsInstance<McpDiscoveryOAuthRefreshException>().firstOrNull()
     val backoff = causes.filterIsInstance<McpBackoffException>().firstOrNull()
+    val networkFailure = LocalServiceHealth.classify(error)
+    val directHttpStatus = causes.firstNotNullOfOrNull {
+        when (it) {
+            is ModernMcpError -> it.status
+            is io.modelcontextprotocol.kotlin.sdk.client.StreamableHttpError -> it.code
+            else -> null
+        }
+    }
+    // Transport setup can fail before the manager has published a health receipt.
+    // Classify the current exception as well, without reinterpreting a retained gate.
+    val directTransportFailure = backoff == null &&
+        causes.none { it is McpAuthenticationRequiredException } &&
+        (directHttpStatus != null || networkFailure in MCP_TRANSIENT_NETWORK_FAILURES || causes.any { it is IOException })
     val observedFailure = health.takeUnless { it.state == McpConnectionHealthState.CONNECTED }
     val directOutcome = when {
         localFailure != null -> "LOCAL_VALIDATION"
         error.isMcpUnauthorized() -> "AUTHENTICATION_REQUIRED"
         protocolFailure != null -> "PROTOCOL_CONFIGURATION"
         causes.any { it is McpEndpointConfigurationException } -> "ENDPOINT_CONFIGURATION"
-        LocalServiceHealth.classify(error) == ConnectionHealth.TLS_FAILED -> "TLS_FAILURE"
-        LocalServiceHealth.classify(error) == ConnectionHealth.DNS_FAILED -> "DNS_FAILURE"
+        networkFailure == ConnectionHealth.TLS_FAILED -> "TLS_FAILURE"
+        networkFailure == ConnectionHealth.DNS_FAILED -> "DNS_FAILURE"
+        directTransportFailure -> "NETWORK_UNAVAILABLE"
+        causes.any { it is McpCatalogueTimeoutException } -> "NETWORK_UNAVAILABLE"
         else -> null
     }
     val directCode = when (directOutcome) {
@@ -51,6 +67,12 @@ internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealt
         "ENDPOINT_CONFIGURATION" -> "MCP_ENDPOINT_CONFIGURATION"
         "TLS_FAILURE" -> "TLS_FAILURE"
         "DNS_FAILURE" -> "DNS_FAILED"
+        "NETWORK_UNAVAILABLE" -> when {
+            causes.any { it is McpCatalogueTimeoutException } -> "MCP_CATALOG_TIMEOUT"
+            directHttpStatus != null -> "HTTP_ERROR"
+            networkFailure in MCP_TRANSIENT_NETWORK_FAILURES -> networkFailure.name
+            else -> "MCP_NETWORK_IO_FAILED"
+        }
         else -> null
     }
     val errorCode = (directCode ?: observedFailure?.lastErrorCode)?.takeIf {
@@ -74,6 +96,7 @@ internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealt
     val retryable = when (outcome) {
         "AUTHENTICATION_REQUIRED", "TLS_FAILURE", "PROTOCOL_CONFIGURATION", "ENDPOINT_CONFIGURATION", "LOCAL_VALIDATION", "RECONNECT_REQUIRED" -> false
         "WAITING_RECOVERY", "DNS_FAILURE" -> true
+        "NETWORK_UNAVAILABLE" -> directHttpStatus == null || directHttpStatus == 408 || directHttpStatus == 429 || directHttpStatus >= 500
         else -> observedFailure?.failureRetryable
     }
     val guidance = when (outcome) {
@@ -89,7 +112,11 @@ internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealt
         }
         "RECONNECT_REQUIRED" -> "MCP discovery is paused. Check the connection configuration, then reconnect."
         "WAITING_RECOVERY" -> "Waiting for the MCP connection backoff to expire. The saved catalogue is retained and can be refreshed when recovery is available."
-        "NETWORK_UNAVAILABLE" -> "Network access to this MCP server is unavailable. The saved catalogue is retained for retry after connectivity returns."
+        "NETWORK_UNAVAILABLE" -> when (errorCode) {
+            "CONNECTION_REFUSED" -> "This MCP server refused the connection. Check the saved host and port and whether the service is listening, then retry after the recovery delay. The saved catalogue is retained."
+            "CONNECT_TIMEOUT", "REQUEST_TIMEOUT", "STREAM_IDLE_TIMEOUT", "MCP_CATALOG_TIMEOUT" -> "This MCP discovery attempt timed out. Check connectivity and server load, then retry after the recovery delay. The saved catalogue is retained."
+            else -> "Network access to this MCP server failed. Check the saved connection and service, then retry after the recovery delay. The saved catalogue is retained."
+        }
         "MCP_STATE_OR_CATALOG_INVALID" -> "The MCP connection or tool catalogue changed during discovery. Refresh the catalogue after the connection settles."
         else -> "Tool discovery failed. Check connection diagnostics and retry catalogue discovery."
     }
@@ -129,21 +156,48 @@ internal fun mcpFailurePresentation(error: Throwable, health: McpConnectionHealt
         errorCode,
         retryable,
         listOfNotNull(guidance, diagnosticDetail).joinToString("\n"),
-        phase = localFailure?.phase ?: if (refreshFailure != null) "oauth_refresh" else currentHealth?.failedStage ?: if (protocolFailure != null) "protocol_negotiation" else null,
+        phase = localFailure?.phase ?: if (refreshFailure != null) {
+            "oauth_refresh"
+        } else {
+            currentHealth?.failedStage ?: when {
+                protocolFailure != null -> "protocol_negotiation"
+                networkFailure == ConnectionHealth.DNS_FAILED || networkFailure == ConnectionHealth.DNS_RECOVERY -> "dns"
+                networkFailure == ConnectionHealth.TLS_FAILED -> "tls"
+                networkFailure in setOf(ConnectionHealth.CONNECTION_REFUSED, ConnectionHealth.ROUTE_UNAVAILABLE, ConnectionHealth.CONNECT_TIMEOUT) -> "connection"
+                networkFailure == ConnectionHealth.MCP_HANDSHAKE_FAILED -> "initialization"
+                else -> "discovery"
+            }
+        },
         dispatchEvidence = when {
             localFailure != null -> localFailure.dispatchEvidence
             backoff != null || causes.any { it is McpAuthenticationRequiredException } || (endpointFailure != null && endpointFailure.httpStatus == null) -> "NOT_DISPATCHED"
             httpStatus != null -> "CONFIRMED"
-            else -> currentHealth?.lastDispatchEvidence
+            else -> currentHealth?.lastDispatchEvidence ?: "UNKNOWN"
         },
-        retryDecision = localFailure?.retryDecision ?: currentHealth?.lastRetryDecision ?: if (retryable == false) "AFTER_CONFIGURATION_CHANGE" else null,
+        retryDecision = localFailure?.retryDecision ?: currentHealth?.lastRetryDecision ?: when (retryable) {
+            false -> "AFTER_CONFIGURATION_CHANGE"
+            true -> "AFTER_BACKOFF"
+            null -> null
+        },
         httpStatus = httpStatus?.takeIf { it in 100..599 },
         validationRule = localFailure?.validationRule ?: refreshFailure?.validationRule ?: protocolFailure?.validationRule ?: currentHealth?.lastValidationRule,
         validationField = localFailure?.validationField ?: refreshFailure?.validationField ?: protocolFailure?.validationField ?: currentHealth?.lastValidationField,
         observedAtEpochMs = currentHealth?.lastFailureAtMs,
-        configurationRevision = currentHealth?.failureConfigurationRevision?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+        configurationRevision = currentHealth?.failureConfigurationRevision?.takeIf { it.matches(Regex("[a-f0-9]{64}")) },
+        declaredRpcErrorCode = (protocolFailure?.declaredRpcErrorCode ?: currentHealth?.lastDeclaredRpcErrorCode)?.takeIf { it in MCP_DECLARED_RPC_CODES }
     )
 }
+
+private val MCP_TRANSIENT_NETWORK_FAILURES = setOf(
+    ConnectionHealth.DNS_RECOVERY,
+    ConnectionHealth.ROUTE_UNAVAILABLE,
+    ConnectionHealth.CONNECTION_REFUSED,
+    ConnectionHealth.CONNECT_TIMEOUT,
+    ConnectionHealth.MCP_HANDSHAKE_FAILED,
+    ConnectionHealth.STREAM_INTERRUPTED,
+    ConnectionHealth.STREAM_IDLE_TIMEOUT,
+    ConnectionHealth.REQUEST_TIMEOUT
+)
 
 private val MCP_PROTOCOL_FAILURE_CODES = setOf(
     "MCP_PROTOCOL_VERSION_UNSUPPORTED",

@@ -82,7 +82,10 @@
     "Repair the November 12 execution-selection wire contract, exact pending gateway handoffs and restart grouping, bounded GitHub read/circuit recovery, review baseline and source evidence, compact observed-capability checkpoints and typed diagnostic summaries; retain explicit unresolved incident and device acceptance limits.",
     "Keep native GitHub tool progress current after gateway preflight, suppress gateway-owned duplicate result counts, group repeated nonfatal privacy catalog notices without weakening filtering, and cover restored failed prerequisites in the batch scheduler.",
     "Add native approved issue-report submission and durable same-ID retry, bounded causal context with explicit unavailable facts and hashed report-to-capture joins, fixed-origin review/debug build wiring and service schema negotiation; preserve consent, privacy, unknown-outcome reconciliation and qualification limits.",
-    "Reject demonstrated Combined claim participant reversals before exact/paraphrase coverage and disputed declarations, preserving valid active/passive and independent-clause matching while leaving ambiguous relations unresolved."
+    "Reject demonstrated Combined claim participant reversals before exact/paraphrase coverage and disputed declarations, preserving valid active/passive and independent-clause matching while leaving ambiguous relations unresolved.",
+    "Repair the November 12 session reporting path with explicit hosted or verified-account native GitHub approval, durable original-ID/body/account binding, read-only reconciliation after uncertain creation, truthful local-versus-remote status and distributable APK capability guards.",
+    "Repair bounded GitHub review budgeting and saved-candidate recovery, scoped workflow pagination and status catalogs, current-task authority, owned integration preparation, voice recorder attempt ownership and queued speech completion without promoting unexecuted acceptance.",
+    "Retain exact invocation-owned failed-attempt usage, capacity and review provenance, selected-model readiness binding, typed MCP failure and probe-admission evidence, honest audit coverage and off-main export preparation; keep observed revisions separate from tested SHAs."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -135,7 +138,9 @@
     "PR #816 host fixtures validate contract and recovery behavior, not live GitHub collaboration mutations, private model inference, isolated Docker execution, physical-device scrolling or installed Moonshine recognition. Final Android, emulator, Windows installer and exact-revision release checks remain required.",
     "Gateway 16 support exports preserve newly recorded evidence and cannot reconstruct omitted causes or repair an unidentified service dependency from an older diagnostic archive.",
     "New release provenance requires a successful exact workflow with GitHub CLI >=2.102.0 and an unexpired digest-bound evidence artifact. Host tests do not qualify the current APK, microphone or deployed gateway. Unsupported mutation lifecycles remain explicitly outside the new bounded integration preset.",
-    "Native issue-report delivery requires a deployed project-owned HTTPS reporter advertising the supported context schema and ISSUE_REPORT_ORIGIN configured for APK builds. Source changes and fake-publisher/transport regressions do not qualify that live deployment or identify historical generic incident causes."
+    "Hosted issue-report delivery requires a real project-owned HTTPS reporter advertising the supported context schema and ISSUE_REPORT_ORIGIN in the APK; enabled native GitHub delivery requires a verified account and explicit approval of the report and route. Host regressions do not qualify live delivery, and no live service, repository variable or credential was changed by the November 12 session repair.",
+    "The November 12 session repair requires installed-APK reporting reconciliation, exact-model generation, affected MCP listener/protocol/credential repair, owned integration fixtures and physical-device voice/lifecycle/frame/memory acceptance. Source and host checks do not establish those external results.",
+    "The later 141-check audit and diagnostic capture were supplied as analyses, not original files; their capture-specific rows and measurements were not independently revalidated. The audit's 67 untested checks remain untested until matching execution evidence is retained."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -2251,6 +2256,40 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedClaimMatcher.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedFinalCheck.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedClaimMatchingTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySessionTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySessionTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/GatewayRecoveryUsage.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/accounting/InvocationUsageEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubInvocationReceipt.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderUsageAccounting.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpInitializationRejection.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditInterpretation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/EffectiveOutputAllowance.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportGitHubSubmission.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportRoute.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportRouting.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayInputRejectionDetails.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewPayloads.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayCapabilityReadContext.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/accounting/GatewayRecoveryUsageTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubRemoteContinuationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubStatusCatalogTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/McpInitializationRejectionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportGitHubSubmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportRoutingTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/NativeVoiceDiagnosticClassificationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ReviewFailureProvenanceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayInputRejectionDetailsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewBudgetRecoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewPayloadsTest.kt",
+    "docs/repairs/session-reliability-reporting-2026-11-12-task.json",
+    "docs/repairs/session-reliability-reporting-2026-11-12.md",
+    "gateway/tests/test_gateway_engineering_rejection.py",
+    "gateway/v14/engineering_rejection.py",
+    "scripts/check_issue_reporting_configuration.py",
+    "scripts/tests/test_issue_reporting_configuration.py"
   ]
 }

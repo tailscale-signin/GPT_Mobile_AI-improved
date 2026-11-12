@@ -23,6 +23,7 @@ internal fun invocationUsageEvidence(invocation: JsonObject): JsonObject = build
         put(dimension.lowercase() + "_estimate", if (source == "estimated") accounted else JsonNull)
         put(dimension.lowercase() + "_interim_reported", if (source.endsWith("_interim")) observed else JsonNull)
         put(dimension.lowercase() + "_initial_reported", if (source.endsWith("_initial")) observed else JsonNull)
+        put(dimension.lowercase() + "_known_partial", if (source.endsWith("_reported_partial")) observed else JsonNull)
         put(dimension.lowercase() + "_final_reported", if (dev.chungjungsoo.gptmobile.data.agent.measuredUsageSource(source)) observed else JsonNull)
         put(dimension.lowercase() + "_source", source)
     }

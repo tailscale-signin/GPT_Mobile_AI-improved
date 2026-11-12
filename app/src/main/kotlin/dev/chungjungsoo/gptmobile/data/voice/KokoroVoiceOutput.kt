@@ -47,6 +47,7 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
     private var attempted = false
     private var closed = false
     private var threads = 2
+    private var replyId: String? = null
     private var delegate: KokoroOutput? = null
 
     private fun existing(): KokoroOutput? = synchronized(lock) { delegate }
@@ -55,7 +56,10 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
         if (closed) return@synchronized null
         if (!attempted) {
             attempted = true
-            delegate = factory()?.also { it.configureThreads(threads) }
+            delegate = factory()?.also { output ->
+                output.configureThreads(threads)
+                replyId?.let(output::bindReply)
+            }
         }
         delegate
     }
@@ -82,8 +86,18 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
         existing()?.releaseWarmModel()
     }
 
-    override fun stop() {
-        existing()?.stop()
+    override fun stop() = stop("audio_stop")
+
+    override fun stop(reason: String) {
+        existing()?.stop(reason)
+    }
+
+    override fun bindReply(id: String) {
+        synchronized(lock) {
+            if (closed) return
+            replyId = id
+            delegate?.bindReply(id)
+        }
     }
 
     override fun close() {
@@ -120,6 +134,11 @@ internal class KokoroVoiceOutput(
     @Volatile private var warmupRequest: ModelKey? = null
 
     private var threadCount = 2
+    private var replyId: String? = null
+
+    override fun bindReply(id: String) {
+        replyId = id.takeIf { it.matches(Regex("[A-Za-z0-9:_-]{1,128}")) }
+    }
 
     override fun configureThreads(value: Int) {
         val bounded = value.coerceIn(2, 4)
@@ -134,6 +153,7 @@ internal class KokoroVoiceOutput(
     }
 
     private class Playback(
+        val runId: String?,
         val voice: KokoroVoice,
         val key: ModelKey,
         val focus: AudioFocusRequest,
@@ -237,7 +257,7 @@ internal class KokoroVoiceOutput(
                 }
             }
         }
-        playback = Playback(voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error)
+        playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error)
         active = playback
         val focusGranted = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         if (!focusGranted) {
@@ -261,7 +281,10 @@ internal class KokoroVoiceOutput(
             }
 
             override fun finish() {
-                if (active === playback) playback.sealed = true
+                if (active === playback && !playback.sealed) {
+                    playback.sealed = true
+                    timing("input_complete", playback)
+                }
             }
         }
     }
@@ -477,7 +500,7 @@ internal class KokoroVoiceOutput(
         val fields = if (detail.isBlank()) "" else " · $detail"
         AppLogRecorder.record(
             "VoiceTiming",
-            "kokoro_$stage · playbackId=${playback.id} · voice=${playback.voice.name} · threads=${playback.key.threads} · durationMs=${SystemClock.elapsedRealtime() - playback.startedAt}$fields"
+            "kokoro_$stage · playbackId=${playback.id} · nativeOperationId=${playback.id} · runId=${playback.runId ?: "not_recorded"} · voice=${playback.voice.name} · threads=${playback.key.threads} · durationMs=${SystemClock.elapsedRealtime() - playback.startedAt}$fields"
         )
     }
 
@@ -503,7 +526,7 @@ internal class KokoroVoiceOutput(
         synthesis.execute(::releaseModel)
     }
 
-    private fun end(playback: Playback, reason: String) {
+    private fun end(playback: Playback, reason: String, cancellationOrigin: String? = null) {
         if (active !== playback) return
         active = null
         main.removeCallbacks(playback.watchdog)
@@ -517,7 +540,7 @@ internal class KokoroVoiceOutput(
             playback.underruns
         }
         runCatching { audioManager?.abandonAudioFocusRequest(playback.focus) }
-        timing("terminal", playback, "reason=$reason · textChars=${playback.inputChars} · underruns=${underruns ?: "unmeasured"}")
+        timing("terminal", playback, "reason=$reason · cancellationOrigin=${cancellationOrigin ?: "none"} · textChars=${playback.inputChars} · firstPcm=${playback.firstPcm} · firstOutputFrame=${playback.firstFrame} · inputComplete=${playback.sealed} · drainComplete=${reason == "complete"} · underruns=${underruns ?: "unmeasured"}")
     }
 
     private fun fail(playback: Playback, reason: String, message: String, canFallback: Boolean = !playback.queuedAudio) {
@@ -526,10 +549,13 @@ internal class KokoroVoiceOutput(
         playback.error(message, canFallback)
     }
 
-    override fun stop() {
+    override fun stop() = stop("audio_stop")
+
+    override fun stop(reason: String) {
         warmupGeneration++
         warmupRequest = null
-        active?.let { end(it, "interrupted") }
+        val origin = reason.takeIf { it.matches(Regex("[a-z_]{1,64}")) } ?: "unspecified"
+        active?.let { end(it, "interrupted", origin) }
     }
 
     override fun close() {

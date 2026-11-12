@@ -187,12 +187,28 @@ when known. An uncertain publication only reconciles the original GitHub write;
 it never creates a replacement issue automatically. No browser handoff or
 alternate unauthenticated publication route is needed.
 
-Deploy the reporter and its persistent database before shipping builds, then set
-the repository Actions variable `ISSUE_REPORT_ORIGIN` to its public HTTPS origin
-for release workflows. Production APK and bundle packaging requires a fixed
-HTTPS origin. Pull request compilation and lint can run before deployment. For local
-release builds, pass `-PISSUE_REPORT_ORIGIN=…` or set the environment variable
-`ISSUE_REPORT_ORIGIN`. Debug builds may omit it; the dialog reports that issue
-submission is unavailable in those builds. Validate the service with
+The app also supports a native authenticated GitHub route. It is enabled by default
+(`ISSUE_REPORT_GITHUB_ENABLED=true`) and uses an existing, verified public GitHub
+connection with write-capable policy. The dialog displays the selected public
+author before Send. Multiple accounts require a choice; no account offers Connect
+or review GitHub and Save for later. Saved reports retain the approved account ID,
+connection and exact payload. A native create that loses its receipt is never
+repeated: automatic and manual retries only search for the original report marker,
+exact body and account. Empty or delayed search results remain unconfirmed.
+Explicit authentication/permission rejection can be retried after repair because
+GitHub rejected that create. Credentials remain in the existing encrypted vault.
+
+The hosted route is optional when native GitHub reporting is enabled. To offer it,
+deploy this reporter and its persistent database, then set repository Actions
+variable `ISSUE_REPORT_ORIGIN` to the real public HTTPS root. For local builds use
+`-PISSUE_REPORT_ORIGIN=…` or the environment variable. Verify read-only readiness with
+`python3 scripts/check_issue_reporting_configuration.py --probe-service`.
+Never use a placeholder origin: the APK appends `/v1/issue-reports` itself.
+Approval pins this service origin so an update cannot reroute an uncertain write.
+If native reporting is disabled, both debug/review and release packaging require
+the configured service. Only local debug builds can explicitly opt out with
+`-PallowUnconfiguredIssueReporting=true`; CI and release packaging reject that
+exception. No new service deployment, repository variable change or live issue
+submission is implied by passing fixture tests. Validate the service with
 `python -m unittest authentication.test_app`. The hosted HTTP tests use a
 simulated GitHub publisher.

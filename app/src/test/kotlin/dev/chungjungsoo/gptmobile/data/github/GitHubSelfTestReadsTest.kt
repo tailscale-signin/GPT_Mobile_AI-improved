@@ -9,6 +9,18 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSelfTestReadsTest {
+    @Test fun completedRunSupportsOneBoundedInlineWatchWithoutInventingASubscriptionOrResource() {
+        val sha = "a".repeat(40)
+        val watch = AgentToolDefinition("github_watch_checks", "Watch", json("""{"type":"object","properties":{"run_id":{"type":"integer"},"commit_sha":{"type":"string"},"wait_timeout_seconds":{"type":"integer","minimum":1,"maximum":30}},"required":["run_id","commit_sha","wait_timeout_seconds"],"additionalProperties":false}"""))
+        val source = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val runs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":72,"head_sha":"$sha","status":"completed","conclusion":"success"}]}}""")
+        assertEquals(null, GitHubSelfTestReads.next(listOf(watch), listOf(source)))
+        val call = requireNotNull(GitHubSelfTestReads.next(listOf(watch), listOf(source, runs)))
+        assertEquals(json("""{"run_id":72,"commit_sha":"$sha","wait_timeout_seconds":1}"""), call.arguments)
+        val observed = json("""{"trusted":true,"success":true,"tool":"github_watch_checks","arguments":${call.arguments},"result":{"status":"completed"}}""")
+        assertEquals(null, GitHubSelfTestReads.next(listOf(watch), listOf(source, runs, observed)))
+    }
+
     private fun json(text: String) = Json.parseToJsonElement(text) as JsonObject
     private fun tool(name: String, action: String) = AgentToolDefinition(name, action, json("""{"type":"object","properties":{"action":{"const":"$action"}}}"""))
 

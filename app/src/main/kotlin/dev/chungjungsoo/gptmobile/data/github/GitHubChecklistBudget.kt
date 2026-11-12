@@ -11,6 +11,13 @@ internal object GitHubChecklistBudget {
     const val FIXTURE_CALLS = 4 // create, restore selected branch, dependencies, verified deletion
     const val VERIFICATION_RESERVE = 2
 
+    /** Once a fixture exists, optional reads cannot spend its reconciliation/cleanup allowance. */
+    fun cleanupReserve(receipts: Map<String, JsonObject>): Int =
+        if (GitHubSelfTestFixtures.checkpoint(receipts).filterIsInstance<JsonObject>().any { it["final_state_verified"] != JsonPrimitive(true) }) FIXTURE_CALLS else 0
+
+    fun acquisitionAllowed(receipts: Map<String, JsonObject>, current: Int? = null): Boolean =
+        remaining(receipts, current)?.let { it > VERIFICATION_RESERVE + cleanupReserve(receipts) } != false
+
     fun remaining(receipts: Map<String, JsonObject>, current: Int? = null): Int? {
         if (current != null) return current.coerceAtLeast(0)
         return recorded(receipts)?.let { receipt ->
@@ -54,8 +61,10 @@ internal object GitHubChecklistBudget {
         put("counter_scope", "Shared task allowance, including automatic result paging and recovery; live execution remaining supersedes receipt snapshots.")
         put("remaining_known", remaining != null)
         put("verification_reserve", minOf(remaining ?: VERIFICATION_RESERVE, VERIFICATION_RESERVE))
+        put("cleanup_reserve", minOf(remaining ?: FIXTURE_CALLS, cleanupReserve(receipts)))
+        put("cleanup_reserve_scope", "Remaining reconciliation and verified cleanup of the existing task-owned fixture; does not raise the accepted allowance.")
         put("fixture_start_minimum", fixtureCalls + VERIFICATION_RESERVE)
-        put("acquisition_allowed", remaining == null || remaining > VERIFICATION_RESERVE)
+        put("acquisition_allowed", acquisitionAllowed(receipts, current))
         put("hard_limit_policy", "Use the authorized execution ceiling; never expand it to finish a checklist.")
         put("reporting", "Final response capacity remains separately reserved by the run budget.")
     }

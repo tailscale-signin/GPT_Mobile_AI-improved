@@ -9,6 +9,32 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RouteCapabilityCacheTest {
+    @Test fun anAuditThatRequiresItsOwnFreshReceiptCannotBorrowAnOverlappingRefresh() = runTest {
+        val cache = RouteCapabilityCache<String>({ testScheduler.currentTime })
+        val gate = CompletableDeferred<Unit>()
+        var loads = 0
+        val ordinary = async {
+            cache.getOrLoad("route", forceRefresh = true) {
+                loads++
+                gate.await()
+                "ordinary"
+            }
+        }
+        runCurrent()
+        val audit = async {
+            cache.getOrLoad("route", forceRefresh = true, shareConcurrentRefresh = false) {
+                loads++
+                "audit"
+            }
+        }
+        runCurrent()
+        gate.complete(Unit)
+        assertEquals("ordinary", ordinary.await())
+        assertEquals("audit", audit.await())
+        assertEquals(2, loads)
+        assertEquals("audit", cache.getOrLoad("route") { error("Fresh audit receipt was not retained") })
+    }
+
     @Test fun explicitRepairRefreshWaitsForThisRouteAndReplacesItsStaleValueOnly() = runTest {
         val cache = RouteCapabilityCache<String>({ testScheduler.currentTime })
         val gate = CompletableDeferred<Unit>()

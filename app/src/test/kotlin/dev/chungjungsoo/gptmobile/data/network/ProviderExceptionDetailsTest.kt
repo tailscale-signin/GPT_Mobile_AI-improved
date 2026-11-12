@@ -7,6 +7,40 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ProviderExceptionDetailsTest {
+    @Test fun finalSerializedCapacityFailureKeepsTypedAdmissionAndDispatchEvidence() {
+        val runtime = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint("selected", "route", "credential", "model", "model", "runtime", "template", "allocation")
+        val error = runCatching {
+            dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare(
+                "complete unchanged input",
+                "github-review",
+                dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(runtime, 32768),
+                dev.chungjungsoo.gptmobile.data.context.RequestMeasurement(27553, 6888, dev.chungjungsoo.gptmobile.data.context.TokenMeasurementKind.UTF8_ESTIMATE),
+                1536,
+                "policy"
+            )
+        }.exceptionOrNull() as dev.chungjungsoo.gptmobile.data.context.RequestCapacityException
+        val detail = requireNotNull(providerExceptionDetails(error, false))
+        assertEquals("CONTEXT_CAPACITY_EXCEEDED", detail.code)
+        assertEquals(JsonPrimitive(27553), detail.failureDetails?.get("prompt_tokens"))
+        val durable = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(detail.message, detail.code, detail.failureDetails)
+        assertEquals("CONTEXT_CAPACITY_EXCEEDED", durable.category)
+        assertEquals("provider_admission", durable.phase)
+        assertEquals(false, durable.dispatched)
+        assertEquals(false, durable.retryAllowed)
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO, durable.remoteAcceptance)
+        val continuation = requireNotNull(providerExceptionDetails(error, true))
+        assertNull(continuation.failureDetails?.get("dispatched"))
+        assertNull(continuation.failureDetails?.get("remote_acceptance"))
+    }
+
+    @Test fun outputAllowanceRejectionDoesNotEraseTheCapacityExceptionInAStringWrapper() {
+        val runtime = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint("selected", "route", "credential", "model", "model", "runtime", "template", "allocation")
+        val error = runCatching { resolveOutputAllowance("x".repeat(90000), 1536, dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(runtime, 32768)) }.exceptionOrNull() as Exception
+        val detail = requireNotNull(providerExceptionDetails(error, false))
+        assertEquals("CONTEXT_CAPACITY_EXCEEDED", detail.code)
+        assertEquals(JsonPrimitive("provider_admission"), detail.failureDetails?.get("failed_stage"))
+    }
+
     @Test fun fullGithubCatalogBudgetFailureRemainsAnUnsentAdmissionFailure() {
         val error = dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException(8000, 4000)
         val detail = requireNotNull(providerExceptionDetails(error, partialOutput = false))

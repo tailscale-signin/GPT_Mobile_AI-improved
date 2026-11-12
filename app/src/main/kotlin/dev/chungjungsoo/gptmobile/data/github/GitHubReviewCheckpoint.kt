@@ -75,16 +75,21 @@ internal class GitHubReviewCheckpoint(
                 inputLimit?.let { put("input_limit", it.coerceAtLeast(0)) }
                 put("format_retries", if (sameCandidate) (previous.get("format_retries") as? JsonPrimitive)?.intOrNull ?: 0 else 0)
                 put("review_passes", if (sameBudget) (previous.get("review_passes") as? JsonPrimitive)?.intOrNull ?: 0 else 0)
+                if (sameBudget) previous.get("review_attempt_failures")?.let { put("review_attempt_failures", it) }
             }
         )
     }
 
     /** One explicit restart may recover a model format failure. Persist before dispatch. */
-    suspend fun formatRetryAvailable(): Boolean {
+    suspend fun formatRetryAvailable(pendingVerdictFailure: Boolean = false): Boolean {
         val current = read("active") ?: return false
         return current["task"] == JsonPrimitive(taskHash) &&
-            current["state"] == JsonPrimitive("BLOCKED") &&
-            current["failure_code"] == JsonPrimitive("GITHUB_REVIEW_INVALID_VERDICT") &&
+            (
+                current["state"] == JsonPrimitive("BLOCKED") &&
+                    current["failure_code"] == JsonPrimitive("GITHUB_REVIEW_INVALID_VERDICT") ||
+                    pendingVerdictFailure &&
+                    current["state"] == JsonPrimitive("PENDING")
+                ) &&
             ((current["format_retries"] as? JsonPrimitive)?.intOrNull ?: 0) == 0
     }
 
@@ -111,6 +116,16 @@ internal class GitHubReviewCheckpoint(
     }
 
     /** Failure metadata is retained with the protected checkpoint even when verbose logging is disabled. */
+    suspend fun attemptFailure(details: JsonObject) {
+        val current = read("active") ?: return
+        val previous = (current["review_attempt_failures"] as? JsonArray).orEmpty()
+        if (details in previous) return
+        // At most 32 inference passes are admitted by this checkpoint. Preserve
+        // their typed causes and invocation identities, including recovered passes.
+        check(previous.size < 32) { "The bounded review failure receipt allowance is exhausted." }
+        write("active", JsonObject(current + ("review_attempt_failures" to JsonArray(previous + details))))
+    }
+
     suspend fun failed(code: String, blocked: Boolean = true, details: JsonObject = JsonObject(emptyMap())) {
         val current = read("active") ?: return
         write(

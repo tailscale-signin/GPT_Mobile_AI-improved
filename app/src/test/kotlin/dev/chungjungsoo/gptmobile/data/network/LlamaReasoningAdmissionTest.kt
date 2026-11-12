@@ -24,6 +24,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LlamaReasoningAdmissionTest {
+    @Test fun repairUsesBoundedAutoControlWithoutChangingExplicitReasoningPolicy() = runBlocking {
+        val paths = mutableListOf<String>()
+        HttpClient(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                val response = when (request.url.encodedPath) {
+                    "/props" -> """{"model_alias":"selected","build_info":"repair-helper-fixture","default_generation_settings":{"n_ctx":32768},"chat_template":"enable_thinking"}"""
+                    "/apply-template" -> {
+                        val root = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                        val on = root.getValue("chat_template_kwargs").jsonObject["enable_thinking"] == JsonPrimitive(true)
+                        buildJsonObject { put("prompt", "user: Template capability check.\nassistant:<think>\n" + if (on) "" else "\n</think>\n") }.toString()
+                    }
+                    else -> error("No inference is authorized during this admission fixture")
+                }
+                respond(response, headers = headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns http
+            every { network.gatewayReadClient() } returns http
+            val preparation = ModelRequestPreparation(network)
+            for (mode in ReasoningMode.entries) {
+                val config = ProviderRequestConfig("https://repair-helper.invalid/v1", null, providerType = "LLAMA", reasoningMode = mode, requestRole = "github-review-repair")
+                val wire = preparation.prepare("""{"model":"selected","messages":[{"role":"user","content":"Correct only the supplied candidate."}],"max_tokens":4096}""", config, "selected", 4096)
+                val payload = Json.parseToJsonElement(wire).jsonObject
+                assertEquals(JsonPrimitive(mode == ReasoningMode.ON), payload.getValue("chat_template_kwargs").jsonObject["enable_thinking"])
+                assertEquals(JsonPrimitive(4096), payload["max_tokens"])
+                assertFalse(payload.containsKey("response_format"))
+                val receipt = ReasoningControlReceipt.fromPayload(wire, true, mode).evidence()
+                assertEquals(kotlinx.serialization.json.JsonNull, receipt["effective_reasoning"])
+                assertEquals(JsonPrimitive("NOT_MEASURED"), receipt["effective_settings_source"])
+            }
+            assertEquals(listOf("/props", "/apply-template", "/apply-template"), paths)
+        }
+    }
+
     @Test fun unloadedSelectedGatewayModelBlocksAutoAndExplicitOffBeforeInference() = runBlocking {
         val config = ProviderRequestConfig("https://unloaded-admission.example/v1", null, providerType = "LLAMA")
         val instance = "a".repeat(32)

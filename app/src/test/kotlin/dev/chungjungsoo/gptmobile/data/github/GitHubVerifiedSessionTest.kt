@@ -38,6 +38,88 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun typedReviewFailuresDeliverReceiptFactsWithoutReopeningExtractionOrPublishingTheCandidate() = runBlocking {
+        for (code in listOf("COMPLETION_REPAIR_BUDGET_EXHAUSTED", "CONTEXT_CAPACITY_EXCEEDED")) {
+            val stored = linkedMapOf<String, JsonObject>()
+            val task = "Inspect repository findings and explain the evidence."
+            val candidate = "Private unreviewed candidate must remain available for bounded review recovery."
+            val checkpoint = GitHubReviewCheckpoint(task, { stored[it] }, { key, value -> stored[key] = value })
+            checkpoint.save(candidate, emptyList(), 8192, "reviewer")
+            checkpoint.failed(code)
+            val sha = "a".repeat(40)
+            val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L })
+            book.observe(
+                ProviderEvent.ToolCall("status", "github_context", JsonObject(mapOf("action" to JsonPrimitive("status")))),
+                AgentToolResult("status", ToolResultContent.Json(Json.parseToJsonElement("""{"branch":"main","commit_sha":"$sha"}""")), false)
+            )
+            val failure = ProviderEvent.Failed(
+                "Bounded reviewer stopped",
+                errorCode = code,
+                invocationId = "reviewer",
+                transportComplete = true,
+                failureDetails = buildJsonObject {
+                    put("failed_stage", if (code == "CONTEXT_CAPACITY_EXCEEDED") "provider_admission" else "provider_generation")
+                    put("review_stage", "answer_review")
+                    put("draft_retained", true)
+                    put("automatic_retry_allowed", false)
+                    put("user_resumable", true)
+                }
+            )
+            val provider = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(failure)
+            }
+            var report: JsonObject? = null
+            val gate = GitHubVerifiedSession(
+                provider, book, task, { 8192 }, { error("Failed review must not dispatch claim extraction") }, {}, {}, now = { 1000L },
+                privateReviewCandidate = { candidate }, onPublication = { report = it }, openExecutionContinuation = { error("No tool or generation replay after failed review") }
+            )
+            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            val text = events.filterIsInstance<ProviderEvent.TextDelta>().single()
+            assertEquals(OutputOrigin.APPLICATION_REPORT, text.lineage.origin)
+            assertTrue(text.text.contains(sha))
+            assertFalse(text.text.contains(candidate))
+            assertTrue(events.none { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+            assertEquals(code, (events.last() as ProviderEvent.Failed).errorCode)
+            assertEquals(JsonPrimitive(false), report?.get("completion_verified"))
+            assertEquals(JsonPrimitive(true), report?.get("review_candidate_retained"))
+            assertEquals(JsonPrimitive("DETERMINISTIC_RECEIPT_PARTIAL"), report?.get("delivery_mode"))
+            assertEquals(JsonPrimitive(false), report?.get("additional_verification_model_dispatched"))
+            assertEquals(candidate, checkpoint.load()?.draft)
+            assertEquals(code, checkpoint.load()?.blockedReason)
+        }
+    }
+
+    @Test fun reviewOriginPartialDeliveryPreservesUnknownProviderAcceptanceAndTransport() = runBlocking {
+        val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L })
+        book.observe(
+            ProviderEvent.ToolCall("status", "github_context", JsonObject(mapOf("action" to JsonPrimitive("status")))),
+            AgentToolResult("status", ToolResultContent.Json(Json.parseToJsonElement("""{"branch":"main","commit_sha":"${"a".repeat(40)}"}""")), false)
+        )
+        val failure = ProviderEvent.Failed(
+            "Review response was lost",
+            errorCode = "GATEWAY_OUTCOME_UNKNOWN",
+            invocationId = "reviewer",
+            transportComplete = false,
+            failureDetails = buildJsonObject {
+                put("review_stage", "answer_review")
+                put("requires_reconciliation", true)
+                put("request_replay_allowed", false)
+                put("remote_acceptance", "UNKNOWN")
+            }
+        )
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(failure)
+        }
+        val gate = GitHubVerifiedSession(provider, book, "Inspect repository findings and explain the evidence.", { 8192 }, { error("No verification generation while outcome is unknown") }, {}, {}, now = { 1000L })
+        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.any { it is ProviderEvent.TextDelta })
+        assertTrue(events.none { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+        val terminal = events.last() as ProviderEvent.Failed
+        assertEquals(failure.errorCode, terminal.errorCode)
+        assertFalse(terminal.transportComplete)
+        assertEquals(failure.failureDetails, terminal.failureDetails)
+    }
+
     @Test fun apparentlyCompleteReportRemainsPartialAtTheLiveBoundaryWhenWriteOutcomeIsUnknown() = runBlocking {
         val saved = mutableListOf<JsonObject>()
         var published: JsonObject? = null

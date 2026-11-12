@@ -5,6 +5,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSessionTest {
+    @Test fun `terminal trimming seals the reply and lets audio drain before the next microphone turn`() {
+        audio.streamsReplies = true
+        start()
+        audio.listeners.last().final("Tell me more")
+        session.streamReply("run", "The complete answer. ")
+        val stoppedBeforeCompletion = audio.stopped
+        session.reply("run", "The complete answer.")
+        assertEquals(stoppedBeforeCompletion, audio.stopped)
+        assertEquals(VoicePhase.SPEAKING, session.state.phase)
+        assertEquals(1, audio.sealed)
+        assertEquals(1, audio.listeners.size)
+        session.reply("run", "The complete answer.")
+        assertEquals(1, audio.sealed)
+        audio.done?.invoke()
+        assertEquals(2, audio.listeners.size)
+    }
+
     private class Audio : VoiceAudio {
         val listeners = mutableListOf<VoiceAudio.Listener>()
         val spoken = mutableListOf<String>()

@@ -82,7 +82,12 @@ internal fun planAuthorizedToolContext(
     // Saved receipts and prepared evidence can contain tool names and imperatives.
     // They remain context, never new requirements attributed to the user.
     val task = requestedTask ?: turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty()
-    val fullGitHubCatalog = githubMode || tools.any { it.progressiveCatalog?.githubMode == true }
+    val existingCatalog = tools.firstNotNullOfOrNull { it.progressiveCatalog }
+    val effectiveGitHubMode = githubMode || existingCatalog?.githubMode == true
+    val scopedGitHubStatus = effectiveGitHubMode &&
+        dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task) &&
+        task.lineSequence().none { it.trim() == "[github-workflow-preset:test_integration]" }
+    val fullGitHubCatalog = effectiveGitHubMode && !scopedGitHubStatus
     // Current user intent wins over repository keywords in memory or workspace instructions.
     if (!fullGitHubCatalog && CurrentRequestContract.from(task).conversational) return ContextBudgetService.plan(turns, prompt, emptyList(), limits)
     val definitions = tools.map { it.tool.definition }
@@ -94,7 +99,7 @@ internal fun planAuthorizedToolContext(
             emptyList()
         } + recovery
         ).distinctBy { it.name }
-    val catalog = if (externalTools) tools.firstNotNullOfOrNull { it.progressiveCatalog } ?: if (limits.adaptiveToolCatalog) ProgressiveToolCatalog.create(definitions, task, githubMode = fullGitHubCatalog) else null else null
+    val catalog = if (externalTools) existingCatalog ?: if (limits.adaptiveToolCatalog || scopedGitHubStatus) ProgressiveToolCatalog.create(definitions, task, githubMode = effectiveGitHubMode) else null else null
     val githubSchemas = if (fullGitHubCatalog) definitions.filter { it.modelVisible && ProgressiveToolCatalog.isGitHubTool(it) } else emptyList()
     val advertised = (githubSchemas + required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
     val requestedGitHubOperations = if (requireToolExecution) dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) else emptySet()

@@ -835,6 +835,55 @@ class AppAuditPluginServicesTest {
         assertNull(appAuditScore(run).score)
     }
 
+    @Test
+    fun failuresBeforeHealthPublicationRetainTypedCauseAndFrozenConfiguration() = runBlocking {
+        listOf(
+            Triple(java.net.ConnectException("Connection refused"), "CONNECTION_REFUSED", "connection"),
+            Triple(java.io.IOException("Transport setup failed"), "MCP_NETWORK_IO_FAILED", "discovery")
+        ).forEach { (failure, reason, phase) ->
+            val setup = Setup()
+            val connection = connection()
+            setup.configure(listOf(connection))
+            coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+                freshMcpReceipt()
+                throw failure
+            }
+            val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+            var admissions = 0
+            val result = setup.source.execute(entry, context { admissions++ })
+            assertEquals(1, admissions)
+            assertEquals(AppAuditOutcome.FAIL, result.outcome)
+            assertEquals(reason, result.reasonCode)
+            assertEquals(phase, result.failurePhase)
+            assertEquals("NETWORK_UNAVAILABLE", result.failureCategory)
+            assertEquals(true, result.retryable)
+            assertEquals(AppAuditDispatchEvidence.UNKNOWN, result.dispatchEvidence)
+            assertNull(result.httpStatus)
+            assertEquals(entry.configurationRevision, result.configurationRevision)
+        }
+    }
+
+    @Test
+    fun failedAttemptKeepsAdmittedRevisionWhenCredentialsRotateBeforeTheReceipt() = runBlocking {
+        val setup = Setup()
+        val connection = connection().copy(authType = ToolConnectionAuthType.BEARER, secretRef = "connection_configured")
+        var revision = "a".repeat(64)
+        setup.configure(listOf(connection))
+        coEvery { setup.vault.recordRevision("connection_configured") } answers { revision }
+        val entry = setup.source.plan(AppAuditOptions(true)).single { it.probeId == AppAuditPluginProbeSource.MCP_DISCOVERY }
+        coEvery { setup.resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true) } coAnswers {
+            freshMcpReceipt()
+            checkNotNull(kotlinx.coroutines.currentCoroutineContext()[McpDiscoveryContext]).onOwnedConfigurationRevision(entry.configurationRevision)
+            revision = "b".repeat(64)
+            throw java.io.IOException("Transport failed")
+        }
+        val result = setup.source.execute(entry, context())
+        assertEquals(AppAuditOutcome.FAIL, result.outcome)
+        assertTrue(result.configChanged)
+        assertEquals(entry.configurationRevision, result.configurationRevision)
+        assertEquals(AppAuditDispatchEvidence.UNKNOWN, result.dispatchEvidence)
+    }
+
     private suspend fun freshMcpReceipt(): McpDiscoveryReceipt {
         val context = checkNotNull(kotlinx.coroutines.currentCoroutineContext()[McpDiscoveryContext])
         context.onSource(McpDiscoverySource.FRESH)

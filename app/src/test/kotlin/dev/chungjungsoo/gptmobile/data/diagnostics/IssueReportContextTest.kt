@@ -82,6 +82,31 @@ class IssueReportContextTest {
         assertEquals(true, context.requiresReconciliation)
     }
 
+    @Test fun engineeringGuardStageDoesNotInventProviderOrDispatchEvidence() {
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "engineering_guard"))
+        assertEquals("engineering_guard", context.stage)
+        assertNull(context.dispatched)
+        assertNull(context.provider)
+        assertFalse("stage" in context.unavailableFields)
+        assertTrue("dispatched" in context.unavailableFields)
+    }
+
+    @Test fun typedDispatchAndRecoveryAliasesRemainBoundToTheSuppliedIncident() {
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("invocationId" to "failed-invocation", "dispatchState" to "DISPATCHED", "remoteAcceptance" to "YES", "failedStage" to "gateway_recovery", "nextAction" to "RECONCILE_ACTIVE_GATEWAY_JOB"))
+        assertEquals(true, context.dispatched)
+        assertEquals("YES", context.remoteAcceptance)
+        assertEquals("gateway_recovery", context.stage)
+        assertEquals("RECONCILE_ACTIVE_GATEWAY_JOB", context.recoveryAction)
+        assertEquals(IssueReportContext.identifierHash("invocation", "failed-invocation"), context.invocationIdHash)
+        assertFalse("dispatched" in context.unavailableFields)
+        val uncertain = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("dispatch_state" to "UNKNOWN_OUTCOME", "dispatched" to false, "requires_reconciliation" to false))
+        assertNull(uncertain.dispatched)
+        assertEquals(true, uncertain.requiresReconciliation)
+        val absent = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("dispatchState" to "private state", "httpStatus" to 503))
+        assertNull(absent.dispatched)
+        assertTrue("dispatched" in absent.unavailableFields)
+    }
+
     @Test fun oldPersistedReportsKeepTheirIdentityAndOmitTheNewContext() {
         val old = IssueReport(UUID.randomUUID().toString(), "debug", "0.9.66.7", 141, "8877f0e", "14", 34, "Device", feature = "chat", errorCode = "CHAT_FAILED")
         val raw = old.approvedPayload()

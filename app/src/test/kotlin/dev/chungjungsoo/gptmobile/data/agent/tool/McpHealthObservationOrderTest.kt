@@ -1,9 +1,19 @@
 package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class McpHealthObservationOrderTest {
+    @Test fun operationIdentityExistsBeforeDispatchAndNeverReusesAConnectionOrManagerEpoch() {
+        val first = McpHealthObservationOrder().begin("private-connection", "private-endpoint-and-credential")
+        val second = McpHealthObservationOrder().begin("private-connection", "private-endpoint-and-credential")
+        assertTrue(first.operationId.matches(Regex("[a-f0-9]{32}")))
+        assertNotEquals(first.operationId, second.operationId)
+        assertEquals(first.operationId, first.copy().operationId)
+    }
+
     @Test fun changedRecordRevisionInvalidatesEarlierEvidenceEvenForAnIdenticalTransportKey() {
         val order = McpHealthObservationOrder()
         val previous = order.begin("connection", "same-endpoint-and-token", "a".repeat(64))

@@ -20,6 +20,10 @@ enum class AppAuditPrerequisite { READY, NOT_CONFIGURED, UNSUPPORTED, PERMISSION
 @Serializable
 enum class AppAuditDispatchEvidence { NOT_ATTEMPTED, NOT_DISPATCHED, ATTEMPTED, CONFIRMED, UNKNOWN }
 
+/** Admission is a local budget decision; it is not evidence that a server received a request. */
+@Serializable
+enum class AppAuditNetworkAdmission { NOT_APPLICABLE, NOT_ADMITTED, ADMITTED, UNKNOWN }
+
 @Serializable
 enum class AppAuditObservationSource { CONFIGURATION, FIXTURE, LIVE, CACHE, NONE, SHARED }
 
@@ -134,7 +138,8 @@ data class AppAuditObservation(
     val observedAtEpochMs: Long? = null,
     val configurationRevision: String? = null,
     val remoteIdentity: AppAuditRemoteIdentity? = null,
-    val gatewayReadiness: AppAuditGatewayReadiness? = null
+    val gatewayReadiness: AppAuditGatewayReadiness? = null,
+    val declaredRpcErrorCode: Int? = null
 ) {
     init {
         require(appAuditIdentifier(reasonCode) && appAuditIdentifier(stage))
@@ -153,7 +158,9 @@ data class AppAuditResult(
     val startedAtEpochMs: Long,
     val finishedAtEpochMs: Long,
     val durationMs: Long?,
-    val attempted: Boolean = false
+    val attempted: Boolean = false,
+    /** UNKNOWN preserves older receipts whose attempted flag only meant probe execution started. */
+    val networkAdmission: AppAuditNetworkAdmission = AppAuditNetworkAdmission.UNKNOWN
 ) {
     val outcome: AppAuditOutcome get() = observation.outcome
     val reasonCode: String get() = observation.reasonCode
@@ -199,6 +206,16 @@ data class AppAuditRun(
 
     /** Never release an uncertain reservation or reset a legacy run's consumed budget. */
     val networkAttemptBudgetUsed: Int get() = maxOf(networkProbesAttempted, networkProbesDispatched)
+    val networkProbesStarted: Int get() = networkResults(includeCached = true).size +
+        if (plan.any { it.id == activeProbeId && it.safetyClass == AppAuditSafetyClass.NETWORK_READ } && results.none { it.entryId == activeProbeId }) 1 else 0
+    val networkProbesNotAdmitted: Int get() = networkResults(includeCached = true).count { it.networkAdmission == AppAuditNetworkAdmission.NOT_ADMITTED }
+    val networkProbesAdmissionUnknown: Int get() = networkResults(includeCached = true).count { it.networkAdmission == AppAuditNetworkAdmission.UNKNOWN }
+    val networkProbesRejectedLocally: Int get() = networkResults().count {
+        it.dispatchEvidence == AppAuditDispatchEvidence.NOT_DISPATCHED &&
+            it.observationSource == AppAuditObservationSource.NONE &&
+            it.outcome in setOf(AppAuditOutcome.BLOCKED, AppAuditOutcome.FAIL) &&
+            (it.observation.failurePhase == "local_validation" || it.observation.stage == "admission")
+    }
     val networkProbesConfirmed: Int get() = networkResults().count { it.dispatchEvidence == AppAuditDispatchEvidence.CONFIRMED }
     val networkProbesDispatchUnknown: Int get() = networkResults().count { it.dispatchEvidence in setOf(AppAuditDispatchEvidence.ATTEMPTED, AppAuditDispatchEvidence.UNKNOWN) } +
         if (plan.any { it.id == activeProbeId && it.safetyClass == AppAuditSafetyClass.NETWORK_READ } &&
@@ -210,9 +227,9 @@ data class AppAuditRun(
             0
         }
 
-    private fun networkResults(): List<AppAuditResult> {
+    private fun networkResults(includeCached: Boolean = false): List<AppAuditResult> {
         val networkIds = plan.filter { it.safetyClass == AppAuditSafetyClass.NETWORK_READ }.map { it.id }.toSet()
-        return results.filter { it.entryId in networkIds && it.attempted && it.observationSource != AppAuditObservationSource.CACHE }.distinctBy { it.entryId }
+        return results.filter { it.entryId in networkIds && it.attempted && (includeCached || it.observationSource != AppAuditObservationSource.CACHE) }.distinctBy { it.entryId }
     }
 }
 

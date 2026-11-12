@@ -184,6 +184,14 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertNotIn("private", response.text)
         self.assertFalse(self.issued)
 
+    def test_engineering_guard_stage_is_retained_without_inventing_provider_dispatch(self):
+        context = self.context(stage="engineering_guard")
+        self.assertEqual(200, self.submit({**self.manual(), "context": context}).status_code)
+        body = self.issued[0]["body"]
+        self.assertIn("| Failure stage | `engineering_guard` |", body)
+        self.assertNotIn("| Dispatched |", body)
+        self.assertIn("`dispatched`", body.split("Unavailable fields:", 1)[1])
+
     def test_existing_voice_recovery_actions_keep_the_recorded_guidance(self):
         for action, code in (("SPEECH_SERVICE", "VOICE_RECOGNIZER_UNAVAILABLE"),
                              ("SPEECH_LANGUAGE", "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE"),

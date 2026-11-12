@@ -17,7 +17,6 @@ import android.os.Handler
 import android.os.Looper
 import androidx.core.content.ContextCompat
 import java.io.File
-import java.io.IOException
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.ArrayBlockingQueue
@@ -87,6 +86,8 @@ internal class MoonshineVoiceRecognizer internal constructor(
         val speechDetected = AtomicBoolean()
         val partialDetected = AtomicBoolean()
         val acceptedChunks = AtomicInteger()
+        val capturedChunks = AtomicInteger()
+        val captureAttempts = AtomicInteger()
         val failure = AtomicReference<RecognitionFailure?>()
         val audio = ArrayBlockingQueue<FloatArray>(40)
 
@@ -200,9 +201,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             }
             engineEvent(run, "model_load_complete")
             if (run.cancelled.get()) return
-            val capture = captureFactory()
-            run.capture = capture
-            val recording = Thread({ record(run, capture) }, "LocalVoiceCapture").apply { isDaemon = true }
+            val recording = Thread({ record(run) }, "LocalVoiceCapture").apply { isDaemon = true }
             run.captureThread = recording
             recording.start()
             while (!run.cancelled.get() && run.failure.get() == null && (!run.ending.get() || run.audio.isNotEmpty())) {
@@ -275,7 +274,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             "NATIVE_MEMORY_PRESSURE" -> "VOICE_RECOGNIZER_MEMORY_PRESSURE"
             "NO_SPEECH" -> "VOICE_NO_SPEECH"
             "AUDIO_QUEUE_OVERFLOW" -> "VOICE_AUDIO_QUEUE_OVERFLOW"
-            else -> "VOICE_RECOGNIZER_FAILED"
+            else -> if (failure.cause is LocalVoiceCaptureException) "VOICE_${failure.code}" else "VOICE_RECOGNIZER_FAILED"
         }
         run.listener.failure(
             failure.message,
@@ -287,59 +286,102 @@ internal class MoonshineVoiceRecognizer internal constructor(
         )
     }
 
-    private fun engineEvent(run: CaptureRun, stage: String) {
+    private fun engineEvent(run: CaptureRun, stage: String, extra: Map<String, Any?> = emptyMap()) {
         val durationMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - run.startedNanos)
-        val message = "moonshine_$stage · stage=$stage · nativeOperationId=${run.lease} · engineId=${run.lease} · durationMs=$durationMillis · cancelled=${run.cancelled.get()} · ending=${run.ending.get()} · acceptedChunks=${run.acceptedChunks.get()} · queuedChunks=${run.audio.size} · transcriptChars=${run.transcript.length} · failureCode=${run.failure.get()?.code ?: "none"}"
+        val failure = run.failure.get()
+        val fields = mapOf(
+            "stage" to stage, "nativeOperationId" to run.lease, "engineId" to run.lease,
+            "incidentId" to run.lease, "durationMs" to durationMillis, "cancelled" to run.cancelled.get(),
+            "ending" to run.ending.get(), "acceptedChunks" to run.acceptedChunks.get(),
+            "capturedChunks" to run.capturedChunks.get(), "captureAttempts" to run.captureAttempts.get(),
+            "queuedChunks" to run.audio.size, "transcriptChars" to run.transcript.length,
+            "failureCode" to (failure?.code ?: "none"), "permissionGranted" to hasPermission()
+        ) + (failure?.cause as? LocalVoiceCaptureException)?.diagnosticFields().orEmpty() + extra
         if (stage in nativeBoundaryStages) {
             // Persist before entering the native call; a SIGABRT cannot drain the async queue.
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint("VoiceEngine", message)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.checkpoint(
+                "VoiceEngine",
+                dev.chungjungsoo.gptmobile.data.diagnostics.structuredDiagnosticEventMessage("moonshine_$stage", fields)
+            )
         } else {
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("VoiceEngine", message)
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent("VoiceEngine", "moonshine_$stage", fields)
         }
     }
 
-    private fun record(run: CaptureRun, capture: LocalVoiceCapture) {
-        try {
-            if (run.cancelled.get() || run.ending.get()) return
-            capture.start()
-            if (run.cancelled.get() || run.ending.get()) return
-            run.cancelSilenceDeadline = schedule(12_000) {
-                if (!run.speechDetected.get()) {
-                    recordFailure(run, "NO_SPEECH", "No speech was detected. Tap the microphone and try again.")
+    private fun record(run: CaptureRun) {
+        while (!run.cancelled.get() && !run.ending.get()) {
+            var capture: LocalVoiceCapture? = null
+            try {
+                if (!hasPermission()) throw SecurityException("Microphone permission was revoked before capture started.")
+                run.captureAttempts.incrementAndGet()
+                capture = captureFactory()
+                run.capture = capture
+                captureAudio(run, capture)
+                return
+            } catch (failure: LocalVoiceCaptureException) {
+                if (!run.cancelled.get() &&
+                    !run.ending.get() &&
+                    mayRecreateVoiceCapture(failure, run.captureAttempts.get(), run.capturedChunks.get())
+                ) {
+                    engineEvent(run, "capture_recreate", failure.diagnosticFields())
+                    // finally releases this recorder and audio focus before the new instance starts.
+                    continue
+                }
+                if (!run.cancelled.get() && !run.ending.get()) {
+                    recordFailure(run, failure.code, requireNotNull(failure.message), failure)
                     requestEnd(run)
                 }
-            }
-            run.cancelTurnDeadline = schedule(30_000) { requestEnd(run) }
-            deliver(run) { run.listener.ready() }
-            while (!run.cancelled.get() && !run.ending.get()) {
-                val samples = capture.read()
-                if (samples.isEmpty()) continue
-                if (!run.audio.offer(samples)) {
-                    recordFailure(run, "AUDIO_QUEUE_OVERFLOW", "Local speech could not keep up with the microphone. Your captured text is retained; close other heavy apps and try again.")
+                return
+            } catch (failure: SecurityException) {
+                recordFailure(run, "MICROPHONE_PERMISSION_CHANGED", "Microphone permission changed. Allow microphone access and try again.", failure)
+                requestEnd(run)
+                return
+            } catch (failure: OutOfMemoryError) {
+                recordFailure(run, "NATIVE_MEMORY_PRESSURE", "Local speech could not record because memory is low. Close other heavy apps or select the Android speech service.", failure)
+                requestEnd(run)
+                return
+            } catch (failure: Exception) {
+                if (!run.cancelled.get() && !run.ending.get()) {
+                    recordFailure(run, "MICROPHONE_READ_FAILED", "The microphone could not record audio. Check your audio route and try again.", failure)
                     requestEnd(run)
-                    break
                 }
-                val rms = sqrt(samples.sumOf { (it * it).toDouble() } / samples.size).toFloat()
-                deliver(run) { run.listener.level((rms * 4).coerceIn(0f, 1f)) }
+                return
+            } finally {
+                run.cancelSilenceDeadline?.invoke()
+                run.cancelTurnDeadline?.invoke()
+                if (run.capture === capture) run.capture = null
+                runCatching { capture?.close() }
             }
-        } catch (failure: SecurityException) {
-            recordFailure(run, "MICROPHONE_PERMISSION_CHANGED", "Microphone permission changed. Allow microphone access and try again.", failure)
-            requestEnd(run)
-        } catch (failure: OutOfMemoryError) {
-            recordFailure(run, "NATIVE_MEMORY_PRESSURE", "Local speech could not record because memory is low. Close other heavy apps or select the Android speech service.", failure)
-            requestEnd(run)
-        } catch (failure: Exception) {
-            if (!run.cancelled.get() && !run.ending.get()) {
-                recordFailure(
-                    run,
-                    if (failure is LocalVoiceCaptureException) "MICROPHONE_CAPTURE_FAILED" else "MICROPHONE_READ_FAILED",
-                    failure.message?.takeIf { failure is LocalVoiceCaptureException } ?: "The microphone could not record audio. Check your audio route and try again.",
-                    failure
-                )
+        }
+    }
+
+    private fun captureAudio(run: CaptureRun, capture: LocalVoiceCapture) {
+        if (run.cancelled.get() || run.ending.get()) return
+        capture.start()
+        if (run.cancelled.get() || run.ending.get()) return
+        engineEvent(run, "capture_ready")
+        val attempt = run.captureAttempts.get()
+        run.cancelSilenceDeadline = schedule(12_000) {
+            if (run.capture === capture && run.captureAttempts.get() == attempt && !run.cancelled.get() && !run.ending.get() && !run.speechDetected.get()) {
+                recordFailure(run, "NO_SPEECH", "No speech was detected. Tap the microphone and try again.")
                 requestEnd(run)
             }
-        } finally {
-            runCatching { capture.close() }
+        }
+        run.cancelTurnDeadline = schedule(30_000) {
+            if (run.capture === capture && run.captureAttempts.get() == attempt && !run.cancelled.get()) requestEnd(run)
+        }
+        deliver(run) { run.listener.ready() }
+        while (!run.cancelled.get() && !run.ending.get()) {
+            val samples = capture.read()
+            if (samples.isEmpty()) continue
+            if (run.capturedChunks.incrementAndGet() == 1) engineEvent(run, "first_pcm")
+            if (!run.audio.offer(samples)) {
+                recordFailure(run, "AUDIO_QUEUE_OVERFLOW", "Local speech could not keep up with the microphone. Your captured text is retained; close other heavy apps and try again.")
+                requestEnd(run)
+                break
+            }
+            val rms = sqrt(samples.sumOf { (it * it).toDouble() } / samples.size).toFloat()
+            deliver(run) { run.listener.level((rms * 4).coerceIn(0f, 1f)) }
         }
     }
 
@@ -450,8 +492,6 @@ internal interface LocalVoiceCapture {
     fun close()
 }
 
-private class LocalVoiceCaptureException(message: String) : IOException(message)
-
 /** Capture release is owned by the recording thread; stop only unblocks capture. No PCM is persisted. */
 private class AndroidVoiceCapture(private val context: Context) : LocalVoiceCapture {
     private val lock = Any()
@@ -460,6 +500,7 @@ private class AndroidVoiceCapture(private val context: Context) : LocalVoiceCapt
     private var focus: AudioFocusRequest? = null
     private val buffer = ShortArray(1600)
     private var filled = 0
+    private var capturedSamples = 0L
 
     @Volatile private var stopped = false
 
@@ -480,36 +521,61 @@ private class AndroidVoiceCapture(private val context: Context) : LocalVoiceCapt
                 }
             }
             .build()
-        if (manager?.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) throw LocalVoiceCaptureException("Microphone audio is busy. Finish the other audio session and try again.")
+        if (manager?.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) throw LocalVoiceCaptureException("Microphone audio is busy. Finish the other audio session and try again.", "MICROPHONE_FOCUS_DENIED", "audio_focus")
         focus = request
         val minimum = AudioRecord.getMinBufferSize(16_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
-        if (minimum <= 0) throw LocalVoiceCaptureException("This microphone route does not support local speech. Select another audio route.")
+        if (minimum <= 0) throw LocalVoiceCaptureException("This microphone route does not support local speech. Select another audio route.", "MICROPHONE_FORMAT_UNSUPPORTED", "capture_configuration", platformCode = minimum)
         val record = AudioRecord.Builder()
             .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
             .setAudioFormat(AudioFormat.Builder().setSampleRate(16_000).setChannelMask(AudioFormat.CHANNEL_IN_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
             .setBufferSizeInBytes(maxOf(minimum, 16_000))
             .build()
         recorder = record
-        if (record.state != AudioRecord.STATE_INITIALIZED) throw LocalVoiceCaptureException("The microphone could not initialize. Check your audio route.")
-        record.startRecording()
-        if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) throw LocalVoiceCaptureException("The microphone did not start recording. Check microphone access.")
+        if (record.state != AudioRecord.STATE_INITIALIZED) throw captureFailure(record, "MICROPHONE_UNINITIALIZED", "capture_initialization", "The microphone could not initialize. Check your audio route.", retryable = true)
+        try {
+            record.startRecording()
+        } catch (failure: IllegalStateException) {
+            throw captureFailure(record, "MICROPHONE_START_FAILED", "capture_start", "The microphone did not start recording. Check microphone access.", retryable = true, cause = failure)
+        }
+        if (record.recordingState != AudioRecord.RECORDSTATE_RECORDING) throw captureFailure(record, "MICROPHONE_NOT_RECORDING", "capture_start", "The microphone did not start recording. Check microphone access.", retryable = true)
     }
 
     override fun read(): FloatArray {
-        if (focusLost) throw LocalVoiceCaptureException("Voice paused because another app needs audio. Tap to resume when it is available.")
+        if (focusLost) throw LocalVoiceCaptureException("Voice paused because another app needs audio. Tap to resume when it is available.", "MICROPHONE_FOCUS_LOST", "audio_focus", capturedSamples = capturedSamples)
         if (stopped) return FloatArray(0)
         val record = synchronized(lock) { recorder } ?: return FloatArray(0)
         val count = record.read(buffer, filled, buffer.size - filled, AudioRecord.READ_NON_BLOCKING)
-        if (count < 0 && !stopped) throw LocalVoiceCaptureException("Microphone capture stopped. Reconnect your audio device and try again.")
+        if (count < 0 && !stopped) {
+            val code = when (count) {
+                AudioRecord.ERROR_DEAD_OBJECT -> "MICROPHONE_DEAD_OBJECT"
+                AudioRecord.ERROR_BAD_VALUE -> "MICROPHONE_BAD_VALUE"
+                AudioRecord.ERROR_INVALID_OPERATION -> "MICROPHONE_INVALID_OPERATION"
+                else -> "MICROPHONE_READ_FAILED"
+            }
+            throw captureFailure(record, code, "capture_read", "Microphone capture stopped. Reconnect your audio device and try again.", count, retryable = count == AudioRecord.ERROR_DEAD_OBJECT)
+        }
         if (count <= 0) {
             Thread.sleep(10)
             return FloatArray(0)
         }
+        capturedSamples += count
         filled += count
         if (filled < buffer.size) return FloatArray(0)
         filled = 0
         return FloatArray(buffer.size) { buffer[it] / 32768f }
     }
+
+    private fun captureFailure(
+        record: AudioRecord,
+        code: String,
+        phase: String,
+        message: String,
+        platformCode: Int? = null,
+        retryable: Boolean = false,
+        cause: Throwable? = null
+    ) = LocalVoiceCaptureException(
+        message, code, phase, platformCode, record.state, record.recordingState, retryable, cause, capturedSamples
+    )
 
     override fun stop() = synchronized(lock) {
         stopped = true

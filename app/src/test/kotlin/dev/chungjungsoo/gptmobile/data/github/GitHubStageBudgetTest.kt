@@ -8,6 +8,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubStageBudgetTest {
+    @Test fun helperPreviewIncludesTheFinalSerializedSafetyAndItsOwnOutputReservation() {
+        val runtime = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint("profile", "route", "credentials", "model", "model", "runtime", "template", "allocation")
+        for (context in listOf(4096, 8192, 32768, 131072)) {
+            for (role in listOf("github-review", "github-review-preflight", "github-review-repair", "github-review-output-retry", "github-claim-extraction")) {
+                val allowance = GitHubStageBudget.resolve(context, null, role)
+                val finalPrompt = allowance.input.toLong() + 1536
+                val measurement = dev.chungjungsoo.gptmobile.data.context.RequestMeasurement(finalPrompt, dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(finalPrompt), dev.chungjungsoo.gptmobile.data.context.TokenMeasurementKind.UTF8_ESTIMATE)
+                val prepared = dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare("final serialized request", role, dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(runtime, context.toLong()), measurement, allowance.output.toLong(), "policy")
+                assertTrue(prepared.receipt.capacityChecked)
+            }
+        }
+        // The captured 27,553 + 6,888 + 1,536 request must be split before dispatch.
+        assertTrue(GitHubStageBudget.resolve(32768, null, "github-review").input < 27553)
+        assertEquals(4096, GitHubStageBudget.resolve(32768, null, "github-review-output-retry").output)
+        assertEquals(1536, GitHubStageBudget.resolve(32768, 1536, "github-review-output-retry").output)
+    }
+
     @Test fun compactReviewDoesNotConsumeTheFinalClaimRenderingAllowance() {
         assertEquals(2048, GitHubStageBudget.resolve(32768, null, "github-review-preflight").output)
         assertEquals(1536, GitHubStageBudget.resolve(32768, null, "github-review").output)

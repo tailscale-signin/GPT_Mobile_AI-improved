@@ -10,6 +10,20 @@ import org.junit.Test
 
 class AppAuditModelCompatibilityTest {
     @Test
+    fun legacyAttemptedFlagNeverInventsAnAdmissionReceipt() {
+        val original = result("legacy", AppAuditObservationSource.NONE, AppAuditDispatchEvidence.NOT_DISPATCHED)
+        val legacy = JsonObject(Json.parseToJsonElement(Json.encodeToString(original)).jsonObject - "networkAdmission")
+        val decoded = Json.decodeFromString<AppAuditResult>(legacy.toString())
+        assertEquals(true, decoded.attempted)
+        assertEquals(AppAuditNetworkAdmission.UNKNOWN, decoded.networkAdmission)
+        val run = run(listOf(entry("legacy"))).copy(results = listOf(decoded))
+        assertEquals(1, run.networkProbesStarted)
+        assertEquals(1, run.networkProbesAdmissionUnknown)
+        assertEquals(0, run.networkProbesNotAdmitted)
+        assertEquals(0, run.networkAttemptBudgetUsed)
+    }
+
+    @Test
     fun legacyNetworkReservationsConsumeBudgetWithoutInventingConfirmedDispatch() {
         val original = run(listOf(entry("pending"))).copy(networkProbesDispatched = 3)
         val legacy = JsonObject(Json.parseToJsonElement(Json.encodeToString(original)).jsonObject - "networkProbesAttempted")

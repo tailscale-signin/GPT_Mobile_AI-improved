@@ -15,7 +15,7 @@ internal fun appAuditConfigurationRevision(fingerprint: String?): String? = fing
     ?.let { appAuditHash("app-audit-configuration-v1:$it") }
 
 private val AUDIT_FAILURE_PHASES = setOf(
-    "local_validation", "oauth_refresh", "dns", "tls", "connection", "initialization", "protocol_negotiation", "discovery", "execution",
+    "local_validation", "oauth_refresh", "dns", "tls", "connection", "initialization", "protocol_negotiation", "discovery", "catalogue", "execution",
     "mcp_discovery", "gateway_capabilities", "admission", "validation"
 )
 private val AUDIT_FAILURE_CATEGORIES = setOf(
@@ -27,9 +27,10 @@ private val AUDIT_VALIDATION_RULES = McpLocalValidationRule.entries.mapTo(mutabl
     "PROTOCOL_VERSION_FORMAT_REQUIRED", "SUPPORTED_PROTOCOL_REQUIRED", "REQUESTED_PROTOCOL_MATCH_REQUIRED", "LEGACY_PROTOCOL_ALTERNATIVE_REQUIRED",
     "REQUEST_METADATA_ACCEPTANCE_REQUIRED", "CLIENT_CAPABILITY_REQUIRED", "REQUEST_PARAMETERS_ACCEPTANCE_REQUIRED", "REQUEST_JSON_ACCEPTANCE_REQUIRED",
     "DISCOVERY_REQUEST_ACCEPTANCE_REQUIRED", "DISCOVERY_METHOD_SUPPORTED_REQUIRED", "ENDPOINT_ROUTE_REQUIRED", "INITIALIZE_REQUEST_ACCEPTANCE_REQUIRED", "RESPONSE_ID_MATCH_REQUIRED", "RESULT_OBJECT_REQUIRED",
-    "RESPONSE_OBJECT_REQUIRED", "JSON_RPC_VERSION_REQUIRED", "RESPONSE_RESULT_OR_ERROR_REQUIRED", "ERROR_OBJECT_REQUIRED"
+    "RESPONSE_OBJECT_REQUIRED", "JSON_RPC_VERSION_REQUIRED", "RESPONSE_RESULT_OR_ERROR_REQUIRED", "ERROR_OBJECT_REQUIRED",
+    "CAPABILITIES_OBJECT_REQUIRED", "DISCOVERY_COMPLETE_REQUIRED", "CATALOG_REQUEST_ACCEPTANCE_REQUIRED", "CATALOG_ROUTE_REQUIRED"
 )
 private val AUDIT_DIAGNOSTIC_FIELDS = McpLocalValidationRule.entries.mapTo(mutableSetOf()) { it.field } + setOf(
     "supportedVersions", "error.data.requested", "error.data.supported", "request_metadata", "client_capabilities", "params", "request", "server_discover",
-    "initialize", "id", "result", "jsonrpc", "response", "error"
+    "initialize", "id", "result", "jsonrpc", "response", "error", "endpoint", "tools_list", "capabilities", "resultType"
 )

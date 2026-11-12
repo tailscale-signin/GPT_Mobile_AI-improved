@@ -111,13 +111,14 @@ object RequestAdmission {
         val safety = Math.addExact(measurement.uncertaintyTokens, reservedInput)
         val promptWithSafety = Math.addExact(measurement.promptTokens, safety)
         val total = outputTokens?.let { Math.addExact(promptWithSafety, it) }
-        val detail = promptBudget?.let { " ${it.explain()}." }.orEmpty()
-        check(!requireKnownCapacity || capacity.contextTokens != null && outputTokens != null) { "CAPACITY_UNVERIFIED: configure a route capacity or verify the serving model before budget-sensitive inference" }
-        capacity.inputTokens?.let { check(promptWithSafety <= it) { "INPUT_CAPACITY_EXCEEDED: the complete input is retained; no inference was sent.$detail" } }
-        capacity.outputTokens?.let { check(outputTokens != null && outputTokens <= it) { "OUTPUT_CAPACITY_EXCEEDED: re-plan the writing stage without discarding its goal.$detail" } }
+        fun reject(code: String, message: String, ceiling: Long? = capacity.contextTokens): Nothing =
+            throw RequestCapacityException(code, message, measurement.promptTokens, safety, outputTokens, ceiling, measurement.kind, promptBudget)
+        if (requireKnownCapacity && (capacity.contextTokens == null || outputTokens == null)) reject("CAPACITY_UNVERIFIED", "configure a route capacity or verify the serving model before budget-sensitive inference")
+        capacity.inputTokens?.let { if (promptWithSafety > it) reject("INPUT_CAPACITY_EXCEEDED", "the complete input is retained; no inference was sent.", it) }
+        capacity.outputTokens?.let { if (outputTokens == null || outputTokens > it) reject("OUTPUT_CAPACITY_EXCEEDED", "re-plan the writing stage without discarding its goal.", it) }
         capacity.contextTokens?.let { ceiling ->
-            check(promptWithSafety < ceiling) { "CONTEXT_CAPACITY_EXCEEDED: no space remains for output; the input was not truncated.$detail" }
-            if (total != null) check(total <= ceiling) { "CONTEXT_CAPACITY_EXCEEDED: prompt + output + safety exceed the serving context; no inference was sent.$detail" }
+            if (promptWithSafety >= ceiling) reject("CONTEXT_CAPACITY_EXCEEDED", "no space remains for output; the input was not truncated.")
+            if (total != null && total > ceiling) reject("CONTEXT_CAPACITY_EXCEEDED", "prompt + output + safety exceed the serving context; no inference was sent.")
         }
         val receipt = RequestAdmissionReceipt(role, serializerRevision, capacity.fingerprint, permissionRevision, measurement.promptTokens, outputTokens, safety, capacity.contextTokens, capacity.provenance, measurement.kind, total != null && capacity.contextTokens != null, reasoning, messageValidatorRevision = messageValidatorRevision, promptBudget = promptBudget, requestDeadline = requestDeadline)
         return PreparedModelRequest(payload, receipt, researchHash(payload))
@@ -127,6 +128,12 @@ object RequestAdmission {
         val bytes = payload.toByteArray(Charsets.UTF_8).size.toLong()
         val prompt = Math.addExact(bytes, 2) / 3
         // Deliberately labeled heuristic. It is never a serving-tokenizer or calibrated count.
-        return RequestMeasurement(prompt, maxOf(256L, prompt / 4), TokenMeasurementKind.UTF8_ESTIMATE)
+        return RequestMeasurement(prompt, estimateSafety(prompt), TokenMeasurementKind.UTF8_ESTIMATE)
+    }
+
+    /** Shared by planning and final serialization so a helper cannot spend the safety reserve. */
+    fun estimateSafety(promptTokens: Long): Long {
+        require(promptTokens >= 0)
+        return maxOf(256L, promptTokens / 4)
     }
 }

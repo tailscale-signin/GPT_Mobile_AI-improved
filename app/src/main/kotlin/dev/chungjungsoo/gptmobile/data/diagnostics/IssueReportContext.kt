@@ -51,7 +51,7 @@ internal data class IssueReportContext(
         val sources = setOf("CHAT_FAILURE", "STRUCTURED_EVENT", "TOOL_RESULT", "VOICE_STATE", "EXCEPTION", "PROCESS_EXIT", "CODE_ONLY", "MANUAL_REPORT")
         val providers = setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OLLAMA", "OPENROUTER", "LLAMA", "GATEWAY", "LOCAL", "CUSTOM", "LITERT_LM", "FREE", "NVIDIA")
         val operations = setOf("github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_commit", "github_review", "github_engineering", "repository_graph", "mcp", "web_search", "read_url", "voice_capture", "voice_recognition", "voice_playback")
-        val stages = setOf("admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission", "conversation_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle", "voice_capture", "voice_recognition", "voice_playback")
+        val stages = setOf("admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission", "conversation_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "engineering_guard", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle", "voice_capture", "voice_recognition", "voice_playback")
         val jobStates = setOf("QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED")
         val recoveryActions = setOf("OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RECONCILE_ACTIVE_GATEWAY_JOB", "REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "RECONCILE_OUTCOME", "REVIEW_AUTHORIZATION", "RETRY_AFTER_BACKOFF", "RETRY_AFTER_CONFIGURATION_CHANGE", "MICROPHONE_PERMISSION", "RETRY_RECOGNITION", "RETRY_PLAYBACK", "SPEECH_SERVICE", "SPEECH_LANGUAGE", "LOCAL_MODEL")
         val reasonCodes = setOf("SELECTION_NOT_OBJECT", "SELECTION_SCHEMA_INVALID", "SELECTION_IDENTITY_INVALID", "SELECTION_CREDENTIAL_REFERENCE_INVALID")
@@ -89,24 +89,33 @@ internal data class IssueReportContext(
                 if (names.any { it !in selectionFields }) return null
                 return names.filterNotNull().distinct().sorted()
             }
+            val dispatchState = text("dispatch_state", "dispatchState", "attempt_dispatch_state", "executionState")?.uppercase(Locale.ROOT)
+            val explicitDispatch = flag("dispatched")
+            val dispatched = when {
+                dispatchState == "UNKNOWN_OUTCOME" -> explicitDispatch.takeIf { it == true }
+                explicitDispatch != null -> explicitDispatch
+                dispatchState in setOf("NOT_DISPATCHED", "PRECHECK_REJECTED") -> false
+                dispatchState == "DISPATCHED" -> true
+                else -> null
+            }
             return IssueReportContext(
                 schemaVersion = 1,
                 occurredAtMillis = occurredAtMillis,
                 source = source,
                 unavailableFields = emptyList(),
-                stage = text("failed_stage", "phase", "stage")?.lowercase(Locale.ROOT)?.takeIf { it in stages },
+                stage = text("failed_stage", "failedStage", "failurePhase", "phase", "stage")?.lowercase(Locale.ROOT)?.takeIf { it in stages },
                 provider = text("provider_kind", "provider", "apiType")?.uppercase(Locale.ROOT)?.takeIf { it in providers },
                 operation = text("operation", "tool", "tool_name")?.substringBefore("__")?.lowercase(Locale.ROOT)?.takeIf { it in operations },
                 httpStatus = number("http_status", "httpStatus", "statusCode")?.takeIf { it in 100..599 }?.toInt(),
                 // Only explicit relative durations; ProfileFailureRecord also has absolute deadlines.
                 retryAfterMillis = number("retry_after_ms", "retryAfterMs")?.takeIf { it in 0..86_400_000 },
-                dispatched = flag("dispatched"),
+                dispatched = dispatched,
                 retryable = flag("retryable"),
                 resumeAllowed = flag("resume_allowed", "resumeAllowed"),
-                requiresReconciliation = if (flag("command_outcome_unknown") == true) true else flag("requires_reconciliation", "requiresReconciliation"),
+                requiresReconciliation = if (flag("command_outcome_unknown") == true || dispatchState == "UNKNOWN_OUTCOME") true else flag("requires_reconciliation", "requiresReconciliation"),
                 remoteAcceptance = text("remote_acceptance", "remoteAcceptance")?.uppercase(Locale.ROOT)?.takeIf { it in setOf("YES", "NO", "UNKNOWN") },
                 jobState = text("active_job_state", "job_state", "jobState")?.uppercase(Locale.ROOT)?.takeIf { it in jobStates },
-                recoveryAction = text("recovery_action", "next_action", "recoveryAction")?.uppercase(Locale.ROOT)?.takeIf { it in recoveryActions },
+                recoveryAction = text("recovery_action", "next_action", "recoveryAction", "nextAction")?.uppercase(Locale.ROOT)?.takeIf { it in recoveryActions },
                 reasonCode = text("reasonCode", "reason_code")?.uppercase(Locale.ROOT)?.takeIf { it in reasonCodes },
                 missingFields = names("missing_fields"),
                 invalidFields = names("invalid_fields"),

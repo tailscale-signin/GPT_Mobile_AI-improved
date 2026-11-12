@@ -66,7 +66,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                     if (!cursor.moveToFirst()) null else Triple(cursor.getString(0), cursor.getString(1), cursor.getString(2).orEmpty())
                 }
             }
-            suspend fun project(stored: Triple<String, String, String>?, source: String): JsonObject? {
+            suspend fun project(stored: Triple<String, String, String>?, source: String, retain: Boolean = true): JsonObject? {
                 if (stored == null) return null
                 val reasons = mutableListOf<String>()
                 val protected = workspace.diagnosticPayload(chatId, stored.first, stored.second, stored.third, 256 * 1024, beforeRead, reasons::add)
@@ -91,31 +91,47 @@ class DiagnosticDatabaseSource @Inject constructor(
                     // latest-state/workspace collector independently records real omissions.
                     if (reason !in setOf("PROTECTED_PAYLOAD_BYTE_LIMIT", "PROTECTED_METADATA_LIMIT")) omitted(reason)
                 }
-                if (payload != null) evidence += DiagnosticFailureEvidence(stored.first, source, payload)
+                if (payload != null && retain) evidence += DiagnosticFailureEvidence(stored.first, source, payload)
                 return payload
             }
             val current = load("id GLOB 'github-evidence:*:verification_current_*'")
             val report = project(current, "VERIFICATION_CURRENT")
+            var verification = report
+            var binding = current?.first?.removePrefix("github-evidence:")?.substringBeforeLast(':')
             if (report == null) {
                 val event = load("id GLOB 'github-evidence:*:verification_event_*'")
                 val projected = project(event, "VERIFICATION_EVENT")
                 val snapshot = (projected?.get("snapshot_id") as? JsonPrimitive)?.contentOrNull
-                if (current != null && snapshot != current.first.substringAfterLast(':')) {
+                val eventBinding = event?.first?.removePrefix("github-evidence:")?.substringBeforeLast(':')
+                if (current != null && (snapshot != current.first.substringAfterLast(':') || eventBinding != binding)) {
                     evidence.removeAll { it.source == "VERIFICATION_EVENT" }
                     limitations += buildJsonObject {
                         put("source", "VERIFICATION_EVENT")
                         put("reason", "LATEST_FAILURE_SNAPSHOT_MISMATCH")
                     }
+                } else {
+                    verification = projected
+                    if (binding == null && projected != null) binding = eventBinding
                 }
             }
             // The output checkpoint supplies invocation/dispatch/recovery detail when
             // the verification event deliberately contains only a compact verdict.
-            if (report?.get("completion_verified") != JsonPrimitive(true) &&
-                (report == null || listOf("invocation_id", "failed_stage", "recovery_action").any { report[it] == null || report[it] == JsonNull })
+            val retainedVerification = verification
+            if (retainedVerification?.get("completion_verified") != JsonPrimitive(true) &&
+                (retainedVerification == null || listOf("invocation_id", "failed_stage", "recovery_action").any { retainedVerification[it] == null || retainedVerification[it] == JsonNull })
             ) {
-                val binding = current?.first?.removePrefix("github-evidence:")?.substringBeforeLast(':')
                 val output = if (binding == null) load("id GLOB 'github-output:*'") else load("id = ?", "github-output:$binding")
                 project(output, "OUTPUT_CHECKPOINT")
+            }
+            // The key is the same stable account/conversation/repository/task
+            // binding used by ChatRepositoryImpl, and load() also pins this run.
+            // Never search for a nearby/latest review from another binding.
+            if (binding != null && run.second != "COMPLETED" && verification?.get("completion_verified") != JsonPrimitive(true)) {
+                val stored = load("id = ?", "github-review:$binding:active")
+                val review = project(stored, "REVIEW_CHECKPOINT", retain = false)
+                if (stored != null && review != null && unresolvedGitHubReviewFailure(review)) {
+                    evidence.add(0, DiagnosticFailureEvidence(stored.first, "REVIEW_CHECKPOINT", review))
+                }
             }
         }
         diagnosticFailureSummary(run?.first, run?.second, run?.third, appVersion, appBuild, appCommit, evidence, limitations)

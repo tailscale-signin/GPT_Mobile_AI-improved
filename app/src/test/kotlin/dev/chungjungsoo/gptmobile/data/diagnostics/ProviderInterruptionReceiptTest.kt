@@ -29,6 +29,7 @@ class ProviderInterruptionReceiptTest {
                 "Completed provider output is waiting for durable tool receipts.",
                 errorCode = "OUTPUT_CONTINUATION_PENDING_TOOLS",
                 transportComplete = true,
+                invocationId = "continuation",
                 failureDetails = buildJsonObject {
                     put("failed_stage", stage)
                     put("generation_completed", true)
@@ -39,7 +40,7 @@ class ProviderInterruptionReceiptTest {
                     put("logical_continuation_allowed", false)
                 }
             )
-            val receipt = ProviderFailureReceipt.from(PlatformV2(uid = "profile", name = "Selected", model = "chosen-model"), "github-delivery", failure, ProviderEvent.Usage(finishReason = "tool_calls"))
+            val receipt = ProviderFailureReceipt.from(PlatformV2(uid = "profile", name = "Selected", model = "chosen-model"), "github-delivery", failure, ProviderEvent.Usage(finishReason = "tool_calls", invocationId = "continuation"))
             assertTrue(receipt.valid())
             assertEquals(ProviderFailureStage.CONTINUATION, receipt.stage)
             assertEquals("OUTPUT_CONTINUATION_PENDING_TOOLS", receipt.errorCode)

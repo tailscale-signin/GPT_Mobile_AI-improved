@@ -14,6 +14,14 @@ import org.junit.Test
 class GitHubSamplingPolicyTest {
     private val profile = PlatformV2(uid = "selected", name = "Selected", compatibleType = ClientType.LLAMA, model = "selected-model", temperature = 1.1f, topP = .6f, reasoning = true)
 
+    @Test fun reviewSerializerMeasuresTheLargestFinalSystemInstruction() {
+        val measured = GitHubSamplingPolicy.instruction(GitHubSamplingStage.VERIFICATION)
+        for (role in listOf("github-review", "github-review-preflight", "github-review-repair", "github-review-output-retry", "github-review-repair-output-retry")) {
+            val sent = GitHubSamplingPolicy.instruction(GitHubSamplingPolicy.stage(role))
+            assertTrue(dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(sent) <= dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(measured))
+        }
+    }
+
     @Test fun oldSettingsGainAdaptiveDefaultAndManualRoundTripsIndependently() {
         assertEquals(GitHubCreativityMode.ADAPTIVE, Json.decodeFromString<GitHubChatProfileOverride>("{}").sampling.mode)
         val settings = GitHubChatProfileOverride(sampling = GitHubSamplingSettings(mode = GitHubCreativityMode.MANUAL, creativity = .4f))

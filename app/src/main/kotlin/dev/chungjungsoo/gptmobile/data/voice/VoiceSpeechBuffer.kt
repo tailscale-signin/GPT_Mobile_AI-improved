@@ -6,7 +6,13 @@ internal class VoiceSpeechBuffer {
     private var consumed = 0
     private var announcedLimit = false
     fun append(text: String, final: Boolean, earlyStart: Boolean = false): List<String>? {
-        if (!text.startsWith(previous)) return null
+        // Persistence may trim the trailing whitespace of the terminal message.
+        // It does not revise any spoken word and must not cancel buffered audio.
+        // A change to actual content still invalidates the stream immediately.
+        if (!text.startsWith(previous)) {
+            if (!final || text.trimEnd() != previous.trimEnd()) return null
+            consumed = consumed.coerceAtMost(text.length)
+        }
         previous = text
         val end = minOf(text.length, 12000).let { if (it < text.length && it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
         val visible = text.substring(0, end)

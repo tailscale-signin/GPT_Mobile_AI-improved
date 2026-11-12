@@ -22,7 +22,8 @@ internal class ProviderUsageCounter {
     var phase: ProviderUsagePhase = ProviderUsagePhase.INITIAL
         private set
 
-    fun accept(tokens: Int?, cumulative: Boolean, source: String, phase: ProviderUsagePhase) {
+    fun accept(tokens: Int?, cumulative: Boolean, source: String, phase: ProviderUsagePhase, authoritativeReceipt: Boolean = false) {
+        require(!authoritativeReceipt || cumulative && phase == ProviderUsagePhase.FINAL)
         if (tokens == null || tokens < 0) return
         val label = usageSourceAtPhase(source, phase)
         val observation = Observation(tokens.toLong(), label, phase, cumulative)
@@ -38,10 +39,11 @@ internal class ProviderUsageCounter {
         fun rank(name: String, at: ProviderUsagePhase): Int = when {
             name in setOf("estimated", "unavailable") -> 0
             measuredUsageSource(name, at) -> 3
+            name.endsWith("_reported_partial") -> 2
             at == ProviderUsagePhase.INTERIM -> 2
             else -> 1
         }
-        if (value == null || rank(label, phase) >= rank(this.source, this.phase)) {
+        if (authoritativeReceipt || value == null || rank(label, phase) >= rank(this.source, this.phase)) {
             // A corrected provider total may be lower than an estimate or an earlier frame.
             value = lanes.getValue(key)
             this.source = label

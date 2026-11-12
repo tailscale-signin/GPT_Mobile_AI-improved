@@ -38,7 +38,7 @@ internal class GatewayAvailabilityNetworkSource(
     private val capabilities = RouteCapabilityCache<CapabilityObservation>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
 
     override suspend fun probe(config: ProviderRequestConfig, model: String, refresh: Boolean): GatewayAvailabilityProbe {
-        val key = "${GatewayClientDiagnostics.routeIdentity(config)}|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.runtimeEpoch(config)}"
+        val key = "${GatewayClientDiagnostics.routeIdentity(config)}|${dev.chungjungsoo.gptmobile.data.research.researchHash(config.profileRevision.orEmpty())}|${LocalServiceHealth.networkEpoch}|${GatewayClientDiagnostics.runtimeEpoch(config)}"
         var capabilityObservedAt: Long? = null
         // Readiness and capabilities are independent observations. A timeout from /ready
         // must not discard a successful capability response or label a reachable gateway absent.

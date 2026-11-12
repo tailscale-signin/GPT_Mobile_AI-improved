@@ -1,0 +1,82 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "fix/session-reliability-reporting-2026-11-12",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "session-reliability-reporting-2026-11-12",
+  "state": "VALIDATING",
+  "intent": "Repair the complete session's diagnostic, GitHub orchestration, model review, native issue reporting, MCP and audit findings while preserving evidence, selected-profile authority and safe recovery.",
+  "evidence": {
+    "diagnostics_session": "b379afe1-b976-4788-a55f-9e5fbd6a23f6",
+    "app_commit": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "verified_section_hashes": 20,
+    "selected_chat_runs": 6,
+    "audit_source": "User-supplied analysis of app-audit-1794498632783.json; original audit file was not attached in this session",
+    "reporting_source": "User-supplied build-log findings for main and PR837; verified against the pinned source",
+    "additional_diagnostics_source": "User-supplied analysis of app-diagnostics-6729730838505374983.jsonl; original file was not attached in this session"
+  },
+  "workstreams": [
+    {
+      "id": "review",
+      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "scope": "Canonical evidence, serialized review admission, bounded review recovery, probe reuse, failure usage and provenance"
+    },
+    {
+      "id": "github_execution",
+      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "scope": "Action-specific duplicate protection, useful CI acquisition, current task authority, criteria, progress and factual partial reports"
+    },
+    {
+      "id": "gateway",
+      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "scope": "Exact selected-model preparation, admission consistency and prerequisite read recovery"
+    },
+    {
+      "id": "reporting",
+      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "scope": "Native Send and retry availability, approved payload identity, meaningful delivery state, build and service configuration"
+    },
+    {
+      "id": "mcp_audit",
+      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "scope": "Typed discovery failures, configuration binding, connection repair, measured coverage and qualification"
+    },
+    {
+      "id": "diagnostics_ui",
+      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "scope": "Early failure receipts, compact causal joins and bounded rendering/export work"
+    },
+    {
+      "id": "voice",
+      "state": "IMPLEMENTED_PENDING_VALIDATION",
+      "scope": "Typed recorder startup and bounded recreation, partial-PCM preservation, playback ownership/drain and correlated native outcomes"
+    }
+  ],
+  "validation": {
+    "host": "PASSED_472_TESTS_AND_FAST_GATE",
+    "focused_behavior": "FULL_JVM_SUITE_COMPILING",
+    "android": "PRODUCTION_COMPILATION_PASSED",
+    "gateway": "PASSED_895_SKIPPED_2_BROWSER_PASSED_7",
+    "device": "NOT_RUN_NO_DEVICE",
+    "live_services": "NOT_RUN_NO_USER_ENDPOINT_CREDENTIAL_ACCESS",
+    "authentication": "PASSED_47_TESTS",
+    "kotlin_style": "PASSED_144_CHANGED_FILES"
+  },
+  "external_qualification": [
+    "Restore or reconfigure the user's private MCP endpoints using their actual saved identities; audit aliases are capture-local.",
+    "Reauthorize the saved MCP connection with invalid local credentials; never fabricate an authorization result.",
+    "A live reporting-service deployment needs a real origin and publisher credentials unless native authenticated GitHub delivery is selected.",
+    "Physical phone, voice, GPU/NPU, frame and memory qualification require the intended device and workload.",
+    "Optional absent or deliberately disabled plugins are configuration states and must not be silently enabled or counted as implementation defects."
+  ],
+  "publication": {
+    "mode": "GUARDED_FAST_FORWARD_ONLY",
+    "force": false,
+    "state": "BRANCH_CREATED",
+    "expected_head": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf"
+  },
+  "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
+  "checkpoint_storage": "repository_file"
+}

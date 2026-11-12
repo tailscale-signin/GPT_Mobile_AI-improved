@@ -6,6 +6,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechBufferTest {
+    @Test fun terminalWhitespaceTrimmingDoesNotInvalidateQueuedSpeech() {
+        val buffer = VoiceSpeechBuffer()
+        assertEquals(listOf("A completed sentence. "), buffer.append("A completed sentence. ", false, earlyStart = true))
+        assertEquals(emptyList<String>(), buffer.append("A completed sentence.", true, earlyStart = true))
+        assertNull(buffer.append("A changed sentence.", true, earlyStart = true))
+    }
+
     @Test fun repeatedSnapshotsSpeakEachSentenceOnceAndRetainTail() {
         val buffer = VoiceSpeechBuffer()
         assertTrue(buffer.append("Hello", false)!!.isEmpty())

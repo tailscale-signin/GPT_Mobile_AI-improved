@@ -137,6 +137,7 @@ class ReasoningCapabilityRepository internal constructor(
                 apiUrl = profile.apiUrl,
                 token = profile.token,
                 profileUid = profile.uid,
+                profileRevision = ConfiguredDispatchAuthority.profileRevision(profile),
                 providerType = profile.compatibleType.name,
                 requestRole = "reasoning-capability-check",
                 lockedModel = profile.model,

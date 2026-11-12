@@ -24,6 +24,52 @@ import org.junit.Before
 import org.junit.Test
 
 class McpFailureDiagnosticsTest {
+    @Test fun refusedDiscoveryCarriesOnePreassignedOperationAndRevisionThroughTransport() = runBlocking {
+        val logs = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val requests = mutableListOf<String>()
+        val revisions = mutableListOf<String?>()
+        val client = HttpClient(
+            MockEngine {
+                requests += checkNotNull(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt]).readId
+                throw java.net.ConnectException("Connection refused")
+            }
+        ) {
+            install(io.ktor.client.plugins.logging.Logging) {
+                level = io.ktor.client.plugins.logging.LogLevel.HEADERS
+                logger = object : io.ktor.client.plugins.logging.Logger {
+                    override fun log(message: String) {
+                        logs += dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt.correlateLog(message)
+                    }
+                }
+            }
+        }
+        val manager = McpClientManager(client, modern = ModernMcpTransport(client), nowMs = { 10_000L })
+        val config = McpConnectionConfig("refused", "https://refused.example/mcp", false, configurationRevision = "a".repeat(64))
+        try {
+            kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.AUDIT_REFRESH, beforeOwnedDispatch = {}, onOwnedConfigurationRevision = { revisions += it })) {
+                assertTrue(runCatching { manager.listTools(config, awaitCompletion = true) }.isFailure)
+            }
+            assertEquals(listOf(config.configurationRevision), revisions)
+            assertEquals(1, requests.size)
+            assertTrue(requests.single().matches(Regex("[a-f0-9]{32}")))
+            assertTrue(logs.single { "failed with exception" in it }.contains("operation_id=${requests.single()}"))
+            val health = manager.healthSnapshot(config.connectionUid)
+            assertEquals("CONNECTION_REFUSED", health.lastErrorCode)
+            assertEquals("connection", health.failedStage)
+            assertEquals("UNKNOWN", health.lastDispatchEvidence)
+            assertEquals(config.configurationRevision, health.failureConfigurationRevision)
+            repeat(3) { assertTrue(runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull() is McpBackoffException) }
+            assertEquals(1, requests.size)
+            assertTrue(runCatching { manager.listTools(config, forceRefresh = true, awaitCompletion = true) }.isFailure)
+            assertEquals(2, requests.size)
+            assertEquals(2, requests.distinct().size)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+        assertEquals("outside", dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt.correlateLog("outside"))
+    }
+
     @Before fun resetHealth() = LocalServiceHealth.networkChanged()
 
     @After fun clearHealth() = LocalServiceHealth.networkChanged()
@@ -65,6 +111,28 @@ class McpFailureDiagnosticsTest {
             assertEquals(7_000L, health.lastFailureAtMs)
             assertEquals("d".repeat(64), health.failureConfigurationRevision)
             assertEquals(1, requests)
+        } finally {
+            manager.closeAll()
+            client.close()
+        }
+    }
+
+    @Test fun sdkInitializationRetainsOnlyRecognizedStructuredRejectionDetails() = runBlocking {
+        val client = HttpClient(
+            MockEngine {
+                respond("""{"jsonrpc":"2.0","id":1,"error":{"code":-32602,"message":"private-body private-token","data":{"credential":"private-secret"}}}""", io.ktor.http.HttpStatusCode.BadRequest)
+            }
+        ) { install(io.ktor.client.plugins.sse.SSE) }
+        val manager = McpClientManager(client)
+        val config = McpConnectionConfig("sdk-structured", "https://sdk-structured.example/v1", false)
+        try {
+            val failure = runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull() as McpProtocolConfigurationException
+            assertEquals(-32602, failure.declaredRpcErrorCode)
+            assertEquals(-32602, manager.healthSnapshot(config.connectionUid).lastDeclaredRpcErrorCode)
+            assertTrue(failure.message.orEmpty().contains("declared invalid initialize parameters"))
+            assertFalse(failure.message.orEmpty().contains("private"))
+            assertEquals("https://sdk-structured.example/v1", config.endpointUrl)
+            assertEquals(false, manager.healthSnapshot(config.connectionUid).failureRetryable)
         } finally {
             manager.closeAll()
             client.close()

@@ -4945,6 +4945,7 @@ class ChatRepositoryImpl(
                 resolved.tool
             }
         val observedRequestContext = java.util.concurrent.atomic.AtomicReference<Int?>(null)
+        var currentGitHubPromptContract: JsonObject? = null
         suspend fun openPrimarySession(
             turns: List<dev.chungjungsoo.gptmobile.data.context.ConversationTurn>,
             kind: String = if (runId.startsWith("combined-synthesis:")) "synthesis" else "primary",
@@ -4971,6 +4972,12 @@ class ChatRepositoryImpl(
                     stagePlatform.withSystemPrompt(stagePlatform.systemPrompt.orEmpty() + "\n" + extraInstruction)
                 }
                 ).let { if (stageInstruction.isEmpty()) it else it.withSystemPrompt(it.systemPrompt.orEmpty() + "\n" + stageInstruction) }
+                .let { invocation ->
+                    currentGitHubPromptContract?.takeUnless { textOnly }?.let { contract ->
+                        val remaining = remainingToolCalls()?.coerceAtLeast(0)
+                        invocation.withSystemPrompt(invocation.systemPrompt.orEmpty() + "\nCurrent accepted GitHub execution contract: $contract. Remaining shared tool calls: ${remaining ?: "not measured"}. Use this contract for scope and budget; older conversation tasks and their limits do not replace it. A remaining allowance permits further required work; it is not evidence that any check passed.")
+                    } ?: invocation
+                }
             kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.CombinedWriterDispatchGuard]?.validatePreparedRequest(invocationPlatform, turns)
             factVault?.validateRecall(recalled, latestUser?.chatId ?: 0, platform.isPrivateDestination())
             require(
@@ -5544,6 +5551,7 @@ class ChatRepositoryImpl(
             authorizedEvidenceTools, evidenceCatalog, dispatchAuthority, originalUserRequest, acceptanceRequest, requiresNativeAcceptance,
             toolBudgetSourceMessageId, customRunner.limits.maxToolCalls, validateSavedEvidence
         )
+        currentGitHubPromptContract = verifiedEvidence?.acceptedPromptContract()
         data class GitHubAnswerSessions(
             val advertisedSession: AgentProviderSession,
             val reviewEvidence: dev.chungjungsoo.gptmobile.data.github.GitHubReviewEvidence?,
@@ -5693,7 +5701,12 @@ class ChatRepositoryImpl(
             fun reviewOutputTokens(): Int = githubStageBudget("github-review").output
             fun reviewInputLimit(): Int = githubStageBudget("github-review").input
             suspend fun measureReview(prompt: String): Int = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                val system = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION
+                // Review helpers replace the profile system prompt. Include the
+                // same final sampling instruction appended by openPrimarySession;
+                // verification is the longest stage used by review and repair.
+                val system = dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION + requestConstraints.githubSampling?.let {
+                    "\n" + dev.chungjungsoo.gptmobile.data.github.GitHubSamplingPolicy.instruction(dev.chungjungsoo.gptmobile.data.github.GitHubSamplingStage.VERIFICATION)
+                }.orEmpty()
                 dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate.estimate(
                     buildJsonObject {
                         put("model", platform.model)
@@ -5727,8 +5740,20 @@ class ChatRepositoryImpl(
                     currentInputLimit = ::reviewInputLimit,
                     inputLimitForPass = { githubStageBudget(it).input },
                     measureInput = ::measureReview,
+                    acceptedExecutionContract = { currentGitHubPromptContract },
                     reviewerRevision = dev.chungjungsoo.gptmobile.data.research.researchHash("${dev.chungjungsoo.gptmobile.data.github.GitHubReviewSchema.VERSION}:${platform.uid}:${platform.model}:${platform.apiUrl}:${dispatchAuthority.revision}:${dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.profileCapabilityEpoch(platform.uid, platform.apiUrl)}:${reviewOutputTokens()}:$resolvedOutputCap"),
                     compatibility = githubReviewCompatibility,
+                    compatibilityRevision = dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.revision(
+                        routeRevision = dev.chungjungsoo.gptmobile.data.context.CapturedProviderAuthority.routeRevision(platform),
+                        model = platform.model,
+                        profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(platform),
+                        policyRevision = dispatchAuthority.authority?.policyRevision ?: dispatchAuthority.revision,
+                        permissionRevision = dispatchAuthority.authority?.permissionRevision ?: dispatchAuthority.revision,
+                        runtimeRevision = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.profileCapabilityEpoch(platform.uid, platform.apiUrl).toString(),
+                        templateRevision = dev.chungjungsoo.gptmobile.data.research.researchHash(dev.chungjungsoo.gptmobile.data.github.GitHubReviewedSession.INSTRUCTION),
+                        contextTokens = githubStageBudget("github-review-preflight").input,
+                        outputTokens = githubStageBudget("github-review-preflight").output
+                    ),
                     checkpoint = workspace?.let { store ->
                         val github = requireNotNull(chatToolConfig?.github)
                         val legacyBinding = dev.chungjungsoo.gptmobile.data.research.researchHash("${reviewUser.chatId}:${reviewUser.id}:${platform.uid}:${github.connectionUid}:${github.owner}/${github.repo}:${github.ref}:${dispatchAuthority.revision}")
@@ -6946,17 +6971,23 @@ class ChatRepositoryImpl(
                     "stopCode" to terminal.stopCode,
                     "approvalState" to terminal.approvalState,
                     "taskOutcome" to terminal.taskOutcome,
-                    "retryable" to (failure?.retryAllowed ?: false),
+                    "retryable" to (status != AgentRunStatus.COMPLETED && failure?.retryAllowed == true),
                     "dispatched" to terminal.dispatched,
                     "executionState" to terminal.executionState,
                     "remoteAcceptance" to terminal.remoteAcceptance.name,
-                    "dispatchEvidenceScope" to if (terminal.invocationId != null) "MODEL_INVOCATION" else "RUN_FAILURE",
+                    "dispatchEvidenceScope" to if (status == AgentRunStatus.COMPLETED) {
+                        "RUN_COMPLETION"
+                    } else if (terminal.invocationId != null) {
+                        "MODEL_INVOCATION"
+                    } else {
+                        "RUN_FAILURE"
+                    },
                     "taskVerification" to terminal.taskVerification,
                     "acceptanceEvidence" to acceptance?.evidenceId,
                     "verifiedCriteria" to acceptance?.verifiedCriteria,
                     "requiredCriteria" to acceptance?.requiredCriteria,
                     "unresolvedRemoteOutcomes" to acceptance?.unresolvedOutcomes,
-                    "causalEvidence" to "message:${message.id}:run_error",
+                    "causalEvidence" to if (status == AgentRunStatus.COMPLETED) null else "message:${message.id}:run_error",
                     "terminalErrorRetained" to (terminalError != null),
                     "visibleCharacters" to message.content.length,
                     "reasoningCharacters" to message.thoughts.length,

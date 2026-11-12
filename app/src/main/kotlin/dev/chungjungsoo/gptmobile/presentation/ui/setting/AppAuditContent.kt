@@ -147,6 +147,8 @@ internal fun AppAuditResultCard(
             Text(presentation.scoreText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.weightText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.evidenceText, style = MaterialTheme.typography.bodySmall)
+            Text(presentation.configurationText, style = MaterialTheme.typography.bodySmall)
+            Text(presentation.prerequisiteText, style = MaterialTheme.typography.bodySmall)
             Text(presentation.coverageNotice, style = MaterialTheme.typography.bodySmall)
             Text("The score is 100 × passing weight / measured weight for eligible named checks. Configuration, cached information and untested checks do not earn points. It is separate from model quality and performance scores.", style = MaterialTheme.typography.bodySmall)
             Text(presentation.countsText, style = MaterialTheme.typography.bodySmall)
@@ -189,7 +191,7 @@ internal fun LazyListScope.appAuditEvidenceContent(
             Text("${run.catalogVersion} · ${run.buildVersion} (${run.buildVariant}) · source ${run.sourceCommit.take(12)}", style = MaterialTheme.typography.labelSmall)
             Text("Indexed source: ${run.sourceFileCount} files · ${run.sourceLineCount} lines. These are inventory counts, not executed lines.", style = MaterialTheme.typography.bodySmall)
             Text("Plan ${run.plan.size} entries · updated ${benchmarkResultDate(run.updatedAtEpochMs)}", style = MaterialTheme.typography.labelSmall)
-            Text("Network probe attempts: ${run.networkAttemptBudgetUsed} · confirmed dispatches: ${run.networkProbesConfirmed} · dispatch uncertain: ${run.networkProbesDispatchUnknown}", style = MaterialTheme.typography.bodySmall)
+            Text("Network probes started: ${run.networkProbesStarted} · admitted: ${run.networkAttemptBudgetUsed} · rejected locally: ${run.networkProbesRejectedLocally} · confirmed dispatches: ${run.networkProbesConfirmed} · dispatch uncertain: ${run.networkProbesDispatchUnknown}", style = MaterialTheme.typography.bodySmall)
             Text("An attempt consumes the conservative probe budget before a request outcome is known. It does not by itself prove that the server received a request.", style = MaterialTheme.typography.bodySmall)
         }
     }
@@ -312,6 +314,9 @@ internal fun AppAuditEntryCard(
                 }
                 Text("Duration: ${benchmarkMetricText(result?.durationMs?.takeIf { it >= 0 }?.toDouble(), "ms", 0)}", style = MaterialTheme.typography.bodySmall)
                 result?.observation?.httpStatus?.let { Text("HTTP status: $it", style = MaterialTheme.typography.bodySmall) }
+                result?.observation?.declaredRpcErrorCode?.takeIf { it in dev.chungjungsoo.gptmobile.data.agent.tool.MCP_DECLARED_RPC_CODES }?.let {
+                    Text("Server-declared JSON-RPC error: $it", style = MaterialTheme.typography.bodySmall)
+                }
                 if (result?.observation?.configChanged == true) Text("The configuration changed during this check; inspect its outcome before retrying.", style = MaterialTheme.typography.bodySmall)
                 result?.observation?.metrics.orEmpty().forEach { metric ->
                     Text("${metric.name.name.lowercase().replace('_', ' ')}: ${benchmarkMetricText(metric.value, metric.unit.name.lowercase(), 1)}", style = MaterialTheme.typography.bodySmall)

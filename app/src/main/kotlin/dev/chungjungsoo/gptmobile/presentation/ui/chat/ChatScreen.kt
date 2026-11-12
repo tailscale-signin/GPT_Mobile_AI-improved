@@ -8,6 +8,12 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -94,6 +100,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
@@ -515,10 +522,10 @@ private fun ChatScreenContent(
     }
     val githubResponseStarting = !isIdle &&
         latestResponses.none { response -> response.currentRunId?.let(agentRunsById::get)?.status in AgentRunStatus.terminal }
-    val waitingForGitHubInput = LocalGitHubApprovalPending.current ||
-        visibleGitHubDecisions.any { it.sourceMessageId == latestUser?.id } ||
+    val pendingGitHubInput = LocalGitHubApprovalPending.current ||
         approvals.any { agentRunsById[it.runId]?.userMessageId == latestUser?.id } ||
         inputRequests.any { it.runId?.let(agentRunsById::get)?.userMessageId == latestUser?.id }
+    val waitingForGitHubInput = pendingGitHubInput || visibleGitHubDecisions.any { it.sourceMessageId == latestUser?.id }
     val awaitingGitHubTurn = latestUser != null &&
         githubPromptMode &&
         chatRoom.conversationMode != ConversationMode.COMBINED &&
@@ -1136,26 +1143,32 @@ private fun ChatScreenContent(
                 }
             }
 
-            if (githubPromptMode && (githubScrollMode != GitHubScrollMode.FOLLOW_BOTTOM || listState.canScrollForward) || !githubPromptMode && !isFollowingBottom && listState.canScrollForward) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(bottom = composerHeight + 12.dp),
-                    contentAlignment = Alignment.BottomCenter
-                ) {
-                    ScrollToBottomButton(isGenerating = !isIdle) {
-                        isHoldingEntryCenter = false
-                        isModelTabPositionLocked = false
-                        if (githubPromptMode) {
+            if (githubPromptMode) {
+                val following = githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM && !githubGestureActive && !isUserDragging && !isModelTabPositionLocked
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
+                    GitHubBottomIndicator(
+                        listState = listState,
+                        following = following,
+                        generating = entryPositioned && awaitingGitHubTurn && !pendingGitHubInput && (activeGitHubResponse || githubResponseStarting),
+                        animate = featureSettings.responseAnimation,
+                        onFollow = {
+                            isHoldingEntryCenter = false
+                            isModelTabPositionLocked = false
                             promptAnchor.followBottom()
                             githubScrollMode = promptAnchor.mode
                             githubGestureActive = false
                             promptAnchorRevision++
-                        } else {
-                            isFollowingBottom = featureSettings.smoothStreaming
-                            if (!featureSettings.smoothStreaming) {
-                                scope.launch { listState.animateToGitHubBottom(featureSettings.responseAnimation) }
-                            }
+                        }
+                    )
+                }
+            } else if (!isFollowingBottom && listState.canScrollForward) {
+                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
+                    ScrollToBottomButton(isGenerating = !isIdle) {
+                        isHoldingEntryCenter = false
+                        isModelTabPositionLocked = false
+                        isFollowingBottom = featureSettings.smoothStreaming
+                        if (!featureSettings.smoothStreaming) {
+                            scope.launch { listState.animateToGitHubBottom(featureSettings.responseAnimation) }
                         }
                     }
                 }
@@ -2951,6 +2964,54 @@ private fun isImageFile(extension: String?): Boolean {
 
 internal const val CHAT_INPUT_OPACITY = 0.85f
 internal const val CHAT_LATEST_OPACITY = 0.50f
+
+@Composable
+private fun GitHubBottomIndicator(
+    listState: LazyListState,
+    following: Boolean,
+    generating: Boolean,
+    animate: Boolean,
+    onFollow: () -> Unit
+) {
+    if (!following) {
+        IconButton(onClick = onFollow, modifier = Modifier.testTag("chat_jump_to_bottom")) {
+            Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon), tint = MaterialTheme.colorScheme.primary)
+        }
+        return
+    }
+    var reachedBottom by remember(listState) { mutableStateOf(false) }
+    LaunchedEffect(listState) {
+        snapshotFlow { listState.layoutInfo.totalItemsCount > 0 && !listState.canScrollForward }.first { it }
+        reachedBottom = true
+    }
+    if (!reachedBottom || !generating) return
+    val pulse = if (animate) rememberInfiniteTransition(label = "GitHub generation") else null
+    val color = MaterialTheme.colorScheme.primary
+    Row(
+        Modifier.size(width = 48.dp, height = 48.dp)
+            .semantics { contentDescription = "Generating response" }
+            .testTag("github_bottom_generation"),
+        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(3) { index ->
+            val opacity = pulse?.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1000, easing = LinearEasing),
+                    repeatMode = RepeatMode.Reverse,
+                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 120)
+                ),
+                label = "Dot ${index + 1}"
+            )
+            Spacer(
+                Modifier.size(5.dp).graphicsLayer { alpha = opacity?.value ?: 1f }
+                    .background(color, androidx.compose.foundation.shape.CircleShape)
+            )
+        }
+    }
+}
 
 @Composable
 fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {

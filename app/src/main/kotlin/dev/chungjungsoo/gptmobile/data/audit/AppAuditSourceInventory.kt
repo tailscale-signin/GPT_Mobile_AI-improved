@@ -9,13 +9,13 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "52aa013ffddca448c075495054045fc8c2859ea8c9bebb1ca0de725ff3e9b140"
-    val fileCount: Int = 2467
-    val lineCount: Int = 391586
+    val sourceDigest: String = "1757063870af59bd0197a3263625b2e8b204d0d22c506a110d08f72021ec8d01"
+    val fileCount: Int = 2469
+    val lineCount: Int = 391862
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 71, 8021),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 524, 92728),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 524, 92669),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 197, 9165),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 211, 35529),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 99, 21731),
@@ -33,10 +33,10 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 78, 9179),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 109, 16268),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1941),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 18, 3475),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 18, 3486),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
-        AppAuditSourceArea("gateway_software", "Companion gateway software", 115, 63651),
+        AppAuditSourceArea("gateway_software", "Companion gateway software", 117, 63975),
         AppAuditSourceArea("authentication_service", "Authentication broker software", 6, 970),
         AppAuditSourceArea("external_integrations", "External integration servers", 62, 6422),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2831)

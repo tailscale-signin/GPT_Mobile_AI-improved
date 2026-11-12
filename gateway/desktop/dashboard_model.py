@@ -28,6 +28,8 @@ def read_snapshot(root, now=None):
 def rows(snapshot, page, query=''):
     if page == 'Devices':
         candidates = snapshot.get('devices', [])
+    elif page == 'Jobs':
+        candidates = snapshot.get('jobs', []) + snapshot.get('engineering', [])
     elif page == 'Search jobs':
         candidates = [item for item in snapshot.get('activities', []) if item.get('kind') == 'search']
     elif page == 'GitHub jobs':

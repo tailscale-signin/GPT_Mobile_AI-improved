@@ -13,6 +13,7 @@ import java.io.File
 import javax.inject.Inject
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -51,7 +52,10 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
                 VoiceModelStores(LocalVoiceModelStore(directory), KokoroModelPack.store(directory))
             }
             _modelStores.value = stores
-            stores.moonshine.refresh()
+            coroutineScope {
+                launch { stores.moonshine.refresh() }
+                launch { stores.kokoro.refresh() }
+            }
         }
     }
 

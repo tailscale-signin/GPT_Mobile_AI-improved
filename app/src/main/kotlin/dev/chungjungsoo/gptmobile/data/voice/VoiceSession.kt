@@ -115,6 +115,7 @@ class VoiceSession(
         update(state.copy(transcript = text.take(8000)))
     }
     private fun continueTurn() {
+        if (state.phase == VoicePhase.SPEAKING) update(state.copy(phase = VoicePhase.PAUSED))
         if (autoContinue) resume() else pause()
     }
     fun tick() {
@@ -204,7 +205,7 @@ class VoiceSession(
     }
 
     fun resume() {
-        if (!accessAllowed() || state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING)) return
+        if (!accessAllowed() || state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING, VoicePhase.SPEAKING)) return
         if (waiting) {
             engaged = true
             update(state.copy(phase = VoicePhase.THINKING, level = 0f))
@@ -389,6 +390,19 @@ class VoiceSession(
         update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = message, level = 0f), "VOICE_PLAYBACK_FAILED")
     }
 
+    fun stopSpeaking() {
+        if (state.phase != VoicePhase.SPEAKING) return
+        stopAudio()
+        streamAudio = false
+        if (waiting && !streamComplete) {
+            update(state.copy(phase = VoicePhase.THINKING, level = 0f))
+        } else {
+            waiting = false
+            update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
+            continueTurn()
+        }
+    }
+
     fun interrupt() {
         if (state.phase == VoicePhase.CLOSED) return
         waiting = false
@@ -449,10 +463,7 @@ class VoiceSession(
     fun speaker() {
         if (state.phase == VoicePhase.CLOSED) return
         update(state.copy(speaker = !state.speaker))
-        if (!state.speaker && state.phase == VoicePhase.SPEAKING) {
-            stopAudio()
-            continueTurn()
-        }
+        if (!state.speaker) stopSpeaking()
     }
     fun pause() {
         if (state.phase == VoicePhase.CLOSED) return

@@ -57,9 +57,8 @@ class VoiceEntryViewModel @Inject constructor(
             try {
                 val features = settings.getFeatureSettings()
                 val profiles = settings.fetchPlatformV2s().filter { it.enabled }
-                val selected = features.voiceProfileUid?.takeIf { uid -> profiles.any { it.uid == uid } }
-                    ?: features.lastChatProfileUids.firstOrNull { uid -> profiles.any { it.uid == uid } }
-                    ?: profiles.firstOrNull()?.uid.orEmpty()
+                val selected = (savedState.get<String>("voice_selected_profile") ?: features.voiceProfileUid)
+                    ?.takeIf { uid -> profiles.any { it.uid == uid } }.orEmpty()
                 mutable.value = VoiceEntryState(true, features.isToolPluginEnabled(ToolPluginId.VOICE_CHAT), profiles, selected, route = savedState["voice_created_route"])
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -69,7 +68,10 @@ class VoiceEntryViewModel @Inject constructor(
         }
     }
     fun select(uid: String) {
-        if (!mutable.value.creating && mutable.value.profiles.any { it.uid == uid }) mutable.value = mutable.value.copy(selected = uid)
+        if (!mutable.value.creating && mutable.value.profiles.any { it.uid == uid }) {
+            savedState["voice_selected_profile"] = uid
+            mutable.value = mutable.value.copy(selected = uid)
+        }
     }
     fun recheckGatewayModel(uid: String) = gatewayModelSelection.recheck(uid)
 

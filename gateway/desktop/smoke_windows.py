@@ -72,7 +72,7 @@ def main():
             assert (root / 'data' / 'activity.json').exists()
             subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=45)
             ui = json.loads((root / 'dashboard-ui-smoke.json').read_text(encoding='utf-8'))
-            assert ui['pages'] == ['Overview', 'Devices', 'Recent activity', 'Search jobs', 'GitHub jobs']
+            assert ui['pages'] == ['Overview', 'Jobs', 'Devices', 'Recent activity', 'Search jobs', 'GitHub jobs', 'Benchmarks']
             assert ui['width'] >= 900 and ui['height'] >= 600
             shutil.copy2(root / 'dashboard-preview.png', output / 'dashboard-preview.png')
             results.append('frozen themed dashboard renders all views; observer persists metadata; UI closes without stopping gateway')

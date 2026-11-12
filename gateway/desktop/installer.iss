@@ -12,7 +12,8 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0.17763
-WizardStyle=modern
+WizardStyle=modern dark
+WizardImageBackColor=#001219
 DisableProgramGroupPage=yes
 OutputDir=..\..\dist\windows
 OutputBaseFilename=Gateway-{#GatewayVersion}-windows-x64-setup
@@ -56,7 +57,7 @@ Type: filesandordirs; Name: "{app}\releases"
 [Code]
 var
   ConnectionPage, PerformancePage, NetworkPage: TInputQueryWizardPage;
-  UpdatePage: TInputOptionWizardPage;
+  SetupPage, UpdatePage: TInputOptionWizardPage;
   RuntimePrepared: Boolean;
 
 function J(Value: String): String;
@@ -76,7 +77,12 @@ end;
 
 procedure InitializeWizard;
 begin
-  ConnectionPage := CreateInputQueryPage(wpSelectDir, 'Connection settings', 'Choose your model backend and gateway port.', 'Public GitHub maps work by default. You can connect GitHub for private repositories or saved jobs from Gateway Settings.');
+  SetupPage := CreateInputOptionPage(wpSelectDir, 'Set up your gateway', 'Choose how Gateway will run on this PC.',
+    'The recommended setup uses a local model server on port 8080, opens the dashboard, and checks for stable updates. You can change these settings after installation.', True, False);
+  SetupPage.Add('Recommended setup');
+  SetupPage.Add('Advanced setup');
+  SetupPage.SelectedValueIndex := 0;
+  ConnectionPage := CreateInputQueryPage(SetupPage.ID, 'Connection settings', 'Choose your model backend and gateway port.', 'Public GitHub maps work by default. You can connect GitHub for private repositories or saved jobs from Gateway Settings.');
   ConnectionPage.Add('Model backend origin (without /v1):', False);
   ConnectionPage.Add('Gateway port (1024-65535):', False);
   ConnectionPage.Add('Existing MCP JSON file (optional, absolute path):', False);
@@ -97,10 +103,28 @@ begin
   UpdatePage.SelectedValueIndex := 0;
 end;
 
+function ShouldSkipPage(PageID: Integer): Boolean;
+var AdvancedPage, Upgrade: Boolean;
+begin
+  AdvancedPage := (PageID = ConnectionPage.ID) or (PageID = PerformancePage.ID) or
+    (PageID = NetworkPage.ID) or (PageID = UpdatePage.ID);
+  Upgrade := FileExists(ExpandConstant('{app}\settings.json'));
+  Result := (AdvancedPage and ((SetupPage.SelectedValueIndex = 0) or Upgrade)) or
+    ((PageID = SetupPage.ID) and Upgrade);
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var P, W, A, G: Integer;
 begin
   Result := True;
+  if (CurPageID = SetupPage.ID) and (SetupPage.SelectedValueIndex = 0) then begin
+    ConnectionPage.Values[0] := 'http://127.0.0.1:8080';
+    ConnectionPage.Values[1] := '8090';
+    ConnectionPage.Values[2] := '';
+    PerformancePage.Values[0] := '2'; PerformancePage.Values[1] := '8'; PerformancePage.Values[2] := '30';
+    NetworkPage.Values[0] := '127.0.0.1';
+    UpdatePage.SelectedValueIndex := 0;
+  end;
   if CurPageID = ConnectionPage.ID then begin
     P := StrToIntDef(ConnectionPage.Values[1], 0);
     Result := (P >= 1024) and (P <= 65535) and (ConnectionPage.Values[0] <> '');

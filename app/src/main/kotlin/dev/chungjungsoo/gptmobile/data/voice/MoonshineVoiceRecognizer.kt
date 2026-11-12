@@ -114,7 +114,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         if (closed) return
         if (!LocalVoiceModelStore.supportsLanguage(languageTag)) {
             listener.failure(
-                "The installed local speech model supports English. Choose English in Voice settings or select the Android speech service for this language.",
+                "The installed local speech model supports English. Choose your region in Voice settings.",
                 "VOICE_RECOGNIZER_LANGUAGE_UNAVAILABLE",
                 recoveryAction = VoiceRecoveryAction.LOCAL_MODEL
             )

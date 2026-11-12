@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "52aa013ffddca448c075495054045fc8c2859ea8c9bebb1ca0de725ff3e9b140",
-  "file_count": 2467,
-  "indexed_line_count": 391586,
+  "source_digest": "1757063870af59bd0197a3263625b2e8b204d0d22c506a110d08f72021ec8d01",
+  "file_count": 2469,
+  "indexed_line_count": 391862,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 524,
-      "indexed_line_count": 92728
+      "indexed_line_count": 92669
     },
     {
       "id": "accessibility_and_localization",
@@ -148,7 +148,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 18,
-      "indexed_line_count": 3475
+      "indexed_line_count": 3486
     },
     {
       "id": "portable_domain",
@@ -165,8 +165,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 115,
-      "indexed_line_count": 63651
+      "file_count": 117,
+      "indexed_line_count": 63975
     },
     {
       "id": "authentication_service",
@@ -8746,7 +8746,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/model/ToolServiceCatalog.kt",
       "area_id": "models_and_profiles",
       "kind": "source",
-      "sha256": "4adae9a274e23351e82ff3ef4342c9c560626103aaba365dc52713ca9e031476",
+      "sha256": "a3eadd1521f1b3c4965571aeb7aaa9a47b2ae271592aeea69bbbaa722fd181d6",
       "indexed_lines": 162
     },
     {
@@ -11203,7 +11203,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "e3d7ff37468bf2b554f805bdbb1ba0effa5e4b1e3fec2d306311b5555b89937b",
+      "sha256": "a5b9c9e9ce59b88f26dcf4f7ad92fab98667bff17c5bb702817ad6b4c4f8bab5",
       "indexed_lines": 527
     },
     {
@@ -11266,8 +11266,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "55c73cd587f4baf42863171ee02654a919c4ea7c53bf780b205b2cd6e0b6fa29",
-      "indexed_lines": 504
+      "sha256": "a5dc7b944cea10ef517b7445e92b66004cdaef302b54ecee1c9996d669e21fae",
+      "indexed_lines": 515
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
@@ -12253,8 +12253,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "8819e1b931d11829762894f071a99f1436fa896a693191a2ef1aa921459d85c1",
-      "indexed_lines": 2979
+      "sha256": "da26170d2299daa09b922f9bdd45b73f1b12b7981cd246730b0f0be0f21d6fd5",
+      "indexed_lines": 3040
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatSourceBrand.kt",
@@ -14563,7 +14563,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ToolConnectionsScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "b4dddfe89b25e8eec8dc4e206328a28fbda969590206aaae7f43190da2be5a99",
+      "sha256": "945a986e8eea9649b5744f7fdfba81bab9715a9a047c514c7cd65e2710932c6d",
       "indexed_lines": 1607
     },
     {
@@ -14710,36 +14710,36 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/KokoroPlaybackCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "acd97e6a440d504c8f9ee58daba3fe9b702c1a48077a07fa3933dfdecbabcbd8",
-      "indexed_lines": 97
+      "sha256": "fe780f4ad39943155eb7ef07baaf4e362c2db35a3676ca65c746f442c88dc719",
+      "indexed_lines": 92
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/LocalVoiceSetupCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "17fc292cb09427b9c2c33b20ecac766df358b4f0c7a70dcc5e5d91544f76d2c2",
-      "indexed_lines": 71
+      "sha256": "ca51f731231b5442c4746de67c92a7ef7e5e22b8bfa306adce0a52104a17f30d",
+      "indexed_lines": 73
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "b4a442140141d4111b00fd9f4d4719f1e5917c17338dcbfabd2fbd278a362a33",
-      "indexed_lines": 1181
+      "sha256": "d19ae5b521f806399f9e0e42cfd5ef0d3b9f41ca6747dc900532531e3b635234",
+      "indexed_lines": 1042
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "09eb73092615d678fe7ea89f505257a0b10e8ee6f4e419d1f59660c6a1be8206",
-      "indexed_lines": 102
+      "sha256": "e8e04377a754e5c56c8ffba3a05e2e698da892a4e9b3ef7f4f9ec40c09232138",
+      "indexed_lines": 104
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceNavigation.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "8e97e1964d5588a4f51263fc3c927dcf57e921a157975937ad7a105896885507",
-      "indexed_lines": 52
+      "sha256": "ad21732dcc4636dcdff305ad6b54535698eec6ab72af8ccf64eabb5cbe798c6a",
+      "indexed_lines": 68
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt",
@@ -14752,8 +14752,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferencesViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "4634f4dd7d68b6bde0de20a1a6cb4d828b1896e360070ddd066aade17bb2d33c",
-      "indexed_lines": 95
+      "sha256": "4ab8986995c10e1971e7a2ae42a7ee4ecf163bd7f9819438f7065e78dc0caf8b",
+      "indexed_lines": 99
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceRepairAction.kt",
@@ -16432,8 +16432,8 @@
       "path": "gateway/benchmark_selected_model.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "8a019252c6313ead3990f6b10e0d694aa8418f4ee868a95bfc712e9dac8c04e9",
-      "indexed_lines": 168
+      "sha256": "69d8da19a2947e0369ef405c0d3e7d03e7b3cb2d1b0118b7e82120d74bdc6b29",
+      "indexed_lines": 179
     },
     {
       "path": "gateway/build_v14_package.py",
@@ -16478,6 +16478,20 @@
       "indexed_lines": 29
     },
     {
+      "path": "gateway/desktop/benchmark.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "f05788c99a1c401de501fb8878e9e50c641d1adb08fb8af3a89237f66f38401e",
+      "indexed_lines": 140
+    },
+    {
+      "path": "gateway/desktop/benchmark_panel.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "640e25eb60c27ee045ad91a823a428b840ce852c23a70006600f682c7c3eb7ff",
+      "indexed_lines": 134
+    },
+    {
       "path": "gateway/desktop/build_windows.py",
       "area_id": "gateway_software",
       "kind": "source",
@@ -16495,15 +16509,15 @@
       "path": "gateway/desktop/dashboard.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "3f028b8ad3574838067f318b571f95cc1e88ffd30e3fa72ca81200136718952a",
-      "indexed_lines": 339
+      "sha256": "458d66213f50a7fe3b659bb7d7fa83487da3cb51bf0ae51527a820729fb1dabd",
+      "indexed_lines": 376
     },
     {
       "path": "gateway/desktop/dashboard_model.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "0e17d6efe7d690f666242a735dc485448372b14ad5b75d03a2470d357aea660b",
-      "indexed_lines": 64
+      "sha256": "923fc110421376bc62c589df7c0f43c96730bd67b9055698cde66803f32ea8e3",
+      "indexed_lines": 66
     },
     {
       "path": "gateway/desktop/entry.py",
@@ -16558,7 +16572,7 @@
       "path": "gateway/desktop/smoke_windows.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "aa3cf267b903da4b2539e3623c6b2ddd2449b444686d7d2bbc67b28049c91d67",
+      "sha256": "e6b37cea9ea0bdf314334869e47906fb345449841aba3bf73eac7473283aadae",
       "indexed_lines": 152
     },
     {

@@ -35,8 +35,8 @@ class GitHubCommitApprovalDialogTest {
         compose.setContent { MaterialTheme { GitHubChatApprovalCard(model) {} } }
         compose.onNodeWithText("Review proposed changes").assertIsDisplayed()
         compose.onNodeWithText(
-            "Task task · owner/repo · feature\\n" +
-                "Base aaaaaaaaaaaa · Patch frozen-diges\\n" +
+            "Task task · owner/repo · feature\n" +
+                "Base aaaaaaaaaaaa · Patch frozen-diges\n" +
                 "Risk: build and CI are not verified by this approval."
         ).assertIsDisplayed()
         compose.onNodeWithText("@@ changed text @@\n- 41\n+ 42").assertDoesNotExist()

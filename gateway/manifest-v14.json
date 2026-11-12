@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "16.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "7e90e579c96686ca9a2b43a2523b8cdbbcc8dd0a",
+  "sourceCommit": "a01fabb23bd901a461d86fc61248e3e1e8f8e674",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "652622ecc9a5441af9fbce994d1be6481bdb499003ac7e76cb2cf4bec6f72add",
@@ -86,7 +86,7 @@
     "tests/test_gateway_conversations.py": "2c885ca2f3bb00a8a28215f52d46713492a823411601d8c082cf9eff1a5245a3",
     "tests/test_gateway_dashboard.py": "d1d68a3fd4403d3b24ef89761669acf857b9df1d5a51f6285677102eae2c8847",
     "tests/test_gateway_debug_evidence.py": "0bc62b2f2bf8610007aaaead910b7826a834cda8a0bec8338d262f7b5846bedc",
-    "tests/test_gateway_desktop.py": "8720cde444a9ad6927b6f1911fc6938f7cc4746b4dd4aa45abbf1bfc8dd36e28",
+    "tests/test_gateway_desktop.py": "4eb23e12b35dff6360188e89da48c12ee667994d2f510e8cf642fde86637159e",
     "tests/test_gateway_desktop_benchmark.py": "82a5a66e5ed15a248a954e17c1c1af3f8c3a3cf4ced1f34d4f8997caaafee17c",
     "tests/test_gateway_desktop_dashboard.py": "157fe8ab703fee2789f4aa01a29fc9467577242aabf8cad9786825c125d79c7b",
     "tests/test_gateway_diagnostic_delivery.py": "6d6f64362453c86bd44867420debfe40aed762c51a02fdd47bef5bb698ada51a",

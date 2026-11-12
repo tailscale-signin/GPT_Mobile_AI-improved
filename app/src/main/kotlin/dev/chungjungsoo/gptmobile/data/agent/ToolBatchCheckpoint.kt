@@ -60,7 +60,7 @@ data class ToolBatchRecoverySnapshot(
 }
 
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
-class ToolBatchCheckpoint(private val file: File?, private val binding: String, private val initialJob: ToolBatchJobContext? = null) {
+class ToolBatchCheckpoint(private val file: File?, private val binding: String, private val initialJob: ToolBatchJobContext? = null, private val expectedProviderEvidenceDigest: String? = null) {
     @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject, val originalInvocationFingerprint: String? = null) {
         fun event() = ProviderEvent.ToolCall(id, name, arguments, originalInvocationFingerprint)
     }
@@ -85,11 +85,22 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         ignoreUnknownKeys = true
     }
     private var memory = State(binding, jobContext = initialJob)
+
+    @Volatile private var providerRecoveryValidated = false
+
+    init {
+        require(expectedProviderEvidenceDigest == null || expectedProviderEvidenceDigest.matches(Regex("[a-f0-9]{64}")))
+    }
+
     private fun read(): State {
         val saved = file?.takeIf { it.isFile || File(it.path + ".bak").isFile }?.let {
             require(maxOf(it.length(), File(it.path + ".bak").length()) <= 32 * 1024 * 1024) { "Tool recovery journal exceeds capacity." }
             json.decodeFromString<State>(AtomicFile(it).openRead().bufferedReader().use { stream -> stream.readText() })
         } ?: memory
+        return validated(saved)
+    }
+
+    private fun validated(saved: State): State {
         require(saved.schemaVersion == 1) { "Unsupported tool recovery checkpoint version." }
         require(saved.binding == binding) { "Tool recovery authorization changed." }
         require(saved.entries.size <= 1024 && saved.pending.distinct().size == saved.pending.size && saved.pending.all(saved.entries::containsKey)) { "Tool recovery journal has invalid call identities." }
@@ -97,6 +108,15 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         require(saved.batches.size <= 1024 && saved.batches.sumOf { it.size } <= 8192 && saved.batches.all { batch -> batch.isNotEmpty() && batch.distinct().size == batch.size && batch.all(saved.entries::containsKey) }) { "Tool recovery journal has invalid batch identities." }
         require(saved.batches.isEmpty() || saved.pending.isEmpty() || saved.batches.last() == saved.pending) { "Tool recovery pending batch no longer matches its original grouping." }
         require(saved.consumedCallIds.size <= 1024 && saved.consumedCallIds.all { saved.entries[it]?.result != null }) { "Tool recovery ledger has invalid consumed identities." }
+        if (!providerRecoveryValidated && expectedProviderEvidenceDigest != null) {
+            val receipts = GitHubProviderReplayEvidence.receipts(saved.settledExchanges())
+            ProviderRecoveryFailure.require(
+                saved.entries.values.all { it.result != null } &&
+                    receipts.none { it.requiresReconciliation } &&
+                    GitHubProviderReplayEvidence.digest(receipts) == expectedProviderEvidenceDigest,
+                "PROVIDER_WAIT_CHECKPOINT_CHANGED"
+            )
+        }
         if (initialJob != null && saved.jobContext != null) {
             require(initialJob.objective == saved.jobContext.objective && initialJob.repository == saved.jobContext.repository) { "Saved engineering objective or repository changed; reconcile the previous job before starting another." }
             // Branch creation/selection can legitimately update the conversation during a run.
@@ -160,6 +180,11 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         return entries.keys.filterNot { it in grouped }.map { listOf(it) } + recorded
     }
 
+    private fun State.settledExchanges(excluded: Set<String> = emptySet()): List<AgentToolExchange> = orderedBatches().mapNotNull { batch ->
+        val settled = batch.filter { it !in excluded }.map { entries.getValue(it) }.filter { it.result != null }
+        if (settled.isEmpty()) null else AgentToolExchange(settled.map { it.call.event() }, settled.map { requireNotNull(it.result).restore(it.call.id) })
+    }
+
     /** Resolve exact handoff identities without parsing or replaying retained payload bodies. */
     internal suspend fun handoffReceipts(fingerprints: Set<String>): List<ToolHandoffReceipt> = locked {
         read().entries.values.mapNotNull { entry ->
@@ -221,7 +246,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         // State and its entries are immutable. Restore/parse retained result bodies
         // after releasing the file lock so another completed tool can checkpoint.
         val state = locked { read() }
-        return withContext(Dispatchers.Default) {
+        val snapshot = withContext(Dispatchers.Default) {
             // Resume a partially settled batch as one original assistant batch.
             // execute() returns its completed members from receipts without dispatch.
             val pendingIds = state.pending.takeIf { ids -> ids.any { state.entries.getValue(it).result == null } }.orEmpty()
@@ -245,10 +270,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 rejectedCount = state.entries.values.count { it.result?.let { result -> result.error && !result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
                 failedCount = state.entries.values.count { it.result?.let { result -> result.error && result.dispatched && result.code !in ToolResultEnvelope.unknownOutcomeCodes } == true },
                 jobContext = state.jobContext,
-                completedExchanges = state.orderedBatches().mapNotNull { batch ->
-                    val settled = batch.filter { it !in pendingIds }.map { state.entries.getValue(it) }.filter { it.result != null }
-                    if (settled.isEmpty()) null else AgentToolExchange(settled.map { it.call.event() }, settled.map { requireNotNull(it.result).restore(it.call.id) })
-                },
+                completedExchanges = state.settledExchanges(pendingIds.toSet()),
                 consumedCallIds = state.consumedCallIds,
                 // Observe these receipts once, but replay the assistant batch only
                 // after its unsettled members also have terminal results.
@@ -257,6 +279,17 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
                 }
             )
         }
+        if (expectedProviderEvidenceDigest != null) {
+            locked {
+                if (!providerRecoveryValidated) {
+                    ProviderRecoveryFailure.require(read() == state, "PROVIDER_WAIT_CHECKPOINT_CHANGED")
+                }
+            }
+            // Both dispatcher handoffs must complete before releasing the guard.
+            // A cancelled snapshot must leave the next restoration fenced.
+            providerRecoveryValidated = true
+        }
+        return snapshot
     }
     suspend fun enqueue(calls: List<ProviderEvent.ToolCall>) = locked {
         val state = read()
@@ -364,7 +397,63 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
     companion object {
         private val locks = ConcurrentHashMap<String, Mutex>()
         private val deleted = ConcurrentHashMap.newKeySet<String>()
-        fun forTurn(directory: File, chatId: Int, binding: String, persistent: Boolean, jobContext: ToolBatchJobContext? = null): ToolBatchCheckpoint = ToolBatchCheckpoint(if (persistent) File(directory, "tool-batches/$chatId/${combinedDigest(binding)}.json") else null, binding, jobContext)
+        fun forTurn(directory: File, chatId: Int, binding: String, persistent: Boolean, jobContext: ToolBatchJobContext? = null, expectedProviderEvidenceDigest: String? = null): ToolBatchCheckpoint = ToolBatchCheckpoint(if (persistent) File(directory, "tool-batches/$chatId/${combinedDigest(binding)}.json") else null, binding, jobContext, expectedProviderEvidenceDigest)
+
+        /**
+         * Older output checkpoints did not retain their receipt-journal key. Recover
+         * only a unique, settled journal with the exact protected provider evidence.
+         * The caller still validates current dispatch and saved-evidence authority.
+         */
+        internal suspend fun legacyProviderBinding(
+            directory: File,
+            chatId: Int,
+            scope: String,
+            expected: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint,
+            checkpoint: JsonObject
+        ): String? = withContext(Dispatchers.IO) {
+            if (!scope.startsWith("$chatId:") || scope.length > 1024 || !expected.matches(checkpoint)) return@withContext null
+            val context = checkpoint["context"] as? JsonObject ?: return@withContext null
+            if (context["task_binding"] != JsonPrimitive(expected.binding) || "tool_checkpoint_binding" in context) return@withContext null
+            val evidenceDigest = (checkpoint["provider_evidence_digest"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                ?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return@withContext null
+            val folder = File(directory, "tool-batches/$chatId")
+            val entries = folder.listFiles()?.filter { it.name.matches(Regex("[a-f0-9]{64}\\.json(?:\\.bak)?")) } ?: return@withContext null
+            // An incomplete scan cannot establish uniqueness. Large or malformed
+            // legacy inventories require explicit recovery instead of a guessed key.
+            if (entries.size > 256 || entries.sumOf { it.length() } > 32L * 1024 * 1024) return@withContext null
+            if (entries.any { !it.isFile || it.canonicalFile.parentFile != folder.canonicalFile }) return@withContext null
+            val files = entries.map { File(folder, it.name.removeSuffix(".bak")) }.distinctBy { it.name }
+            var inspectedBytes = 0L
+            var matched: String? = null
+            for (file in files) {
+                if (file.canonicalFile.parentFile != folder.canonicalFile) return@withContext null
+                val stored = locks.computeIfAbsent(file.absolutePath) { Mutex() }.withLock {
+                    if (file.absolutePath in deleted) return@withLock null
+                    inspectedBytes += maxOf(file.length(), File(file.path + ".bak").length())
+                    if (inspectedBytes > 32L * 1024 * 1024) return@withLock null
+                    runCatching {
+                        val reader = ToolBatchCheckpoint(file, "")
+                        AtomicFile(file).openRead().bufferedReader().use { reader.json.decodeFromString<State>(it.readText()) }
+                    }.getOrNull()
+                } ?: return@withContext null
+                val retained = stored.binding
+                if (!retained.startsWith("$scope:") || retained.length > 4096) continue
+                if (file.name != "${combinedDigest(retained)}.json") return@withContext null
+                val candidate = ToolBatchCheckpoint(file, retained)
+                val settled = try {
+                    candidate.validated(stored)
+                } catch (_: Exception) {
+                    return@withContext null
+                }
+                if (settled.entries.values.any { it.result == null }) continue
+                val receipts = GitHubProviderReplayEvidence.receipts(candidate.run { settled.settledExchanges() })
+                if (receipts.isEmpty() || receipts.any { it.requiresReconciliation } || GitHubProviderReplayEvidence.digest(receipts) != evidenceDigest) continue
+                if (matched != null) return@withContext null
+                matched = retained
+            }
+            matched
+        }
+
         suspend fun deleteChat(directory: File, chatId: Int) = withContext(Dispatchers.IO) {
             val folder = File(directory, "tool-batches/$chatId")
             val files = (folder.listFiles().orEmpty().toList() + locks.keys.filter { it.startsWith(folder.absolutePath + File.separator) }.map(::File)).distinctBy { it.absolutePath }

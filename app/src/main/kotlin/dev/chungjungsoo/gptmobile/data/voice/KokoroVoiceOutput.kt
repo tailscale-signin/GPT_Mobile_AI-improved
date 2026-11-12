@@ -69,6 +69,11 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
             ?: error("Kokoro playback is unavailable. Using the installed Android voice instead.", true)
     }
 
+    override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
+        output()?.speakProjected(text, voice, complete, error)
+            ?: error("Kokoro playback is unavailable. Using the installed Android voice instead.", true)
+    }
+
     override fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit): VoiceReplyPlayback? =
         output()?.openReply(voice, complete, error)
 
@@ -229,6 +234,13 @@ internal class KokoroVoiceOutput(
 
     override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
         openReply(voice, complete, error)?.let {
+            VoiceSpeechBuffer().append(text, final = true).orEmpty().forEach(it::enqueue)
+            it.finish()
+        }
+    }
+
+    override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
+        openReply(voice, complete, error)?.let {
             it.enqueue(text)
             it.finish()
         }
@@ -307,7 +319,7 @@ internal class KokoroVoiceOutput(
                     continue
                 }
                 playback.synthesizing = true
-                val parts = requireNotNull(KokoroSpeechText.parts(segment, model.words::contains))
+                val parts = requireNotNull(KokoroSpeechText.projectedParts(segment, model.words::contains))
                 for (part in parts) {
                     if (active !== playback) return
                     var callbackFrames = 0L

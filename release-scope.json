@@ -94,7 +94,8 @@
     "Share response-anchored gateway polling deadlines, prepare the exact selected model for durable Gateway sends, and retain independent readiness and ownership checks.",
     "Move transcript receipt parsing off composition, reuse bounded immutable projections, retain accepted integration budgets and exact repository action prerequisites, and separate factual support from unmeasured scope.",
     "Negotiate bounded context-v4 recovery, extraction and tool-precheck causes while preserving approved context-v1/v2/v3 bytes; stop unknown extraction outcomes without schema-repair replay and align combined-module JUnit reconciliation with its collector.",
-    "Spoken replies project safe readable text while preserving captions and begin bounded system/local speech chunks without waiting for a complete sentence; no physical latency claim."
+    "Spoken replies project safe readable text while preserving captions and begin bounded system/local speech chunks without waiting for a complete sentence; no physical latency claim.",
+    "Repair exact provider journal/research recovery, bounded claim extraction and precheck evidence, queued selected-model preparation, readable low-buffer speech, required integration stop reasons, and complete bounded JVM report reconciliation; record incident-specific evidence and closure limits."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2353,6 +2354,24 @@
     "docs/repairs/evidence/diagnostic-a74d18ed-2026-11-12/recovery-policy-jvm.log",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechTextTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayJobPollingReconciliationTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayJobPollingReconciliationTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubProviderReplayEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtraction.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/GatewayQueueModelAdmission.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubProviderJournalRecoveryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportPrecheckTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubClaimExtractionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationStopReasonTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/DurablePromptQueueModelPreparationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/GatewayQueueModelAdmissionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/research/ResearchResumePolicyMigrationTest.kt",
+    "docs/repairs/gateway-queued-model-preparation-2026-11-12-task.json",
+    "docs/repairs/integration-stop-reason-2026-11-12-task.json",
+    "docs/repairs/open-issue-resolution-2026-11-12-task.json",
+    "docs/repairs/open-issue-resolution-2026-11-12.md",
+    "docs/repairs/open-provider-issues-2026-11-12-task.json",
+    "docs/repairs/tool-precheck-evidence-2026-11-12-task.json",
+    "docs/repairs/tool-precheck-evidence-2026-11-12.md"
   ]
 }

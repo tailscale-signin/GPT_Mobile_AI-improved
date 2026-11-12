@@ -19,6 +19,7 @@ internal object GitHubIntegrationReport {
         val openFixtures = fixtures.filter { it["final_state_verified"] != JsonPrimitive(true) }
         val cleanupStoppedBeforeDispatch = openFixtures.isNotEmpty() && openFixtures.all { it["cleanup_dispatched"] == JsonPrimitive(false) }
         val pending = GitHubTestChecklist.pendingPages(receipts)
+        val exhaustiveInventory = GitHubChecklistScope.exhaustive(task)
         val reason = when {
             GitHubTestChecklist.apiComplete(task, receipts, tools) -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
@@ -28,8 +29,8 @@ internal object GitHubIntegrationReport {
             openFixtures.isNotEmpty() -> "FIXTURE_CLEANUP_UNVERIFIED" to "An owned fixture has unverified final state or cleanup. Reconcile its retained mutation receipt before further writes."
             GitHubAuthorizedCatalog.required(tools, receipts) && catalog["complete"] != JsonPrimitive(true) -> "AUTHORIZED_CATALOG_INCOMPLETE" to "Authorized discovery is ${catalog.text("status").lowercase()}; ${catalog.text("blocker").ifBlank { "the retained version-bound continuation must complete before the denominator is final" }}."
             capabilities.any { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") } -> "RECORDED_OPERATION_BLOCKERS" to "Unresolved operation errors remain. The exact error codes, resources and receipt IDs identify the recovery prerequisites."
-            pending.isNotEmpty() && GitHubChecklistScope.exhaustive(task) -> "INVENTORY_CONTINUATION_BLOCKED" to "Requested inventory traversal has ${pending.size} unfinished exact recipes; no executable authorized continuation was selected."
-            capabilities.any { it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") } -> "CAPABILITY_PREREQUISITES_MISSING" to "Remaining capabilities require observed resource identifiers, supported fixture lifecycles or current authorization. No further automatic operation is currently admissible."
+            pending.isNotEmpty() && exhaustiveInventory -> "INVENTORY_CONTINUATION_BLOCKED" to "Requested inventory traversal has ${pending.size} unfinished exact recipes; no executable authorized continuation was selected."
+            capabilities.any { it["required"] != JsonPrimitive(false) && it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") } -> "CAPABILITY_PREREQUISITES_MISSING" to "Remaining required capabilities need observed resource identifiers, supported fixture lifecycles or current authorization. No further automatic operation is currently admissible."
             else -> "ACCEPTANCE_EVIDENCE_MISSING" to "API observations are retained, but one or more independent acceptance criteria lack qualifying execution or identity evidence."
         }
         return buildJsonObject {
@@ -162,6 +163,9 @@ internal object GitHubIntegrationReport {
         val budget = checkpoint["stage_budget"] as JsonObject
         val stop = stopReason(task, receipts, tools, budget.number("remaining_calls"))
         append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
+        if ((stop.number("pending_continuations") ?: 0) > 0) {
+            append("\nRetained continuation recipes: ${stop.text("pending_continuations")}. Further reads retain the task's scope, authorization and remaining budget.\n")
+        }
         append("\nEffective tool-call limit: ${budget.text("effective_call_limit").ifBlank { "not recorded" }} (${budget.text("limit_source")}). Calls used: ${budget.text("used_calls").ifBlank { "not recorded" }}. Budget remaining: ${budget.text("remaining_calls").ifBlank { "not recorded" }}; verification reserve: ${budget.text("verification_reserve")}. ${budget.text("limit_rule")} Elapsed run time is not inferred from tool counts. The checkpoint preserves unmet criteria, exact continuation recipes, fixture state and receipt IDs for resumption.\n")
         append("\n**Overall integration health: Not measured.** API response acceptance, traversal completeness, new CI execution and current-device tests are independent.\n")
     }

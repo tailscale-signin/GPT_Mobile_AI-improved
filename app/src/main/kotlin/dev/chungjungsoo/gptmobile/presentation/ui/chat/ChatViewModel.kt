@@ -803,6 +803,17 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun retryGatewayModelPreparation(runId: String) {
+        val chatId = _chatRoom.value.id
+        viewModelScope.launch(Dispatchers.IO) {
+            _attachmentNotice.value = if (durablePromptQueue?.retryGatewayModelPreparation(chatId, runId) == true) {
+                "Retrying preparation of this saved message's original Gateway model."
+            } else {
+                "This saved message changed or may already have a remote job. Check its existing job before retrying."
+            }
+        }
+    }
+
     fun addMessage(userMessage: MessageV2) {
         _groupedMessages.update {
             it.copy(

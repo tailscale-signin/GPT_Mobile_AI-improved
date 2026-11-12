@@ -202,25 +202,12 @@ class VoiceSession(
         }
         return mapOf("failed_stage" to operation, "operation" to operation)
     }
-    private fun replyFailureFields(id: String, failure: ProfileFailureRecord?): Map<String, Any?> = buildMap {
-        put("run_id", id)
-        // A failed chat reply can arrive while partial speech is playing. It is
-        // not evidence of a capture or playback fault.
-        put("operation", null)
-        put("failed_stage", null)
-        // Legacy terminal prose can also be classified into ProfileFailureRecord.
-        // Require retained structured evidence before projecting its other facts.
-        val recorded = failure?.takeIf {
-            it.invocationId != null || it.dispatchState != null || it.causeTypes.isNotEmpty() || it.recoveryDetails != null
-        } ?: return@buildMap
-        put("failed_stage", recorded.phase)
-        put("invocation_id", recorded.invocationId)
-        put("dispatched", recorded.dispatched)
-        put("dispatch_state", recorded.dispatchState)
-        put("remote_acceptance", recorded.remoteAcceptance.name)
-        put("retryable", recorded.retryAllowed)
-        recorded.recoveryActions.firstOrNull()?.let { put("recovery_action", it) }
-    }
+    private fun replyFailureFields(id: String): Map<String, Any?> = mapOf(
+        "run_id" to id,
+        // Terminal prose is not evidence of a microphone fault or provider dispatch.
+        "operation" to null,
+        "failed_stage" to "delivery"
+    )
     private fun stopAudio(reason: String = "session_reset") {
         generation++
         queuedSpeech.clear()
@@ -368,8 +355,7 @@ class VoiceSession(
         }
         update(state.copy(reply = text))
         streamComplete = complete
-        // Android TTS can queue a stable clause too; it need not wait for a full
-        // sentence merely because it does not expose a streaming PCM reply.
+        // Android can speak a stable first phrase without waiting for a complete sentence.
         val chunks = speechBuffer.append(text, complete, earlyStart = true)
         if (chunks == null) {
             stopAudio("response_revised")
@@ -483,20 +469,27 @@ class VoiceSession(
         waiting = false
         lastReply = id
         if (failed || text.isBlank()) {
+            draftPending = state.transcript.isNotBlank()
             if (text.isNotBlank()) update(state.copy(reply = text))
-            if (failed && failure?.category == "PRIVACY_CONFIGURATION") {
-                // The owning chat run already retains/reports the typed rejection.
+            if (failed && failure != null) {
+                // The owning chat run already retains/reports the typed failure.
                 // Keep recognized words for explicit review without inventing a
                 // second microphone/session incident or automatically resending.
-                draftPending = state.transcript.isNotBlank()
                 fail(
-                    "This AI profile does not satisfy the selected privacy settings. Your words are kept. Choose a compatible profile in Voice settings or review it in chat.",
-                    code = "PRIVACY_CONFIGURATION",
+                    when {
+                        failure.category == "PRIVACY_CONFIGURATION" -> "This AI profile does not satisfy the selected privacy settings. Your words are kept. Choose a compatible profile in Voice settings or review it in chat."
+                        !failure.retryAllowed || failure.requestReplayAllowed == false -> "This AI turn needs review before it can continue. Your words are kept. Open chat to inspect the original failure and saved outcome before sending again."
+                        else -> "This AI turn did not finish. Your words are kept. Open chat to review the original failure and recovery options."
+                    },
+                    code = failure.category,
                     reportFailure = false
                 )
                 return
             }
-            fail("This turn did not finish. Open chat to review it or try again.", failureFields = replyFailureFields(id, failure))
+            fail(
+                "This turn did not finish. Your words are kept. Open chat to review it or try again.",
+                failureFields = replyFailureFields(id)
+            )
             return
         }
         update(state.copy(reply = text))
@@ -508,8 +501,8 @@ class VoiceSession(
             continueTurn()
             return
         }
-        val spoken = VoiceSpeechText.project(text, final = true)
-        if (spoken.isBlank()) {
+        val spoken = VoiceSpeechBuffer().append(text, final = true).orEmpty().joinToString(" ").trim()
+        if (spoken.isEmpty()) {
             continueTurn()
             return
         }

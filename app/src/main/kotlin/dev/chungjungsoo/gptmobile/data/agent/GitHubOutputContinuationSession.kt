@@ -31,6 +31,7 @@ internal class GitHubOutputContinuationSession(
     private val expectedProviderCheckpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint? = null,
     private val checkpointContext: JsonObject = JsonObject(emptyMap()),
     val toolCheckpointBinding: String? = null,
+    val toolCheckpointEvidenceDigest: String? = null,
     private val awaitConnectivity: suspend (Long) -> Boolean = { true },
     private val reconciledCallIds: suspend () -> Set<String> = { emptySet() },
     private val durableToolReceipts: suspend (Set<String>) -> List<ToolHandoffReceipt> = { emptyList() },
@@ -81,6 +82,7 @@ internal class GitHubOutputContinuationSession(
     init {
         require(maxContinuations in 0..4)
         require(maxCharacters in 1..1_048_576)
+        require(toolCheckpointEvidenceDigest == null || toolCheckpointEvidenceDigest.matches(Regex("[a-f0-9]{64}")))
     }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
@@ -584,25 +586,8 @@ internal class GitHubOutputContinuationSession(
                 exchange.calls.joinToString { "${it.callId}:${it.name}:${it.arguments}" } + "\n" + exchange.results.joinToString { "${it.callId}:${it.isError}:${it.dispatched}:${it.content}" }
             }
         )
-        val receipts = exchanges.flatMap { exchange ->
-            exchange.calls.mapNotNull { call ->
-                val result = exchange.results.firstOrNull { it.callId == call.callId } ?: return@mapNotNull null
-                ToolHandoffReceipt.from(call, result, originalAvailable = false)
-            }
-        }
-        val provider = GitHubEvidenceBook.digest(
-            JsonArray(
-                receipts.sortedBy { it.invocationFingerprint }.map { receipt ->
-                    buildJsonObject {
-                        put("invocation", receipt.invocationFingerprint)
-                        put("result", receipt.sourceResultSha256 ?: receipt.projectionSha256)
-                        put("dispatched", receipt.dispatched)
-                        put("requires_reconciliation", receipt.requiresReconciliation)
-                        receipt.errorCode?.let { put("error", it) }
-                    }
-                }
-            ).toString()
-        )
+        val receipts = GitHubProviderReplayEvidence.receipts(exchanges)
+        val provider = GitHubProviderReplayEvidence.digest(receipts)
         ContinuationEvidenceDigests(full, provider, receipts)
     }
 

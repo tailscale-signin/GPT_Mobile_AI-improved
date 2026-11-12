@@ -1134,6 +1134,11 @@ private fun ChatScreenContent(
                                 if (queued.state != dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.RUNNING) {
                                     TextButton(onClick = chatViewModel::checkGatewayQueue) { Text("Check saved jobs") }
                                 }
+                                if (queued.canRetryModelPreparation) {
+                                    queued.runId?.let { runId ->
+                                        TextButton(onClick = { chatViewModel.retryGatewayModelPreparation(runId) }) { Text("Retry model preparation") }
+                                    }
+                                }
                                 if (queued.canCancelUnsubmitted) TextButton(onClick = chatViewModel::cancelUnsubmittedGateway) { Text("Stop unsubmitted message") }
                             }
                         }

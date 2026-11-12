@@ -24,7 +24,7 @@ internal class GatewayQueuedModelPreparation(
     private val scope: CoroutineScope,
     private val now: () -> Long
 ) {
-    internal data class Request(val owner: String, val profile: PlatformV2, val mode: ReasoningMode, val credentialRevision: String)
+    internal data class Request(val owner: String, val profile: PlatformV2, val mode: ReasoningMode, val credentialRevision: String, val checkReadyModel: Boolean = false)
 
     private class Entry(val request: Request) {
         var job: Job? = null
@@ -44,7 +44,7 @@ internal class GatewayQueuedModelPreparation(
     fun cancel(owner: String) = synchronized(lock) { entries.remove(owner)?.job?.cancel() }
 
     /** Null leaves the existing fresh availability gate in charge of dispatch. */
-    fun admission(request: Request, observed: GatewayAvailability?, isCurrent: suspend () -> Boolean): GatewayQueuedChatState? = synchronized(lock) {
+    fun admission(request: Request, observed: GatewayAvailability?, onRejected: suspend () -> Unit = {}, isCurrent: suspend () -> Boolean): GatewayQueuedChatState? = synchronized(lock) {
         var entry = entries[request.owner]
         if (entry != null && entry.request != request) {
             entries.remove(request.owner)
@@ -60,11 +60,11 @@ internal class GatewayQueuedModelPreparation(
             val needsPreparation = request.profile.compatibleType == ClientType.LLAMA &&
                 observed?.conversationSyncSupported == true &&
                 observed.freshnessRemainingMillis(now()) > 0 &&
-                (observed.failureCode in MODEL_LOAD_CODES || observed.readinessFailureCode in MODEL_LOAD_CODES)
+                (observed.failureCode in MODEL_LOAD_CODES || observed.readinessFailureCode in MODEL_LOAD_CODES || request.checkReadyModel && observed.isOnline)
             if (!needsPreparation) return@synchronized null
             entry = Entry(request)
             entries[request.owner] = entry
-            start(entry, isCurrent)
+            start(entry, isCurrent, onRejected)
         } else if (entry.state?.phase == GatewayModelPreparationPhase.BLOCKED &&
             entry.finishedAt != null &&
             observed?.isOnline == true &&
@@ -75,7 +75,7 @@ internal class GatewayQueuedModelPreparation(
             // A later reachable/online probe can qualify the existing exact model,
             // but cannot itself authorize another load after a failed attempt.
             entry.finishedAt = null
-            start(entry, isCurrent, allowLoad = false)
+            start(entry, isCurrent, onRejected, allowLoad = false)
         }
         val state = entry.state
         when {
@@ -90,7 +90,7 @@ internal class GatewayQueuedModelPreparation(
         }
     }
 
-    private fun start(entry: Entry, isCurrent: suspend () -> Boolean, allowLoad: Boolean = true) {
+    private fun start(entry: Entry, isCurrent: suspend () -> Boolean, onRejected: suspend () -> Unit, allowLoad: Boolean = true) {
         val request = entry.request
         val job = scope.launch(start = CoroutineStart.LAZY) {
             var completed = false
@@ -100,7 +100,7 @@ internal class GatewayQueuedModelPreparation(
             }
             try {
                 validate()
-                val result = repository.prepareSelectedWhile(request.profile, request.mode, forceRefresh = true, validateSelection = ::validate, allowLoad = allowLoad) { state ->
+                val result = repository.prepareSelectedWhile(request.profile, request.mode, forceRefresh = true, validateSelection = ::validate, allowLoad = allowLoad, onRejected = onRejected) { state ->
                     synchronized(lock) {
                         if (entries[request.owner] === entry) {
                             entry.state = state

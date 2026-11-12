@@ -9,6 +9,8 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
 import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 import dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -168,7 +170,7 @@ class VoiceFailureReportingTest {
     }
 
     @Test
-    fun typedReplyFailureKeepsRunAndInvocationEvidenceWithoutCallingItAMicrophoneFailure() {
+    fun owningChatIncidentKeepsRunAndInvocationEvidenceWithoutAddingAVoiceFailure() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val audio = object : VoiceAudio {
             override fun listen(listener: VoiceAudio.Listener) = Unit
@@ -179,6 +181,7 @@ class VoiceFailureReportingTest {
         val session = VoiceSession(audio, { false }, {})
         session.restore("private recognized words", "partial reply", review = false, pending = true)
         val details = kotlinx.serialization.json.buildJsonObject {
+            put("run_id", kotlinx.serialization.json.JsonPrimitive("private-run"))
             put("failed_stage", kotlinx.serialization.json.JsonPrimitive("response_stream"))
             put("dispatch_state", kotlinx.serialization.json.JsonPrimitive("FAILED"))
             put("dispatched", kotlinx.serialization.json.JsonPrimitive(true))
@@ -186,6 +189,8 @@ class VoiceFailureReportingTest {
             put("invocation_id", kotlinx.serialization.json.JsonPrimitive("private-invocation"))
             put("server_request_id", kotlinx.serialization.json.JsonPrimitive("private-request"))
         }
+        IssueReportIncidents.failure(ReportFeature.CHAT, "NETWORK_TIMEOUT", null, details, "CHAT_FAILURE")
+        val original = IssueReportIncidents.pending.value.single()
         session.reply(
             "private-run",
             "",
@@ -193,7 +198,8 @@ class VoiceFailureReportingTest {
             failure = ProfileFailureRecord.fromProvider("private provider detail", "NETWORK_TIMEOUT", details)
         )
         val report = IssueReportIncidents.pending.value.single()
-        assertEquals("VOICE_SESSION_FAILED", report.errorCode)
+        assertEquals(original, report)
+        assertEquals("NETWORK_TIMEOUT", report.errorCode)
         assertEquals("response_stream", report.context?.stage)
         assertEquals(true, report.context?.dispatched)
         assertEquals("UNKNOWN", report.context?.remoteAcceptance)
@@ -207,7 +213,7 @@ class VoiceFailureReportingTest {
     }
 
     @Test
-    fun legacyReplyFailureAddsOnlyRunCorrelationAndDoesNotPromoteProseToDispatchEvidence() {
+    fun untypedReplyProseAddsOnlyRunCorrelationAndDoesNotPromoteDispatchEvidence() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val audio = object : VoiceAudio {
             override fun listen(listener: VoiceAudio.Listener) = Unit
@@ -217,15 +223,106 @@ class VoiceFailureReportingTest {
         }
         val session = VoiceSession(audio, { false }, {})
         session.restore("recognized words", "", review = false, pending = true)
-        session.reply("legacy-run", "", failed = true, failure = ProfileFailureRecord.classify("HTTP 429: rate limit"))
+        session.reply("legacy-run", "HTTP 429: rate limit", failed = true)
         val report = IssueReportIncidents.pending.value.single()
         assertEquals("VOICE_SESSION_FAILED", report.errorCode)
-        org.junit.Assert.assertNull(report.context?.stage)
+        assertEquals("delivery", report.context?.stage)
         org.junit.Assert.assertNull(report.context?.dispatched)
         org.junit.Assert.assertNull(report.context?.remoteAcceptance)
         org.junit.Assert.assertNull(report.context?.httpStatus)
         org.junit.Assert.assertNull(report.context?.retryable)
         assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("run", "legacy-run"), report.context?.runIdHash)
+        session.close()
+    }
+
+    @Test
+    fun typedGatewayAndUnknownOutcomeFailuresKeepOnlyTheOwningChatIncident() {
+        val causes = listOf(
+            Triple("GATEWAY_ENGINEERING_UNAVAILABLE", "connection_preflight", false),
+            Triple("GATEWAY_OUTCOME_UNKNOWN", "gateway_dispatch", true),
+            Triple("TOOL_OUTCOME_UNKNOWN", "tool_dispatch", true)
+        )
+        for ((code, stage, dispatched) in causes) {
+            reset()
+            LocalDiagnosticsPolicy.setEnabled(true)
+            lateinit var capture: VoiceAudio.Listener
+            var submissions = 0
+            val audio = object : VoiceAudio {
+                override fun listen(listener: VoiceAudio.Listener) {
+                    capture = listener
+                }
+                override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+                override fun stop() = Unit
+                override fun close() = Unit
+            }
+            val session = VoiceSession(audio, {
+                submissions++
+                true
+            }, {}, awaitsAdmission = true).apply { autoContinue = true }
+            session.access(true, true, true)
+            session.resume()
+            capture.final("Keep the request after a chat failure")
+            session.admission(VoiceAdmissionStage.ACCEPTED)
+            val details = buildJsonObject {
+                put("failed_stage", stage)
+                put("dispatched", dispatched)
+                put("remote_acceptance", if (dispatched) "UNKNOWN" else "NO")
+                put("request_replay_allowed", false)
+                put("requires_reconciliation", dispatched)
+            }
+            IssueReportIncidents.failure(ReportFeature.CHAT, code, null, details, "CHAT_FAILURE")
+            val original = IssueReportIncidents.pending.value.single()
+            val failure = ProfileFailureRecord.fromProvider(code, code, details)
+            session.reply("accepted", "Retained partial response", failed = true, failure = failure)
+            assertEquals(original, IssueReportIncidents.pending.value.single())
+            assertFalse(IssueReportIncidents.recentEvents().any { "VOICE_SESSION_FAILED" in it })
+            assertEquals(VoicePhase.ERROR, session.state.phase)
+            assertTrue(session.state.hasDraft)
+            assertFalse(session.state.awaitingReply)
+            assertEquals("Retained partial response", session.state.reply)
+            session.tick()
+            session.resume()
+            assertEquals(VoicePhase.REVIEWING, session.state.phase)
+            assertEquals("Keep the request after a chat failure", session.state.transcript)
+            assertEquals(1, submissions)
+            session.close()
+        }
+    }
+
+    @Test
+    fun failedReplyWithoutMetadataRetainsOneDeliveryFallbackAndItsDraft() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        lateinit var capture: VoiceAudio.Listener
+        val audio = object : VoiceAudio {
+            override fun listen(listener: VoiceAudio.Listener) {
+                capture = listener
+            }
+            override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) = Unit
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        var submissions = 0
+        val session = VoiceSession(audio, {
+            submissions++
+            true
+        }, {}, awaitsAdmission = true).apply { autoContinue = true }
+        session.access(true, true, true)
+        session.resume()
+        capture.final("Keep the unclassified request")
+        session.admission(VoiceAdmissionStage.ACCEPTED)
+        session.reply("accepted", "", failed = true)
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("VOICE_SESSION_FAILED", report.errorCode)
+        assertEquals("delivery", report.context?.stage)
+        assertEquals(null, report.context?.operation)
+        assertTrue(session.state.hasDraft)
+        assertFalse(session.state.awaitingReply)
+        session.reply("accepted", "", failed = true)
+        session.resume()
+        assertEquals(report, IssueReportIncidents.pending.value.single())
+        assertEquals(VoicePhase.REVIEWING, session.state.phase)
+        assertEquals("Keep the unclassified request", session.state.transcript)
+        assertEquals(1, submissions)
         session.close()
     }
 

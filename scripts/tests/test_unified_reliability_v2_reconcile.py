@@ -67,7 +67,7 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         return path
 
     def qualification(self, directories=None):
-        paths = [path for directory in (directories or [self.results]) for path in directory.rglob("TEST-*.xml")]
+        paths = [path for directory in (directories or [self.results]) for path in directory.glob("TEST-*.xml")]
         classes, errors = r.junit_observations(paths, self.since, self.now)
         return {"schema_version": 1, "kind": "APP_AUDIT_SOURCE_HARNESS_OBSERVATIONS",
                 "checkout": {"commit": self.sha}, "report_errors": errors,
@@ -163,6 +163,42 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         with patch.object(r, "MAX_REPORTS", 1), self.assertRaisesRegex(ValueError, "collection bound"):
             self.run_report([self.results, core], qualification=self.qualification([self.results, core]))
 
+    def test_combined_byte_limit_applies_to_all_directories_and_archive_reports(self):
+        first = self.junit()
+        core = self.root / "core-results"
+        core.mkdir()
+        second = self.junit(method="coreBehavior", filename="TEST-CoreProbe.xml", directory=core,
+                            owner="dev.example.CoreProbe")
+        qualification = self.qualification([self.results, core])
+        total_bytes = first.stat().st_size + second.stat().st_size
+        archive = self.root / "combined-reports.zip"
+        with ZipFile(archive, "w") as target:
+            target.write(first, arcname="app/" + first.name)
+            target.write(second, arcname="core-domain/" + second.name)
+        artifact_digest = hashlib.sha256(archive.read_bytes()).hexdigest()
+        for sources in ([self.results, core], [core, self.results], [archive]):
+            with self.subTest(sources=sources):
+                with patch.object(r, "MAX_TOTAL_XML_BYTES", total_bytes - 1), self.assertRaisesRegex(
+                        ValueError, "collection bound"):
+                    self.run_report(sources, qualification=qualification, artifact_sha256=artifact_digest)
+                with patch.object(r, "MAX_TOTAL_XML_BYTES", total_bytes):
+                    report = self.run_report(sources, qualification=qualification,
+                                             artifact_sha256=artifact_digest)
+                for field, value in qualification["junit_receipt"].items():
+                    self.assertEqual(value, report["junit_receipt"][field])
+
+    def test_only_explicit_report_directories_are_part_of_the_collector_receipt(self):
+        self.junit()
+        qualification = self.qualification()
+        nested = self.results / "older-run"
+        nested.mkdir()
+        self.junit("FAIL", filename="TEST-OlderProbe.xml", directory=nested)
+        report = self.run_report(self.results, qualification=qualification)
+        for field, value in qualification["junit_receipt"].items():
+            self.assertEqual(value, report["junit_receipt"][field])
+        self.assertEqual(1, report["junit_receipt"]["report_count"])
+        with self.assertRaisesRegex(ValueError, "duplicate|digest"):
+            self.run_report([self.results, nested], qualification=qualification)
 
     def test_cli_repeated_directories_reconcile_the_same_bound_receipt(self):
         self.junit()
@@ -284,17 +320,17 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
             with self.subTest(partial=partial), self.assertRaisesRegex(ValueError, "digest"):
                 self.run_report(partial, qualification=qualification)
 
-    def test_single_directory_preserves_recursive_report_imports(self):
+    def test_single_directory_does_not_invent_nested_collector_inputs(self):
         self.junit()
         portable = self.root / "portable"
         portable.mkdir()
         self.junit(directory=portable, filename="TEST-PortableProbe.xml", owner="dev.example.PortableProbe")
         qualification = self.qualification([self.results, portable])
-        recursive = self.run_report(self.root, qualification=qualification)
+        with self.assertRaisesRegex(ValueError, "digest"):
+            self.run_report(self.root, qualification=qualification)
         explicit = self.run_report([self.results, portable], qualification=qualification)
-        self.assertEqual(explicit, recursive)
-        self.assertEqual(2, recursive["junit_receipt"]["report_count"])
-        self.assertEqual(4, recursive["junit_receipt"]["case_count"])
+        self.assertEqual(2, explicit["junit_receipt"]["report_count"])
+        self.assertEqual(4, explicit["junit_receipt"]["case_count"])
 
     def test_multiple_roots_preserve_identity_freshness_duplicates_and_global_report_limit(self):
         self.junit()
@@ -304,7 +340,7 @@ class UnifiedV2ReconciliationTest(unittest.TestCase):
         roots = [self.results, portable]
         qualification = self.qualification(roots)
         for duplicate_roots in (roots + [self.results], [self.root, self.results]):
-            with self.subTest(roots=duplicate_roots), self.assertRaisesRegex(ValueError, "duplicate"):
+            with self.subTest(roots=duplicate_roots), self.assertRaisesRegex(ValueError, "duplicate|digest"):
                 self.run_report(duplicate_roots, qualification=qualification)
         for overrides in ({"source_sha": "b" * 40}, {"run_url": self.run[:-1] + "1"}):
             with self.subTest(overrides=overrides), self.assertRaisesRegex(ValueError, "workflow attempt"):

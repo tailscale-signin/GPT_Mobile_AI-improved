@@ -4773,7 +4773,7 @@ class ChatRepositoryImpl(
             ),
             checkpoint = latestUser?.let { user ->
                 val binding = outputContinuation?.toolCheckpointBinding ?: "${user.chatId}:${toolBudgetSourceMessageId ?: user.id}:${platform.uid}:${dispatchAuthority.revision}"
-                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, binding, persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false, jobContext = checkpointJob)
+                dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint.forTurn(context.filesDir, user.chatId, binding, persistent = agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary == false, jobContext = checkpointJob, expectedProviderEvidenceDigest = outputContinuation?.toolCheckpointEvidenceDigest)
             },
             healthCatalog = catalog,
             retryUndispatchedBudgetFailures = retryUndispatchedBudgetFailures,
@@ -5649,12 +5649,19 @@ class ChatRepositoryImpl(
                 val expectedCheckpoint = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.agent.GitHubProviderResumeContext]?.checkpoint
                 dispatchAuthority.validate()
                 check(validateSavedEvidence())
-                val toolCheckpointBinding = dev.chungjungsoo.gptmobile.data.agent.GitHubProviderToolCheckpoint.binding(
+                val savedProviderCheckpoint = expectedCheckpoint?.let { workspace?.protectedSynthesisCheckpoint(checkpointKey) }
+                val resolvedToolCheckpoint = dev.chungjungsoo.gptmobile.data.agent.GitHubProviderToolCheckpoint.resolve(
+                    context.filesDir,
+                    latestUser.chatId,
                     "${latestUser.chatId}:${toolBudgetSourceMessageId ?: latestUser.id}:${platform.uid}",
                     dispatchAuthority.revision,
                     expectedCheckpoint,
-                    expectedCheckpoint?.let { workspace?.protectedSynthesisCheckpoint(checkpointKey) }
+                    savedProviderCheckpoint,
+                    persistent = agentPersistenceDao.getChatRoom(latestUser.chatId)?.isTemporary == false
                 )
+                dispatchAuthority.validate()
+                check(validateSavedEvidence())
+                val toolCheckpointBinding = resolvedToolCheckpoint.binding
                 dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession(
                     adaptiveSession,
                     maxCharacters = budgetSettings.responseCharacterLimit.takeIf { it > 0 }?.coerceAtMost(1_048_576) ?: 1_048_576,
@@ -5662,6 +5669,7 @@ class ChatRepositoryImpl(
                     recoveryRevision = runId,
                     expectedProviderCheckpoint = expectedCheckpoint,
                     toolCheckpointBinding = toolCheckpointBinding,
+                    toolCheckpointEvidenceDigest = resolvedToolCheckpoint.evidenceDigest,
                     checkpointContext = buildJsonObject {
                         put("profile_uid", platform.uid)
                         put("provider", platform.compatibleType.name)

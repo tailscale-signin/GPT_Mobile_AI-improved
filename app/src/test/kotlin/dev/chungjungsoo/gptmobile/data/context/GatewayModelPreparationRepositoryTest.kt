@@ -225,6 +225,72 @@ class GatewayModelPreparationRepositoryTest {
         assertEquals(2, loads)
     }
 
+    @Test fun rejectionStopIsSavedBeforeTerminalPublicationCanCancelPreparation() = runTest {
+        for (receiptRejection in listOf(false, true)) {
+            val vault = ModelPreparationTestVault()
+            val store = GatewayModelPreparationStore(vault)
+            val identity = ConfiguredDispatchAuthority.profileRevision(profile)
+            var savedStops = 0
+            val repository = GatewayModelPreparationRepository(
+                { capabilities },
+                { selected, mode -> observation(selected, mode) },
+                { selected, id ->
+                    if (!receiptRejection) throw dev.chungjungsoo.gptmobile.data.network.gateway.GatewayModelPreparationRejectedException(403)
+                    receipt(selected, id, "LOAD_REJECTED", "UNLOADED").copy(loadAccepted = false)
+                },
+                { 0L },
+                pause = {},
+                operations = store
+            )
+            val selection = launch {
+                val owner = coroutineContext[Job]!!
+                repository.prepareSelectedWhile(
+                    profile,
+                    ReasoningMode.OFF,
+                    forceRefresh = true,
+                    validateSelection = {},
+                    onRejected = {
+                        assertTrue(store.read(identity, profile.model) != null)
+                        savedStops++
+                    }
+                ) { state ->
+                    if (state?.retryRequiresUserAction == true) {
+                        assertEquals(1, savedStops)
+                        owner.cancel()
+                    }
+                }
+            }
+            selection.join()
+            assertTrue(selection.isCancelled)
+            assertEquals(1, savedStops)
+            assertNull(store.read(identity, profile.model))
+        }
+    }
+
+    @Test fun failedDurableRejectionStopRetainsTheOriginalOperationAcrossRestart() = runTest {
+        val store = GatewayModelPreparationStore(ModelPreparationTestVault())
+        val ids = mutableListOf<String>()
+        fun repository() = GatewayModelPreparationRepository(
+            { capabilities },
+            { selected, mode -> observation(selected, mode) },
+            { selected, id ->
+                ids += id
+                receipt(selected, id, "LOAD_REJECTED", "UNLOADED").copy(loadAccepted = false)
+            },
+            { 0L },
+            pause = {},
+            operations = store
+        )
+        val first = repository().prepareSelectedWhile(profile, ReasoningMode.OFF, forceRefresh = true, validateSelection = {}, onRejected = { error("Synthetic failed lease stop") })
+        assertEquals(GatewayModelPreparationPhase.BLOCKED, first?.phase)
+        assertEquals(ids.single(), store.read(ConfiguredDispatchAuthority.profileRevision(profile), profile.model)?.operationId)
+        val second = repository().prepareSelectedWhile(profile, ReasoningMode.OFF, forceRefresh = true, validateSelection = {}, onRejected = {})
+        assertEquals(GatewayModelPreparationPhase.BLOCKED, second?.phase)
+        assertTrue(second?.retryRequiresUserAction == true)
+        assertEquals(2, ids.size)
+        assertEquals(1, ids.distinct().size)
+    }
+
     @Test fun concurrentSelectionRequestsCoalesceOneLoad() = runTest {
         val finishLoad = CompletableDeferred<Unit>()
         var loads = 0

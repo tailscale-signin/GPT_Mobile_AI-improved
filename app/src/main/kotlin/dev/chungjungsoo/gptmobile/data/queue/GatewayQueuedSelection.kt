@@ -47,5 +47,6 @@ data class GatewayQueuedChatState(
     val queuedCount: Int = 0,
     val message: String? = null,
     val runId: String? = null,
-    val canCancelUnsubmitted: Boolean = false
+    val canCancelUnsubmitted: Boolean = false,
+    val canRetryModelPreparation: Boolean = false
 )

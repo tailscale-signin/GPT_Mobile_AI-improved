@@ -41,7 +41,7 @@ internal object ToolArgumentValidator {
     /** A safe read recipe is constructed from the actual registered schema; no ID is inferred. */
     fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema)): AgentToolResult {
         val correction = discoveryCorrection(toolName, arguments, schema)
-        val prSelectorProblem = prSelectorProblem(toolName, arguments)
+        val selector = selectorProblem(toolName, arguments)
         return AgentToolResult(
             callId,
             ToolResultContent.Json(
@@ -54,18 +54,18 @@ internal object ToolArgumentValidator {
                     put("dispatched", false)
                     put("retryable", false)
                     put("corrected_proposal_limit", 1)
-                    if (prSelectorProblem != null) {
-                        put("reason", "PR_SELECTOR_REQUIRED")
+                    if (selector != null) {
+                        put("reason", selector.reason)
                         put(
-                            if (prSelectorProblem == "MISSING") "missing_fields" else "invalid_fields",
-                            JsonArray(listOf(JsonPrimitive("pull_number")))
+                            if (selector.missing) "missing_fields" else "invalid_fields",
+                            JsonArray(listOf(JsonPrimitive(selector.field)))
                         )
                         put(
                             "required_selector",
                             buildJsonObject {
-                                put("field", "pull_number")
+                                put("field", selector.field)
                                 put("type", "positive_integer")
-                                put("source", "OBSERVED_GITHUB_PR")
+                                put("source", selector.source)
                                 put("discovery_action", "list")
                             }
                         )
@@ -83,8 +83,37 @@ internal object ToolArgumentValidator {
             ),
             true,
             errorCode = "INVALID_ARGUMENTS",
-            dispatched = false
+            dispatched = false,
+            executionReceipt = rejectionReceipt(arguments, schema, validationErrors, selector)
         )
+    }
+
+    /** Local machine-readable cause, separate from the unchanged approved public-report contract. */
+    private fun rejectionReceipt(arguments: JsonObject, schema: JsonObject, validationErrors: List<String>, selector: SelectorProblem?): JsonObject {
+        val properties = (schema["properties"] as? JsonObject).orEmpty()
+        val missing = (schema["required"] as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>()
+            .filter { it.isString && it.content !in arguments }.map { it.content }.toMutableSet()
+        val invalid = properties.mapNotNull { (field, raw) ->
+            val value = arguments[field] ?: return@mapNotNull null
+            val constraint = raw as? JsonObject ?: return@mapNotNull null
+            field.takeIf { validate(value, constraint, "$", 0).isNotEmpty() }
+        }.toMutableSet()
+        selector?.let { if (it.missing) missing += it.field else invalid += it.field }
+        fun fieldNames(fields: Set<String>) = JsonArray(
+            fields.filter { it.matches(Regex("[A-Za-z_][A-Za-z0-9_]{0,63}")) }.sorted().take(12).map(::JsonPrimitive)
+        )
+        return buildJsonObject {
+            put("failed_stage", "tool_precheck")
+            put("dispatched", false)
+            put("retryable", false)
+            put("requires_reconciliation", false)
+            put("reason_code", selector?.reason ?: if (errors(arguments, schema).isEmpty()) "TOOL_ARGUMENT_CONSTRAINT_REJECTED" else "TOOL_ARGUMENT_SCHEMA_REJECTED")
+            put("validation_error_count", validationErrors.size)
+            put("validation_field_scope", "TOP_LEVEL_AND_KNOWN_SELECTOR")
+            if (missing.isNotEmpty()) put("missing_fields", fieldNames(missing))
+            if (invalid.isNotEmpty()) put("invalid_fields", fieldNames(invalid))
+            if (schema["additionalProperties"] == JsonPrimitive(false)) put("unknown_field_count", arguments.keys.count { it !in properties })
+        }
     }
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
@@ -100,7 +129,7 @@ internal object ToolArgumentValidator {
         val readActions = if (issue) setOf("headers", "context", "comments", "history") else setOf("headers", "context", "comments", "reviews", "threads")
         if (action !in readActions) return null
         val selector = arguments[numberKey]
-        if ((selector as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true) return null
+        if ((selector as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.let { it > 0 } == true) return null
         val aliases = (if (issue) listOf("number") else listOf("pr_number", "number", "pull_request_number")).filter { it in arguments }
         if (selector == null && aliases.size == 1) {
             val alias = aliases.single()
@@ -122,13 +151,20 @@ internal object ToolArgumentValidator {
         return proposal.takeIf { errors(it, schema).isEmpty() }
     }
 
-    /** Missing and malformed PR selectors need a typed discovery path, not prose parsing. */
-    private fun prSelectorProblem(toolName: String, arguments: JsonObject): String? {
-        if (toolName.substringBefore("__") != "github_pr" || "view_cursor" in arguments) return null
-        val action = (arguments["action"] as? JsonPrimitive)?.content ?: "context"
-        if (action !in setOf("headers", "context", "comments", "reviews", "threads")) return null
-        val selector = arguments["pull_number"] ?: return "MISSING"
-        return if ((selector as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true) null else "INVALID"
+    private data class SelectorProblem(val field: String, val missing: Boolean, val reason: String, val source: String)
+
+    /** Missing and malformed read selectors need a typed discovery path, not prose parsing. */
+    private fun selectorProblem(toolName: String, arguments: JsonObject): SelectorProblem? {
+        val operation = toolName.substringBefore("__")
+        if (operation !in setOf("github_pr", "github_issue") || "view_cursor" in arguments) return null
+        val issue = operation == "github_issue"
+        val action = (arguments["action"] as? JsonPrimitive)?.content ?: if (issue) "list" else "context"
+        val readActions = if (issue) setOf("headers", "context", "comments", "history") else setOf("headers", "context", "comments", "reviews", "threads")
+        if (action !in readActions) return null
+        val field = if (issue) "issue_number" else "pull_number"
+        val value = arguments[field]
+        if ((value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.let { it > 0 } == true) return null
+        return SelectorProblem(field, value == null, if (issue) "ISSUE_SELECTOR_REQUIRED" else "PR_SELECTOR_REQUIRED", if (issue) "OBSERVED_GITHUB_ISSUE" else "OBSERVED_GITHUB_PR")
     }
 
     private fun discriminatorScore(value: JsonElement, option: JsonObject): Int {

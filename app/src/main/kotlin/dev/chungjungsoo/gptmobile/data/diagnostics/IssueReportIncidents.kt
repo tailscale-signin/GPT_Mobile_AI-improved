@@ -123,9 +123,22 @@ internal object IssueReportIncidents {
         }
         if (severity == 'E' && LocalDiagnosticsPolicy.enabled && feature != ReportFeature.CHAT && feature != ReportFeature.VOICE) {
             val evidence = if (tag == "MCP") fields + ("operation" to "mcp") else fields
-            val captureSource = source?.takeIf { it in IssueReportContext.sources } ?: "STRUCTURED_EVENT".takeIf { evidence.isNotEmpty() }
-            val toolPrecheck = captureSource == "TOOL_RESULT" && IssueReportContext.fromFields("TOOL_RESULT", evidence).let { it.stage == "tool_precheck" && it.dispatched == false }
-            failure(feature, IssueReportCodes.select(code, if (toolPrecheck) "TOOL_FAILURE" else "APP_ERROR"), error, evidence, captureSource)
+            val reportSource = source?.takeIf { it in IssueReportContext.sources } ?: "STRUCTURED_EVENT".takeIf { evidence.isNotEmpty() }
+            val toolContext = if (reportSource == "TOOL_RESULT") IssueReportContext.fromFields(reportSource, evidence) else null
+            val toolPrecheck = toolContext?.let { it.stage == "tool_precheck" && it.dispatched == false } == true
+            val precheck = if (feature == ReportFeature.TOOLS && toolContext != null) {
+                IssueReportCodes.nativeGitHubPrecheck(code, toolContext)
+            } else {
+                null
+            }
+            val reportEvidence = if (precheck?.recoveryAction != null &&
+                evidence.keys.none { it in setOf("recovery_action", "next_action", "recoveryAction", "nextAction") }
+            ) {
+                evidence + ("recovery_action" to precheck.recoveryAction)
+            } else {
+                evidence
+            }
+            failure(feature, precheck?.code ?: IssueReportCodes.select(code, if (toolPrecheck) "TOOL_FAILURE" else "APP_ERROR"), error, reportEvidence, reportSource)
         } else {
             synchronized(lock) {
                 if (!isPrivate) addEvent(severity, feature, IssueReportCodes.known(code))

@@ -18,14 +18,19 @@ internal object KokoroSpeechText {
     private const val MAX_PART_WORDS = 16
 
     /** A null result asks the caller to use the installed Android voice for this input. */
-    fun parts(input: String, isKnown: (String) -> Boolean): List<String>? {
+    fun parts(input: String, isKnown: (String) -> Boolean): List<String>? = parts(input, project = true, isKnown)
+
+    /** Stream chunks already contain readable speech; their start is not a new Markdown document. */
+    fun projectedParts(input: String, isKnown: (String) -> Boolean): List<String>? = parts(input, project = false, isKnown)
+
+    private fun parts(input: String, project: Boolean, isKnown: (String) -> Boolean): List<String>? {
         val clipped = if (input.length <= MAX_INPUT) {
             input
         } else {
             val end = if (input[MAX_INPUT - 1].isHighSurrogate()) MAX_INPUT - 1 else MAX_INPUT
             input.substring(0, end)
         }
-        val projected = VoiceSpeechText.project(clipped) + if (input.length > MAX_INPUT) " The rest of this response is available in the chat." else ""
+        val projected = (if (project) VoiceSpeechText.project(input) else clipped) + if (input.length > MAX_INPUT) " The rest of this response is available in the chat." else ""
         val plain = Normalizer.normalize(projected, Normalizer.Form.NFKD)
             .replace(marks, "").replace('’', '\'').replace('−', '-')
         if (plain.codePoints().anyMatch { it > 127 && Character.isLetterOrDigit(it) }) return null

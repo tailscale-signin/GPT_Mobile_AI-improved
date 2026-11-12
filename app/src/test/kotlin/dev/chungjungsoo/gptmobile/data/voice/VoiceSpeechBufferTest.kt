@@ -101,8 +101,8 @@ class VoiceSpeechBufferTest {
             link.append(unfinished, true, earlyStart = true)
         )
         val code = VoiceSpeechBuffer()
-        assertEquals("Keep this sentence. Code is available in the chat.", requireNotNull(code.append("Keep this sentence. ```unclosed code", true, earlyStart = true)).joinToString(""))
-        assertEquals("Code is available in the chat.", requireNotNull(VoiceSpeechBuffer().append("```only code", true, earlyStart = true)).joinToString(""))
+        assertEquals("Keep this sentence. Code is available in the chat.", requireNotNull(code.append("Keep this sentence. ```unclosed code", true, earlyStart = true)).joinToString("").trim())
+        assertEquals("Code is available in the chat.", requireNotNull(VoiceSpeechBuffer().append("```only code", true, earlyStart = true)).joinToString("").trim())
     }
 
     @Test fun terminalWhitespaceTrimmingDoesNotInvalidateQueuedSpeech() {

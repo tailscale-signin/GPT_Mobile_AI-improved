@@ -311,4 +311,39 @@ class IssueReportCollectorsTest {
         assertEquals(false, context.retryable)
         assertEquals(true, context.dispatched)
     }
+
+    @Test fun nativePrecheckReasonsSurviveTheActualRecorderThroughExistingPublicCategories() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val cases = listOf(
+            Triple("GITHUB_REPOSITORY_TARGET_MISMATCH", "REPOSITORY_TARGET_UNVERIFIED", "CHANGE_REPOSITORY"),
+            Triple("SAVED_VIEW_AUTHORIZATION_CHANGED", "GITHUB_AUTHORIZATION_UNVERIFIED", "REVIEW_AUTHORIZATION"),
+            Triple("SAVED_VIEW_WRONG_OPERATION", "INVALID_ARGUMENTS", null)
+        )
+        for ((index, expected) in cases.withIndex()) {
+            val (localCode, publicCode, recovery) = expected
+            val event = ToolEvent("event-$index", "actual-run", index, "actual-call-$index", null, null, "github_read", "github_read__github_api", "{}", null, null, ToolEventStatus.RUNNING, startedAt = 1L)
+            val dao = mockk<AgentPersistenceDao>()
+            coEvery { dao.getToolEventById(event.eventId) } returns event
+            coEvery { dao.finishToolEvent(any(), any(), any(), any(), any(), any(), any(), any()) } returns 1
+            ToolEventRecorder(dao, mockk()).finishTool(
+                event.eventId,
+                AgentToolResult(
+                    event.callId,
+                    ToolResultContent.Text("private target and path"),
+                    true,
+                    errorCode = localCode,
+                    dispatched = false
+                ),
+                2L
+            )
+            val report = IssueReportIncidents.pending.value.last()
+            assertEquals(publicCode, report.errorCode)
+            assertEquals(recovery, report.context?.recoveryAction)
+            assertEquals(1, report.context?.schemaVersion)
+            assertEquals(false, report.context?.dispatched)
+            assertEquals(IssueReportContext.identifierHash("call", event.callId), report.context?.callIdHash)
+            assertFalse(report.approvedPayload().contains(localCode))
+            assertFalse(report.approvedPayload().contains("private"))
+        }
+    }
 }

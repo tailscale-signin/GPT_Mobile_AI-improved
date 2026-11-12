@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -656,7 +655,8 @@ internal class GitHubVerifiedSession(
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequests(draft, receipts) }
             }
-            val rendered = status ?: coverage ?: ciObservation ?: if (requests == null) partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE") else extract(requireNotNull(draft), requests, receipts, epoch)
+            val extraction = requests?.let { extract(requireNotNull(draft), it, receipts, epoch) }
+            val rendered = status ?: coverage ?: ciObservation ?: extraction?.rendered ?: partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE")
             // Claim extraction and deterministic rendering can be slower than an
             // owned tool receipt reaching the evidence book. Never publish a
             // verdict for an older epoch after new repository evidence arrives.
@@ -844,7 +844,8 @@ internal class GitHubVerifiedSession(
                 effectivePartial,
                 effectiveReport,
                 publicationEpoch,
-                publicationReceipts.keys
+                publicationReceipts.keys,
+                extraction?.failure?.takeUnless { evidenceAdvanced }
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -883,6 +884,7 @@ internal class GitHubVerifiedSession(
         val currentSessionReview = GitHubRequestCompletion.requiresLiveSessionReviewRefresh(task)
         if (partial &&
             originalFailure == null &&
+            publication.extractionFailure == null &&
             openExecutionContinuation != null &&
             continuationTools.isNotEmpty() &&
             progressCorrections < 3 &&
@@ -968,28 +970,30 @@ internal class GitHubVerifiedSession(
         onPublication(delivered)
         val unresolved = ((delivered["execution_ledger"] as? JsonObject)?.get("unresolved_remote_outcomes") as? kotlinx.serialization.json.JsonPrimitive)?.content?.toIntOrNull()?.let { it > 0 } == true
         val extractionCode = (delivered["failure_code"] as? kotlinx.serialization.json.JsonPrimitive)?.content?.takeUnless { it == "null" }
-        val extractionFailure = (delivered["verification_failure"] as? JsonObject)?.takeIf { it["failed_stage"] == JsonPrimitive("claim_extraction") }
         val waitingApproval = (delivered["execution_ledger"] as? JsonObject)?.get("recovery") == kotlinx.serialization.json.JsonPrimitive("WAITING_FOR_APPROVAL")
-        val approvalIsPrimary = waitingApproval && originalFailure == null && !unresolved
-        val extractionOwnsFailure = originalFailure == null && !approvalIsPrimary && !unresolved
+        // Only the extraction attempted by this publication owns its live failure
+        // and invocation. Its claim checkpoint is resumed separately from primary
+        // generation; it cannot authorize generic provider-wait replay.
+        val currentFailure = originalFailure ?: publication.extractionFailure?.takeUnless { unresolved }
+        val approvalIsPrimary = waitingApproval && currentFailure == null && !unresolved
         if (partial || delivered["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)) {
             lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.VERIFICATION_REJECTED)
             emit(
                 ProviderEvent.Failed(
-                    if (approvalIsPrimary) "Review the saved change to continue." else originalFailure?.message ?: GitHubExecutionContinuation.incompleteMessage(delivered, evidence.snapshot().first),
+                    if (approvalIsPrimary) "Review the saved change to continue." else currentFailure?.message ?: GitHubExecutionContinuation.incompleteMessage(delivered, evidence.snapshot().first),
                     errorCode = if (unresolved) {
                         "RECONCILIATION_REQUIRED"
-                    } else if (originalFailure != null) {
-                        originalFailure.errorCode ?: failureCode ?: "GITHUB_TASK_INCOMPLETE"
+                    } else if (currentFailure != null) {
+                        currentFailure.errorCode ?: failureCode ?: "GITHUB_TASK_INCOMPLETE"
                     } else if (approvalIsPrimary) {
                         "WAITING_FOR_APPROVAL"
                     } else {
                         failureCode ?: extractionCode ?: (delivered["verification_failure"] as? kotlinx.serialization.json.JsonPrimitive)?.content ?: "GITHUB_TASK_INCOMPLETE"
                     },
-                    transportComplete = originalFailure?.transportComplete ?: (!extractionOwnsFailure || extractionFailure?.get("transport_complete") != JsonPrimitive(false)),
+                    transportComplete = currentFailure?.transportComplete ?: true,
                     providerLimit = originalFailure?.providerLimit?.takeUnless { unresolved },
-                    invocationId = if (originalFailure != null) originalFailure.invocationId else (extractionFailure?.get("invocation_id") as? JsonPrimitive)?.takeIf { extractionOwnsFailure && it.isString }?.content,
-                    taskOutcome = if (approvalIsPrimary || originalFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
+                    invocationId = currentFailure?.invocationId,
+                    taskOutcome = if (approvalIsPrimary || currentFailure?.taskOutcome == "BLOCKED") "BLOCKED" else "PARTIAL",
                     failureDetails = if (approvalIsPrimary) {
                         buildJsonObject {
                             put("failed_stage", "approval")
@@ -1000,7 +1004,7 @@ internal class GitHubVerifiedSession(
                             put("pending_approvals", delivered["pending_approvals"] ?: (delivered["execution_ledger"] as? JsonObject)?.get("pending_approvals") ?: JsonArray(emptyList()))
                         }
                     } else {
-                        originalFailure?.failureDetails ?: GitHubTaskLifecycle.acceptanceFailureDetails(delivered, progressCorrections)
+                        currentFailure?.failureDetails ?: GitHubTaskLifecycle.acceptanceFailureDetails(delivered, progressCorrections, retainedReport = publication.extractionFailure == null)
                     }
                 )
             )
@@ -1014,8 +1018,11 @@ internal class GitHubVerifiedSession(
         val partial: Boolean,
         val report: JsonObject,
         val epoch: Long,
-        val receiptIds: Set<String>
+        val receiptIds: Set<String>,
+        val extractionFailure: ProviderEvent.Failed? = null
     )
+
+    private data class ClaimExtraction(val rendered: Pair<String, JsonObject>, val failure: ProviderEvent.Failed? = null)
 
     private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null): Pair<String, JsonObject> = withContext(computationDispatcher) {
         val budget = evidence.stageBudget(receipts, remainingToolCalls(), GitHubSelfTestFixtures.minimumCalls(authorizedTools))
@@ -1030,7 +1037,7 @@ internal class GitHubVerifiedSession(
         GitHubEvidenceBook.digest("$task\n$epoch\n$identity")
     }
 
-    private suspend fun extract(draft: String, requests: List<GitHubClaimBatches.Request>, receipts: Map<String, JsonObject>, epoch: Long): Pair<String, JsonObject> {
+    private suspend fun extract(draft: String, requests: List<GitHubClaimBatches.Request>, receipts: Map<String, JsonObject>, epoch: Long): ClaimExtraction {
         val context = claimExtractionContext(receipts, epoch)
         val plan = withContext(computationDispatcher) {
             GitHubEvidenceBook.digest("github.claim-extraction.v1|$epoch|" + requests.joinToString("\n") { GitHubEvidenceBook.digest(it.payload) })
@@ -1054,10 +1061,10 @@ internal class GitHubVerifiedSession(
         }
         fun completedCount() = completed.count { it != null }
         val requirementIds = requests.map { it.requirementIds }
-        val attempt = ExtractionAttempt()
-        suspend fun failed(code: String, providerFailure: ProviderEvent.Failed? = null): Pair<String, JsonObject> {
+        val attempt = GitHubClaimExtraction.Attempt()
+        suspend fun failed(code: String, providerFailure: ProviderEvent.Failed? = null): ClaimExtraction {
             val (text, report) = partial(receipts, epoch, code)
-            return text to JsonObject(
+            val retained = JsonObject(
                 report + buildJsonObject {
                     put("extraction_batches_completed", completedCount())
                     put("extraction_batches_total", requests.size)
@@ -1087,6 +1094,29 @@ internal class GitHubVerifiedSession(
                     )
                 }
             )
+            val details = JsonObject(
+                (retained.getValue("verification_failure") as JsonObject) + buildJsonObject {
+                    // Claim recovery resumes this checkpoint. The underlying
+                    // provider phase remains evidence, not a new primary stage.
+                    providerFailure?.failureDetails?.get("failed_stage")?.let { put("provider_failed_stage", it) }
+                    put("failed_stage", "claim_extraction")
+                    put("review_stage", "claim_extraction")
+                    put("reason_code", code)
+                    put("logical_continuation_allowed", false)
+                    put("automatic_retry_allowed", false)
+                    put("resume_required", true)
+                    put("extraction_batches_completed", completedCount())
+                    put("extraction_batches_total", requests.size)
+                }
+            )
+            val failure = providerFailure?.copy(errorCode = code, failureDetails = details) ?: ProviderEvent.Failed(
+                "Claim extraction did not finish. Saved evidence and unfinished batches remain available.",
+                errorCode = code,
+                transportComplete = code in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT"),
+                taskOutcome = "PARTIAL",
+                failureDetails = details
+            )
+            return ClaimExtraction(text to retained, failure)
         }
         return try {
             withTimeoutOrNull(90_000) {
@@ -1104,114 +1134,24 @@ internal class GitHubVerifiedSession(
                     GitHubEvidencePolicy.render(GitHubClaimBatches.combine(batches), receipts, now(), epoch, task)
                 }
                 evidence.retainClaimBatches(context, plan, draft, completed, requirementIds, pending = false)
-                result
-            } ?: failed("GITHUB_EXTRACTION_TIMEOUT", if (attempt.awaitingTerminal) extractionProviderFailure(null).providerFailure else null)
-        } catch (failure: ExtractionFailed) {
+                ClaimExtraction(result)
+            } ?: failed(attempt.terminalFailure?.errorCode ?: "GITHUB_EXTRACTION_TIMEOUT", attempt.failureAtDeadline())
+        } catch (failure: GitHubClaimExtraction.Failure) {
             failed(failure.code, failure.providerFailure)
         }
     }
 
-    /** Local to one extraction deadline; completed responses never become unknown during later local work. */
-    private class ExtractionAttempt {
-        var awaitingTerminal = false
-    }
-
-    private suspend fun extractBatch(request: GitHubClaimBatches.Request, attempt: ExtractionAttempt): JsonObject {
+    private suspend fun extractBatch(request: GitHubClaimBatches.Request, attempt: GitHubClaimExtraction.Attempt): JsonObject {
         var current = request
         while (true) {
             try {
-                return extractBatchOnce(current, attempt)
-            } catch (failure: ExtractionFailed) {
-                val details = failure.providerFailure?.failureDetails
-                if (failure.providerFailure?.transportComplete == false ||
-                    details?.get("retryable") == JsonPrimitive(false) ||
-                    details?.get("automatic_retry_allowed") == JsonPrimitive(false) ||
-                    details?.get("request_replay_allowed") == JsonPrimitive(false) ||
-                    details?.get("logical_continuation_allowed") == JsonPrimitive(false) ||
-                    details?.get("requires_reconciliation") == JsonPrimitive(true) ||
-                    details?.get("remote_acceptance") == JsonPrimitive("UNKNOWN")
-                ) {
-                    throw failure
-                }
-                if (failure.code !in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE") || current.maxClaims <= 1) throw failure
+                return GitHubClaimExtraction.collect(current, openVerifier, computationDispatcher, attempt)
+            } catch (failure: GitHubClaimExtraction.Failure) {
+                if (!failure.repairAllowed || failure.code !in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE") || current.maxClaims <= 1) throw failure
                 current = GitHubClaimBatches.withClaimLimit(current, maxOf(1, current.maxClaims / 2))
             }
         }
     }
-
-    private suspend fun extractBatchOnce(request: GitHubClaimBatches.Request, attempt: ExtractionAttempt): JsonObject {
-        var readingProvider = true
-        return try {
-            val response = StringBuilder()
-            var complete = false
-            var finishReason: String? = null
-            var outputExceeded = false
-            var unexpectedOperation = false
-            attempt.awaitingTerminal = true
-            openVerifier(request.payload).streamRound(emptyList(), emptyList()).collect { event ->
-                when (event) {
-                    is ProviderEvent.TextDelta -> {
-                        if (response.length + event.text.length.toLong() > 32_768) outputExceeded = true
-                        if (!outputExceeded) response.append(event.text)
-                    }
-                    is ProviderEvent.Completed -> {
-                        complete = true
-                        attempt.awaitingTerminal = false
-                    }
-                    is ProviderEvent.Usage -> event.finishReason?.let { finishReason = it }
-                    is ProviderEvent.Failed -> {
-                        attempt.awaitingTerminal = false
-                        throw ExtractionFailed(event.errorCode ?: "GITHUB_EXTRACTION_FAILED", event)
-                    }
-                    is ProviderEvent.ToolCall, is ProviderEvent.ToolResult -> unexpectedOperation = true
-                    else -> Unit
-                }
-            }
-            readingProvider = false
-            if (!complete) throw extractionProviderFailure(null)
-            if (outputExceeded || finishReason?.lowercase() in setOf("length", "max_tokens", "max_output_tokens", "token_limit")) throw ExtractionFailed("GITHUB_EXTRACTION_OUTPUT_LIMIT")
-            if (unexpectedOperation) throw ExtractionFailed("GITHUB_EXTRACTION_INVALID_RESPONSE")
-            withContext(computationDispatcher) {
-                val answer = Json.parseToJsonElement(response.toString().trim()) as? JsonObject ?: error("Claim extraction was not structured")
-                GitHubClaimBatches.validate(answer, request)
-            }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failed: ExtractionFailed) {
-            throw failed
-        } catch (failure: Exception) {
-            val policy = failureCauses(failure).firstOrNull {
-                it is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException ||
-                    it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
-                    it is dev.chungjungsoo.gptmobile.data.agent.SavedEvidenceAccessDenied
-            }
-            if (policy != null) throw policy
-            if (readingProvider) throw extractionProviderFailure(failure)
-            throw ExtractionFailed("GITHUB_EXTRACTION_INVALID_RESPONSE")
-        }
-    }
-
-    private fun extractionProviderFailure(failure: Exception?): ExtractionFailed = ExtractionFailed(
-        "GITHUB_EXTRACTION_FAILED",
-        ProviderEvent.Failed(
-            "The claim-extraction provider attempt did not finish. Saved evidence remains available; no automatic replay was authorized.",
-            errorCode = if (failure == null) "INCOMPLETE_PROVIDER_STREAM" else "PROVIDER_INVOCATION_FAILED",
-            transportComplete = false,
-            failureDetails = buildJsonObject {
-                put("failed_stage", "claim_extraction")
-                put("retryable", false)
-                put("request_replay_allowed", false)
-                put("logical_continuation_allowed", false)
-                put("remote_acceptance", "UNKNOWN")
-                failure?.let {
-                    put("exception_class", it.javaClass.simpleName.take(64))
-                    put("cause_types", JsonArray(failureCauses(it).map { cause -> JsonPrimitive(cause.javaClass.name) }.toList()))
-                }
-            }
-        )
-    )
-
-    private class ExtractionFailed(val code: String, val providerFailure: ProviderEvent.Failed? = null) : IllegalStateException(code)
 
     private fun verificationRequests(draft: String, receipts: Map<String, JsonObject>): List<GitHubClaimBatches.Request>? {
         val hardLimit = inputLimit()

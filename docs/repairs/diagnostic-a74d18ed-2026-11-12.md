@@ -58,11 +58,13 @@ The archive and its raw user content are not committed to the repository.
   retained.
 
 Legacy research recovery actions migrate only when their complete saved policy
-hash still matches the current complete legacy policy. Older provider-wait
-checkpoints that never retained a receipt-journal key cannot reconstruct that
-missing identity safely. Those checkpoints retain their strict evidence checks
-and may still require explicit reconciliation; the repair does not guess a journal
-or replay completed tools.
+hash still matches the current complete legacy policy. The follow-up
+[open-issue repair](open-issue-resolution-2026-11-12.md) also recovers older
+provider-wait checkpoints when a bounded scan proves one unique, settled journal
+with the exact protected provider-evidence digest and matching task, chat, turn,
+and profile. A digest guard revalidates that journal before the initial runner
+restores it. Missing, ambiguous, unsettled, or changed evidence still requires
+explicit reconciliation; recovery never grants replay of a completed tool.
 
 ## Validation record
 

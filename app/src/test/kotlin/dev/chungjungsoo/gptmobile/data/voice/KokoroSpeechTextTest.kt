@@ -6,6 +6,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class KokoroSpeechTextTest {
+    @Test fun projectedStreamChunksKeepNumbersAtChunkStartsInsteadOfReparsingListMarkup() {
+        val buffer = VoiceSpeechBuffer()
+        val input = "Here is the build 1. Continue with details."
+        val chunks = mutableListOf<String>()
+        for (end in 1..input.length) chunks += requireNotNull(buffer.append(input.take(end), false, earlyStart = true))
+        chunks += requireNotNull(buffer.append(input, true, earlyStart = true))
+        assertTrue(chunks.any { it.trim() == "1." })
+        val spoken = chunks.flatMap { requireNotNull(KokoroSpeechText.projectedParts(it) { true }) }.joinToString(" ")
+        assertEquals("here is the build one. continue with details.", spoken)
+        assertEquals("one. continue", KokoroSpeechText.projectedParts("1. Continue") { true }?.joinToString(" "))
+        assertEquals("continue", normalize("1. Continue"))
+    }
+
     @Test fun bareAddressesAndCodeUseTheSameSpokenProjectionAsMarkdownLinks() {
         assertEquals(
             "read the guide or link. code is available in the chat. the answer remains available.",

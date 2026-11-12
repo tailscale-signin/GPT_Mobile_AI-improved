@@ -12,6 +12,7 @@ internal enum class KokoroVoice(val speakerId: Int, val label: String, val lexic
 
 internal interface KokoroOutput {
     fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit)
+    fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit) = speak(text, voice, complete, error)
     fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit): VoiceReplyPlayback? = null
     fun configureThreads(value: Int) = Unit
     fun prewarm(voice: KokoroVoice) = Unit
@@ -121,7 +122,7 @@ internal class VoicePluginAudio(
             return
         }
         system.stop()
-        kokoro.speak(text, voice, complete = {
+        kokoro.speakProjected(text, voice, complete = {
             if (!closed && ticket == playbackGeneration) {
                 playbackGeneration++
                 complete()

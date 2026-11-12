@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/session-reliability-reporting-2026-11-12",
+  "base_sha": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+  "working_branch": "codex/open-issue-provider",
+  "target_branch": "fix/session-reliability-reporting-2026-11-12",
+  "parent_pr": 838,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "open-provider-issues-2026-11-12",
+  "state": "READY_FOR_INTEGRATION",
+  "intent": "Investigate open provider/task reports and repair claim extraction failure ownership without replaying uncertain provider attempts or changing selected profile, tool authority or admitted allowances.",
+  "evidence": {
+    "related_issues": [
+      848,
+      849,
+      850,
+      851,
+      853,
+      854,
+      855,
+      856,
+      858,
+      859
+    ],
+    "diagnostic_session": "a74d18ed-d2eb-43d2-bde1-cc82a48cff83",
+    "matched_run_issues": [
+      851,
+      853,
+      854,
+      856
+    ],
+    "later_claim_extraction_reports": "Issues 858 and 859 identify claim_extraction failures, but their matching detailed run records are not retained in the available capture.",
+    "scope": "Code-confirmed extraction failure classification and replay defects; does not establish the root cause of every sparse issue report. Concurrent cooldown and integration repairs are kept separate.",
+    "diagnostic_integrity": "All 20 staged JSONL files match their SHA256 digests in the a74d18ed archive manifest.",
+    "partial_run_coverage": "Issue 856 matches 49 completed read receipts in global logs, but that retained prefix stops before its terminal failure. Issue 855 reportId is retained without a run identity; only a temporal association to the recovery-action mismatch is available."
+  },
+  "validation": {
+    "focused_behavior": "PASS: 53 JUnit cases (15 collector + 38 current-source GitHubVerifiedSession cases), including current AgentRunner primary/extraction counts, malformed/length output, mixed failure frames, uncertainty, cancellation, saved checkpoint ownership and historical report delivery.",
+    "host": "PASS: bash scripts/validate-local.sh fast; 473 Python host tests, architecture/catalog checks, Android regex/resource preflight, icon check and QNN provenance gate.",
+    "android": "PENDING_CURRENT_HEAD_CI",
+    "device_and_provider": "NOT_RUN_NO_DEVICE_OR_USER_PROVIDER_SESSION",
+    "independent_review": "PASS: collector retry eligibility, monotonic stricter failures, extraction invocation ownership, retained draft, saved-report authority and corrective execution guard reviewed independently.",
+    "limitations": "Host compiler uses 87 current source files and explicit Android/persistence/data boundaries plus cached external dependencies. This is not APK, instrumented-device or live-provider acceptance."
+  }
+}

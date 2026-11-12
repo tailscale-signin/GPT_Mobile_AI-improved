@@ -122,6 +122,32 @@ class GatewayQueuedModelPreparationTest {
         }
     }
 
+    @Test fun onlineLeaseStillQualifiesItsExactModelAndPersistsARejectedLoadOnce() = runTest {
+        var loads = 0
+        var persistedStops = 0
+        val repository = GatewayModelPreparationRepository(
+            { capabilities },
+            { selected, mode -> observation(selected, mode) },
+            { _, operation ->
+                loads++
+                receipt(operation).copy(state = "LOAD_REJECTED", loadAccepted = false, modelState = "UNLOADED")
+            },
+            { testScheduler.currentTime },
+            pause = {},
+            maxPolls = 1
+        )
+        val preparation = GatewayQueuedModelPreparation(repository, backgroundScope) { testScheduler.currentTime }
+        val request = GatewayQueuedModelPreparation.Request("lease:accepted-online", profile, ReasoningMode.OFF, "original-vault-record", checkReadyModel = true)
+        val online = availability(testScheduler.currentTime, ready = true)
+        assertEquals(GatewayQueuedState.WAITING_FOR_GATEWAY, preparation.admission(request, online, onRejected = { persistedStops++ }) { true }?.state)
+        assertEquals(0, loads)
+        runCurrent()
+        repeat(3) { assertEquals(GatewayQueuedState.BLOCKED, preparation.admission(request, online, onRejected = { persistedStops++ }) { true }?.state) }
+        assertEquals(1, loads)
+        assertEquals(1, persistedStops)
+        preparation.retain(emptySet())
+    }
+
     @Test fun removalPauseOrCredentialRevocationBeforeLoadPreventsDispatch() = runTest {
         for (cancelOwner in listOf(false, true)) {
             val discovered = CompletableDeferred<Unit>()

@@ -210,10 +210,39 @@ internal object IssueReportCodes {
 
     fun select(code: String?, fallback: String): String = known(code) ?: fallback
 
+    internal data class PrecheckCategory(val code: String, val recoveryAction: String? = null)
+
+    /** Compatible public categories for native prechecks; raw tool codes never enter approved bytes. */
+    fun nativeGitHubPrecheck(code: String?, context: IssueReportContext): PrecheckCategory? {
+        if (context.source != "TOOL_RESULT" ||
+            context.stage != "tool_precheck" ||
+            context.dispatched != false ||
+            context.operation !in setOf("github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_commit") ||
+            context.requiresReconciliation == true ||
+            context.remoteAcceptance in setOf("YES", "UNKNOWN")
+        ) {
+            return null
+        }
+        return nativeGitHubPrecheckCategory(code)
+    }
+
+    private fun nativeGitHubPrecheckCategory(code: String?): PrecheckCategory? = when (code) {
+        "GITHUB_REPOSITORY_TARGET_MISMATCH", "REPOSITORY_SCOPE_MISMATCH" -> PrecheckCategory("REPOSITORY_TARGET_UNVERIFIED", "CHANGE_REPOSITORY")
+        "SAVED_VIEW_AUTHORIZATION_CHANGED" -> PrecheckCategory("GITHUB_AUTHORIZATION_UNVERIFIED", "REVIEW_AUTHORIZATION")
+        "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "WORKFLOW_SELECTION_REQUIRED" -> PrecheckCategory("INVALID_ARGUMENTS")
+        "SAVED_VIEW_PAGE_CAPACITY" -> PrecheckCategory("OUTPUT_LIMIT")
+        "EVIDENCE_UNAVAILABLE" -> PrecheckCategory("GITHUB_EVIDENCE_REQUIRED")
+        "GITHUB_TOOL_CONTRACT_UNSUPPORTED" -> PrecheckCategory("TOOL_UNAVAILABLE", "RETRY_AFTER_CONFIGURATION_CHANGE")
+        "GITHUB_STATE_UNAVAILABLE" -> PrecheckCategory("GITHUB_OPERATION_FAILED")
+        else -> null
+    }
+
     /** Reporting aliases only; the original tool receipt remains authoritative for recovery. */
     fun toolResult(code: String?): String? = when (code) {
         "UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE" -> "TOOL_UNAVAILABLE"
-        else -> known(code)
+        // Preserve only bounded native causes for the context-gated classifier; these are
+        // still projected to supported public categories before approved bytes are built.
+        else -> known(code) ?: code.takeIf { nativeGitHubPrecheckCategory(it) != null }
     }
 
     /** Read exact typed fields only; event names, messages and provider payloads are never parsed. */

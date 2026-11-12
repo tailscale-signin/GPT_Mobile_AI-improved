@@ -857,7 +857,7 @@ fun HomeScreen(
             LaunchedEffect(insightsViewModel) { insightsViewModel.refreshWhileVisible() }
             SelectPlatformDialog(
                 platformState,
-                selectedPlatforms = chatListState.selectedPlatforms,
+                selectedPlatformUids = chatListState.selectedPlatformUids,
                 insights = insights,
                 modelPreparation = modelPreparation,
                 onRecheckModel = homeViewModel::recheckGatewayModel,

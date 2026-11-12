@@ -63,7 +63,7 @@ import dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparatio
 @Composable
 internal fun SelectPlatformDialog(
     platforms: List<PlatformV2>,
-    selectedPlatforms: List<Boolean>,
+    selectedPlatformUids: Set<String>,
     onDismissRequest: () -> Unit,
     onConfirmation: (enabledPlatforms: List<String>, conversationMode: String) -> Unit,
     onPlatformSelect: (uid: String) -> Unit,
@@ -84,7 +84,7 @@ internal fun SelectPlatformDialog(
     var help by rememberSaveable { mutableStateOf(false) }
     var confirming by remember { mutableStateOf(false) }
     val now by dev.chungjungsoo.gptmobile.presentation.common.freeProviderClock()
-    val selected = selectedProfileUids(platforms, selectedPlatforms)
+    val selected = selectedProfileUids(platforms, selectedPlatformUids)
     val confirmed = remember(platforms, selected, now) { confirmedProfileUids(platforms, selected) }
     val labels = remember(platforms) { collectReusableProfileLabels(platforms.map { it.labels }) }
     LaunchedEffect(selected.size) { if (selected.size < 2) combined = false }

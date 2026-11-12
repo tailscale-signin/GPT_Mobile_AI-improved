@@ -7,8 +7,12 @@ import dev.chungjungsoo.gptmobile.data.pricing.PriceSource
 import dev.chungjungsoo.gptmobile.data.pricing.formatRate
 import dev.chungjungsoo.gptmobile.data.pricing.priceContextKey
 
-internal fun selectedProfileUids(profiles: List<PlatformV2>, selected: List<Boolean>): Set<String> =
-    profiles.mapIndexedNotNull { index, profile -> profile.uid.takeIf { profile.enabled && dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.category != dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.PROVIDER_CLIENT_RESTRICTED && selected.getOrElse(index) { false } } }.toSet()
+internal fun selectedProfileUids(profiles: List<PlatformV2>, selected: Set<String>): Set<String> =
+    profiles.filter { profile ->
+        profile.uid in selected &&
+            profile.enabled &&
+            dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.category != dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.PROVIDER_CLIENT_RESTRICTED
+    }.mapTo(linkedSetOf()) { it.uid }
 
 internal fun confirmedProfileUids(profiles: List<PlatformV2>, selected: Set<String>): List<String> {
     val requested = profiles.filter { it.enabled && it.uid in selected }

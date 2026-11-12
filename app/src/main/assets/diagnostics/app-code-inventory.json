@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b2543ffab11380874d8379de7fabd1e31d45e8545380ff0177f79fe8303a9373",
+  "source_digest": "2cd7e2bb5fe87e96cdac84fdb9424d1df9e1582f1d75e5d3ca745810c7189393",
   "file_count": 2458,
-  "indexed_line_count": 388998,
+  "indexed_line_count": 388989,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 522,
-      "indexed_line_count": 92443
+      "indexed_line_count": 92434
     },
     {
       "id": "accessibility_and_localization",
@@ -13142,7 +13142,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "52778a61c8603af27ef2c48ec1d22c84fae5f50b1d4d3d20a9b44ac0560953ae",
+      "sha256": "0d15912700df658011e200fa16ff1ad5dffef9d3d55896bd090948d4406b3eea",
       "indexed_lines": 1878
     },
     {
@@ -13156,8 +13156,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/HomeViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "e3d4a62dd5f4e2fe1e7042c124fabad6275abd51bbb68f77f0eefbdb2f684eff",
-      "indexed_lines": 815
+      "sha256": "7204d801dc710b4b2766e4cd5e79360503a1dcfd7258ac68af1c65be9fb34393",
+      "indexed_lines": 802
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/MultiChatWorkspaceScreen.kt",
@@ -13212,7 +13212,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SelectPlatformDialog.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "2d747e3ae5732703a06b5b0cdf683286f3e776a7facd62068c54fd986e6922ac",
+      "sha256": "60c14e30c3a27400730e5f5e2b94ae3315bcc6a553c943929a3e0146ab432e3b",
       "indexed_lines": 181
     },
     {
@@ -13226,8 +13226,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/SelectPlatformUiState.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "b655c80e796c6f1dba848bd13457e08ba6fdb74c23f7044a36947c78870cd512",
-      "indexed_lines": 55
+      "sha256": "ae5979b78cb98675113d88e73930d78d7e36af3cc6d14b95eb1aac9190718a48",
+      "indexed_lines": 59
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/llama/LlamaModelDropdown.kt",

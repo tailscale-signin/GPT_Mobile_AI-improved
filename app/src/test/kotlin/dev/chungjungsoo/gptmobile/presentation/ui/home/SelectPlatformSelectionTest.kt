@@ -7,7 +7,7 @@ import org.junit.Test
 class SelectPlatformSelectionTest {
     @Test fun hiddenAndFavoriteRowsRetainCanonicalSelectionOrder() {
         val profiles = listOf(PlatformV2(uid = "a", name = "Same"), PlatformV2(uid = "b", name = "Same", isFavorite = true), PlatformV2(uid = "disabled", name = "Fixture", enabled = false))
-        val selected = selectedProfileUids(profiles, listOf(true, true, true))
+        val selected = selectedProfileUids(profiles, setOf("a", "b", "disabled"))
         assertEquals(setOf("a", "b"), selected)
         assertEquals(listOf("b", "a"), orderedChatProfiles(profiles).map { it.second.uid })
         assertEquals(listOf("a", "b"), confirmedProfileUids(profiles, selected))
@@ -17,15 +17,15 @@ class SelectPlatformSelectionTest {
     @Test fun savedOpenCodeSelectionIsUnavailableBeforeConfirmationWithoutChangingHistoryIdentity() {
         val provider = dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.OPENCODE
         val profile = PlatformV2(uid = "existing-history-owner", name = "Saved OpenCode", compatibleType = dev.chungjungsoo.gptmobile.data.model.ClientType.FREE, apiUrl = provider.apiUrl, model = provider.model)
-        assertEquals(emptySet<String>(), selectedProfileUids(listOf(profile), listOf(true)))
+        assertEquals(emptySet<String>(), selectedProfileUids(listOf(profile), setOf(profile.uid)))
         assertEquals(emptyList<String>(), confirmedProfileUids(listOf(profile), setOf(profile.uid)))
         assertEquals("existing-history-owner", profile.uid)
         assertEquals("PROVIDER_CLIENT_RESTRICTED", dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)!!.category.name)
     }
 
-    @Test fun shortLegacySelectionAndDisableAreSafe() {
+    @Test fun reorderMissingProfilesAndDisablePreserveExactSelection() {
         val profiles = listOf(PlatformV2(uid = "a", name = "Fixture"), PlatformV2(uid = "b", name = "Fixture"))
-        assertEquals(setOf("a"), selectedProfileUids(profiles, listOf(true)))
+        assertEquals(setOf("a"), selectedProfileUids(profiles.reversed(), setOf("a", "removed")))
         assertEquals(emptyList<String>(), confirmedProfileUids(profiles.map { it.copy(enabled = false) }, setOf("a", "b")))
     }
 
@@ -39,7 +39,7 @@ class SelectPlatformSelectionTest {
             val available = PlatformV2(uid = "available", name = "Available")
             limiter.defer(provider, "5", free.model)
             val profiles = listOf(free, available)
-            val selected = selectedProfileUids(profiles, listOf(true, true))
+            val selected = selectedProfileUids(profiles, setOf("free", "available"))
             assertEquals(setOf("free", "available"), selected)
             assertEquals(emptyList<String>(), confirmedProfileUids(profiles, selected))
             assertEquals(listOf("available"), confirmedProfileUids(profiles, setOf("available")))

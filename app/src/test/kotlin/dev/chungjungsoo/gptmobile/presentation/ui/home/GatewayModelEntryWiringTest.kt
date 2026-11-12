@@ -109,6 +109,11 @@ class GatewayModelEntryWiringTest {
         assertEquals(ReasoningMode.ON, fixture.calls.single().mode)
         assertEquals(setOf("chosen"), model.gatewayModelPreparation.value.keys)
 
+        fixture.profiles.value = fixture.profiles.value.reversed()
+        runCurrent()
+        assertEquals(listOf("chosen"), fixture.calls.map { it.profile.uid })
+        assertEquals(setOf("chosen"), model.gatewayModelPreparation.value.keys)
+
         fixture.profiles.value = fixture.profiles.value.map { if (it.uid == "chosen") it.copy(model = "home-revised") else it }
         runCurrent()
         assertEquals("home-revised", fixture.calls.last().profile.model)

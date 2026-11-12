@@ -103,7 +103,9 @@ The exact approved JSON must fit the existing 8 KiB service limit. A lost HTTP
 response or app restart does not generate a different UUID or silently change
 the payload. The service keeps its digest-bound reconciliation contract and
 returns the original issue number when the same approved report is retried.
-An explicitly mismatched receipt is not accepted as success.
+New context-bearing reports require their matching report UUID in the success
+receipt. Legacy context-free reports alone can accept an absent-ID number-only
+receipt; an explicit null, malformed or mismatched ID never confirms success.
 
 ### Configuration and rollout
 
@@ -132,6 +134,38 @@ test total. Exact-current-head GitHub checks and the repository's merge rules
 remain mandatory. A successful predecessor or cancelled run cannot qualify a
 new head. The companion checkpoint records locally observed validation.
 
+### Full-suite compatibility findings
+
+The hosted unit run on `12af4f6be86c7893efe6b4aa80290405feef4010`
+executed 9,414 tests: 9,404 passed, five failed and five were skipped. Its
+hash-verified JUnit archive contained no errors. The separate preview workflow
+reported the same five failures. Four expectations omitted the newly retained
+local run/provider identity. The fifth treated two funding statements with
+reversed participants as equivalent wording support. Production behavior was
+correct in each case: the fix retains causal metadata and rejects the reversed
+relation.
+
+Concurrent commit `1a7f61dec1bc204b7b96d5006c5d02c1ead2a1b2` corrects
+those expectations with distinct run identifiers and equivalent active/passive
+funding statements, retaining the reversed pair as a negative regression.
+Additional boundary cases exercise locally bound identity despite conflicting
+provider fields, disjoint shared/source-specific wording ranges, and rejection
+of reversed funding as semantic coverage. These are test-contract corrections;
+they do not relax the report evidence or claim checks.
+
+The exact-head API 34 and API 36 emulator jobs, four gateway matrix jobs,
+CodeQL analysis and debug APK build succeeded on `12af4f6`. Those results are
+predecessor evidence and do not qualify a later head. Required hosted checks
+must pass on the final published repair commit before merge. The companion
+checkpoint records execution scopes, the failed full-suite receipt and focused
+local validation separately.
+
+The inspected review/debug build logs show an empty `ISSUE_REPORT_ORIGIN`.
+Live submission is therefore not established by the successful APK build. The
+updated service must be deployed and that public Actions variable set before
+rebuilding a deliverable intended to send reports. No live report was sent as
+part of deterministic validation.
+
 Reports #820–#830 contain generic historical causes that cannot be reconstructed
 from the retained report bodies. Reports #831–#833 are close in time to the
 supplied capture but lack the report-ID join needed to establish exact incident
@@ -141,7 +175,9 @@ to outages. Closure must identify the repaired behavior and its evidence.
 
 Issue #674 remains an acceptance program: 48 tasks include two implemented,
 43 in progress and three not started, with no task marked done; 11 of 110 cases
-are passing and 99 are not run in the reviewed ledger. The validator now rejects
+have historical case-bound JVM/fixture PASS entries and 99 are not run in
+the reviewed ledger. Those historical entries do not qualify the current build,
+physical devices or live services. The validator now rejects
 all-zero commit placeholders, and the reconciliation record reflects the active
 required-check ruleset. No acceptance status is promoted by this repair.
 

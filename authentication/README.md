@@ -175,8 +175,11 @@ retry. The full JSON request still has an 8 KiB maximum. Legacy reports without
 remain valid.
 
 Successful submissions return `{"reportId":"<original UUID>","number":42}`.
-Clients may accept an older number-only receipt, but must reject an explicit
-report-ID mismatch. Every retry uses the same approved UUID and payload. A
+Context-bearing submissions require that matching report ID before the app
+marks a report sent. A legacy report without context may accept an older
+number-only receipt when `reportId` is absent; an explicit null, malformed or
+mismatched ID is never confirmation. Every retry uses the same approved UUID
+and payload. A
 matching completed report returns its original issue number; changed content
 under that UUID returns `409 REPORT_ID_CONFLICT`. Rate limits return `429`, and
 upstream cooldowns or uncertain publication return `503`, with `Retry-After`

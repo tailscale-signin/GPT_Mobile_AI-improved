@@ -1845,6 +1845,47 @@ class ChatRepositoryImplTest {
         )
     }
 
+    @Test fun `provider failure keeps invocation evidence but cannot replace locally bound run and provider`() = runBlocking {
+        val remoteFailure = ProviderEvent.Failed(
+            "The selected execution profile was rejected.",
+            errorCode = "EXECUTION_SELECTION_INVALID",
+            taskOutcome = "BLOCKED",
+            failureDetails = buildJsonObject {
+                put("run_id", "unrelated-remote-run")
+                put("provider_kind", "GOOGLE")
+                put("failed_stage", "request_validation")
+                put("http_status", 400)
+                put("reasonCode", "SELECTION_SCHEMA_INVALID")
+            },
+            invocationId = "failed-invocation"
+        )
+        val failure = createRepository().streamAgentEvents(
+            flowOf(AgentRunEvent.Provider(remoteFailure)),
+            customPlatform(),
+            "bound-local-run",
+            0,
+            mockk<ToolTraceSession>(),
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {}
+        ).toList().filterIsInstance<ApiState.Error>().single()
+
+        assertEquals(
+            ApiState.Error(
+                "The selected execution profile was rejected.",
+                errorCode = "EXECUTION_SELECTION_INVALID",
+                taskOutcome = "BLOCKED",
+                failureDetails = buildJsonObject {
+                    put("run_id", "bound-local-run")
+                    put("provider_kind", "CUSTOM")
+                    put("failed_stage", "request_validation")
+                    put("http_status", 400)
+                    put("reasonCode", "SELECTION_SCHEMA_INVALID")
+                },
+                invocationId = "failed-invocation"
+            ),
+            failure
+        )
+    }
+
     @Test fun `circuit exception cannot overwrite uncertain gateway outcome`() = runBlocking {
         for (code in listOf("GATEWAY_OUTCOME_UNKNOWN", "REMOTE_OUTCOME_UNKNOWN")) {
             val failingOpenAIAPI = object : OpenAIAPI by RecordingOpenAIAPI() {

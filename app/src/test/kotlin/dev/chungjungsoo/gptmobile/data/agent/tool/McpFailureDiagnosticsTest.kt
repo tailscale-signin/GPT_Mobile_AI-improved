@@ -28,12 +28,23 @@ class McpFailureDiagnosticsTest {
         val logs = java.util.Collections.synchronizedList(mutableListOf<String>())
         val requests = mutableListOf<String>()
         val revisions = mutableListOf<String?>()
+        val operationAttribute = io.ktor.util.AttributeKey<String>("observed-mcp-operation")
         val client = HttpClient(
-            MockEngine {
-                requests += checkNotNull(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt]).readId
+            MockEngine { request ->
+                requests += request.attributes[operationAttribute]
                 throw java.net.ConnectException("Connection refused")
             }
         ) {
+            // MockEngine runs the handler in its own engine coroutine. Observe the
+            // caller's context in the request pipeline, where Logging also runs.
+            install(
+                io.ktor.client.plugins.api.createClientPlugin("ObserveMcpAttempt") {
+                    onRequest { request, _ ->
+                        val attempt = checkNotNull(kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.network.LocalMetadataReadAttempt])
+                        request.attributes.put(operationAttribute, attempt.readId)
+                    }
+                }
+            )
             install(io.ktor.client.plugins.logging.Logging) {
                 level = io.ktor.client.plugins.logging.LogLevel.HEADERS
                 logger = object : io.ktor.client.plugins.logging.Logger {
@@ -46,9 +57,10 @@ class McpFailureDiagnosticsTest {
         val manager = McpClientManager(client, modern = ModernMcpTransport(client), nowMs = { 10_000L })
         val config = McpConnectionConfig("refused", "https://refused.example/mcp", false, configurationRevision = "a".repeat(64))
         try {
-            kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.AUDIT_REFRESH, beforeOwnedDispatch = {}, onOwnedConfigurationRevision = { revisions += it })) {
-                assertTrue(runCatching { manager.listTools(config, awaitCompletion = true) }.isFailure)
+            val failure = kotlinx.coroutines.withContext(McpDiscoveryContext(McpDiscoveryTrigger.AUDIT_REFRESH, beforeOwnedDispatch = {}, onOwnedConfigurationRevision = { revisions += it })) {
+                runCatching { manager.listTools(config, awaitCompletion = true) }.exceptionOrNull()
             }
+            assertTrue("Expected the injected transport refusal, got $failure", failure is java.net.ConnectException)
             assertEquals(listOf(config.configurationRevision), revisions)
             assertEquals(1, requests.size)
             assertTrue(requests.single().matches(Regex("[a-f0-9]{32}")))

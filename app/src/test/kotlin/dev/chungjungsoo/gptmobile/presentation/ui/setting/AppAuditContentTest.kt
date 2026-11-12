@@ -250,7 +250,8 @@ class AppAuditContentTest {
         var opened: String? = null
         show { AppAuditEntryCard(appAuditPresentation(run, names).components.single().entries.single(), onOpenConnection = { opened = it }) }
         compose.onNodeWithText("This is a retained observation.", substring = true).assertExists()
-        compose.onNodeWithText("Open connection settings and checks").scrollIntoView().performClick()
+        assertEquals(null, opened)
+        compose.onNodeWithText("Open affected connection").scrollIntoView().performClick()
         assertEquals("accepted", opened)
         compose.onNodeWithText("Evidence details").scrollIntoView().performClick()
         compose.onNodeWithText("Diagnostic code: MCP_DISCOVERY_SCHEMA_INVALID").assertExists()
@@ -259,7 +260,7 @@ class AppAuditContentTest {
         compose.onNodeWithText("Observed configuration revision: not recorded.", substring = true).assertExists()
         compose.runOnIdle { names = mapOf("connection:replacement" to "Saved connection") }
         compose.waitForIdle()
-        compose.onNodeWithText("Open connection settings and checks").assertDoesNotExist()
+        compose.onNodeWithText("Open affected connection").assertDoesNotExist()
     }
 
     @Test fun cachedFailureShowsOriginalObservationTimeAndAgeBeforeDetailsAreOpened() {

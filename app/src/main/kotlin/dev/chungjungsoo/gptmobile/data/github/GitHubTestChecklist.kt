@@ -367,7 +367,10 @@ internal object GitHubTestChecklist {
         // A cached observation is useful evidence but cannot qualify transport.
         // Retry that exact authorized read once with explicit cache bypass. The
         // retained argument prevents loops after process restart or another hit.
-        val liveRead = observations.asReversed().takeIf { acquisitionAllowed }?.firstNotNullOfOrNull { receipt ->
+        // An exact live read qualifies an already acquired observation, so it
+        // may spend the verification reserve, but never a fixture's cleanup reserve.
+        val liveVerificationAllowed = remaining == null || remaining > GitHubChecklistBudget.cleanupReserve(receipts)
+        val liveRead = observations.asReversed().takeIf { liveVerificationAllowed }?.firstNotNullOfOrNull { receipt ->
             if (receipt["success"] != JsonPrimitive(true) || GitHubEvidenceOrigin.of(receipt) == "LIVE" || retiredRead(receipt)) return@firstNotNullOfOrNull null
             val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
             if (!requiresLiveTransport(Capability(receipt.text("tool").substringBefore("__"), args.text("action"), ""))) return@firstNotNullOfOrNull null

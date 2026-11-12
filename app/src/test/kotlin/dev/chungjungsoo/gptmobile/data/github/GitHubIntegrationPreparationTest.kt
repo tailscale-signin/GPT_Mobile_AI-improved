@@ -85,6 +85,34 @@ class GitHubIntegrationPreparationTest {
         assertEquals(2, receipts.size)
     }
 
+    @Test fun cachedLiveVerificationCannotSpendAnActiveFixturesCleanupReserve() {
+        val branches = AgentToolDefinition(
+            "github_context",
+            "Read branches",
+            json("""{"type":"object","properties":{"action":{"enum":["branches"]},"verify_live":{"type":"boolean"}},"required":["action"],"additionalProperties":false}""")
+        )
+        val receipts = active()
+        receipts["cached"] = JsonObject(
+            receipt("cached", "github_context", """{"action":"branches"}""", """{"has_more":false}""") + mapOf(
+                "dispatched" to JsonPrimitive(false),
+                "evidence_origin" to JsonPrimitive("CACHED")
+            )
+        )
+        val retained = receipts.toMap()
+        val available = listOf(branches)
+        assertEquals(4, GitHubChecklistBudget.cleanupReserve(receipts))
+        assertNull(GitHubSelfTestFixtures.next(task, available, receipts, allowCreate = false, cleanupOnly = true))
+        assertNull(GitHubTestChecklist.nextCall(task, available, receipts, remainingToolCalls = 4))
+
+        val verification = requireNotNull(GitHubTestChecklist.nextCall(task, available, receipts, remainingToolCalls = 5))
+        assertEquals("github_context", verification.name)
+        assertEquals(json("""{"action":"branches","verify_live":true}"""), verification.arguments)
+        assertEquals(retained, receipts)
+        assertEquals(4, GitHubChecklistBudget.cleanupReserve(receipts))
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, available, remainingToolCalls = 4)
+        assertEquals(JsonPrimitive(4), checkpoint.getValue("stage_budget").jsonObject["cleanup_reserve"])
+    }
+
     @Test fun cleanupReserveIsReleasedOnlyAfterExactOwnedAbsenceIsVerified() {
         val receipts = active()
         val deletion = receipt("cleanup", "github_commit", """{"action":"delete_branch","branch":"$fixture","expected_head_sha":"$sha"}""", """{"deleted":true,"absence_verified":true,"branch":"$fixture","observed_head_sha":"$sha"}""")

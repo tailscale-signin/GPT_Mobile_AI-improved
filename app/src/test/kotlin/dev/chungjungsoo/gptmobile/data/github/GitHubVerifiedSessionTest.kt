@@ -171,7 +171,7 @@ class GitHubVerifiedSessionTest {
         assertEquals(JsonPrimitive("status"), result.await().filterIsInstance<ProviderEvent.ToolCall>().single().arguments["action"])
     }
 
-    @Test fun invalidReviewerCanRecoverOnlyReceiptBackedClaimsFromPrivateDraft() = runBlocking {
+    @Test fun invalidReviewerRecoversReceiptFactsWithoutAnotherExtractionRequest() = runBlocking {
         val book = GitHubEvidenceBook("b", "o/r", "main", setOf("github_context"), now = { 1000L })
         val call = ProviderEvent.ToolCall("read", "github_context", Json.parseToJsonElement("""{"action":"checks"}""").jsonObject)
         book.observe(call, AgentToolResult("read", ToolResultContent.Text("""{"checks":3}"""), false))
@@ -192,7 +192,7 @@ class GitHubVerifiedSessionTest {
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(text.contains("3"))
         assertFalse(text.contains("everything is fixed"))
-        assertEquals(1, extractions)
+        assertEquals(0, extractions)
         assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
         val noEvidence = GitHubVerifiedSession(source, GitHubEvidenceBook("empty", "o/r", "main", emptySet()), "Explain", { 8192 }, { error("No receipts") }, {}, {})
         val noEvidenceEvents = noEvidence.streamRound(emptyList(), emptyList()).toList()

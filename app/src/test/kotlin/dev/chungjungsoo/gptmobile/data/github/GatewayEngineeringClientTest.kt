@@ -125,13 +125,17 @@ class GatewayEngineeringClientTest {
 
     @Test fun preAdmissionEofIsTypedAsUnsentWhileJobPostEofRemainsAmbiguousAndIsNeverRetried() = runTest {
         val paths = mutableListOf<String>()
+        val bodies = mutableListOf<String>()
+        var idleConnectionEvictions = 0
         http(
             MockEngine { request ->
+                assertEquals(io.ktor.http.HttpMethod.Post, request.method)
                 paths += request.url.encodedPath
+                bodies += (request.body as TextContent).text
                 throw java.io.EOFException("Private socket details")
             }
         ).use { http ->
-            val client = GatewayEngineeringClient(http)
+            val client = GatewayEngineeringClient(http, evictIdleConnections = { idleConnectionEvictions++ })
             val request = GatewayEngineeringRequest("owner/repo", "feature", "main", "Inspect", "local", chatId = 1, requestId = "original")
             val preflight = runCatching { client.preflight(config, request) }.exceptionOrNull()
             assertTrue(preflight is GatewayAdmissionException)
@@ -139,9 +143,15 @@ class GatewayEngineeringClientTest {
             assertEquals(GatewayAdmissionDispatchState.NOT_DISPATCHED, preflight.dispatchState)
             assertNull(preflight.httpStatus)
             assertFalse(preflight.message.orEmpty().contains("Private socket"))
+            assertEquals(listOf("/v1/gateway/engineering/preflight", "/v1/gateway/engineering/preflight"), paths)
+            assertEquals(1, idleConnectionEvictions)
             val create = runCatching { client.create(config, request) }.exceptionOrNull()
             assertTrue(create is java.io.EOFException)
-            assertEquals(listOf("/v1/gateway/engineering/preflight", "/v1/gateway/engineering/jobs"), paths)
+            assertEquals(listOf("/v1/gateway/engineering/preflight", "/v1/gateway/engineering/preflight", "/v1/gateway/engineering/jobs"), paths)
+            assertEquals(1, paths.count { it == "/v1/gateway/engineering/jobs" })
+            assertEquals(1, idleConnectionEvictions)
+            assertEquals(1, bodies.distinct().size)
+            assertEquals("original", Json.parseToJsonElement(bodies.last()).jsonObject.getValue("request_id").jsonPrimitive.content)
         }
     }
 

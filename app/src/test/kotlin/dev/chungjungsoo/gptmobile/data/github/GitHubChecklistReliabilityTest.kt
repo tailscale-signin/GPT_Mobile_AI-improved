@@ -71,6 +71,7 @@ class GitHubChecklistReliabilityTest {
         assertEquals(JsonPrimitive("CACHED"), row["status"])
         assertEquals(JsonPrimitive(false), row["live_verified"])
         assertFalse(GitHubTestChecklist.apiComplete("test all tools", records, listOf(branches)))
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(branches), records, remainingToolCalls = 0))
         val next = requireNotNull(GitHubTestChecklist.nextCall("test all tools", listOf(branches), records, remainingToolCalls = 2))
         assertEquals(json("""{"action":"branches","verify_live":true}"""), next.arguments)
         records["retry"] = JsonObject(cached + ("arguments" to next.arguments))

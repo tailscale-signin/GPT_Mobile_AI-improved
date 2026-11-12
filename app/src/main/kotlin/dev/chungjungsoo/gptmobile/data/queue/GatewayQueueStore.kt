@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayCommandReceipt
 import dev.chungjungsoo.gptmobile.data.github.GatewayCommandRejected
 import dev.chungjungsoo.gptmobile.data.github.GatewayCommandRejection
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
@@ -140,46 +141,83 @@ class GatewayQueueStore @Inject constructor(
     }
 
     /** Read-only reconciliation; absence of a command receipt is never permission to resubmit. */
-    internal suspend fun remoteSettled(lease: GatewaySubmissionRecord): Boolean = remoteSettled(lease, forceRefresh = false)
+    internal suspend fun remoteSettled(lease: GatewaySubmissionRecord): Boolean = settleRemoteWork(lease, forceRefresh = false) != null
 
-    private suspend fun remoteSettled(lease: GatewaySubmissionRecord, forceRefresh: Boolean): Boolean {
+    private data class RemoteSettlement(val commands: List<GatewaySubmissionRecord>, val lastAccepted: GatewayCommandReceipt?)
+
+    private suspend fun settleRemoteWork(lease: GatewaySubmissionRecord, forceRefresh: Boolean): RemoteSettlement? {
         val runId = requireNotNull(lease.runId)
-        if (!forceRefresh && (lease.receipt == "BACKUP_RESTORED" || database.agentRunDao().getById(runId)?.terminalError == "BACKUP_RESTORED")) return false
+        val run = database.agentRunDao().getById(runId)
+        if (!forceRefresh && (lease.receipt == "BACKUP_RESTORED" || run?.terminalError == "BACKUP_RESTORED")) return null
         if (dao.submissionsForRun(runId).any { it.state in setOf("PENDING_ORDINARY", "DISPATCHING_ORDINARY") }) {
             // Preserve the recovered acknowledgement on the original run before
             // terminal proof removes that command from the pending-admission set.
             conversations.reconcileOrdinaryAdmissions(lease.chatId, forceRefresh = forceRefresh)
         }
         val reservations = dao.submissionsForRun(runId)
-        if (reservations.isEmpty()) return database.agentRunDao().getById(runId)?.gatewayJobId == null
-        val selected = requireNotNull(turn(lease).accepted.gateway)
+        val commands = mutableListOf<GatewaySubmissionRecord>()
+        val accepted = mutableListOf<GatewayCommandReceipt>()
         for (reservation in reservations) {
-            if (reservation.state == "SETTLED" || !forceRefresh && reservation.state == "REJECTED_NOT_DISPATCHED") continue
-            if (!forceRefresh && reservation.state == "RESERVED_ORDINARY") {
-                if (dao.markOrdinaryNotDispatched(reservation.commandId, runId) != 1) return false
+            if (!forceRefresh && reservation.state in setOf("RESERVED_ORDINARY", "REJECTED_NOT_DISPATCHED")) {
+                if (reservation.state == "RESERVED_ORDINARY" && dao.markOrdinaryNotDispatched(reservation.commandId, runId) != 1) return null
+                commands += reservation.copy(state = "REJECTED_NOT_DISPATCHED")
+                continue
+            }
+            if (!forceRefresh && reservation.state == "SETTLED" && run?.gatewayJobId == null) {
+                commands += reservation
                 continue
             }
             val original = queuedAuthority(lease, reservation)
-            if (!forceRefresh && verifiedRejection(reservation, original.gatewayId, original.principalId, "generation")) continue
-            val route = jobs.originalRoute(reservation.connectionProfileUid, reservation.endpoint)
-            val receipt = try {
-                (if (forceRefresh) client.command(route.config, reservation.commandId) else client.observeCommand(route.config, reservation.commandId)) ?: return false
-            } catch (rejected: GatewayCommandRejected) {
-                if (!retainRejection(reservation, rejected.outcome, original.gatewayId, original.principalId, "generation")) return false
+            if (!forceRefresh && verifiedRejection(reservation, original.gatewayId, original.principalId, "generation")) {
+                commands += reservation
                 continue
             }
-            check(receipt.jobKind == "generation" && receipt.gatewayId == original.gatewayId && receipt.principalId == original.principalId && (receipt.profileId == null || receipt.profileId == selected.profileUid) && (receipt.model == null || receipt.model == selected.model)) {
-                "The saved Gateway command identity changed."
+            if (!forceRefresh && reservation.state == "SETTLED") {
+                val retained = reservation.receipt?.let { runCatching { json.decodeFromString<GatewayCommandReceipt>(it) }.getOrNull() }
+                    ?.takeIf { matchesOrdinaryReceipt(reservation, original, it) }
+                if (retained != null) {
+                    accepted += retained
+                    commands += reservation
+                    continue
+                }
             }
-            val result = gateway.getJobResult(receipt.jobId, route.config) ?: return false
-            if (result.jobId != receipt.jobId || !result.matchesRequestedModel(selected.model) || result.status.lowercase() !in TERMINAL_REMOTE_STATES) return false
-            dao.markSubmissionSettled(reservation.commandId, reservation.state)
+            val route = jobs.originalRoute(reservation.connectionProfileUid, reservation.endpoint)
+            val receipt = try {
+                (if (forceRefresh) client.command(route.config, reservation.commandId) else client.observeCommand(route.config, reservation.commandId)) ?: return null
+            } catch (rejected: GatewayCommandRejected) {
+                commands += retainRejection(reservation, rejected.outcome, original.gatewayId, original.principalId, "generation") ?: return null
+                continue
+            }
+            check(matchesOrdinaryReceipt(reservation, original, receipt)) { "The saved Gateway command identity changed." }
+            val result = gateway.getJobResult(receipt.jobId, route.config) ?: return null
+            if (result.jobId != receipt.jobId || !result.matchesRequestedModel(original.model) || result.status.lowercase() !in TERMINAL_REMOTE_STATES) return null
+            val settled = reservation.copy(state = "SETTLED", receipt = json.encodeToString(receipt))
+            val retained = database.withTransaction {
+                if (dao.submission(reservation.commandId) != reservation) return@withTransaction false
+                dao.saveSubmission(settled)
+                true
+            }
+            if (!retained) return null
+            commands += settled
+            accepted += receipt
             markCachedTerminal(receipt.jobId, reservation.connectionProfileUid, reservation.endpoint, result.status)
         }
-        // No-dispatch proof for these commands cannot certify an older job whose
-        // accepted command was not retained with the run.
-        return database.agentRunDao().getById(runId)?.gatewayJobId == null || needsDelivery(lease)
+        return database.withTransaction {
+            if (dao.submissionsForRun(runId) != commands) return@withTransaction null
+            val jobId = database.agentRunDao().getById(runId)?.gatewayJobId
+            if (jobId != null && accepted.none { it.jobId == jobId }) return@withTransaction null
+            RemoteSettlement(commands, accepted.lastOrNull())
+        }
     }
+
+    private fun matchesOrdinaryReceipt(record: GatewaySubmissionRecord, original: GatewayOrdinaryReservation, receipt: GatewayCommandReceipt): Boolean =
+        receipt.schemaVersion == 1 &&
+            receipt.commandId == record.commandId &&
+            receipt.jobKind == "generation" &&
+            receipt.gatewayId == original.gatewayId &&
+            receipt.principalId == original.principalId &&
+            (receipt.profileId == null || receipt.profileId == record.executionProfileUid) &&
+            (receipt.model == null || receipt.model == original.model)
 
     /** Existing server work participates in the same fence, including before this feature was enabled. */
     internal suspend fun externalWorkBlocker(): String? {
@@ -201,7 +239,7 @@ class GatewayQueueStore @Inject constructor(
                     ?: return "An earlier Gateway submission has no confirmed outcome. Open its saved job to reconcile it before new work starts."
             } catch (rejected: GatewayCommandRejected) {
                 val original = if (binding == null) ordinaryAuthority(pending) else null
-                if (!retainRejection(pending, rejected.outcome, binding?.gatewayId ?: original?.gatewayId, binding?.principalId ?: original?.principalId, if (binding == null) "generation" else "engineering")) {
+                if (retainRejection(pending, rejected.outcome, binding?.gatewayId ?: original?.gatewayId, binding?.principalId ?: original?.principalId, if (binding == null) "generation" else "engineering") == null) {
                     return "An earlier Gateway admission changed while its status was being checked."
                 }
                 continue
@@ -286,10 +324,10 @@ class GatewayQueueStore @Inject constructor(
         requireRejectionAuthority(record, outcome, gatewayId, principalId, kind)
     }.isSuccess
 
-    private suspend fun retainRejection(record: GatewaySubmissionRecord, outcome: GatewayCommandRejection, gatewayId: String?, principalId: String?, kind: String): Boolean = database.withTransaction {
+    private suspend fun retainRejection(record: GatewaySubmissionRecord, outcome: GatewayCommandRejection, gatewayId: String?, principalId: String?, kind: String): GatewaySubmissionRecord? = database.withTransaction {
         requireRejectionAuthority(record, outcome, gatewayId, principalId, kind)
-        val current = dao.submission(record.commandId) ?: return@withTransaction false
-        if (current.copy(state = record.state, receipt = record.receipt) != record) return@withTransaction false
+        val current = dao.submission(record.commandId) ?: return@withTransaction null
+        if (current.copy(state = record.state, receipt = record.receipt) != record) return@withTransaction null
         if (current.state == "REJECTED_NOT_DISPATCHED") {
             // A restored local marker may predate a dispatch on the original device.
             // Only this fresh, verified remote rejection can replace it with proof.
@@ -297,8 +335,7 @@ class GatewayQueueStore @Inject constructor(
         } else {
             retainGatewayCommandRejection(database, current, outcome)
         }
-        val retained = dao.submission(record.commandId) ?: return@withTransaction false
-        verifiedRejection(retained, gatewayId, principalId, kind)
+        dao.submission(record.commandId)?.takeIf { verifiedRejection(it, gatewayId, principalId, kind) }
     }
 
     private suspend fun notDispatched(lease: GatewaySubmissionRecord, record: GatewaySubmissionRecord): Boolean {
@@ -326,11 +363,9 @@ class GatewayQueueStore @Inject constructor(
     /** Explicit read-only review can release imported work only with an original remote identity. */
     internal suspend fun reviewRestored(lease: GatewaySubmissionRecord): Boolean {
         val runId = requireNotNull(lease.runId)
-        if (dao.submissionsForRun(runId).isEmpty()) return false
-        if (!remoteSettled(lease, forceRefresh = true)) return false
-        val commands = dao.submissionsForRun(runId)
-        val last = commands.lastOrNull { !notDispatched(lease, it) }
-        if (last == null) {
+        val settlement = settleRemoteWork(lease, forceRefresh = true) ?: return false
+        val (commands, receipt) = settlement
+        if (receipt == null) {
             if (commands.none { it.state.startsWith("REJECTED:") }) return false
             // Restored no-dispatch markers alone cannot unlock a queue. Every retained
             // remote rejection above was checked again with an explicit, live GET.
@@ -343,13 +378,9 @@ class GatewayQueueStore @Inject constructor(
                 }
             }
         }
-        val original = ordinaryAuthority(last)
-        val route = jobs.originalRoute(last.connectionProfileUid, last.endpoint)
-        val receipt = client.command(route.config, last.commandId) ?: return false
-        check(receipt.gatewayId == original.gatewayId && receipt.principalId == original.principalId && receipt.jobKind == "generation" && (receipt.profileId == null || receipt.profileId == last.executionProfileUid) && (receipt.model == null || receipt.model == original.model))
-        val result = gateway.getJobResult(receipt.jobId, route.config) ?: return false
-        if (result.jobId != receipt.jobId || !result.matchesRequestedModel(original.model) || result.status.lowercase() !in TERMINAL_REMOTE_STATES) return false
+        val last = commands.last { it.commandId == receipt.commandId }
         return database.withTransaction {
+            if (dao.submission(lease.commandId) != lease || dao.submissionsForRun(runId) != commands) return@withTransaction false
             val run = database.agentRunDao().getById(runId)
             if (run != null && !deliveryReady(lease.copy(receipt = "RESTORED_REMOTE_TERMINAL_VERIFIED"))) {
                 if (dao.restoreReviewedQueuedDelivery(runId, run.ownershipFence, receipt.jobId, last.endpoint) != 1) return@withTransaction false

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "f048df04401a787f2d487b13a4cc10a008dc399f7cb6b7cab97548ba0205305a",
+  "source_digest": "14b261ef1371672edfe60f43f42bcbc9db63ef3768df0aa4ab18e75bf3a328dd",
   "file_count": 2467,
-  "indexed_line_count": 391527,
+  "indexed_line_count": 391558,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -34,7 +34,7 @@
       "id": "android_shell",
       "label": "Android application and lifecycle",
       "file_count": 71,
-      "indexed_line_count": 7990
+      "indexed_line_count": 8021
     },
     {
       "id": "chat_ui",
@@ -9859,8 +9859,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/GatewayQueueStore.kt",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "c9041bc4ee605a3f318c04fd8cdf095c6eac9ef699fb796afae73a437da2fd38",
-      "indexed_lines": 408
+      "sha256": "798cb0946a4d1a46f5b10336f6203459e2baed14286cee81a91164bb7e0e62b7",
+      "indexed_lines": 439
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/queue/GatewayQueueWakeWorker.kt",

@@ -351,6 +351,59 @@ class GatewayQueueStoreTest {
         coVerify(exactly = 0) { client.observeCommand(any(), any()) }
     }
 
+    @Test fun settledAndRejectedCommandsCannotCertifyADifferentJobBoundToTheRun() = runBlocking {
+        val (result, lease) = claim()
+        val dao = database.gatewayJobDao()
+        val accepted = reservation(lease, command = "settled-other-command")
+        dao.saveSubmission(accepted.copy(state = "SETTLED", receipt = Json.encodeToString(receipt(accepted.commandId))))
+        val rejected = reservation(lease, command = "rejected-command")
+        dao.saveSubmission(rejected.copy(state = "REJECTED:409", receipt = Json.encodeToString(rejection(rejected.commandId))))
+        val run = result.runs.single().copy(status = "INTERRUPTED", gatewayJobId = "unconfirmed-job", gatewayBaseUrl = profile.apiUrl, completedAt = 2)
+        database.agentRunDao().upsert(run)
+        assertFalse(store.remoteSettled(lease))
+        assertEquals(lease, dao.queuedDispatches().single())
+        database.agentRunDao().upsert(run.copy(gatewayJobId = "saved-job"))
+        assertTrue(store.remoteSettled(lease))
+        coVerify(exactly = 0) { client.observeCommand(any(), any()) }
+    }
+
+    @Test fun legacySettledCommandRetainsTheExactReceiptAfterRecheckingItsBoundJob() = runBlocking {
+        val (result, lease) = claim()
+        val saved = reservation(lease, state = "SETTLED")
+        database.agentRunDao().upsert(result.runs.single().copy(status = "INTERRUPTED", gatewayJobId = "saved-job", gatewayBaseUrl = profile.apiUrl))
+        coEvery { client.observeCommand(config, saved.commandId) } returns receipt(saved.commandId)
+        coEvery { gateway.getJobResult("saved-job", config) } returns GatewayJobResult("saved-job", "completed", job = GatewaySavedJob(profile.model, "saved-job"))
+        assertTrue(store.remoteSettled(lease))
+        assertNotNull(database.gatewayJobDao().submission(saved.commandId)?.receipt)
+        assertTrue(newStore().remoteSettled(lease))
+        coVerify(exactly = 1) { client.observeCommand(config, saved.commandId) }
+    }
+
+    @Test fun restoredReviewChecksEverySettledCommandBeforeReleasingTheQueue() = runBlocking {
+        val (result, lease) = claim()
+        val dao = database.gatewayJobDao()
+        val restored = lease.copy(receipt = "BACKUP_RESTORED")
+        dao.saveSubmission(restored)
+        val run = result.runs.single().copy(status = "INTERRUPTED", gatewayJobId = "saved-job", gatewayBaseUrl = profile.apiUrl, terminalError = "BACKUP_RESTORED")
+        database.agentRunDao().upsert(run)
+        val earlier = reservation(restored, command = "earlier-accepted", state = "SETTLED")
+        val earlierReceipt = receipt(earlier.commandId).copy(jobId = "earlier-job")
+        dao.saveSubmission(earlier.copy(createdAtMillis = 1, receipt = Json.encodeToString(earlierReceipt)))
+        val later = reservation(restored, command = "later-accepted", state = "SETTLED")
+        val laterReceipt = receipt(later.commandId)
+        dao.saveSubmission(later.copy(createdAtMillis = 2, receipt = Json.encodeToString(laterReceipt)))
+        coEvery { client.command(config, earlier.commandId) } returns null
+        coEvery { client.command(config, later.commandId) } returns laterReceipt
+        coEvery { gateway.getJobResult("saved-job", config) } returns GatewayJobResult("saved-job", "completed", job = GatewaySavedJob(profile.model, "saved-job"))
+        assertFalse(store.reviewRestored(restored))
+        assertEquals(restored, dao.queuedDispatches().single())
+        coEvery { client.command(config, earlier.commandId) } returns earlierReceipt
+        coEvery { gateway.getJobResult("earlier-job", config) } returns GatewayJobResult("earlier-job", "completed", job = GatewaySavedJob(profile.model, "earlier-job"))
+        assertTrue(store.reviewRestored(restored))
+        assertEquals("LOCAL_QUEUE_DELIVERY_PENDING", store.active.first().single().state)
+        coVerify(exactly = 1) { client.command(config, later.commandId) }
+    }
+
     @Test fun terminalProofDoesNotDependOnTranscriptDeliveryAndAReleasedLeaseStaysReleased() = runBlocking {
         val (_, lease) = claim()
         val saved = reservation(lease)

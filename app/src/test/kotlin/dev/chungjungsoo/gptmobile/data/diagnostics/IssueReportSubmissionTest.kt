@@ -76,6 +76,28 @@ class IssueReportSubmissionTest {
         assertEquals(listOf(payload), posted)
     }
 
+    @Test fun contextualReportRequiresItsIdentityInTheReceiptBeforeConfirming() {
+        val enriched = report.copy(context = IssueReportContext.fromFields("MANUAL_REPORT", occurredAtMillis = 1_000L))
+        val approved = enriched.approvedPayload()
+        val posted = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1]}""")
+            } else {
+                posted += body(request)
+                val receipt = if (posted.size == 1) """{"number":742}""" else """{"reportId":"${report.reportId}","number":742}"""
+                response(request, 200, receipt)
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        val uncertain = submission.send(report.reportId, approved) as IssueReportSubmission.Failure
+        assertEquals("REPORT_RECEIPT_MISMATCH", uncertain.code)
+        assertTrue(uncertain.retryable)
+        assertEquals(IssueReportSubmission.Confirmed(742), submission.send(report.reportId, approved))
+        assertEquals(listOf(approved, approved), posted)
+    }
+
     @Test fun transientAndPermanentRejectionsHaveBoundedSafeMetadataAndRetryDeadlines() {
         val client = OkHttpClient.Builder().addInterceptor { response(it.request(), 429, """{"error":"RATE_LIMITED","private":"must not be surfaced"}""", "120") }.build()
         val failure = IssueReportSubmission(origin, client) { 10_000L }.send(report.reportId, report.approvedPayload()) as IssueReportSubmission.Failure

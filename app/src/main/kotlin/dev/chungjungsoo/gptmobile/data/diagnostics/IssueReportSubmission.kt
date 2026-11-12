@@ -62,8 +62,9 @@ internal class IssueReportSubmission(
                 val receipt = IssueReport.json.parseToJsonElement(text) as? JsonObject ?: return@use Failure("REPORT_RECEIPT_INVALID", retryable = true, httpStatus = response.code)
                 val identity = receipt["reportId"] as? JsonPrimitive
                 val number = (receipt["number"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                val requiresBoundReceipt = context != null || "reportId" in receipt
                 when {
-                    "reportId" in receipt && (identity?.isString != true || identity.content != reportId) -> Failure("REPORT_RECEIPT_MISMATCH", retryable = true, httpStatus = response.code)
+                    requiresBoundReceipt && (identity?.isString != true || identity.content != reportId) -> Failure("REPORT_RECEIPT_MISMATCH", retryable = true, httpStatus = response.code)
                     number == null || number <= 0 -> Failure("REPORT_RECEIPT_INVALID", retryable = true, httpStatus = response.code)
                     else -> Confirmed(number)
                 }

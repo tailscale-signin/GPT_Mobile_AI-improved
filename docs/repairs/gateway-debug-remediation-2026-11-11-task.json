@@ -57,7 +57,8 @@
     "target_branch": "fix/voice-chat-crash-and-diagnostics-2026-11-11",
     "expected_head": "aa51231a492ae4fde208d1ca2d17e64790f3bf53",
     "method": "GitHub Git Database API, expected-head fast-forward update",
-    "status": "PREPARED"
+    "implementation_commit": "f22c93b56ffc2406c9d09840a2dd189cd0cecc6a",
+    "verification": "Target ref ancestry and PR CI are authoritative; no deployment or merge is claimed."
   },
   "concurrent_head_integrated": "aa51231a492ae4fde208d1ca2d17e64790f3bf53"
 }

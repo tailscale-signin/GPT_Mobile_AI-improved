@@ -584,6 +584,7 @@
         "authentication/issue_report_diagnostics.py",
         "authentication/issue_reports.py",
         "authentication/test_app.py",
+        "authentication/test_failure_details.py",
         "authentication/test_github_broker.py",
         "authentication/test_ticket_broker.py",
         "authentication/ticket_broker.py",

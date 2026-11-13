@@ -336,7 +336,15 @@ class AgentRunner(
                 }
                 val resolvedCalls = round.calls.map { call ->
                     // Stamp live calls at the trusted routing boundary; restored journals retain their identity.
-                    val identified = if (restoringBatch) call else call.copy(originalInvocationFingerprint = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}"))
+                    val identified = if (restoringBatch) {
+                        call
+                    } else {
+                        call.copy(
+                            originalInvocationFingerprint = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}"),
+                            originalProviderName = call.name,
+                            originalProviderArguments = call.arguments
+                        )
+                    }
                     val resolved = resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
                     resolved.copy(arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(resolved.name, resolved.arguments))
                 }

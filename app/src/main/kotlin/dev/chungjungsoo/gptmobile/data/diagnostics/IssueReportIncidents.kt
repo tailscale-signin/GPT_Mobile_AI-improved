@@ -223,7 +223,23 @@ internal object IssueReportIncidents {
         // A rejected provider attempt may lack a resumable checkpoint. Retain its
         // observed cause without treating the report as authorization to retry.
         val publicCode = if (localRecovery) "CHAT_FAILED" else specificCode ?: if (rateLimited || observedRateLimit) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED"
-        failure(ReportFeature.CHAT, publicCode, error, fields + listOfNotNull(invocationId?.let { "invocation_id" to it }).toMap(), "CHAT_FAILURE")
+        val diagnosticFields = if (publicCode == "CHAT_FAILED" && "diagnostic_area" !in fields) {
+            fields + mapOf(
+                "diagnostic_area" to "APP",
+                "diagnostic_capture_mode" to "INCIDENT",
+                "chat_failure_code_state" to when {
+                    code.isNullOrBlank() -> "ABSENT"
+                    IssueReportCodes.known(code) != null -> "KNOWN"
+                    else -> "UNRECOGNIZED"
+                },
+                "original_error_code_hash" to IssueReportContext.identifierHash("chat-error-code", code),
+                "run_id_hash" to input.runIdHash,
+                "invocation_id_hash" to (IssueReportContext.identifierHash("invocation", invocationId) ?: input.invocationIdHash)
+            )
+        } else {
+            fields
+        }
+        failure(ReportFeature.CHAT, publicCode, error, diagnosticFields + listOfNotNull(invocationId?.let { "invocation_id" to it }).toMap(), "CHAT_FAILURE")
     }
 
     /** Called by the existing uncaught exception handler before it delegates to Android. */

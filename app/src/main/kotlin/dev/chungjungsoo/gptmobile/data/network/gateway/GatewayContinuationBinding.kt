@@ -22,7 +22,7 @@ class GatewayContinuationBinding private constructor(
     /** Skip only complete, cursor-bound local saved-page batches after the latest real handoff. */
     fun requireResults(exchanges: List<AgentToolExchange>) {
         val latest = exchanges.lastOrNull { !SavedViewRecoveryBatch.isComplete(it, pending.keys) }
-        requireResults(latest?.calls.orEmpty().map { Triple(it.callId, it.name, it.arguments) }, latest?.results.orEmpty().map { it.callId })
+        requireResults(latest?.calls.orEmpty().map { it.providerIdentity().let { original -> Triple(original.callId, original.name, original.arguments) } }, latest?.results.orEmpty().map { it.callId })
     }
 
     /** Opaque call IDs may recur in older completed batches; only this exact batch is authoritative. */

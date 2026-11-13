@@ -65,6 +65,15 @@ class GitHubReviewBaselineTest {
         }
     }
 
+    @Test fun workflowPresetDoesNotInterpretHeadBaseRevisionsAsALiteralBaseline() {
+        val task = "Review the selected branch against its base.\nAcceptance criteria:\n- Inspect the exact head/base revisions and changed files\n[github-workflow-preset:review_branch]"
+        val plan = requireNotNull(GitHubReviewComparison.plan(task, tools, mapOf("status" to context(), "prs" to noPulls())))
+        assertEquals(JsonPrimitive("BASELINE_REQUIRED"), plan.checkpoint["state"])
+        assertNull(plan.nextCall)
+        val explicit = requireNotNull(GitHubReviewComparison.plan(task + "\nBaseline: release/stable", tools, mapOf("status" to context())))
+        assertEquals(JsonPrimitive("release/stable"), explicit.nextCall?.arguments?.get("ref"))
+    }
+
     @Test fun defaultBranchWithoutBaselineStaysBlockedWithoutInventingAComparison() {
         for (task in listOf(review, "Review the selected branch against its base branch", "Review this branch against its baseline\nAcceptance criteria: inspect the source")) {
             val plan = requireNotNull(GitHubReviewComparison.plan(task, tools, mapOf("status" to context(), "prs" to noPulls())))

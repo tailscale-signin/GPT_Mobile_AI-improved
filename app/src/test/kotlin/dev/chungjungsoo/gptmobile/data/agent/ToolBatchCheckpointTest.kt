@@ -754,7 +754,7 @@ class ToolBatchCheckpointTest {
         try {
             file.writeText("""{"binding":"grant","pending":[],"entries":{}}""")
             assertTrue(ToolBatchCheckpoint(file, "grant").pending().isEmpty())
-            file.writeText("""{"binding":"grant","schemaVersion":2,"pending":[],"entries":{}}""")
+            file.writeText("""{"binding":"grant","schemaVersion":3,"pending":[],"entries":{}}""")
             assertTrue(runCatching { ToolBatchCheckpoint(file, "grant").pending() }.isFailure)
         } finally {
             directory.deleteRecursively()

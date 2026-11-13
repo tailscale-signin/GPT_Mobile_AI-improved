@@ -215,8 +215,10 @@ class VoiceSession(
         }
         return diagnosticTrace.incidentFields() + mapOf("failed_stage" to operation, "operation" to operation)
     }
-    private fun replyFailureFields(id: String): Map<String, Any?> = mapOf(
+    private fun replyFailureFields(id: String, failed: Boolean, text: String): Map<String, Any?> = mapOf(
         "run_id" to id,
+        "voice_reply_state" to if (failed) "FAILED_WITHOUT_DETAILS" else "EMPTY_REPLY",
+        "voice_reply_characters" to text.length,
         // Terminal prose is not evidence of a microphone fault or provider dispatch.
         "operation" to null,
         "failed_stage" to "delivery"
@@ -516,7 +518,7 @@ class VoiceSession(
             }
             fail(
                 "This turn did not finish. Your words are kept. Open chat to review it or try again.",
-                failureFields = replyFailureFields(id)
+                failureFields = replyFailureFields(id, failed, text)
             )
             return
         }

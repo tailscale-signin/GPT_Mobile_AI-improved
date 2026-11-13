@@ -29,6 +29,9 @@ internal object ProviderFailureReport {
         put("profile_hash", receipt.profileHash)
         put("model_hash", receipt.modelHash)
         put("response_format", receipt.responseFormat.name)
+        put("provider_failure_stage", receipt.stage.name)
+        put("provider_failure_domain", receipt.failureDomain.name)
+        put("provider_failure_code", receipt.errorCode)
         put("finish_reason", receipt.finishReason.name)
         configured?.configuredProfileOutputTokens?.bounded()?.let { put("configured_output_limit", it) }
         (configured?.serializedOutputTokens ?: configured?.effectiveOutputTokens)?.bounded()?.let { put("effective_output_limit", it) }
@@ -47,6 +50,16 @@ internal object ProviderFailureReport {
         val jobId = (failure.failureDetails?.get("job_id") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: metadata?.takeIf { it.transportVerified }?.jobId
         IssueReportContext.identifierHash("job", jobId)?.let { put("job_id_hash", it) }
+        failure.providerLimit?.takeIf {
+            dev.chungjungsoo.gptmobile.data.research.researchHash(it.profileUid) == receipt.profileHash &&
+                dev.chungjungsoo.gptmobile.data.research.researchHash(it.model) == receipt.modelHash
+        }?.let { limit ->
+            // This is the decision at failure time, not proof that a worker resumed.
+            put("provider_wait_eligible", limit.mayWait)
+            put("provider_checkpoint_present", limit.gitHubCheckpoint != null)
+            put("provider_checkpoint_continuation_allowed", limit.checkpointContinuationAllowed)
+            limit.consecutiveRejections.bounded()?.let { put("provider_consecutive_rejections", it) }
+        }
         val backend = receipt.gatewayAttemptEvidence
         listOf("attempts" to "backend_attempts", "completed_attempts" to "backend_completed_attempts", "failed_attempt" to "backend_failed_attempt")
             .forEach { (source, target) -> backend?.number(source)?.let { put(target, it) } }

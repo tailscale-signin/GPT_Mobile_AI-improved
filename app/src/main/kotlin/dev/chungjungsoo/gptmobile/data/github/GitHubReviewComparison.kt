@@ -16,7 +16,7 @@ import kotlinx.serialization.json.put
 /** Resolve the review's immutable comparison before spending its allowance on inventories. */
 internal object GitHubReviewComparison {
     private val sha = Regex("[a-fA-F0-9]{40}")
-    private val baselineSelector = "\\b(?:baseline|base|against)\\b[ \\t]*(?:(?:sha|commit|branch|tag|ref)(?=[ \\t]|[:=])[ \\t]*)?"
+    private val baselineSelector = "(?<![\\p{L}\\p{N}_/])\\b(?:baseline|base|against)\\b[ \\t]*(?:(?:sha|commit|branch|tag|ref)(?=[ \\t]|[:=])[ \\t]*)?"
     private val baselinePrefix = "$baselineSelector[:=]?[ \\t]*"
     private val explicitBase = Regex("(?i)$baselinePrefix([^\\s]+)")
     private val labelledBase = Regex("(?i)$baselineSelector[:=][ \\t]*([^\\r\\n]*)")

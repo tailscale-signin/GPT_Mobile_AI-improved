@@ -26,6 +26,27 @@ import org.junit.Test
 class ProviderFailureReportTest {
     private val profile = PlatformV2(uid = "private-profile", name = "Private selected profile", model = "private-model", compatibleType = ClientType.LLAMA)
 
+    @Test fun cooldownReportDistinguishesWaitEligibilityFromCheckpointAvailability() {
+        val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision(
+            provider = "LLAMA",
+            profileUid = profile.uid,
+            model = profile.model,
+            retryAt = 2_000L,
+            scope = "model",
+            category = "rate_limit",
+            knownNotAccepted = true,
+            consecutiveRejections = 3
+        )
+        val failure = ProviderEvent.Failed("private", errorCode = "PROVIDER_RATE_LIMITED", providerLimit = limit)
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure, null)
+        val fields = ProviderFailureReport.fields("run", failure, receipt)
+        assertEquals(JsonPrimitive(true), fields["provider_wait_eligible"])
+        assertEquals(JsonPrimitive(false), fields["provider_checkpoint_present"])
+        assertEquals(JsonPrimitive(3), fields["provider_consecutive_rejections"])
+        val foreign = ProviderFailureReport.fields("run", failure.copy(providerLimit = limit.copy(profileUid = "other")), receipt)
+        assertNull(foreign["provider_wait_eligible"])
+    }
+
     @Test fun actualStreamExportsCompletionBudgetCauseCapAndOwnedUsageWithoutAnotherRequest() = runBlocking {
         val failure = ProviderEvent.Failed(
             "private provider detail",

@@ -41,6 +41,26 @@ class GatewayContinuationBindingTest {
         assertTrue(runCatching { binding.requireResults(listOf(Triple("original-call", "write_file", arguments)), listOf("original-call")) }.exceptionOrNull()?.message.orEmpty().contains("CLIENT_TOOL_RESULT_IDENTITY_MISMATCH"))
     }
 
+    @Test fun routedCallReturnsOriginalProviderIdentityWithoutChangingExecution() {
+        val binding = GatewayContinuationBinding.verified("profile", "https://gateway.test/v1", "selected", "saved", saved)
+        val routed = ProviderEvent.ToolCall(
+            "original-call",
+            "read_file__authorized",
+            buildJsonObject {
+                put("path", "README.md")
+                put("response_detail", "compact")
+            },
+            originalProviderName = "read_file",
+            originalProviderArguments = arguments
+        )
+        binding.requireResults(listOf(exchange(routed)))
+        assertEquals("read_file__authorized", routed.name)
+        assertEquals("read_file", routed.providerIdentity().name)
+        assertEquals(arguments, routed.providerIdentity().arguments)
+        assertTrue(runCatching { binding.requireResults(listOf(exchange(routed.copy(originalProviderArguments = buildJsonObject { put("path", "changed") })))) }.isFailure)
+        assertTrue(runCatching { routed.copy(originalProviderName = null).providerIdentity() }.isFailure)
+    }
+
     @Test fun opaquePendingIdsArePreservedVerbatim() {
         val id = "opaque call/東京:0"
         val opaque = json.decodeFromString<GatewayJobResult>(json.encodeToString(saved).replace("original-call", id))

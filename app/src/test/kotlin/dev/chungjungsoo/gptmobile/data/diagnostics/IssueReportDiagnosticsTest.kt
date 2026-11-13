@@ -17,6 +17,21 @@ class IssueReportDiagnosticsTest {
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 
+    @Test fun failureDetailsAreReadableBoundedAndNegotiated() {
+        val input = mapOf("diagnostic_area" to "TOOL", "tool_action" to "headers", "tool_error_code" to "INVALID_ARGUMENTS", "tool_reason_code" to "TOOL_ARGUMENT_SCHEMA_REJECTED", "tool_dispatch_phase" to "PREFLIGHT_REJECTED", "unknown_field_count" to 1, "private_argument" to "secret")
+        val diagnostics = requireNotNull(IssueReportContext.fromFields("TOOL_RESULT", input, time).diagnostics)
+        assertEquals(JsonPrimitive("headers"), diagnostics.values["tool_action"])
+        assertEquals(JsonPrimitive(1), diagnostics.values["unknown_field_count"])
+        assertEquals(setOf("INCIDENT_FAILURE_DETAILS_V1"), diagnostics.requiredServiceFeatures())
+        assertTrue(diagnostics.isValid())
+        val payload = report(IssueReportContext.fromFields("TOOL_RESULT", input, time)).approvedPayload()
+        assertFalse(payload.contains("secret"))
+        val unsafe = requireNotNull(IssueReportContext.fromFields("TOOL_RESULT", input + mapOf("tool_action" to "private/action", "tool_error_code" to "PRIVATE_CODE", "unknown_field_count" to -1), time).diagnostics)
+        assertFalse("tool_action" in unsafe.values)
+        assertFalse("tool_error_code" in unsafe.values)
+        assertFalse("unknown_field_count" in unsafe.values)
+    }
+
     @Test fun providerObservationSurvivesApprovalWithExactUsageLimitAndBackendEvidence() {
         val context = IssueReportContext.fromFields(
             "CHAT_FAILURE",

@@ -20,6 +20,10 @@ internal object GitHubAcceptanceReportDiagnostics {
             .filter { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") }
             .toList()
         put("unmet_criterion_count", unmet.size)
+        for ((section, target) in listOf("requirements" to "unmet_requirement_count", "capabilities" to "unmet_capability_count")) {
+            val rows = ledger[section] as? JsonArray ?: continue
+            put(target, rows.filterIsInstance<JsonObject>().count { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") })
+        }
         val selected = unmet.take(8)
         put("unmet_criterion_omitted_count", unmet.size - selected.size)
         if (selected.isNotEmpty()) {

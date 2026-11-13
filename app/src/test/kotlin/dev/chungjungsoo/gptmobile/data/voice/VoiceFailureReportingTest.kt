@@ -296,6 +296,8 @@ class VoiceFailureReportingTest {
         val report = IssueReportIncidents.pending.value.single()
         assertEquals("VOICE_SESSION_FAILED", report.errorCode)
         assertEquals("delivery", report.context?.stage)
+        assertEquals(JsonPrimitive("FAILED_WITHOUT_DETAILS"), report.context?.diagnostics?.values?.get("voice_reply_state"))
+        assertEquals(JsonPrimitive(0), report.context?.diagnostics?.values?.get("voice_reply_characters"))
         org.junit.Assert.assertNull(report.context?.dispatched)
         org.junit.Assert.assertNull(report.context?.remoteAcceptance)
         org.junit.Assert.assertNull(report.context?.httpStatus)

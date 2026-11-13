@@ -274,7 +274,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                     exchange.results.map { result ->
                         buildJsonObject {
                             put("callId", result.callId)
-                            exchange.calls.singleOrNull { it.callId == result.callId }?.let { call ->
+                            exchange.calls.singleOrNull { it.callId == result.callId }?.providerIdentity()?.let { call ->
                                 put("tool", call.name)
                                 put("arguments", call.arguments)
                             }
@@ -1771,7 +1771,7 @@ private fun AgentToolExchange.toChatMessages(): List<ChatMessage> = listOf(
     ChatMessage(
         role = OpenAIRole.ASSISTANT,
         toolCalls = calls.map { call ->
-            ChatToolCall(call.callId, ChatFunction(call.name, call.arguments.toString()))
+            call.providerIdentity().let { original -> ChatToolCall(original.callId, ChatFunction(original.name, original.arguments.toString())) }
         }
     )
 ) + results.map { result ->
@@ -1793,7 +1793,7 @@ private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(): Prov
 private fun AgentToolExchange.toAnthropicMessages(assistantContent: List<MessageContent>?): List<InputMessage> = listOf(
     InputMessage(
         MessageRole.ASSISTANT,
-        assistantContent ?: calls.map { call -> ToolUseContent(call.callId, call.name, call.arguments) }
+        assistantContent ?: calls.map { call -> call.providerIdentity().let { original -> ToolUseContent(original.callId, original.name, original.arguments) } }
     ),
     InputMessage(
         MessageRole.USER,
@@ -1809,7 +1809,7 @@ private fun AgentToolExchange.toGeminiContents(modelParts: List<Part>?): List<Co
     return listOf(
         Content(
             GoogleRole.MODEL,
-            modelParts ?: calls.map { call -> Part(functionCall = FunctionCall(call.callId, call.name, call.arguments)) }
+            modelParts ?: calls.map { call -> call.providerIdentity().let { original -> Part(functionCall = FunctionCall(original.callId, original.name, original.arguments)) } }
         ),
         Content(
             GoogleRole.USER,
@@ -1819,7 +1819,7 @@ private fun AgentToolExchange.toGeminiContents(modelParts: List<Part>?): List<Co
                 Part(
                     functionResponse = FunctionResponse(
                         id = providerCallId,
-                        name = call.name,
+                        name = call.providerIdentity().name,
                         response = result.modelJson()
                     )
                 )

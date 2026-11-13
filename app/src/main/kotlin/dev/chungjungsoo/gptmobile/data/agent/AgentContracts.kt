@@ -20,8 +20,16 @@ sealed interface ProviderEvent {
         val name: String,
         val arguments: JsonObject,
         /** Runner-owned identity before authorized routing; never part of the model's arguments. */
-        val originalInvocationFingerprint: String? = null
-    ) : ProviderEvent
+        val originalInvocationFingerprint: String? = null,
+        /** Exact provider call before host defaults, aliases or recovery routing. */
+        val originalProviderName: String? = null,
+        val originalProviderArguments: JsonObject? = null
+    ) : ProviderEvent {
+        fun providerIdentity(): ToolCall {
+            check((originalProviderName == null) == (originalProviderArguments == null)) { "CLIENT_TOOL_RESULT_IDENTITY_MISMATCH: Incomplete original call identity." }
+            return copy(name = originalProviderName ?: name, arguments = originalProviderArguments ?: arguments)
+        }
+    }
     data class ToolResult(val call: ToolCall, val result: AgentToolResult) : ProviderEvent
     data class Failed(val message: String, val progressDeadline: ProgressDeadlineOutcome? = null, val errorCode: String? = null, val transportComplete: Boolean = false, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val taskOutcome: String? = null, val failureDetails: JsonObject? = null, val invocationId: String? = null) : ProviderEvent
     data class Notice(val message: String, val persistent: Boolean = false, val researchDelivery: dev.chungjungsoo.gptmobile.data.research.delivery.ResearchDeliveryReceipt? = null) : ProviderEvent

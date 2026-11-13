@@ -179,6 +179,7 @@ class ToolEventRecorder @Inject constructor(
                             it !in setOf(
                                 "run_id", "runId", "call_id", "callId", "toolCallId", "tool", "tool_name", "operation", "retryable", "requires_reconciliation",
                                 "diagnostic_area", "diagnostic_capture_mode", "run_id_hash", "call_id_hash", "tool_name_hash", "tool_action_hash",
+                                "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase",
                                 "argument_shape_hash", "original_error_code_hash", "original_reason_code_hash"
                             )
                         }

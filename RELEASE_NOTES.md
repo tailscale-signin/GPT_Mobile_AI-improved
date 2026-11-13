@@ -4,6 +4,12 @@ Android build 141. Scoped reliability release covering the changes since [0.9.66
 
 This release brings together persistent gateway conversations and jobs, more reliable GitHub task recovery and acceptance evidence, application audits, safer diagnostics, and the November 7–9 integration repairs. The latest repair also addresses the Gateway conversations crash and the Android method-size and regression failures found while reviewing PR #815.
 
+## November 13 issue follow-up
+
+The [issue repair register](docs/repairs/issue-diagnostics-2026-11-13.md) covers #891–#927. Review presets no longer interpret `head/base revisions` as a Git ref. Tool continuation history preserves the provider's original call while executing normalized arguments, including after checkpoint reload. Issue queries accept the shared presentation option. Reports add bounded readable tool failure details, provider wait/checkpoint observations, chat correlation and separate acceptance counts.
+
+Extended incident fields require a hosted reporter advertising INCIDENT_FAILURE_DETAILS_V1. Diagnostic-only issue closures do not establish that the original incident is fixed; Android, private gateway and hosted rollout validation remain outstanding.
+
 ## PR 881 open-issue follow-up
 
 The [PR 881 repair register](docs/repairs/pr881-open-issues-2026-11-12.md) covers repository issues #884–#890. Exact sleeping gateway models use a non-generation wake request with durable uncertainty handling. Reports retain safe preparation causes and backend status. GitHub tool/issue reviews no longer trigger an unrelated branch-comparison requirement; explicit commit, tag and branch baselines resolve to immutable revisions. Integration checks continue through already-observed workflow runs when a successful jobs query contains no usable jobs, and exact-revision failure queries preserve truthful empty results.

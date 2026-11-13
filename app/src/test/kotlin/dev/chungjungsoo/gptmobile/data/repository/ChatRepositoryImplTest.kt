@@ -30,6 +30,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
@@ -76,6 +78,7 @@ import dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot
 import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
 import io.ktor.client.engine.cio.CIO
 import io.mockk.coEvery
@@ -1443,6 +1446,7 @@ class ChatRepositoryImplTest {
     @Test
     fun `groq token limit reports failure instead of completing with only thinking`() = runBlocking {
         val runId = "run-groq-output-limit"
+        val platform = groqPlatform(reasoning = true, model = "qwen/qwen3.6-27b")
         val groqAPI = FakeGroqAPI(
             flowOf(
                 GroqChatCompletionChunk(
@@ -1461,10 +1465,24 @@ class ChatRepositoryImplTest {
         val states = repository.completeChat(
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
-            platform = groqPlatform(reasoning = true, model = "qwen/qwen3.6-27b"),
+            platform = platform,
             runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
+        val expectedDetails = buildJsonObject {
+            put("diagnostic_area", "PROVIDER")
+            put("diagnostic_capture_mode", "INCIDENT")
+            put("run_id_hash", IssueReportContext.identifierHash("run", runId))
+            put("profile_hash", researchHash(platform.uid))
+            put("model_hash", researchHash(platform.model))
+            put("response_format", "TEXT")
+            put("finish_reason", "LENGTH")
+            put("usage_source", "provider_reported")
+            put("transport_complete", true)
+            put("original_error_code_hash", IssueReportContext.identifierHash("provider-error-code", "OUTPUT_LIMIT"))
+            put("run_id", runId)
+            put("provider_kind", "GROQ")
+        }
         assertEquals(
             listOf(
                 ApiState.Loading,
@@ -1472,16 +1490,19 @@ class ChatRepositoryImplTest {
                 ApiState.Error(
                     "Groq reached the model output limit before producing a final answer.",
                     errorCode = "OUTPUT_LIMIT",
-                    failureDetails = buildJsonObject {
-                        put("run_id", runId)
-                        put("provider_kind", "GROQ")
-                    }
+                    failureDetails = expectedDetails
                 ),
                 ApiState.Done
             ),
             states
         )
         assertEquals(1, groqAPI.streamCalls)
+        val failure = states.filterIsInstance<ApiState.Error>().single()
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", failure.failureDetails.orEmpty(), 1_000L))
+        assertTrue(report.isValid())
+        assertEquals("PROVIDER", report.area)
+        assertEquals("INCIDENT", report.captureMode)
+        assertEquals(expectedDetails - setOf("diagnostic_area", "diagnostic_capture_mode", "run_id", "provider_kind"), report.values)
     }
 
     @Test

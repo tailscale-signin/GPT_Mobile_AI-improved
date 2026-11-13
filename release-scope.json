@@ -2410,6 +2410,7 @@
     "scripts/resolve_validation_base.py",
     "scripts/tests/test_validation_base.py",
     "docs/repairs/manual-validation-base-2026-11-12-task.json",
-    "gateway/tests/test_gateway_v14_engineering_worker.py"
+    "gateway/tests/test_gateway_v14_engineering_worker.py",
+    "docs/repairs/groq-output-limit-test-2026-11-13-task.json"
   ]
 }

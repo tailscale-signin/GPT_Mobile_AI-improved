@@ -7,6 +7,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderRejectionDiagnosticsTest {
+    @Test fun notFoundDistinguishesOnlyExplicitModelUnavailability() {
+        val explicit = ProviderRejectionDiagnostics.response(404, """{"error":{"code":"model_not_found","message":"private model identifier"}}""", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS)
+        assertEquals(JsonPrimitive("MODEL_UNAVAILABLE"), explicit["provider_rejection_category"])
+        assertFalse(explicit.toString().contains("private model identifier"))
+        val ambiguous = ProviderRejectionDiagnostics.response(404, """{"error":{"code":404,"message":"model_not_found in provider prose"}}""", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS)
+        assertEquals(JsonPrimitive("NOT_FOUND"), ambiguous["provider_rejection_category"])
+        assertFalse("provider_error_type_hash" in ambiguous)
+    }
+
     @Test fun httpGoneRecordsStatusCategoryWithoutInventingAModelDeprecation() {
         val result = ProviderRejectionDiagnostics.response(410, """{"message":"private-model has changed","error":{"type":"private-provider-type","message":"private endpoint detail"}}""", ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS)
         assertEquals(JsonPrimitive("GONE"), result["provider_rejection_category"])

@@ -1,5 +1,7 @@
 import copy
 import json
+from pathlib import Path
+import re
 import unittest
 
 from authentication import incident_report_contract as capsule
@@ -45,6 +47,8 @@ class IncidentReportContractTest(unittest.TestCase):
             ("github_error_codes", ["private-secret"]), ("unknown_field_hashes", ["private-secret"]),
             ("provider_wait_persisted", "true"), ("recovery_attempt_count", True),
             ("causal_failure_code", "PRIVATE_ACCOUNT_TOKEN"), ("argument_field_names", ["action"]),
+            ("dispatch_policy_sections", ["profile.secretRef"]), ("dispatch_policy_stage", "private-stage"),
+            ("dispatch_policy_resume_required", "true"),
         ]
         for key, value in invalid:
             with self.subTest(key=key):
@@ -53,6 +57,12 @@ class IncidentReportContractTest(unittest.TestCase):
                     validate_diagnostics(capture)
                 with self.assertRaises(ReportError):
                     issue_from_report(self.report(capture))
+
+    def test_dispatch_policy_diagnostics_keep_closed_categories(self):
+        capture = self.capture("INCIDENT", {"dispatch_policy_sections": ["PROFILE", "TOOLS", "PERMISSIONS"],
+                                            "dispatch_policy_stage": "delivery", "dispatch_policy_resume_required": True})
+        self.assertEqual(capture, validate_diagnostics(capture))
+        issue_from_report(self.report(capture))
 
     def test_capsule_requires_context_seven_and_old_approved_versions_remain_valid(self):
         report = self.report(self.capture())
@@ -102,6 +112,41 @@ class IncidentReportContractTest(unittest.TestCase):
         validate_diagnostics(capture)
         self.assertNotIn("request_replay_allowed", capture["values"])
         self.assertNotIn("logical_continuation_allowed", capture["values"])
+
+    def test_exception_capture_survives_validation_without_claiming_provider_dispatch(self):
+        for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH"):
+            with self.subTest(site=site):
+                capture = self.capture("INCIDENT", {
+                    "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",
+                    "causal_failure_code": "CHAT_FAILED", "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+                    "incident_capture_site": site, "incident_phase_provenance": "CAPTURE_BOUNDARY_ONLY",
+                    "exception_type_hashes": ["d" * 64, "e" * 64],
+                })
+                del capture["values"]["causal_id_hash"]
+                capture["unavailableFields"] = sorted((CORE_FIELDS["INCIDENT"] | capsule.CORE) - capture["values"].keys())
+                report = self.report(capture)
+                report.update(feature="chat", errorCode="CHAT_FAILED")
+                report["context"].update(source="CHAT_FAILURE", provider="OPENROUTER", runIdHash="b" * 64, exceptionFingerprint="c" * 64)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(site, issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                self.assertTrue({"stage", "invocationIdHash", "httpStatus", "dispatched", "retryable", "remoteAcceptance"}.issubset(report["context"]["unavailableFields"]))
+                for key, value in (("incident_capture_site", "private-site"), ("incident_phase_provenance", "INFERRED_DISPATCH"), ("exception_type_hashes", ["private-error"])):
+                    invalid = copy.deepcopy(report)
+                    invalid["context"]["diagnostics"]["values"][key] = value
+                    with self.assertRaises(ReportError):
+                        issue_from_report(invalid)
+
+    def test_exception_capture_vocabulary_matches_native_contract(self):
+        source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        sites = re.search(r"enum class ExceptionCaptureSite\s*\{([^}]+)\}", source)
+        self.assertIsNotNone(sites)
+        self.assertEqual(set(re.findall(r"[A-Z][A-Z_]+", sites.group(1))), capsule.ENUMS["incident_capture_site"])
+        provenance = re.search(r'"incident_phase_provenance"\s+to\s+setOf\(([^)]+)\)', source)
+        self.assertIsNotNone(provenance)
+        self.assertEqual(set(re.findall(r'"([^"\n]+)"', provenance.group(1))), capsule.ENUMS["incident_phase_provenance"])
 
 
 if __name__ == "__main__":

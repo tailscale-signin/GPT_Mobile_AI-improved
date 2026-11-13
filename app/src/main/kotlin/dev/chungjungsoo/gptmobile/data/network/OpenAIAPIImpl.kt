@@ -255,6 +255,7 @@ class OpenAIAPIImpl @Inject constructor(
                                 kotlinx.serialization.json.buildJsonObject {
                                     put("failed_stage", "model_invocation")
                                     put("http_status", response.status.value)
+                                    responseObserver.snapshot().serverRequestId?.let { put("server_request_id", it) }
                                 } + ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS) +
                                     structuredProviderFailure(errorBody, response.status.value).orEmpty()
                             )

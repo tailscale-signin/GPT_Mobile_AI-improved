@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.graphics.Bitmap
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -20,11 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import androidx.test.filters.SdkSuppress
@@ -46,7 +45,7 @@ import org.junit.Test
 /** Uses the production viewport capture/fade order, not an unrelated full-screen source. */
 @SdkSuppress(minSdkVersion = 32)
 class ConversationGlassInstrumentedTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val frameEffects = FrameEffectsGuard()
     private var dark by mutableStateOf(false)
     private var backdropEnabled by mutableStateOf(true)
@@ -214,21 +213,39 @@ class ConversationGlassInstrumentedTest {
 
     private fun samples(): Map<String, List<Double>> {
         compose.waitForIdle()
-        return listOf("chat_input_glass", "chat_latest_glass").associateWith { tag ->
-            val pixels = compose.onNodeWithTag(tag, useUnmergedTree = true).captureToImage().toPixelMap()
-            val composer = tag == "chat_input_glass"
-            val values = mutableListOf<Double>()
-            val left = (pixels.width * 0.35f).toInt()
-            val right = (pixels.width * 0.65f).toInt()
-            val top = (pixels.height * if (composer) 0.60f else 0.18f).toInt()
-            val bottom = (pixels.height * if (composer) 0.80f else 0.30f).toInt()
-            for (y in top until bottom) {
-                for (x in left until right) {
-                    val color = pixels[x, y]
-                    values += (color.red - color.blue).toDouble()
+        val tags = listOf("chat_input_glass", "chat_latest_glass")
+        val bounds = tags.associateWith { compose.onNodeWithTag(it, useUnmergedTree = true).fetchSemanticsNode().boundsInWindow }
+        val offset = compose.runOnIdle {
+            val screen = IntArray(2)
+            val window = IntArray(2)
+            compose.activity.window.decorView.getLocationOnScreen(screen)
+            compose.activity.window.decorView.getLocationInWindow(window)
+            (screen[0] - window[0]) to (screen[1] - window[1])
+        }
+        // Sample both controls from the same composited frame. The API 34 emulator
+        // can time out waiting for Compose's per-node forced redraw on an idle window.
+        val pixels = requireNotNull(InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot())
+        try {
+            return bounds.mapValues { (tag, rect) ->
+                val composer = tag == "chat_input_glass"
+                val left = offset.first + (rect.left + rect.width * 0.35f).toInt()
+                val right = offset.first + (rect.left + rect.width * 0.65f).toInt()
+                val top = offset.second + (rect.top + rect.height * if (composer) 0.60f else 0.18f).toInt()
+                val bottom = offset.second + (rect.top + rect.height * if (composer) 0.80f else 0.30f).toInt()
+                check(left in 0 until right && right <= pixels.width && top in 0 until bottom && bottom <= pixels.height) {
+                    "Sample for $tag is outside the display: $rect, offset=$offset, display=${pixels.width}x${pixels.height}"
+                }
+                buildList {
+                    for (y in top until bottom) {
+                        for (x in left until right) {
+                            val color = pixels.getPixel(x, y)
+                            add((android.graphics.Color.red(color) - android.graphics.Color.blue(color)) / 255.0)
+                        }
+                    }
                 }
             }
-            values
+        } finally {
+            pixels.recycle()
         }
     }
 

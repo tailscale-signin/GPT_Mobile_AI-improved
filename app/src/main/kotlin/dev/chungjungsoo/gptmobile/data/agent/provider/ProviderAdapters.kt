@@ -918,6 +918,12 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 } else {
                                     protocolErrorCode
                                 }
+                                if (failureDetails == null && localCircuitRejection == null) {
+                                    failureDetails = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.exceptionFields(
+                                        error,
+                                        dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.OPENAI_ADAPTER_STREAM_CATCH
+                                    )
+                                }
                                 canRotate = classified.isRetryable && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(lastFailedMessage.orEmpty(), protocolErrorCode) && ApiCredentialRotator.isRotatableError(error)
                             }
                             .collect { chunk ->

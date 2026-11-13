@@ -42,6 +42,7 @@ internal data class IssueReportDiagnostics(
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
         if (area == "GATEWAY" && (values.keys + omittedFields).any { it in modelPreparationFields }) add(MODEL_PREPARATION_FEATURE)
         if ((values.keys + omittedFields).any { it in failureDetailFields }) add("INCIDENT_FAILURE_DETAILS_V1")
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.dispatchPolicyFields }) add("DISPATCH_POLICY_DIAGNOSTICS_V1")
     }
 
     companion object {

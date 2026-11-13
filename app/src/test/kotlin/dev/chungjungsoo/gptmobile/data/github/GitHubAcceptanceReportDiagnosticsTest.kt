@@ -85,6 +85,25 @@ class GitHubAcceptanceReportDiagnosticsTest {
         assertNull(missing["unmet_criterion_count"])
     }
 
+    @Test fun differentUnmetCriteriaKeepTheirDistinctReceiptExclusions() {
+        fun row(reason: String) = buildJsonObject {
+            put("required", true)
+            put("state", "BLOCKED")
+            put("receipt_exclusion_reasons", JsonArray(listOf(JsonPrimitive(reason))))
+        }
+        val verdict = buildJsonObject {
+            put(
+                "acceptance_ledger",
+                buildJsonObject {
+                    put("requirements", JsonArray(listOf(row("WRONG_REVISION"), row("PRECHECK_ONLY"), row("PRECHECK_ONLY"), row("private-reason"))))
+                }
+            )
+        }
+        val fields = GitHubAcceptanceReportDiagnostics.fields(verdict, retainedReport = true)
+        assertEquals(JsonArray(listOf(JsonPrimitive("WRONG_REVISION"), JsonPrimitive("PRECHECK_ONLY"))), fields["receipt_exclusion_reasons"])
+        assertFalse(fields.toString().contains("private-reason"))
+    }
+
     private fun requirement(id: String, text: String, state: String, required: Boolean) = buildJsonObject {
         put("id", id)
         put("requirement", text)

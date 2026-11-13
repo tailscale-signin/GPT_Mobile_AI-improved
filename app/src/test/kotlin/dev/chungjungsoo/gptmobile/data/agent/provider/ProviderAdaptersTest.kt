@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -901,6 +902,53 @@ class ProviderAdaptersTest {
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, events.size)
         assertTrue(events.single() is ProviderEvent.Failed)
+    }
+
+    @Test
+    fun `OpenRouter unclassified stream exception retains bounded capture evidence`() = runBlocking {
+        val error = IllegalStateException("PRIVATE_UPSTREAM https://private.invalid/token", IllegalArgumentException("PRIVATE_INNER"))
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow { throw error })))
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OPENROUTER))
+            .streamRound(emptyList(), emptyList()).toList()
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertFalse(events.any { it == ProviderEvent.Completed })
+        assertEquals(1, api.chatRequests.size)
+        val details = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("OPENAI_ADAPTER_STREAM_CATCH"), details["incident_capture_site"])
+        assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), details["incident_phase_provenance"])
+        assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.exceptionFingerprint(error)), details["exception_fingerprint"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("java.lang.IllegalStateException"), JsonPrimitive("java.lang.IllegalArgumentException"))), details["cause_types"])
+        assertNull(failure.invocationId)
+        for (key in listOf("failed_stage", "dispatched", "http_status", "remote_acceptance", "retryable", "request_replay_allowed", "invocation_id")) assertNull(details[key])
+        assertFalse(details.toString().contains("PRIVATE_"))
+        assertFalse(details.toString().contains("private.invalid"))
+    }
+
+    @Test
+    fun `OpenRouter typed rejection remains authoritative after trailing stream exception`() = runBlocking {
+        val typed = buildJsonObject {
+            put("failed_stage", "backend_template")
+            put("http_status", 400)
+            put("dispatched", false)
+            put("retryable", false)
+        }
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow {
+                        emit(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Typed failure", code = "BACKEND_TEMPLATE_INVALID", failureDetails = typed)))
+                        throw IllegalStateException("PRIVATE_LATE_FAILURE")
+                    }
+                )
+            )
+        )
+        val failure = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OPENROUTER))
+            .streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("BACKEND_TEMPLATE_INVALID", failure.errorCode)
+        assertEquals(typed, failure.failureDetails)
+        assertEquals(1, api.chatRequests.size)
+        assertNull(failure.failureDetails?.get("incident_capture_site"))
+        assertNull(failure.failureDetails?.get("exception_fingerprint"))
     }
 
     @Test

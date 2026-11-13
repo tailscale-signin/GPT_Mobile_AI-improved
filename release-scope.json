@@ -1360,6 +1360,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/GatewayQueueStoreTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/queue/PendingPromptContinuationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImplTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryResearchIncidentTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/GitHubApiDeliveryTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/GroqReasoningParserTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolConnectionRepositoryTest.kt",

@@ -85,5 +85,32 @@
     "ktlint_changed": "PASS"
   },
   "issue_closure_policy": "Fixed code paths or explicitly documented diagnostic follow-up, per user instruction; original symptom not assumed resolved for diagnostic-only closures.",
-  "issue_closures": "Pending publication and individual evidence comments"
+  "issue_closures": "Pending publication and individual evidence comments",
+  "follow_up": {
+    "working_branch": "fix/open-reports-and-protected-merge-2026-11-13",
+    "pull_request": 941,
+    "parent_pr": 929,
+    "starting_sha": "d8d5c2c439cfdc05bc213a4dc320db51aac898a2",
+    "main_at_start": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "additional_pr_heads": {
+      "928": "0f88ca1783ef435b71d5c104be84d11ebd27bbdd",
+      "838_and_881": "8e8e1aa70703bb2ed4ea6158ecb3d80afb19377a"
+    },
+    "reviewed_issue_numbers": [
+      930,
+      931,
+      932,
+      933,
+      934,
+      935,
+      936,
+      937,
+      938,
+      939,
+      940,
+      942
+    ],
+    "state": "PENDING_HOSTED_CI",
+    "merge_gate": "Latest main and PR heads, required GitHub checks and protected-branch review."
+  }
 }

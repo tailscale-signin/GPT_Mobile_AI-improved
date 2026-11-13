@@ -155,6 +155,10 @@ FIELD_NAMES = {
 }
 
 COMMON = {
+    'dispatch_policy_sections',
+    'dispatch_policy_stage',
+    'dispatch_policy_resume_required',
+    'incident_capture_site', 'incident_phase_provenance',
     'retry_delay_source',
     'provider_wait_state',
     'provider_wait_persisted',
@@ -256,6 +260,7 @@ HASH_LISTS = {
 }
 
 FLAGS = {
+    'dispatch_policy_resume_required',
     'voice_reply_failed',
     'argument_repair_exhausted',
     'provider_wait_persisted',
@@ -377,6 +382,8 @@ OPERATIONS = {
 MCP_HEALTH = {'DNS_FAILED', 'DNS_RECOVERY', 'ROUTE_UNAVAILABLE', 'CONNECTION_REFUSED', 'AUTHENTICATION_FAILED', 'TLS_FAILED', 'CONNECT_TIMEOUT', 'HTTP_ERROR', 'MCP_HANDSHAKE_FAILED', 'STREAM_INTERRUPTED', 'STREAM_IDLE_TIMEOUT', 'REQUEST_TIMEOUT', 'HEALTHY', 'UNKNOWN'}
 
 ENUMS = {
+    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'OPENAI_ADAPTER_STREAM_CATCH'},
+    'incident_phase_provenance': {'CAPTURE_BOUNDARY_ONLY'},
     'native_dependency_state': {'DEFERRED', 'FAILED'},
     'search_cursor_state': {'RETAINED_SEARCH_MISSING', 'PAGE_BOUNDARY_UNOBSERVED'},
     'mcp_failure_phase': {'configuration', 'catalog', 'discovery', 'initialization', 'execution', 'connection', 'dns', 'tls', 'oauth_refresh', 'local_validation'},
@@ -405,6 +412,7 @@ ENUMS = {
     'acceptance_mismatch': {'UNRESOLVED_USER_DECISION', 'ACCEPTANCE_MAPPING_REQUIRED', 'NO_MATCHING_CLAIMS', 'LINKED_RECEIPT_INELIGIBLE', 'COMPARISON_REQUIRED', 'ACCEPTANCE_EVIDENCE_MISSING', 'UNSUPPORTED_CLAIMS', 'NO_EXECUTION_PROOF', 'SCOPE_MISMATCH', 'NO_ELIGIBLE_RECEIPT', 'OPERATION_MISMATCH', 'UNSUPPORTED_CRITERION', 'STATUS_NOT_PASS', 'MATCHING_OBSERVATION_INCOMPLETE', 'EVIDENCE_UNAVAILABLE', 'REVISION_MISMATCH', 'ACTION_MISMATCH', 'UNRESOLVED_OUTCOME'},
     'command_receipt_observation': {'CONTRACT_UNSUPPORTED', 'UNAVAILABLE_404', 'UNOBSERVED', 'PRESENT', 'READ_INTERRUPTED'},
     'incident_phase': PHASES,
+    'dispatch_policy_stage': {'provider_admission', 'tool_precheck', 'tool_dispatch', 'tool_execution', 'delivery', 'verification'},
     'native_tool_action': ACTIONS,
     'saved_view_owner_operation': OPERATIONS,
     'expected_operation': OPERATIONS,
@@ -412,6 +420,7 @@ ENUMS = {
 }
 
 ENUM_LISTS = {
+    'dispatch_policy_sections': {'PROFILE', 'BUDGET', 'SPEND', 'TOOLS', 'MCP', 'PERMISSIONS', 'ASSIST', 'DELEGATION', 'RESEARCH', 'GATEWAY', 'GITHUB', 'REASONING', 'ENGINEERING'},
     'privacy_blockers': {'MODEL_NOT_IN_ZDR_CATALOG', 'PROVIDER_ALLOWLIST', 'PROVIDER_DENYLIST', 'FALLBACK_ORDER'},
     'github_error_resources': {'PullRequest', 'Repository', 'Milestone', 'Label', 'Reference', 'Search', 'Release', 'Issue', 'Review', 'Commit'},
     'github_error_codes': {'missing_field', 'invalid', 'unprocessable', 'custom', 'already_exists', 'missing'},

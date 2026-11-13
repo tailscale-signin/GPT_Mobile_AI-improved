@@ -16,10 +16,11 @@ internal object ProviderRejectionDiagnostics {
         val root = body.takeIf { it.length <= 256 * 1024 }?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
         val error = root?.get("error") as? JsonObject ?: root
         fun text(key: String): String? = (error?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content
-        return typed(status, text("type"), text("param") ?: text("parameter"), contract)
+        val code = text("code")?.takeIf { it.any(Char::isLetter) }
+        return typed(status, text("type"), text("param") ?: text("parameter"), contract, code)
     }
 
-    fun typed(status: Int, errorType: String?, parameter: String? = null, contract: Contract): JsonObject = buildJsonObject {
+    fun typed(status: Int, errorType: String?, parameter: String? = null, contract: Contract, code: String? = null): JsonObject = buildJsonObject {
         put("payload_contract", contract.name)
         put(
             "provider_rejection_category",
@@ -27,7 +28,7 @@ internal object ProviderRejectionDiagnostics {
                 400, 422 -> "INVALID_REQUEST"
                 401 -> "AUTHENTICATION"
                 403 -> "PERMISSION"
-                404 -> if (errorType in setOf("model_not_found", "model_unavailable")) "MODEL_UNAVAILABLE" else "NOT_FOUND"
+                404 -> if (listOf(errorType, code).any { it in setOf("model_not_found", "model_unavailable") }) "MODEL_UNAVAILABLE" else "NOT_FOUND"
                 410 -> "GONE"
                 413 -> "PAYLOAD_SIZE"
                 429 -> "RATE_LIMIT"
@@ -45,7 +46,7 @@ internal object ProviderRejectionDiagnostics {
                 }
             }
         )
-        errorType?.takeIf { it.isNotBlank() && it.length <= 128 }?.let { put("provider_error_type_hash", hash("provider.error-type.v1", it)) }
+        (errorType ?: code)?.takeIf { it.isNotBlank() && it.length <= 128 }?.let { put("provider_error_type_hash", hash("provider.error-type.v1", it)) }
         parameter?.takeIf { it.isNotBlank() && it.length <= 256 }?.let {
             put("provider_parameter_path_hash", hash("provider.parameter-path.v1", it))
             val root = it.removePrefix("$.").substringBefore('.').substringBefore('[')

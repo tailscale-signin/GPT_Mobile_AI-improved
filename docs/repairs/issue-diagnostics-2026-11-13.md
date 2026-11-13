@@ -47,3 +47,19 @@ The earlier archives also contain provider-wait checkpoint, voice focus/startup,
 - Five actual Kotlin-approved extended reports were accepted unchanged by the Python diagnostic validator.
 - Kotlin formatting, regenerated architecture/source inventories and bounded release-scope coverage are checked before publication.
 - Android Gradle tests were attempted but provisioning failed while downloading Gradle 9.8.0 due to unavailable network access. No full APK build, instrumented test, private gateway execution, microphone playback or hosted rollout is claimed. Hosted CI must qualify the published commit before merge. Unified Reliability v2 remains incomplete.
+
+## Follow-up on PR #941
+
+PR #941 carries the consolidated source and latest commits from #929, #928 and the shared #838/#881 candidate. Four staged diagnostic archives, the earlier app and Gateway captures, and the new public report evidence were reconciled against the integrated code. The older app reports all came from debug build 141 at `36ac21b6e70c`.
+
+| Reports | Disposition and remaining evidence |
+| --- | --- |
+| #930 | A typed terminal-catch location, bounded exception type hashes and a fingerprint are captured when a throwable is available. The original cause was unavailable. |
+| #931 | The catalog reported no endpoint compatible with the selected zero-data-retention policy. Preserve the policy and capture catalog age and exclusion categories when observed. |
+| #932, #933, #938–#940 | OpenRouter returned HTTP 404 on two model identities. The revised reporting differentiates an explicit model-unavailable error from a generic 404 and hashes the owning response request ID when provided. The historical provider body and route are unavailable. |
+| #934–#936 | Diagnostic fallback. Reports retain the affected settings sections, the stage at which authorization was invalidated, and the resume requirement when available. Raw settings, profile fields and argument values stay private. Existing dispatch and reconciliation fences remain active. |
+| #937, #942 | Diagnostic fallback. Keep known receipt exclusions across several failed criteria and retain unmet requirement and capability counts. #942 verified 3/5 requirements and retained missing workflow/job and fixture-approval prerequisites. Those prerequisites still need live evidence. |
+
+The API 34 acceptance run `43375248044` failed inside Compose's forced redraw before the conversation-glass assertions could run. The test now samples both controls from a single composited frame, preserving the existing opacity, blur, restoration and pressure-recovery assertions. Fresh Android acceptance on API 34 and API 36 is still required.
+
+Deploy a reporter advertising `DISPATCH_POLICY_DIAGNOSTICS_V1` before submitting extended policy-change reports to the hosted service. Older hosts preserve the approved report for retry. No live OpenRouter or on-device replay is claimed for these historical incidents.

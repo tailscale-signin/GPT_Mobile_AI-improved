@@ -26,11 +26,17 @@ internal object GitHubAcceptanceReportDiagnostics {
             put("blocked_capability_count", capabilities.count { it["state"] == JsonPrimitive("BLOCKED") })
             put("untested_capability_count", capabilities.count { it["state"] == JsonPrimitive("NOT_TESTED") })
         }
-        for (key in listOf("task_kind", "acceptance_evaluator_branch", "acceptance_mismatch", "expected_operation", "expected_action", "eligible_receipt_count", "excluded_receipt_count", "receipt_count_scope", "receipt_exclusion_reasons")) {
+        for (key in listOf("task_kind", "acceptance_evaluator_branch", "acceptance_mismatch", "expected_operation", "expected_action", "eligible_receipt_count", "excluded_receipt_count", "receipt_count_scope")) {
             val observed = unmetRequirements.map { it[key] }
             val value = verdict[key] ?: observed.takeIf { rows -> rows.isNotEmpty() && rows.all { it != null } }?.distinct()?.singleOrNull()
             value?.let { IssueReportIncidentCapsule.validValue(key, it) }?.let { put(key, it) }
         }
+        // A report with several blockers should retain known reasons even when
+        // different criteria excluded receipts for different reasons.
+        val exclusionReasons = (listOfNotNull(verdict["receipt_exclusion_reasons"]) + unmetRequirements.mapNotNull { it["receipt_exclusion_reasons"] })
+            .mapNotNull { IssueReportIncidentCapsule.validValue("receipt_exclusion_reasons", it) as? JsonArray }
+            .flatten().distinct().take(8)
+        if (exclusionReasons.isNotEmpty()) put("receipt_exclusion_reasons", JsonArray(exclusionReasons))
         val evidence = (unmetRequirements + capabilities.filter { it["state"] != JsonPrimitive("PASS") }).flatMap { row ->
             (row["receipt_ids"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull }
         }.distinct().take(8).mapNotNull { IssueReportContext.identifierHash("acceptance-receipt", it) }

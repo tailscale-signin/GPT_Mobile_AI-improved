@@ -2588,7 +2588,23 @@ class ChatRepositoryImpl(
             return@catch
         }
         val classified = ErrorClassification.classify(error)
-        emit(ApiState.Error(classified.userMessage, errorCode = classified.errorCode, failureDetails = failureContext()))
+        val exceptionEvidence = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.exceptionFields(
+            error,
+            dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_TERMINAL_CATCH
+        )
+        val policy = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16)
+            .filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
+        val localDetails = if (policy == null) {
+            exceptionEvidence
+        } else {
+            kotlinx.serialization.json.JsonObject(
+                exceptionEvidence + kotlinx.serialization.json.buildJsonObject {
+                    put("authority_invalidation_code", "DISPATCH_POLICY_CHANGED")
+                    put("changed_policy_fields", kotlinx.serialization.json.JsonArray(policy.fields.map { kotlinx.serialization.json.JsonPrimitive(it) }))
+                }
+            )
+        }
+        emit(ApiState.Error(classified.userMessage, errorCode = classified.errorCode, failureDetails = failureContext(localDetails)))
     }.onCompletion { failure ->
         if (failure == null) emit(ApiState.Done)
     }.let { upstream ->

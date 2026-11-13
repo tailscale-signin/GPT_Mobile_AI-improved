@@ -1936,7 +1936,12 @@ class GitHubTool(
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "EVIDENCE_UNAVAILABLE", dispatched = false)
         }
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubReadValidation) {
-            return AgentToolResult(callId, ToolResultContent.Json(throwable.details), true, errorCode = throwable.code, dispatched = false)
+            val receipt = buildJsonObject {
+                put("failed_stage", "tool_precheck")
+                throwable.details.filterKeys { it in dev.chungjungsoo.gptmobile.data.github.GitHubSearchCursorDiagnostics.fields }
+                    .forEach { (key, value) -> put(key, value) }
+            }
+            return AgentToolResult(callId, ToolResultContent.Json(throwable.details), true, errorCode = throwable.code, dispatched = false, executionReceipt = receipt)
         }
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubHeaderLookupFailure) {
             return AgentToolResult(callId, ToolResultContent.Json(throwable.details), true, errorCode = throwable.code, dispatched = true)
@@ -2086,7 +2091,7 @@ class GitHubTool(
                 append(it)
             }
         }
-        return when {
+        val result = when {
             action in setOf("rerun_workflow", "rerun_failed_jobs", "cancel_workflow") &&
                 response.status.value in setOf(403, 409, 422) &&
                 Regex("(?i)already running|currently running|in progress|not completed|not running|already completed|unable to cancel").containsMatchIn(githubMessage.orEmpty()) ->
@@ -2121,6 +2126,7 @@ class GitHubTool(
             else ->
                 AgentToolResult(callId, ToolResultContent.Text("$detail: ${truncate(body, 500)}"), true, errorCode = category)
         }
+        return result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + GitHubToolErrorDiagnostics.response(body, response.headers["X-GitHub-Request-Id"])))
     }
 
     private suspend fun writeDeniedMessage(

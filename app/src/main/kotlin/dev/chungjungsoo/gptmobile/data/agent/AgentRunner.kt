@@ -143,6 +143,10 @@ class AgentRunner(
     }
 
     fun run(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool> = { emptyList() }, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition> = { it }): Flow<AgentRunEvent> = flow {
+        emitAll(runWithRepairScope(session, tools, dynamicTools, selectDefinitions).flowOn(ToolArgumentRepairScope()))
+    }
+
+    private fun runWithRepairScope(session: AgentProviderSession, tools: List<AgentTool>, dynamicTools: () -> List<AgentTool>, selectDefinitions: (List<AgentToolDefinition>) -> List<AgentToolDefinition>): Flow<AgentRunEvent> = flow {
         if (minOf(limits.runTimeoutMillis, remainingTaskMillis?.invoke() ?: Long.MAX_VALUE) <= 0L) {
             // An expired accepted task may deliver retained evidence, but must not
             // restore queued calls or start the model loop. Delivery remains
@@ -336,15 +340,7 @@ class AgentRunner(
                 }
                 val resolvedCalls = round.calls.map { call ->
                     // Stamp live calls at the trusted routing boundary; restored journals retain their identity.
-                    val identified = if (restoringBatch) {
-                        call
-                    } else {
-                        call.copy(
-                            originalInvocationFingerprint = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${call.callId}:${call.name}:${call.arguments}"),
-                            originalProviderName = call.name,
-                            originalProviderArguments = call.arguments
-                        )
-                    }
+                    val identified = if (restoringBatch) call else call.captureProviderInvocation()
                     val resolved = resolveGitHubReadAlias(GitHubRecoveryCalls.resolve(identified, exchanges, executableToolByName), executableToolByName.keys)
                     resolved.copy(arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(resolved.name, resolved.arguments))
                 }
@@ -961,7 +957,15 @@ class AgentRunner(
         }
 
         val pausedGitHubNames = exposedDefinitions.filter { limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it) && it.name !in executableToolByName }.mapTo(hashSetOf()) { it.name }
-        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges, pausedGitHubNames).map { result -> if (result.callId in plan.dependencyDeferredIds) ToolResultEnvelope.error(result.callId, "DEPENDENCY_DEFERRED", "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.") else result }
+        val admittedIds = executableCalls.mapTo(hashSetOf()) { it.callId }
+        val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges, pausedGitHubNames).map { result ->
+            if (result.callId in plan.dependencyDeferredIds) {
+                val dependencies = dependencyPlan.single { it.call.callId == result.callId }.dependencies
+                ToolDependencyDiagnostics.rejection(result.callId, ToolDependencyDiagnostics.State.DEFERRED, dependencies, dependencies - admittedIds, "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.")
+            } else {
+                result
+            }
+        }
         deferredCalls.zip(deferredResults).forEach { (call, result) -> checkpoint?.complete(call, result) }
         val savedReadAvailable = savedResultRecovery != null &&
             GitHubReplayRecovery.nextSavedRead(
@@ -1247,9 +1251,14 @@ class AgentRunner(
             limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
         val repeatLimited = allResults.any { toolResultText(it).contains("reached the per-response repeat limit", ignoreCase = true) }
         val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
+        val argumentRepairStalled = allResults.isNotEmpty() &&
+            allResults.all {
+                it.isError && !it.dispatched && it.executionReceipt?.get("argument_repair_exhausted") == JsonPrimitive(true)
+            }
         val repeatedReadsRequireFinalization = repeatedReadSuppression &&
             !((limits.githubMode || limits.githubTask) && hasActionableGitHubTools && canReadOtherSources)
         val mustFinalize = unavailableCallsOnly ||
+            argumentRepairStalled ||
             allResults.any { it.errorCode == "GITHUB_USER_STOP" } ||
             repeatedReadsRequireFinalization ||
             discoveryRequiresFinalization ||
@@ -1265,6 +1274,9 @@ class AgentRunner(
         } else if (unavailableCallsOnly) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice(if (repeatLimited) "Repeated calls were stopped. Finishing with the findings already collected." else "Requested tools are unavailable for this response. Finishing with the findings already collected.", persistent = false))
+        } else if (argumentRepairStalled) {
+            finalResponseRequested = true
+            emit(AgentRunEvent.Notice("Repeated argument corrections made no progress. Finishing with retained evidence and the unresolved validation constraints.", persistent = false))
         } else if (repeatedReadsRequireFinalization) {
             finalResponseRequested = true
             emit(AgentRunEvent.Notice("Repeated reads produced no new work. Finishing with the results already collected.", persistent = false))
@@ -1330,6 +1342,7 @@ class AgentRunner(
             allResults[allResults.lastIndex] = when {
                 unavailableCallsOnly && repeatLimited -> appendInstruction(allResults.last(), "Repeated identical calls reached their safety limit. This does not establish that GitHub read or write tools are disabled. Report completed work and remaining actions accurately; do not claim edits or commits without successful tool receipts. Finish this response from retained evidence.")
                 unavailableCallsOnly -> appendInstruction(allResults.last(), "These tools are disabled or unavailable. Use successful findings already collected to answer now. Do not request more tools in this response.")
+                argumentRepairStalled -> appendInstruction(allResults.last(), "The same argument constraints remained invalid after the bounded correction attempt. Finish with verified results and identify the unresolved fields from validation_errors. No operation was dispatched for these rejections; do not claim a provider outage or disabled GitHub permissions.")
                 repeatedReadsRequireFinalization -> appendInstruction(allResults.last(), "Repeated reads were skipped without acquiring new evidence. Summarize the results already collected and identify remaining gaps. Do not request more tools in this response.")
                 discoveryRequiresFinalization -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")
                 roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
@@ -1820,7 +1833,8 @@ class AgentRunner(
             nodes,
             dispatch = { call ->
                 if (call.callId in blocked) {
-                    return@execute ToolResultEnvelope.error(call.callId, "DEPENDENCY_DEFERRED", "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
+                    val dependencies = nodesById.getValue(call.callId).dependencies
+                    return@execute ToolDependencyDiagnostics.rejection(call.callId, ToolDependencyDiagnostics.State.DEFERRED, dependencies, dependencies - admittedIds, "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
                 }
                 val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)
                 suspend fun dispatch(): AgentToolResult = if (!replayableRead(call, tools[call.name]) && synchronized(unknownOutcomes) { signature in unknownOutcomes }) {
@@ -1976,7 +1990,7 @@ class AgentRunner(
         AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
         if (!tool.managesExecutionBudget) {
             val errors = ToolArgumentValidator.errors(call.arguments, tool.definition.inputSchema)
-            if (errors.isNotEmpty()) return ToolArgumentValidator.rejection(call.callId, tool.definition.name, call.arguments, tool.definition.inputSchema, errors)
+            if (errors.isNotEmpty()) return requireNotNull(kotlinx.coroutines.currentCoroutineContext()[ToolArgumentRepairScope]).budget.rejection(call.callId, tool.definition, call.arguments, errors)
         }
         val replayableRead = replayableRead(call, tool)
         var observedReceipt: AgentToolResult? = null

@@ -542,6 +542,7 @@ internal object GitHubEvidencePolicy {
                 put("task_outcome", if (completed) "COMPLETED" else "PARTIAL")
                 put("partial", !completed)
                 put("status_coverage", JsonArray(coverage.map { it.row() }))
+                put("task_kind", if (GitHubStatusRequest.health(task)) "STATUS_HEALTH" else "STATUS_SNAPSHOT")
                 put("check_inventory", inventory.row())
                 put("displayed_status_claims", displayedClaims.size)
                 put("omitted_status_claims", claims.size - displayedClaims.size)
@@ -648,7 +649,8 @@ internal object GitHubEvidencePolicy {
             }
             else -> null
         }
-        return if (subject.isNullOrBlank() || field.startsWith("$subject ·")) field else "${safe(subject)} · $field"
+        val displayedSubject = subject?.let(::safe)
+        return if (displayedSubject.isNullOrBlank() || field.startsWith("$displayedSubject ·")) field else "$displayedSubject · $field"
     }
 
     private fun fieldLabel(pointer: String, receipt: JsonObject? = null): String = when (pointer) {

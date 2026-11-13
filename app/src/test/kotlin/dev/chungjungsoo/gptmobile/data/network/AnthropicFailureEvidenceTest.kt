@@ -30,6 +30,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AnthropicFailureEvidenceTest {
+    @Test fun invalidRequestRetainsTypedParameterDiagnosticsThroughProviderAssembly() = runBlocking {
+        withApi(
+            MockEngine {
+                respond(
+                    """{"type":"error","error":{"type":"invalid_request_error","param":"messages[0].private-field","message":"private rejection detail"}}""",
+                    HttpStatusCode.BadRequest,
+                    headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            }
+        ) { api ->
+            val error = api.streamChatMessage(request(), 5, config()).single() as ErrorResponseChunk
+            val failed = AnthropicEventAssembler().accept(error).single() as ProviderEvent.Failed
+            assertEquals("400", failed.errorCode)
+            assertEquals(JsonPrimitive("INVALID_REQUEST"), failed.failureDetails?.get("provider_rejection_category"))
+            assertEquals(JsonPrimitive("ANTHROPIC_MESSAGES"), failed.failureDetails?.get("payload_contract"))
+            assertEquals(JsonPrimitive("messages"), failed.failureDetails?.get("provider_parameter"))
+            assertTrue(failed.failureDetails?.containsKey("provider_parameter_path_hash") == true)
+            assertTrue(failed.failureDetails?.containsKey("provider_error_type_hash") == true)
+            assertFalse(failed.failureDetails.toString().contains("private"))
+        }
+    }
+
     @Test fun httpRejectionRetainsStatusThroughAssemblyWithoutPublishingProviderTextOrRequestId() = runBlocking {
         val privateText = "Private account detail from provider"
         val requestId = "req_private_fixture"

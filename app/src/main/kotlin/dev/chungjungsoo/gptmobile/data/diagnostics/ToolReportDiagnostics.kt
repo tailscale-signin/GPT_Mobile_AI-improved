@@ -28,6 +28,9 @@ internal object ToolReportDiagnostics {
         put("tool_name_hash", IssueReportContext.identifierHash("tool-name", event.modelToolName))
         result.errorCode?.takeIf { it in errors }?.let { put("tool_error_code", it) }
         put("original_error_code_hash", IssueReportContext.identifierHash("tool-error-code", result.errorCode))
+        if (result.executionReceipt?.containsKey("mcp_failure_phase") == true) {
+            put("mcp_connection_hash", IssueReportContext.identifierHash("mcp-connection", event.connectionUidSnapshot))
+        }
         val reason = (result.executionReceipt?.get("reason_code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: (result.executionReceipt?.get("reasonCode") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: precheckReason
@@ -41,8 +44,41 @@ internal object ToolReportDiagnostics {
             val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             action?.takeIf { it in actions }?.let { put("tool_action", it) }
             put("tool_action_hash", IssueReportContext.identifierHash("tool-action", action))
+            action?.takeIf { it in IssueReportIncidentCapsule.actions }?.let { put("native_tool_action", it) }
             shapeHash(arguments)?.let { put("argument_shape_hash", it) }
+            putAll(typeShape(arguments, "argument"))
         }
+        val receipt = result.executionReceipt
+        val resolved = receipt?.get("resolved_arguments") as? JsonObject
+        resolved?.let {
+            shapeHash(it)?.let { hash -> put("resolved_argument_shape_hash", hash) }
+            putAll(typeShape(it, "resolved_argument"))
+        }
+        val validationFields = listOf("missing_fields", "invalid_fields").flatMap { key ->
+            (receipt?.get(key) as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull }
+        }.filter { it in IssueReportIncidentCapsule.fieldNames }.distinct().sorted().take(8)
+        if (validationFields.isNotEmpty()) put("validation_field_names", validationFields)
+    }
+
+    /** Public schema names and JSON types only; values and unrecognized names never leave the client. */
+    private fun typeShape(arguments: JsonObject, prefix: String): Map<String, Any?> {
+        val fields = arguments.entries.asSequence().take(256).filter { it.key in IssueReportIncidentCapsule.fieldNames }.sortedBy { it.key }.take(8).toList()
+        if (fields.isEmpty()) return emptyMap()
+        return mapOf(
+            "${prefix}_field_names" to fields.map { it.key },
+            "${prefix}_field_types" to fields.map { (_, value) ->
+                when (value) {
+                    JsonNull -> "NULL"
+                    is JsonObject -> "OBJECT"
+                    is JsonArray -> "ARRAY"
+                    is JsonPrimitive -> when {
+                        value.isString -> "STRING"
+                        value.booleanOrNull != null -> "BOOLEAN"
+                        else -> "NUMBER"
+                    }
+                }
+            }
+        )
     }
 
     /** The digest covers field names and JSON types, never scalar argument values. */
@@ -50,7 +86,7 @@ internal object ToolReportDiagnostics {
         var nodes = 0
         var complete = true
         fun shape(value: JsonElement, depth: Int): String {
-            if (++nodes > 256 || depth > 12) {
+            if (!complete || ++nodes > 256 || depth > 12 || value is JsonObject && value.size > 256 || value is JsonArray && value.size > 256) {
                 complete = false
                 return ""
             }

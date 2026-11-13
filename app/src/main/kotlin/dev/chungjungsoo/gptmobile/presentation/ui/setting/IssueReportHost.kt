@@ -274,6 +274,7 @@ private fun diagnosticAreaLabel(area: String): Int = when (area) {
     "ACCEPTANCE" -> R.string.issue_report_area_acceptance
     "VOICE" -> R.string.issue_report_area_voice
     "GATEWAY" -> R.string.issue_report_area_gateway
+    "INCIDENT" -> R.string.issue_report_area_incident
     else -> R.string.issue_report_area_app
 }
 

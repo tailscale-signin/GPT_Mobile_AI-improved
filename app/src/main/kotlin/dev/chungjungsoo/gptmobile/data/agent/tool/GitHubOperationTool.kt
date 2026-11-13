@@ -144,16 +144,33 @@ internal class GitHubOperationTool(
             val context = JsonObject(arguments - "view_cursor")
             var saved = views.read(scope, operation, definition.name, cursor, callId, context)
             if (saved.errorCode == "SAVED_VIEW_UNAVAILABLE") {
+                var restoreState = "NOT_FOUND"
+                var restoreErrorHash: String? = null
                 val snapshot = try {
                     loadSavedView(cursor.substringBefore(':'))
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    restoreState = "LOAD_FAILED"
+                    restoreErrorHash = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("github.saved-view.restore-error.v1\u0000${error.javaClass.name}")
                     null
                 }
-                if (snapshot != null && views.restore(scope, operation, definition.name, cursor, snapshot)) {
-                    saved = views.read(scope, operation, definition.name, cursor, callId, context)
+                if (snapshot != null) {
+                    if (views.restore(scope, operation, definition.name, cursor, snapshot)) {
+                        restoreState = "RESTORED"
+                        saved = views.read(scope, operation, definition.name, cursor, callId, context)
+                    } else {
+                        restoreState = "IDENTITY_REJECTED"
+                    }
                 }
+                saved = saved.copy(
+                    executionReceipt = JsonObject(
+                        saved.executionReceipt.orEmpty() + buildJsonObject {
+                            put("saved_view_restore_state", restoreState)
+                            restoreErrorHash?.let { put("saved_view_restore_error_hash", it) }
+                        }
+                    )
+                )
             }
             val retained = retainSavedView(saved, cursor)
             savedViewAuthorizationFailure(callId)?.let { return it }

@@ -109,7 +109,8 @@
     "Repair PR 881 open issues #884\u2013#890: exact-model sleep preparation and durable uncertainty, typed model/report diagnostics with negotiated reporter features, explicit immutable review baselines and review intent, and revision-bound self-test workflow dependency discovery.",
     "Repair diagnostic capture 62a4cb28 engineering scope serialization and retained replay identity, preserve pre-job and model-preparation failure evidence across versioned approved reports, and split serial durable queue dispatch.",
     "Preserve accepted status criteria and immutable receipt provenance, bind target-repository and exact-SHA pagination evidence, reject mixed page sizes, and render complete integration prerequisites within existing authority and call ceilings.",
-    "Repair built-in head/base review parsing, preserve original provider tool identities through routing and durable continuation, align issue presentation arguments and add negotiated bounded incident-failure diagnostics for issues #891\u2013#921."
+    "Repair built-in head/base review parsing, preserve original provider tool identities through routing and durable continuation, align issue presentation arguments and add negotiated bounded incident-failure diagnostics for issues #891\u2013#921.",
+    "Repair the November 13 diagnostic workflow failures with exact provider-tool replay, bounded argument correction, review baseline parsing, task-aware status budgets, separate ordinary and engineering conversation bindings, native integration routing, and immutable context-v7 incident evidence; retain unconfirmed historical causes as diagnostic follow-up."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2436,6 +2437,36 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/OriginalToolCallCheckpointTest.kt",
     "authentication/test_failure_details.py",
     "docs/repairs/issue-diagnostics-2026-11-13-task.json",
-    "docs/repairs/issue-diagnostics-2026-11-13.md"
+    "docs/repairs/issue-diagnostics-2026-11-13.md",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderToolReplay.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentRepairBudget.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolDependencyDiagnostics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderToolMessages.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolErrorDiagnostics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/McpReportDiagnostics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchCursorDiagnostics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRejectionDiagnostics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/PrivacyEndpointObservation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceReplyFailureDiagnostics.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderToolReplayRunnerTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderToolReplayTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentRepairBudgetTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentRepairRunnerTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolDependencyDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubSavedViewDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolErrorDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/McpReportDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSearchCursorDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRejectionDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/PrivacyEndpointObservationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceReplyFailureDiagnosticsTest.kt",
+    "authentication/incident_report_contract.py",
+    "authentication/test_incident_report_contract.py",
+    "docs/repairs/diagnostic-workflow-recovery-2026-11-13-task.json",
+    "docs/repairs/diagnostic-workflow-recovery-2026-11-13.md",
+    "docs/repairs/pr-branches-ci-2026-11-13-task.json"
   ]
 }

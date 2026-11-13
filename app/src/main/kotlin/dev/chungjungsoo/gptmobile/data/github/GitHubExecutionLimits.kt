@@ -43,6 +43,10 @@ internal object GitHubExecutionLimits {
     fun callLimit(task: String, configured: Int, preset: GitHubWorkflowPreset): CallLimit {
         val selected = GitHubWorkflowPreset.fromRequest(task) ?: preset
         val scopeLimit = when {
+            // Health includes paged checks, policy, failures and a revision-bound
+            // review read for each open PR. The four-read snapshot cap cannot
+            // cover that accepted plan; explicit/profile ceilings still apply.
+            GitHubStatusRequest.health(task) -> minOf(32, selected.toolCalls)
             GitHubStatusRequest.matches(task) -> 6
             GitHubTestChecklist.integration(task) -> minOf(256, selected.toolCalls)
             GitHubTaskCoverage.boundedDiagnostic(task) -> 32

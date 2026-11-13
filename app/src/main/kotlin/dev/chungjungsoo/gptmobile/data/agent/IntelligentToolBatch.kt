@@ -105,8 +105,9 @@ internal class IntelligentToolBatch(private val window: AdaptiveBatchWindow, pri
             while (receipts.size < nodes.size) {
                 for (node in pending.toList()) {
                     if (!receipts.keys.containsAll(node.dependencies)) continue
-                    if (node.dependencies.any { receipts.getValue(it).isError }) {
-                        val result = ToolResultEnvelope.error(node.call.callId, "DEPENDENCY_FAILED", "A prerequisite failed or has an unknown outcome. This operation was not dispatched. Replan using the retained receipts.")
+                    val failedDependencies = node.dependencies.filterTo(hashSetOf()) { receipts.getValue(it).isError }
+                    if (failedDependencies.isNotEmpty()) {
+                        val result = ToolDependencyDiagnostics.rejection(node.call.callId, ToolDependencyDiagnostics.State.FAILED, node.dependencies, failedDependencies, "A prerequisite failed or has an unknown outcome. This operation was not dispatched. Replan using the retained receipts.")
                         receipts[node.call.callId] = result
                         pending.remove(node)
                         completed(node.call, result)

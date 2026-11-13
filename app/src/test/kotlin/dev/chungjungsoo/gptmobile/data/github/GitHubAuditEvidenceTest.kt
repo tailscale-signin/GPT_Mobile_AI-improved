@@ -114,14 +114,26 @@ class GitHubAuditEvidenceTest {
         val envelope = (result.content as ToolResultContent.Json).value.jsonObject
         assertEquals(JsonPrimitive(true), envelope["local_page_complete"])
         assertTrue(envelope.toString().encodeToByteArray().size.toString(), envelope.toString().encodeToByteArray().size <= 8192)
-        assertEquals(18, ((envelope["data"] as JsonObject)["check_details"] as JsonObject)["check_runs"].let { it as JsonArray }.size)
-        assertEquals(source, (result.retainedContent as ToolResultContent.Json).value)
+        val data = envelope.getValue("data").jsonObject
+        val counts = json("""{"successful":16,"skipped":1,"in_progress":1,"failed":0,"other_completed":0}""")
+        assertEquals(JsonPrimitive(18), data["observed_checks"])
+        assertEquals(JsonPrimitive(0), data["observed_statuses"])
+        assertEquals(counts, data["captured_check_counts"])
+        assertEquals(JsonPrimitive(true), data["check_inventory_complete"])
+        assertFalse("check_details" in data)
+        assertFalse("status_details" in data)
+        val projection = data.getValue("projection").jsonObject
+        assertEquals(JsonPrimitive("CAPTURED_STATUS_COUNTS"), projection["kind"])
+        assertEquals(JsonPrimitive(GitHubEvidenceBook.digest(source.toString())), projection["source_result_sha256"])
+        val retained = (result.retainedContent as ToolResultContent.Json).value.jsonObject
+        assertEquals(source, retained)
+        assertEquals(18, (retained.getValue("check_details").jsonObject["check_runs"] as JsonArray).size)
         assertFalse(envelope.toString().contains("avatar_url"))
         assertFalse(envelope.toString().contains("\"required\":true"))
         assertEquals(JsonPrimitive(true), result.executionReceipt?.get("retained_original_complete"))
         assertEquals(1, dispatches)
         val summary = envelope["semantic_summary"] as JsonObject
-        assertEquals(json("""{"successful":16,"skipped":1,"in_progress":1,"failed":0,"other_completed":0}"""), summary["check_counts"])
+        assertEquals(counts, summary["check_counts"])
         val report = GitHubPartialReport.render(listOf(requireNotNull(GitHubPartialReport.observe(ProviderEvent.ToolCall("checks", "github_context", args), result))))
         assertTrue(report.contains("16 successful, 1 skipped, 1 in progress, 0 failed"))
         assertTrue(report.contains(head))

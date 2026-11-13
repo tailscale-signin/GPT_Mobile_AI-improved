@@ -59,12 +59,21 @@ internal data class IssueReportContext(
         if (type == null) this else copy(exceptionFingerprint = digest("exception", (listOf(type) + frames).joinToString("\n"))).withAvailability()
 
     fun withDiagnostics(snapshot: IssueReportDiagnostics): IssueReportContext =
-        copy(schemaVersion = if (schemaVersion == 6 || snapshot.schemaVersion == 2) 6 else 5, diagnostics = requireNotNull(snapshot.validated()) { "Invalid report diagnostics." }).withAvailability()
+        copy(
+            schemaVersion = if (snapshot.schemaVersion == 3) {
+                7
+            } else if (schemaVersion == 6 || snapshot.schemaVersion == 2) {
+                6
+            } else {
+                5
+            },
+            diagnostics = requireNotNull(snapshot.validated()) { "Invalid report diagnostics." }
+        ).withAvailability()
 
     private fun withAvailability(): IssueReportContext {
         val present = IssueReport.json.encodeToJsonElement(serializer(), this).jsonObject.keys
         val fields = when (schemaVersion) {
-            5, 6 -> optionalFields + acceptanceFields + recoveryFields + "diagnostics"
+            5, 6, 7 -> optionalFields + acceptanceFields + recoveryFields + "diagnostics"
             4 -> optionalFields + acceptanceFields + recoveryFields
             2, 3 -> optionalFields + acceptanceFields
             else -> optionalFields
@@ -76,7 +85,7 @@ internal data class IssueReportContext(
         val sources = setOf("CHAT_FAILURE", "STRUCTURED_EVENT", "TOOL_RESULT", "VOICE_STATE", "EXCEPTION", "PROCESS_EXIT", "CODE_ONLY", "MANUAL_REPORT")
         val providers = setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OLLAMA", "OPENROUTER", "LLAMA", "GATEWAY", "LOCAL", "CUSTOM", "LITERT_LM", "FREE", "NVIDIA")
         val operations = setOf("github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_commit", "github_review", "github_engineering", "repository_graph", "mcp", "web_search", "read_url", "voice_capture", "voice_recognition", "voice_playback")
-        val stages = setOf("audio_focus", "capture_configuration", "capture_initialization", "capture_start", "capture_read", "retrieval", "precheck", "redirect_precheck", "admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission", "conversation_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "engineering_guard", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle", "voice_capture", "voice_recognition", "voice_playback")
+        val stages = setOf("audio_focus", "capture_configuration", "capture_initialization", "capture_start", "capture_read", "retrieval", "precheck", "redirect_precheck", "admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission", "conversation_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight", "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation", "model_invocation", "provider_wait", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination", "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery", "gateway_dispatch", "review_compatibility", "answer_review", "engineering_guard", "claim_extraction", "claim_verification", "verification", "final_synthesis", "delivery", "lifecycle", "voice_capture", "voice_recognition", "voice_playback", "voice_reply", "voice_response_wait")
         val jobStates = setOf("QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED")
         val recoveryActions = setOf("OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RECONCILE_ACTIVE_GATEWAY_JOB", "REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "RECONCILE_OUTCOME", "REVIEW_AUTHORIZATION", "RETRY_AFTER_BACKOFF", "RETRY_AFTER_CONFIGURATION_CHANGE", "MICROPHONE_PERMISSION", "RETRY_RECOGNITION", "RETRY_PLAYBACK", "SPEECH_SERVICE", "SPEECH_LANGUAGE", "LOCAL_MODEL")
         val reasonCodes = setOf("SELECTION_NOT_OBJECT", "SELECTION_SCHEMA_INVALID", "SELECTION_IDENTITY_INVALID", "SELECTION_CREDENTIAL_REFERENCE_INVALID")
@@ -101,14 +110,14 @@ internal data class IssueReportContext(
             "AUTHORIZED_CATALOG_INCOMPLETE", "RECORDED_OPERATION_BLOCKERS", "BOUNDED_INVENTORY_SAMPLE_REACHED",
             "INVENTORY_CONTINUATION_BLOCKED", "CAPABILITY_PREREQUISITES_MISSING", "PRIMARY_EVIDENCE_INCOMPLETE",
             "SAVED_VIEW_PERSISTENCE_UNAVAILABLE", "RECONCILE_REMOTE_OUTCOME", "RECORDED_EXECUTION_FAILURE",
-            "WAITING_FOR_APPROVAL", "APPROVAL_REJECTED", "GITHUB_EVIDENCE_INCOMPLETE"
+            "WAITING_FOR_APPROVAL", "APPROVAL_REJECTED", "GITHUB_EVIDENCE_INCOMPLETE", "STATUS_READ_PENDING", "STATUS_OBSERVATION_UNAVAILABLE", "STATUS_OBSERVATIONS_COMPLETE"
         )
         private val acceptanceRecoveryActions = setOf(
             "RESUME_UNFINISHED_WORK", "RESUME_VERIFICATION", "RECONCILE_REMOTE_OUTCOME", "RESUME_UNVERIFIED_REQUIREMENTS",
             "RECONCILE_CATALOG_CONTRACTS", "RESUME_ISSUED_CATALOG_CONTINUATION", "RECONCILE_CATALOG_SNAPSHOT",
             "RESOLVE_BOUND_APPROVAL", "RECHECK_OWNED_FIXTURE_PREFLIGHT", "RECONCILE_OWNED_FIXTURE",
             "REVIEW_REMAINING_SCOPE_AND_BUDGET", "RESOLVE_CAPABILITY_PREREQUISITE", "NEW_TASK_REQUIRED",
-            "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE"
+            "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE", "INSPECT_EXISTING_WORKFLOW_AT_RECORDED_REVISION"
         )
         private val acceptanceFields = listOf("requiredCriteria", "verifiedCriteria", "remainingCriteria")
         private val recoveryFields = listOf("originalFailureCode", "originalHttpStatus", "checkpointBindingHash", "checkpointDigestHash", "resumeClaimIdHash", "ownershipFence")
@@ -126,21 +135,21 @@ internal data class IssueReportContext(
             if (value == null || value == JsonNull) return true
             val context = value as? JsonObject ?: return false
             val version = (context["schemaVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
-            if (version !in setOf(5, 6)) return version != null && version in 1..4 && "diagnostics" !in context
+            if (version !in setOf(5, 6, 7)) return version != null && version in 1..4 && "diagnostics" !in context
             val fields = (optionalFields + acceptanceFields + recoveryFields + "diagnostics").toSet()
-            val required = setOf("schemaVersion", "occurredAtMillis", "source", "unavailableFields") + if (version == 5) setOf("diagnostics") else emptySet()
+            val required = setOf("schemaVersion", "occurredAtMillis", "source", "unavailableFields") + if (version in setOf(5, 7)) setOf("diagnostics") else emptySet()
             if (!context.keys.containsAll(required) || (context.keys - fields - required).isNotEmpty()) return false
             fun text(key: String) = (context[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             fun number(key: String) = (context[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
             val enums = mapOf(
                 "source" to sources,
-                "stage" to stages + acceptanceStages + reviewStages + if (version == 6) admissionStages else emptySet(),
+                "stage" to stages + acceptanceStages + reviewStages + if (version in setOf(6, 7)) admissionStages else emptySet(),
                 "provider" to providers,
                 "operation" to operations,
                 "remoteAcceptance" to setOf("YES", "NO", "UNKNOWN"),
                 "jobState" to jobStates,
                 "recoveryAction" to recoveryActions + acceptanceRecoveryActions + reviewRecoveryActions + lifecycleRecoveryActions,
-                "reasonCode" to reasonCodes + acceptanceReasonCodes + recoveryReasonCodes + toolPrecheckReasonCodes + if (version == 6) GatewayInputRejectionDetails.reasonCodes + IssueReportDiagnostics.modelPreparationReasonCodes else emptySet(),
+                "reasonCode" to reasonCodes + acceptanceReasonCodes + recoveryReasonCodes + toolPrecheckReasonCodes + if (version in setOf(6, 7)) GatewayInputRejectionDetails.reasonCodes + IssueReportDiagnostics.modelPreparationReasonCodes else emptySet(),
                 "originalFailureCode" to IssueReportCodes.allowed
             )
             if (enums.any { (key, choices) -> key in context && text(key) !in choices }) return false
@@ -172,13 +181,14 @@ internal data class IssueReportContext(
                 if (key !in context) continue
                 val items = context[key] as? JsonArray ?: return false
                 val names = items.map { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull ?: return false }
-                val allowedNames = selectionFields + if (version == 6 && text("reasonCode") in GatewayInputRejectionDetails.reasonCodes) GatewayInputRejectionDetails.fieldNames else emptySet()
+                val allowedNames = selectionFields + if (version in setOf(6, 7) && text("reasonCode") in GatewayInputRejectionDetails.reasonCodes) GatewayInputRejectionDetails.fieldNames else emptySet()
                 if (names.any { it !in allowedNames } || names.distinct().size != names.size) return false
             }
             val unavailable = context["unavailableFields"] as? JsonArray ?: return false
             val names = unavailable.map { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull ?: return false }
             val diagnostics = context["diagnostics"]?.let { IssueReportDiagnostics.fromJson(it) ?: return false }
             if (version == 5 && diagnostics?.schemaVersion != 1) return false
+            if (version == 6 && diagnostics?.schemaVersion == 3 || version == 7 && diagnostics?.schemaVersion != 3) return false
             return names.distinct().size == names.size && names.toSet() == fields - context.keys
         }
 
@@ -284,6 +294,7 @@ internal data class IssueReportContext(
             val diagnostics = IssueReportDiagnostics.fromFields(source, fields + diagnosticIdentities, occurredAtMillis)
             return IssueReportContext(
                 schemaVersion = when {
+                    diagnostics?.schemaVersion == 3 -> 7
                     engineering || stage in admissionStages || diagnostics?.schemaVersion == 2 -> 6
                     diagnostics != null -> 5
                     localRecovery != null || reasonCode in recoveryReasonCodes || reasonCode in toolPrecheckReasonCodes || recoveryAction in lifecycleRecoveryActions -> 4

@@ -149,14 +149,14 @@ looks for the original issue.
 ### Report context and rollout compatibility
 
 The ready response preserves `service: "gpt-mobile-issue-reporter"` and
-`version: 1`, and advertises `reportContextVersions: [1, 2, 3, 4, 5, 6]`. Clients with a
+`version: 1`, and advertises `reportContextVersions: [1, 2, 3, 4, 5, 6, 7]`. Clients with a
 context-bearing report check support for that report's schema and any retained
 review extensions before marking it dispatched or sending the POST. An older
 service without all required versions has not declared
 support: the app retains the approved report and displays a native
 service-update requirement. It must not silently strip context or change a
 previously submitted payload. Deploy the updated reporter before shipping a
-hosted reporting route; the distribution readiness check requires all six versions
+hosted reporting route; the distribution readiness check requires all seven versions
 so current reports and retained legacy reports remain supported.
 
 Exact-model preparation captures extend the closed schema-5 diagnostics with
@@ -245,6 +245,39 @@ version-1 snapshots remain accepted in schema 6. Schema 5 continues to accept
 only version-1 snapshots, and schemas 1 through 5 do not accept the new engineering
 reason vocabulary. New schema-6 reports require explicit version-6 readiness
 before dispatch; previously approved reports keep their exact bytes and version.
+
+Schema 7 requires diagnostics version 3. Its incident capsule keeps the existing
+3,072-byte diagnostic limit and admits only closed phases and categories,
+bounded counts and durations, flags, and domain-separated identity hashes.
+Native and hosted reporting validate the same fields. Generic failures retain an
+explicit unknown phase or unavailable cause when no typed observation exists.
+Tool captures can retain public action/schema names, argument types, validation
+paths as hashes, closed GitHub error categories and saved-view restoration state.
+They never include argument values, server messages, request bodies or arbitrary
+field names. Acceptance captures distinguish the actual evaluator branch,
+mismatch and linked-criterion evidence counts; they do not infer historical causes.
+Provider rejection and privacy admission captures retain closed categories and
+aggregate eligibility counts without endpoint names or policy changes.
+
+Cross-layer duplicate suppression requires the same run, explicit typed causal
+identity and failure code. Temporal proximity or the latest tool in a run is not
+causal evidence. The first pending or approved report is never rewritten. Durable
+provider-wait decisions become separately selectable manual observations after
+the coordinator observes persistence; unknown persistence stays unavailable.
+Those observations do not authorize a retry or establish provider acceptance.
+Voice captures retain the actual reply phase and a correlated typed chat-failure
+reference when one exists, without audio or transcript content. MCP captures
+separate the current configuration/catalog/connection failure from a retained
+connection/readiness snapshot; retained health is not proof of this call's cause
+or dispatch, and no hostname, URL or port is exported.
+
+A hosted service advertising only versions 1 through 6 cannot accept a new
+schema-7 report. The client returns `REPORT_SERVICE_UPDATE_REQUIRED` before POST,
+keeps the approved bytes and disables automatic retries for that refusal. Deploy
+this reporter update before enabling schema-7 hosted submissions. A separately
+configured native GitHub route validates schema 7 locally; the app never silently
+switches destinations, downgrades an approved payload or changes its privacy
+consent. This source change does not establish deployment of the hosted service.
 
 An earlier app revision used schema 2 for those review extensions. Its approved
 payloads remain unchanged: the app requires readiness support for both their

@@ -8,6 +8,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrameOperationCoverageTest {
+    @Test fun repeatedTextDigestRetainsTheChangedLayoutInputsWithoutSourceText() {
+        val coverage = FrameOperationCoverage()
+        val owner = CombinedOperationOwner(messageId = 7, digest = "a".repeat(64))
+        val first = TextLayoutDiagnosticContext(0, 400, 0, Int.MAX_VALUE, 2f, 1f, false)
+        val changed = first.copy(maxWidth = 280, fontScale = 1.5f)
+        coverage.observe(FrameOperationCoverage.Sample("text_measure", 1, 10, 20, null, owner.copy(textLayoutContext = first)))
+        coverage.observe(FrameOperationCoverage.Sample("text_measure", 2, 30, 40, null, owner.copy(textLayoutContext = changed)))
+
+        val contexts = coverage.snapshot(0, 50).contextReport().contexts.map { it.jsonObject["textLayout"]!!.jsonObject }
+
+        assertEquals(setOf(JsonPrimitive(400), JsonPrimitive(280)), contexts.map { it["maxWidth"] }.toSet())
+        assertEquals(setOf(JsonPrimitive(1f), JsonPrimitive(1.5f)), contexts.map { it["fontScale"] }.toSet())
+        assertTrue(contexts.all { it.keys == setOf("minWidth", "maxWidth", "minHeight", "maxHeight", "density", "fontScale", "rightToLeft") })
+        assertFalse(TextLayoutDiagnosticContext(0, 10, 0, 10, Float.NaN, Float.POSITIVE_INFINITY, false).fields().containsKey("density"))
+    }
+
     @Test fun sampledUiWorkRetainsMessageRevisionBlockAndExistingCounts() {
         val owner = CombinedOperationOwner(
             screen = "Chat",

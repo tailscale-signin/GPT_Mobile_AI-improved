@@ -104,7 +104,7 @@ class IssueReportHttpTest(unittest.TestCase):
 
     def context(self, **observed):
         result = {"schemaVersion": 1, "occurredAtMillis": self.now * 1000, "source": "CHAT_FAILURE", **observed}
-        fields = CONTEXT_FIELDS_V5 if result["schemaVersion"] in (5, 6) else CONTEXT_FIELDS_V4 if result["schemaVersion"] == 4 else CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
+        fields = CONTEXT_FIELDS_V5 if result["schemaVersion"] in (5, 6, 7) else CONTEXT_FIELDS_V4 if result["schemaVersion"] == 4 else CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
         result["unavailableFields"] = sorted(fields - result.keys())
         return result
 
@@ -359,7 +359,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
                          {key: response.json()[key] for key in ("service", "version")})
-        self.assertEqual([1, 2, 3, 4, 5, 6], response.json()["reportContextVersions"])
+        self.assertEqual([1, 2, 3, 4, 5, 6, 7], response.json()["reportContextVersions"])
         self.assertEqual(["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1", "INCIDENT_FAILURE_DETAILS_V1"], response.json()["reportDiagnosticFeatures"])
         self.assertEqual("no-store", response.headers["cache-control"])
         self.assertFalse(self.issued)

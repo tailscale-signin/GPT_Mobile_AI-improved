@@ -35,6 +35,7 @@ import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -128,6 +129,45 @@ class GatewayEngineeringSubmissionTest {
             client.create(any(), any())
             client.control(any(), any(), any())
         }
+    }
+
+    @Test fun ordinaryTranscriptStartsASeparateEngineeringConversationWithoutRebindingItsRepository() = runTest {
+        val ordinary = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "ordinary", profileId = selected.uid, model = selected.model, revision = 9)
+        val local = GatewayConversationRecord("ordinary-key", "gateway", "owner", "ordinary", selected.uid, selected.apiUrl, selected.uid, 8, Json.encodeToString(ordinary))
+        val workspace = GitHubConversationContext("github", "owner", "repo", "work", "a".repeat(40), selected.uid)
+        coEvery { settings.fetchPlatformV2s() } returns listOf(selected, originalGateway)
+        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(githubProfileOverrides = mapOf(selected.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = originalGateway.uid)))
+        coEvery { conversations.boundSnapshot(8, selected.uid, selected.model) } returns (local to ordinary)
+        coEvery { conversations.savedConversation(8, originalGateway.uid, originalGateway.apiUrl, "owner", selected.uid) } returns null
+        coEvery { conversations.clientConversationId(8) } returns "linked-local-room"
+        coEvery { store.bindings(null) } returns emptyList()
+        coEvery { client.capabilities(any()) } returns capability
+        coEvery { client.prepareBinding(any(), any()) } returns GatewayExecutionAdmission(JsonObject(mapOf("binding_id" to JsonPrimitive("bind_" + "a".repeat(32)))), JsonObject(emptyMap()))
+        val saved = slot<GatewayEngineeringBinding>()
+        coEvery { store.add(capture(saved)) } throws IOException("Stop fixture after durable checkpoint")
+
+        assertTrue(runCatching { repository().submitTurn(8, workspace, "main", "work", "Plan the repository change", "new-command", 11, 12, "run", "plan", selected.model) }.isFailure)
+
+        assertEquals("owner/repo", saved.captured.request.repository)
+        assertEquals("linked-local-room", saved.captured.request.clientConversationId)
+        assertNull(saved.captured.request.conversationId)
+        assertNull(saved.captured.request.expectedRevision)
+        assertEquals("ordinary", local.conversationId)
+        assertNull(ordinary.repository)
+        coVerify(exactly = 0) { client.create(any(), any()) }
+    }
+
+    @Test fun existingEngineeringConversationStillRejectsWorkspaceChangesBeforeAdmission() = runTest {
+        val snapshot = GatewayConversationSnapshot(gatewayId = "gateway", principalId = "owner", conversationId = "engineering", profileId = selected.uid, model = selected.model, repository = "owner/original", branch = "work", base = "main", revision = 9)
+        val local = GatewayConversationRecord("engineering-key", "gateway", "owner", "engineering", originalGateway.uid, originalGateway.apiUrl, selected.uid, 8, Json.encodeToString(snapshot))
+        coEvery { conversations.boundSnapshot(8, selected.uid, selected.model) } returns (local to snapshot)
+        val changed = GitHubConversationContext("github", "owner", "different", "work", "a".repeat(40), selected.uid)
+
+        val failure = runCatching { repository().submitTurn(8, changed, "main", "work", "Plan the repository change", "command", 11, 12, "run", "plan", selected.model) }.exceptionOrNull()
+
+        assertTrue(failure?.message.orEmpty().contains("original repository and branches"))
+        coVerify(exactly = 0) { client.prepareBinding(any(), any()) }
+        coVerify(exactly = 0) { store.add(any()) }
     }
 
     @Test fun explicitCommitProhibitionBlocksCommittingScopeWithoutPreventingReadOrPlan() {

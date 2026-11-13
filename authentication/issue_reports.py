@@ -176,6 +176,7 @@ ERROR_CODES = {
     "GATEWAY_TRANSPORT_IDENTITY_REQUIRED",
     "GATEWAY_IDENTITY_MISMATCH",
     "GATEWAY_UNSUPPORTED_CONTRACT",
+    "GATEWAY_COMMAND_RECEIPT_UNAVAILABLE",
     "GATEWAY_INVALID_RESPONSE",
     "GATEWAY_INVALID_CONNECTION",
     "GATEWAY_STORAGE_UNAVAILABLE",
@@ -251,7 +252,7 @@ CONTEXT_ENUMS = {
     "stage": {"admission", "planning", "repository_admission", "provider_admission", "request_validation", "message_admission",
               "conversation_admission", "backend_admission", "binding_admission", "execution_admission", "connection_preflight",
               "dns_resolution", "dns", "connection", "response_stream", "tls", "cancelled", "transport", "provider_generation",
-              "model_invocation", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination",
+              "model_invocation", "provider_wait", "tool_precheck", "tool_readiness", "tool_admission", "task_budget", "inventory_pagination",
               "tool_dispatch", "tool_execution", "tool_continuation", "tool_reconciliation", "backend_template", "gateway_recovery",
               "gateway_dispatch", "review_compatibility", "answer_review", "engineering_guard", "claim_extraction", "claim_verification", "verification",
               "final_synthesis", "delivery", "lifecycle", "voice_capture", "audio_focus", "capture_configuration", "capture_initialization", "capture_start", "capture_read", "retrieval", "precheck", "redirect_precheck", "voice_recognition", "voice_playback"},
@@ -273,14 +274,14 @@ CONTEXT_ACCEPTANCE_REASONS = {
     "AUTHORIZED_CATALOG_INCOMPLETE", "RECORDED_OPERATION_BLOCKERS", "BOUNDED_INVENTORY_SAMPLE_REACHED",
     "INVENTORY_CONTINUATION_BLOCKED", "CAPABILITY_PREREQUISITES_MISSING", "PRIMARY_EVIDENCE_INCOMPLETE",
     "SAVED_VIEW_PERSISTENCE_UNAVAILABLE", "RECONCILE_REMOTE_OUTCOME", "RECORDED_EXECUTION_FAILURE",
-    "WAITING_FOR_APPROVAL", "APPROVAL_REJECTED", "GITHUB_EVIDENCE_INCOMPLETE",
+    "WAITING_FOR_APPROVAL", "APPROVAL_REJECTED", "GITHUB_EVIDENCE_INCOMPLETE", "STATUS_READ_PENDING", "STATUS_OBSERVATION_UNAVAILABLE", "STATUS_OBSERVATIONS_COMPLETE",
 }
 CONTEXT_ACCEPTANCE_RECOVERY = {
     "RESUME_UNFINISHED_WORK", "RESUME_VERIFICATION", "RECONCILE_REMOTE_OUTCOME", "RESUME_UNVERIFIED_REQUIREMENTS",
     "RECONCILE_CATALOG_CONTRACTS", "RESUME_ISSUED_CATALOG_CONTINUATION", "RECONCILE_CATALOG_SNAPSHOT",
     "RESOLVE_BOUND_APPROVAL", "RECHECK_OWNED_FIXTURE_PREFLIGHT", "RECONCILE_OWNED_FIXTURE",
     "REVIEW_REMAINING_SCOPE_AND_BUDGET", "RESOLVE_CAPABILITY_PREREQUISITE", "NEW_TASK_REQUIRED",
-    "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE",
+    "RESTORE_AUTHORIZED_CONFIGURATION", "INSPECT_EXECUTION_FAILURE", "INSPECT_EXISTING_WORKFLOW_AT_RECORDED_REVISION",
 }
 CONTEXT_REVIEW_STAGES = {"review_comparison", "approval"}
 CONTEXT_REVIEW_RECOVERY = {"SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE"}
@@ -318,6 +319,7 @@ CONTEXT_ENUMS_V4 = {
     "originalFailureCode": ERROR_CODES,
 }
 CONTEXT_ENUMS_V6 = {**CONTEXT_ENUMS_V4, "reasonCode": CONTEXT_ENUMS_V4["reasonCode"] | ENGINEERING_REASONS | MODEL_PREPARATION_REASONS, "stage": CONTEXT_ENUMS_V4["stage"] | {"model_preparation"}}
+CONTEXT_ENUMS_V7 = {**CONTEXT_ENUMS_V6, "stage": CONTEXT_ENUMS_V6["stage"] | {"voice_reply", "voice_response_wait"}}
 CONTEXT_NUMBERS = {"occurredAtMillis": (1, 9_999_999_999_999), "httpStatus": (100, 599), "retryAfterMillis": (0, 86_400_000)}
 CONTEXT_ACCEPTANCE_NUMBERS = {"requiredCriteria": (0, 100_000), "verifiedCriteria": (0, 100_000), "remainingCriteria": (0, 100_000)}
 CONTEXT_RECOVERY_NUMBERS = {"originalHttpStatus": (100, 599), "ownershipFence": (0, 9_223_372_036_854_775_807)}
@@ -331,7 +333,7 @@ CONTEXT_FIELDS = (set(CONTEXT_ENUMS) | set(CONTEXT_NUMBERS) | CONTEXT_FLAGS | CO
 CONTEXT_FIELDS_V2 = CONTEXT_FIELDS | set(CONTEXT_ACCEPTANCE_NUMBERS)
 CONTEXT_FIELDS_V4 = CONTEXT_FIELDS_V2 | set(CONTEXT_RECOVERY_NUMBERS) | CONTEXT_RECOVERY_HASHES | {"originalFailureCode"}
 CONTEXT_FIELDS_V5 = CONTEXT_FIELDS_V4 | {"diagnostics"}
-CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2, 3: CONTEXT_FIELDS_V2, 4: CONTEXT_FIELDS_V4, 5: CONTEXT_FIELDS_V5, 6: CONTEXT_FIELDS_V5}
+CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2, 3: CONTEXT_FIELDS_V2, 4: CONTEXT_FIELDS_V4, 5: CONTEXT_FIELDS_V5, 6: CONTEXT_FIELDS_V5, 7: CONTEXT_FIELDS_V5}
 CONTEXT_LABELS = {
     "stage": "Failure stage", "provider": "Provider family", "operation": "Operation family", "httpStatus": "HTTP status",
     "retryAfterMillis": "Retry delay (ms)", "dispatched": "Dispatched", "retryable": "Retryable", "resumeAllowed": "Resume allowed",
@@ -394,23 +396,23 @@ def _report_context(value):
         raise ReportError(422, "INVALID_REPORT")
     # A released client used v2 for review extensions. Accept those exact approved
     # payloads as well as v3; clients require readiness for both 2 and 3 before sending them.
-    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V6 if version == 6 else CONTEXT_ENUMS_V4 if version in (4, 5, 6) else CONTEXT_ENUMS_V3
+    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V7 if version >= 7 else CONTEXT_ENUMS_V6 if version >= 6 else CONTEXT_ENUMS_V4 if version in (4, 5) else CONTEXT_ENUMS_V3
     for key, choices in enums.items():
         if key in value and (not isinstance(value[key], str) or value[key] not in choices):
             raise ReportError(422, "INVALID_REPORT")
     if value.get("reasonCode") in MODEL_PREPARATION_REASONS and value.get("stage") != "model_preparation":
         raise ReportError(422, "INVALID_REPORT")
     if value.get("reasonCode") in CONTEXT_TOOL_PRECHECK_REASONS and not (
-        version in (4, 5, 6) and value.get("source") == "TOOL_RESULT" and value.get("stage") == "tool_precheck" and value.get("dispatched") is False and value.get("requiresReconciliation") is not True
+        version in (4, 5, 6, 7) and value.get("source") == "TOOL_RESULT" and value.get("stage") == "tool_precheck" and value.get("dispatched") is False and value.get("requiresReconciliation") is not True
     ):
         raise ReportError(422, "INVALID_REPORT")
     numbers = CONTEXT_NUMBERS if version == 1 else {**CONTEXT_NUMBERS, **CONTEXT_ACCEPTANCE_NUMBERS}
-    if version in (4, 5, 6):
+    if version in (4, 5, 6, 7):
         numbers = {**numbers, **CONTEXT_RECOVERY_NUMBERS}
     for key, (low, high) in numbers.items():
         if key in value and (type(value[key]) is not int or not low <= value[key] <= high):
             raise ReportError(422, "INVALID_REPORT")
-    if version in (2, 3, 4, 5, 6):
+    if version in (2, 3, 4, 5, 6, 7):
         required_count = value.get("requiredCriteria")
         verified_count = value.get("verifiedCriteria")
         remaining_count = value.get("remainingCriteria")
@@ -423,12 +425,12 @@ def _report_context(value):
     for key in CONTEXT_FLAGS:
         if key in value and type(value[key]) is not bool:
             raise ReportError(422, "INVALID_REPORT")
-    for key in CONTEXT_HASHES | (CONTEXT_RECOVERY_HASHES if version in (4, 5, 6) else set()):
+    for key in CONTEXT_HASHES | (CONTEXT_RECOVERY_HASHES if version in (4, 5, 6, 7) else set()):
         if key in value and (not isinstance(value[key], str) or not re.fullmatch(r"[a-f0-9]{64}", value[key])):
             raise ReportError(422, "INVALID_REPORT")
     for key in ("missingFields", "invalidFields"):
         if key in value:
-            allowed_names = CONTEXT_SELECTION_FIELDS | (ENGINEERING_FIELDS if version == 6 and value.get("reasonCode") in ENGINEERING_REASONS else set())
+            allowed_names = CONTEXT_SELECTION_FIELDS | (ENGINEERING_FIELDS if version >= 6 and value.get("reasonCode") in ENGINEERING_REASONS else set())
             names = _lines(value, key, len(allowed_names), lambda name: name in allowed_names)
             if len(names) != len(set(names)):
                 raise ReportError(422, "INVALID_REPORT")
@@ -437,11 +439,13 @@ def _report_context(value):
     # presented as false, and an unknown field cannot carry arbitrary metadata.
     if len(unavailable) != len(set(unavailable)) or set(unavailable) != fields - value.keys():
         raise ReportError(422, "INVALID_REPORT")
-    if version == 5 or version == 6 and "diagnostics" in value:
+    if version in (5, 7) or version == 6 and "diagnostics" in value:
         try:
             diagnostic = validate_diagnostics(value.get("diagnostics"))
             if version == 5 and diagnostic["schemaVersion"] != 1:
                 raise ValueError("diagnostic extension requires context version six")
+            if version == 6 and diagnostic["schemaVersion"] == 3 or version == 7 and diagnostic["schemaVersion"] != 3:
+                raise ValueError("incident capsule requires context version seven")
         except ValueError as error:
             raise ReportError(422, "INVALID_REPORT") from error
     return value
@@ -460,7 +464,7 @@ def _context_body(context):
             rendered = "true" if value else "false"
         else:
             rendered = str(value)
-        if context["schemaVersion"] == 6 and key in {"missingFields", "invalidFields"}:
+        if context["schemaVersion"] >= 6 and key in {"missingFields", "invalidFields"}:
             label = "Missing request fields" if key == "missingFields" else "Invalid request fields"
         rows.append((label, rendered))
     body = "\n\n### Diagnostic context\n\n| Field | Recorded value |\n| --- | --- |\n"
@@ -471,7 +475,7 @@ def _context_body(context):
         body += " These observations were not retained; absence does not establish success, non-dispatch, or permission to retry."
     else:
         body += "\n\nUnavailable fields: none declared by this capture."
-    if context["schemaVersion"] in (5, 6) and "diagnostics" in context:
+    if context["schemaVersion"] in (5, 6, 7) and "diagnostics" in context:
         body += diagnostics_body(context["diagnostics"])
     return body
 

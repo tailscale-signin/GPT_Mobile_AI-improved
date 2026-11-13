@@ -294,7 +294,10 @@ class GitHubReviewBudgetRecoveryTest {
         var probes = 0
         for ((index, revision) in listOf(key(), key(), key(model = "other"), key(template = "changed"), key(policy = "reasoning-on"), key(cap = 512)).withIndex()) {
             GitHubReviewedSession(session(ProviderEvent.TextDelta("The recorded check failed."), ProviderEvent.Completed), GitHubReviewEvidence(), "task-$index", 8192, { prompt, kind ->
-                if (kind == "github-review-preflight") probes++
+                if (kind == "github-review-preflight") {
+                    probes++
+                    assertEquals(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, prompt)
+                }
                 session(ProviderEvent.TextDelta(verdict(prompt)), ProviderEvent.Completed)
             }, {}, compatibility = cache, reviewerRevision = "task-policy-$index", compatibilityRevision = revision).streamRound(emptyList(), emptyList()).toList()
         }

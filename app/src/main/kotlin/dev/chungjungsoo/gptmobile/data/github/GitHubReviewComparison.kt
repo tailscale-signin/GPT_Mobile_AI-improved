@@ -16,7 +16,11 @@ import kotlinx.serialization.json.put
 /** Resolve the review's immutable comparison before spending its allowance on inventories. */
 internal object GitHubReviewComparison {
     private val sha = Regex("[a-fA-F0-9]{40}")
-    private val baselineSelector = "(?<![\\p{L}\\p{N}_/])\\b(?:baseline|base|against)\\b[ \\t]*(?:(?:sha|commit|branch|tag|ref)(?=[ \\t]|[:=])[ \\t]*)?"
+
+    // A selector is a separate request token, never the base component of
+    // head/base prose or a path/ref such as feature/base. Require a delimiter
+    // after it too, so base/head cannot authorize a lookup of /head.
+    private val baselineSelector = "(?<![\\p{L}\\p{N}_./+@-])(?:baseline|base|against)(?=[ \\t]|[:=])[ \\t]*(?:(?:sha|commit|branch|tag|ref)(?=[ \\t]|[:=])[ \\t]*)?"
     private val baselinePrefix = "$baselineSelector[:=]?[ \\t]*"
     private val explicitBase = Regex("(?i)$baselinePrefix([^\\s]+)")
     private val labelledBase = Regex("(?i)$baselineSelector[:=][ \\t]*([^\\r\\n]*)")
@@ -108,7 +112,8 @@ internal object GitHubReviewComparison {
     }
 
     private fun resolutionFailure(receipt: JsonObject): JsonObject {
-        val code = receipt.text("error_code").takeIf { it in resolutionFailureCodes } ?: "GITHUB_OPERATION_FAILED"
+        val originalCode = receipt.text("error_code").takeIf { it in resolutionFailureCodes }
+        val code = originalCode ?: "GITHUB_OPERATION_FAILED"
         val data = GitHubSemanticSummary.data(receipt["result"] as? JsonObject ?: JsonObject(emptyMap()))
         val execution = receipt["execution"] as? JsonObject
         val hint = when (code) {
@@ -120,6 +125,11 @@ internal object GitHubReviewComparison {
         return buildJsonObject {
             put("error_code", code)
             put("recovery_hint", hint)
+            receipt.text("call_id").takeIf(String::isNotBlank)?.let { callId ->
+                put("causal_id", callId)
+                put("causal_provenance", "TOOL_CALL")
+                originalCode?.let { put("causal_failure_code", it) }
+            }
             (execution?.get("transport_complete") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("transport_complete", it) }
             (receipt["dispatched"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let {
                 put("dispatched", it)

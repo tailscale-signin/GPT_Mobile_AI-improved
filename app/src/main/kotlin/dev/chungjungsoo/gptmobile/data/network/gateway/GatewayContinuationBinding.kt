@@ -1,7 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.ProviderToolInvocation
 import dev.chungjungsoo.gptmobile.data.agent.SavedViewRecoveryBatch
+import dev.chungjungsoo.gptmobile.data.agent.providerInvocation
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 
@@ -22,11 +24,11 @@ class GatewayContinuationBinding private constructor(
     /** Skip only complete, cursor-bound local saved-page batches after the latest real handoff. */
     fun requireResults(exchanges: List<AgentToolExchange>) {
         val latest = exchanges.lastOrNull { !SavedViewRecoveryBatch.isComplete(it, pending.keys) }
-        requireResults(latest?.calls.orEmpty().map { it.providerIdentity().let { original -> Triple(original.callId, original.name, original.arguments) } }, latest?.results.orEmpty().map { it.callId })
+        requireResults(latest?.calls.orEmpty().map { call -> call.providerInvocation().let { Triple(call.callId, it.name, it.arguments) } }, latest?.results.orEmpty().map { it.callId })
     }
 
-    /** Reconstruct a legacy normalized journal only from the verified gateway handoff and its saved fingerprint. */
-    fun restoreProviderIdentities(exchanges: List<AgentToolExchange>): List<AgentToolExchange> {
+    /** A legacy normalized journal may recover only from this verified pending handoff and its saved hash. */
+    fun restoreProviderInvocations(exchanges: List<AgentToolExchange>): List<AgentToolExchange> {
         val index = exchanges.indexOfLast { !SavedViewRecoveryBatch.isComplete(it, pending.keys) }
         if (index < 0) {
             requireResults(exchanges)
@@ -39,14 +41,14 @@ class GatewayContinuationBinding private constructor(
                 exchange.copy(
                     calls = exchange.calls.map { call ->
                         val expected = pending[call.callId]
-                        if (call.originalProviderName != null || call.originalProviderArguments != null || call.originalInvocationFingerprint == null || expected == null) {
+                        if (call.originalInvocation != null || call.originalInvocationFingerprint == null || expected == null) {
                             call
                         } else {
-                            val fingerprint = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${call.callId}:${expected.first}:${expected.second}")
-                            check(fingerprint == call.originalInvocationFingerprint) {
+                            val original = ProviderToolInvocation(expected.first, expected.second)
+                            check(original.fingerprint(call.callId) == call.originalInvocationFingerprint) {
                                 "CLIENT_TOOL_RESULT_IDENTITY_MISMATCH: The saved original invocation does not match this verified gateway handoff. No operation was replayed."
                             }
-                            call.copy(originalProviderName = expected.first, originalProviderArguments = expected.second)
+                            call.copy(originalInvocation = original)
                         }
                     }
                 )

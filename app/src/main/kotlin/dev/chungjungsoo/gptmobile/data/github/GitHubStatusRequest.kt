@@ -160,6 +160,65 @@ internal object GitHubStatusRequest {
         return null
     }
 
+    /** Retain the next authorized read without consuming a call or extending its ceiling. */
+    fun checkpoint(tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, acceptedRepository: String?, report: JsonObject, budget: JsonObject): JsonObject {
+        val next = nextCall(tools, receipts, now, epoch, task, acceptedRepository)
+        val remaining = (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull
+        val complete = report["completion_verified"] == JsonPrimitive(true)
+        val code = when {
+            complete -> "STATUS_OBSERVATIONS_COMPLETE"
+            next != null && remaining == 0 -> "TOOL_BUDGET_EXHAUSTED"
+            next != null -> "STATUS_READ_PENDING"
+            else -> "STATUS_OBSERVATION_UNAVAILABLE"
+        }
+        return buildJsonObject {
+            put("schema", "github.status-checkpoint.v1")
+            put("stage_budget", budget)
+            put("read_only", true)
+            put("plan_complete", complete)
+            put("remaining_requirement_ids", JsonArray((report["remaining_requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { it["id"] }))
+            next?.let { call ->
+                put(
+                    "next_read",
+                    buildJsonObject {
+                        put("tool", call.name)
+                        put("arguments", call.arguments)
+                        put("requires_new_allowance", remaining == 0)
+                    }
+                )
+            }
+            put(
+                "stop_reason",
+                buildJsonObject {
+                    put("code", code)
+                    put("source", "STATUS_READ_PLAN")
+                    put(
+                        "detail",
+                        when (code) {
+                            "TOOL_BUDGET_EXHAUSTED" -> "The accepted tool allowance is exhausted. The next read and unmet criteria are retained; further reads require a new allowance."
+                            "STATUS_READ_PENDING" -> "An authorized read remains in the status plan. Completed observations and their exact revisions are retained."
+                            "STATUS_OBSERVATION_UNAVAILABLE" -> "No further authorized status read is available. Unobserved policy, checks or review decisions remain unknown; inspect the retained gaps and read failures."
+                            else -> "All accepted status observations are complete within their recorded scope."
+                        }
+                    )
+                    remaining?.let { put("remaining_tool_calls", it) }
+                    put("pending_continuations", if (next == null) 0 else 1)
+                    put("pending_count_scope", "NEXT_READ_ONLY")
+                }
+            )
+        }
+    }
+
+    fun budget(observed: JsonObject): JsonObject = JsonObject(
+        observed + buildJsonObject {
+            // Receipt-based status verification has no model/tool read reserve.
+            // Preserve the accepted ceiling and observed counter verbatim.
+            put("verification_reserve", 0)
+            put("acquisition_allowed", (observed["remaining_calls"] as? JsonPrimitive)?.intOrNull?.let { it > 0 } != false)
+            put("allocation_policy", "READ_ONLY_STATUS_WITH_LOCAL_VERIFICATION")
+        }
+    )
+
     fun health(task: String): Boolean = matches(task) && Regex("(?i)\\b(?:health|required checks|recent failures|outstanding review decisions)\\b").containsMatchIn(GitHubTaskContinuity.request(task))
 
     const val POLICY_REQUIREMENT = "Inspect required-check policy for the selected branch without treating unavailable rules as no requirements"

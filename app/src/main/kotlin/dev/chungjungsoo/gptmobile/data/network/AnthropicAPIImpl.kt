@@ -179,7 +179,7 @@ class AnthropicAPIImpl @Inject constructor(
                                             type = errorResponse?.error?.type ?: "api_error",
                                             message = errorResponse?.error?.message ?: "HTTP ${observed.status}: $errorBody",
                                             code = typed.code,
-                                            failureDetails = typed.failureDetails
+                                            failureDetails = JsonObject(typed.failureDetails.orEmpty() + ProviderRejectionDiagnostics.response(observed.status, errorBody, ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES))
                                         ).withResponseEvidence(observed, receivedPayload)
                                     )
                                 )
@@ -191,7 +191,9 @@ class AnthropicAPIImpl @Inject constructor(
                                 val chunks = anthropicCompleteResponseChunks(response.body<String>())
                                 receivedPayload = true
                                 if (chunks.none { it is ErrorResponseChunk }) ProviderCooldown.accepted(config)
-                                chunks.forEach { emit(it) }
+                                chunks.forEach { chunk ->
+                                    emit(if (chunk is ErrorResponseChunk) chunk.copy(error = chunk.error.withResponseEvidence(observed, receivedPayload, ProviderRejectionDiagnostics.typed(observed.status, chunk.error.type, contract = ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES))) else chunk)
+                                }
                                 return@execute
                             }
                             val channel = response.bodyAsChannel()
@@ -219,7 +221,7 @@ class AnthropicAPIImpl @Inject constructor(
                                     )
                                 }
                                 if (chunk is ErrorResponseChunk) {
-                                    chunk = chunk.copy(error = chunk.error.withResponseEvidence(observed, receivedPayload))
+                                    chunk = chunk.copy(error = chunk.error.withResponseEvidence(observed, receivedPayload, ProviderRejectionDiagnostics.typed(observed.status, chunk.error.type, contract = ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES)))
                                 }
                                 if (chunk == MessageStopResponseChunk) ProviderCooldown.accepted(config)
                                 receivedPayload = true
@@ -280,14 +282,15 @@ class AnthropicAPIImpl @Inject constructor(
 
 private data class AnthropicResponseEvidence(val status: Int, val requestId: String?)
 
-private fun ErrorDetail.withResponseEvidence(observed: AnthropicResponseEvidence, partialOutput: Boolean): ErrorDetail {
+private fun ErrorDetail.withResponseEvidence(observed: AnthropicResponseEvidence, partialOutput: Boolean, providerDiagnostics: JsonObject? = null): ErrorDetail {
     val knownType = type.takeIf {
         it in setOf("invalid_request_error", "authentication_error", "billing_error", "permission_error", "not_found_error", "conflict_error", "request_too_large", "rate_limit_error", "api_error", "timeout_error", "overloaded_error")
     }
     return copy(
         code = code ?: knownType,
         failureDetails = JsonObject(
-            failureDetails.orEmpty() + buildJsonObject {
+            failureDetails.orEmpty() + providerDiagnostics.orEmpty() + buildJsonObject {
+                put("payload_contract", ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES.name)
                 if (failureDetails?.containsKey("failed_stage") != true) put("failed_stage", "model_invocation")
                 put("http_status", observed.status)
                 put("dispatched", true)

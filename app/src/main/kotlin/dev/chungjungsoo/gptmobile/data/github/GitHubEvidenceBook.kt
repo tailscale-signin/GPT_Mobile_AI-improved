@@ -561,7 +561,7 @@ internal class GitHubEvidenceBook(
         val retained = if (current == null) {
             val previous = load("verification_current_" + digest(binding).take(24))
             val checklist = previous?.get("test_checklist") as? JsonObject
-            checklist?.get("stage_budget") as? JsonObject
+            checklist?.get("stage_budget") as? JsonObject ?: previous?.get("stage_budget") as? JsonObject
         } else {
             null
         }

@@ -6,20 +6,17 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ProviderUsagePhase
 import dev.chungjungsoo.gptmobile.data.agent.ToolDefinitionsRejectedException
-import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.providerInvocation
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MessageContent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.MessageRole
-import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolResultContent as AnthropicToolResultContent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.common.ToolUseContent
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.AnthropicTool
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.InputMessage
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.MessageRequest
 import dev.chungjungsoo.gptmobile.data.dto.anthropic.request.ThinkingConfig as AnthropicThinkingConfig
 import dev.chungjungsoo.gptmobile.data.dto.google.common.Content
-import dev.chungjungsoo.gptmobile.data.dto.google.common.FunctionCall
-import dev.chungjungsoo.gptmobile.data.dto.google.common.FunctionResponse
 import dev.chungjungsoo.gptmobile.data.dto.google.common.Part
 import dev.chungjungsoo.gptmobile.data.dto.google.common.Role as GoogleRole
 import dev.chungjungsoo.gptmobile.data.dto.google.request.FunctionDeclaration
@@ -34,10 +31,8 @@ import dev.chungjungsoo.gptmobile.data.dto.groq.request.GroqChatCompletionReques
 import dev.chungjungsoo.gptmobile.data.dto.openai.common.Role as OpenAIRole
 import dev.chungjungsoo.gptmobile.data.dto.openai.common.TextContent as OpenAITextContent
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatFunction
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatFunctionTool
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
-import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatToolCall
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ReasoningConfig
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionCallOutput
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponseFunctionTool
@@ -274,9 +269,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                     exchange.results.map { result ->
                         buildJsonObject {
                             put("callId", result.callId)
-                            exchange.calls.singleOrNull { it.callId == result.callId }?.providerIdentity()?.let { call ->
-                                put("tool", call.name)
-                                put("arguments", call.arguments)
+                            exchange.calls.singleOrNull { it.callId == result.callId }?.let { call ->
+                                put("tool", call.providerInvocation().name)
+                                put("arguments", call.providerInvocation().arguments)
                             }
                             put("isError", result.isError)
                             put("data", result.modelText())
@@ -318,7 +313,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             binding.requireRoute(platform.uid, platform.apiUrl, platform.model)
         }
         var restoredGatewayJob = constraints.restoredGatewayJob
-        val restoredProviderIdentities = mutableMapOf<String, Pair<String, JsonObject>>()
+        val restoredProviderInvocations = mutableMapOf<String, dev.chungjungsoo.gptmobile.data.agent.ProviderToolInvocation>()
         var capturedGatewayJobId: String? = restoredGatewayJob?.jobId
         var clientToolsAdvertised = false
         val gatewayPerformanceHeaders = if (platform.compatibleType == ClientType.LLAMA) {
@@ -706,22 +701,15 @@ class OpenAICompatibleAdapter @Inject constructor(
                 var providerExchanges = exchanges.map { exchange ->
                     exchange.copy(
                         calls = exchange.calls.map { call ->
-                            val retained = call.originalInvocationFingerprint?.let(restoredProviderIdentities::get)
-                            if (call.originalProviderName == null && call.originalProviderArguments == null && retained != null) {
-                                call.copy(originalProviderName = retained.first, originalProviderArguments = retained.second)
-                            } else {
-                                call
-                            }
+                            val retained = call.originalInvocationFingerprint?.let(restoredProviderInvocations::get)
+                            if (call.originalInvocation == null && retained != null && retained.fingerprint(call.callId) == call.originalInvocationFingerprint) call.copy(originalInvocation = retained) else call
                         }
                     )
                 }
                 restoredGatewayJob?.let { binding ->
-                    providerExchanges = binding.restoreProviderIdentities(providerExchanges)
+                    providerExchanges = binding.restoreProviderInvocations(providerExchanges)
                     providerExchanges.flatMap { it.calls }.forEach { call ->
-                        val fingerprint = call.originalInvocationFingerprint
-                        val name = call.originalProviderName
-                        val arguments = call.originalProviderArguments
-                        if (fingerprint != null && name != null && arguments != null) restoredProviderIdentities[fingerprint] = name to arguments
+                        call.originalInvocation?.let { original -> restoredProviderInvocations[requireNotNull(call.originalInvocationFingerprint)] = original }
                     }
                     restoredGatewayJob = null
                 }
@@ -1786,21 +1774,6 @@ class GeminiAdapter @Inject constructor(
     }
 }
 
-private fun AgentToolExchange.toChatMessages(): List<ChatMessage> = listOf(
-    ChatMessage(
-        role = OpenAIRole.ASSISTANT,
-        toolCalls = calls.map { call ->
-            call.providerIdentity().let { original -> ChatToolCall(original.callId, ChatFunction(original.name, original.arguments.toString())) }
-        }
-    )
-) + results.map { result ->
-    ChatMessage(
-        role = OpenAIRole.TOOL,
-        content = listOf(OpenAITextContent(result.modelText())),
-        toolCallId = result.callId
-    )
-}
-
 private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(): ProviderEvent? = when (this) {
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Success -> ProviderEvent.TextDelta(textChunk, lineage)
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Thinking -> ProviderEvent.ThinkingDelta(thinkingChunk)
@@ -1808,74 +1781,6 @@ private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(): Prov
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Error -> ProviderEvent.Failed(message, progressDeadline = progressDeadline, errorCode = errorCode, providerLimit = providerLimit, taskOutcome = taskOutcome, failureDetails = failureDetails, invocationId = invocationId)
     else -> null
 }
-
-private fun AgentToolExchange.toAnthropicMessages(assistantContent: List<MessageContent>?): List<InputMessage> = listOf(
-    InputMessage(
-        MessageRole.ASSISTANT,
-        assistantContent ?: calls.map { call -> call.providerIdentity().let { original -> ToolUseContent(original.callId, original.name, original.arguments) } }
-    ),
-    InputMessage(
-        MessageRole.USER,
-        results.map { result ->
-            AnthropicToolResultContent(result.callId, result.modelText(), result.isError)
-        }
-    )
-)
-
-private fun AgentToolExchange.toGeminiContents(modelParts: List<Part>?): List<Content> {
-    val callsById = calls.associateBy { it.callId }
-    val originalCalls = modelParts.orEmpty().mapNotNull { it.functionCall }
-    return listOf(
-        Content(
-            GoogleRole.MODEL,
-            modelParts ?: calls.map { call -> call.providerIdentity().let { original -> Part(functionCall = FunctionCall(original.callId, original.name, original.arguments)) } }
-        ),
-        Content(
-            GoogleRole.USER,
-            results.mapNotNull { result ->
-                val call = callsById[result.callId] ?: return@mapNotNull null
-                val providerCallId = if (modelParts == null) result.callId else originalCalls.getOrNull(calls.indexOf(call))?.id
-                Part(
-                    functionResponse = FunctionResponse(
-                        id = providerCallId,
-                        name = call.providerIdentity().name,
-                        response = result.modelJson()
-                    )
-                )
-            }
-        )
-    )
-}
-
-private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelText(): String = if (assistMetadata.isNotEmpty()) {
-    JsonObject(mapOf("data" to dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content), "assist" to JsonArray(assistMetadata))).toString()
-} else {
-    when (val value = content) {
-        is ToolResultContent.Text -> value.text
-        is ToolResultContent.Json -> value.value.toString()
-        is ToolResultContent.ResourceLinks -> value.links.joinToString("\n") { link -> link.uri }
-    }.ifBlank { if (isError) "Tool failed without error details." else "Tool returned no content." }
-}
-
-private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.modelJson(): JsonObject = if (assistMetadata.isNotEmpty()) {
-    JsonObject(mapOf("data" to dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.element(content), "assist" to JsonArray(assistMetadata)))
-} else {
-    when (val value = content) {
-        is ToolResultContent.Json -> value.value.asResponseObject()
-
-        is ToolResultContent.Text -> buildJsonObject {
-            put("result", value.text)
-            if (isError) put("isError", true)
-        }
-
-        is ToolResultContent.ResourceLinks -> buildJsonObject {
-            put("resources", JsonArray(value.links.map { link -> JsonPrimitive(link.uri) }))
-            if (isError) put("isError", true)
-        }
-    }
-}
-
-private fun JsonElement.asResponseObject(): JsonObject = this as? JsonObject ?: buildJsonObject { put("result", this@asResponseObject) }
 
 private fun PlatformV2.googleSafetySettings(): List<SafetySetting> = listOf(
     SafetySetting(

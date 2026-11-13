@@ -295,7 +295,7 @@ class VoiceFailureReportingTest {
         session.reply("legacy-run", "HTTP 429: rate limit", failed = true)
         val report = IssueReportIncidents.pending.value.single()
         assertEquals("VOICE_SESSION_FAILED", report.errorCode)
-        assertEquals("delivery", report.context?.stage)
+        assertEquals("voice_reply", report.context?.stage)
         assertEquals(JsonPrimitive("FAILED_WITHOUT_DETAILS"), report.context?.diagnostics?.values?.get("voice_reply_state"))
         assertEquals(JsonPrimitive(0), report.context?.diagnostics?.values?.get("voice_reply_characters"))
         org.junit.Assert.assertNull(report.context?.dispatched)
@@ -420,7 +420,7 @@ class VoiceFailureReportingTest {
     }
 
     @Test
-    fun failedReplyWithoutMetadataRetainsOneDeliveryFallbackAndItsDraft() {
+    fun failedReplyWithoutMetadataRetainsItsObservedWaitingPhaseAndDraft() {
         LocalDiagnosticsPolicy.setEnabled(true)
         lateinit var capture: VoiceAudio.Listener
         val audio = object : VoiceAudio {
@@ -443,7 +443,9 @@ class VoiceFailureReportingTest {
         session.reply("accepted", "", failed = true)
         val report = IssueReportIncidents.pending.value.single()
         assertEquals("VOICE_SESSION_FAILED", report.errorCode)
-        assertEquals("delivery", report.context?.stage)
+        assertEquals("voice_response_wait", report.context?.stage)
+        assertEquals(JsonPrimitive("THINKING"), report.context?.diagnostics?.values?.get("voice_phase"))
+        assertEquals(JsonPrimitive("MISSING_FAILURE_RECORD"), report.context?.diagnostics?.values?.get("voice_reply_failure_evidence"))
         assertEquals(null, report.context?.operation)
         assertTrue(session.state.hasDraft)
         assertFalse(session.state.awaitingReply)

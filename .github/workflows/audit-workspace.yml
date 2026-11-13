@@ -171,7 +171,10 @@ jobs:
         run: |
           set -o pipefail
           chmod +x gradlew
-          python3 scripts/gradle_retry.py -- --no-daemon --stacktrace :app:lintDebug 2>&1 | tee audit-lint.log
+          # Run 43358733105 exhausted the 3 GiB lint heap before its 35-minute
+          # deadline. Isolate this pass with a bounded 4 GiB heap, retaining
+          # one worker, the existing metaspace ceiling and every lint check.
+          python3 scripts/gradle_retry.py --timeout-seconds 2040 -- --no-daemon --max-workers=1 --stacktrace :app:lintDebug '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee audit-lint.log
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
         with:

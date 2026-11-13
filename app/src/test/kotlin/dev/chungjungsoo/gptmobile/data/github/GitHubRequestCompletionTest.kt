@@ -4,6 +4,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -13,6 +15,48 @@ import org.junit.Test
 class GitHubRequestCompletionTest {
     private val sha = "a".repeat(40)
     private val task = "Implement the feature"
+
+    @Test fun unmappedAcceptanceRecordsItsActualEvaluatorWithoutInventingExecutionEvidence() {
+        val claims = listOf(buildJsonObject { put("status", "VERIFIED") })
+        val result = GitHubRequestCompletion.evaluate(task, claims, JsonObject(emptyMap()), mapOf("read" to receipt("status", JsonObject(emptyMap()))))
+        val row = result.getValue("requirements").jsonArray.single().jsonObject
+        assertEquals(JsonPrimitive(false), result["completion_verified"])
+        assertEquals(JsonPrimitive("ACCEPTANCE_MAPPING_REQUIRED"), row["acceptance_evaluator_branch"])
+        assertEquals(JsonPrimitive("ACCEPTANCE_MAPPING_REQUIRED"), row["acceptance_mismatch"])
+        assertEquals(JsonPrimitive(0), row["eligible_receipt_count"])
+        assertEquals(JsonPrimitive(0), row["excluded_receipt_count"])
+        assertEquals(JsonPrimitive("LINKED_CRITERION_EVIDENCE"), row["receipt_count_scope"])
+        assertFalse(row.containsKey("expected_operation"))
+        val retained = GitHubAcceptanceLedger.attach(result).getValue("acceptance_ledger").jsonObject.getValue("requirements").jsonArray.single().jsonObject
+        for (key in listOf("acceptance_evaluator_branch", "acceptance_mismatch", "eligible_receipt_count", "excluded_receipt_count", "receipt_count_scope", "receipt_exclusion_reasons")) assertEquals(row[key], retained[key])
+    }
+
+    @Test fun acceptanceDistinguishesMissingClaimsFromIneligibleLinkedReceipts() {
+        val request = "Review this saved GitHub session"
+        val noClaims = GitHubRequestCompletion.evaluate(request, emptyList(), JsonObject(emptyMap()), emptyMap())
+        val absent = noClaims.getValue("requirements").jsonArray.first().jsonObject
+        assertEquals(JsonPrimitive("INFORMATIONAL_CLAIMS"), absent["acceptance_evaluator_branch"])
+        assertEquals(JsonPrimitive("NO_MATCHING_CLAIMS"), absent["acceptance_mismatch"])
+        val claims = listOf("missing", "untrusted", "failed").map { id ->
+            buildJsonObject {
+                put("kind", "fact")
+                put("status", "VERIFIED")
+                put("receipt_id", id)
+            }
+        }
+        val receipts = mapOf(
+            "untrusted" to receipt("status", JsonObject(emptyMap()), trusted = false),
+            "failed" to JsonObject(receipt("status", JsonObject(emptyMap())) + ("success" to JsonPrimitive(false)))
+        )
+        val result = GitHubRequestCompletion.evaluate(request, claims, JsonObject(emptyMap()), receipts)
+        val rejected = result.getValue("requirements").jsonArray.first().jsonObject
+        assertEquals(JsonPrimitive(false), result["completion_verified"])
+        assertEquals(JsonPrimitive("LINKED_RECEIPT_INELIGIBLE"), rejected["acceptance_mismatch"])
+        assertEquals(JsonPrimitive(0), rejected["eligible_receipt_count"])
+        assertEquals(JsonPrimitive(3), rejected["excluded_receipt_count"])
+        assertEquals(setOf(JsonPrimitive("MISSING_IDENTITY"), JsonPrimitive("UNVERIFIED"), JsonPrimitive("NOT_SUCCESSFUL")), rejected.getValue("receipt_exclusion_reasons").jsonArray.toSet())
+        assertTrue(rejected.getValue("receipt_ids").jsonArray.isEmpty())
+    }
 
     @Test fun compoundChangeRequestsCannotCompleteFromAnUnrelatedReadFact() {
         for (request in listOf("Review the repository and implement feature X", "Can you inspect this repository and then fix the bug?", "Read README.md; update the repository docs", "What changed? Please fix the bug", "Explain the architecture and implement the feature")) {

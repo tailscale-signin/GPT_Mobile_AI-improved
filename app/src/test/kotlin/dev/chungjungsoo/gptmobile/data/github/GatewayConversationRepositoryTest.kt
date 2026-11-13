@@ -302,6 +302,24 @@ class GatewayConversationRepositoryTest {
         assertEquals("model", repository.boundSnapshot(opened.chatId, "profile", "model")?.second?.model)
     }
 
+    @Test fun linkedOrdinaryAndEngineeringTranscriptsRetainDistinctRoutingAcrossRestart() = runBlocking {
+        val turn = turn()
+        remote = transcript("ordinary-command")
+        repository.associate(turn.chatRoom.id, "profile", route.endpoint, "gateway", "owner", "conversation")
+        assertNull(repository.savedConversation(turn.chatRoom.id, "profile", route.endpoint, "owner", "profile"))
+        val engineering = snapshot.copy(conversationId = "engineering", repository = "owner/repo", base = "main", branch = "work")
+        coEvery { client.conversation(config, "engineering") } returns engineering
+        coEvery { client.messages(config, "engineering", any()) } returns GatewayTranscriptPage(gatewayId = "gateway", principalId = "owner", conversationId = "engineering")
+        repository.associate(turn.chatRoom.id, "profile", route.endpoint, "gateway", "owner", "engineering")
+
+        val restarted = GatewayConversationRepository(db, settings, client, jobs, commands)
+        assertEquals("conversation", restarted.requestBinding(turn.chatRoom.id, "profile", route.endpoint, "model")?.conversationId)
+        assertEquals("engineering", restarted.boundSnapshot(turn.chatRoom.id, "profile", "model")?.second?.conversationId)
+        assertEquals("engineering", restarted.savedConversation(turn.chatRoom.id, "profile", route.endpoint, "owner", "profile")?.conversationId)
+        assertEquals(2, db.gatewayJobDao().conversationsForChat(turn.chatRoom.id).size)
+        assertTrue(db.gatewayJobDao().transcriptParts(key, 0).isNotEmpty())
+    }
+
     @Test fun lostOrdinaryHeadersRecoverTheOriginalRoomButLeaveVerificationToTheExistingRecoveryPolicy() = runBlocking {
         val turn = turn()
         val run = turn.runs.single()

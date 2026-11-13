@@ -62,6 +62,7 @@ internal class GitHubVerifiedSession(
     private var progressCorrections = 0
     private var transportWaited = false
     private var providerStepResumed = false
+    private var statusPlanTools: List<AgentToolDefinition> = emptyList()
     private class ProgressCheckpointFailure(cause: Exception, val originalFailure: ProviderEvent.Failed?) : Exception(cause)
 
     private fun failureCauses(error: Throwable): Sequence<Throwable> =
@@ -94,6 +95,7 @@ internal class GitHubVerifiedSession(
     }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+        if (GitHubStatusRequest.matches(task)) statusPlanTools = tools
         val intent = dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(GitHubTaskContinuity.request(task))
         if (intent.conversational) {
             emit(ProviderEvent.TextDelta(intent.acknowledgement(), dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.APPLICATION_REPORT)))
@@ -625,7 +627,15 @@ internal class GitHubVerifiedSession(
                 val acceptedContract = evidence.acceptedPromptContract()
                 val acceptedCriteria = (acceptedContract?.get("acceptance_criteria") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
                 val acceptedRepository = (acceptedContract?.get("repository") as? JsonPrimitive)?.contentOrNull
-                withContext(computationDispatcher) { GitHubEvidencePolicy.status(receipts, now(), epoch, task, acceptedCriteria, acceptedRepository) }
+                val budget = GitHubStatusRequest.budget(evidence.stageBudget(receipts, remainingToolCalls(), 0))
+                withContext(computationDispatcher) {
+                    GitHubEvidencePolicy.status(receipts, now(), epoch, task, acceptedCriteria, acceptedRepository)?.let { (text, report) ->
+                        val checkpoint = GitHubStatusRequest.checkpoint(statusPlanTools.ifEmpty { authorizedTools }, receipts, now(), epoch, task, acceptedRepository, report, budget)
+                        val stop = checkpoint.getValue("stop_reason") as JsonObject
+                        val notice = if (stop["code"] == JsonPrimitive("TOOL_BUDGET_EXHAUSTED")) "\n\n**Collection stopped:** ${(stop["detail"] as JsonPrimitive).content}" else ""
+                        (text + notice) to JsonObject(report + mapOf("stage_budget" to budget, "status_checkpoint" to checkpoint, "stop_reason" to stop))
+                    }
+                }
             } else {
                 null
             }
@@ -702,6 +712,8 @@ internal class GitHubVerifiedSession(
             validatePublication()
             val retention = evidence.retentionStatus()
             val retentionComplete = retention["evidence_retention_complete"] == kotlinx.serialization.json.JsonPrimitive(true)
+            val publicationBudget = report["stage_budget"] as? JsonObject ?: checklist?.get("stage_budget") as? JsonObject
+                ?: evidence.stageBudget(publicationReceipts, remainingToolCalls(), GitHubSelfTestFixtures.minimumCalls(authorizedTools))
             val partial = !retentionComplete || originalFailure != null || publicationFailureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
             val oversizedWithoutEvidence = draft != null && status == null && coverage == null && ciObservation == null && requests == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
@@ -709,6 +721,7 @@ internal class GitHubVerifiedSession(
                 report + buildJsonObject {
                     progressDigest?.let { put("checklist_progress_digest", it) }
                     put("verification_restarts", verificationRestart)
+                    put("stage_budget", publicationBudget)
                     put("owned_descendants_settled", descendantsSettled)
                     put("progress_state", if (stalled) "BLOCKED_UNCHANGED" else "ADVANCED_OR_FIRST_REPORT")
                     if (checklist != null) {

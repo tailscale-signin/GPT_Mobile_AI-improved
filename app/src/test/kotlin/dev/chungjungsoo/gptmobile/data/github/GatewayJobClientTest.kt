@@ -10,6 +10,7 @@ import io.ktor.http.HttpStatusCode
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
@@ -18,6 +19,35 @@ import org.junit.Test
 
 class GatewayJobClientTest {
     private val config = ProviderRequestConfig("http://192.168.1.9:8090/v1", null)
+
+    @Test fun overlappingIdentityReadsShareOnlyTheSameAuthenticatedInFlightObservation() = runBlocking {
+        var calls = 0
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        HttpClient(
+            MockEngine {
+                calls++
+                if (calls == 1) {
+                    entered.complete(Unit)
+                    release.await()
+                }
+                respond("""{"schema_version":1,"protocol_version":1,"gateway_id":"canonical","principal_id":"owner"}""")
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val client = GatewayJobClient(http)
+            val first = async { client.identity(config) }
+            entered.await()
+            val overlapping = async { client.identity(config) }
+            yield()
+            release.complete(Unit)
+            assertEquals(first.await(), overlapping.await())
+            assertEquals(1, calls)
+            client.identity(config)
+            assertEquals(2, calls)
+            client.identity(config.copy(token = "changed-test-authority"))
+            assertEquals(3, calls)
+        }
+    }
 
     @Test fun canonicalIdentityReadBindsBothMutationHeadersAndReplacesStaleCaseVariants() = runBlocking {
         val stale = config.copy(extraHeaders = mapOf("x-gateway-installation-id" to "stale", "X-GATEWAY-PRINCIPAL-ID" to "other", "X-Custom" to "retained"))

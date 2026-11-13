@@ -119,7 +119,10 @@ class GatewayEngineeringRepository @Inject constructor(
     ): GatewayEngineeringBinding {
         val profileUid = requireNotNull(context.mainProfileUid)
         val model = selectedModel ?: settings.fetchPlatformV2s().single { it.uid == profileUid }.model
-        val bound = conversations.boundSnapshot(chatId, profileUid, model)
+        // Ordinary generation and engineering have separate server conversation
+        // identities. Retain the ordinary transcript in this room, but never use
+        // it as the repository binding of a newly authorized engineering task.
+        val bound = conversations.boundSnapshot(chatId, profileUid, model)?.takeIf { it.second.repository != null }
         if (draftRepair != null) {
             draftRepair.requireSource(context)
             check(bound == null && base == draftRepair.baseBranch && branch == draftRepair.branch && taskScope == "implement") { "A draft repair needs a separate saved conversation and its verified branches." }

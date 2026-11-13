@@ -971,7 +971,37 @@ class AgentRunCoordinator @Inject constructor(
             return withContext(NonCancellable) {
                 checkpoints.drain()
                 chatRepository.updateAgentMessage(assistantMessage)
-                val waiting = providerWaits?.deferRunning(request, decision, savedStage) == true
+                fun observeWait(persisted: Boolean?) {
+                    // Capture the scheduling decision after the durable store has
+                    // answered. Earlier approved failure reports stay immutable.
+                    val observation = mutableMapOf<String, Any?>(
+                        "run_id" to request.runId,
+                        "profile_id" to decision.profileUid,
+                        "model" to decision.model,
+                        "stage" to "provider_wait",
+                        "recovery_observation" to if (persisted == true) "RETRY_SCHEDULED" else "UNOBSERVED",
+                        "recovery_authority" to if (persisted == true) "VALID" else "UNVERIFIED",
+                        "retry_delay_ms" to dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy.remainingMillis(decision.retryAt, System.currentTimeMillis()),
+                        "retry_delay_source" to when (decision.retrySource) {
+                            "RETRY_AFTER", "RATE_LIMIT_RESET" -> "PROVIDER_HEADER"
+                            "APP_BACKOFF" -> "LOCAL_BACKOFF"
+                            else -> "UNKNOWN"
+                        }
+                    )
+                    if (persisted != null) {
+                        observation["provider_wait_persisted"] = persisted
+                        observation["provider_wait_state"] = if (persisted) "WAITING_PROVIDER_LIMIT" else "NOT_SCHEDULED"
+                    }
+                    runCatching { dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.providerRecoveryObservation(observation) }
+                }
+                val waiting = try {
+                    (providerWaits?.deferRunning(request, decision, savedStage) == true).also(::observeWait)
+                } catch (failure: Exception) {
+                    // An enqueue error may follow a successful DB write. Do not
+                    // assert failed persistence or grant replay from an exception.
+                    observeWait(null)
+                    throw failure
+                }
                 AppLogRecorder.record(
                     "ProviderRetry",
                     "JOB_WAIT · runId=${request.runId} · provider=${decision.provider} · scope=${decision.scope} · retryAtMs=${decision.retryAt} · source=${decision.retrySource ?: "PROVIDER_POLICY"} · count=${decision.consecutiveRejections} · githubCheckpoint=${decision.gitHubCheckpoint != null} · persisted=$waiting"

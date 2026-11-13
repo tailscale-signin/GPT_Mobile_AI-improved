@@ -53,8 +53,9 @@ class GitHubReviewAvailabilityTest {
                 put("gateway_upstream_status", 400)
             }
         )
-        suspend fun attempt() = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Inspect the repository", 8192, { _, kind ->
+        suspend fun attempt() = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Inspect the repository", 8192, { prompt, kind ->
             assertEquals("github-review-preflight", kind)
+            assertEquals(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, prompt)
             if (++probes == 1) session(rejected) else session(ProviderEvent.TextDelta(verdict(listOf(GitHubReviewCompatibility.EVIDENCE_ID))), ProviderEvent.Completed)
         }, {}, compatibility = compatibility, reviewerRevision = "unchanged-profile").streamRound(emptyList(), emptyList()).toList()
         val failure = attempt().filterIsInstance<ProviderEvent.Failed>().single()
@@ -137,7 +138,7 @@ class GitHubReviewAvailabilityTest {
             assertEquals(0, work)
             probes++
             if (probes == 1) {
-                assertEquals(GitHubReviewCompatibility.PROMPT, prompt)
+                assertEquals(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, prompt)
                 session(ProviderEvent.TextDelta("{\"schema_version\":"), ProviderEvent.Usage(outputTokens = 2048, finishReason = "length"), ProviderEvent.Completed)
             } else {
                 assertEquals(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, prompt)
@@ -185,5 +186,36 @@ class GitHubReviewAvailabilityTest {
         }, {}, compatibility = GitHubReviewCompatibility()).streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, probes)
         assertEquals("CONNECTION_ABORTED", result.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+    }
+
+    @Test fun compactFirstProbePreservesRateLimitAndNeverDispatchesAnotherAttemptOrRepositoryWork() = runTest {
+        var probes = 0
+        val limited = ProviderEvent.Failed(
+            "Reviewer rate limited",
+            errorCode = "RATE_LIMITED",
+            invocationId = "rate-limited-probe",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "provider_generation")
+                put("retry_after_ms", 45000)
+                put("http_status", 429)
+                put("dispatched", true)
+            }
+        )
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("Rate limiting cannot authorize repository work")
+        }
+        val result = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Inspect the repository", 8192, { prompt, kind ->
+            probes++
+            assertEquals(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, prompt)
+            assertEquals("github-review-preflight", kind)
+            session(limited)
+        }, {}, compatibility = GitHubReviewCompatibility(), reviewerRevision = "same-selected-profile").streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, probes)
+        val failure = result.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("RATE_LIMITED", failure.errorCode)
+        assertEquals("rate-limited-probe", failure.invocationId)
+        assertEquals(JsonPrimitive(45000), failure.failureDetails?.get("retry_after_ms"))
+        assertEquals(JsonPrimitive(429), failure.failureDetails?.get("http_status"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("repository_operations_started"))
     }
 }

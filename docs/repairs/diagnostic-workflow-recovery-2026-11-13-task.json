@@ -1,0 +1,103 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "fix/diagnostic-workflow-recovery-2026-11-13",
+  "starting_sha": "b3eb5e1ec71cd38d78acfa9462c174f3e06a0f8e",
+  "inherited_candidate_prs": [
+    838,
+    881
+  ],
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "diagnostic-workflow-recovery-2026-11-13",
+  "checkpoint_storage": "repository_file",
+  "state": "PUBLISHED_VALIDATING",
+  "intent": "Repair the uploaded diagnostic failures and all currently open issues on the single new draft branch. Resolve proven defects; add bounded privacy-preserving reporting for incidents lacking enough evidence; publish exact validation evidence and close each issue with an accurate resolution.",
+  "issue_snapshot": {
+    "open_numbers": [
+      891,
+      892,
+      893,
+      894,
+      895,
+      896,
+      897,
+      898,
+      899,
+      900,
+      901,
+      902,
+      903,
+      904,
+      905,
+      906,
+      907,
+      908,
+      909,
+      910,
+      911,
+      912,
+      913,
+      914,
+      915,
+      916,
+      917,
+      918,
+      919,
+      920,
+      921,
+      922,
+      923,
+      924,
+      925,
+      926,
+      927
+    ],
+    "count": 37,
+    "policy": "Refresh before publication; do not equate diagnostic instrumentation with proof of a remote incident fix."
+  },
+  "owners": {
+    "provider_identity_arguments": "audit_branch_code: original call replay, checkpoint durability, repeated argument failures and saved-view routing",
+    "github_read_workflows": "audit_runs: baseline grammar, status budgets and evidence, read-only CI guidance, PR labels and stale fixtures",
+    "reporting_runtime": "audit_runtime: incident capsules, schema/privacy/dedup, readiness targets, typed command404, JVM report fixture",
+    "integration_and_delivery": "root: typed integration routing, conversation transitions, compact preflight, diagnostics contention and bounded caches, canonical validation, publication and issue resolution"
+  },
+  "validation": {
+    "focused_behavior": {
+      "review_status_acceptance_host_tests": 86,
+      "provider_replay_rejection_host_tests": 27,
+      "report_host_tests": 34,
+      "root_policy_diagnostic_host_tests": 25,
+      "boundary_limit": "Host harnesses use disclosed Android/infrastructure boundary stubs; not full Android qualification."
+    },
+    "canonical_host": "PASSED_FINAL_495_TESTS",
+    "hosted_android": "RUNNING",
+    "physical_phone_and_private_gateway": "NOT_RUN",
+    "gateway": "PASSED_943_PYTHON_7_JAVASCRIPT",
+    "authentication": "76_PASSED",
+    "historic_approved_payloads": "ALL_37_VALID_UNCHANGED",
+    "local_android": "PUBLISHED_HEAD_KSP_AND_KAPT_PASS_PRODUCTION_COMPILE_PENDING",
+    "gateway_source_identity": {
+      "source_commit": "7fd99490171368aa3369cac7ed8b8c1d13c5debc",
+      "files": 220,
+      "bytes": 3934631,
+      "mismatches": 0
+    },
+    "hosted_followups": [
+      "Declare exact29 new paths in release scope without changing qualification",
+      "Include incident_report_contract in canonical CI authentication suite",
+      "Restore bounded semanticArgumentRejections cache after static validation; remove two stale rejectedArguments references; add no-reexecution regression"
+    ]
+  },
+  "authorization": "User explicitly requested implementation, a single latest draft branch (or creation if absent), and issue closure after fix or additional diagnostic reporting.",
+  "package_source_commit": "7fd99490171368aa3369cac7ed8b8c1d13c5debc",
+  "issue_closure": "37_RESOLUTION_COMMENTS_POSTED_CLOSURE_PENDING",
+  "publication": {
+    "pull_request": 928,
+    "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/928",
+    "draft": true,
+    "tree_sha": "518a9ffe0db388bc97e87d5e83058d317cfeb163",
+    "initial_head_sha": "630031e486c4ffcc074d4292f371e7c8a3f9c5a9"
+  }
+}

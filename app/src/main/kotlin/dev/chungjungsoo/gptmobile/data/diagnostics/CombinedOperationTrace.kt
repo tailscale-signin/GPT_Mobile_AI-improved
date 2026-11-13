@@ -30,6 +30,27 @@ internal data class UiOperationContext(
     }
 }
 
+/** Layout inputs distinguish legitimate remeasurement from repeated identical work. */
+internal data class TextLayoutDiagnosticContext(
+    val minWidth: Int,
+    val maxWidth: Int,
+    val minHeight: Int,
+    val maxHeight: Int,
+    val density: Float,
+    val fontScale: Float,
+    val rightToLeft: Boolean
+) {
+    fun fields(): JsonObject = buildJsonObject {
+        put("minWidth", minWidth)
+        put("maxWidth", maxWidth)
+        put("minHeight", minHeight)
+        put("maxHeight", maxHeight)
+        density.takeIf { it.isFinite() && it > 0 }?.let { put("density", it) }
+        fontScale.takeIf { it.isFinite() && it > 0 }?.let { put("fontScale", it) }
+        put("rightToLeft", rightToLeft)
+    }
+}
+
 /** Structural identity only; source text and prompts never enter performance records. */
 internal data class CombinedOperationOwner(
     val screen: String = "Chat",
@@ -39,7 +60,8 @@ internal data class CombinedOperationOwner(
     val blockId: String? = null,
     val digest: String? = null,
     val profileUid: String? = null,
-    val uiContext: UiOperationContext? = null
+    val uiContext: UiOperationContext? = null,
+    val textLayoutContext: TextLayoutDiagnosticContext? = null
 ) {
     /** Formats only for an aggregate window report, not for each sampled operation. */
     fun frameContext(): JsonObject = buildJsonObject {
@@ -53,6 +75,7 @@ internal data class CombinedOperationOwner(
         identity("block", blockId)
         identity("profile", profileUid)
         uiContext?.let { put("ui", it.fields()) }
+        textLayoutContext?.let { put("textLayout", it.fields()) }
     }
 }
 
@@ -117,7 +140,8 @@ internal object CombinedOperationTrace {
                 diagnosticCaptureEpoch,
                 "CombinedTiming",
                 "OPERATION_TIMING · operation=${token.operation} · traceId=${token.cookie} · durationNs=$duration · logThresholdNs=$threshold · screen=${value(owner.screen)} · message=${owner.messageId ?: "unknown"} · run=${value(owner.runId)} · revision=${value(owner.revisionId)} · block=${value(owner.blockId)} · digest=${value(owner.digest?.takeIf { it.length == 64 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } })} · profile=${value(owner.profileUid)} · startThread=${value(token.startThread)} · endThread=${value(Thread.currentThread().name)}" +
-                    owner.uiContext?.let { " · uiContext=${it.fields()}" }.orEmpty()
+                    owner.uiContext?.let { " · uiContext=${it.fields()}" }.orEmpty() +
+                    owner.textLayoutContext?.let { " · textLayoutContext=${it.fields()}" }.orEmpty()
             )
         }
     }

@@ -61,6 +61,32 @@ class GatewayContinuationBindingTest {
         assertTrue(runCatching { routed.copy(originalProviderName = null).providerIdentity() }.isFailure)
     }
 
+    @Test fun legacyNormalizedJournalRestoresOnlyFromTheVerifiedGatewayHandoff() {
+        val binding = GatewayContinuationBinding.verified("profile", "https://gateway.test/v1", "selected", "saved", saved)
+        val fingerprint = GitHubEvidenceBook.digest("original-call:read_file:$arguments")
+        val legacy = ProviderEvent.ToolCall(
+            "original-call",
+            "read_file__authorized",
+            buildJsonObject {
+                put("path", "README.md")
+                put("response_detail", "compact")
+            },
+            originalInvocationFingerprint = fingerprint
+        )
+        val restored = binding.restoreProviderIdentities(listOf(exchange(legacy))).single().calls.single()
+        assertEquals("read_file__authorized", restored.name)
+        assertEquals("read_file", restored.providerIdentity().name)
+        assertEquals(arguments, restored.providerIdentity().arguments)
+        assertEquals(fingerprint, restored.originalInvocationFingerprint)
+        assertTrue(
+            runCatching {
+                binding.restoreProviderIdentities(
+                    listOf(exchange(legacy.copy(originalInvocationFingerprint = "0".repeat(64))))
+                )
+            }.exceptionOrNull()?.message.orEmpty().contains("CLIENT_TOOL_RESULT_IDENTITY_MISMATCH")
+        )
+    }
+
     @Test fun opaquePendingIdsArePreservedVerbatim() {
         val id = "opaque call/東京:0"
         val opaque = json.decodeFromString<GatewayJobResult>(json.encodeToString(saved).replace("original-call", id))

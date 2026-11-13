@@ -318,6 +318,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             binding.requireRoute(platform.uid, platform.apiUrl, platform.model)
         }
         var restoredGatewayJob = constraints.restoredGatewayJob
+        val restoredProviderIdentities = mutableMapOf<String, Pair<String, JsonObject>>()
         var capturedGatewayJobId: String? = restoredGatewayJob?.jobId
         var clientToolsAdvertised = false
         val gatewayPerformanceHeaders = if (platform.compatibleType == ClientType.LLAMA) {
@@ -702,8 +703,26 @@ class OpenAICompatibleAdapter @Inject constructor(
                 exchanges: List<AgentToolExchange>
             ): Flow<ProviderEvent> = flow {
                 require(constraints.allowTools || tools.isEmpty()) { "Tools are disabled for this request." }
+                var providerExchanges = exchanges.map { exchange ->
+                    exchange.copy(
+                        calls = exchange.calls.map { call ->
+                            val retained = call.originalInvocationFingerprint?.let(restoredProviderIdentities::get)
+                            if (call.originalProviderName == null && call.originalProviderArguments == null && retained != null) {
+                                call.copy(originalProviderName = retained.first, originalProviderArguments = retained.second)
+                            } else {
+                                call
+                            }
+                        }
+                    )
+                }
                 restoredGatewayJob?.let { binding ->
-                    binding.requireResults(exchanges)
+                    providerExchanges = binding.restoreProviderIdentities(providerExchanges)
+                    providerExchanges.flatMap { it.calls }.forEach { call ->
+                        val fingerprint = call.originalInvocationFingerprint
+                        val name = call.originalProviderName
+                        val arguments = call.originalProviderArguments
+                        if (fingerprint != null && name != null && arguments != null) restoredProviderIdentities[fingerprint] = name to arguments
+                    }
                     restoredGatewayJob = null
                 }
                 if (tools.isNotEmpty()) clientToolsAdvertised = true
@@ -735,7 +754,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         }
                     }
                 } else {
-                    exchanges.flatMap { it.toChatMessages() }
+                    providerExchanges.flatMap { it.toChatMessages() }
                 }
                 val toolImageMessages = toolImages.map { media ->
                     ChatMessage(

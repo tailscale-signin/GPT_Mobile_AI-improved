@@ -25,6 +25,37 @@ class GatewayContinuationBinding private constructor(
         requireResults(latest?.calls.orEmpty().map { it.providerIdentity().let { original -> Triple(original.callId, original.name, original.arguments) } }, latest?.results.orEmpty().map { it.callId })
     }
 
+    /** Reconstruct a legacy normalized journal only from the verified gateway handoff and its saved fingerprint. */
+    fun restoreProviderIdentities(exchanges: List<AgentToolExchange>): List<AgentToolExchange> {
+        val index = exchanges.indexOfLast { !SavedViewRecoveryBatch.isComplete(it, pending.keys) }
+        if (index < 0) {
+            requireResults(exchanges)
+            return exchanges
+        }
+        val restored = exchanges.mapIndexed { current, exchange ->
+            if (current != index) {
+                exchange
+            } else {
+                exchange.copy(
+                    calls = exchange.calls.map { call ->
+                        val expected = pending[call.callId]
+                        if (call.originalProviderName != null || call.originalProviderArguments != null || call.originalInvocationFingerprint == null || expected == null) {
+                            call
+                        } else {
+                            val fingerprint = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest("${call.callId}:${expected.first}:${expected.second}")
+                            check(fingerprint == call.originalInvocationFingerprint) {
+                                "CLIENT_TOOL_RESULT_IDENTITY_MISMATCH: The saved original invocation does not match this verified gateway handoff. No operation was replayed."
+                            }
+                            call.copy(originalProviderName = expected.first, originalProviderArguments = expected.second)
+                        }
+                    }
+                )
+            }
+        }
+        requireResults(restored)
+        return restored
+    }
+
     /** Opaque call IDs may recur in older completed batches; only this exact batch is authoritative. */
     fun requireResults(calls: List<Triple<String, String, JsonObject>>, terminalResultIds: List<String>) {
         val callIds = calls.map { it.first }

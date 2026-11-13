@@ -247,7 +247,6 @@ internal object IssueReportCodes {
 
     /** Reporting aliases only; the original tool receipt remains authoritative for recovery. */
     fun toolResult(code: String?): String? = when (code) {
-        "BUDGET_EXHAUSTED" -> "BUDGET_RESTRICTED"
         "DEPENDENCY_FAILED", "DEPENDENCY_DEFERRED" -> "TOOL_FAILURE"
         "GITHUB_PR_VALIDATION_FAILED" -> "GITHUB_VALIDATION_FAILED"
         "GITHUB_SEARCH_CURSOR_UNAVAILABLE" -> "SAVED_VIEW_UNAVAILABLE"

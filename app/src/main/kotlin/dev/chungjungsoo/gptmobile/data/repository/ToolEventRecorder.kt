@@ -173,8 +173,11 @@ class ToolEventRecorder @Inject constructor(
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
                 if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
             if (normalizedResult.isError || withheldRead) "E" else "I",
-            reportCode = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes
-                .toolResult(if (withheldRead) "BUDGET_EXHAUSTED" else normalizedResult.errorCode).takeUnless { healthEvent },
+            reportCode = (if (withheldRead) {
+                "BUDGET_RESTRICTED"
+            } else {
+                dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.toolResult(normalizedResult.errorCode)
+            }).takeUnless { healthEvent },
             reportFields = if (healthEvent || !normalizedResult.isError && !withheldRead) {
                 emptyMap()
             } else {

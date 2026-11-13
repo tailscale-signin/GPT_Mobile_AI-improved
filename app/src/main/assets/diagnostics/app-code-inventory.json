@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2724f9d55b9dbd394329ba8044403d940dc73b50875593f8694f7fcb1bd635df",
+  "source_digest": "86b0f01e833ffee7766f5f05e500d0721f4fa0552339f6f593e278335fd45aec",
   "file_count": 2534,
-  "indexed_line_count": 405255,
+  "indexed_line_count": 405257,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -124,13 +124,13 @@
       "id": "persistence",
       "label": "Databases, backup and storage",
       "file_count": 109,
-      "indexed_line_count": 14597
+      "indexed_line_count": 14600
     },
     {
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 12336
+      "indexed_line_count": 12335
     },
     {
       "id": "benchmark",
@@ -5498,8 +5498,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "ad8911490119caa99f744cb1cd330e86d2e030553cab1be09e9497064b292fe9",
-      "indexed_lines": 263
+      "sha256": "7a37e042521460f0261ed2e075770fa4278e184289421ad5e778a78b54360457",
+      "indexed_lines": 262
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
@@ -10657,8 +10657,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "5908db103da160e83bfed3b5e57db6f3db098772fe161f2fe37db5fd4adf7466",
-      "indexed_lines": 271
+      "sha256": "77b58a8ab61ee2cf7143ab272b0a545f9ba730ab516d042371f3cb49e89021f4",
+      "indexed_lines": 274
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolPrecheckEvidence.kt",

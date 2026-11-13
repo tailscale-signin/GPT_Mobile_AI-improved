@@ -90,5 +90,15 @@
     "repair": "Add the exact regression path to release-scope.json without changing the gate or its enforcement.",
     "host_validation": "scripts/validate-local.sh fast passed 495 tests on b92842875b8a86ecd0ad24e698e35f79caabc2ba before this metadata-only repair.",
     "verification_state": "REQUIRES_FRESH_CANDIDATE_CI"
+  },
+  "unit_test_followup": {
+    "pull_request": 970,
+    "starting_head": "377a8205534c58e7ba74156f064589283ae95f68",
+    "base_sha": "79c58260de528068ee07e03e9d2ec0c5ab9e74b8",
+    "failed_run": 43430633556,
+    "failed_job": 131903213935,
+    "finding": "BUDGET_EXHAUSTED from a rejected tool precheck was incorrectly projected as the provider-style BUDGET_RESTRICTED category.",
+    "repair": "Keep rejected tool-budget prechecks under TOOL_FAILURE with their exact typed reason, and reserve BUDGET_RESTRICTED for a completed read withheld only by the result-delivery budget.",
+    "verification_state": "REQUIRES_FRESH_CANDIDATE_CI"
   }
 }

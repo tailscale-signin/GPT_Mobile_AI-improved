@@ -371,30 +371,12 @@ internal class GitHubVerifiedSession(
                 // A missing baseline is a prerequisite, not permission for the model
                 // to choose an arbitrary branch. Keep this gate outside the reviewed
                 // provider so neither its compatibility probe nor source work starts.
-                val needsInput = comparison.checkpoint["user_input_required"] == JsonPrimitive(true)
-                val code = if (needsInput) "REVIEW_INPUT_REQUIRED" else "GITHUB_REVIEW_COMPARISON_REQUIRED"
+                val blocked = GitHubReviewComparison.blockedFailure(comparison)
                 emitAll(
                     publish(
                         null,
-                        failureCode = code,
-                        originalFailure = ProviderEvent.Failed(
-                            (comparison.checkpoint["detail"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-                            errorCode = code,
-                            transportComplete = true,
-                            taskOutcome = "BLOCKED",
-                            failureDetails = JsonObject(
-                                comparison.checkpoint + buildJsonObject {
-                                    put("failed_stage", "review_comparison")
-                                    put("dispatched", false)
-                                    put("dispatch_state", "NOT_DISPATCHED")
-                                    put("remote_acceptance", "NO")
-                                    put("retryable", false)
-                                    put("resume_allowed", false)
-                                    put("request_replay_allowed", false)
-                                    put("next_action", if (needsInput) "SELECT_REVIEW_BASELINE" else "RESTORE_REVIEW_COMPARISON_EVIDENCE")
-                                }
-                            )
-                        )
+                        failureCode = blocked.errorCode,
+                        originalFailure = blocked
                     )
                 )
                 return@flow

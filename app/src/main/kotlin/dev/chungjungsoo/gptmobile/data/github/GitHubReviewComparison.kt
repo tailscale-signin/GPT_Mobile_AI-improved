@@ -6,9 +6,11 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Resolve the review's immutable comparison before spending its allowance on inventories. */
@@ -19,6 +21,13 @@ internal object GitHubReviewComparison {
     private val quotedBaselinePrefix = Regex("(?i)$baselinePrefix$")
     private val literalRef = Regex("[A-Za-z0-9][A-Za-z0-9._/-]{0,254}")
     private val quotedMaterial = Regex("(?s)```.*?(?:```|\\z)|~~~.*?(?:~~~|\\z)|`[^`\\r\\n]*`|\"(?:\\\\.|[^\"\\\\])*\"|“[^”]*”|‘[^’]*’|(?<![\\p{L}\\p{N}])'[^'\\r\\n]*'")
+    private val resolutionFailureCodes = GitHubFailurePolicy.codes + setOf(
+        "GITHUB_CIRCUIT_OPEN", "GITHUB_TRANSIENT_NETWORK", "GITHUB_REF_UNAVAILABLE", "GITHUB_OPERATION_FAILED",
+        "GITHUB_TLS_FAILURE", "GITHUB_UNEXPECTED_RESPONSE", "GITHUB_RESPONSE_TOO_LARGE", "GITHUB_NOT_FOUND_OR_HIDDEN",
+        "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF", "TLS_FAILURE",
+        "RATE_LIMITED", "AUTHENTICATION_FAILED", "ACCESS_FORBIDDEN", "RECONCILIATION_REQUIRED", "TOOL_OUTCOME_UNKNOWN"
+    )
+    private val resolutionRecoveryActions = setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "RETRY_AFTER_CONFIGURATION_CHANGE")
     const val INSTRUCTION = "Branch review: establish exact base_sha and head_sha first. Resolve a user-supplied baseline commit, tag or branch to an exact SHA. Otherwise use an observed matching PR base, or resolve the default branch at a full SHA for a non-default selected branch. If the selected branch is the default branch and no baseline was supplied, ask for an updated review request with Baseline: <commit, tag or branch>; never infer an empty diff by comparing the branch to itself. Call github_context action=changes with both pinned revisions, then read the relevant changed source at those revisions. Checks and branch inventories do not constitute a source review."
     data class Plan(val checkpoint: JsonObject, val nextCall: ProviderEvent.ToolCall?)
 
@@ -38,10 +47,75 @@ internal object GitHubReviewComparison {
         val request = request(task)
         val branch = "(?:(?:the|this|that|my|our|a|selected|current|feature|target|source|entire|latest|pr|pull request)\\s+){0,4}branch\\b"
         return "[github-workflow-preset:review_branch]" in request ||
-            Regex("(?i)\\breview(?:\\s+and\\s+(?:fix|audit|inspect))?\\s+(?:(?:(?:all|the)\\s+){0,2}(?:changes|diff)\\s+(?:on|in|of|for)\\s+)?$branch").containsMatchIn(request)
+            Regex("(?i)\\breview(?:\\s+and\\s+(?:fix|audit|inspect))?\\s+(?:(?:(?:all|the)\\s+){0,2}(?:changes|diff|code(?:/source)?|source(?:\\s+code)?)\\s+(?:on|in|of|for)\\s+)?$branch").containsMatchIn(request)
     }
 
     fun requiresComparison(requirement: String): Boolean = matches(requirement) || Regex("(?i)head/base|base/head|changed files|correctness findings|file/line").containsMatchIn(requirement)
+
+    /** Report the retained prerequisite failure without authorizing its replay. */
+    fun blockedFailure(plan: Plan): ProviderEvent.Failed {
+        val checkpoint = plan.checkpoint
+        val needsInput = checkpoint["user_input_required"] == JsonPrimitive(true)
+        val original = checkpoint["baseline_resolution_failure"] as? JsonObject
+        val code = original?.text("error_code")?.takeIf { it in resolutionFailureCodes }
+            ?: if (needsInput) "REVIEW_INPUT_REQUIRED" else "GITHUB_REVIEW_COMPARISON_REQUIRED"
+        return ProviderEvent.Failed(
+            checkpoint.text("detail"),
+            errorCode = code,
+            transportComplete = original == null || original["transport_complete"] == JsonPrimitive(true),
+            taskOutcome = "BLOCKED",
+            failureDetails = JsonObject(
+                checkpoint + original.orEmpty() + buildJsonObject {
+                    put("failed_stage", "review_comparison")
+                    put("inference_dispatched", false)
+                    // The review has not started, but its prerequisite read may
+                    // already have reached GitHub. Retain that distinction.
+                    if (original == null) {
+                        put("dispatched", false)
+                        put("dispatch_state", "NOT_DISPATCHED")
+                        put("remote_acceptance", "NO")
+                    }
+                    put("retryable", false)
+                    put("resume_allowed", false)
+                    put("request_replay_allowed", false)
+                    put("next_action", original?.text("next_action")?.takeIf { it in resolutionRecoveryActions } ?: if (needsInput) "SELECT_REVIEW_BASELINE" else "RESTORE_REVIEW_COMPARISON_EVIDENCE")
+                }
+            )
+        )
+    }
+
+    private fun resolutionFailure(receipt: JsonObject): JsonObject {
+        val code = receipt.text("error_code").takeIf { it in resolutionFailureCodes } ?: "GITHUB_OPERATION_FAILED"
+        val data = GitHubSemanticSummary.data(receipt["result"] as? JsonObject ?: JsonObject(emptyMap()))
+        val execution = receipt["execution"] as? JsonObject
+        val hint = when (code) {
+            "GITHUB_TRANSIENT_NETWORK", "DNS_RESOLUTION_FAILED", "NETWORK_TIMEOUT", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "TRANSPORT_EOF" ->
+                "Restore the selected connection and inspect the saved lookup and any recorded cooldown before an authorized read."
+            "RATE_LIMITED" -> GitHubFailurePolicy.recoveryHint("GITHUB_PRIMARY_RATE_LIMITED")
+            else -> GitHubFailurePolicy.recoveryHint(code)
+        }
+        return buildJsonObject {
+            put("error_code", code)
+            put("recovery_hint", hint)
+            (execution?.get("transport_complete") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("transport_complete", it) }
+            (receipt["dispatched"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let {
+                put("dispatched", it)
+                put("dispatch_state", if (it) "DISPATCHED" else "NOT_DISPATCHED")
+                if (!it) put("remote_acceptance", "NO")
+            }
+            for (key in listOf("http_status", "retry_after_ms", "retry_at_ms", "retry_not_before_ms")) {
+                ((execution?.get(key) ?: data[key]) as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+                    ?.takeIf { if (key == "http_status") it in 100L..599L else it >= 0 }
+                    ?.let { put(key, it) }
+            }
+            (execution?.get("phase") as? JsonPrimitive)?.contentOrNull?.takeIf { it in setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED") }?.let { put("resolution_dispatch_phase", it) }
+            ((execution?.get("requires_reconciliation") ?: data["requires_reconciliation"]) as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("requires_reconciliation", it) }
+            val actions = ((data["recovery_actions"] ?: data["allowed_recovery_actions"]) as? JsonArray).orEmpty()
+                .mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { action -> action in resolutionRecoveryActions } }.distinct()
+            if (actions.isNotEmpty()) put("recovery_actions", JsonArray(actions.map(::JsonPrimitive)))
+            data.text("next_action").ifBlank { data.text("recovery_action") }.takeIf { it in resolutionRecoveryActions }?.let { put("next_action", it) }
+        }
+    }
 
     /** Status observations cannot satisfy a changed-source review acceptance criterion. */
     fun incompleteReason(task: String, receipts: Map<String, JsonObject>): String? {
@@ -90,7 +164,7 @@ internal object GitHubReviewComparison {
             if (receipts.values.any { targetReceipt(it) && it["trusted"] == JsonPrimitive(true) && it["tool"] == JsonPrimitive(tool.name) && it["arguments"] == arguments && it["verification_eligible"] != JsonPrimitive(false) }) return null
             return ProviderEvent.ToolCall("review-base-${receipts.size}-${GitHubEvidenceBook.digest(arguments.toString()).take(8)}", tool.name, arguments)
         }
-        fun state(code: String, detail: String, next: ProviderEvent.ToolCall? = null) = Plan(
+        fun state(code: String, detail: String, next: ProviderEvent.ToolCall? = null, failure: JsonObject? = null) = Plan(
             buildJsonObject {
                 put("state", code)
                 put("detail", detail)
@@ -101,6 +175,7 @@ internal object GitHubReviewComparison {
                 put("comparison_verified", code == "READ_CHANGED_SOURCE")
                 put("source_review_verified", false)
                 put("user_input_required", code == "BASELINE_REQUIRED")
+                failure?.let { put("baseline_resolution_failure", it) }
                 next?.let {
                     put(
                         "next_call",
@@ -145,7 +220,7 @@ internal object GitHubReviewComparison {
                         put("action", "resolve")
                         put("ref", requestedBase)
                     }
-                    val rejected = receipts.values.any {
+                    val rejected = receipts.values.lastOrNull {
                         targetReceipt(it) &&
                             operation(it) == "github_context" &&
                             args(it) == arguments &&
@@ -153,7 +228,17 @@ internal object GitHubReviewComparison {
                             it["verification_eligible"] != JsonPrimitive(false) &&
                             it["success"] == JsonPrimitive(false)
                     }
-                    if (rejected) return state("BASELINE_REQUIRED", "The supplied baseline could not be resolved. Send an updated review request with Baseline: <commit, tag or branch> that exists in the selected repository. Saved observations remain retained.")
+                    if (rejected != null) {
+                        val failure = resolutionFailure(rejected)
+                        val invalidInput = failure.text("error_code") in setOf("INVALID_ARGUMENTS", "GITHUB_VALIDATION_FAILED")
+                        return state(
+                            if (invalidInput) "BASELINE_REQUIRED" else "BASE_REF_BLOCKED",
+                            "The baseline lookup failed (${failure.text("error_code")}). ${failure.text("recovery_hint")} " +
+                                (if (invalidInput) "Correct the lookup or send an updated review request with Baseline: <commit, tag or branch>. " else "The requested baseline remains unresolved. ") +
+                                "Saved observations remain retained.",
+                            failure = failure
+                        )
+                    }
                     return state("BASE_REF_REQUIRED", "Resolve the explicitly supplied baseline to an immutable commit before reviewing.", call("github_context", arguments))
                 }
                 base = data(baseline).text("commit_sha")

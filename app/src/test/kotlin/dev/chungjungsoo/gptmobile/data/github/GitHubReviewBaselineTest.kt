@@ -46,16 +46,20 @@ class GitHubReviewBaselineTest {
         success
     )
 
+    private fun failed(ref: String, code: String) = JsonObject(resolved(ref, success = false) + ("error_code" to JsonPrimitive(code)))
+
     @Test fun toolAndIssueReviewsOnABranchDoNotBecomeChangedSourceReviews() {
-        for (task in listOf("Review all GitHub tools on the selected branch", "Review open issues on this branch", "Review this session and list the branch status", "Review the integration test results on branch main")) {
+        for (task in listOf("Review all GitHub tools on the selected branch", "Review open issues on this branch", "Review this session and list the branch status", "Review the integration test results on branch main", "Review source tool permissions on this branch", "Review code test results on this branch", "Explain this quoted request: `Review code on this branch`")) {
             assertFalse(task, GitHubReviewComparison.matches(task))
             assertNull(task, GitHubReviewComparison.plan(task, tools, mapOf("status" to context(), "prs" to noPulls())))
         }
     }
 
     @Test fun directBranchAndChangedSourceReviewsStillRequireAComparison() {
-        for (task in listOf(review, "Please review this branch", "Review and fix the selected branch", "Review changes on our current branch", "Review changes in current branch", "Review the latest PR branch", "Review the diff for the feature branch", "[github-workflow-preset:review_branch]")) {
+        for (task in listOf(review, "Please review this branch", "Review and fix the selected branch", "Review changes on our current branch", "Review changes in current branch", "Review the latest PR branch", "Review the diff for the feature branch", "Review code on this branch", "Review source on the selected branch", "Review the source code in our current branch", "Review code/source on this branch", "[github-workflow-preset:review_branch]")) {
             assertTrue(task, GitHubReviewComparison.matches(task))
+            assertTrue(task, GitHubReviewComparison.requiresComparison(task))
+            assertTrue(task, requireNotNull(GitHubReviewComparison.incompleteReason(task, mapOf("status" to context(), "prs" to noPulls()))).contains("Baseline:"))
         }
     }
 
@@ -67,6 +71,11 @@ class GitHubReviewBaselineTest {
             assertFalse(plan.checkpoint.containsKey("base_sha"))
             assertNull(plan.nextCall)
             assertTrue(plan.checkpoint.toString().contains("Baseline:"))
+            val failure = GitHubReviewComparison.blockedFailure(plan)
+            assertEquals("REVIEW_INPUT_REQUIRED", failure.errorCode)
+            assertTrue(failure.transportComplete)
+            assertEquals(JsonPrimitive("SELECT_REVIEW_BASELINE"), failure.failureDetails?.get("next_action"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
         }
     }
 
@@ -127,13 +136,135 @@ class GitHubReviewBaselineTest {
         }
     }
 
-    @Test fun unavailableBaselineRequestsCorrectedInputWithoutRepeatingTheSameLookup() {
+    @Test fun invalidBaselineRequestsCorrectedInputWithoutRepeatingTheSameLookup() {
         val ref = "release/missing"
-        val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $ref", tools, mapOf("status" to context(), "baseline" to resolved(ref, success = false))))
-        assertEquals(JsonPrimitive("BASELINE_REQUIRED"), plan.checkpoint["state"])
-        assertEquals(JsonPrimitive(true), plan.checkpoint["user_input_required"])
+        for (code in listOf("INVALID_ARGUMENTS", "GITHUB_VALIDATION_FAILED")) {
+            val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $ref", tools, mapOf("status" to context(), "baseline" to failed(ref, code))))
+            assertEquals(JsonPrimitive("BASELINE_REQUIRED"), plan.checkpoint["state"])
+            assertEquals(JsonPrimitive(true), plan.checkpoint["user_input_required"])
+            assertNull(plan.nextCall)
+            assertFalse(plan.checkpoint.containsKey("base_sha"))
+            val failure = GitHubReviewComparison.blockedFailure(plan)
+            assertEquals(code, failure.errorCode)
+            assertEquals(JsonPrimitive("SELECT_REVIEW_BASELINE"), failure.failureDetails?.get("next_action"))
+        }
+    }
+
+    @Test fun authenticationTransportAndRateFailuresDoNotDisproveTheRequestedBaseline() {
+        val ref = "release/stable"
+        for (code in listOf("AUTH_REQUIRED", "PERMISSION_DENIED", "NETWORK_TIMEOUT", "TRANSPORT_EOF", "TOOL_OUTCOME_UNKNOWN", "GITHUB_TRANSIENT_NETWORK", "GITHUB_TRANSIENT_SERVER", "GITHUB_CIRCUIT_OPEN", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED")) {
+            val receipts = mapOf("status" to context(), "baseline" to failed(ref, code))
+            val retained = receipts.toString()
+            val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $ref", tools, receipts))
+            assertEquals(code, JsonPrimitive("BASE_REF_BLOCKED"), plan.checkpoint["state"])
+            assertEquals(JsonPrimitive(false), plan.checkpoint["user_input_required"])
+            assertNull(plan.nextCall)
+            assertFalse(plan.checkpoint.containsKey("base_sha"))
+            assertFalse(plan.checkpoint.toString().contains("SELECT_REVIEW_BASELINE"))
+            val failure = GitHubReviewComparison.blockedFailure(plan)
+            assertEquals(code, failure.errorCode)
+            assertFalse(code, failure.transportComplete)
+            assertEquals("BLOCKED", failure.taskOutcome)
+            assertEquals(JsonPrimitive(code), failure.failureDetails?.get("error_code"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("inference_dispatched"))
+            for (flag in listOf("retryable", "resume_allowed", "request_replay_allowed")) assertEquals(flag, JsonPrimitive(false), failure.failureDetails?.get(flag))
+            assertFalse(requireNotNull(failure.failureDetails).containsKey("dispatched"))
+            assertEquals(retained, receipts.toString())
+        }
+    }
+
+    @Test fun unavailableOrInaccessibleRefRetainsItsCauseWithoutClaimingMissingInput() {
+        val ref = "release/stable"
+        for (code in listOf("GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REF_UNAVAILABLE")) {
+            val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $ref", tools, mapOf("status" to context(), "baseline" to failed(ref, code))))
+            assertEquals(JsonPrimitive(false), plan.checkpoint["user_input_required"])
+            assertNull(plan.nextCall)
+            val failure = GitHubReviewComparison.blockedFailure(plan)
+            assertEquals(code, failure.errorCode)
+            assertTrue(failure.message.contains("baseline remains unresolved"))
+            assertFalse(failure.message.contains("that exists"))
+            assertFalse(failure.message.contains("Baseline:"))
+        }
+    }
+
+    @Test fun blockedEventRetainsSafeRecoveryAndDispatchFactsWithoutRawBodiesOrRetryAuthority() {
+        val ref = "release/stable"
+        val observed = JsonObject(
+            failed(ref, "GITHUB_PRIMARY_RATE_LIMITED") + json(
+                """{"dispatched":true,"execution":{"phase":"READ_FAILED","http_status":429,"retry_not_before_ms":1700000000000,"requires_reconciliation":false},"result":{"message":"private response body","retry_after_ms":60000,"next_action":"REFRESH_REPOSITORY_ACCESS","recovery_actions":["SELECT_REF","REFRESH_REPOSITORY_ACCESS","private instruction"],"retryable":true,"request_replay_allowed":true,"resume_allowed":true,"authorization":"private credential"}}"""
+            )
+        )
+        val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $ref", tools, mapOf("status" to context(), "baseline" to observed)))
+        val original = plan.checkpoint["baseline_resolution_failure"] as JsonObject
+        assertEquals(JsonPrimitive(1700000000000L), original["retry_not_before_ms"])
+        val failure = GitHubReviewComparison.blockedFailure(plan)
+        val details = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive(true), details["dispatched"])
+        assertEquals(JsonPrimitive("DISPATCHED"), details["dispatch_state"])
+        assertEquals(JsonPrimitive("READ_FAILED"), details["resolution_dispatch_phase"])
+        assertEquals(JsonPrimitive(false), details["inference_dispatched"])
+        assertEquals(JsonPrimitive(429), details["http_status"])
+        assertEquals(JsonPrimitive(60000), details["retry_after_ms"])
+        assertEquals(JsonPrimitive(1700000000000L), details["retry_not_before_ms"])
+        assertEquals(json("""{"actions":["SELECT_REF","REFRESH_REPOSITORY_ACCESS"]}""")["actions"], details["recovery_actions"])
+        assertEquals(JsonPrimitive("REFRESH_REPOSITORY_ACCESS"), details["next_action"])
+        for (flag in listOf("retryable", "resume_allowed", "request_replay_allowed")) assertEquals(flag, JsonPrimitive(false), details[flag])
+        assertFalse(details.toString().contains("private"))
+        assertFalse(details.containsKey("remote_acceptance"))
+    }
+
+    @Test fun untypedFailureDoesNotBecomeInvalidInputOrAcquireDispatchAndRetryFacts() {
+        val ref = "release/stable"
+        val observed = JsonObject(resolved(ref, success = false) + json("""{"error_code":"private unrecognized code","dispatched":"false","execution":{"phase":"private phase","retry_not_before_ms":-1},"result":{"message":"AUTH_REQUIRED private message","http_status":999,"retry_after_ms":"60000","next_action":"private instruction","retryable":true}}"""))
+        val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $ref", tools, mapOf("status" to context(), "baseline" to observed)))
+        assertEquals(JsonPrimitive(false), plan.checkpoint["user_input_required"])
         assertNull(plan.nextCall)
-        assertFalse(plan.checkpoint.containsKey("base_sha"))
+        val failure = GitHubReviewComparison.blockedFailure(plan)
+        assertEquals("GITHUB_OPERATION_FAILED", failure.errorCode)
+        assertFalse(failure.transportComplete)
+        val details = requireNotNull(failure.failureDetails)
+        assertFalse(details.toString().contains("private"))
+        for (key in listOf("dispatched", "dispatch_state", "http_status", "retry_after_ms", "retry_not_before_ms", "resolution_dispatch_phase")) assertFalse(key, details.containsKey(key))
+        assertEquals(JsonPrimitive(false), details["request_replay_allowed"])
+    }
+
+    @Test fun onlyAnExplicitExecutionReceiptCanEstablishFailedLookupTransportCompletion() {
+        val ref = "release/stable"
+        for ((execution, expected) in listOf("{}" to false, """{"transport_complete":"true"}""" to false, """{"transport_complete":false}""" to false, """{"transport_complete":true}""" to true)) {
+            val observed = JsonObject(failed(ref, "AUTH_REQUIRED") + json("""{"execution":$execution,"result":{"transport_complete":true}}"""))
+            val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $ref", tools, mapOf("status" to context(), "baseline" to observed)))
+            val failure = GitHubReviewComparison.blockedFailure(plan)
+            assertEquals(execution, expected, failure.transportComplete)
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        }
+    }
+
+    @Test fun aFailureFromAnotherRepositoryOrExcludedReceiptCannotBlockBaselineResolution() {
+        val ref = "release/stable"
+        val variants = listOf(
+            JsonObject(failed(ref, "AUTH_REQUIRED") + ("repository" to JsonPrimitive("other/repo"))),
+            JsonObject(failed(ref, "AUTH_REQUIRED") + ("trusted" to JsonPrimitive(false))),
+            JsonObject(failed(ref, "AUTH_REQUIRED") + ("verification_eligible" to JsonPrimitive(false))),
+            JsonObject(failed(ref, "AUTH_REQUIRED") + ("repository_role" to JsonPrimitive("READ_SOURCE")))
+        )
+        for (resolution in variants) {
+            val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $ref", tools, mapOf("status" to context(), "baseline" to resolution)))
+            assertEquals(JsonPrimitive("BASE_REF_REQUIRED"), plan.checkpoint["state"])
+            assertEquals(JsonPrimitive("resolve"), plan.nextCall?.arguments?.get("action"))
+            assertFalse(plan.checkpoint.containsKey("baseline_resolution_failure"))
+        }
+    }
+
+    @Test fun successfulRecoveryUsesPinnedComparisonWithoutDiscardingThePriorFailure() {
+        val ref = "release/stable"
+        val receipts = mapOf("status" to context(), "failure" to failed(ref, "NETWORK_TIMEOUT"), "baseline" to resolved(ref))
+        val retained = receipts.toString()
+        val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: $ref", tools, receipts))
+        assertEquals(JsonPrimitive("COMPARE_REQUIRED"), plan.checkpoint["state"])
+        assertEquals(JsonPrimitive(base), plan.nextCall?.arguments?.get("base_sha"))
+        assertEquals(JsonPrimitive(head), plan.nextCall?.arguments?.get("commit_sha"))
+        assertFalse(plan.checkpoint.containsKey("baseline_resolution_failure"))
+        assertEquals(retained, receipts.toString())
     }
 
     @Test fun matchingCommitNamesFromAnotherRepositoryCannotVerifyTheReview() {

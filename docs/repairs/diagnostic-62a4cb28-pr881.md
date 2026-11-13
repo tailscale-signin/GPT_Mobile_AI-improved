@@ -92,7 +92,7 @@ Focused results are tied to current source files and recorded in the session's s
 
 | Check | Result |
 | --- | --- |
-| Gateway scope, durable replay, HTTP and rejection regressions | 62 passed; old normalizer fails the new replay regression |
+| Gateway scope, durable replay, HTTP and rejection regressions | 95 integrated engineering tests and 4 rejection tests passed on merged source; old normalizer fails the new replay regression |
 | Merged integration, baseline, prerequisite report/planner and self-test regressions | 87 host JUnit tests passed; both new source-scope regressions fail before the correction |
 | Report context, submission, outbox and admission snapshots | 78 host JUnit tests passed on merged source |
 | Durable failure, receipt and compact summary behavior | 76 host JUnit tests passed on merged source |
@@ -104,7 +104,7 @@ Focused results are tied to current source files and recorded in the session's s
 | Coordinator setup receipt boundaries | 3 host JUnit tests passed |
 | Current engineering client and provider-exception integration | 44 host JUnit tests passed |
 | Canonical `bash scripts/validate-local.sh fast` | Passed: 495 script tests, dependency/schema/secret checks, regex/resource/icon checks and diff whitespace |
-| Generated architecture and app-audit inventories | Regenerated after merge (source inventory, not executed-line coverage) |
-| Changed Kotlin formatting and gateway source manifest | Pinned ktlint and all gateway package hashes rechecked against the final merged source |
+| Generated architecture and app-audit inventories | Regenerated after merge; app inventory covers 2,522 files (source inventory, not executed-line coverage) |
+| Changed Kotlin formatting and gateway source manifest | Pinned ktlint passed on 64 changed Kotlin files; all 220 gateway package hashes match both the worktree and immutable source commit `40f061b1a588bc8ae6d3bfb4bd6029e5d381d963` |
 | Full Android/CI and device qualification | Full Android build pending hosted CI; physical device/private services not exercised. Local Gradle download/Android SDK unavailable |
 

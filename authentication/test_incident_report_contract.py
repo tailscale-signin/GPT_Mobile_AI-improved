@@ -220,8 +220,12 @@ class IncidentReportContractTest(unittest.TestCase):
         profile_keys = {"profile." + name for name in re.findall(r"\bval (\w+):", profile)}
         resolver = (base / "data/agent/tool/AgentToolResolver.kt").read_text()
         self.assertIn('"tool_inventory"', resolver)
-        self.assertEqual(policy_keys | profile_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
-        self.assertEqual(56, len(capsule.POLICY_FIELD_NAMES))
+        authority_source = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text()
+        override_helper = authority_source.split("internal fun githubOverrideChanges", 1)[1].split("internal fun profileRevision", 1)[0]
+        override_keys = {"githubProfileOverride." + key for key in re.findall(r'"([A-Za-z]+)"', override_helper) if key != "githubProfileOverride"}
+        self.assertEqual(11, len(override_keys))
+        self.assertEqual(policy_keys | profile_keys | override_keys | {"profile.removed", "tool_inventory", "providerPermissions"}, capsule.POLICY_FIELD_NAMES)
+        self.assertEqual(67, len(capsule.POLICY_FIELD_NAMES))
 
     def test_exception_capture_survives_validation_without_claiming_provider_dispatch(self):
         for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH"):

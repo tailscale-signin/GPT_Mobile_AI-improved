@@ -85,7 +85,7 @@ class IssueReportIncidentCapsuleTest {
     }
 
     @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
-        assertEquals(56, IssueReportIncidentCapsule.policyFieldNames.size)
+        assertEquals(67, IssueReportIncidentCapsule.policyFieldNames.size)
         for (field in IssueReportIncidentCapsule.policyFieldNames) {
             val context = capture(
                 ReportFeature.CHAT,
@@ -248,8 +248,8 @@ class IssueReportIncidentCapsuleTest {
         assertEquals(retained, (snapshot.values.getValue("unmet_criterion_states") as JsonArray).size)
         assertEquals(JsonPrimitive(11 - retained), snapshot.values["unmet_criterion_omitted_count"])
         assertEquals(8, (snapshot.values["changed_policy_fields"] as JsonArray).size)
-        assertEquals(JsonPrimitive(56), snapshot.values["changed_policy_field_count"])
-        assertEquals(JsonPrimitive(48), snapshot.values["changed_policy_omitted_count"])
+        assertEquals(JsonPrimitive(67), snapshot.values["changed_policy_field_count"])
+        assertEquals(JsonPrimitive(59), snapshot.values["changed_policy_omitted_count"])
         assertTrue(IssueReport.json.encodeToString(IssueReportDiagnostics.serializer(), snapshot).encodeToByteArray().size <= IssueReportDiagnostics.MAX_BYTES)
         assertTrue(report(context).approvedPayload().encodeToByteArray().size <= IssueReport.MAX_PAYLOAD_BYTES)
     }

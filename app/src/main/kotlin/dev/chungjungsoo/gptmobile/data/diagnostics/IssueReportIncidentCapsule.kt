@@ -37,6 +37,7 @@ internal object IssueReportIncidentCapsule {
 
     /** Serialized production policy/profile keys only; never scope IDs or settings values. */
     val policyFieldNames = setOf(
+        "githubProfileOverride.webSearch", "githubProfileOverride.githubTools", "githubProfileOverride.engineeringMode", "githubProfileOverride.maximumContext", "githubProfileOverride.engineeringMemory", "githubProfileOverride.allowCloudEngineeringMemory", "githubProfileOverride.workflowPreset", "githubProfileOverride.quickWorkflows", "githubProfileOverride.engineeringGatewayProfileUid", "githubProfileOverride.executionBatchMode", "githubProfileOverride.sampling",
         "assist", "assistPolicy", "budget", "conversationDelegation", "conversationGateway",
         "conversationResearch", "delegation", "engineering", "githubProfileOverride", "githubProfileSelection",
         "llamaReasoning", "location", "plugins", "profile", "profile.accelerator",

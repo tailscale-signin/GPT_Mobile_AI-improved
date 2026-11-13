@@ -12,6 +12,7 @@ Repository: `tailscale-signin/GPT_Mobile_AI-improved`. No draft PR was open at i
 | #1061 | per_page was out of range. Add explicit schema-bound corrective guidance and the bounded numeric page-size observation. No IDs, source values or credentials are copied. Reporting-only diagnosis of the original proposal. |
 | #1062 | Acceptance rejected unsupported claims despite one eligible receipt. Add unresolved-claim counts and fixed failure reasons from the exact retained verdict, distinguishing absent pointers, semantic mismatches, stale observations and contradicted values. Reporting-only resolution; no criterion becomes verified without evidence. |
 | #1063, #1064, #1065, #1066 | Strict Reasoning Off rejected before dispatch. Preserve requested mode, lack-of-verified-control basis, direct/gateway route, observed control state and hashed template revision when present. Reporting-only resolution; strict Off is not silently changed to Auto and unsupported template controls are not bypassed. |
+| #1067 | Arrived during review. Policy changed at delivery and the report identifies only the whole githubProfileOverride object. Add fixed changed subfield names (tools, gateway binding, sampling, workflow, memory and related controls), without either old/new values. The existing policy stop remains enforced. Reporting-only resolution; the original changed subfield and whether the edit was intentional remain unknown. |
 
 ## Reporting deployment
 
@@ -23,4 +24,4 @@ Inherited PR #1046 contains stable operation IDs, URL-reader DNS observations, m
 
 ## Validation
 
-Canonical fast validation, focused JVM report/argument tests and reporting-service checks are recorded in the task checkpoint. Host tests use explicit Android/application boundaries and are not a full Android build. The local Gradle Android attempt lost its daemon during `kspDebugKotlin`. Hosted CI and physical-phone download qualification remain required before release.
+Canonical fast validation: 495 passed. Focused host JVM reporting tests: 43 passed; argument behavior tests: 4 passed. Reporting service: 89 passed. Installer sources also compile against Android 37 and WorkManager with explicit report/resource boundaries. Details are recorded in the task checkpoint. Host tests use explicit Android/application boundaries and are not a full Android build. The local Gradle Android attempt lost its daemon during `kspDebugKotlin`. Hosted CI and physical-phone download qualification remain required before release.

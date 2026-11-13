@@ -27,14 +27,18 @@
     1063,
     1064,
     1065,
-    1066
+    1066,
+    1067
   ],
   "validation": {
-    "canonical_fast": "495 passed before final diagnostic additions; final repeat pending",
-    "report_host": "40 JVM tests passed with host boundaries",
-    "behavior_host": "4 JVM tests passed with host boundaries",
-    "android": "Gradle daemon disappeared during kspDebugKotlin; no Android test result"
+    "canonical_fast": "495 passed; final rerun recorded before publication",
+    "report_host": "43 JVM tests passed with explicit Android/application host boundaries",
+    "behavior_host": "4 JVM tests passed with explicit host boundaries",
+    "android": "Gradle daemon disappeared during kspDebugKotlin; no Android test result",
+    "report_service": "89 passed",
+    "voice_compile": "Voice installer and model-store sources compile against Android 37/WorkManager with report/resource boundaries"
   },
   "report_feature": "ISSUE_RECOVERY_DETAILS_V1",
-  "repair_register": "docs/repairs/open-issue-recovery-2026-11-13.md"
+  "repair_register": "docs/repairs/open-issue-recovery-2026-11-13.md",
+  "pull_request": 1068
 }

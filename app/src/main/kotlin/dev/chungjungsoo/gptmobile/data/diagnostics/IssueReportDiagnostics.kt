@@ -40,6 +40,7 @@ internal data class IssueReportDiagnostics(
     }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values["changed_policy_fields"] as? JsonArray).orEmpty().any { (it as? JsonPrimitive)?.contentOrNull?.startsWith("githubProfileOverride.") == true }) add("ISSUE_RECOVERY_DETAILS_V1")
         if ((values.keys + omittedFields).any { it in issueRecoveryFields } || values["tool_reason_code"] == JsonPrimitive("SAVED_VIEW_CONTEXT_MISMATCH")) add("ISSUE_RECOVERY_DETAILS_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.runEvidenceFields } ||
             values["incident_capture_site"] == JsonPrimitive("CHAT_REPOSITORY_PREFLIGHT") ||
@@ -138,7 +139,7 @@ internal data class IssueReportDiagnostics(
         )
         private val counts = setOf(
             "acceptance_unresolved_claim_count",
-            "voice_install_stop_reason", "voice_install_progress_percent", "read_range_count", "read_invalid_window_count", "read_window_rejections", "argument_page_size", "repository_input_blocked_count", "workflow_input_blocked_count", "live_evidence_blocked_count", "acceptance_failed_operation_count",
+            "voice_install_stop_reason", "voice_install_progress_percent", "read_range_count", "read_invalid_window_count", "argument_page_size", "repository_input_blocked_count", "workflow_input_blocked_count", "live_evidence_blocked_count", "acceptance_failed_operation_count",
             "voice_reply_characters",
             "provider_consecutive_rejections", "unmet_requirement_count", "unmet_capability_count",
             "unknown_field_count",

@@ -41,6 +41,11 @@ class FailureDetailsTest(unittest.TestCase):
             with self.subTest(area=area, values=values), self.assertRaises(ValueError):
                 validate_diagnostics(self.snapshot(area, values))
 
+    def test_changed_github_subfields_are_closed_vocabulary(self):
+        from authentication.incident_report_contract import valid_value
+        self.assertTrue(valid_value("changed_policy_fields", ["githubProfileOverride", "githubProfileOverride.sampling"]))
+        self.assertFalse(valid_value("changed_policy_fields", ["githubProfileOverride.private-token"]))
+
     def test_unknown_values_and_wrong_area_are_rejected(self):
         for area, values in [
             ("TOOL", {"tool_action": "private/path"}),

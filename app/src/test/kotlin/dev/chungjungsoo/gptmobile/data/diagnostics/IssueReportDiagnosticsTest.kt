@@ -17,6 +17,12 @@ class IssueReportDiagnosticsTest {
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 
+    @Test fun githubSubfieldPolicyEvidenceRequiresTheUpdatedService() {
+        val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to listOf("githubProfileOverride", "githubProfileOverride.sampling"))), time).diagnostics)
+        assertTrue(diagnostic.requiredServiceFeatures().contains("ISSUE_RECOVERY_DETAILS_V1"))
+        assertTrue(diagnostic.values["changed_policy_fields"].toString().contains("githubProfileOverride.sampling"))
+    }
+
     @Test fun recoveryDetailsAreBoundedAndRequireMatchingServiceSupport() {
         for ((area, values) in listOf(
             "VOICE" to mapOf("voice_install_state" to "QUEUED", "voice_install_scheduler" to "JOB_SCHEDULER"),

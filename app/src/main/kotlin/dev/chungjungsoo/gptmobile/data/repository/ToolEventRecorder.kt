@@ -9,6 +9,8 @@ import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
+import dev.chungjungsoo.gptmobile.data.diagnostics.captureIssueReport
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.health.HealthConnectTools
 import java.util.UUID
@@ -159,6 +161,10 @@ class ToolEventRecorder @Inject constructor(
             error = if (normalizedResult.isError) safeError else null
         )
         if (affectedRows != 1) return null
+        val withheldRead = ((normalizedResult.content as? ToolResultContent.Json)?.value as? JsonObject)
+            ?.get("result_delivery") == JsonPrimitive("WITHHELD_BY_RESULT_BUDGET") &&
+            !normalizedResult.isError &&
+            normalizedResult.outputBudgetExhausted
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Tool",
             "Finished · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError} · dispatched=${normalizedResult.dispatched}" +
@@ -166,9 +172,15 @@ class ToolEventRecorder @Inject constructor(
                 " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.retryable(normalizedResult)}" +
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
                 if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
-            if (normalizedResult.isError) "E" else "I",
-            reportCode = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.toolResult(normalizedResult.errorCode).takeUnless { healthEvent },
-            reportFields = if (healthEvent) {
+            if (normalizedResult.isError || withheldRead) "E" else "I",
+            reportCode = (
+                if (withheldRead) {
+                    "BUDGET_RESTRICTED"
+                } else {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.toolResult(normalizedResult.errorCode)
+                }
+                ).takeUnless { healthEvent },
+            reportFields = if (healthEvent || !normalizedResult.isError && !withheldRead) {
                 emptyMap()
             } else {
                 buildMap<String, Any?> {
@@ -191,8 +203,11 @@ class ToolEventRecorder @Inject constructor(
                     put("run_id", startedEvent?.runId)
                     put("call_id", normalizedResult.callId)
                     put("tool", startedEvent?.modelToolName)
-                    putAll(dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(startedEvent, result, ToolPrecheckEvidence.reasonCode(result)))
+                    captureIssueReport {
+                        ToolReportDiagnostics.fields(startedEvent, result, ToolPrecheckEvidence.reasonCode(result))
+                    }?.let { putAll(it) }
                     put("dispatched", normalizedResult.dispatched)
+                    if (withheldRead) put("failed_stage", "delivery")
                     result.executionReceipt?.get("retryable")?.let { put("retryable", it) }
                     if (normalizedResult.errorCode in dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes) {
                         put("requires_reconciliation", true)

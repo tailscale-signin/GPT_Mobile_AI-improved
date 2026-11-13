@@ -50,7 +50,7 @@ internal class IssueReportSubmission(
             emptySet()
         }
         val diagnosticFeatures = IssueReportDiagnostics.fromJson(context?.get("diagnostics"))?.requiredServiceFeatures().orEmpty()
-        val requiredFeatures = diagnosticFeatures + requiredReviewFeatures(parsed, context)
+        val requiredFeatures = diagnosticFeatures + requiredCodeFeatures(parsed, context)
         if (context != null || requiredFeatures.isNotEmpty()) {
             contextSupport(requiredVersions, requiredFeatures)?.let { return it }
         }
@@ -111,19 +111,22 @@ internal class IssueReportSubmission(
     companion object {
         private const val MAX_RECEIPT_BYTES = 1024L
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
-        private val REVIEW_EVENT = Regex("-[0-9]{1,5}ms [DIWEF] (?:app|chat|voice|gateway|local|tools) ([A-Z][A-Z0-9_]{0,63})")
+        private val REPORT_EVENT = Regex("-[0-9]{1,5}ms [DIWEF] (?:app|chat|voice|gateway|local|tools) ([A-Z][A-Z0-9_]{0,63})")
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
         private val defaultClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .retryOnConnectionFailure(false).callTimeout(40, TimeUnit.SECONDS).build()
         private val ERROR_CODES = setOf("HTTPS_ORIGIN_REQUIRED", "JSON_REQUIRED", "REPORT_TOO_LARGE", "INVALID_REPORT", "GITHUB_REJECTED", "REPORT_ID_CONFLICT", "RATE_LIMITED", "GITHUB_UNAVAILABLE", "RETRY_LATER", "AWAITING_GITHUB_RECEIPT", "REPORT_STORE_UNAVAILABLE")
 
-        private fun requiredReviewFeatures(report: JsonObject, context: JsonObject?): Set<String> {
-            fun reviewCode(value: kotlinx.serialization.json.JsonElement?) = (value as? JsonPrimitive)?.takeIf { it.isString }?.content in REVIEW_CODES
-            val retainedEvent = (report["events"] as? JsonArray).orEmpty().take(IssueReport.EVENT_LIMIT).any { event ->
-                val text = (event as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@any false
-                REVIEW_EVENT.matchEntire(text)?.groupValues?.get(1) in REVIEW_CODES
+        private fun requiredCodeFeatures(report: JsonObject, context: JsonObject?): Set<String> {
+            fun code(value: kotlinx.serialization.json.JsonElement?) = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val codes = listOfNotNull(code(report["errorCode"]), code(context?.get("originalFailureCode"))) +
+                (report["events"] as? JsonArray).orEmpty().take(IssueReport.EVENT_LIMIT).mapNotNull { event ->
+                    code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
+                }
+            return buildSet {
+                if (codes.any { it in REVIEW_CODES }) add("REVIEW_COMPARISON_V1")
+                if ("COMBINED_REQUIREMENTS_UNMET" in codes) add("EXECUTION_OUTCOME_DIAGNOSTICS_V1")
             }
-            return if (reviewCode(report["errorCode"]) || reviewCode(context?.get("originalFailureCode")) || retainedEvent) setOf("REVIEW_COMPARISON_V1") else emptySet()
         }
 
         fun configured(origin: String): Boolean {

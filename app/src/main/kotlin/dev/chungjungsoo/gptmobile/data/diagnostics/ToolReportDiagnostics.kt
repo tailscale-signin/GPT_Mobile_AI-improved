@@ -49,6 +49,31 @@ internal object ToolReportDiagnostics {
             putAll(typeShape(arguments, "argument"))
         }
         val receipt = result.executionReceipt
+        if (result.outputBudgetExhausted || result.toolCallBudgetExhausted) {
+            put(
+                "tool_budget_kind",
+                when {
+                    result.outputBudgetExhausted && result.toolCallBudgetExhausted -> "BOTH"
+                    result.outputBudgetExhausted -> "RESULT_BYTES"
+                    else -> "CALLS"
+                }
+            )
+            put("tool_budget_phase", if (result.dispatched) "AFTER_DISPATCH" else "BEFORE_DISPATCH")
+            if (receipt?.get("schema") == JsonPrimitive("github.dispatch.v1") &&
+                receipt["phase"] == JsonPrimitive("OBSERVED") &&
+                receipt["parent_result_successful"] == JsonPrimitive(true)
+            ) {
+                put("tool_execution_observation", "REMOTE_READ_SUCCEEDED")
+            }
+            result.toolResultBudgetUsedBytes?.let { put("tool_result_bytes_used", it) }
+            result.toolResultBudgetLimitBytes?.let { put("tool_result_bytes_limit", it) }
+            result.toolCallBudgetUsed?.let { put("tool_budget_calls_used", it) }
+            result.toolCallBudgetLimit?.let { put("tool_budget_calls_limit", it) }
+        }
+        when (event.modelToolName.substringBefore("__")) {
+            "device_location" -> if (result.errorCode == "PERMISSION_DENIED" && !result.dispatched) put("tool_permission_scope", "ANDROID_LOCATION")
+            "github_watch_checks" -> if (result.errorCode == "PERMISSION_DENIED" && !result.dispatched) put("tool_permission_scope", "GITHUB_LOCAL_GRANT")
+        }
         val resolved = receipt?.get("resolved_arguments") as? JsonObject
         resolved?.let {
             shapeHash(it)?.let { hash -> put("resolved_argument_shape_hash", hash) }

@@ -71,7 +71,15 @@ internal object GitHubAcceptanceReportDiagnostics {
         for (key in listOf("effective_call_limit", "used_calls", "remaining_calls", "verification_reserve")) {
             budget?.number(key)?.let { put(key, it) }
         }
-        (verdict["stop_reason"] as? JsonObject)?.number("pending_continuations")?.let { put("pending_continuations", it) }
+        (verdict["stop_reason"] as? JsonObject)?.let { stop ->
+            for (key in listOf("pending_continuations", "pending_local_fragments", "pending_remote_continuations")) {
+                stop.number(key)?.let { put(key, it) }
+            }
+            (stop["required_capability_blocker_counts"] as? JsonObject)?.let { counts ->
+                counts.number("FIXTURE_APPROVAL_MODE_REQUIRED")?.let { put("fixture_approval_blocked_count", it) }
+                counts.number("OWNED_FIXTURE_REQUIRED")?.let { put("owned_fixture_blocked_count", it) }
+            }
+        }
         (verdict["execution_ledger"] as? JsonObject)?.number("unresolved_remote_outcomes")?.let { put("unresolved_outcomes", it) }
         val checkpoint = buildJsonObject {
             put("acceptance_ledger", ledger)

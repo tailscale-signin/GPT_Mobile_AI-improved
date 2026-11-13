@@ -272,7 +272,20 @@ class AgentRunner(
                 reconcileDiscoveryExchange(exchanges, roundDefinitions)
                 val restoringBatch = restoredCalls.isNotEmpty()
                 val automaticRecovery = if (limits.githubTask && !session.handlesToolResultRecovery) savedResultRecovery else null
-                val remoteRead = if (automaticRecovery != null && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextRemoteRead(exchanges, roundDefinitions, automaticRecovery) else null
+                val remoteRead = if (!session.handlesToolResultRecovery &&
+                    !session.handlesToolsInternally &&
+                    !retainedUnknownOutcome &&
+                    unknownOutcomes.isEmpty() &&
+                    limits.combined?.requested?.singlePass != true &&
+                    !finalResponseRequested &&
+                    !restoringBatch &&
+                    observedToolCalls < observedLimit &&
+                    roundDefinitions.any { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_ci" }
+                ) {
+                    GitHubReplayRecovery.nextRemoteRead(exchanges, roundDefinitions, savedResultRecovery)
+                } else {
+                    null
+                }
                 val savedRead = if (automaticRecovery != null && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions, minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2), automaticRecovery) else null
                 val round = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
@@ -1828,7 +1841,9 @@ class AgentRunner(
             }
         }
         val blocked = fullPlan.filter { !admittedIds.containsAll(it.dependencies) }.mapTo(hashSetOf()) { it.call.callId }
-        val nodes = fullPlan.map { it.copy(dependencies = it.dependencies.intersect(admittedIds)) }
+        val nodes = fullPlan.map {
+            it.copy(dependencies = it.dependencies.intersect(admittedIds), failureDependencies = it.failureDependencies.intersect(admittedIds))
+        }
         return IntelligentToolBatch(AdaptiveBatchWindow(limits.maxConcurrentTools)).execute(
             nodes,
             dispatch = { call ->

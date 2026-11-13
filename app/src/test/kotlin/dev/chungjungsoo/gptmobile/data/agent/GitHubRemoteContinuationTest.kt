@@ -160,6 +160,39 @@ class GitHubRemoteContinuationTest {
         assertNull(GitHubReplayRecovery.nextRemoteRead(listOf(issuedPage(original, workflowArguments(page = 2))), listOf(ciDefinition.copy(modelVisible = false))))
     }
 
+    @Test fun repositoryDefaultsMustComeFromTheOwningWorkflowReceipt() {
+        val original = buildJsonObject { put("action", "workflows") }
+        val next = JsonObject(workflowArguments(page = 2) + ("ref" to JsonPrimitive("main")))
+        val receipt = buildJsonObject {
+            put("schema", "github.dispatch.v1")
+            put(
+                "resolved_arguments",
+                buildJsonObject {
+                    put("action", "list_workflows")
+                    put("owner", "Owner")
+                    put("repo", "Repo")
+                }
+            )
+            put(
+                "resource_context",
+                buildJsonObject {
+                    put("owner", "owner")
+                    put("repo", "repo")
+                    put("selected_ref", "main")
+                }
+            )
+        }
+        fun exchange(arguments: JsonObject) = issuedPage(original, arguments).let { batch ->
+            batch.copy(results = batch.results.map { it.copy(executionReceipt = receipt) })
+        }
+        assertNull(GitHubReplayRecovery.nextRemoteRead(listOf(issuedPage(original, next)), listOf(ciDefinition)))
+        assertEquals(next, GitHubReplayRecovery.nextRemoteRead(listOf(exchange(next)), listOf(ciDefinition))?.arguments)
+        for (key in listOf("owner", "repo", "ref")) {
+            val changed = JsonObject(next + (key to JsonPrimitive("different")))
+            assertNull(GitHubReplayRecovery.nextRemoteRead(listOf(exchange(changed)), listOf(ciDefinition)))
+        }
+    }
+
     @Test fun consumedDefaultPageSizeRemainsConsumedAfterReplayEviction() {
         val consumed = ProviderEvent.ToolCall("already-read", ciDefinition.name, JsonObject(workflowArguments(page = 2) - "per_page"))
         val state = GitHubReplayRecovery.State(listOf(consumed))

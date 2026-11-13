@@ -15,6 +15,16 @@ internal fun sanitizedCauseTypes(error: Throwable): List<String> {
         .map { it.javaClass.name.take(160) }.filter { it.matches(Regex("[A-Za-z0-9_.$]+")) }.toList()
 }
 
+private fun tlsFailureKind(error: Throwable): String {
+    val types = sanitizedCauseTypes(error).map { it.substringAfterLast('.') }.toSet()
+    return when {
+        types.any { it in setOf("CertificateException", "CertificateExpiredException", "CertificateNotYetValidException", "CertPathValidatorException", "SSLPeerUnverifiedException") } -> "CERTIFICATE"
+        "SSLProtocolException" in types -> "PROTOCOL"
+        "SSLHandshakeException" in types -> "HANDSHAKE"
+        else -> "OTHER"
+    }
+}
+
 /** HTTP acceptance, generation completion and request replay are independent observations. */
 internal fun providerTransportFailureDetails(
     details: JsonObject?,
@@ -52,6 +62,10 @@ internal fun providerTransportFailureDetails(
         // Dispatch/acceptance are boundary observations. They do not turn an
         // arbitrary provider/preparation exception into a network diagnosis.
         if (kind != NetworkFailureKind.UNKNOWN) put("failure_kind", kind.code)
+        if (kind == NetworkFailureKind.TLS) {
+            put("tls_failure_kind", tlsFailureKind(error))
+            put("tls_response_started", attemptTiming?.httpStatus != null || receivedPayload)
+        }
         put("cause_types", JsonArray(sanitizedCauseTypes(error).map(::JsonPrimitive)))
         if (requiresReconciliation) put("requires_reconciliation", true)
     }

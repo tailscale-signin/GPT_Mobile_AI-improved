@@ -592,7 +592,8 @@ internal class GitHubOperationTool(
         fun nativeArguments(name: String, args: JsonObject): JsonObject? {
             val op = operationName(name) ?: return null
             if ("view_cursor" in args) return JsonObject(args + ("action" to JsonPrimitive("read_saved_result")))
-            val requested = (args["action"] as? JsonPrimitive)?.content.orEmpty()
+            val canonical = if (op == "github_pr") dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(name, args) else args
+            val requested = (canonical["action"] as? JsonPrimitive)?.content.orEmpty()
             val action = when (op) {
                 "github_repository" -> when (requested) {
                     "create" -> "create_repository"
@@ -963,8 +964,7 @@ internal class GitHubOperationTool(
                 "github_pr" -> {
                     properties["action"] = JsonObject(
                         choice("list", "headers", "context", "comments", "reviews", "create", "update", "comment", "reply", "review", "merge", "ready", "draft", "threads", *dev.chungjungsoo.gptmobile.data.github.GitHubCollaboration.prActions.toTypedArray()) + mapOf(
-                            "default" to JsonPrimitive("context"),
-                            "description" to JsonPrimitive("Choose list when pull_number is unknown. All other read actions require the observed pull_number. The default context action also requires pull_number.")
+                            "description" to JsonPrimitive("Omit action for list when no PR selector is supplied, or for context when an observed pull_number is supplied. Explicit single-PR reads require pull_number.")
                         )
                     )
                     properties["pull_number"] = buildJsonObject {

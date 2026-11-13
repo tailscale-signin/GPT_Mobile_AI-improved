@@ -1,11 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.async
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -96,6 +100,44 @@ class ToolBudgetScopeTest {
         assertEquals("BUDGET_EXHAUSTED", denied.errorCode)
         assertFalse(denied.dispatched)
         assertEquals(1, restored.usedCalls())
+    }
+
+    @Test fun completedGitHubReadSurvivesConcurrentResultBudgetExhaustion() = runTest {
+        val bothStarted = CompletableDeferred<Unit>()
+        val finishSecond = CompletableDeferred<Unit>()
+        var started = 0
+        val read = object : AgentTool {
+            override val definition = AgentToolDefinition("github_read", "Read an authorized source", buildJsonObject {})
+
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                if (++started == 2) bothStarted.complete(Unit)
+                bothStarted.await()
+                if (callId == "second") finishSecond.await()
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Text("x".repeat(128)),
+                    false,
+                    executionReceipt = buildJsonObject {
+                        put("schema", "github.dispatch.v1")
+                        put("phase", "OBSERVED")
+                        put("parent_result_successful", true)
+                        put("mutation_requests", 0)
+                    }
+                )
+            }
+        }
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolOutputBytes = 64, maxConcurrentTools = 2))
+        val tool = budget.bind(read)
+        val first = async { tool.execute("first", buildJsonObject {}) }
+        val second = async { tool.execute("second", buildJsonObject {}) }
+        assertFalse(first.await().isError)
+        finishSecond.complete(Unit)
+        val result = second.await()
+        assertTrue(result.dispatched)
+        assertTrue(result.outputBudgetExhausted)
+        assertFalse(result.isError)
+        assertEquals(ToolResultContent.Text("x".repeat(128)), result.retainedContent)
+        assertEquals(JsonPrimitive("WITHHELD_BY_RESULT_BUDGET"), (result.content as ToolResultContent.Json).value.jsonObject["result_delivery"])
     }
 
     @Test fun zeroAllowanceBlocksASynthesizedDirectoryBeforeAnyDiscovery() = runTest {

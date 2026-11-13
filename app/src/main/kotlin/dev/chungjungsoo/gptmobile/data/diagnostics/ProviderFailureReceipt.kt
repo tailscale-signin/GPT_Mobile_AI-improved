@@ -125,7 +125,7 @@ data class ProviderFailureReceipt(
                 failedStage in setOf("tool_continuation", "tool_reconciliation") || code == "OUTPUT_CONTINUATION_PENDING_TOOLS" -> ProviderFailureStage.CONTINUATION
                 role.endsWith("-preflight") || reviewStage == "review_compatibility" || failedStage == "review_compatibility" || code == "GITHUB_REVIEW_INCOMPATIBLE" -> ProviderFailureStage.REVIEW_COMPATIBILITY
                 role.startsWith("github-review") || reviewStage == "answer_review" || failedStage == "answer_review" || code.startsWith("GITHUB_REVIEW_") -> ProviderFailureStage.ANSWER_REVIEW
-                failedStage == "gateway_recovery" -> ProviderFailureStage.DELIVERY
+                failedStage in setOf("gateway_recovery", "delivery") -> ProviderFailureStage.DELIVERY
                 role == "github-claim-extraction" || code.startsWith("GITHUB_EVIDENCE_") || code.startsWith("GITHUB_EXTRACTION_") -> ProviderFailureStage.CLAIM_VERIFICATION
                 "continuation" in role -> ProviderFailureStage.CONTINUATION
                 role == "github-delivery" -> ProviderFailureStage.DELIVERY
@@ -221,7 +221,7 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                     RunDiagnostics.journal?.record(runId, RunDiagnosticKind.FAILURE_RECEIPT, invocationId = receipt.invocationId, successful = false, providerFailure = receipt)
                     // Delivery can wrap review, extraction, approval or a retained verdict. It
                     // cannot replace the original producer's profile or borrow its last usage.
-                    if (role != "github-delivery" && receipt.failureDomain == FailureDomain.PROVIDER && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
+                    if (role != "github-delivery" && (receipt.failureDomain == FailureDomain.PROVIDER || event.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
                         val ownsStream = invocationId != null && receipt.invocationId == invocationId
                         val fields = ProviderFailureReport.fields(
                             runId,

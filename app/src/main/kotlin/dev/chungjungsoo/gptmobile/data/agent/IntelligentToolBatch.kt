@@ -11,7 +11,12 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonPrimitive
 
 /** Scheduling metadata is local policy, never authority supplied by a model or a repository. */
-internal data class ToolBatchNode(val call: ProviderEvent.ToolCall, val dependencies: Set<String>, val parallelRead: Boolean)
+internal data class ToolBatchNode(
+    val call: ProviderEvent.ToolCall,
+    val dependencies: Set<String>,
+    val parallelRead: Boolean,
+    val failureDependencies: Set<String> = dependencies
+)
 
 data class ToolBatchProgress(val completed: Int, val total: Int, val active: Int, val failed: Int, val concurrency: Int, val elapsedMillis: Long) {
     val message: String get() = "Batch $completed/$total · $active running · ${total - completed - active} queued" +
@@ -44,12 +49,14 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
         val tool = tools[call.name]
         val read = parallelBatchRead(call, tool)
         val dependencies = mutableSetOf<String>()
+        val discovery = tool != null && call.name == ProgressiveToolCatalog.NAME
         barrier?.let(dependencies::add)
         if (!read) dependencies += nodes.map { it.call.callId }
         tool?.definition?.workflowLinks.orEmpty().filter { it.action == action(call) }.forEach { link ->
             nodes.lastOrNull { it.call.name == link.sourceTool && action(it.call) == link.sourceAction }?.let { dependencies += it.call.callId }
         }
-        nodes += ToolBatchNode(call, dependencies, read)
+        // Inventory discovery waits its turn but needs no result from earlier tools.
+        nodes += ToolBatchNode(call, dependencies, read, if (discovery) emptySet() else dependencies)
         if (!read) barrier = call.callId
     }
     return nodes
@@ -85,7 +92,7 @@ internal class IntelligentToolBatch(private val window: AdaptiveBatchWindow, pri
         require(nodes.size <= 1024 && nodes.map { it.call.callId }.distinct().size == nodes.size)
         val ids = nodes.mapTo(hashSetOf()) { it.call.callId }
         val barriers = nodes.filterNot { it.parallelRead }.mapTo(hashSetOf()) { it.call.callId }
-        require(nodes.all { it.call.callId !in it.dependencies && ids.containsAll(it.dependencies) })
+        require(nodes.all { it.call.callId !in it.dependencies && ids.containsAll(it.dependencies) && it.dependencies.containsAll(it.failureDependencies) })
         // Validate the entire DAG before starting any operation.
         val checked = hashSetOf<String>()
         while (checked.size < nodes.size) {
@@ -105,7 +112,7 @@ internal class IntelligentToolBatch(private val window: AdaptiveBatchWindow, pri
             while (receipts.size < nodes.size) {
                 for (node in pending.toList()) {
                     if (!receipts.keys.containsAll(node.dependencies)) continue
-                    val failedDependencies = node.dependencies.filterTo(hashSetOf()) { receipts.getValue(it).isError }
+                    val failedDependencies = node.failureDependencies.filterTo(hashSetOf()) { receipts.getValue(it).isError }
                     if (failedDependencies.isNotEmpty()) {
                         val result = ToolDependencyDiagnostics.rejection(node.call.callId, ToolDependencyDiagnostics.State.FAILED, node.dependencies, failedDependencies, "A prerequisite failed or has an unknown outcome. This operation was not dispatched. Replan using the retained receipts.")
                         receipts[node.call.callId] = result

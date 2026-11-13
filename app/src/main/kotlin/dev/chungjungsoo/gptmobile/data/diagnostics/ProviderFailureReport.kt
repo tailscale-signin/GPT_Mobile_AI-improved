@@ -47,6 +47,20 @@ internal object ProviderFailureReport {
         IssueReportContext.identifierHash("provider-error-code", failure.errorCode)?.let { put("original_error_code_hash", it) }
         IssueReportContext.identifierHash("server-request", receipt.serverRequestId ?: metadata?.takeIf { it.transportVerified }?.requestId)?.let { put("server_request_id_hash", it) }
         IssueReportContext.identifierHash("generation", receipt.generationId)?.let { put("generation_id_hash", it) }
+        if (receipt.invocationId != null && "causal_id" !in failure.failureDetails.orEmpty()) {
+            val phase = (failure.failureDetails?.get("failed_stage") as? JsonPrimitive)?.contentOrNull
+            if (phase in setOf("delivery", "tls", "connection", "dns", "transport", "provider_admission")) {
+                put("causal_id", receipt.invocationId)
+                put("causal_provenance", "MODEL_INVOCATION")
+            }
+        }
+        if (failure.errorCode == "tool_use_failed") put("provider_tool_rejection", "TOOL_USE_FAILED")
+        metadata?.takeIf { it.transportVerified }?.let {
+            if (it.terminalStatus in setOf("completed", "failed", "cancelled", "canceled", "interrupted")) {
+                put("gateway_terminal_status", it.terminalStatus)
+            }
+            if (it.resultQuality in setOf("complete", "partial")) put("gateway_result_quality", it.resultQuality)
+        }
         val jobId = (failure.failureDetails?.get("job_id") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: metadata?.takeIf { it.transportVerified }?.jobId
         IssueReportContext.identifierHash("job", jobId)?.let { put("job_id_hash", it) }

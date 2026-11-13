@@ -52,6 +52,22 @@ class AnthropicFailureEvidenceTest {
         }
     }
 
+    @Test fun insufficientCreditsAreDistinguishedFromOtherBadRequests() = runBlocking {
+        withApi(
+            MockEngine {
+                respond(
+                    """{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low to access the Anthropic API. Private account details."}}""",
+                    HttpStatusCode.BadRequest
+                )
+            }
+        ) { api ->
+            val error = api.streamChatMessage(request(), 5, config()).single() as ErrorResponseChunk
+            val failed = AnthropicEventAssembler().accept(error).single() as ProviderEvent.Failed
+            assertEquals(JsonPrimitive("BILLING_UNAVAILABLE"), failed.failureDetails?.get("provider_rejection_category"))
+            assertFalse(failed.failureDetails.toString().contains("Private account details"))
+        }
+    }
+
     @Test fun httpRejectionRetainsStatusThroughAssemblyWithoutPublishingProviderTextOrRequestId() = runBlocking {
         val privateText = "Private account detail from provider"
         val requestId = "req_private_fixture"

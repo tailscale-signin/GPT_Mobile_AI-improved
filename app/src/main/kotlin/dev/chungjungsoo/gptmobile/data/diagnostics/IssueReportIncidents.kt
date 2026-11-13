@@ -22,6 +22,17 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
+/** Reporting may lose evidence, but must never replace an operation's outcome. */
+internal inline fun <T> captureIssueReport(capture: () -> T): T? = try {
+    capture()
+} catch (failure: Throwable) {
+    if (failure is CancellationException || failure !is Exception && failure !is LinkageError) throw failure
+    AppLogRecorder.operationCaptureEpoch()?.let { epoch ->
+        AppLogRecorder.recordCaptured(epoch, "Diagnostics", "ISSUE_REPORT_CAPTURE_UNAVAILABLE", "W")
+    }
+    null
+}
+
 /** Local projection for public reports. Raw messages, identifiers and OS logcat never enter it. */
 internal object IssueReportIncidents {
     private const val RECENT_MILLIS = 60_000L
@@ -242,17 +253,26 @@ internal object IssueReportIncidents {
             return
         }
         val localRecovery = IssueReportContext.localRecoveryCode(fields) != null
-        val specificCode = IssueReportCodes.known(code)?.takeUnless { it == "CHAT_FAILED" }
+        val rejection = when (val category = fields["provider_rejection_category"]) {
+            is String -> category
+            is kotlinx.serialization.json.JsonPrimitive -> category.takeIf { it.isString }?.content
+            else -> null
+        }
+        val specificCode = when {
+            code == "BILLING_UNAVAILABLE" || rejection == "BILLING_UNAVAILABLE" && input.httpStatus in setOf(400, 402) -> "SOURCE_PAYMENT_REQUIRED"
+            code == "RATE_LIMIT" && input.provider != null -> "PROVIDER_RATE_LIMITED"
+            code == "tool_use_failed" && input.provider != null -> "PROVIDER_PAYLOAD_ERROR"
+            else -> IssueReportCodes.known(code)?.takeUnless { it == "CHAT_FAILED" }
+        } ?: "SOURCE_UNAVAILABLE".takeIf { input.provider != null && input.httpStatus == 410 }
             ?: "GITHUB_TASK_INCOMPLETE".takeIf {
                 code in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED")
             }
         val observedRateLimit = if (!localRecovery && specificCode == null && !rateLimited) {
-            val evidence = IssueReportContext.fromFields("CHAT_FAILURE", fields)
-            evidence.provider != null &&
-                evidence.stage in setOf("model_invocation", "provider_generation") &&
-                evidence.httpStatus == 429 &&
-                evidence.remoteAcceptance == "NO" &&
-                evidence.requiresReconciliation != true
+            input.provider != null &&
+                input.stage in setOf("model_invocation", "provider_generation") &&
+                input.httpStatus == 429 &&
+                input.remoteAcceptance == "NO" &&
+                input.requiresReconciliation != true
         } else {
             false
         }

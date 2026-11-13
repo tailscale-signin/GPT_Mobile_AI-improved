@@ -17,11 +17,18 @@ internal object ProviderRejectionDiagnostics {
         val error = root?.get("error") as? JsonObject ?: root
         fun text(key: String): String? = (error?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content
         val code = text("code")?.takeIf { it.any(Char::isLetter) }
-        return typed(status, text("type"), text("param") ?: text("parameter"), contract, code)
+        val billing = status == 402 ||
+            status == 400 &&
+            contract == Contract.ANTHROPIC_MESSAGES &&
+            text("type") == "invalid_request_error" &&
+            text("message")?.startsWith("Your credit balance is too low to access the Anthropic API", ignoreCase = true) == true
+        val fields = typed(status, text("type"), text("param") ?: text("parameter"), contract, code)
+        return if (billing) JsonObject(fields + ("provider_rejection_category" to JsonPrimitive("BILLING_UNAVAILABLE"))) else fields
     }
 
     fun typed(status: Int, errorType: String?, parameter: String? = null, contract: Contract, code: String? = null): JsonObject = buildJsonObject {
         put("payload_contract", contract.name)
+        if (code == "tool_use_failed" || errorType == "tool_use_failed") put("provider_tool_rejection", "TOOL_USE_FAILED")
         put(
             "provider_rejection_category",
             when (status) {

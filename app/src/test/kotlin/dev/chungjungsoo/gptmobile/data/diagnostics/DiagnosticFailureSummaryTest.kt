@@ -16,6 +16,26 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class DiagnosticFailureSummaryTest {
+    @Test fun failedRunSupersedesItsUnfinishedTaskProgressAndKeepsPartialEvidence() {
+        val progress = DiagnosticFailureEvidence(
+            "verification",
+            "VERIFICATION_CURRENT",
+            Json.parseToJsonElement("""{"task_state":"RUNNING","task_outcome":"PARTIAL","completion_verified":false}""").jsonObject
+        )
+        val failed = summary(null, listOf(progress))
+        assertEquals(JsonPrimitive("FAILED"), failed["latest_verdict"])
+        assertEquals(JsonPrimitive("FAILED"), failed["task_state"])
+        assertEquals(JsonPrimitive("RUNNING"), failed["last_recorded_task_state"])
+        assertEquals(JsonPrimitive("PARTIAL"), failed["task_outcome"])
+        val sources = failed.getValue("field_sources").jsonObject
+        assertEquals(JsonPrimitive("AGENT_RUN"), sources["task_state"])
+        assertEquals(JsonPrimitive("VERIFICATION_CURRENT"), sources["last_recorded_task_state"])
+
+        val running = diagnosticFailureSummary("run", "RUNNING", null, "test", 141, "build", listOf(progress))
+        assertEquals(JsonPrimitive("RUNNING"), running["task_state"])
+        assertFalse(running.containsKey("last_recorded_task_state"))
+    }
+
     @Test fun durableEngineeringRejectionKeepsSanitizedReasonFieldsAndSourceInCompactSummary() {
         val original = ProfileFailureRecord.fromProvider(
             "Private gateway details",

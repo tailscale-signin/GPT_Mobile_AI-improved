@@ -70,6 +70,27 @@ class IncidentReportContractTest(unittest.TestCase):
         issue_from_report(self.report(capture))
         self.assertEqual(approved, json.dumps(capture, separators=(",", ":")))
 
+    def test_execution_outcome_observations_are_bounded_and_approved_bytes_are_preserved(self):
+        for area, fields in (
+            ("TOOL", {"tool_budget_kind": "RESULT_BYTES", "tool_budget_phase": "AFTER_DISPATCH",
+                      "tool_execution_observation": "REMOTE_READ_SUCCEEDED", "tool_result_bytes_used": 24576,
+                      "tool_result_bytes_limit": 24576}),
+            ("TOOL", {"tool_permission_scope": "ANDROID_LOCATION"}),
+            ("PROVIDER", {"provider_rejection_category": "BILLING_UNAVAILABLE", "gateway_terminal_status": "failed"}),
+            ("INCIDENT", {"combined_requirement_gap": "TOPIC", "combined_issue_count": 1}),
+        ):
+            with self.subTest(area=area, fields=fields):
+                report = self.report(self.capture(area, fields))
+                if area == "INCIDENT":
+                    report["errorCode"] = "COMBINED_REQUIREMENTS_UNMET"
+                before = json.dumps(report, separators=(",", ":"))
+                issue_from_report(report)
+                self.assertEqual(before, json.dumps(report, separators=(",", ":")))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture(values={"tool_result_bytes_used": 2, "tool_result_bytes_limit": 1}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture(values={"tool_permission_scope": "PRIVATE_PERMISSION"}))
+
     def test_capsule_requires_context_seven_and_old_approved_versions_remain_valid(self):
         report = self.report(self.capture())
         report["context"]["schemaVersion"] = 6

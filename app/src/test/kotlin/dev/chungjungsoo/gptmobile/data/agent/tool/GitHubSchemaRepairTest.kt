@@ -77,9 +77,10 @@ class GitHubSchemaRepairTest {
         assertEquals(JsonPrimitive(321), backend.calls.last()["pull_number"])
     }
 
-    @Test fun omittedActionReportsDefaultContextPrerequisite() {
+    @Test fun omittedActionSupportsDiscoveryButExplicitContextStillRequiresAPullNumber() {
         val schema = GitHubOperationTool("github_pr", Backend(), "defaults").definition.inputSchema
-        val errors = ToolArgumentValidator.errors(args("{}"), schema)
+        assertTrue(ToolArgumentValidator.errors(args("{}"), schema).isEmpty())
+        val errors = ToolArgumentValidator.errors(args("""{"action":"context"}"""), schema)
         assertTrue(errors.any { "pull_number" in it })
         assertFalse(errors.any { "view_cursor" in it })
     }

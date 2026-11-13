@@ -94,6 +94,27 @@ class ToolPrecheckIssueReportTest {
         assertFalse(report.approvedPayload().contains("private"))
     }
 
+    @Test fun completedReadWithheldOnlyAtDeliveryUsesThePublicBudgetCategory() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val report = record(
+            "github_read",
+            AgentToolResult(
+                callId = "withheld-read",
+                content = ToolResultContent.Json(
+                    buildJsonObject { put("result_delivery", "WITHHELD_BY_RESULT_BUDGET") }
+                ),
+                isError = false,
+                outputBudgetExhausted = true,
+                retainedContent = ToolResultContent.Text("private completed read"),
+                dispatched = true
+            )
+        )
+        assertEquals("BUDGET_RESTRICTED", report.errorCode)
+        assertEquals("delivery", report.context?.stage)
+        assertEquals(true, report.context?.dispatched)
+        assertFalse(report.approvedPayload().contains("private"))
+    }
+
     @Test fun unrecognizedCodeAndErrorProseCannotInventALocalPrecheckReason() = runBlocking {
         LocalDiagnosticsPolicy.setEnabled(true)
         val report = record(

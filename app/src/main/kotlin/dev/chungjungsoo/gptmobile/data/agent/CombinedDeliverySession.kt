@@ -14,6 +14,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.takeWhile
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** Delivery, instruction compliance and evidence support have independent, revision-bound outcomes. */
 internal class CombinedDeliverySession(
@@ -154,7 +157,14 @@ internal class CombinedDeliverySession(
                 val answer = if (allowance < 12) "Unverified." else "I couldn’t verify the newest story from the available article evidence."
                 val report = CombinedQualityReport(version = 6, answerDigest = researchHash(answer), complete = false, status = "PARTIAL", wordCount = visibleWordCount(answer), issues = listOf("CURRENT_ARTICLE_EVIDENCE_UNAVAILABLE"), sourceUnits = coverage.units.size, lexicalMissing = coverage.units.size, turnContext = turnContext, deliveredScopeStatus = "PARTIAL", verificationStatus = "EVIDENCE_UNAVAILABLE", correctionRequired = true, revisionId = currentRevision, consideredProfileUids = sources.mapTo(linkedSetOf()) { it.platformUid }, finalAssessment = true, assessmentStage = "FINAL_DISPLAY", displayedCharacters = answer.length, displayableDraft = true, protocolComplete = true, semanticCoverageVerified = false, topicCoverage = "UNRESOLVED")
                 emit(ProviderEvent.CombinedAnswer(answer, report))
-                emit(ProviderEvent.Failed("COMBINED_REQUIREMENTS_UNMET: A dated, readable article was unavailable, so this is a partial status response rather than a completed synthesis.", errorCode = "COMBINED_REQUIREMENTS_UNMET", transportComplete = true))
+                emit(
+                    ProviderEvent.Failed(
+                        "COMBINED_REQUIREMENTS_UNMET: A dated, readable article was unavailable, so this is a partial status response rather than a completed synthesis.",
+                        errorCode = "COMBINED_REQUIREMENTS_UNMET",
+                        transportComplete = true,
+                        failureDetails = combinedRequirementEvidence(report)
+                    )
+                )
                 return@flow
             }
         }
@@ -576,7 +586,7 @@ internal class CombinedDeliverySession(
                 accepted.terminal as? ProviderEvent.Failed ?: if (finalReport.issues.any { it in COMBINED_FRAMING_FAILURES }) {
                     ProviderEvent.Failed("OUTPUT_PROTOCOL_INVALID: The retained answer contains invalid delivery records.", errorCode = "OUTPUT_PROTOCOL_INVALID")
                 } else if (finalReport.protocolComplete) {
-                    ProviderEvent.Failed("COMBINED_REQUIREMENTS_UNMET: The answer finished, but needs editorial correction to meet the request.", errorCode = "COMBINED_REQUIREMENTS_UNMET", transportComplete = true)
+                    ProviderEvent.Failed("COMBINED_REQUIREMENTS_UNMET: The answer finished, but needs editorial correction to meet the request.", errorCode = "COMBINED_REQUIREMENTS_UNMET", transportComplete = true, failureDetails = combinedRequirementEvidence(finalReport))
                 } else {
                     ProviderEvent.Failed("COMBINED_RECORD_INCOMPLETE: The retained answer has unfinished delivery.", errorCode = "COMBINED_RECORD_INCOMPLETE")
                 }
@@ -585,4 +595,20 @@ internal class CombinedDeliverySession(
             emit(accepted.terminal as? ProviderEvent.Failed ?: if (accepted.terminal == ProviderEvent.Completed) ProviderEvent.Completed else ProviderEvent.Failed("Combined synthesis ended before completion."))
         }
     }
+}
+
+private fun combinedRequirementEvidence(report: CombinedQualityReport): JsonObject = buildJsonObject {
+    put("diagnostic_area", "INCIDENT")
+    put("failed_stage", "final_synthesis")
+    put("failure_origin", "LOCAL_RECOVERY")
+    put("combined_issue_count", report.issues.size)
+    put(
+        "combined_requirement_gap",
+        when {
+            "CURRENT_ARTICLE_EVIDENCE_UNAVAILABLE" in report.issues -> "CURRENT_ARTICLE"
+            report.lengthCompliance == "UNMET" -> "LENGTH"
+            report.topicCoverage in setOf("UNMET", "UNRESOLVED") -> "TOPIC"
+            else -> "OTHER"
+        }
+    )
 }

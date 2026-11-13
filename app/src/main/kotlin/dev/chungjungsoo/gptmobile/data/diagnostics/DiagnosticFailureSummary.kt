@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
+import dev.chungjungsoo.gptmobile.data.github.GitHubTaskLifecycle
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -141,7 +143,18 @@ internal fun diagnosticFailureSummary(
         ?: retained.firstNotNullOfOrNull { item -> (item.payload["stop_reason"] as? JsonObject)?.text("code")?.let { Value(it, item.source) } }
         ?: terminalCode?.let { Value(it, "TERMINAL_ERROR") }
     val failure = terminalRecoveryCode?.let { Value(it, "TERMINAL_ERROR") } ?: retainedFailure
-    val taskState = if (terminalRecoveryCode != null || recovery.isNotEmpty()) Value(runStatus ?: "BLOCKED", "AGENT_RUN") else read("task_state")
+    val retainedTaskState = read("task_state")
+    val terminalRunState = runStatus?.takeIf { it in AgentRunStatus.terminal }
+    val staleTaskProgress = terminalRunState != null &&
+        retainedTaskState?.value in setOf(
+            GitHubTaskLifecycle.State.PLANNED.name,
+            GitHubTaskLifecycle.State.RUNNING.name
+        )
+    val taskState = when {
+        terminalRecoveryCode != null || recovery.isNotEmpty() -> Value(runStatus ?: "BLOCKED", "AGENT_RUN")
+        staleTaskProgress -> Value(requireNotNull(terminalRunState), "AGENT_RUN")
+        else -> retainedTaskState
+    }
     val taskOutcome = read("task_outcome")
     val approvalState = read("approval_state")
     val stopCode = if (terminalRecoveryCode != null) failure else read("stop_code") ?: failure
@@ -186,6 +199,7 @@ internal fun diagnosticFailureSummary(
         taskState?.value == "WAITING_FOR_APPROVAL" || approvalState?.value == "WAITING_FOR_APPROVAL" -> "WAITING_FOR_APPROVAL"
         verification?.payload?.get("completion_verified") == JsonPrimitive(true) || retained.firstOrNull()?.payload?.get("completion_verified") == JsonPrimitive(true) -> "VERIFIED"
         failure != null -> failure.value
+        staleTaskProgress -> requireNotNull(terminalRunState)
         taskOutcome != null -> taskOutcome.value
         else -> runStatus ?: "NOT_RETAINED"
     }
@@ -198,6 +212,7 @@ internal fun diagnosticFailureSummary(
         put("app_commit", appCommit)
         put("latest_verdict", verdict)
         put("task_state", record("task_state", taskState))
+        if (staleTaskProgress) put("last_recorded_task_state", record("last_recorded_task_state", retainedTaskState))
         put("task_outcome", record("task_outcome", taskOutcome))
         put("stop_code", record("stop_code", stopCode))
         put("approval_state", record("approval_state", approvalState))

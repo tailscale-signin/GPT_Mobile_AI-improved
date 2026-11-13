@@ -69,7 +69,7 @@ class AppAuditRunner internal constructor(
                     checkpoint(batch.copy(audit = run.accountRemaining(epochMs(), AppAuditOutcome.UNTESTED, reason)), "AUDIT_BUDGET_EXHAUSTED")
                     break
                 }
-                progress(BenchmarkProgress("App audit", entry.label, run.results.size, run.plan.size))
+                progress(BenchmarkProgress("App audit", entry.label + (entry.iteration?.let { " · Iteration $it" } ?: ""), run.results.size, run.plan.size))
                 val notAdmitted = precheck(run, entry)
                 if (notAdmitted != null) {
                     retain(batch, entry, notAdmitted, epochMs(), 0, attempted = false)
@@ -130,7 +130,11 @@ class AppAuditRunner internal constructor(
             val remaining = (run.deadlineAtEpochMs - epochMs()).coerceAtLeast(1)
             withTimeout(minOf(run.limits.perProbeTimeoutMs, remaining)) {
                 if (epochMs() >= run.deadlineAtEpochMs) throw AppAuditAdmissionRejected("RUN_DEADLINE_EXCEEDED")
-                checkNotNull(catalog.source(entry.sourceId)).execute(entry, context)
+                val definition = entry.iteration?.let {
+                    check(run.options.mode == AppAuditMode.STRESS && entry.safetyClass == AppAuditSafetyClass.LOCAL_READ && entry.id.endsWith(":iteration-$it"))
+                    entry.copy(id = entry.id.removeSuffix(":iteration-$it"), iteration = null)
+                } ?: entry
+                checkNotNull(catalog.source(entry.sourceId)).execute(definition, context)
             }
         } catch (failure: Exception) {
             currentCoroutineContext().ensureActive()

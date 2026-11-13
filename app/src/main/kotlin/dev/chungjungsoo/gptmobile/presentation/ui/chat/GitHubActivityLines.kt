@@ -61,10 +61,18 @@ internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTi
 }
 
 /** Repair ordering in retained timelines too: introduce the activity before any preview. */
-internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false): List<AssistantTimelineItem> {
+internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false, active: Boolean = false): List<AssistantTimelineItem> {
     val previews = mutableSetOf<String>()
     val summaries = mutableSetOf<String>()
     val counterPositions = mutableMapOf<String, Int>()
+    var lastPreviewId: String? = null
+    var lastPreviewSequence: Long? = null
+    fun recordPreview(id: String, sequence: Long?) {
+        val previous = lastPreviewSequence
+        if (previous != null && sequence != null && sequence <= previous) return
+        lastPreviewId = id
+        if (sequence != null) lastPreviewSequence = sequence
+    }
     val coalesced = mutableListOf<AssistantTimelineItem>()
     val publicSummaryAvailable = gitHubPublicSummary(timeline) != null
     timeline.asSequence().filter { it.progressCheckpoint && it.content.isNotBlank() }.forEach { retained ->
@@ -84,6 +92,10 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             counterKey != null -> {
                 val current = item.copy(content = item.content.substringBefore(". "), progressId = counterKey, statusSummary = false)
                 val position = counterPositions[counterKey]
+                val previousSequence = position?.let { coalesced[it].progressSequence }
+                val sequence = current.progressSequence
+                if (previousSequence != null && sequence != null && sequence <= previousSequence) return@forEach
+                recordPreview(counterKey, sequence)
                 if (position == null) {
                     counterPositions[counterKey] = coalesced.size
                     coalesced.add(current)
@@ -97,7 +109,14 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
                 val key = item.content.replace(summaryWhitespace, " ").trim().lowercase(Locale.ROOT)
                 if (summaries.add(key)) coalesced.add(item)
             }
-            previews.add(GitHubProgressPresentation.lineKey(item.content)) -> coalesced.add(item)
+            else -> {
+                val previewKey = GitHubProgressPresentation.lineKey(item.content)
+                val id = item.progressId ?: "legacy-preview:$previewKey"
+                if (previews.add(previewKey)) {
+                    recordPreview(id, item.progressSequence)
+                    coalesced.add(item.copy(progressId = id))
+                }
+            }
         }
     }
     val summary = coalesced.indexOfFirst { it.statusSummary }
@@ -115,23 +134,18 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             )
         ) + coalesced
     }
-    return if (searchActive && ordered[latestGitHubActivityIndex(ordered)].statusSummary) {
-        ordered + AssistantTimelineItem(
+    if (searchActive && lastPreviewId == null) {
+        return ordered + AssistantTimelineItem(
             type = AssistantTimelineItemType.NOTICE,
             content = "Searching websites",
             progressCheckpoint = true,
             progressId = "github-search-preview"
         )
-    } else {
-        ordered
     }
-}
-
-/** The newest update can belong to a counter whose row was inserted much earlier. */
-internal fun latestGitHubActivityIndex(lines: List<AssistantTimelineItem>): Int {
-    if (lines.lastOrNull()?.progressId == "github-search-preview") return lines.lastIndex
-    return lines.indices.filter { lines[it].progressSequence != null }
-        .maxByOrNull { lines[it].progressSequence ?: 0L } ?: lines.lastIndex
+    if (!active || lastPreviewId == null) return ordered
+    val activeIndex = ordered.indexOfLast { !it.statusSummary && it.progressId == lastPreviewId }
+    if (activeIndex < 0 || activeIndex == ordered.lastIndex) return ordered
+    return ordered.take(activeIndex) + ordered.drop(activeIndex + 1) + ordered[activeIndex]
 }
 
 /** Count entries, independently of line wrapping or font size, retaining summary context. */
@@ -141,7 +155,8 @@ internal fun gitHubVisibleActivityLines(lines: List<AssistantTimelineItem>, comp
     val start = lines.size - entryLimit
     val summaryIndex = lines.indices.take(start + 1).lastOrNull { lines[it].statusSummary }
     val counters = lines.indices.filter { !lines[it].statusSummary && GitHubProgressPresentation.liveKey(lines[it].content) != null }
-    val pinned = (listOfNotNull(summaryIndex) + counters.takeLast((entryLimit - 1).coerceAtLeast(0))).toSet()
+    val pinned = (listOfNotNull(summaryIndex, lines.lastIndex) + counters.asReversed())
+        .distinct().take(entryLimit).toSet()
     val recent = lines.indices.filter { it !in pinned }.takeLast(entryLimit - pinned.size)
     return (listOfNotNull(summaryIndex) + (pinned + recent).filter { it != summaryIndex }.sorted()).map(lines::get)
 }

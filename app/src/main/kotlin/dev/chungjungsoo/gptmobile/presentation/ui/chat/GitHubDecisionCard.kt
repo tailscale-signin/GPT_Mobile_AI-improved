@@ -102,7 +102,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
     val search by produceState<GitHubSearchActivity?>(null, events) {
         value = withContext(Dispatchers.Default) { gitHubSearchActivity(events) }
     }
-    val lines = remember(timeline, task, search != null) { gitHubActivityLines(timeline, task, searchActive = search != null) }
+    val lines = remember(timeline, task, search != null, active) { gitHubActivityLines(timeline, task, searchActive = search != null, active = active) }
     var visibleEntries by remember(task, expanded) { androidx.compose.runtime.mutableIntStateOf(20) }
     // Saved history and rows revealed by "Show earlier" are already available;
     // reserve the entrance fade for new arrivals during this presentation.
@@ -110,7 +110,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
     SideEffect { lines.forEach { seenEntries.add((it.progressId ?: it.content) to it.statusSummary) } }
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         val visibleLines = remember(lines, visibleEntries) { gitHubVisibleActivityLines(lines, compact = true, entryLimit = visibleEntries) }
-        val latestPreview = latestGitHubActivityIndex(visibleLines).takeIf { active && it >= 0 && !visibleLines[it].statusSummary } ?: -1
+        val latestPreview = visibleLines.lastIndex.takeIf { active && visibleLines.lastOrNull()?.statusSummary == false } ?: -1
         val motion = rememberGitHubProgressMotion(latestPreview >= 0)
         Column(Modifier.fillMaxWidth().testTag("github_live_activity"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (visibleLines.size < lines.size) {

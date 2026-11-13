@@ -75,6 +75,9 @@ internal object GitHubAcceptanceReportDiagnostics {
         val checklist = verdict["test_checklist"] as? JsonObject
         val approval = checklist?.get("fixture_approval_preflight") as? JsonObject
         approval?.get("state")?.let { put("fixture_approval_state", it) }
+        approval?.get("decision_mode")?.let { IssueReportIncidentCapsule.validValue("fixture_decision_mode", it) }?.let {
+            put("fixture_decision_mode", it)
+        }
         val budget = checklist?.get("stage_budget") as? JsonObject ?: verdict["stage_budget"] as? JsonObject
         for (key in listOf("effective_call_limit", "used_calls", "remaining_calls", "verification_reserve")) {
             budget?.number(key)?.let { put(key, it) }

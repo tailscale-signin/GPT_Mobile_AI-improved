@@ -65,7 +65,13 @@ internal fun appAuditPresentation(run: AppAuditRun, currentTargetNames: Map<Stri
     val components = entries.groupBy { it.componentId }.map { (id, plan) ->
         AppAuditComponentPresentation(
             id,
-            plan.map { entry ->
+            plan.sortedBy { entry ->
+                when (results[entry.id]?.outcome) {
+                    AppAuditOutcome.FAIL -> 0
+                    AppAuditOutcome.BLOCKED -> 1
+                    else -> 2
+                }
+            }.map { entry ->
                 val result = results[entry.id]
                 AppAuditEntryPresentation(
                     entry,

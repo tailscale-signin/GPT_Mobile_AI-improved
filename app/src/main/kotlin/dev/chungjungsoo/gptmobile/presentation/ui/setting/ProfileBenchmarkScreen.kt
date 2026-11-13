@@ -359,8 +359,8 @@ fun ProfileBenchmarkScreen(
                         modelProfiles = auditModelCandidates,
                         selectedProfileIds = auditProfileIds,
                         onToggleProfile = { id -> auditProfileIds = if (id in auditProfileIds) auditProfileIds - id else auditProfileIds + id },
-                        onStart = {
-                            if (viewModel.startAppAudit(AppAuditOptions(allowNetworkReads = allowAuditNetworkReads, selectedProfileIds = auditProfileIds))) {
+                        onStart = { mode ->
+                            if (viewModel.startAppAudit(AppAuditOptions(allowNetworkReads = allowAuditNetworkReads, selectedProfileIds = auditProfileIds, mode = mode))) {
                                 selectedAuditId = null
                                 cancellationRequestedFor = null
                             }

@@ -153,7 +153,9 @@ class VoiceSession(
         waiting = true
         draftPending = awaitsAdmission
         update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, level = 0f))
-        if (!submit(prompt)) {
+        if (submit(prompt)) {
+            if (!awaitsAdmission) diagnosticProbe.requestAccepted()
+        } else {
             draftPending = true
             fail("Could not send this turn. Open chat to review your profile and connection.")
         }
@@ -162,7 +164,10 @@ class VoiceSession(
         if (!waiting || state.phase == VoicePhase.CLOSED) return
         when (stage) {
             VoiceAdmissionStage.CHECKING -> draftPending = true
-            VoiceAdmissionStage.QUEUED, VoiceAdmissionStage.ACCEPTED -> draftPending = false
+            VoiceAdmissionStage.QUEUED, VoiceAdmissionStage.ACCEPTED -> {
+                draftPending = false
+                if (stage == VoiceAdmissionStage.ACCEPTED) diagnosticProbe.requestAccepted()
+            }
             VoiceAdmissionStage.FAILED -> {
                 draftPending = true
                 fail("This message was not accepted. Your words are kept; open chat to review the connection or retry. ${reason.orEmpty()}")
@@ -312,7 +317,10 @@ class VoiceSession(
                 if (valid()) update(state.copy(phase = VoicePhase.LISTENING))
             }
             override fun ending() {
-                if (valid()) update(state.copy(phase = VoicePhase.FINALIZING, level = 0f))
+                if (valid()) {
+                    diagnosticProbe.speechEnded()
+                    update(state.copy(phase = VoicePhase.FINALIZING, level = 0f))
+                }
             }
             override fun failure(message: String, retryMillis: Long) {
                 recognitionFailed(message, retryMillis)
@@ -338,6 +346,7 @@ class VoiceSession(
             override fun final(text: String) {
                 if (!valid()) return
                 diagnosticProbe.recognized(text.length)
+                diagnosticProbe.finalTranscript()
                 stopAudio()
                 val prompt = text.trim().take(8000)
                 if (prompt.isEmpty()) {

@@ -31,6 +31,7 @@
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.RUN_USER_INITIATED_JOBS" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
     <queries>
@@ -74,6 +75,9 @@
             android:name="androidx.work.impl.foreground.SystemForegroundService"
             android:foregroundServiceType="dataSync"
             tools:node="merge" />
+        <service android:name=".data.voice.VoicePluginTransferService"
+            android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />
+        <receiver android:name=".data.voice.VoicePluginCancelReceiver" android:exported="false" />
         <activity android:name=".presentation.ui.main.ShareIncomingActivity" android:exported="true" android:excludeFromRecents="true">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />

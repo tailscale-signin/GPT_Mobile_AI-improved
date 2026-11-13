@@ -92,7 +92,6 @@ class LocalVoiceModelStore internal constructor(
 
     suspend fun refresh() = withContext(Dispatchers.IO) {
         shared.mutex.withLock {
-            if (expandArchive != null) staging.deleteRecursively()
             val ready = verifyInstalledFiles()
             shared.state.value = LocalVoiceModelState(
                 status = if (ready) LocalVoiceModelStatus.READY else LocalVoiceModelStatus.NOT_INSTALLED,
@@ -111,9 +110,11 @@ class LocalVoiceModelStore internal constructor(
     }
 
     private fun verifyFiles(directory: File): Boolean = expandedAssets.all { asset ->
-        val file = File(directory, asset.name)
-        file.isFile && file.length() == asset.bytes && digest(file) == asset.sha256
+        verifyAsset(File(directory, asset.name), asset)
     }
+
+    private fun verifyAsset(file: File, asset: LocalVoiceAsset): Boolean =
+        file.isFile && file.length() == asset.bytes && digest(file) == asset.sha256
 
     suspend fun install() = withContext(Dispatchers.IO) {
         // Multiple screens share one installer and its progress. A second tap never queues a download.
@@ -129,29 +130,41 @@ class LocalVoiceModelStore internal constructor(
             shared.installJob = currentCoroutineContext().job
             shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, totalBytes = totalBytes)
             check(root.isDirectory || root.mkdirs()) { "Could not create local speech storage." }
-            if (staging.exists() && !staging.deleteRecursively()) throw IOException("Could not reset incomplete speech download.")
-            val spaceNeeded = totalBytes + (if (expandArchive != null) expandedAssets.sumOf { it.bytes } else 0) + 16L * 1024 * 1024
+            val verifiedDownloads = assets.filter { asset -> verifyAsset(File(staging, asset.name), asset) }.toSet()
+            assets.filterNot { it in verifiedDownloads }.forEach { asset ->
+                File(staging, asset.name).delete()
+                File(staging, "${asset.name}.part").delete()
+            }
+            val spaceNeeded = (assets - verifiedDownloads).sumOf { it.bytes } +
+                (if (expandArchive != null) expandedAssets.sumOf { it.bytes } else 0) + 16L * 1024 * 1024
             check(root.usableSpace >= spaceNeeded) { "Free at least ${(spaceNeeded + 1_048_575) / 1_048_576} MiB to install local speech." }
-            check(staging.mkdirs()) { "Could not prepare local speech storage." }
+            check(staging.isDirectory || staging.mkdirs()) { "Could not prepare local speech storage." }
             val source = sourceFactory().also { shared.source = it }
             var complete = 0L
             for (asset in assets) {
                 currentCoroutineContext().ensureActive()
                 val destination = File(staging, asset.name)
+                if (asset in verifiedDownloads) {
+                    complete += asset.bytes
+                    shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, complete, totalBytes)
+                    continue
+                }
+                val partial = File(staging, "${asset.name}.part")
                 var lastFailure: IOException? = null
                 var downloaded = false
                 for (url in asset.urls) {
                     currentCoroutineContext().ensureActive()
                     try {
-                        copyVerified(asset, source, url, destination) { bytes ->
+                        copyVerified(asset, source, url, partial) { bytes ->
                             shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, complete + bytes, totalBytes)
                         }
+                        if (!partial.renameTo(destination)) throw IOException("Could not checkpoint the verified speech asset.")
                         downloaded = true
                         break
                     } catch (failure: IOException) {
                         currentCoroutineContext().ensureActive()
                         lastFailure = failure
-                        destination.delete()
+                        partial.delete()
                     }
                 }
                 if (!downloaded) throw lastFailure ?: IOException("The local speech download failed.")
@@ -159,8 +172,10 @@ class LocalVoiceModelStore internal constructor(
             }
             currentCoroutineContext().ensureActive()
             if (expandArchive != null) {
+                expandedAssets.forEach { File(staging, it.name).delete() }
                 expandArchive.invoke(staging)
                 check(verifyFiles(staging)) { "The extracted speech files could not be verified." }
+                assets.forEach { File(staging, it.name).delete() }
             }
             currentCoroutineContext().ensureActive()
             File(staging, "verified").writeText(revision)
@@ -184,7 +199,6 @@ class LocalVoiceModelStore internal constructor(
             shared.source?.cancel()
             shared.source = null
             shared.installJob = null
-            staging.deleteRecursively()
             shared.mutex.unlock()
         }
     }

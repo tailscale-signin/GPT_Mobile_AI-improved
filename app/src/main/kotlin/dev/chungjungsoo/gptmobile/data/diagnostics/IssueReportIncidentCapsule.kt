@@ -60,7 +60,7 @@ internal object IssueReportIncidentCapsule {
     )
     private val policyObservation = setOf("OBSERVED", "UNOBSERVED", "INVALID_RESPONSE", "ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE", "RATE_LIMITED", "UNAVAILABLE", "HTTP_FAILURE")
     private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
-    val toolFailureFields = setOf("tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
+    val toolFailureFields = setOf("url_reader_dns_state", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
     val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection")
     val combinedDeliveryFields = setOf("combined_requirement_gap", "combined_issue_count")
@@ -92,6 +92,8 @@ internal object IssueReportIncidentCapsule {
     private val types = setOf("STRING", "NUMBER", "BOOLEAN", "OBJECT", "ARRAY", "NULL")
     private val mcpHealth = setOf("DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "TLS_FAILED", "CONNECT_TIMEOUT", "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT", "HEALTHY", "UNKNOWN")
     private val enums = mapOf(
+        "url_reader_dns_state" to setOf("RECOVERY_COOLDOWN", "LOOKUP_FAILED"),
+        "fixture_decision_mode" to setOf("AUTO_APPROVE", "SUGGESTED", "ASK", "UNKNOWN"),
         "crash_surface" to setOf("CHAT", "DEBUG_LOGS", "GITHUB_WORKSPACE"),
         "crash_boundary" to setOf("ANDROID_VIEW_DRAW"),
         "pending_tool_receipt_state" to setOf("CHECKPOINT_STATE_INCONSISTENT", "TERMINAL_RECEIPTS_MISSING", "SOME_TERMINAL_RECEIPTS_MISSING", "OUTCOMES_UNRESOLVED"),
@@ -123,7 +125,7 @@ internal object IssueReportIncidentCapsule {
         "voice_chat_failure_phase" to phases - "unknown",
         "native_tool_action" to actions,
         "saved_view_owner_operation" to IssueReportContext.operations,
-        "saved_view_restore_state" to setOf("NOT_FOUND", "LOAD_FAILED", "IDENTITY_REJECTED", "RESTORED"),
+        "saved_view_restore_state" to setOf("NOT_FOUND", "LOAD_FAILED", "IDENTITY_REJECTED", "RESTORED", "BODY_MISSING", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID"),
         "mcp_failure_phase" to setOf("configuration", "catalog", "discovery", "initialization", "execution", "connection", "dns", "tls", "oauth_refresh", "local_validation"),
         "mcp_failure_category" to mcpHealth - "HEALTHY",
         "mcp_connection_health" to mcpHealth,
@@ -181,7 +183,7 @@ internal object IssueReportIncidentCapsule {
     fun fieldsFor(area: String): Set<String> = common + when (area) {
         "TOOL" -> toolFields + toolFailureFields
         "INCIDENT" -> combinedDeliveryFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure")
-        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields + setOf("fixture_approval_state", "branch_protection_observation", "branch_rules_observation")
+        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
         "GATEWAY" -> gatewayFields
         "PROVIDER" -> providerFields + setOf("provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash")
         "APP" -> setOf("crash_surface", "crash_boundary")

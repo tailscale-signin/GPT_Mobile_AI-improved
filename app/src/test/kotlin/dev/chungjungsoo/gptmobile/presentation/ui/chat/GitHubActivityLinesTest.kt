@@ -71,6 +71,17 @@ class GitHubActivityLinesTest {
         assertEquals("Reviewing item 30", visible.last().content)
     }
 
+    @Test fun activeCounterMovesBelowNewSummariesAndIgnoresStaleUpdates() {
+        val first = line("Check 1/8").copy(progressSequence = 1)
+        val summary = line("Review in progress", true).copy(progressSequence = 2)
+        val next = line("Check 3/8").copy(progressSequence = 3)
+        val stale = line("Check 2/8").copy(progressSequence = 2)
+        val initial = gitHubActivityLines(listOf(first, summary), "test", active = true)
+        val updated = gitHubActivityLines(listOf(first, summary, next, stale), "test", active = true)
+        assertEquals(listOf("Review in progress", "Check 3/8"), updated.map { it.content })
+        assertEquals(initial.last().progressId, updated.last().progressId)
+    }
+
     @Test fun detailedModelSummariesRetainTheirTextAndAuthorshipWhileAcknowledgementIsDeterministic() {
         val first = line("The gateway received the request.\nI have verified the response schema and will check the source files next.", true).copy(modelAuthored = true)
         val second = line("The gateway returned the file list.\nTwo files contain the affected function; I will check their callers next.", true).copy(modelAuthored = true)

@@ -188,6 +188,7 @@ fun ChatScreen(
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
+    embeddedHeaderHeight: Dp = 0.dp,
     allowResearchPanels: Boolean = true,
     exportRequestedForChatId: Int? = null,
     onExportHandled: () -> Unit = {},
@@ -203,6 +204,7 @@ fun ChatScreen(
             onOpenConversation = onOpenConversation,
             onInspectContext = onInspectContext,
             showTopBar = showTopBar,
+            embeddedHeaderHeight = embeddedHeaderHeight,
             allowResearchPanels = allowResearchPanels,
             exportRequestedForChatId = exportRequestedForChatId,
             onExportHandled = onExportHandled,
@@ -224,6 +226,7 @@ private fun ChatScreenContent(
     onOpenConversation: (Int, Boolean) -> Unit = { _, _ -> },
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
+    embeddedHeaderHeight: Dp,
     allowResearchPanels: Boolean,
     exportRequestedForChatId: Int?,
     onExportHandled: () -> Unit,
@@ -546,7 +549,7 @@ private fun ChatScreenContent(
     var promptAnchorRevision by remember(chatRoom.id) { mutableIntStateOf(0) }
     val promptDensity = LocalDensity.current
     val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
-    val promptAnchor = remember(chatRoom.id, touchSlop) { GitHubPromptAnchor(touchSlop, touchSlop, githubScrollMode) }
+    val promptAnchor = remember(chatRoom.id, touchSlop) { GitHubPromptAnchor(touchSlop, githubScrollMode) }
     LaunchedEffect(isLoaded, newestPromptKey, chatToolConfig.github != null) {
         if (!isLoaded) return@LaunchedEffect
         if (chatToolConfig.github != null && promptTrackingReady && newestPromptKey != null && newestPromptKey != observedPromptKey) {
@@ -783,25 +786,35 @@ private fun ChatScreenContent(
     val latestTurnItem = lastMessageIndex - firstVisibleTurn + historyHeaderCount
 
     val promptModeState by androidx.compose.runtime.rememberUpdatedState(githubPromptMode)
-    val nearBottomDistance = with(promptDensity) { 48.dp.toPx() }
-    val farBottomDistance = with(promptDensity) { 96.dp.toPx() }
-    fun endPromptGesture(cancelled: Boolean = false) {
-        promptAnchor.endGesture(listState.gitHubDistanceToBottom(), nearBottomDistance, farBottomDistance, cancelled)
+    fun followGitHubBottom() {
+        isHoldingEntryCenter = false
+        isModelTabPositionLocked = false
+        promptAnchor.followBottom()
         githubScrollMode = promptAnchor.mode
         githubGestureActive = false
         promptAnchorRevision++
-        if (githubScrollMode == GitHubScrollMode.PIN_PROMPT && anchoredPromptKey == null) anchoredPromptKey = newestPromptKey
+    }
+    val followGitHubBottomAction by androidx.compose.runtime.rememberUpdatedState(::followGitHubBottom)
+    fun endPromptGesture(cancelled: Boolean = false) {
+        promptAnchor.endGesture(cancelled)
+        githubGestureActive = false
+        if (promptAnchor.shouldFollowAtBottom(listState.isAtGitHubBottom())) followGitHubBottomAction()
     }
     val latestEndPromptGesture by androidx.compose.runtime.rememberUpdatedState(::endPromptGesture)
     val promptConnection = remember(listState, promptAnchor) {
         object : NestedScrollConnection {
             override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
                 if (!promptModeState || source != NestedScrollSource.UserInput || available.y == 0f) return Offset.Zero
-                // Cancel automatic movement immediately, before the list consumes this drag.
-                if (!promptAnchor.dragging) promptAnchor.beginGesture()
+                promptAnchor.move(available.y)
                 githubGestureActive = true
-                promptAnchor.move(available.y, 0f, userInput = true, nowMillis = android.os.SystemClock.elapsedRealtime())
                 githubScrollMode = promptAnchor.mode
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (promptModeState && consumed.y < 0f && promptAnchor.shouldFollowAtBottom(listState.isAtGitHubBottom())) {
+                    followGitHubBottomAction()
+                }
                 return Offset.Zero
             }
 
@@ -809,6 +822,22 @@ private fun ChatScreenContent(
                 if (promptModeState && promptAnchor.dragging) latestEndPromptGesture(false)
                 return androidx.compose.ui.unit.Velocity.Zero
             }
+
+            override suspend fun onPostFling(consumed: androidx.compose.ui.unit.Velocity, available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                if (promptModeState) {
+                    if (promptAnchor.shouldFollowAtBottom(listState.isAtGitHubBottom())) followGitHubBottomAction()
+                    promptAnchor.finishScroll()
+                    githubGestureActive = false
+                }
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
+    }
+
+    LaunchedEffect(listState, githubPromptMode, promptAnchor) {
+        if (!githubPromptMode) return@LaunchedEffect
+        snapshotFlow { listState.isScrollInProgress to listState.isAtGitHubBottom() }.collect { (scrolling, atBottom) ->
+            if (scrolling && promptAnchor.shouldFollowAtBottom(atBottom)) followGitHubBottomAction()
         }
     }
 
@@ -902,10 +931,6 @@ private fun ChatScreenContent(
                     .pointerInput(promptAnchor) {
                         awaitEachGesture {
                             awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-                            if (promptModeState) {
-                                promptAnchor.beginGesture()
-                                githubGestureActive = true
-                            }
                             var released = false
                             try {
                                 do {
@@ -918,8 +943,16 @@ private fun ChatScreenContent(
                         }
                     }
                     .chatMessageBackdrop(
-                        topFadeStart = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 16.dp - viewportHeight * 0.05f).coerceAtLeast(0.dp) else 0.dp,
-                        topFade = if (featureSettings.edgeFades) (innerPadding.calculateTopPadding() + 48.dp - viewportHeight * 0.05f).coerceAtLeast(0.dp) else 0.dp,
+                        topFadeStart = if (embeddedHeaderHeight == 0.dp && featureSettings.edgeFades) {
+                            (innerPadding.calculateTopPadding() + 16.dp - viewportHeight * 0.05f).coerceAtLeast(0.dp)
+                        } else {
+                            0.dp
+                        },
+                        topFade = when {
+                            embeddedHeaderHeight > 0.dp -> embeddedHeaderHeight
+                            featureSettings.edgeFades -> (innerPadding.calculateTopPadding() + 48.dp - viewportHeight * 0.05f).coerceAtLeast(0.dp)
+                            else -> 0.dp
+                        },
                         // Content continues behind the composer. Fade it from the top edge
                         // of the input surface to transparent halfway through the bar.
                         bottomFadeStartFromBottom = if (featureSettings.edgeFades && !inspectingCombinedSource) composerHeight else 0.dp,
@@ -927,7 +960,7 @@ private fun ChatScreenContent(
                         contentVisible = entryPositioned || groupedMessages.userMessages.isEmpty()
                     ),
                 state = listState,
-                contentPadding = PaddingValues(top = innerPadding.calculateTopPadding(), bottom = composerHeight + 16.dp)
+                contentPadding = PaddingValues(top = innerPadding.calculateTopPadding() + embeddedHeaderHeight, bottom = composerHeight + 16.dp)
             ) {
                 if (hasOlderHistory) item(key = "load-earlier-messages") { TextButton(onClick = chatViewModel::loadOlderMessages) { Text("Load earlier messages") } }
                 if (hiddenTurnCount > 0) {
@@ -1145,11 +1178,9 @@ private fun ChatScreenContent(
                     }
                 }
                 if (chatToolConfig.github != null) {
-                    val activeMessage = groupedMessages.assistantMessages.flatten().lastOrNull { it.currentRunId in activeAgentRuns }
                     chatToolConfig.github?.let { github ->
                         item(key = "gateway-engineering-jobs") { GatewayEngineeringPanel(chatRoom.id, github, appAllPlatforms.firstOrNull { it.uid == github.mainProfileUid }, debugMode = debugMode) }
                     }
-                    githubWorkingIndicator(isGenerating = activeMessage != null)
                 }
                 items(pendingPrompts.size, key = { "queued-${pendingPrompts[it].id}" }) { index ->
                     val prompt = pendingPrompts[index]
@@ -1164,21 +1195,14 @@ private fun ChatScreenContent(
             }
 
             if (githubPromptMode) {
-                val following = githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM && !githubGestureActive && !isUserDragging && !isModelTabPositionLocked
+                val following = githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM && !isModelTabPositionLocked
                 Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
                     GitHubBottomIndicator(
                         listState = listState,
                         following = following,
                         generating = entryPositioned && awaitingGitHubTurn && !pendingGitHubInput && (activeGitHubResponse || githubResponseStarting),
                         animate = featureSettings.responseAnimation,
-                        onFollow = {
-                            isHoldingEntryCenter = false
-                            isModelTabPositionLocked = false
-                            promptAnchor.followBottom()
-                            githubScrollMode = promptAnchor.mode
-                            githubGestureActive = false
-                            promptAnchorRevision++
-                        }
+                        onFollow = ::followGitHubBottom
                     )
                 }
             } else if (!isFollowingBottom && listState.canScrollForward) {
@@ -1206,18 +1230,6 @@ private fun ChatScreenContent(
                     }
             ) {
                 Column(Modifier.navigationBarsPadding()) {
-                    if (gatewayModelPreparation.isNotEmpty()) {
-                        Column(Modifier.fillMaxWidth().heightIn(max = 128.dp).verticalScroll(rememberScrollState())) {
-                            gatewayModelPreparation.values.forEach { state ->
-                                key(state.profileUid, state.model) {
-                                    dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent(
-                                        state,
-                                        onRecheck = { chatViewModel.recheckGatewayModel(state.profileUid) }
-                                    )
-                                }
-                            }
-                        }
-                    }
                     if (!githubPromptMode && bottomInteractionContent != null) {
                         Column(
                             Modifier.fillMaxWidth()
@@ -3007,7 +3019,7 @@ private fun GitHubBottomIndicator(
     }
     var reachedBottom by remember(listState) { mutableStateOf(false) }
     LaunchedEffect(listState) {
-        snapshotFlow { listState.layoutInfo.totalItemsCount > 0 && !listState.canScrollForward }.first { it }
+        snapshotFlow { listState.isAtGitHubBottom() }.first { it }
         reachedBottom = true
     }
     if (!reachedBottom || !generating) return

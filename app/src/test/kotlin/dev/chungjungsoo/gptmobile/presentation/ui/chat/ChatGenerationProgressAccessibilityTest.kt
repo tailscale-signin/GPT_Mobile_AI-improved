@@ -13,7 +13,6 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -58,7 +57,7 @@ class ChatGenerationProgressAccessibilityTest {
         compose.onNodeWithTag("github_loading_bar").assertDoesNotExist()
     }
 
-    @Test fun githubFooterShowsAnEllipsisAfterTheReplyAndDecisionsOnlyWhileGenerating() {
+    @Test fun githubTranscriptOmitsTheRedundantWorkingEllipsis() {
         var loading by mutableStateOf(true)
         compose.mainClock.autoAdvance = false
         compose.setContent {
@@ -76,18 +75,13 @@ class ChatGenerationProgressAccessibilityTest {
                             )
                         }
                         item { Text("Review proposed changes", Modifier.testTag("repository_decision")) }
-                        githubWorkingIndicator(isGenerating = loading)
                     }
                 }
             }
         }
         compose.mainClock.advanceTimeBy(16)
-        compose.onNodeWithTag("github_generating_ellipsis").assertExists()
-        val indicator = compose.onNodeWithTag("github_generating_ellipsis").fetchSemanticsNode()
-        val decision = compose.onNodeWithTag("repository_decision").fetchSemanticsNode()
-        assertTrue("Working indicator must follow repository decisions", indicator.boundsInRoot.top >= decision.boundsInRoot.bottom)
-        compose.mainClock.advanceTimeBy(1500)
-        compose.onNodeWithContentDescription("Response is still generating").assertExists()
+        compose.onNodeWithTag("repository_decision").assertExists()
+        compose.onNodeWithTag("github_generating_ellipsis").assertDoesNotExist()
         compose.runOnIdle { loading = false }
         compose.mainClock.advanceTimeBy(16)
         compose.onNodeWithTag("github_generating_ellipsis").assertDoesNotExist()

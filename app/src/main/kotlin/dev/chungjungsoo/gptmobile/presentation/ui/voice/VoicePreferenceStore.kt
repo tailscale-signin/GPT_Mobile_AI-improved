@@ -37,7 +37,7 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
                     .putBoolean("automatic", value.automatic).putFloat("rate", value.rate)
                     .putString("voice", value.voice).putString("recognition_backend", value.recognitionBackend.name)
                     .putString("kokoro_voice", value.kokoroVoice?.name).putBoolean("spoken_replies", value.spokenReplies)
-                    .putInt("kokoro_threads", value.kokoroThreads).commit()
+                    .putInt("kokoro_threads", value.kokoroThreads).putBoolean("button_sounds", value.buttonSounds).commit()
             )
             error.value = null
         } catch (cancelled: CancellationException) {
@@ -81,6 +81,7 @@ internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
         recognitionBackend = VoiceRecognitionBackend.fromSaved(saved["recognition_backend"] as? String),
         kokoroVoice = KokoroVoice.fromSaved(saved["kokoro_voice"] as? String),
         spokenReplies = saved["spoken_replies"] as? Boolean ?: defaults.spokenReplies,
-        kokoroThreads = (saved["kokoro_threads"] as? Int)?.coerceIn(2, 4) ?: defaults.kokoroThreads
+        kokoroThreads = (saved["kokoro_threads"] as? Int)?.coerceIn(2, 4) ?: defaults.kokoroThreads,
+        buttonSounds = saved["button_sounds"] as? Boolean ?: defaults.buttonSounds
     )
 }

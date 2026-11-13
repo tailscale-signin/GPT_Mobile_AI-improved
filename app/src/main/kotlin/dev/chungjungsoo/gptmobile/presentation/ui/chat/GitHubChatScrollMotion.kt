@@ -23,6 +23,9 @@ internal fun LazyListState.gitHubDistanceToBottom(): Float {
     return (footer.offset + footer.size + info.afterContentPadding - info.viewportEndOffset).coerceAtLeast(0).toFloat()
 }
 
+internal fun LazyListState.isAtGitHubBottom(): Boolean =
+    layoutInfo.totalItemsCount > 0 && gitHubDistanceToBottom() <= 1f
+
 /** One coroutine owns prompt anchoring and bottom following; raw deltas never launch scroll jobs. */
 @Composable
 internal fun GitHubScrollMotion(

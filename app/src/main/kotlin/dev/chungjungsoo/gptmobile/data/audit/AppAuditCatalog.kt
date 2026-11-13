@@ -28,7 +28,16 @@ class AppAuditCatalog internal constructor(
         now: Long = System.currentTimeMillis()
     ): AppAuditRun {
         require(options.selectedProfileIds.size <= 128)
-        val frozenOptions = options.copy(selectedProfileIds = options.selectedProfileIds.distinct().sorted())
+        val frozenOptions = if (options.mode == AppAuditMode.COMPREHENSIVE) {
+            options.copy(selectedProfileIds = options.selectedProfileIds.distinct().sorted())
+        } else {
+            options.copy(allowNetworkReads = false, selectedProfileIds = emptyList())
+        }
+        val acceptedLimits = if (options.mode == AppAuditMode.STRESS) {
+            AppAuditLimits(maxExecutedProbes = 512, maxNetworkProbes = 0, totalTimeoutMs = 900_000)
+        } else {
+            limits
+        }
         val proposed = sourcesById.toSortedMap().flatMap { (sourceId, source) ->
             try {
                 withTimeout(5_000) { source.plan(frozenOptions) }.also { entries ->
@@ -80,12 +89,22 @@ class AppAuditCatalog internal constructor(
             prerequisite = AppAuditPrerequisite.EXTERNAL_HARNESS_REQUIRED,
             reasonCode = "DEVICE_MEASUREMENT_REQUIRED"
         )
-        val plan = proposed + inventoryEntries + deviceMeasurement
+        val plan = when (frozenOptions.mode) {
+            AppAuditMode.COMPREHENSIVE -> proposed + inventoryEntries + deviceMeasurement
+            AppAuditMode.QUICK -> proposed.filter { it.safetyClass == AppAuditSafetyClass.LOCAL_READ }
+            AppAuditMode.STRESS -> {
+                val fixtures = proposed.filter { it.safetyClass == AppAuditSafetyClass.LOCAL_READ && it.fixtureHash != null }
+                val iterations = minOf(20, acceptedLimits.maxExecutedProbes / fixtures.size.coerceAtLeast(1))
+                (1..iterations).flatMap { iteration ->
+                    fixtures.map { it.copy(id = "${it.id}:iteration-$iteration", iteration = iteration) }
+                } + inventoryEntries + deviceMeasurement
+            }
+        }
         require(plan.size <= 4_096 && proposed.flatMap { it.sourceAreaIds }.all { id -> AppAuditSourceInventory.areas.any { it.id == id } })
         return AppAuditRun(
             id = id,
             startedAtEpochMs = now,
-            catalogHash = appAuditPlanHash(plan, frozenOptions, AppAuditSourceInventory.sourceDigest, limits),
+            catalogHash = appAuditPlanHash(plan, frozenOptions, AppAuditSourceInventory.sourceDigest, acceptedLimits),
             sourceCommit = BuildConfig.APP_COMMIT,
             buildVersion = BuildConfig.VERSION_NAME,
             buildVariant = BuildConfig.BUILD_TYPE,
@@ -95,7 +114,7 @@ class AppAuditCatalog internal constructor(
             plan = plan,
             sourceAreas = AppAuditSourceInventory.areas,
             options = frozenOptions,
-            limits = limits,
+            limits = acceptedLimits,
             environment = captureEnvironment()
         )
     }

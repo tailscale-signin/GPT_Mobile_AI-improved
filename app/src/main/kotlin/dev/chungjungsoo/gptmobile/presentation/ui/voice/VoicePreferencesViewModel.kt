@@ -30,7 +30,8 @@ internal data class VoicePreferences(
     val recognitionBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE,
     val kokoroVoice: KokoroVoice? = null,
     val spokenReplies: Boolean = true,
-    val kokoroThreads: Int = 2
+    val kokoroThreads: Int = 2,
+    val buttonSounds: Boolean = false
 )
 
 internal data class VoiceModelStores(val moonshine: LocalVoiceModelStore, val kokoro: LocalVoiceModelStore)

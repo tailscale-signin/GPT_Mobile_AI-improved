@@ -552,7 +552,7 @@ internal class GitHubEvidenceBook(
     suspend fun acceptedTaskRequest(): String? = ((taskContract ?: load("task_contract"))?.get("requested_actions") as? JsonPrimitive)?.contentOrNull
 
     suspend fun acceptedPromptContract(): JsonObject? = (taskContract ?: load("task_contract"))?.let { contract ->
-        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "tool_call_limit", "effective_tool_call_limit", "tool_call_limit_source") })
+        JsonObject(contract.filterKeys { it in setOf("source_message_id", "repository", "accepted_branch", "request_digest", "acceptance_criteria", "tool_call_limit", "effective_tool_call_limit", "tool_call_limit_source") })
     }
 
     /** Report the same accepted ceiling and execution counter across process restart. */

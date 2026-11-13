@@ -85,6 +85,7 @@ class IssueReportCollectorsTest {
         for ((index, failure) in failures.withIndex()) {
             val (code, stage, action) = failure
             val runId = "owned-review-run-$index"
+            val incidentsBefore = IssueReportIncidents.pending.value.size
             var retainedStage: String? = null
             flowOf(
                 ApiState.Error(
@@ -102,11 +103,16 @@ class IssueReportCollectorsTest {
                     }
                 )
             ).collectApiStateUpdates(onUpdate = { _, _, timeline -> retainedStage = timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.phase })
+            assertEquals(stage, retainedStage)
+            if (code == "REVIEW_INPUT_REQUIRED") {
+                assertEquals(incidentsBefore, IssueReportIncidents.pending.value.size)
+                continue
+            }
             val report = IssueReportIncidents.pending.value.last()
             val context = requireNotNull(report.context)
+            assertEquals(if (code == "WAITING_FOR_APPROVAL") "CHAT_FAILED" else code, report.errorCode)
             assertEquals(3, context.schemaVersion)
             assertEquals(stage, context.stage)
-            assertEquals(stage, retainedStage)
             assertEquals(action, context.recoveryAction)
             assertEquals("OPENROUTER", context.provider)
             assertEquals(false, context.dispatched)

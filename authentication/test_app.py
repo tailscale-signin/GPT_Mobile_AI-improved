@@ -13,6 +13,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from fastapi.testclient import TestClient
 
+from authentication.engineering_report_contract import ENGINEERING_REASON_FIELDS, GATEWAY_ADMISSION_CORE, MODEL_PREPARATION_REASONS
 from authentication.app import create_app
 from authentication.github_broker import Config, challenge_for
 from authentication.issue_report_app import create_app as create_report_app
@@ -103,7 +104,7 @@ class IssueReportHttpTest(unittest.TestCase):
 
     def context(self, **observed):
         result = {"schemaVersion": 1, "occurredAtMillis": self.now * 1000, "source": "CHAT_FAILURE", **observed}
-        fields = CONTEXT_FIELDS_V5 if result["schemaVersion"] == 5 else CONTEXT_FIELDS_V4 if result["schemaVersion"] == 4 else CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
+        fields = CONTEXT_FIELDS_V5 if result["schemaVersion"] in (5, 6) else CONTEXT_FIELDS_V4 if result["schemaVersion"] == 4 else CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
         result["unavailableFields"] = sorted(fields - result.keys())
         return result
 
@@ -111,6 +112,93 @@ class IssueReportHttpTest(unittest.TestCase):
         values = values or {}
         return {"schemaVersion": 1, "area": area, "capturedAtMillis": self.now * 1000 - 1200, "captureMode": mode,
                 "values": values, "unavailableFields": sorted(CORE_FIELDS[area] - values.keys())}
+
+    def test_engineering_rejections_preserve_every_known_reason_and_field_only_in_version_six(self):
+        for reason, names in ENGINEERING_REASON_FIELDS.items():
+            with self.subTest(reason=reason):
+                observed = {"stage": "request_validation", "operation": "github_engineering", "httpStatus": 409,
+                            "reasonCode": reason, "invalidFields": sorted(names), "dispatched": False, "retryable": False}
+                context = self.context(schemaVersion=6, **observed)
+                report = {**self.metadata(), "source": "debug", "feature": "gateway", "errorCode": "ENGINEERING_STATE_OR_INPUT_CHANGED", "context": context}
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(f"| Reason code | `{reason}` |", issue["body"])
+                self.assertIn("| Invalid request fields | `" + (", ".join(sorted(names)) if names else "[]") + "` |", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                for old in range(1, 6):
+                    with self.assertRaises(ReportError):
+                        issue_from_report({**report, "context": self.context(schemaVersion=old, **observed)})
+        for invalid in ({"reasonCode": "private exception text"}, {"invalidFields": ["private_branch"]}):
+            observed = {"reasonCode": "ENGINEERING_BRANCH_INVALID", **invalid}
+            with self.assertRaises(ReportError):
+                issue_from_report({**self.manual(), "context": self.context(schemaVersion=6, **observed)})
+
+    def test_actual_gateway_rejections_and_model_preparation_are_supported_without_false_dispatch(self):
+        from gateway.v14.engineering_rejection import _REASONS, state_or_input_rejection
+
+        emitted = set()
+        for error in [*_REASONS, "unknown private exception"]:
+            rejection = state_or_input_rejection(ValueError(error))
+            emitted.add(rejection["reasonCode"])
+            context = self.context(schemaVersion=6, stage=rejection["failed_stage"], reasonCode=rejection["reasonCode"], invalidFields=rejection["invalid_fields"], retryable=False)
+            report = {**self.metadata(), "source": "debug", "feature": "gateway", "errorCode": "ENGINEERING_STATE_OR_INPUT_CHANGED", "context": context}
+            _, issue = issue_from_report(report)
+            self.assertIn(rejection["reasonCode"], issue["body"])
+            self.assertNotIn("unknown private exception", issue["body"])
+            self.assertNotIn("| Dispatched |", issue["body"])
+        self.assertEqual(set(ENGINEERING_REASON_FIELDS), emitted)
+        codes = ("MODEL_PREPARATION_INCOMPLETE", "MODEL_PREPARATION_REJECTED", "MODEL_PREPARATION_STORAGE_UNAVAILABLE", "MODEL_PREPARATION_CONNECTION_FAILED")
+        for code in codes:
+            context = self.context(schemaVersion=6, stage="model_preparation", dispatched=False)
+            _, issue = issue_from_report({**self.metadata(), "source": "debug", "feature": "gateway", "errorCode": code, "context": context})
+            self.assertIn(code, issue["title"])
+            self.assertIn("| Failure stage | `model_preparation` |", issue["body"])
+            self.assertNotIn("| HTTP status |", issue["body"])
+            self.assertNotIn("| Invocation hash |", issue["body"])
+        for reason in MODEL_PREPARATION_REASONS:
+            context = self.context(schemaVersion=6, stage="model_preparation", reasonCode=reason, dispatched=False)
+            _, issue = issue_from_report({**self.manual(), "context": context})
+            self.assertIn(f"| Reason code | `{reason}` |", issue["body"])
+            with self.assertRaises(ReportError):
+                issue_from_report({**self.manual(), "context": self.context(schemaVersion=6, stage="response_stream", reasonCode=reason)})
+
+    def test_gateway_admission_without_a_job_round_trips_over_http_and_keeps_approved_bytes(self):
+        values = {"profile_hash": "a" * 64, "model_hash": "b" * 64, "gateway_manifest_hash": "c" * 64,
+                  "gateway_version": "16.0.0", "gateway_protocol_version": 1, "gateway_admission_ready": False,
+                  "gateway_failure_phase": "model_preparation", "gateway_http_status": 409, "gateway_reason_code": "SELECTED_MODEL_NOT_LOADED"}
+        capture = {**self.diagnostics("GATEWAY", values, "SELECTED_CAPTURE"), "schemaVersion": 2,
+                   "unavailableFields": sorted((CORE_FIELDS["GATEWAY"] | GATEWAY_ADMISSION_CORE) - values.keys())}
+        report = {**self.manual(), "context": self.context(schemaVersion=6, source="MANUAL_REPORT", diagnostics=capture)}
+        approved = json.dumps(report, separators=(",", ":"))
+        response = self.client.post("/v1/issue-reports", content=approved, headers={"Content-Type": "application/json"})
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(1, len(self.issued))
+        body = self.issued[0]["body"]
+        for name in values:
+            self.assertIn(f"| {name} |", body)
+        self.assertIn("`job_id_hash`", body)
+        self.assertNotIn("| job_id_hash |", body)
+        self.assertIn("timestamp does not establish the time", body)
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(1, len(self.issued))
+        with self.assertRaises(ReportError):
+            issue_from_report({**report, "context": self.context(schemaVersion=5, source="MANUAL_REPORT", diagnostics=capture)})
+
+    def test_gateway_admission_snapshot_rejects_private_values_wrong_types_and_legacy_schema(self):
+        values = {"gateway_manifest_hash": "a" * 64, "gateway_protocol_version": 1, "gateway_admission_ready": True}
+        capture = {**self.diagnostics("GATEWAY", values), "schemaVersion": 2,
+                   "unavailableFields": sorted((CORE_FIELDS["GATEWAY"] | GATEWAY_ADMISSION_CORE) - values.keys())}
+        for extra in ({"gateway_version": "16.0.0 private-path"}, {"gateway_manifest_hash": "private-host"},
+                      {"gateway_protocol_version": True}, {"gateway_admission_ready": "true"},
+                      {"gateway_failure_phase": "private-stage"}, {"gateway_http_status": 999},
+                      {"gateway_reason_code": "PRIVATE_FAILURE"}, {"prompt": "private-prompt"}):
+            with self.subTest(extra=extra), self.assertRaises(ValueError):
+                validate_diagnostics({**capture, "values": {**values, **extra}})
+        with self.assertRaises(ValueError):
+            validate_diagnostics({**capture, "schemaVersion": 1})
+        with self.assertRaises(ValueError):
+            validate_diagnostics({**capture, "area": "PROVIDER"})
 
     def test_additional_diagnostics_reach_github_with_typed_provider_tool_acceptance_and_voice_facts(self):
         cases = {
@@ -144,6 +232,31 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertEqual(capture, context["diagnostics"])
                 self.assertEqual(200, self.submit(report).status_code)
         self.assertEqual(len(cases), len(self.issued))
+
+    def test_model_preparation_capture_reaches_report_with_exact_approved_typed_fields(self):
+        values = {"profile_hash": "a" * 64, "model_hash": "b" * 64, "operation_id_hash": "c" * 64,
+                  "model_preparation_state": "LOAD_REJECTED", "model_preparation_action": "WAKE", "model_preparation_dispatch": "DISPATCHED",
+                  "model_preparation_load_accepted": False, "model_preparation_load_requests": 1, "gateway_model_state": "SLEEPING",
+                  "gateway_failure_category": "denied", "gateway_dependency": "selected_model", "gateway_upstream_status": 403,
+                  "gateway_upstream_message_code": "INVALID_API_KEY", "gateway_reconciliation_status": 503}
+        capture = self.diagnostics("GATEWAY", values, "SELECTED_CAPTURE")
+        report = {**self.manual(), "context": self.context(schemaVersion=5, source="MANUAL_REPORT", diagnostics=capture)}
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(1, len(self.issued))
+        for key, value in values.items():
+            rendered = str(value).lower() if type(value) is bool else str(value)
+            self.assertIn(f"| {key} | `{rendered}` |", self.issued[0]["body"])
+
+    def test_model_preparation_capture_rejects_private_unknown_and_out_of_range_values(self):
+        for field, value in (("operation_id_hash", "private-operation"), ("model_preparation_action", "private-action"),
+                             ("model_preparation_load_accepted", "false"), ("model_preparation_load_requests", 2),
+                             ("gateway_upstream_status", 999), ("gateway_dependency", "private-path"),
+                             ("gateway_upstream_message_code", "private-text")):
+            with self.subTest(field=field):
+                report = {**self.manual(), "context": self.context(schemaVersion=5, diagnostics=self.diagnostics("GATEWAY", {field: value}))}
+                self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual([], self.issued)
 
     def test_selected_observation_and_absent_capture_do_not_claim_a_failure_timestamp(self):
         for mode, values in (("SELECTED_CAPTURE", {"voice_engine": "SYSTEM", "voice_phase": "SPEAKING"}), ("NO_CAPTURE", {})):
@@ -246,7 +359,8 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
                          {key: response.json()[key] for key in ("service", "version")})
-        self.assertEqual([1, 2, 3, 4, 5], response.json()["reportContextVersions"])
+        self.assertEqual([1, 2, 3, 4, 5, 6], response.json()["reportContextVersions"])
+        self.assertEqual(["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1"], response.json()["reportDiagnosticFeatures"])
         self.assertEqual("no-store", response.headers["cache-control"])
         self.assertFalse(self.issued)
         # Old clients may continue posting their original reports without a

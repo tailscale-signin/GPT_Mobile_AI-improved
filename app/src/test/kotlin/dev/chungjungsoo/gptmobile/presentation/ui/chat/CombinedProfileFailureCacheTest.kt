@@ -18,6 +18,25 @@ class CombinedProfileFailureCacheTest {
     private val sibling = MessageV2(id = 3, chatId = 1, linkedMessageId = 1, platformType = "q", currentRunId = "q-run", content = "Still writing")
     private val streaming = AgentRun("q-run", 1, 1, 3, "q", "FREE", "model", "RUNNING")
 
+    @Test fun baselineQuestionKeepsItsTaskActionWithoutOfferingProviderRemoval() {
+        val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord(
+            "REVIEW_INPUT_REQUIRED",
+            false,
+            dispatched = false,
+            phase = "review_comparison",
+            recoveryActions = listOf("SELECT_REVIEW_BASELINE")
+        )
+        val notice = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+            profileFailure = classified
+        )
+        val message = partial.copy(content = "Choose a baseline commit or tag to review main.", timeline = listOf(notice))
+        val run = failed.copy(status = AgentRunStatus.BLOCKED, terminalError = message.content)
+        assertTrue(combinedProfileFailures(1, "Review main", listOf(message), mapOf(run.runId to run), emptyMap(), emptyMap()).isEmpty())
+        assertEquals("Choose a baseline commit or tag to review main.", message.content)
+        assertEquals(listOf("SELECT_REVIEW_BASELINE"), classified.recoveryActions)
+    }
+
     @Test fun taskAcceptanceGapsDoNotOfferProviderRetriesOrRemoval() {
         for (code in listOf("GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED")) {
             val taskRun = failed.copy(status = AgentRunStatus.PARTIAL, terminalError = "$code: Required receipt missing")

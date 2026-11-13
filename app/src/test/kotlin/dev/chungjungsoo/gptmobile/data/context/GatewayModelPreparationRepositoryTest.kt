@@ -123,6 +123,33 @@ class GatewayModelPreparationRepositoryTest {
         assertEquals(2, loads)
     }
 
+    @Test fun unresolvedLoadKeepsItsTypedPhaseTransportCauseAndOriginalIdentity() = runTest {
+        var operationId: String? = null
+        var ready = false
+        val repository = GatewayModelPreparationRepository(
+            { capabilities },
+            { p, m -> observation(p, m, ready = ready) },
+            { _, operation ->
+                operationId = operation
+                throw java.io.EOFException("private socket address")
+            },
+            { testScheduler.currentTime },
+            pause = {},
+            maxPolls = 1
+        )
+        val blocked = requireNotNull(repository.prepareSelected(profile, ReasoningMode.OFF))
+        assertEquals("MODEL_PREPARATION_INCOMPLETE", blocked.failureCode)
+        assertEquals(operationId, blocked.operationId)
+        assertEquals("CONNECTION_ABORTED", blocked.transportCode)
+        assertEquals("MODEL_PREPARATION_INCOMPLETE", GatewayModelPreparationException(blocked).code)
+        assertFalse(blocked.message.contains("private socket"))
+        ready = true
+        val completed = requireNotNull(repository.prepareSelected(profile, ReasoningMode.OFF, forceRefresh = true))
+        assertEquals(GatewayModelPreparationPhase.READY, completed.phase)
+        assertNull(completed.failureCode)
+        assertNull(completed.transportCode)
+    }
+
     @Test fun cancellationAfterDispatchRetainsUnresolvedLoadForTheNextScreen() = runTest {
         var loads = 0
         val operations = mutableListOf<String>()
@@ -498,6 +525,41 @@ class GatewayModelPreparationRepositoryTest {
         assertEquals(GatewayModelPreparationPhase.BLOCKED, repository.prepareSelected(profile, ReasoningMode.OFF)?.phase)
         assertEquals(2, checks)
         assertEquals(id, store.read(ConfiguredDispatchAuthority.profileRevision(profile), profile.model)?.operationId)
+    }
+
+    @Test fun unqualifiedLoadedCatalogueKeepsOperationAcrossRecheckAndRestartUntilExactReadiness() = runTest {
+        for (accepted in listOf(null, true)) {
+            val store = GatewayModelPreparationStore(ModelPreparationTestVault())
+            val identity = ConfiguredDispatchAuthority.profileRevision(profile)
+            val ids = mutableListOf<String>()
+            var checks = 0
+            var ready = false
+            fun repository() = GatewayModelPreparationRepository(
+                { capabilities },
+                { p, m -> observation(p, m, if (++checks == 1) "SELECTED_MODEL_NOT_LOADED" else "BACKEND_METADATA_DENIED", ready = ready) },
+                { p, id ->
+                    ids += id
+                    receipt(p, id, "LOAD_OUTCOME_UNKNOWN", "LOADED").copy(loadAccepted = accepted, preparationAction = "WAKE")
+                },
+                { 0L },
+                pause = {},
+                maxPolls = 1,
+                operations = store
+            )
+            val initial = repository()
+            assertEquals(GatewayModelPreparationPhase.BLOCKED, initial.prepareSelected(profile, ReasoningMode.OFF)?.phase)
+            assertEquals(ids.single(), store.read(identity, profile.model)?.operationId)
+            assertEquals(GatewayModelPreparationPhase.BLOCKED, initial.prepareSelected(profile, ReasoningMode.OFF, forceRefresh = true)?.phase)
+            val restarted = repository()
+            assertEquals(GatewayModelPreparationPhase.BLOCKED, restarted.prepareSelected(profile, ReasoningMode.OFF)?.phase)
+            assertEquals(3, ids.size)
+            assertEquals(1, ids.distinct().size)
+            assertEquals(ids.first(), store.read(identity, profile.model)?.operationId)
+            ready = true
+            assertEquals(GatewayModelPreparationPhase.READY, restarted.prepareSelected(profile, ReasoningMode.OFF, forceRefresh = true)?.phase)
+            assertEquals(3, ids.size)
+            assertNull(store.read(identity, profile.model))
+        }
     }
 
     @Test fun unchangedSelectionRechecksOnFreshnessAndReconnectWithoutChangingModelOrReasoning() = runTest {

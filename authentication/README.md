@@ -149,15 +149,34 @@ looks for the original issue.
 ### Report context and rollout compatibility
 
 The ready response preserves `service: "gpt-mobile-issue-reporter"` and
-`version: 1`, and advertises `reportContextVersions: [1, 2, 3, 4, 5]`. Clients with a
+`version: 1`, and advertises `reportContextVersions: [1, 2, 3, 4, 5, 6]`. Clients with a
 context-bearing report check support for that report's schema and any retained
 review extensions before marking it dispatched or sending the POST. An older
 service without all required versions has not declared
 support: the app retains the approved report and displays a native
 service-update requirement. It must not silently strip context or change a
 previously submitted payload. Deploy the updated reporter before shipping a
-hosted reporting route; the distribution readiness check requires all five versions
+hosted reporting route; the distribution readiness check requires all six versions
 so current reports and retained legacy reports remain supported.
+
+Exact-model preparation captures extend the closed schema-5 diagnostics with
+bounded load/wake states, typed backend failures and hashed operation/profile/model
+identities. The updated ready response advertises
+`reportDiagnosticFeatures: ["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1"]`. The app requires the first
+feature only when the approved capture contains these extension fields (including
+their omission declarations). A reporter advertising schema 5 without this feature
+does not establish support: the app returns `REPORT_SERVICE_UPDATE_REQUIRED`
+before POST, keeps the approved bytes and disables automatic retries. Deploy this
+reporter update before distributing these captures through the hosted route.
+Native GitHub reporting remains a separately selected route and does not depend
+on this service feature; the app never changes destinations or strips fields to
+work around an older reporter.
+
+`REVIEW_COMPARISON_V1` declares support for the public report codes
+`REVIEW_INPUT_REQUIRED` and `GITHUB_REVIEW_COMPARISON_REQUIRED`. The app checks this
+feature when either code appears as the report error, a retained original failure,
+or an exact code token in a bounded event, including reports without context.
+Older reporters stay blocked before POST with the same service-update requirement.
 
 The optional top-level `context` object has a schema version, a bounded client
 occurrence timestamp, a fixed capture-source enum, and `unavailableFields`.
@@ -215,6 +234,18 @@ report requires explicit version-5 readiness before the dispatch marker or POST;
 the total request limit remains 8 KiB. Existing approved reports are not rewritten
 to add these observations.
 
+Manual observations are labeled as selected observations and
+expire into an explicit `NO_CAPTURE` snapshot; they are not proof of the reported
+incident's cause. Schema 6 preserves allowlisted engineering rejection reasons
+and invalid request-field names and permits version-2 gateway snapshots. The
+gateway snapshot can retain observed manifest hash, protocol/version, readiness,
+HTTP status and admission phase before a job exists. It never initiates a network
+probe, invents a job/checkpoint, or publishes raw request values. Existing
+version-1 snapshots remain accepted in schema 6. Schema 5 continues to accept
+only version-1 snapshots, and schemas 1 through 5 do not accept the new engineering
+reason vocabulary. New schema-6 reports require explicit version-6 readiness
+before dispatch; previously approved reports keep their exact bytes and version.
+
 An earlier app revision used schema 2 for those review extensions. Its approved
 payloads remain unchanged: the app requires readiness support for both their
 declared version 2 and the version-3 review contract, then posts their original
@@ -231,7 +262,7 @@ non-retryable; unknown GitHub outcomes still require reconciliation.
 The rendered issue shows captured causal facts and unavailable observations
 separately. A missing field does not establish success, non-dispatch or safe
 retry. The full JSON request still has an 8 KiB maximum. Legacy reports without
-`context`, and existing schema-1 through schema-4 reports, retain their original rendering so
+`context`, and existing schema-1 through schema-5 reports, retain their original rendering so
 previously queued report digests remain valid.
 
 Successful submissions return `{"reportId":"<original UUID>","number":42}`.

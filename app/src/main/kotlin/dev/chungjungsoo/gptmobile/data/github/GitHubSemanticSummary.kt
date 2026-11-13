@@ -59,7 +59,10 @@ internal object GitHubSemanticSummary {
             }
             if (runs != null) {
                 put("observed_checks", runs.size)
-                put("check_inventory_complete", (checks["total_count"] as? JsonPrimitive)?.intOrNull == runs.size && data["has_more"] != JsonPrimitive(true) && checks["has_more"] != JsonPrimitive(true))
+                val total = (checks["total_count"] as? JsonPrimitive)?.intOrNull ?: (data["checks"] as? JsonPrimitive)?.intOrNull
+                total?.let { put("reported_total_checks", it) }
+                (data["page"] as? JsonPrimitive)?.intOrNull?.let { put("remote_page", it) }
+                put("check_inventory_complete", total == runs.size && ((data["page"] as? JsonPrimitive)?.intOrNull ?: 1) == 1 && data["has_more"] != JsonPrimitive(true) && checks["has_more"] != JsonPrimitive(true))
                 put(
                     "check_counts",
                     buildJsonObject {
@@ -72,6 +75,10 @@ internal object GitHubSemanticSummary {
                 )
                 put("pending_check_names", JsonArray(runs.filter { it.text("status") != "completed" }.take(4).map { JsonPrimitive(it.text("name").take(160)) }))
                 data.text("state").takeIf { it.isNotBlank() }?.let { put("observed_check_state", it.take(40)) }
+            }
+            (data["status_details"] as? JsonObject)?.let { statuses ->
+                (statuses["statuses"] as? JsonArray)?.let { put("observed_statuses", it.size) }
+                (statuses["total_count"] as? JsonPrimitive)?.intOrNull?.let { put("reported_total_statuses", it) }
             }
             if (operation.substringBefore("__") == "github_pr" && action == "list") {
                 val items = (data["items"] ?: data["pull_requests"]) as? JsonArray

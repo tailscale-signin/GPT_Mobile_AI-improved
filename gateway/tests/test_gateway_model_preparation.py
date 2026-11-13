@@ -322,6 +322,86 @@ class ExplicitModelPreparationTests(unittest.TestCase):
         self.assertEqual(403, receipt['failure']['upstreamStatus'])
         self.assertEqual(1, sum(method == 'POST' for method, _, _ in calls))
 
+    def test_loaded_catalogue_cannot_override_exact_model_readiness_failure(self):
+        for status, error_code, sleeping in ((403, 'private-token', False), (404, 'model_not_found', False), (200, None, False), (200, None, True), (200, 'unscoped', True)):
+            with self.subTest(status=status, sleeping=sleeping):
+                def get(url, **kwargs):
+                    if url.endswith('/models'):
+                        rows = [{'id': 'selected', 'status': {'value': 'loaded'}}]
+                        if error_code == 'unscoped':
+                            rows.append({'id': 'other', 'status': {'value': 'loaded'}})
+                        return Response({'data': rows})
+                    if status == 200:
+                        props = {'is_sleeping': sleeping, 'default_generation_settings': {'n_ctx': 8192}}
+                        if error_code != 'unscoped':
+                            props['model_alias'] = 'different'
+                        return Response(props)
+                    return Response({'error': {'code': error_code, 'message': 'private-path'}}, status=status)
+                post = Mock(side_effect=AssertionError('Failed readiness cannot authorize a load or wake'))
+                receipt = prepare_model(InferenceCapabilities(runtime(get, post)), 'selected')
+                self.assertEqual('QUALIFICATION_BLOCKED', receipt['state'])
+                self.assertFalse(receipt['selectedModel']['limitsVerified'])
+                self.assertEqual('NONE', receipt['preparationAction'])
+                self.assertEqual(0, receipt['loadRequests'])
+                self.assertIn('failureCode', receipt['reconciliationFailure'])
+                if status != 200:
+                    self.assertEqual(status, receipt['reconciliationFailure']['upstreamStatus'])
+                self.assertNotIn('private', json.dumps(receipt))
+                post.assert_not_called()
+
+    def sleeping_fixture(self, *, legacy_catalogue=False, lost=False, wake_after='loaded'):
+        state, calls = ['sleeping'], []
+        def get(url, **kwargs):
+            calls.append(('GET', url, kwargs))
+            if url.endswith('/models'):
+                return Response({'data': [{'id': 'selected', 'status': {'value': 'loaded' if legacy_catalogue else state[0]}}]})
+            if url.endswith('/props'):
+                return Response({'model_alias': 'selected', 'is_sleeping': state[0] == 'sleeping',
+                                 'default_generation_settings': {'n_ctx': 8192}})
+            raise AssertionError('Unexpected metadata route')
+        def post(url, **kwargs):
+            calls.append(('POST', url, kwargs))
+            if url.endswith('/models/load'):
+                # llama.cpp counts sleeping children as already running.
+                return Response({'error': {'code': 400, 'message': 'model is already running'}}, 400)
+            self.assertTrue(url.endswith('/tokenize'))
+            self.assertEqual({'model': 'selected', 'content': '', 'add_special': False}, kwargs['json'])
+            self.assertEqual({'autoload': 'false'}, kwargs['params'])
+            self.assertEqual((2, 5), kwargs['timeout'])
+            state[0] = wake_after
+            if lost:
+                raise requests.exceptions.ChunkedEncodingError('private wake response lost')
+            return Response({'tokens': []})
+        return InferenceCapabilities(runtime(get, post)), calls
+
+    def test_sleeping_model_wakes_without_duplicate_load_unload_or_inference(self):
+        for legacy in (False, True):
+            with self.subTest(legacy_catalogue=legacy):
+                capability, calls = self.sleeping_fixture(legacy_catalogue=legacy)
+                fenced = []
+                receipt = prepare_model(capability, 'selected', before_dispatch=fenced.append)
+                self.assertEqual('METADATA_QUALIFIED', receipt['state'])
+                self.assertEqual('WAKE', receipt['preparationAction'])
+                self.assertTrue(receipt['loadAccepted'])
+                self.assertFalse(receipt['inferenceTested'])
+                self.assertEqual('WAKE', fenced[0]['preparationAction'])
+                self.assertEqual(1, len(fenced))
+                posts = [(url, details) for method, url, details in calls if method == 'POST']
+                self.assertEqual(1, len(posts))
+                self.assertTrue(posts[0][0].endswith('/tokenize'))
+
+    def test_lost_wake_response_retains_fence_and_rechecks_without_replaying(self):
+        for legacy, after in ((False, 'sleeping'), (False, 'loading'), (False, 'loaded'), (True, 'sleeping'), (True, 'loaded')):
+            with self.subTest(legacy_catalogue=legacy, after=after):
+                capability, calls = self.sleeping_fixture(legacy_catalogue=legacy, lost=True, wake_after=after)
+                first = prepare_model(capability, 'selected')
+                second = prepare_model(capability, 'selected', prior=first)
+                self.assertIsNone(second['loadAccepted'])
+                self.assertEqual('WAKE', second['preparationAction'])
+                self.assertEqual(1, sum(method == 'POST' for method, _, _ in calls))
+                self.assertNotIn('private', json.dumps(second))
+                self.assertEqual('METADATA_QUALIFIED' if after == 'loaded' else 'WAITING_FOR_MODEL' if after == 'loading' else 'LOAD_OUTCOME_UNKNOWN', second['state'])
+
     def test_repair_invalidates_only_the_requested_models_observations(self):
         capability, _ = self.fixture()
         route = configured_route(capability.runtime, 'LLAMA')

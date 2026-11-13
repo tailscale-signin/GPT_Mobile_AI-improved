@@ -5,9 +5,10 @@ import sqlite3
 import sys
 import tempfile
 import threading
+import time
 import unittest
-from concurrent.futures import ThreadPoolExecutor
-from contextlib import asynccontextmanager, closing
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
+from contextlib import asynccontextmanager, closing, contextmanager
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -59,8 +60,12 @@ class ModelPreparationHttpTests(unittest.TestCase):
 
     def post(self, url, **kwargs):
         self.calls.append(('POST', url, kwargs))
-        self.assertEqual('http://127.0.0.1:8080/models/load', url)
+        self.assertIn(url, ('http://127.0.0.1:8080/models/load', 'http://127.0.0.1:8080/tokenize'))
         model = kwargs['json']['model']
+        waking = url.endswith('/tokenize')
+        if waking:
+            self.assertEqual({'model': model, 'content': '', 'add_special': False}, kwargs['json'])
+            self.assertEqual({'autoload': 'false'}, kwargs['params'])
         # Check the real committed SQLite fence at the external dispatch boundary.
         # sqlite3's context manager commits/rolls back but does not close the
         # handle. Windows keeps jobs.db locked until it is explicitly closed.
@@ -71,7 +76,7 @@ class ModelPreparationHttpTests(unittest.TestCase):
         if self.post_hook:
             return self.post_hook(url, kwargs)
         self.states[model] = 'loaded'
-        return Response({'success': True})
+        return Response({'tokens': []} if waking else {'success': True})
 
     def app(self, config=None, service=None, lifecycle=False):
         active = service or self.service
@@ -122,6 +127,105 @@ class ModelPreparationHttpTests(unittest.TestCase):
                 self.assertEqual('NOT_DISPATCHED', response.json()['dispatchState'])
                 self.assertEqual(0, response.json()['loadRequests'])
         self.assertEqual([], self.mutations())
+
+    def test_sleep_wake_is_durable_and_duplicate_operation_keeps_its_exact_model(self):
+        self.states['selected'] = 'sleeping'
+        first = self.request()
+        self.assertEqual(200, first.status_code)
+        self.assertEqual('METADATA_QUALIFIED', first.json()['state'])
+        self.assertEqual('WAKE', first.json()['preparationAction'])
+        self.assertEqual(first.json(), self.request().json())
+        self.assertEqual(409, self.request(model='other').status_code)
+        self.assertEqual('unloaded', self.states['other'])
+        self.assertEqual(['http://127.0.0.1:8080/tokenize'], [call[1] for call in self.mutations()])
+
+    def test_uncertain_wake_survives_restart_and_new_selection_without_replay(self):
+        self.states['selected'] = 'sleeping'
+        def lost(*args):
+            raise requests.ReadTimeout('private wake response')
+        self.post_hook = lost
+        first = self.request()
+        self.assertEqual('LOAD_OUTCOME_UNKNOWN', first.json()['state'])
+        self.assertIsNone(first.json()['loadAccepted'])
+        restarted = self.client(service=ModelPreparationService(InferenceCapabilities(self.runtime)))
+        for operation in ('selection-1', 'selection-2'):
+            replay = self.request(restarted, operation=operation)
+            self.assertEqual('SLEEPING', replay.json()['modelState'])
+            self.assertEqual('WAKE', replay.json()['preparationAction'])
+            self.assertIsNone(replay.json()['loadAccepted'])
+        self.assertEqual(1, len(self.mutations()))
+        self.states['selected'] = 'loaded'
+        self.assertEqual('METADATA_QUALIFIED', self.request(restarted, operation='selection-2').json()['state'])
+        self.assertEqual(1, len(self.mutations()))
+
+    def test_wake_auth_rejection_keeps_safe_evidence_and_never_unloads(self):
+        self.states['selected'] = 'sleeping'
+        self.post_hook = lambda *args: Response({'error': {'message': 'private token', 'code': 'private-code'}}, status=403)
+        response = self.request()
+        self.assertEqual('LOAD_REJECTED', response.json()['state'])
+        self.assertEqual('WAKE', response.json()['preparationAction'])
+        self.assertFalse(response.json()['loadAccepted'])
+        self.assertEqual(403, response.json()['failure']['upstreamStatus'])
+        self.assertNotIn('private', response.text)
+        self.assertEqual(response.json(), self.request().json())
+        self.assertEqual(1, len(self.mutations()))
+
+    def test_cancelling_dispatched_wake_cannot_repeat_it(self):
+        self.states['selected'] = 'sleeping'
+        entered, release = Future(), threading.Event()
+        def blocked(url, kwargs):
+            entered.set_result(None)
+            self.assertTrue(release.wait(3))
+            self.states['selected'] = 'loaded'
+            return Response({'tokens': []})
+        self.post_hook = blocked
+        asyncio.run(self.cancel_request(entered, release))
+        receipt = self.request().json()
+        self.assertEqual('METADATA_QUALIFIED', receipt['state'])
+        self.assertEqual('WAKE', receipt['preparationAction'])
+        self.assertEqual(1, len(self.mutations()))
+
+    def test_invalid_wake_receipt_retains_unknown_acceptance_without_replay(self):
+        self.states['selected'] = 'sleeping'
+        self.post_hook = lambda *args: Response({'tokens': 'private-invalid-reply'})
+        first = self.request()
+        self.assertEqual('LOAD_OUTCOME_UNKNOWN', first.json()['state'])
+        self.assertIsNone(first.json()['loadAccepted'])
+        self.assertEqual('invalid_response', first.json()['failure']['failureCategory'])
+        self.assertNotIn('private', first.text)
+        self.assertEqual('LOAD_OUTCOME_UNKNOWN', self.request(operation='new-selection').json()['state'])
+        self.assertEqual(1, len(self.mutations()))
+
+    def test_legacy_loaded_catalogue_cannot_retire_uncertain_wake_after_failed_readiness(self):
+        for failure_kind, accepted in ((kind, accepted) for kind in ('sleeping', 'denied', 'unavailable') for accepted in (False, True)):
+            with self.subTest(failure_kind=failure_kind, accepted=accepted):
+                model = 'legacy-' + failure_kind + str(accepted)
+                self.states[model] = 'loaded'
+                dispatches = []
+                def legacy_get(url, **kwargs):
+                    self.calls.append(('GET', url, kwargs))
+                    self.assertEqual('false', kwargs['params']['autoload'])
+                    if url.endswith('/models'):
+                        return Response({'data': [{'id': name, 'status': {'value': state}} for name, state in self.states.items()]})
+                    if dispatches and failure_kind != 'sleeping':
+                        return Response({'error': {'code': 'model_not_found' if failure_kind == 'unavailable' else 'private', 'message': 'private'}}, 404 if failure_kind == 'unavailable' else 403)
+                    return Response({'model_alias': model, 'is_sleeping': True, 'default_generation_settings': {'n_ctx': 8192}})
+                def lost(url, kwargs):
+                    dispatches.append(url)
+                    if accepted:
+                        return Response({'tokens': []})
+                    raise requests.ReadTimeout('private wake response')
+                self.runtime.http_get, self.post_hook = legacy_get, lost
+                first = self.request(model=model, operation=model).json()
+                self.assertEqual('LOAD_OUTCOME_UNKNOWN', first['state'])
+                self.assertEqual(True if accepted else None, first['loadAccepted'])
+                self.assertIn('failureCode', first['reconciliationFailure'])
+                restarted = self.client(service=ModelPreparationService(InferenceCapabilities(self.runtime)))
+                second = self.request(restarted, model=model, operation=model + '-new').json()
+                self.assertEqual('LOAD_OUTCOME_UNKNOWN', second['state'])
+                self.assertEqual(True if accepted else None, second['loadAccepted'])
+                self.assertEqual(1, len(dispatches))
+                self.assertNotIn('private', json.dumps(second))
 
     def test_unadvertised_unknown_and_unsupported_backends_never_load(self):
         for model in ('absent', 'selected'):
@@ -267,25 +371,13 @@ class ModelPreparationHttpTests(unittest.TestCase):
         self.assertEqual(1, len(self.mutations()))
 
     def test_concurrent_same_model_selections_share_the_single_pending_load(self):
-        entered, release = threading.Event(), threading.Event()
-        def slow(url, kwargs):
-            entered.set()
-            self.assertTrue(release.wait(3))
-            self.states['selected'] = 'loaded'
-            return Response({'success': True})
-        self.post_hook = slow
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            first = pool.submit(self.request)
-            self.assertTrue(entered.wait(2))
-            try:
-                second = self.request(operation='second-selection')
-                self.assertEqual(202, second.status_code)
-                self.assertEqual('DISPATCHED', second.json()['dispatchState'])
-                self.assertEqual('second-selection', second.json()['operationId'])
-                self.assertEqual(1, len(self.mutations()))
-            finally:
-                release.set()
-            self.assertEqual('METADATA_QUALIFIED', first.result(timeout=2).json()['state'])
+        with self.blocked_model_load() as first:
+            second = self.request(operation='second-selection')
+            self.assertEqual(202, second.status_code)
+            self.assertEqual('DISPATCHED', second.json()['dispatchState'])
+            self.assertEqual('second-selection', second.json()['operationId'])
+            self.assertEqual(1, len(self.mutations()))
+        self.assertEqual('METADATA_QUALIFIED', first.result().json()['state'])
 
     def test_storage_and_capacity_failure_are_bounded_and_never_authorize_dispatch(self):
         self.runtime.GATEWAY_DURABLE_JOBS = False
@@ -436,46 +528,138 @@ class ModelPreparationHttpTests(unittest.TestCase):
         self.assertEqual(1, len(self.mutations()))
 
     def test_worker_capacity_rejects_new_model_without_expanding_thread_or_load_count(self):
-        entered, release = threading.Event(), threading.Event()
-        def slow(url, kwargs):
-            entered.set()
-            self.assertTrue(release.wait(3))
-            self.states['selected'] = 'loaded'
-            return Response({'success': True})
-        self.post_hook = slow
-        self.service.max_active = 1
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            first = pool.submit(self.request)
-            self.assertTrue(entered.wait(2))
-            try:
-                response = self.request(model='other', operation='second-model')
-                self.assertEqual(503, response.status_code)
-                self.assertEqual('MODEL_PREPARATION_BUSY', response.json()['error']['code'])
-                self.assertEqual(1, len(self.mutations()))
-                self.assertEqual(1, len(self.service.running))
-            finally:
-                release.set()
-            self.assertEqual(200, first.result(timeout=2).status_code)
-        self.post_hook = None
+        self.assert_worker_capacity_rejects_second_model()
+
+    def test_worker_capacity_fixture_separates_slow_admission_from_load_entry(self):
+        with self.delayed_first_admission():
+            self.assert_worker_capacity_rejects_second_model()
+
+    @contextmanager
+    def delayed_first_admission(self):
+        admit = self.service._admit
+        delayed = False
+        def delayed_admit(principal, operation, model, route):
+            nonlocal delayed
+            if operation == 'selection-1' and not delayed:
+                delayed = True
+                time.sleep(2.1)
+            return admit(principal, operation, model, route)
+        with patch.object(self.service, '_admit', side_effect=delayed_admit):
+            yield
+
+    def test_worker_capacity_fixture_separates_slow_dispatch_commit_from_load_entry(self):
+        save = self.service._save
+        def delayed_save(record, receipt, **kwargs):
+            if kwargs.get('dispatch') and record['model'] == 'selected':
+                time.sleep(2.1)
+            return save(record, receipt, **kwargs)
+        with patch.object(self.service, '_save', side_effect=delayed_save):
+            self.assert_worker_capacity_rejects_second_model()
+
+    def test_worker_capacity_fixture_rejects_a_worker_stalled_after_dispatch_commit(self):
+        with self.assertRaisesRegex(AssertionError, 'Load entry was not observed within 2 seconds'):
+            self.assert_worker_capacity_rejects_second_model(stall_after_dispatch=True)
+        self.assertEqual(1, len(self.mutations()))
+        self.assertEqual(set(), self.service.running)
+
+    def test_worker_capacity_fixture_surfaces_early_request_failures(self):
+        with patch.object(self.service, '_admit', side_effect=PreparationUnavailable()):
+            with self.assertRaisesRegex(AssertionError, 'First request returned HTTP 503 before Durable dispatch'):
+                self.assert_worker_capacity_rejects_second_model()
+        with patch.object(self.service, '_admit', side_effect=RuntimeError('fixture admission failed')):
+            with self.assertRaisesRegex(RuntimeError, 'fixture admission failed'):
+                self.assert_worker_capacity_rejects_second_model()
+        self.assertEqual([], self.calls)
+        self.assertEqual(set(), self.service.running)
+
+    def assert_worker_capacity_rejects_second_model(self, *, stall_after_dispatch=False):
+        with patch.object(self.service, 'max_active', 1), self.blocked_model_load(stall_after_dispatch=stall_after_dispatch) as first:
+            response = self.request(model='other', operation='second-model')
+            self.assertEqual(503, response.status_code)
+            self.assertEqual('MODEL_PREPARATION_BUSY', response.json()['error']['code'])
+            self.assertEqual(1, len(self.mutations()))
+            self.assertEqual(1, len(self.service.running))
+        self.assertEqual(200, first.result().status_code)
+        self.assertEqual(set(), self.service.running)
         self.assertEqual(200, self.request(model='other', operation='second-model').status_code)
         self.assertEqual(2, len(self.mutations()))
 
+    @contextmanager
+    def blocked_model_load(self, *, stall_after_dispatch=False):
+        dispatched, entered, release = Future(), Future(), threading.Event()
+        save = self.service._save
+
+        def observe_dispatch(record, receipt, **kwargs):
+            result = save(record, receipt, **kwargs)
+            if kwargs.get('dispatch') and record['model'] == 'selected':
+                dispatched.set_result(None)
+                if stall_after_dispatch:
+                    self.assertTrue(release.wait(3))
+            return result
+
+        def slow(url, kwargs):
+            entered.set_result(None)
+            self.assertTrue(release.wait(3))
+            self.states['selected'] = 'loaded'
+            return Response({'success': True})
+
+        def await_phase(notification, first, description, timeout=None):
+            done, _ = wait((notification, first), timeout=timeout, return_when=FIRST_COMPLETED)
+            if first in done:
+                response = first.result()
+                self.fail(f'First request returned HTTP {response.status_code} before {description}')
+            self.assertIn(notification, done, f'{description} was not observed within {timeout} seconds')
+
+        with patch.object(self.service, '_save', side_effect=observe_dispatch), patch.object(self, 'post_hook', slow):
+            pool = ThreadPoolExecutor(max_workers=1)
+            first = None
+            try:
+                first = pool.submit(self.request)
+                try:
+                    # Request startup and real SQLite admission/dispatch are
+                    # setup, bounded by the unchanged 120-second module watchdog.
+                    # Only backend entry after the committed fence gets 2 seconds.
+                    await_phase(dispatched, first, 'Durable dispatch')
+                    await_phase(entered, first, 'Load entry', timeout=2)
+                    yield first
+                finally:
+                    release.set()
+                    first.result(timeout=2)
+            finally:
+                # Join a finished request, but do not turn a failed cleanup
+                # deadline into an unbounded executor context-manager wait.
+                pool.shutdown(wait=first is None or first.done(), cancel_futures=True)
+
     def test_cancellation_before_load_retains_non_dispatch_receipt(self):
-        entered, release = threading.Event(), threading.Event()
+        self.assert_cancellation_before_load()
+
+    def test_cancellation_fixture_separates_slow_admission_before_load(self):
+        with self.delayed_first_admission():
+            self.assert_cancellation_before_load()
+
+    def assert_cancellation_before_load(self):
+        entered, release = Future(), threading.Event()
         def blocked(url, kwargs):
-            entered.set()
+            entered.set_result(None)
             self.assertTrue(release.wait(3))
         self.get_hook = blocked
-        asyncio.run(self.cancel_request(entered, release))
+        asyncio.run(self.cancel_request(entered, release, before_load=True))
         response = self.request()
         self.assertEqual('MODEL_PREPARATION_CANCELLED', response.json()['reasonCode'])
         self.assertEqual('NOT_DISPATCHED', response.json()['dispatchState'])
         self.assertEqual([], self.mutations())
 
     def test_cancellation_after_dispatch_cannot_undo_or_repeat_the_exact_load(self):
-        entered, release = threading.Event(), threading.Event()
+        self.assert_cancellation_after_dispatch()
+
+    def test_cancellation_fixture_separates_slow_admission_after_dispatch(self):
+        with self.delayed_first_admission():
+            self.assert_cancellation_after_dispatch()
+
+    def assert_cancellation_after_dispatch(self):
+        entered, release = Future(), threading.Event()
         def blocked(url, kwargs):
-            entered.set()
+            entered.set_result(None)
             self.assertTrue(release.wait(3))
             self.states['selected'] = 'loaded'
             return Response({'success': True})
@@ -485,24 +669,70 @@ class ModelPreparationHttpTests(unittest.TestCase):
         self.assertEqual('METADATA_QUALIFIED', response.json()['state'])
         self.assertEqual(1, len(self.mutations()))
 
-    async def cancel_request(self, entered, release):
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app(), client=('127.0.0.1', 2345)),
-                                     base_url='http://127.0.0.1:8090') as client:
-            task = asyncio.create_task(client.post('/gateway/models/prepare', json={'model': 'selected', 'operationId': 'selection-1'}))
-            self.assertTrue(await asyncio.to_thread(entered.wait, 2))
+    def test_cancellation_fixture_releases_a_stalled_worker_without_dispatch(self):
+        entered, release = Future(), threading.Event()
+        with self.assertRaisesRegex(AssertionError, 'Model entry was not observed within 2 seconds'):
+            asyncio.run(self.cancel_request(entered, release, before_load=True, stall_before_entry=True))
+        self.assertTrue(release.is_set())
+        self.assertEqual(set(), self.service.running)
+        self.assertEqual('MODEL_PREPARATION_CANCELLED', self.request().json()['reasonCode'])
+        self.assertEqual([], self.mutations())
+
+    async def cancel_request(self, entered, release, *, before_load=False, stall_before_entry=False):
+        ready = Future()
+        method = '_admit' if before_load else '_save'
+        original = getattr(self.service, method)
+
+        def observe_setup(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if before_load or kwargs.get('dispatch'):
+                ready.set_result(None)
+                if stall_before_entry:
+                    self.assertTrue(release.wait(3))
+            return result
+
+        async def await_phase(notification, task, description, timeout=None):
+            notification = asyncio.wrap_future(notification)
+            done, _ = await asyncio.wait((notification, task), timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+            if task in done:
+                response = await task
+                self.fail(f'Request returned HTTP {response.status_code} before {description}')
+            self.assertIn(notification, done, f'{description} was not observed within {timeout} seconds')
+
+        async def cancel_and_observe(task):
             task.cancel()
-            try:
-                with self.assertRaises(asyncio.CancelledError):
-                    await task
-            finally:
-                release.set()
-            for _ in range(200):
-                with self.service.lock:
-                    running = bool(self.service.running)
-                if not running:
-                    break
-                await asyncio.sleep(.01)
-            self.assertFalse(running)
+            done, _ = await asyncio.wait((task,), timeout=2)
+            self.assertIn(task, done, 'Cancelled model-preparation request did not stop within 2 seconds')
+
+        with patch.object(self.service, method, side_effect=observe_setup):
+            async with httpx.AsyncClient(transport=httpx.ASGITransport(app=self.app(), client=('127.0.0.1', 2345)),
+                                         base_url='http://127.0.0.1:8090') as client:
+                task = asyncio.create_task(client.post('/gateway/models/prepare', json={'model': 'selected', 'operationId': 'selection-1'}))
+                try:
+                    # Preserve the real journal setup and its module watchdog;
+                    # the unchanged 2-second entry phase starts after it commits.
+                    await await_phase(ready, task, 'Durable admission' if before_load else 'Durable dispatch')
+                    await await_phase(entered, task, 'Model entry', timeout=2)
+                    await cancel_and_observe(task)
+                    with self.assertRaises(asyncio.CancelledError):
+                        await task
+                finally:
+                    try:
+                        # Observe cancellation before releasing a pre-dispatch
+                        # worker, including when the entry assertion itself fails.
+                        if not task.done():
+                            await cancel_and_observe(task)
+                        if not task.cancelled():
+                            task.exception()
+                    finally:
+                        release.set()
+                        for _ in range(200):
+                            with self.service.lock:
+                                running = bool(self.service.running)
+                            if not running:
+                                break
+                            await asyncio.sleep(.01)
+                        self.assertFalse(running)
 
 
 if __name__ == '__main__':

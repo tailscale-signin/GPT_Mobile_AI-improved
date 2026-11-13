@@ -20,6 +20,8 @@ internal object GitHubIntegrationReport {
         val cleanupStoppedBeforeDispatch = openFixtures.isNotEmpty() && openFixtures.all { it["cleanup_dispatched"] == JsonPrimitive(false) }
         val pending = GitHubTestChecklist.pendingPages(receipts)
         val exhaustiveInventory = GitHubChecklistScope.exhaustive(task)
+        val unmet = capabilities.filter { it["required"] != JsonPrimitive(false) && it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }
+        val blockers = unmet.groupingBy { it.text("blocker_code").ifBlank { "BLOCKER_DETAIL_NOT_RECORDED" } }.eachCount()
         val reason = when {
             GitHubTestChecklist.apiComplete(task, receipts, tools) -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
@@ -30,7 +32,13 @@ internal object GitHubIntegrationReport {
             GitHubAuthorizedCatalog.required(tools, receipts) && catalog["complete"] != JsonPrimitive(true) -> "AUTHORIZED_CATALOG_INCOMPLETE" to "Authorized discovery is ${catalog.text("status").lowercase()}; ${catalog.text("blocker").ifBlank { "the retained version-bound continuation must complete before the denominator is final" }}."
             capabilities.any { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") } -> "RECORDED_OPERATION_BLOCKERS" to "Unresolved operation errors remain. The exact error codes, resources and receipt IDs identify the recovery prerequisites."
             pending.isNotEmpty() && exhaustiveInventory -> "INVENTORY_CONTINUATION_BLOCKED" to "Requested inventory traversal has ${pending.size} unfinished exact recipes; no executable authorized continuation was selected."
-            capabilities.any { it["required"] != JsonPrimitive(false) && it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") } -> "CAPABILITY_PREREQUISITES_MISSING" to "Remaining required capabilities need observed resource identifiers, supported fixture lifecycles or current authorization. No further automatic operation is currently admissible."
+            unmet.isNotEmpty() -> "CAPABILITY_PREREQUISITES_MISSING" to buildString {
+                append("Required capabilities remain unverified. ")
+                if ("FIXTURE_APPROVAL_MODE_REQUIRED" in blockers) append("${blockers.getValue("FIXTURE_APPROVAL_MODE_REQUIRED")} require the explicit fixture approval policy; no fixture mutation was started under the current policy. ")
+                if ("OWNED_FIXTURE_REQUIRED" in blockers) append("${blockers.getValue("OWNED_FIXTURE_REQUIRED")} require a separately authorized disposable resource and verified cleanup lifecycle. ")
+                if ("WORKFLOW_RUN_OR_JOB_REQUIRED" in blockers) append("${blockers.getValue("WORKFLOW_RUN_OR_JOB_REQUIRED")} need an observed workflow resource or executed job at the selected revision. ")
+                append("The retained prerequisite plan identifies the exact missing inputs. Unused budget does not grant approval or establish missing execution.")
+            }
             else -> "ACCEPTANCE_EVIDENCE_MISSING" to "API observations are retained, but one or more independent acceptance criteria lack qualifying execution or identity evidence."
         }
         return buildJsonObject {
@@ -61,6 +69,10 @@ internal object GitHubIntegrationReport {
             remaining?.let { put("remaining_tool_calls", it) }
             put("budget_exhausted", remaining == 0)
             put("pending_continuations", pending.size)
+            put("pending_local_fragments", pending.count { (it["arguments"] as? JsonObject)?.containsKey("view_cursor") == true })
+            put("pending_remote_continuations", pending.count { (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true })
+            put("exhaustive_inventory_required", exhaustiveInventory)
+            put("required_capability_blocker_counts", buildJsonObject { blockers.forEach { (code, count) -> put(code, count) } })
             put("receipt_count", receipts.size)
         }
     }
@@ -113,6 +125,7 @@ internal object GitHubIntegrationReport {
         append("\nThese categories separate remote responses, completed mutations, saved/cache results, suppressed duplicates and pending approval. A successful local tool response is not proof that a remote write occurred.\n")
         append("\n### Independent acceptance criteria\n\n| Criterion | Result | Evidence / remaining prerequisite |\n| --- | --- | --- |\n")
         criteria.forEach { row -> append("| ${safe(row.text("requirement"))} | ${row.text("acceptance_state")} | ${safe(row.text("acceptance"))} ${ids(row["evidence_receipt_ids"] as? JsonArray)} |\n") }
+        appendPrerequisites(checkpoint)
         append("\n### Issues and exact observations\n\n")
         val operations = GitHubTaskCoverage.rows(receipts)
         if (operations.isNotEmpty()) {
@@ -121,6 +134,7 @@ internal object GitHubIntegrationReport {
                 val resource = listOf("job_id", "run_id", "workflow_id", "pull_number", "issue_number", "artifact_id", "branch", "commit_sha").mapNotNull { key -> row.text(key).takeIf { it.isNotBlank() && it != "null" }?.let { "$key=$it" } }.joinToString(", ")
                 append("| ${safe(row.text("tool"))} / ${safe(row.text("action"))} | ${safe(resource.ifBlank { "not recorded" })} | ${row.text("successful_observations")} / ${row.text("failed_observations")} | ${ids(row["receipt_ids"] as? JsonArray)} |\n")
             }
+            if (operations.size > 12) append("\nShowing 12 of ${operations.size} observed operation groups, with failures first; ${operations.size - 12} additional groups remain in the retained evidence.\n")
             append("\nFile reads establish source inspection. Existing CI observations do not establish a newly executed app or device test.\n\n")
         }
         val problems = capabilities.filter { it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }
@@ -129,7 +143,7 @@ internal object GitHubIntegrationReport {
         } else {
             append("| Capability | Outcome | Receipt / prerequisite |\n| --- | --- | --- |\n")
             problems.take(12).forEach { row -> append("| ${safe(row.text("id"))} | ${row.text("status")} | ${ids(row["receipt_ids"] as? JsonArray)} ${safe(row.text("next_action"))} |\n") }
-            if (problems.size > 12) append("\n${problems.size - 12} additional capability rows remain in the retained checklist.\n")
+            if (problems.size > 12) append("\nShowing 12 of ${problems.size} unresolved capability rows; all ${problems.size} are included in the prerequisite groups above and the retained checklist.\n")
         }
         val failed = observations.filter { it["success"] != JsonPrimitive(true) }
         failed.takeLast(8).forEach { receipt ->
@@ -137,6 +151,7 @@ internal object GitHubIntegrationReport {
             val resource = listOf("job_id", "run_id", "workflow_id", "pull_number", "issue_number", "branch", "path").mapNotNull { key -> args?.text(key)?.takeIf(String::isNotBlank)?.let { "$key=$it" } }.joinToString(", ")
             append("\n- ${safe(receipt.text("receipt_id"))}: ${safe(receipt.text("tool"))} ${safe(args?.text("action").orEmpty())}; ${safe(resource.ifBlank { "resource not recorded" })}; ${safe(receipt.text("error_code"))}.\n")
         }
+        if (failed.size > 8) append("\nShowing the latest 8 of ${failed.size} unsuccessful receipts; ${failed.size - 8} earlier receipts remain in the retained evidence.\n")
         append("\n### Fixture cleanup\n\n")
         val fixtures = checkpoint.array("fixtures")
         if (fixtures.isEmpty()) append("No owned disposable fixture lifecycle is verified. Write capabilities keep their explicit prerequisites.\n")
@@ -165,13 +180,47 @@ internal object GitHubIntegrationReport {
         append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
         if ((stop.number("pending_continuations") ?: 0) > 0) {
             append("\nRetained continuation recipes: ${stop.text("pending_continuations")}. Further reads retain the task's scope, authorization and remaining budget.\n")
+            append("${stop.text("pending_local_fragments")} local response fragments and ${stop.text("pending_remote_continuations")} remote continuation recipes remain. ")
+            append(if (stop["exhaustive_inventory_required"] == JsonPrimitive(true)) "The request requires complete inventory traversal.\n" else "A retained remote inventory page alone is not a missing tool execution; resource prerequisites and fixture approval remain separate requirements.\n")
         }
         append("\nEffective tool-call limit: ${budget.text("effective_call_limit").ifBlank { "not recorded" }} (${budget.text("limit_source")}). Calls used: ${budget.text("used_calls").ifBlank { "not recorded" }}. Budget remaining: ${budget.text("remaining_calls").ifBlank { "not recorded" }}; verification reserve: ${budget.text("verification_reserve")}. ${budget.text("limit_rule")} Elapsed run time is not inferred from tool counts. The checkpoint preserves unmet criteria, exact continuation recipes, fixture state and receipt IDs for resumption.\n")
         append("\n**Overall integration health: Not measured.** API response acceptance, traversal completeness, new CI execution and current-device tests are independent.\n")
     }
 
-    private fun ids(value: JsonArray?) = value.orEmpty().take(3).joinToString(", ") { safe((it as? JsonPrimitive)?.contentOrNull.orEmpty()) }.ifBlank { "No qualifying receipt." }
+    private fun StringBuilder.appendPrerequisites(checkpoint: JsonObject) {
+        val preparation = checkpoint["preparation"] as? JsonObject ?: return
+        val blockers = preparation.array("blockers")
+        if (blockers.isEmpty()) return
+        val capabilities = checkpoint.array("capabilities").associateBy { it.text("id") }
+        val count = blockers.sumOf { (it["capability_ids"] as? JsonArray).orEmpty().size }
+        append("\n### Before Continue: remaining prerequisites\n\n")
+        append("All $count unresolved capability rows are listed in ${blockers.size} prerequisite groups below. Continue revalidates prepared steps under the current authorization; resolve each affected operation's listed inputs or approvals to make that operation admissible.\n\n")
+        val budget = checkpoint["stage_budget"] as? JsonObject
+        val remaining = budget?.number("remaining_calls")
+        append(
+            when {
+                remaining == 0 -> "The accepted tool-call budget is exhausted. A new authorized allowance and the remaining prerequisites are required before further acquisition.\n\n"
+                remaining != null && budget["acquisition_allowed"] == JsonPrimitive(false) -> "$remaining tool calls remain, with acquisition stopped to preserve verification and cleanup. Keep that reserve while resolving the prerequisites.\n\n"
+                remaining != null -> "$remaining tool calls remain under the accepted budget. Continuing blocked capabilities also requires the inputs and approvals below.\n\n"
+                else -> "The remaining tool-call allowance is not recorded. Current authorization and verification/cleanup reserves still apply.\n\n"
+            }
+        )
+        append("| Prerequisite | Every affected capability and current outcome | Required inputs and next step |\n| --- | --- | --- |\n")
+        blockers.forEach { blocker ->
+            val affected = blocker.strings("capability_ids").joinToString("; ") { id -> "$id (${capabilities[id]?.text("status").orEmpty().ifBlank { "not recorded" }})" }
+            val actions = (blocker.strings("required_inputs") + blocker.strings("explanations")).distinct().joinToString("; ")
+            append("| ${safe(blocker.text("code"))} | ${safe(affected)} | ${safe(actions.ifBlank { blocker.text("next_action") })} |\n")
+        }
+        append("\nFixture approval remains limited to the task-owned fixture and its verified cleanup lifecycle. Continue preserves the existing approval decision and accepted budget.\n")
+    }
+
+    private fun ids(value: JsonArray?): String {
+        val receipts = value.orEmpty()
+        val preview = receipts.take(3).joinToString(", ") { safe((it as? JsonPrimitive)?.contentOrNull.orEmpty()) }.ifBlank { "No qualifying receipt." }
+        return preview + if (receipts.size > 3) " (+${receipts.size - 3} more retained)" else ""
+    }
     private fun JsonObject.array(key: String) = (get(key) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+    private fun JsonObject.strings(key: String) = (get(key) as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
     private fun JsonObject.number(key: String) = (get(key) as? JsonPrimitive)?.intOrNull
     private fun safe(value: String) = value.replace(Regex("[\\p{Cntrl}<>`*\\[\\]]"), " ").replace("|", "\\|")

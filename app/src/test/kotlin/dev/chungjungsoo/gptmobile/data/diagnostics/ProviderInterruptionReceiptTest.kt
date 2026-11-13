@@ -14,6 +14,88 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderInterruptionReceiptTest {
+    @Test fun modelPreparationReceiptDoesNotInventProviderDispatchOrHttpStatus() {
+        val codes = listOf("MODEL_PREPARATION_INCOMPLETE", "MODEL_PREPARATION_REJECTED", "MODEL_PREPARATION_STORAGE_UNAVAILABLE", "MODEL_PREPARATION_CONNECTION_FAILED")
+        for (code in codes) {
+            val failure = ProviderEvent.Failed(
+                "The selected model is not ready.",
+                errorCode = code,
+                failureDetails = buildJsonObject {
+                    put("failed_stage", "model_preparation")
+                    put("dispatched", false)
+                    put("dispatch_state", "NOT_DISPATCHED")
+                    put("remote_acceptance", "NO")
+                    put("operation_id", "load-operation")
+                }
+            )
+            val receipt = ProviderFailureReceipt.from(PlatformV2(uid = "profile", name = "Selected", model = "chosen-model"), "primary", failure)
+            assertTrue(receipt.valid())
+            assertEquals(code, receipt.errorCode)
+            assertEquals(ProviderFailureStage.ADMISSION, receipt.stage)
+            assertEquals(FailureDomain.APPLICATION_VERIFICATION, receipt.failureDomain)
+            assertEquals("model_preparation", receipt.causeStage)
+            assertEquals(false, receipt.dispatched)
+            assertEquals(false, receipt.requestReplayAllowed)
+            assertEquals(null, receipt.httpStatus)
+            assertEquals(null, receipt.invocationId)
+            val classified = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
+            assertEquals(code, classified.category)
+            assertFalse(classified.retryAllowed)
+            assertTrue(classified.isUnsentSetup)
+            val unobserved = ProfileFailureRecord.fromProvider(failure.message, code, buildJsonObject { put("failed_stage", "model_preparation") })
+            assertFalse(unobserved.isUnsentSetup)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, unobserved.remoteAcceptance)
+        }
+    }
+
+    @Test fun baselinePrerequisiteRetainsItsTypedAdmissionWithoutBlamingTheProvider() {
+        val failure = ProviderEvent.Failed(
+            "Select the comparison baseline.",
+            errorCode = "REVIEW_INPUT_REQUIRED",
+            taskOutcome = "BLOCKED",
+            transportComplete = true,
+            failureDetails = buildJsonObject {
+                put("failed_stage", "review_comparison")
+                put("dispatched", false)
+                put("retryable", false)
+                put("next_action", "SELECT_REVIEW_BASELINE")
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(PlatformV2(uid = "profile", name = "Selected", model = "chosen-model"), "github-delivery", failure)
+        assertTrue(receipt.valid())
+        assertEquals("REVIEW_INPUT_REQUIRED", receipt.errorCode)
+        assertEquals(ProviderFailureStage.ADMISSION, receipt.stage)
+        assertEquals(FailureDomain.APPLICATION_VERIFICATION, receipt.failureDomain)
+        assertEquals(ProviderResponseFormat.TEXT, receipt.responseFormat)
+        assertEquals("review_comparison", receipt.causeStage)
+        assertEquals(false, receipt.dispatched)
+        assertEquals(false, receipt.requestReplayAllowed)
+        assertEquals(null, receipt.invocationId)
+    }
+
+    @Test fun engineeringReceiptRetainsOnlySanitizedReasonFieldsAcrossSerialization() {
+        val failure = ProviderEvent.Failed(
+            "Private server exception",
+            errorCode = "ENGINEERING_STATE_OR_INPUT_CHANGED",
+            failureDetails = buildJsonObject {
+                put("failed_stage", "request_validation")
+                put("dispatched", false)
+                put("http_status", 400)
+                put("reasonCode", "ENGINEERING_TASK_SCOPE_REQUIRED")
+                put("invalid_fields", JsonArray(listOf(JsonPrimitive("task_scope"), JsonPrimitive("private-secret"))))
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(PlatformV2(uid = "profile", name = "Selected", model = "chosen-model"), "primary", failure)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<ProviderFailureReceipt>(kotlinx.serialization.json.Json.encodeToString(ProviderFailureReceipt.serializer(), receipt))
+        assertTrue(restored.valid())
+        assertEquals("ENGINEERING_STATE_OR_INPUT_CHANGED", restored.errorCode)
+        assertEquals(ProviderFailureStage.ADMISSION, restored.stage)
+        assertEquals(FailureDomain.APPLICATION_VERIFICATION, restored.failureDomain)
+        assertEquals(JsonPrimitive("ENGINEERING_TASK_SCOPE_REQUIRED"), restored.engineeringRejection?.get("reasonCode"))
+        assertEquals(JsonArray(listOf(JsonPrimitive("task_scope"))), restored.engineeringRejection?.get("invalid_fields"))
+        assertFalse(restored.toString().contains("private", ignoreCase = true))
+    }
+
     @Test fun unclassifiedModelInvocationRetainsTheBoundaryWithoutInventingDispatchOrToolFailure() {
         val failure = ProviderEvent.Failed(
             "Private exception details",

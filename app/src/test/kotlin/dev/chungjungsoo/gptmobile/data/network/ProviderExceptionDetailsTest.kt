@@ -2,11 +2,37 @@ package dev.chungjungsoo.gptmobile.data.network
 
 import dev.chungjungsoo.gptmobile.data.model.FreeAiProvider
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ProviderExceptionDetailsTest {
+    @Test fun modelPreparationFailureRetainsDependentNonDispatchWithoutInventingAnHttpResult() {
+        val state = dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState(
+            "profile",
+            "model",
+            dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase.BLOCKED,
+            "Recheck the existing load.",
+            failureCode = "MODEL_PREPARATION_INCOMPLETE",
+            operationId = "original-load",
+            transportCode = "CONNECTION_ABORTED"
+        )
+        val error = dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationException(state)
+        val detail = requireNotNull(providerExceptionDetails(error, false))
+        val retained = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(detail.message, detail.code, detail.failureDetails)
+        assertEquals("MODEL_PREPARATION_INCOMPLETE", retained.category)
+        assertEquals("model_preparation", retained.phase)
+        assertEquals(false, retained.dispatched)
+        assertEquals(dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.NO, retained.remoteAcceptance)
+        assertEquals(false, retained.requestReplayAllowed)
+        assertEquals(null, detail.failureDetails?.get("http_status"))
+        assertEquals("original-load", detail.failureDetails?.get("operation_id")?.jsonPrimitive?.content)
+        val partial = requireNotNull(providerExceptionDetails(error, true))
+        assertEquals(null, partial.failureDetails?.get("dispatched"))
+        assertEquals(null, partial.failureDetails?.get("remote_acceptance"))
+    }
+
     @Test fun finalSerializedCapacityFailureKeepsTypedAdmissionAndDispatchEvidence() {
         val runtime = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint("selected", "route", "credential", "model", "model", "runtime", "template", "allocation")
         val error = runCatching {

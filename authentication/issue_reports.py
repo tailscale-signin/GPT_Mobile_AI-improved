@@ -19,6 +19,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from .github_broker import NoRedirect
+from .engineering_report_contract import ENGINEERING_FIELDS, ENGINEERING_REASONS, MODEL_PREPARATION_REASONS
 from .issue_report_diagnostics import diagnostics_body, validate_diagnostics
 
 
@@ -28,6 +29,8 @@ FEATURES = {"app": "App", "chat": "Chat", "voice": "Voice Chat", "gateway": "Gat
 ERROR_CODES = {
     "APP_ERROR",
     "CHAT_FAILED",
+    "REVIEW_INPUT_REQUIRED",
+    "GITHUB_REVIEW_COMPARISON_REQUIRED",
     "PRIVACY_CONFIGURATION",
     "VOICE_MICROPHONE_FOCUS_DENIED",
     "VOICE_MICROPHONE_FOCUS_LOST",
@@ -64,6 +67,10 @@ ERROR_CODES = {
     "LOCAL_PREFILL_TIMEOUT",
     "LOCAL_SERVICE_UNREACHABLE",
     "GATEWAY_UNREACHABLE",
+    "MODEL_PREPARATION_INCOMPLETE",
+    "MODEL_PREPARATION_REJECTED",
+    "MODEL_PREPARATION_STORAGE_UNAVAILABLE",
+    "MODEL_PREPARATION_CONNECTION_FAILED",
     "PROVIDER_RATE_LIMITED",
     "JVM_CRASH",
     "NATIVE_CRASH",
@@ -310,6 +317,7 @@ CONTEXT_ENUMS_V4 = {
     "recoveryAction": CONTEXT_ENUMS_V3["recoveryAction"] | CONTEXT_RECOVERY_ACTIONS,
     "originalFailureCode": ERROR_CODES,
 }
+CONTEXT_ENUMS_V6 = {**CONTEXT_ENUMS_V4, "reasonCode": CONTEXT_ENUMS_V4["reasonCode"] | ENGINEERING_REASONS | MODEL_PREPARATION_REASONS, "stage": CONTEXT_ENUMS_V4["stage"] | {"model_preparation"}}
 CONTEXT_NUMBERS = {"occurredAtMillis": (1, 9_999_999_999_999), "httpStatus": (100, 599), "retryAfterMillis": (0, 86_400_000)}
 CONTEXT_ACCEPTANCE_NUMBERS = {"requiredCriteria": (0, 100_000), "verifiedCriteria": (0, 100_000), "remainingCriteria": (0, 100_000)}
 CONTEXT_RECOVERY_NUMBERS = {"originalHttpStatus": (100, 599), "ownershipFence": (0, 9_223_372_036_854_775_807)}
@@ -323,7 +331,7 @@ CONTEXT_FIELDS = (set(CONTEXT_ENUMS) | set(CONTEXT_NUMBERS) | CONTEXT_FLAGS | CO
 CONTEXT_FIELDS_V2 = CONTEXT_FIELDS | set(CONTEXT_ACCEPTANCE_NUMBERS)
 CONTEXT_FIELDS_V4 = CONTEXT_FIELDS_V2 | set(CONTEXT_RECOVERY_NUMBERS) | CONTEXT_RECOVERY_HASHES | {"originalFailureCode"}
 CONTEXT_FIELDS_V5 = CONTEXT_FIELDS_V4 | {"diagnostics"}
-CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2, 3: CONTEXT_FIELDS_V2, 4: CONTEXT_FIELDS_V4, 5: CONTEXT_FIELDS_V5}
+CONTEXT_VERSION_FIELDS = {1: CONTEXT_FIELDS, 2: CONTEXT_FIELDS_V2, 3: CONTEXT_FIELDS_V2, 4: CONTEXT_FIELDS_V4, 5: CONTEXT_FIELDS_V5, 6: CONTEXT_FIELDS_V5}
 CONTEXT_LABELS = {
     "stage": "Failure stage", "provider": "Provider family", "operation": "Operation family", "httpStatus": "HTTP status",
     "retryAfterMillis": "Retry delay (ms)", "dispatched": "Dispatched", "retryable": "Retryable", "resumeAllowed": "Resume allowed",
@@ -386,21 +394,23 @@ def _report_context(value):
         raise ReportError(422, "INVALID_REPORT")
     # A released client used v2 for review extensions. Accept those exact approved
     # payloads as well as v3; clients require readiness for both 2 and 3 before sending them.
-    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V4 if version in (4, 5) else CONTEXT_ENUMS_V3
+    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V6 if version == 6 else CONTEXT_ENUMS_V4 if version in (4, 5, 6) else CONTEXT_ENUMS_V3
     for key, choices in enums.items():
         if key in value and (not isinstance(value[key], str) or value[key] not in choices):
             raise ReportError(422, "INVALID_REPORT")
+    if value.get("reasonCode") in MODEL_PREPARATION_REASONS and value.get("stage") != "model_preparation":
+        raise ReportError(422, "INVALID_REPORT")
     if value.get("reasonCode") in CONTEXT_TOOL_PRECHECK_REASONS and not (
-        version in (4, 5) and value.get("source") == "TOOL_RESULT" and value.get("stage") == "tool_precheck" and value.get("dispatched") is False and value.get("requiresReconciliation") is not True
+        version in (4, 5, 6) and value.get("source") == "TOOL_RESULT" and value.get("stage") == "tool_precheck" and value.get("dispatched") is False and value.get("requiresReconciliation") is not True
     ):
         raise ReportError(422, "INVALID_REPORT")
     numbers = CONTEXT_NUMBERS if version == 1 else {**CONTEXT_NUMBERS, **CONTEXT_ACCEPTANCE_NUMBERS}
-    if version in (4, 5):
+    if version in (4, 5, 6):
         numbers = {**numbers, **CONTEXT_RECOVERY_NUMBERS}
     for key, (low, high) in numbers.items():
         if key in value and (type(value[key]) is not int or not low <= value[key] <= high):
             raise ReportError(422, "INVALID_REPORT")
-    if version in (2, 3, 4, 5):
+    if version in (2, 3, 4, 5, 6):
         required_count = value.get("requiredCriteria")
         verified_count = value.get("verifiedCriteria")
         remaining_count = value.get("remainingCriteria")
@@ -413,12 +423,13 @@ def _report_context(value):
     for key in CONTEXT_FLAGS:
         if key in value and type(value[key]) is not bool:
             raise ReportError(422, "INVALID_REPORT")
-    for key in CONTEXT_HASHES | (CONTEXT_RECOVERY_HASHES if version in (4, 5) else set()):
+    for key in CONTEXT_HASHES | (CONTEXT_RECOVERY_HASHES if version in (4, 5, 6) else set()):
         if key in value and (not isinstance(value[key], str) or not re.fullmatch(r"[a-f0-9]{64}", value[key])):
             raise ReportError(422, "INVALID_REPORT")
     for key in ("missingFields", "invalidFields"):
         if key in value:
-            names = _lines(value, key, len(CONTEXT_SELECTION_FIELDS), lambda name: name in CONTEXT_SELECTION_FIELDS)
+            allowed_names = CONTEXT_SELECTION_FIELDS | (ENGINEERING_FIELDS if version == 6 and value.get("reasonCode") in ENGINEERING_REASONS else set())
+            names = _lines(value, key, len(allowed_names), lambda name: name in allowed_names)
             if len(names) != len(set(names)):
                 raise ReportError(422, "INVALID_REPORT")
     unavailable = _lines(value, "unavailableFields", len(fields), lambda name: name in fields)
@@ -426,9 +437,11 @@ def _report_context(value):
     # presented as false, and an unknown field cannot carry arbitrary metadata.
     if len(unavailable) != len(set(unavailable)) or set(unavailable) != fields - value.keys():
         raise ReportError(422, "INVALID_REPORT")
-    if version == 5:
+    if version == 5 or version == 6 and "diagnostics" in value:
         try:
-            validate_diagnostics(value.get("diagnostics"))
+            diagnostic = validate_diagnostics(value.get("diagnostics"))
+            if version == 5 and diagnostic["schemaVersion"] != 1:
+                raise ValueError("diagnostic extension requires context version six")
         except ValueError as error:
             raise ReportError(422, "INVALID_REPORT") from error
     return value
@@ -447,6 +460,8 @@ def _context_body(context):
             rendered = "true" if value else "false"
         else:
             rendered = str(value)
+        if context["schemaVersion"] == 6 and key in {"missingFields", "invalidFields"}:
+            label = "Missing request fields" if key == "missingFields" else "Invalid request fields"
         rows.append((label, rendered))
     body = "\n\n### Diagnostic context\n\n| Field | Recorded value |\n| --- | --- |\n"
     body += "\n".join(f"| {label} | `{value}` |" for label, value in rows)
@@ -456,7 +471,7 @@ def _context_body(context):
         body += " These observations were not retained; absence does not establish success, non-dispatch, or permission to retry."
     else:
         body += "\n\nUnavailable fields: none declared by this capture."
-    if context["schemaVersion"] == 5:
+    if context["schemaVersion"] in (5, 6) and "diagnostics" in context:
         body += diagnostics_body(context["diagnostics"])
     return body
 

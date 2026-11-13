@@ -330,7 +330,8 @@ internal class GitHubVerifiedSession(
         }
         if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
             val (receipts, epoch) = evidence.snapshot()
-            val next = GitHubStatusRequest.nextCall(tools, receipts, now(), epoch)
+            val acceptedRepository = (evidence.acceptedPromptContract()?.get("repository") as? JsonPrimitive)?.contentOrNull
+            val next = if (remainingToolCalls()?.let { it > 0 } != false) GitHubStatusRequest.nextCall(tools, receipts, now(), epoch, task, acceptedRepository) else null
             if (next != null) {
                 lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                 emit(next)
@@ -371,27 +372,12 @@ internal class GitHubVerifiedSession(
                 // A missing baseline is a prerequisite, not permission for the model
                 // to choose an arbitrary branch. Keep this gate outside the reviewed
                 // provider so neither its compatibility probe nor source work starts.
-                val needsInput = comparison.checkpoint["user_input_required"] == JsonPrimitive(true)
-                val code = if (needsInput) "REVIEW_INPUT_REQUIRED" else "GITHUB_REVIEW_COMPARISON_REQUIRED"
+                val blocked = GitHubReviewComparison.blockedFailure(comparison)
                 emitAll(
                     publish(
                         null,
-                        failureCode = code,
-                        originalFailure = ProviderEvent.Failed(
-                            (comparison.checkpoint["detail"] as? JsonPrimitive)?.contentOrNull.orEmpty(),
-                            errorCode = code,
-                            transportComplete = true,
-                            taskOutcome = "BLOCKED",
-                            failureDetails = JsonObject(
-                                comparison.checkpoint + buildJsonObject {
-                                    put("failed_stage", "review_comparison")
-                                    put("dispatched", false)
-                                    put("retryable", false)
-                                    put("resume_allowed", false)
-                                    put("next_action", if (needsInput) "SELECT_REVIEW_BASELINE" else "RESTORE_REVIEW_COMPARISON_EVIDENCE")
-                                }
-                            )
-                        )
+                        failureCode = blocked.errorCode,
+                        originalFailure = blocked
                     )
                 )
                 return@flow
@@ -636,7 +622,10 @@ internal class GitHubVerifiedSession(
             val (receipts, epoch) = evidence.snapshot()
             val ciObservation = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
             val status = if (GitHubStatusRequest.matches(task)) {
-                withContext(computationDispatcher) { GitHubEvidencePolicy.status(receipts, now(), epoch, task) }
+                val acceptedContract = evidence.acceptedPromptContract()
+                val acceptedCriteria = (acceptedContract?.get("acceptance_criteria") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                val acceptedRepository = (acceptedContract?.get("repository") as? JsonPrimitive)?.contentOrNull
+                withContext(computationDispatcher) { GitHubEvidencePolicy.status(receipts, now(), epoch, task, acceptedCriteria, acceptedRepository) }
             } else {
                 null
             }

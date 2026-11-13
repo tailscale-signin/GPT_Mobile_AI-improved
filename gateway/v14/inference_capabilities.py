@@ -81,7 +81,7 @@ class InferenceCapabilities:
         if params is not None:
             kwargs['params'] = params
         dependency = ('backend_models' if url.endswith('/models') else 'backend_template' if url.endswith('/apply-template')
-                      else 'selected_model' if url.endswith('/models/load') else 'backend_properties')
+                      else 'selected_model' if url.endswith(('/models/load', '/tokenize')) else 'backend_properties')
         response = None
         try:
             response = call(url, **kwargs)
@@ -383,6 +383,11 @@ class InferenceCapabilities:
                 error.observation = details
                 raise
             if props.get('is_sleeping') is True:
+                identity = props.get('model_alias') or props.get('model_id')
+                if not identity and len(rows) != 1:
+                    raise ExecutionBindingError('EXECUTION_MODEL_IDENTITY_INVALID', 'The sleeping model properties do not identify the exact selected model.')
+                if identity and identity != model:
+                    raise ExecutionBindingError('EXECUTION_MODEL_MISMATCH', 'The sleeping model does not match the exact selected model.')
                 self._not_loaded('SLEEPING')
             settings = props.get('default_generation_settings') or {}
             if not isinstance(settings, dict):

@@ -465,10 +465,13 @@ class GitHubWorkspaceClient(
                     put("state", gitHubCheckSummary(checks, status))
                     put("checks", checks["total_count"] ?: JsonNull)
                     put("statuses", status["total_count"] ?: JsonNull)
+                    put("observed_checks", (checks["check_runs"] as? JsonArray)?.size ?: 0)
+                    put("observed_statuses", (status["statuses"] as? JsonArray)?.size ?: 0)
                     put("commit_sha", target)
                     put("check_details", checks)
                     put("has_more", (checks["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0) > page * 100 || (status["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0) > page * 100)
                     put("page", page)
+                    put("per_page", 100)
                     if ((checks["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0) > page * 100 || (status["total_count"]?.jsonPrimitive?.content?.toIntOrNull() ?: 0) > page * 100) {
                         put(
                             "continuation",

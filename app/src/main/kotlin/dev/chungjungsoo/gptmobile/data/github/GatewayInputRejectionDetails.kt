@@ -16,6 +16,9 @@ internal object GatewayInputRejectionDetails {
         "ENGINEERING_REVISION_INVALID" to ("expected_revision" to "Refresh the original conversation revision."),
         "ENGINEERING_REVISION_REQUIRED" to ("revision" to "Refresh the exact saved job before confirming."),
         "ENGINEERING_TASK_SCOPE_INVALID" to ("task_scope" to "Select a supported engineering task scope."),
+        "ENGINEERING_TASK_SCOPE_REQUIRED" to ("task_scope" to "Update the app to send explicit implementation authority before starting work from the base branch."),
+        "ENGINEERING_SOURCE_REVISION_REQUIRED" to ("source_sha" to "Refresh the selected branch to an exact source revision before starting implementation."),
+        "ENGINEERING_SOURCE_REVISION_INVALID" to ("source_sha" to "Refresh the selected source revision; a full commit SHA is required."),
         "ENGINEERING_PROFILE_INVALID" to ("profile_id" to "Recheck the selected profile identity."),
         "ENGINEERING_MEMORY_MODE_INVALID" to ("memory_mode" to "Select a supported memory mode."),
         "ENGINEERING_MODE_INVALID" to ("execution_mode" to "Select a supported execution mode."),
@@ -23,6 +26,12 @@ internal object GatewayInputRejectionDetails {
         "ENGINEERING_REQUEST_FORMAT_INVALID" to ("request" to "The gateway requires a structured engineering request."),
         "ENGINEERING_REQUEST_TOO_LARGE" to ("request" to "Reduce the request and keep large evidence separately.")
     )
+
+    val reasonCodes: Set<String> = reasons.keys + "ENGINEERING_INPUT_OR_STATE_REJECTED"
+    val fieldNames: Set<String> = reasons.values.map { it.first }.toSet() + "batch_policy_version"
+
+    fun retained(error: JsonObject?): JsonObject? =
+        error?.takeIf { (it["reasonCode"] as? JsonPrimitive)?.takeIf(JsonPrimitive::isString)?.content in reasonCodes }?.let(::from)
 
     fun from(error: JsonObject?): JsonObject {
         val code = (error?.get("reasonCode") as? JsonPrimitive)?.content?.takeIf { it in reasons } ?: "ENGINEERING_INPUT_OR_STATE_REJECTED"

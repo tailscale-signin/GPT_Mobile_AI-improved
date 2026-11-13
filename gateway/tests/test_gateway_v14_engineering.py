@@ -13,6 +13,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringStore, EngineeringService, EngineeringSupervisor, public_job, validate_request, principal_authorized, digest
 from v14.engineering_defaults import DEFAULT_EXECUTION_BUDGET, LEGACY_EXECUTION_BUDGET
+from v14.engineering_rejection import state_or_input_rejection
 from v14.engineering_backend import prepare_changes, blob_sha
 from v14.engineering_batch_policy import DEFAULTS as BATCH_POLICY_DEFAULTS
 from v14.execution_binding import ExecutionBindingError, fingerprint
@@ -105,6 +106,63 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertEqual(first['id'], self.store.create('owner', self.request)['id'])
         with self.assertRaises(ValueError):
             self.store.create('owner', dict(self.request, objective='different'))
+
+    def test_android_wire_contract_requires_explicit_scope_and_derives_only_an_owned_branch(self):
+        fixture = json.loads((Path(__file__).resolve().parents[1] / 'contracts/engineering-request-scope-v1.json').read_text())
+        request = fixture['request']
+        accepted = validate_request(request)
+        self.assertEqual(fixture['expected_working_branch'], accepted['branch'])
+        self.assertEqual('main', accepted['source_branch'])
+        self.assertEqual(request['source_sha'], accepted['source_sha'])
+        self.assertNotEqual(accepted['base'], accepted['branch'])
+        cases = [
+            ({key: value for key, value in request.items() if key != 'task_scope'}, 'ENGINEERING_TASK_SCOPE_REQUIRED', 'task_scope'),
+            ({key: value for key, value in request.items() if key != 'source_sha'}, 'ENGINEERING_SOURCE_REVISION_REQUIRED', 'source_sha'),
+            (dict(request, source_sha='private-invalid-sha'), 'ENGINEERING_SOURCE_REVISION_INVALID', 'source_sha'),
+        ]
+        for invalid, reason, field in cases:
+            with self.subTest(reason=reason), self.assertRaises(ValueError) as rejected:
+                validate_request(invalid)
+            details = state_or_input_rejection(rejected.exception)
+            self.assertEqual(reason, details['reasonCode'])
+            self.assertEqual([field], details['invalid_fields'])
+            self.assertEqual('request_validation', details['failed_stage'])
+            self.assertNotIn('private-invalid-sha', json.dumps(details))
+        for scope in ('read', 'plan'):
+            read_request = {key: value for key, value in dict(request, task_scope=scope).items() if key != 'source_sha'}
+            scoped = validate_request(read_request)
+            self.assertEqual('main', scoped['branch'])
+            self.assertEqual(scope, scoped['task_scope'])
+
+    def test_explicit_default_scope_reconciles_legacy_job_without_rewriting_accepted_bytes(self):
+        self.assertNotIn('task_scope', self.request)
+        job = self.store.create('owner', self.request)
+        before = self.store.tx(lambda db: db.execute('SELECT data,request_digest FROM engineering_jobs WHERE id=?', (job['id'],)).fetchone())
+        restored = self.store.create('owner', dict(self.request, task_scope='implement'))
+        self.assertEqual(job, restored)
+        self.assertNotIn('task_scope', restored['request'])
+        after = self.store.tx(lambda db: db.execute('SELECT data,request_digest FROM engineering_jobs WHERE id=?', (job['id'],)).fetchone())
+        self.assertEqual(before, after)
+        for scope in ('read', 'plan'):
+            with self.subTest(scope=scope), self.assertRaises(ValueError):
+                self.store.create('owner', dict(self.request, task_scope=scope))
+        self.assertEqual(1, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
+        self.assertEqual([], self.backend.calls)
+
+    def test_legacy_scope_compatibility_never_erases_explicit_accepted_authority(self):
+        for scope in ('read', 'plan', 'implement'):
+            with self.subTest(scope=scope):
+                request = dict(self.request, request_id='explicit-' + scope, task_scope=scope)
+                job = self.store.create('owner', request)
+                omitted = {key: value for key, value in request.items() if key != 'task_scope'}
+                with self.assertRaises(ValueError):
+                    self.store.create('owner', omitted)
+                for changed_scope in {'read', 'plan', 'implement'} - {scope}:
+                    with self.assertRaises(ValueError):
+                        self.store.create('owner', dict(request, task_scope=changed_scope))
+                self.assertEqual(scope, self.store.get(job['id'])['request']['task_scope'])
+        self.assertEqual(3, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
+        self.assertEqual([], self.backend.calls)
 
     def test_new_default_is_frozen_ultra_and_explicit_smaller_limits_remain_authoritative(self):
         original = copy.deepcopy(self.request)

@@ -17,6 +17,43 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportContextTest {
+    @Test fun modelPreparationStageRequiresSixAndKeepsHttpAndInvocationUnknown() {
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "model_preparation", "dispatched" to false, "operation_id" to "private-load-operation", "reason_code" to "SELECTED_MODEL_NOT_LOADED"), 1_700_000_000_000)
+        assertEquals(6, context.schemaVersion)
+        assertEquals("model_preparation", context.stage)
+        assertEquals("SELECTED_MODEL_NOT_LOADED", context.reasonCode)
+        assertEquals(false, context.dispatched)
+        assertNull(context.httpStatus)
+        assertNull(context.invocationIdHash)
+        assertNull(context.jobIdHash)
+        val encoded = IssueReport.json.encodeToJsonElement(IssueReportContext.serializer(), context)
+        assertTrue(IssueReportContext.validDiagnosticsIn(encoded))
+        assertFalse(encoded.toString().contains("private-load-operation"))
+        val wrongPhase = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "response_stream", "reason_code" to "SELECTED_MODEL_NOT_LOADED"))
+        assertNull(wrongPhase.reasonCode)
+    }
+
+    @Test fun engineeringReasonsAndRequestFieldsSelectSixWithoutChangingLegacyApprovals() {
+        val source = dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
+        for (reason in source.reasonCodes) {
+            val fields = mapOf("reasonCode" to reason, "invalid_fields" to source.fieldNames.toList(), "failed_stage" to "request_validation", "http_status" to 409)
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_700_000_000_000)
+            assertEquals(6, context.schemaVersion)
+            assertEquals(reason, context.reasonCode)
+            assertEquals(source.fieldNames.sorted(), context.invalidFields)
+            val encoded = IssueReport.json.encodeToString(IssueReportContext.serializer(), context)
+            assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.parseToJsonElement(encoded)))
+            assertEquals(context, IssueReport.json.decodeFromString(IssueReportContext.serializer(), encoded))
+            assertEquals(setOf(6), IssueReportContext.requiredServiceVersions(context.schemaVersion, context.stage, context.recoveryAction))
+        }
+        val invalid = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("reasonCode" to "private reason", "invalid_fields" to listOf("private field")))
+        assertNull(invalid.reasonCode)
+        assertNull(invalid.invalidFields)
+        val legacy = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("reasonCode" to "SELECTION_SCHEMA_INVALID", "invalid_fields" to listOf("tool_owner")))
+        assertEquals(1, legacy.schemaVersion)
+        assertEquals(listOf("tool_owner"), legacy.invalidFields)
+    }
+
     @Test fun recoveryProjectionHashesEachIdentitySeparatelyAndKeepsOriginalFactsOptional() {
         val binding = "a".repeat(64)
         val claim = "11111111-1111-4111-8111-111111111111"

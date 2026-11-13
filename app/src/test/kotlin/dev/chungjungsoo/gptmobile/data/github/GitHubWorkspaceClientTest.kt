@@ -25,6 +25,88 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubWorkspaceClientTest {
+    @Test fun baselineCommitDetailPreservesSelectedRevisionAndConversationContext() = runTest {
+        val selectedRef = "feature/review"
+        val selectedSha = "a".repeat(40)
+        val baselineSha = "b".repeat(40)
+        val selectedTree = "c".repeat(40)
+        val baselineTree = "d".repeat(40)
+        val blobSha = "e".repeat(40)
+        val content = "Selected feature source"
+        val http = HttpClient(
+            MockEngine { request ->
+                assertEquals(HttpMethod.Get, request.method)
+                respond(
+                    when (request.url.encodedPath) {
+                        "/repos/o/r/commits/feature%2Freview" -> """{"sha":"$selectedSha","commit":{"tree":{"sha":"$selectedTree"}}}"""
+                        "/repos/o/r/commits/main", "/repos/o/r/commits/v1.2.3%2Bbuild7" -> """{"sha":"$baselineSha","commit":{"tree":{"sha":"$baselineTree"}},"files":[]}"""
+                        "/repos/o/r/git/trees/$selectedTree" -> """{"truncated":false,"tree":[{"path":"src/current.kt","type":"blob","size":${content.length},"sha":"$blobSha"}]}"""
+                        "/repos/o/r/git/trees/$baselineTree" -> """{"truncated":false,"tree":[]}"""
+                        "/repos/o/r/git/blobs/$blobSha" -> """{"sha":"$blobSha","encoding":"base64","content":"${Base64.getEncoder().encodeToString(content.toByteArray())}"}"""
+                        else -> error("Unexpected baseline context request: ${request.url}")
+                    }
+                )
+            }
+        )
+        try {
+            val store = GitHubRepositoryStateStore()
+            val client = GitHubWorkspaceClient(
+                "token",
+                http,
+                conditionalReads = false,
+                connectionUid = "connection",
+                conversationId = "conversation",
+                taskId = "review",
+                stateStore = store,
+                durableIdentity = "account"
+            )
+            val target = buildJsonObject {
+                put("owner", "o")
+                put("repo", "r")
+            }
+            client.execute("resolve_context", JsonObject(target + ("ref" to JsonPrimitive(selectedRef))))
+            val snapshot = requireNotNull(client.taskSnapshot())
+            val context = GitHubRepositoryContext("o", "r", selectedRef)
+            val conversationScope = "account:connection:conversation"
+            val savedContext = requireNotNull(store.read(conversationScope, "selected_context"))
+            assertEquals(selectedSha, snapshot.commitSha)
+            assertEquals(JsonPrimitive(selectedRef), savedContext["ref"])
+
+            for (baseline in listOf("main", "v1.2.3+build7")) {
+                val detail = client.execute("get_commit_detail", JsonObject(target + ("ref" to JsonPrimitive(baseline)))).jsonObject
+                assertEquals(baseline, JsonPrimitive(baselineSha), detail["commit_sha"])
+                assertEquals(baseline, snapshot, client.taskSnapshot())
+                assertEquals(baseline, context, client.taskContext())
+                assertEquals(baseline, savedContext, store.read(conversationScope, "selected_context"))
+            }
+
+            val source = client.execute(
+                "read_ranges",
+                JsonObject(
+                    target + buildJsonObject {
+                        put("path", "src/current.kt")
+                        put("start_line", 1)
+                        put("end_line", 1)
+                    }
+                )
+            ).jsonObject
+            assertEquals(JsonPrimitive(selectedSha), source["commit_sha"])
+            assertEquals(JsonPrimitive(content), source.getValue("items").jsonArray.single().jsonObject["content"])
+            assertEquals(context, client.taskContext())
+            assertEquals(savedContext, store.read(conversationScope, "selected_context"))
+
+            // Selecting a context remains different from observing a baseline commit.
+            // This control proves that the fixture detects the original caller's side effect.
+            client.execute("resolve_context", JsonObject(target + ("ref" to JsonPrimitive("main"))))
+            assertEquals(baselineSha, client.taskSnapshot()?.commitSha)
+            assertEquals(GitHubRepositoryContext("o", "r", "main"), client.taskContext())
+            assertEquals(JsonPrimitive("main"), store.read(conversationScope, "selected_context")?.get("ref"))
+            assertEquals(JsonPrimitive(baselineSha), client.execute("index_status", target).jsonObject["commit_sha"])
+        } finally {
+            http.close()
+        }
+    }
+
     @Test fun repositoryStatusReadsSelectedBranchAndFiltersWorkflowByItsCommit() = runTest {
         val sha = "a".repeat(40)
         val http = HttpClient(

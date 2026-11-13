@@ -48,11 +48,18 @@ class GitHubIntegrationStopReasonTest {
         assertFalse(stop.containsKey("inventory_stop_reason"))
         assertEquals(JsonPrimitive(1), stop["pending_continuations"])
         assertEquals(JsonPrimitive(100), stop["remaining_tool_calls"])
+        assertEquals(JsonPrimitive(0), stop["pending_local_fragments"])
+        assertEquals(JsonPrimitive(1), stop["pending_remote_continuations"])
+        assertEquals(JsonPrimitive(false), stop["exhaustive_inventory_required"])
+        assertEquals(JsonPrimitive(2), (stop["required_capability_blocker_counts"] as JsonObject)["FIXTURE_APPROVAL_MODE_REQUIRED"])
+        assertTrue((stop["detail"] as JsonPrimitive).content.contains("explicit fixture approval policy"))
+        assertTrue((stop["detail"] as JsonPrimitive).content.contains("Unused budget does not grant approval"))
         assertFalse(GitHubTestChecklist.apiComplete(task, receipts, tools))
         val report = GitHubIntegrationReport.render(task, receipts, tools, 100)
         assertTrue(report.contains("**CAPABILITY_PREREQUISITES_MISSING**"))
         assertFalse(report.contains("**BOUNDED_INVENTORY_SAMPLE_REACHED**"))
         assertTrue(report.contains("Retained continuation recipes: 1."))
+        assertTrue(report.contains("0 local response fragments and 1 remote continuation recipes remain"))
     }
 
     @Test fun optionalPagesDoNotReplaceMissingIndependentBuildAcceptance() {
@@ -110,6 +117,8 @@ class GitHubIntegrationStopReasonTest {
         val stop = GitHubIntegrationReport.stopReason(task, receipts, tools, 0)
         assertEquals(JsonPrimitive("TOOL_BUDGET_EXHAUSTED"), stop["code"])
         assertEquals(JsonPrimitive(1), stop["pending_continuations"])
+        assertEquals(JsonPrimitive(1), stop["pending_local_fragments"])
+        assertEquals(JsonPrimitive(0), stop["pending_remote_continuations"])
         assertFalse(stop.containsKey("inventory_stop_reason"))
         val report = GitHubIntegrationReport.render(task, receipts, tools, 0)
         assertTrue(report.contains("**TOOL_BUDGET_EXHAUSTED**"))

@@ -17,6 +17,21 @@ class ProviderLimitDecisionTest {
         profileUid = "profile"
     )
 
+    @Test fun connectivityWaitRequiresTypedFailureAndProofThatNoGenerationWasSent() {
+        val failure = ProviderConnectivityPendingException(dnsRecovery = true, retryAfterMs = 8_000)
+        val selected = config.copy(lockedModel = "model")
+        val wait = requireNotNull(providerConnectivityWait(selected, "model", failure, false, false, now = 1_000))
+        assertEquals("DNS_RESOLUTION_FAILED", wait.category)
+        assertEquals("CONNECTIVITY_BACKOFF", wait.retrySource)
+        assertEquals(9_000L, wait.retryAt)
+        assertTrue(wait.knownNotAccepted)
+        assertNull(providerConnectivityWait(selected, "model", failure, true, false))
+        assertNull(providerConnectivityWait(selected, "model", failure, false, true))
+        assertNull(providerConnectivityWait(selected, "other", failure, false, false))
+        assertNull(providerConnectivityWait(selected.copy(apiUrl = "not-a-url"), "model", failure, false, false))
+        assertNull(providerConnectivityWait(selected, "model", java.io.IOException("DNS resolution failed"), false, false))
+    }
+
     @Test fun requestSpecificTokenRejectionRetainsItsExactDeadline() {
         val deadline = 87_400_123L
         val failure = FreeAiRateLimitException(FreeAiProvider.LLM7, 86_400, retryAt = deadline)

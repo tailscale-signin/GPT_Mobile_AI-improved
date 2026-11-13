@@ -27,6 +27,13 @@ internal object ToolReportDiagnostics {
         put("call_id_hash", IssueReportContext.identifierHash("call", event.callId))
         put("tool_name_hash", IssueReportContext.identifierHash("tool-name", event.modelToolName))
         result.errorCode?.takeIf { it in errors }?.let { put("tool_error_code", it) }
+        if (event.modelToolName == "read_url" &&
+            result.errorCode in setOf("DNS_FAILED", "DNS_RECOVERY") &&
+            result.executionReceipt?.get("schema") == JsonPrimitive("gptmobile.search-operation.v1")
+        ) {
+            put("tool_error_code", "DNS_RESOLUTION_FAILED")
+            put("url_reader_dns_state", if (result.errorCode == "DNS_RECOVERY") "RECOVERY_COOLDOWN" else "LOOKUP_FAILED")
+        }
         put("original_error_code_hash", IssueReportContext.identifierHash("tool-error-code", result.errorCode))
         if (result.executionReceipt?.containsKey("mcp_failure_phase") == true) {
             put("mcp_connection_hash", IssueReportContext.identifierHash("mcp-connection", event.connectionUidSnapshot))

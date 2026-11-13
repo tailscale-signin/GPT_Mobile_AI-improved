@@ -29,6 +29,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditEvidenceKind
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditMode
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditObservationSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOptions
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditOutcome
@@ -115,8 +116,11 @@ class AppAuditContentTest {
         var network by mutableStateOf(false)
         var accepted: AppAuditOptions? = null
         show {
-            AppAuditControls(true, false, network, { network = it }, emptyList(), emptyList(), {}, { accepted = AppAuditOptions(network) })
+            AppAuditControls(true, false, network, { network = it }, emptyList(), emptyList(), {}, { mode -> accepted = AppAuditOptions(network, mode = mode) })
         }
+        compose.onNodeWithTag("app_audit_start").scrollIntoView().assertIsEnabled().performClick()
+        assertEquals(AppAuditMode.QUICK, accepted?.mode)
+        compose.onNodeWithText("Comprehensive").scrollIntoView().performClick()
         compose.onNodeWithText("Include configured service read checks").assertIsOff()
         compose.onNodeWithTag("app_audit_start").scrollIntoView().assertIsEnabled().performClick()
         assertEquals(AppAuditOptions(), accepted)
@@ -131,7 +135,8 @@ class AppAuditContentTest {
         var changed = false
         show { AppAuditControls(true, true, false, { changed = true }, emptyList(), emptyList(), {}, { started = true }) }
         compose.onNodeWithTag("app_audit_start").scrollIntoView().assertIsNotEnabled()
-        compose.onNodeWithText("Include configured service read checks").scrollIntoView().assertIsNotEnabled()
+        compose.onNodeWithText("Comprehensive").scrollIntoView().assertIsNotEnabled()
+        compose.onNodeWithText("Include configured service read checks").assertDoesNotExist()
         assertFalse(started)
         assertFalse(changed)
     }
@@ -141,6 +146,7 @@ class AppAuditContentTest {
         show {
             AppAuditControls(true, false, false, {}, emptyList(), selected, { id -> selected = selected - id }, {})
         }
+        compose.onNodeWithText("Comprehensive").scrollIntoView().performClick()
         compose.onNodeWithText("Optional model targets (1 selected)").scrollIntoView().performClick()
         compose.onNodeWithText("1 selected target is no longer available", substring = true).assertExists()
         compose.onNodeWithText("Clear model targets").scrollIntoView().performClick()
@@ -157,6 +163,7 @@ class AppAuditContentTest {
         show {
             AppAuditControls(true, false, false, {}, listOf(local, remote), selected, { id -> selected = if (id in selected) selected - id else selected + id }, { started = true })
         }
+        compose.onNodeWithText("Comprehensive").scrollIntoView().performClick()
         compose.onNodeWithText("Optional model targets (0 selected)").scrollIntoView().performClick()
         compose.onNodeWithText("Local saved model").scrollIntoView().assertIsOff().performClick()
         assertEquals(listOf("local"), selected)

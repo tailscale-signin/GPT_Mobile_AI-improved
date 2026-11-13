@@ -72,6 +72,21 @@ class GatewayDiagnosticSupportBundleTest {
         assertEquals("DIAGNOSTIC_TRANSPORT_FAILURE", manifest(output).diagnosticText("gateway_failure"))
     }
 
+    @Test fun retrievalEvidenceSeparatesUnnegotiatedCaptureFromHttpRejection() {
+        val device = archive("device.zip")
+        val unnegotiated = temporary.newFile("unnegotiated.zip")
+        val rejected = temporary.newFile("rejected.zip")
+        GatewayDiagnosticSupportBundle.write(device, null, session, unnegotiated, "DIAGNOSTIC_PROTOCOL_UNAVAILABLE", GatewayDiagnosticSupportBundle.Retrieval(null, null, false))
+        GatewayDiagnosticSupportBundle.write(device, null, session, rejected, "DIAGNOSTIC_SOURCE_UNAVAILABLE", GatewayDiagnosticSupportBundle.Retrieval(2, true, true, 404))
+        val skipped = manifest(unnegotiated)["gateway_retrieval"] as JsonObject
+        val attempted = manifest(rejected)["gateway_retrieval"] as JsonObject
+        assertEquals(JsonPrimitive(false), skipped["attempted"])
+        assertEquals(JsonPrimitive("not_attempted"), skipped["result"])
+        assertEquals(JsonPrimitive(true), attempted["attempted"])
+        assertEquals(JsonPrimitive(2), attempted["protocol_version"])
+        assertEquals(JsonPrimitive(404), attempted["http_status"])
+    }
+
     @Test fun corruptWrongSessionAndHashMismatchHaveOneRecoverableValidationType() {
         val corrupt = temporary.newFile("bad.zip").apply { writeText("not a zip") }
         val device = archive("device.zip")

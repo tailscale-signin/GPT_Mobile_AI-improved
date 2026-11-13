@@ -55,8 +55,8 @@ class VoiceDiagnosticTrace internal constructor(
 
     /** Explicit retries/replay are new playback measurements, even when the draft is retained. */
     internal fun beginReply(generation: Long): Probe = synchronized(lock) {
-        moments.clear()
-        values.keys.removeAll { it.endsWith("_ms") || it in setOf("voice_engine_warm", "voice_first_audio_basis") }
+        moments.keys.retainAll(setOf("speech_end", "final_transcript"))
+        values.keys.removeAll { it.endsWith("_ms") && it != "voice_speech_end_to_transcript_ms" || it in setOf("voice_engine_warm", "voice_first_audio_basis") }
         advance(generation)
     }
 
@@ -154,7 +154,19 @@ class VoiceDiagnosticTrace internal constructor(
         fun recognized(characters: Int) = owner.record(this) {
             owner.values["voice_recognized_characters"] = maxOf(owner.values["voice_recognized_characters"] as? Long ?: 0, characters.toLong().coerceIn(0, MAX_COUNT))
         }
-        fun responseText() = owner.record(this) { owner.moments.putIfAbsent("response", owner.now()) }
+        fun speechEnded() = owner.record(this) { owner.moments.putIfAbsent("speech_end", owner.now()) }
+        fun finalTranscript() = owner.record(this) {
+            owner.moments.putIfAbsent("final_transcript", owner.now())
+            owner.elapsed("voice_speech_end_to_transcript_ms", "speech_end", "final_transcript")
+        }
+        fun requestAccepted() = owner.record(this) {
+            owner.moments.putIfAbsent("accepted", owner.now())
+            owner.elapsed("voice_transcript_to_request_ms", "final_transcript", "accepted")
+        }
+        fun responseText() = owner.record(this) {
+            owner.moments.putIfAbsent("response", owner.now())
+            owner.elapsed("voice_request_to_response_ms", "accepted", "response")
+        }
         fun queued() = owner.record(this) {
             owner.moments.putIfAbsent("queue", owner.now())
             owner.elapsed("voice_response_to_queue_ms", "response", "queue")

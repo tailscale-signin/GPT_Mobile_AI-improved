@@ -16,7 +16,9 @@ import kotlinx.serialization.json.put
 internal object GatewayDiagnosticSupportBundle {
     class InvalidGatewayExport(cause: Exception) : java.io.IOException("INVALID_DIAGNOSTIC_EXPORT", cause)
 
-    fun write(device: File, gateway: File?, session: String, destination: File, unavailable: String?) {
+    data class Retrieval(val protocol: Int?, val captureEnabled: Boolean?, val attempted: Boolean, val httpStatus: Int? = null)
+
+    fun write(device: File, gateway: File?, session: String, destination: File, unavailable: String?, retrieval: Retrieval? = null) {
         if (gateway != null) {
             try {
                 validateGateway(gateway, session)
@@ -52,6 +54,27 @@ internal object GatewayDiagnosticSupportBundle {
                 put("files", JsonArray(files))
                 put("gateway_capture", if (gateway != null) "committed_snapshot" else "unavailable")
                 put("gateway_failure", unavailable?.takeIf { it.matches(Regex("[A-Z_]{1,80}")) }?.let(::JsonPrimitive) ?: kotlinx.serialization.json.JsonNull)
+                retrieval?.let {
+                    put(
+                        "gateway_retrieval",
+                        buildJsonObject {
+                            put("protocol_version", it.protocol)
+                            put("capture_enabled", it.captureEnabled)
+                            put("attempted", it.attempted)
+                            put("http_status", it.httpStatus)
+                            put(
+                                "result",
+                                if (gateway != null) {
+                                    "received"
+                                } else if (it.attempted) {
+                                    "unavailable"
+                                } else {
+                                    "not_attempted"
+                                }
+                            )
+                        }
+                    )
+                }
                 put("complete", false)
                 put("coverage", "Read each source manifest. Device run inventory and gateway job receipts have independent snapshot times. Source-event digests link to app diagnostics; full source payloads remain in their protected stores.")
                 put("clock_ordering", "origin_sequence_and_causal_trace_only")

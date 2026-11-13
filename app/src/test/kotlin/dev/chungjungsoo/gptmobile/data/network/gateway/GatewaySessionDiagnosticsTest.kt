@@ -114,7 +114,14 @@ class GatewaySessionDiagnosticsTest {
             assertEquals("TIMEOUT", timeout.diagnosticText("error_code"))
             assertEquals("deadline", timeout.attributes().diagnosticText("cancellation_origin"))
             assertEquals("reconcile", timeout.diagnosticText("retry_class"))
-            val detached = requireNotNull(GatewayClientDiagnostics.failureFields(config, GatewayClientDiagnostics.requestHeaders(config, "job", knownGateway = true), GatewayObserverCancellation("observer_detached")))
+            val detached = requireNotNull(
+                GatewayClientDiagnostics.failureFields(
+                    config,
+                    GatewayClientDiagnostics.requestHeaders(config, "job", knownGateway = true),
+                    GatewayObserverCancellation("observer_detached"),
+                    safeRead = true
+                )
+            )
             assertEquals("CANCELLED", detached.diagnosticText("error_code"))
             assertEquals("observer_detached", detached.attributes().diagnosticText("cancellation_origin"))
             assertEquals("none", detached.diagnosticText("retry_class"))

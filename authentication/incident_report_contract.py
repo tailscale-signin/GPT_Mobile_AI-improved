@@ -238,7 +238,7 @@ COMMON = {
 } | POLICY_DIAGNOSTICS
 
 TOOL_FIELDS = {
-    'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
+    'url_reader_dns_state', 'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
     'tool_budget_calls_used', 'tool_budget_calls_limit', 'tool_permission_scope',
     'semantic_read_rules', 'dependency_admission_reasons',
     'native_dependency_state', 'dependency_call_id_hashes', 'dependency_count', 'dependency_failed_count', 'search_cursor_state', 'search_id_hash', 'search_cursor_hash',
@@ -274,7 +274,7 @@ POLICY_OBSERVATION = {'OBSERVED', 'UNOBSERVED', 'INVALID_RESPONSE', 'ACCESS_DENI
 
 ACCEPTANCE_BLOCKER_FIELDS = {'fixture_approval_blocked_count', 'owned_fixture_blocked_count', 'pending_local_fragments', 'pending_remote_continuations'}
 ACCEPTANCE_FIELDS = {
-    'fixture_approval_state', 'branch_protection_observation', 'branch_rules_observation',
+    'fixture_approval_state', 'fixture_decision_mode', 'branch_protection_observation', 'branch_rules_observation',
     'receipt_count_scope',
     'acceptance_evaluator_branch',
     'acceptance_mismatch',
@@ -454,6 +454,8 @@ OPERATIONS = {
 MCP_HEALTH = {'DNS_FAILED', 'DNS_RECOVERY', 'ROUTE_UNAVAILABLE', 'CONNECTION_REFUSED', 'AUTHENTICATION_FAILED', 'TLS_FAILED', 'CONNECT_TIMEOUT', 'HTTP_ERROR', 'MCP_HANDSHAKE_FAILED', 'STREAM_INTERRUPTED', 'STREAM_IDLE_TIMEOUT', 'REQUEST_TIMEOUT', 'HEALTHY', 'UNKNOWN'}
 
 ENUMS = {
+    'url_reader_dns_state': {'RECOVERY_COOLDOWN', 'LOOKUP_FAILED'},
+    'fixture_decision_mode': {'AUTO_APPROVE', 'SUGGESTED', 'ASK', 'UNKNOWN'},
     'crash_surface': {'CHAT', 'DEBUG_LOGS', 'GITHUB_WORKSPACE'},
     'crash_boundary': {'ANDROID_VIEW_DRAW'},
     'pending_tool_receipt_state': {'CHECKPOINT_STATE_INCONSISTENT', 'TERMINAL_RECEIPTS_MISSING', 'SOME_TERMINAL_RECEIPTS_MISSING', 'OUTCOMES_UNRESOLVED'},
@@ -483,7 +485,7 @@ ENUMS = {
     'mcp_connection_state': {'CONNECTED', 'DEGRADED', 'UNREACHABLE', 'AUTHENTICATION_REQUIRED', 'RECOVERING'},
     'mcp_readiness_state': {'NOT_DISCOVERED', 'DISCOVERING', 'READY', 'STALE'},
     'mcp_health_observation': {'RETAINED_SNAPSHOT', 'UNAVAILABLE'},
-    'saved_view_restore_state': {'NOT_FOUND', 'LOAD_FAILED', 'IDENTITY_REJECTED', 'RESTORED'},
+    'saved_view_restore_state': {'NOT_FOUND', 'LOAD_FAILED', 'IDENTITY_REJECTED', 'RESTORED', 'BODY_MISSING', 'CURSOR_INDEX_MISSING', 'INVALID_VIEW_ID'},
     'provider_rejection_category': {'BILLING_UNAVAILABLE', 'INVALID_REQUEST', 'AUTHENTICATION', 'PERMISSION', 'RATE_LIMIT', 'NOT_FOUND', 'GONE', 'UNAVAILABLE', 'PAYLOAD_SIZE', 'MODEL_UNAVAILABLE', 'UNKNOWN'},
     'provider_parameter': {'model', 'messages', 'max_tokens', 'max_completion_tokens', 'temperature', 'top_p', 'stop', 'tools', 'tool_choice', 'stream', 'response_format', 'reasoning', 'thinking', 'metadata', 'system'},
     'payload_contract': {'CHAT_COMPLETIONS', 'ANTHROPIC_MESSAGES', 'GOOGLE_CONTENT', 'GATEWAY_GENERATION'},

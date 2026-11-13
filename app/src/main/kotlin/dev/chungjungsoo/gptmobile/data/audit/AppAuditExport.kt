@@ -64,6 +64,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                 put("stopReasonCode", run.stopReasonCode?.let(::safeAuditReason))
                 put("catalogVersion", if (run.catalogVersion == "app-audit-v1") run.catalogVersion else "UNKNOWN_VERSION")
                 put("catalogHash", safeDigest(run.catalogHash))
+                put("auditMode", run.options.mode.name)
                 put("selectedProfileCount", run.options.selectedProfileIds.distinct().size)
                 put("networkReadsSelected", run.options.allowNetworkReads)
                 put("executedProbes", run.executedProbes.coerceAtLeast(0))
@@ -188,6 +189,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("reasonCode", entry.reasonCode?.let(::safeAuditReason))
                     put("weight", entry.weight)
                     put("fixtureHash", safeDigest(entry.fixtureHash))
+                    entry.iteration?.let { put("iteration", it) }
                     put("configurationRevision", safeAuditConfigurationRevision(entry.configurationRevision))
                 }
             }
@@ -447,6 +449,7 @@ private val AUDIT_LABELS = AppAuditPluginProbeSource.labels + AppAuditSelectedMo
     "grant_scope_v1" to "Permission identity binds schema, chat and resource",
     "runner_isolation_v1" to "Agent collections retain independent execution budgets",
     "response_origin_v1" to "Gateway colour requires verified response origin",
+    "scroll_follow_v1" to "Repeated history detachment and bottom arrival",
     "theme_contrast_v1" to "Gateway theme foreground contrast calculation",
     "authority_projection_v1" to "Public research transfer excludes private context",
     "memory_eligibility_v1" to "Memory recall privacy, review and conversation gates",

@@ -133,6 +133,7 @@ class OpenAIAPIImpl @Inject constructor(
         var receivedAssistantPayload = false
         var receivedVisibleText = false
         var requestDispatched = false
+        var anyRequestDispatched = false
         var llamaActivity: AutoCloseable? = null
         var receivedGatewayToolActivity = false
         val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
@@ -228,6 +229,7 @@ class OpenAIAPIImpl @Inject constructor(
                     val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
                     dispatchRetryGuard.dispatched()
                     requestDispatched = true
+                    anyRequestDispatched = true
                     diagnosticHeaders = GatewayClientDiagnostics.requestHeaders(config, "chat", "POST")
                     dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobPollCoordinator.continuing(config)
                     networkClient().preparePost(endpoint) {
@@ -768,6 +770,7 @@ class OpenAIAPIImpl @Inject constructor(
                             requiresReconciliation = gatewayOutcomeUnknown
                         ),
                         providerLimit = providerLimitDecision(config, request.model, receivedAssistantPayload || receivedGatewayToolActivity, e)
+                            ?: providerConnectivityWait(config, request.model, e, anyRequestDispatched, receivedAssistantPayload || receivedGatewayToolActivity)
                     )
                 )
             )
@@ -787,6 +790,7 @@ class OpenAIAPIImpl @Inject constructor(
         var receivedResponsePayload = false
         var receivedVisibleText = false
         var requestDispatched = false
+        var anyRequestDispatched = false
         var activeResponseObserver: ProviderResponseObserver? = null
         val dispatchRetryGuard = ProviderDispatchRetryGuard(config)
         var receivedTerminal = false
@@ -829,6 +833,7 @@ class OpenAIAPIImpl @Inject constructor(
                         effectiveConfig.freeDiagnostics?.attempted()
                         dispatchRetryGuard.dispatched()
                         requestDispatched = true
+                        anyRequestDispatched = true
                         val responseObserver = ProviderResponseObserver().also { activeResponseObserver = it }
                         dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange(effectiveConfig, "chat", safeRead = false, method = "POST", knownGateway = false) { diagnosticHeaders ->
                             networkClient().preparePost(endpoint) {
@@ -1069,6 +1074,7 @@ class OpenAIAPIImpl @Inject constructor(
                         requiresReconciliation = gatewayOutcomeUnknown
                     ),
                     providerLimit = providerLimitDecision(effectiveConfig, request.model, receivedResponsePayload, e)
+                        ?: providerConnectivityWait(effectiveConfig, request.model, e, anyRequestDispatched, receivedResponsePayload)
                 )
             )
         }

@@ -35,7 +35,8 @@ internal class GitHubEvidenceBook(
     private val readSources: Set<String> = emptySet(),
     authorizationRevision: String? = null,
     internal val fixtureDecisionMode: GitHubDecisionMode? = null,
-    private val approvalResolution: suspend (JsonObject) -> List<JsonObject> = { emptyList() }
+    private val approvalResolution: suspend (JsonObject) -> List<JsonObject> = { emptyList() },
+    private val sourceRunId: String? = null
 ) {
     init {
         require(retentionLimitRecords in 1..4096)
@@ -203,6 +204,7 @@ internal class GitHubEvidenceBook(
             put("call_id", call.callId)
             put("original_invocation_fingerprint", call.originalInvocationFingerprint ?: digest("${call.callId}:${call.name}:${call.arguments}"))
             put("tool", call.name)
+            sourceRunId?.let { put("source_run_id", it) }
             put("repository", evidenceRepository)
             put(
                 "repository_role",
@@ -773,7 +775,28 @@ internal class GitHubEvidenceBook(
             JsonObject(emptyMap())
         }
         val receipts = records.toMap()
-        val retained = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation), receipts)
+        val provenance = sourceRunId?.let { currentRun ->
+            val observations = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
+            val current = observations.filter { it["source_run_id"] == JsonPrimitive(currentRun) }
+            val reused = observations.filterNot { it["source_run_id"] == JsonPrimitive(currentRun) }
+            buildJsonObject {
+                put("run_id", currentRun)
+                put("current_run_receipts", current.size)
+                put(
+                    "current_run_live_operations",
+                    current.count { receipt ->
+                        val transport = receipt["execution"] as? JsonObject
+                        listOf("read_requests", "mutation_requests").any { ((transport?.get(it) as? JsonPrimitive)?.longOrNull ?: 0L) > 0 }
+                    }
+                )
+                put("reused_receipts", reused.size)
+                put("unattributed_reused_receipts", reused.count { it["source_run_id"] == null })
+                val sources = reused.mapNotNull { (it["source_run_id"] as? JsonPrimitive)?.contentOrNull }.distinct()
+                put("source_run_count", sources.size)
+                put("source_run_ids", kotlinx.serialization.json.JsonArray(sources.take(16).map(::JsonPrimitive)))
+            }
+        }
+        val retained = GitHubAcceptanceLedger.attach(JsonObject(value + retention + limitation + listOfNotNull(provenance?.let { "verdict_evidence_provenance" to it })), receipts)
         val checklistComplete = (retained["acceptance_ledger"] as? JsonObject)?.get("completion_verified") == JsonPrimitive(true)
         val checked = if (retained["task_outcome"] == JsonPrimitive("COMPLETED") && !checklistComplete) {
             JsonObject(

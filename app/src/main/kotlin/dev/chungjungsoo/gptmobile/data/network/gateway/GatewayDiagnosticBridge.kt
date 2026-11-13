@@ -35,7 +35,7 @@ internal object GatewayDiagnosticBridge {
 
         @Volatile var protocol: Int? = null
 
-        @Volatile var gatewayEnabled = false
+        @Volatile var gatewayEnabled: Boolean? = null
         val synchronization = GatewayDiagnosticRetryGate()
         val storage = GatewayDiagnosticRetryGate()
         val dropped = AtomicLong()
@@ -126,7 +126,7 @@ internal object GatewayDiagnosticBridge {
                     if (spool != null &&
                         allowed &&
                         route.protocol == 2 &&
-                        route.gatewayEnabled &&
+                        route.gatewayEnabled == true &&
                         route.storage.snapshot().state == GatewayDiagnosticRetryState.READY &&
                         route.synchronization.snapshot().state == GatewayDiagnosticRetryState.READY &&
                         exchange?.job?.isActive != true
@@ -261,7 +261,7 @@ internal object GatewayDiagnosticBridge {
                 storage.state == GatewayDiagnosticRetryState.BLOCKED || synchronization.state == GatewayDiagnosticRetryState.BLOCKED -> "sync_blocked"
                 storage.state == GatewayDiagnosticRetryState.EXHAUSTED || synchronization.state == GatewayDiagnosticRetryState.EXHAUSTED -> "retry_exhausted"
                 route.protocol != 2 -> "protocol_unavailable"
-                !route.gatewayEnabled -> "gateway_disabled"
+                route.gatewayEnabled != true -> "gateway_disabled"
                 failure != null -> "retry_wait"
                 else -> snapshot.captureState
             }
@@ -291,23 +291,36 @@ internal object GatewayDiagnosticBridge {
                 spool.export(device, inventory)
             }
             var gateway: File? = null
-            var failure: String? = "DIAGNOSTIC_SOURCE_UNAVAILABLE"
-            if (route.protocol == 2 && route.gatewayEnabled && allowed) {
+            val protocol = route.protocol
+            val captureEnabled = route.gatewayEnabled
+            val attempted = protocol == 2 && captureEnabled == true && allowed
+            var httpStatus: Int? = null
+            var failure: String? = when {
+                !allowed -> "DIAGNOSTIC_CAPTURE_DISABLED"
+                protocol != 2 -> "DIAGNOSTIC_PROTOCOL_UNAVAILABLE"
+                captureEnabled == null -> "DIAGNOSTIC_CAPTURE_UNOBSERVED"
+                !captureEnabled -> "DIAGNOSTIC_GATEWAY_CAPTURE_DISABLED"
+                else -> null
+            }
+            if (attempted) {
                 try {
                     gateway = GatewayDiagnosticHttpTransport(http, exportConfig) { permitted() && allowed }.exportSession(spool.sessionId, remote)
-                    failure = null
+                    httpStatus = 200
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
                 } catch (error: Exception) {
-                    failure = (error as? DiagnosticSyncFailure)?.code ?: "DIAGNOSTIC_TRANSPORT_FAILURE"
+                    val rejection = error as? DiagnosticSyncFailure
+                    failure = rejection?.code ?: "DIAGNOSTIC_TRANSPORT_FAILURE"
+                    httpStatus = rejection?.httpStatus
                 }
             }
+            val retrieval = GatewayDiagnosticSupportBundle.Retrieval(protocol, captureEnabled, attempted, httpStatus)
             if (!permitted()) throw IOException("DIAGNOSTIC_CAPTURE_REVOKED")
             try {
-                GatewayDiagnosticSupportBundle.write(device, gateway, spool.sessionId, destination, failure)
+                GatewayDiagnosticSupportBundle.write(device, gateway, spool.sessionId, destination, failure, retrieval)
             } catch (invalid: GatewayDiagnosticSupportBundle.InvalidGatewayExport) {
                 // A corrupt or differently scoped gateway archive never hides the device evidence.
-                GatewayDiagnosticSupportBundle.write(device, null, spool.sessionId, destination, "INVALID_DIAGNOSTIC_EXPORT")
+                GatewayDiagnosticSupportBundle.write(device, null, spool.sessionId, destination, "INVALID_DIAGNOSTIC_EXPORT", retrieval)
             }
             if (!permitted()) throw IOException("DIAGNOSTIC_CAPTURE_REVOKED")
             destination

@@ -8,6 +8,7 @@ import org.junit.Test
 
 class McpReportDiagnosticsTest {
     @Test fun reportingAliasesPreserveTypedSearchAndValidationCategories() {
+        assertEquals("DNS_RESOLUTION_FAILED", IssueReportCodes.toolResult("DNS_RECOVERY"))
         assertEquals("SAVED_VIEW_UNAVAILABLE", IssueReportCodes.toolResult("GITHUB_SEARCH_CURSOR_UNAVAILABLE"))
         assertEquals("GITHUB_VALIDATION_FAILED", IssueReportCodes.toolResult("GITHUB_PR_VALIDATION_FAILED"))
     }

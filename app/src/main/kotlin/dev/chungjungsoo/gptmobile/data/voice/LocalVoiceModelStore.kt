@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import android.content.Context
 import java.io.Closeable
 import java.io.File
+import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
@@ -92,7 +93,6 @@ class LocalVoiceModelStore internal constructor(
 
     suspend fun refresh() = withContext(Dispatchers.IO) {
         shared.mutex.withLock {
-            if (expandArchive != null) staging.deleteRecursively()
             val ready = verifyInstalledFiles()
             shared.state.value = LocalVoiceModelState(
                 status = if (ready) LocalVoiceModelStatus.READY else LocalVoiceModelStatus.NOT_INSTALLED,
@@ -111,9 +111,11 @@ class LocalVoiceModelStore internal constructor(
     }
 
     private fun verifyFiles(directory: File): Boolean = expandedAssets.all { asset ->
-        val file = File(directory, asset.name)
-        file.isFile && file.length() == asset.bytes && digest(file) == asset.sha256
+        verifyAsset(File(directory, asset.name), asset)
     }
+
+    private fun verifyAsset(file: File, asset: LocalVoiceAsset): Boolean =
+        file.isFile && file.length() == asset.bytes && digest(file) == asset.sha256
 
     suspend fun install() = withContext(Dispatchers.IO) {
         // Multiple screens share one installer and its progress. A second tap never queues a download.
@@ -129,29 +131,45 @@ class LocalVoiceModelStore internal constructor(
             shared.installJob = currentCoroutineContext().job
             shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, totalBytes = totalBytes)
             check(root.isDirectory || root.mkdirs()) { "Could not create local speech storage." }
-            if (staging.exists() && !staging.deleteRecursively()) throw IOException("Could not reset incomplete speech download.")
-            val spaceNeeded = totalBytes + (if (expandArchive != null) expandedAssets.sumOf { it.bytes } else 0) + 16L * 1024 * 1024
+            val verifiedDownloads = assets.filter { asset -> verifyAsset(File(staging, asset.name), asset) }.toSet()
+            assets.filterNot { it in verifiedDownloads }.forEach { asset ->
+                File(staging, asset.name).delete()
+            }
+            val partialBytes = (assets - verifiedDownloads).sumOf { asset ->
+                val part = File(staging, "${asset.name}.part")
+                part.length().takeIf { it in 1 until asset.bytes && validatorFile(part).isFile } ?: 0
+            }
+            val spaceNeeded = (assets - verifiedDownloads).sumOf { it.bytes } - partialBytes +
+                (if (expandArchive != null) expandedAssets.sumOf { it.bytes } else 0) + 16L * 1024 * 1024
             check(root.usableSpace >= spaceNeeded) { "Free at least ${(spaceNeeded + 1_048_575) / 1_048_576} MiB to install local speech." }
-            check(staging.mkdirs()) { "Could not prepare local speech storage." }
+            check(staging.isDirectory || staging.mkdirs()) { "Could not prepare local speech storage." }
             val source = sourceFactory().also { shared.source = it }
             var complete = 0L
             for (asset in assets) {
                 currentCoroutineContext().ensureActive()
                 val destination = File(staging, asset.name)
+                if (asset in verifiedDownloads) {
+                    complete += asset.bytes
+                    shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, complete, totalBytes)
+                    continue
+                }
+                val partial = File(staging, "${asset.name}.part")
                 var lastFailure: IOException? = null
                 var downloaded = false
                 for (url in asset.urls) {
                     currentCoroutineContext().ensureActive()
                     try {
-                        copyVerified(asset, source, url, destination) { bytes ->
+                        copyVerified(asset, source, url, partial) { bytes ->
                             shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, complete + bytes, totalBytes)
                         }
+                        if (!partial.renameTo(destination)) throw IOException("Could not checkpoint the verified speech asset.")
+                        validatorFile(partial).delete()
                         downloaded = true
                         break
                     } catch (failure: IOException) {
                         currentCoroutineContext().ensureActive()
                         lastFailure = failure
-                        destination.delete()
+                        if (!validatorFile(partial).isFile) partial.delete()
                     }
                 }
                 if (!downloaded) throw lastFailure ?: IOException("The local speech download failed.")
@@ -159,8 +177,10 @@ class LocalVoiceModelStore internal constructor(
             }
             currentCoroutineContext().ensureActive()
             if (expandArchive != null) {
+                expandedAssets.forEach { File(staging, it.name).delete() }
                 expandArchive.invoke(staging)
                 check(verifyFiles(staging)) { "The extracted speech files could not be verified." }
+                assets.forEach { File(staging, it.name).delete() }
             }
             currentCoroutineContext().ensureActive()
             File(staging, "verified").writeText(revision)
@@ -184,7 +204,7 @@ class LocalVoiceModelStore internal constructor(
             shared.source?.cancel()
             shared.source = null
             shared.installJob = null
-            staging.deleteRecursively()
+            if (staging.listFiles().orEmpty().none { it.isFile && it.length() > 0 }) staging.deleteRecursively()
             shared.mutex.unlock()
         }
     }
@@ -217,14 +237,42 @@ class LocalVoiceModelStore internal constructor(
         }
     }
 
+    private fun validatorFile(part: File) = File(part.parentFile, "${part.name}.etag")
+
     private suspend fun copyVerified(asset: LocalVoiceAsset, source: LocalVoiceAssetSource, url: String, destination: File, progress: (Long) -> Unit) {
+        val checkpoint = validatorFile(destination)
+        val prefix = destination.length().takeIf { it in 1 until asset.bytes } ?: 0
+        val validator = checkpoint.takeIf { prefix > 0 && it.isFile && it.length() in 1..1024 }?.readLines()
+            ?.takeIf { it.size == 2 && it.first() == url }?.last()?.takeIf(::strongVoiceAssetValidator)
+        val requestOffset = if (validator == null) 0 else prefix
         val hash = MessageDigest.getInstance("SHA-256")
         var count = 0L
         var lastProgressAt = 0L
         val deadline = System.nanoTime() + 5L * 60 * 1_000_000_000
-        source.open(url).use { download ->
-            if (download.bytes >= 0 && download.bytes != asset.bytes) throw IOException("Speech model size does not match the verified release.")
-            destination.outputStream().use { output ->
+        val transfer = try {
+            source.open(url, requestOffset, validator)
+        } catch (_: VoiceRangeRejected) {
+            checkpoint.delete()
+            source.open(url)
+        }
+        transfer.use { download ->
+            check(download.offset == 0L || download.offset == requestOffset && download.validator == validator)
+            if (download.bytes >= 0 && download.bytes != asset.bytes - download.offset) throw IOException("Speech model size does not match the verified release.")
+            if (download.offset > 0) {
+                destination.inputStream().buffered().use { saved ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (count < download.offset) {
+                        currentCoroutineContext().ensureActive()
+                        val bytes = saved.read(buffer, 0, minOf(buffer.size.toLong(), download.offset - count).toInt())
+                        if (bytes <= 0) throw IOException("Saved speech download was incomplete.")
+                        count += bytes
+                        hash.update(buffer, 0, bytes)
+                    }
+                }
+            }
+            checkpoint.delete()
+            FileOutputStream(destination, count > 0).use { output ->
+                download.validator?.takeIf(::strongVoiceAssetValidator)?.let { checkpoint.writeText("$url\n$it") }
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
                     currentCoroutineContext().ensureActive()
@@ -233,7 +281,10 @@ class LocalVoiceModelStore internal constructor(
                     if (read < 0) break
                     if (read == 0) continue
                     count += read
-                    if (count > asset.bytes) throw IOException("Speech model exceeds its verified size.")
+                    if (count > asset.bytes) {
+                        checkpoint.delete()
+                        throw IOException("Speech model exceeds its verified size.")
+                    }
                     output.write(buffer, 0, read)
                     hash.update(buffer, 0, read)
                     val now = System.nanoTime()
@@ -245,7 +296,9 @@ class LocalVoiceModelStore internal constructor(
                 output.fd.sync()
             }
         }
-        if (count != asset.bytes || hash.digest().hex() != asset.sha256) {
+        if (count != asset.bytes) throw IOException("Speech model download ended early. Resume to continue.")
+        if (hash.digest().hex() != asset.sha256) {
+            checkpoint.delete()
             throw IOException("Speech model verification failed. The incomplete download was discarded.")
         }
     }
@@ -295,10 +348,22 @@ internal data class LocalVoiceAsset(val name: String, val bytes: Long, val sha25
 
 internal interface LocalVoiceAssetSource {
     fun open(url: String): LocalVoiceAssetStream
+    fun open(url: String, offset: Long, validator: String?): LocalVoiceAssetStream = open(url)
     fun cancel()
 }
 
-internal class LocalVoiceAssetStream(val input: InputStream, val bytes: Long, private val disconnect: () -> Unit = {}) : Closeable {
+private class VoiceRangeRejected : IOException()
+
+private fun strongVoiceAssetValidator(value: String): Boolean =
+    value.length in 2..256 && value.startsWith('"') && value.endsWith('"') && value.none(Char::isISOControl)
+
+internal class LocalVoiceAssetStream(
+    val input: InputStream,
+    val bytes: Long,
+    val offset: Long = 0,
+    val validator: String? = null,
+    private val disconnect: () -> Unit = {}
+) : Closeable {
     override fun close() {
         try {
             input.close()
@@ -313,7 +378,9 @@ internal class HttpsVoiceAssetSource : LocalVoiceAssetSource {
 
     @Volatile private var cancelled = false
 
-    override fun open(url: String): LocalVoiceAssetStream {
+    override fun open(url: String): LocalVoiceAssetStream = open(url, 0, null)
+
+    override fun open(url: String, offset: Long, validator: String?): LocalVoiceAssetStream {
         var current = URI(url)
         repeat(6) {
             if (cancelled) throw IOException("Download cancelled.")
@@ -323,6 +390,10 @@ internal class HttpsVoiceAssetSource : LocalVoiceAssetSource {
                 readTimeout = 15_000
                 instanceFollowRedirects = false
                 setRequestProperty("Accept-Encoding", "identity")
+                if (offset > 0 && validator != null) {
+                    setRequestProperty("Range", "bytes=$offset-")
+                    setRequestProperty("If-Range", validator)
+                }
             }
             connection = active
             try {
@@ -333,8 +404,19 @@ internal class HttpsVoiceAssetSource : LocalVoiceAssetSource {
                     current = current.resolve(location)
                     active.disconnect()
                 } else {
-                    if (code != HttpURLConnection.HTTP_OK) throw IOException("Speech model server returned HTTP $code. Try again when connected.")
-                    return LocalVoiceAssetStream(active.inputStream, active.contentLengthLong) {
+                    val etag = active.getHeaderField("ETag")?.takeIf(::strongVoiceAssetValidator)
+                    val start = if (code == HttpURLConnection.HTTP_PARTIAL) {
+                        val range = active.getHeaderField("Content-Range").orEmpty()
+                        if (offset <= 0 || etag == null || etag != validator || !range.startsWith("bytes $offset-")) {
+                            throw VoiceRangeRejected()
+                        }
+                        offset
+                    } else {
+                        if (code == 416 && offset > 0) throw VoiceRangeRejected()
+                        if (code != HttpURLConnection.HTTP_OK) throw IOException("Speech model server returned HTTP $code. Try again when connected.")
+                        0L
+                    }
+                    return LocalVoiceAssetStream(active.inputStream, active.contentLengthLong, start, etag) {
                         active.disconnect()
                         if (connection === active) connection = null
                     }

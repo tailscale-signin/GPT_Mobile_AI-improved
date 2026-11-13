@@ -154,6 +154,9 @@ internal class GitHubOperationTool(
                     loadSavedView(cursor.substringBefore(':'))
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
+                } catch (missing: dev.chungjungsoo.gptmobile.data.github.GitHubSavedViewStore.MissingSavedView) {
+                    restoreState = missing.reason
+                    null
                 } catch (error: Exception) {
                     restoreState = "LOAD_FAILED"
                     restoreErrorHash = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("github.saved-view.restore-error.v1\u0000${error.javaClass.name}")

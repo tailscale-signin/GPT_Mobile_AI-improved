@@ -32,12 +32,20 @@ internal class GitHubSavedViewStore(private val state: GitHubRepositoryStateStor
         }
     }
 
-    suspend fun load(id: String): JsonObject? {
-        if (!validId(id)) return null
-        val body = state.read(scope, "saved-view-body:$id") ?: return null
-        val access = state.read(scope, "saved-view-access:$id") ?: return null
+    suspend fun load(id: String): JsonObject? = try {
+        loadWithDiagnostics(id)
+    } catch (_: MissingSavedView) {
+        null
+    }
+
+    suspend fun loadWithDiagnostics(id: String): JsonObject {
+        if (!validId(id)) throw MissingSavedView("INVALID_VIEW_ID")
+        val body = state.read(scope, "saved-view-body:$id") ?: throw MissingSavedView("BODY_MISSING")
+        val access = state.read(scope, "saved-view-access:$id") ?: throw MissingSavedView("CURSOR_INDEX_MISSING")
         return JsonObject(body + access)
     }
+
+    class MissingSavedView(val reason: String) : Exception()
 
     private fun validId(id: String) = runCatching { UUID.fromString(id) }.isSuccess
 }

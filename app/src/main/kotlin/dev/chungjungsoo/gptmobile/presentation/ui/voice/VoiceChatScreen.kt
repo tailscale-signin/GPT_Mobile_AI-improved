@@ -160,13 +160,21 @@ internal fun VoiceEntryScreen(
             }
             Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 VoiceWave(VoiceState(), Modifier.fillMaxWidth().height(100.dp))
-                Text(if (modelsReady) "Let’s talk" else "Set up voice chat", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+                Text(if (modelsReady) "Voice chat is ready" else "Talk with your AI", style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
                 Spacer(Modifier.height(20.dp))
                 if (!state.loaded || state.creating) {
                     CircularProgressIndicator()
+                } else if (!modelsReady) {
+                    Column(
+                        Modifier.widthIn(max = 440.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Text("Speak your message and listen to the reply.", textAlign = TextAlign.Center)
+                        setup()
+                    }
                 } else {
                     Column(Modifier.widthIn(max = 440.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        setup()
                         VoiceChoice("AI profile", state.selected, state.profiles.map { it.uid to it.name.ifBlank { it.model } }, select)
                     }
                     modelPreparation?.let { preparation ->
@@ -175,7 +183,7 @@ internal fun VoiceEntryScreen(
                     if (state.profiles.isEmpty()) {
                         Button(onClick = settings) { Text("Set up an AI profile") }
                     } else {
-                        Button(onClick = start, enabled = modelsReady && state.selected.isNotBlank(), modifier = Modifier.padding(top = 16.dp).testTag("voice_enable_start")) { Text("Start voice chat") }
+                        Button(onClick = start, enabled = state.selected.isNotBlank(), modifier = Modifier.padding(top = 16.dp).testTag("voice_enable_start")) { Text("Start voice chat") }
                     }
                 }
                 state.error?.let { Text(it, Modifier.padding(top = 16.dp), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center) }
@@ -286,6 +294,10 @@ private fun VoiceChatSessionScreen(
     var kokoroThreads by rememberSaveable { mutableIntStateOf(2) }
     var editBeforeSend by rememberSaveable { mutableStateOf(false) }
     var spokenReplies by rememberSaveable { mutableStateOf(true) }
+    var buttonSounds by rememberSaveable { mutableStateOf(false) }
+    val feedback = remember(context) { VoiceButtonFeedback(context.applicationContext) }
+    DisposableEffect(feedback) { onDispose { feedback.close() } }
+    SideEffect { localRecognition.onManualCaptureReady = if (buttonSounds) feedback::start else null }
     var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1f) }
     var preferencesInitialized by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(model, loaded, roomReady, selectedProfile, lifecycleState, settingsOpen) {
@@ -318,6 +330,7 @@ private fun VoiceChatSessionScreen(
                 captions = saved.captions
                 editBeforeSend = saved.review
                 spokenReplies = saved.spokenReplies
+                buttonSounds = saved.buttonSounds
                 rate = saved.rate
                 kokoroVoice = saved.kokoroVoice ?: KokoroVoice.HEART
                 kokoroThreads = saved.kokoroThreads
@@ -404,15 +417,21 @@ private fun VoiceChatSessionScreen(
         resumeWhenReady = granted
         if (!granted) session.permissionDenied()
     }
-    fun listen() {
+    fun listen(manual: Boolean = false) {
         if (!enabled || !voiceReady || !preferencesApplied || !recognitionReady && !state.hasDraft) return
         applyAudioConfiguration()
         permission = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
         session.access(enabled && preferencesApplied && voiceReady, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
-        if (permission) session.resume() else permissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+        if (permission) {
+            if (manual && state.phase in setOf(VoicePhase.PAUSED, VoicePhase.ERROR) && !state.hasDraft) localRecognition.armManualCaptureFeedback()
+            session.resume()
+            localRecognition.clearManualCaptureFeedback()
+        } else {
+            permissionRequest.launch(Manifest.permission.RECORD_AUDIO)
+        }
     }
     fun savePreferences() {
-        voiceSettings.save(VoicePreferences(language = language, captions = captions, review = editBeforeSend, rate = rate, kokoroVoice = kokoroVoice, spokenReplies = spokenReplies, kokoroThreads = kokoroThreads))
+        voiceSettings.save(VoicePreferences(language = language, captions = captions, review = editBeforeSend, rate = rate, kokoroVoice = kokoroVoice, spokenReplies = spokenReplies, kokoroThreads = kokoroThreads, buttonSounds = buttonSounds))
     }
     fun setSpokenReplies(value: Boolean) {
         spokenReplies = value
@@ -513,6 +532,7 @@ private fun VoiceChatSessionScreen(
                 editBeforeSend = editBeforeSend,
                 captions = captions,
                 spokenReplies = spokenReplies,
+                buttonSounds = buttonSounds,
                 kokoroModel = kokoroModel,
                 kokoroThreads = kokoroThreads,
                 rate = rate
@@ -543,6 +563,10 @@ private fun VoiceChatSessionScreen(
                     savePreferences()
                 },
                 changeSpokenReplies = ::setSpokenReplies,
+                changeButtonSounds = {
+                    buttonSounds = it
+                    savePreferences()
+                },
                 selectKokoroVoice = {
                     kokoroVoice = it
                     audio.kokoroVoice = it
@@ -610,7 +634,7 @@ private fun VoiceChatSessionScreen(
                 session.editDraft(draft)
             },
             sendDraft = { session.sendDraft(draft) },
-            listen = ::listen,
+            listen = { listen() },
             recordAgain = {
                 session.discardDraft()
                 listen()
@@ -628,17 +652,22 @@ private fun VoiceChatSessionScreen(
             toggleMicrophone = {
                 if (state.phase == VoicePhase.SPEAKING) {
                     session.stopSpeaking()
+                    if (buttonSounds) feedback.stop()
                 } else if (state.muted) {
+                    if (state.phase == VoicePhase.PAUSED && !state.hasDraft) localRecognition.armManualCaptureFeedback()
                     session.mute()
+                    localRecognition.clearManualCaptureFeedback()
                     listen()
                 } else if (state.phase in setOf(VoicePhase.PAUSED, VoicePhase.ERROR)) {
-                    listen()
+                    listen(manual = true)
                 } else {
                     session.mute()
+                    if (buttonSounds) feedback.stop()
                 }
             },
             openAudioRoute = {
                 session.pause()
+                if (buttonSounds) feedback.click()
                 routeOpen = true
             },
             end = ::end
@@ -680,6 +709,7 @@ private data class VoiceSettingsUiState(
     val editBeforeSend: Boolean,
     val captions: Boolean,
     val spokenReplies: Boolean,
+    val buttonSounds: Boolean,
     val kokoroModel: LocalVoiceModelState,
     val kokoroThreads: Int,
     val rate: Float
@@ -695,6 +725,7 @@ private class VoiceSettingsActions(
     val changeReview: (Boolean) -> Unit,
     val changeCaptions: (Boolean) -> Unit,
     val changeSpokenReplies: (Boolean) -> Unit,
+    val changeButtonSounds: (Boolean) -> Unit,
     val selectKokoroVoice: (KokoroVoice?) -> Unit,
     val selectKokoroThreads: (Int) -> Unit,
     val installKokoroModel: () -> Unit,
@@ -733,6 +764,7 @@ private fun VoiceSettingsScreen(
         VoiceSettingSwitch("Review before sending", state.editBeforeSend, actions.changeReview)
         VoiceSettingSwitch("Live captions", state.captions, actions.changeCaptions)
         VoiceSettingSwitch("Spoken replies", state.spokenReplies, actions.changeSpokenReplies)
+        VoiceSettingSwitch("Button sounds", state.buttonSounds, actions.changeButtonSounds)
         VoiceSettingsSection("Playback")
         KokoroPlaybackCard(
             state = state.kokoroModel,
@@ -855,8 +887,7 @@ private fun VoiceConversationHeader(state: VoiceConversationUiState, actions: Vo
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = actions.end) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats") }
         Column(Modifier.weight(1f)) {
-            Text("Voice chat", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-            Text(state.profileName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(state.profileName, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         IconButton(onClick = actions.openTranscript) {
             Icon(Icons.Rounded.Subtitles, "Open transcript", tint = if (state.captions) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
@@ -937,18 +968,20 @@ private fun VoiceMicrophoneControl(state: VoiceConversationUiState, toggle: () -
     val listening = state.session.phase == VoicePhase.LISTENING
     val speaking = state.session.phase == VoicePhase.SPEAKING
     val colors = MaterialTheme.colorScheme
-    val fill = if (listening) {
-        val pulse by rememberInfiniteTransition(label = "Microphone pulse").animateFloat(
-            initialValue = 0f,
-            targetValue = 0.32f,
+    val fill = when {
+        listening -> colors.primary
+        speaking -> colors.tertiaryContainer
+        else -> colors.surfaceContainerHigh
+    }
+    val pulse = if (listening && android.animation.ValueAnimator.areAnimatorsEnabled()) {
+        rememberInfiniteTransition(label = "Microphone pulse").animateFloat(
+            initialValue = 0.2f,
+            targetValue = 0.7f,
             animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-            label = "Microphone fill"
+            label = "Microphone ring"
         )
-        androidx.compose.ui.graphics.lerp(colors.primary, colors.primaryContainer, pulse)
-    } else if (speaking) {
-        colors.tertiaryContainer
     } else {
-        colors.surfaceContainerHigh
+        null
     }
     val (icon, label) = when {
         speaking -> Icons.Rounded.Stop to "Stop speaking"
@@ -957,19 +990,26 @@ private fun VoiceMicrophoneControl(state: VoiceConversationUiState, toggle: () -
         state.session.phase == VoicePhase.PAUSED -> Icons.Rounded.Mic to "Start listening"
         else -> Icons.Rounded.Mic to "Turn microphone off"
     }
-    FilledIconButton(
-        onClick = toggle,
-        enabled = speaking || state.enabled && state.voiceReady && state.preferencesApplied && state.recognitionReady,
-        modifier = Modifier.size(96.dp).testTag("voice_microphone_toggle"),
-        colors = IconButtonDefaults.filledIconButtonColors(
-            containerColor = fill,
-            contentColor = when {
-                listening -> colors.onPrimary
-                speaking -> colors.onTertiaryContainer
-                else -> colors.onSurface
+    Box(Modifier.size(110.dp), contentAlignment = Alignment.Center) {
+        if (listening) {
+            Canvas(Modifier.matchParentSize()) {
+                drawCircle(colors.primary, radius = 52.dp.toPx(), alpha = pulse?.value ?: 0.55f, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
             }
-        )
-    ) { Icon(icon, label, Modifier.size(40.dp)) }
+        }
+        FilledIconButton(
+            onClick = toggle,
+            enabled = speaking || state.enabled && state.voiceReady && state.preferencesApplied && state.recognitionReady,
+            modifier = Modifier.size(96.dp).testTag("voice_microphone_toggle"),
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = fill,
+                contentColor = when {
+                    listening -> colors.onPrimary
+                    speaking -> colors.onTertiaryContainer
+                    else -> colors.onSurface
+                }
+            )
+        ) { Icon(icon, label, Modifier.size(40.dp)) }
+    }
 }
 
 @Composable

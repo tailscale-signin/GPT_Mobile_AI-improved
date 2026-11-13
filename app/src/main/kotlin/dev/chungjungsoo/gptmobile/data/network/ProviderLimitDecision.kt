@@ -90,6 +90,35 @@ internal fun providerLimitDecision(config: ProviderRequestConfig, model: String,
     )
 }
 
+/** Only an admission failure with no previous generation dispatch can use this wait. */
+internal fun providerConnectivityWait(
+    config: ProviderRequestConfig,
+    model: String,
+    failure: Exception,
+    requestDispatched: Boolean,
+    receivedPayload: Boolean,
+    now: Long = System.currentTimeMillis()
+): ProviderLimitDecision? {
+    if (requestDispatched || receivedPayload || config.profileUid.isNullOrBlank() || model.isBlank()) return null
+    if (config.lockedModel != null && config.lockedModel != model || config.continuationPrefixDigest != null) return null
+    val endpoint = runCatching { java.net.URI(config.apiUrl) }.getOrNull() ?: return null
+    if (endpoint.host.isNullOrBlank() || endpoint.scheme !in setOf("http", "https")) return null
+    val pending = failure as? ProviderConnectivityPendingException
+    val dns = pending?.dnsRecovery ?: generateSequence<Throwable>(failure) { it.cause }.take(8)
+        .any { it is java.net.UnknownHostException || it is java.nio.channels.UnresolvedAddressException }
+    if (pending == null && !dns) return null
+    return ProviderLimitDecision(
+        provider = config.providerType ?: "OPENAI_COMPATIBLE",
+        profileUid = requireNotNull(config.profileUid),
+        model = model,
+        retryAt = ProviderRetryPolicy.deadlineMillis(now, pending?.retryAfterMs?.coerceIn(5_000, 120_000) ?: 5_000),
+        scope = ProviderCooldown.scope(config),
+        category = if (dns) NetworkFailureKind.DNS.code else NetworkFailureKind.DISCONNECTED.code,
+        knownNotAccepted = true,
+        retrySource = "CONNECTIVITY_BACKOFF"
+    )
+}
+
 /** A durable wait follows an observed rejection, never a message containing "429". */
 private fun providerHttpLimitDecision(config: ProviderRequestConfig, model: String, receivedPayload: Boolean, error: Exception, prefixDigest: String?): ProviderLimitDecision? {
     val failure = error as? ProviderHttpFailure ?: return null

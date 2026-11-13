@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -52,44 +53,63 @@ internal fun AppAuditControls(
     modelProfiles: List<PlatformV2>,
     selectedProfileIds: List<String>,
     onToggleProfile: (String) -> Unit,
-    onStart: () -> Unit
+    onStart: (dev.chungjungsoo.gptmobile.data.audit.AppAuditMode) -> Unit
 ) {
+    var mode by rememberSaveable { mutableStateOf(dev.chungjungsoo.gptmobile.data.audit.AppAuditMode.QUICK) }
+    val comprehensive = mode == dev.chungjungsoo.gptmobile.data.audit.AppAuditMode.COMPREHENSIVE
     var showTargets by rememberSaveable { mutableStateOf(false) }
     Card(Modifier.fillMaxWidth().testTag("app_audit_controls")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Comprehensive app audit", style = MaterialTheme.typography.titleLarge)
-            Text("Check app subsystems and configured integrations, then inspect measured results and export their diagnostic evidence. No AI profile is required.")
-            Text("The accepted plan keeps unsupported, blocked and untested checks visible. A completed audit does not mean every feature was exercised.", style = MaterialTheme.typography.bodySmall)
-            Row(
-                Modifier.fillMaxWidth().toggleable(allowNetworkReads, enabled = !busy, role = Role.Checkbox, onValueChange = onAllowNetworkReads).padding(vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Checkbox(allowNetworkReads, onCheckedChange = null)
-                Text("Include configured service read checks", Modifier.weight(1f))
+            Text("App audit", style = MaterialTheme.typography.titleLarge)
+            dev.chungjungsoo.gptmobile.data.audit.AppAuditMode.entries.forEach { choice ->
+                Row(
+                    Modifier.fillMaxWidth().selectable(mode == choice, enabled = !busy, role = Role.RadioButton, onClick = { mode = choice }),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    androidx.compose.material3.RadioButton(selected = mode == choice, onClick = null, modifier = Modifier.padding(8.dp))
+                    Text(choice.title)
+                }
             }
-            Text("Optional reads use configured connections with bounded requests. This audit does not generate model answers or run tools that change external data.", style = MaterialTheme.typography.bodySmall)
-            TextButton(onClick = { showTargets = !showTargets }) {
-                Text(if (showTargets) "Hide optional model targets" else "Optional model targets (${selectedProfileIds.size} selected)")
-            }
-            if (showTargets) {
-                Text("Select exact saved model profiles to record configuration and generation coverage. Gateway metadata requires network reads. Generation stays untested until you explicitly run a model benchmark. No target is selected automatically.", style = MaterialTheme.typography.bodySmall)
-                if (modelProfiles.isEmpty()) Text("No eligible saved model profiles are available. App and plugin checks can still run.", style = MaterialTheme.typography.bodySmall)
-                modelProfiles.forEach { profile ->
-                    Row(
-                        Modifier.fillMaxWidth().toggleable(profile.uid in selectedProfileIds, enabled = !busy, role = Role.Checkbox, onValueChange = { onToggleProfile(profile.uid) }).padding(vertical = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Checkbox(profile.uid in selectedProfileIds, onCheckedChange = null)
-                        Text(profile.name, Modifier.weight(1f))
+            Text(
+                when (mode) {
+                    dev.chungjungsoo.gptmobile.data.audit.AppAuditMode.QUICK -> "Local configuration and contract checks."
+                    dev.chungjungsoo.gptmobile.data.audit.AppAuditMode.COMPREHENSIVE -> "Subsystem checks with optional service reads."
+                    dev.chungjungsoo.gptmobile.data.audit.AppAuditMode.STRESS -> "Repeat local fixture checks within a 15-minute limit."
+                },
+                style = MaterialTheme.typography.bodySmall
+            )
+            if (comprehensive) {
+                Row(
+                    Modifier.fillMaxWidth().toggleable(allowNetworkReads, enabled = !busy, role = Role.Checkbox, onValueChange = onAllowNetworkReads).padding(vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Checkbox(allowNetworkReads, onCheckedChange = null)
+                    Text("Include configured service read checks", Modifier.weight(1f))
+                }
+                Text("Optional reads use configured connections with bounded requests. This audit does not generate model answers or run tools that change external data.", style = MaterialTheme.typography.bodySmall)
+                TextButton(onClick = { showTargets = !showTargets }) {
+                    Text(if (showTargets) "Hide optional model targets" else "Optional model targets (${selectedProfileIds.size} selected)")
+                }
+                if (showTargets) {
+                    Text("Select exact saved model profiles to record configuration and generation coverage. Gateway metadata requires network reads. Generation stays untested until you explicitly run a model benchmark. No target is selected automatically.", style = MaterialTheme.typography.bodySmall)
+                    if (modelProfiles.isEmpty()) Text("No eligible saved model profiles are available. App and plugin checks can still run.", style = MaterialTheme.typography.bodySmall)
+                    modelProfiles.forEach { profile ->
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(profile.uid in selectedProfileIds, enabled = !busy, role = Role.Checkbox, onValueChange = { onToggleProfile(profile.uid) }).padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Checkbox(profile.uid in selectedProfileIds, onCheckedChange = null)
+                            Text(profile.name, Modifier.weight(1f))
+                        }
+                    }
+                    val unavailable = selectedProfileIds.count { id -> modelProfiles.none { it.uid == id } }
+                    if (unavailable > 0) Text("$unavailable selected ${if (unavailable == 1) "target is" else "targets are"} no longer available; the audit will record that limitation.", style = MaterialTheme.typography.bodySmall)
+                    if (selectedProfileIds.isNotEmpty()) {
+                        TextButton(onClick = { selectedProfileIds.forEach(onToggleProfile) }, enabled = !busy) { Text("Clear model targets") }
                     }
                 }
-                val unavailable = selectedProfileIds.count { id -> modelProfiles.none { it.uid == id } }
-                if (unavailable > 0) Text("$unavailable selected ${if (unavailable == 1) "target is" else "targets are"} no longer available; the audit will record that limitation.", style = MaterialTheme.typography.bodySmall)
-                if (selectedProfileIds.isNotEmpty()) {
-                    TextButton(onClick = { selectedProfileIds.forEach(onToggleProfile) }, enabled = !busy) { Text("Clear model targets") }
-                }
             }
-            Button(onClick = onStart, enabled = ready && !busy, modifier = Modifier.fillMaxWidth().testTag("app_audit_start")) {
+            Button(onClick = { onStart(mode) }, enabled = ready && !busy, modifier = Modifier.fillMaxWidth().testTag("app_audit_start")) {
                 Text(if (!ready) "Loading saved results…" else "Run app audit")
             }
             if (busy) Text("A benchmark is already active. Its progress and stop control remain available.", style = MaterialTheme.typography.bodySmall)
@@ -138,7 +158,7 @@ internal fun AppAuditResultCard(
     }
     Card(Modifier.fillMaxWidth().testTag("app_audit_result_${batch.id}")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("App audit · ${benchmarkResultDate(run.startedAtEpochMs)}", style = MaterialTheme.typography.titleMedium)
+            Text("${run.options.mode.title} app audit · ${benchmarkResultDate(run.startedAtEpochMs)}", style = MaterialTheme.typography.titleMedium)
             Text(status, style = MaterialTheme.typography.titleSmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             Column(Modifier.semantics(mergeDescendants = true) {}.testTag("app_audit_score_and_coverage"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(presentation.verifiedText, style = MaterialTheme.typography.titleMedium)
@@ -157,7 +177,9 @@ internal fun AppAuditResultCard(
                 LinearProgressIndicator(progress = { (summary.accounted.toFloat() / summary.planned).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                 Text("Recorded ${summary.accounted}/${summary.planned} outcomes; recorded counts include failures and exclusions.", style = MaterialTheme.typography.bodySmall)
                 val current = run.plan.firstOrNull { it.id == run.activeProbeId }?.label
-                Text("Current check: ${current ?: "Preparing or awaiting the next check"}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
+                val iteration = run.plan.firstOrNull { it.id == run.activeProbeId }?.iteration
+                val elapsed = ((run.updatedAtEpochMs - run.startedAtEpochMs) / 1000).coerceAtLeast(0)
+                Text("$elapsed s elapsed · ${iteration?.let { "Iteration $it · " }.orEmpty()}${current ?: "Preparing next check"}", style = MaterialTheme.typography.bodySmall, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
             }
             Text("Source areas associated with exercised checks: ${summary.sourceAreasExercised}/${summary.sourceAreasPlanned}. Source-line coverage is not measured by this audit.", style = MaterialTheme.typography.bodySmall)
             batch.storageWarning?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }

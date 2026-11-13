@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -10,6 +11,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -17,9 +19,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudQueue
 import androidx.compose.material.icons.rounded.Description
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.ListItem
@@ -54,8 +57,11 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationAttachment
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationSnapshot
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
+import dev.chungjungsoo.gptmobile.data.github.gatewayJobGroup
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedChatState
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
@@ -82,6 +88,7 @@ internal fun GatewayConversationsScreen(
     val selected = connections.firstOrNull { it.profileUid == state.connectionUid }
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
+    var details by rememberSaveable { mutableStateOf(false) }
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior()
     val localChats = remember(state.localChats, query) {
         state.localChats.filter { query.isBlank() || it.title.contains(query.trim(), ignoreCase = true) }
@@ -143,29 +150,19 @@ internal fun GatewayConversationsScreen(
             ) {
                 item(key = "gateway_status") {
                     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.gateway_home_title), Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
-                            TextButton(onClick = { viewModel.refresh() }, enabled = !state.loading && state.connectionUid != null) {
-                                Text(stringResource(R.string.gateway_browser_refresh))
-                            }
-                        }
-                        Text(stringResource(R.string.gateway_home_queue_hint), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        selected?.let { connection ->
-                            GatewaySelectedConnectionHeader(connection.name, connection.availability)
-                        }
-                        if (connections.size > 1) {
-                            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                connections.forEach { connection ->
-                                    FilterChip(
-                                        selected = connection.profileUid == state.connectionUid,
-                                        onClick = { viewModel.select(connection) },
-                                        label = { Text(connection.name) }
-                                    )
+                        AssistChip(
+                            onClick = { details = true },
+                            label = {
+                                val status = when (selected?.availability?.status) {
+                                    GatewayAvailabilityStatus.CHECKING -> "Connecting"
+                                    GatewayAvailabilityStatus.OFFLINE -> "Offline"
+                                    GatewayAvailabilityStatus.ONLINE, GatewayAvailabilityStatus.BUSY_QUEUE -> "Connected"
+                                    else -> "Needs attention"
                                 }
-                            }
-                        }
-                        val waiting = state.localChats.sumOf { state.queuedCounts[it.id] ?: 0 }
-                        if (waiting > 0) Text(stringResource(R.string.gateway_home_queued_count, waiting), style = MaterialTheme.typography.labelMedium)
+                                Text(listOfNotNull(selected?.name, status).joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            },
+                            leadingIcon = { Icon(Icons.Rounded.CloudQueue, null) }
+                        )
                         if (state.loading || state.creatingChat) LinearProgressIndicator(Modifier.fillMaxWidth())
                         state.creationError?.let { message ->
                             Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
@@ -174,25 +171,10 @@ internal fun GatewayConversationsScreen(
                                 TextButton(onClick = viewModel::clearCreationError) { Text(stringResource(R.string.gateway_home_dismiss)) }
                             }
                         }
-                        if (!state.profileChoicesLoaded) {
-                            Text(stringResource(R.string.gateway_home_loading_profiles), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (state.profileChoicesLoaded && state.profileChoices.isEmpty() && state.localChats.isEmpty()) {
-                            Text(stringResource(R.string.gateway_home_setup), style = MaterialTheme.typography.bodyMedium)
-                            TextButton(onClick = onManageProfiles) { Text(stringResource(R.string.gateway_home_profiles)) }
-                        }
-                        if (state.error != null) {
+                        if (state.error == GatewayBrowserError.OPEN || state.error == GatewayBrowserError.IDENTITY_CHANGED) {
                             Text(
-                                stringResource(
-                                    when (state.error) {
-                                        GatewayBrowserError.OPEN -> R.string.gateway_browser_open_failed
-                                        GatewayBrowserError.UNSUPPORTED -> R.string.gateway_browser_unsupported
-                                        GatewayBrowserError.IDENTITY_CHANGED -> R.string.gateway_browser_identity_changed
-                                        else -> R.string.gateway_home_history_offline
-                                    }
-                                ),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (state.error == GatewayBrowserError.CONNECTION) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error
+                                stringResource(if (state.error == GatewayBrowserError.OPEN) R.string.gateway_browser_open_failed else R.string.gateway_browser_identity_changed),
+                                color = MaterialTheme.colorScheme.error
                             )
                         }
                         if (state.cachedInventory && state.page != null) {
@@ -241,17 +223,17 @@ internal fun GatewayConversationsScreen(
                 }
                 if (localChats.isEmpty() && remoteChats.isEmpty() && !state.loading) {
                     item(key = "empty") {
-                        Text(
-                            stringResource(if (query.isBlank()) R.string.gateway_home_empty else R.string.gateway_home_no_matches),
-                            Modifier.padding(horizontal = 24.dp, vertical = 28.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-                if (remoteChats.isNotEmpty()) {
-                    item(key = "server_history") {
-                        HorizontalDivider(Modifier.padding(horizontal = 16.dp, vertical = 8.dp))
-                        Text(stringResource(R.string.gateway_home_server_history), Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.labelLarge)
+                        Column(Modifier.padding(horizontal = 24.dp, vertical = 28.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(
+                                stringResource(if (query.isBlank()) R.string.gateway_home_empty else R.string.gateway_home_no_matches),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (!searching) {
+                                Button(onClick = { viewModel.newChat(onOpenLocalChat) }, enabled = !state.creatingChat) {
+                                    Text("New Gateway chat")
+                                }
+                            }
+                        }
                     }
                 }
                 items(remoteChats, key = { "remote:${it.conversationId}" }) { conversation ->
@@ -273,6 +255,35 @@ internal fun GatewayConversationsScreen(
                         TextButton(onClick = { viewModel.refresh(loadMore = true) }, enabled = !state.loading, modifier = Modifier.padding(horizontal = 16.dp)) {
                             Text(stringResource(R.string.gateway_browser_more))
                         }
+                    }
+                }
+            }
+        }
+    }
+    if (details) {
+        ModalBottomSheet(onDismissRequest = { details = false }) {
+            Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Gateway connection", style = MaterialTheme.typography.titleLarge)
+                selected?.let { GatewaySelectedConnectionHeader(it.name, it.availability) }
+                if (connections.size > 1) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        connections.forEach { connection ->
+                            FilterChip(connection.profileUid == state.connectionUid, { viewModel.select(connection) }, { Text(connection.name) })
+                        }
+                    }
+                }
+                if (state.error == GatewayBrowserError.UNSUPPORTED) Text(stringResource(R.string.gateway_browser_unsupported))
+                val waiting = state.localChats.sumOf { state.queuedCounts[it.id] ?: 0 }
+                if (waiting > 0) Text(stringResource(R.string.gateway_home_queued_count, waiting))
+                Row {
+                    TextButton(onClick = { viewModel.refresh() }, enabled = !state.loading && selected != null) {
+                        Text(stringResource(R.string.gateway_browser_refresh))
+                    }
+                    TextButton(onClick = {
+                        details = false
+                        onManageProfiles()
+                    }) {
+                        Text(stringResource(R.string.gateway_home_profiles))
                     }
                 }
             }
@@ -318,7 +329,7 @@ internal fun GatewaySelectedConnectionHeader(name: String, availability: Gateway
 }
 
 @Composable
-private fun gatewayQueuedLabel(value: GatewayQueuedChatState): String = value.message?.takeIf(String::isNotBlank) ?: stringResource(
+private fun gatewayQueuedLabel(value: GatewayQueuedChatState): String = stringResource(
     when (value.state) {
         GatewayQueuedState.QUEUED -> R.string.gateway_home_queue_waiting_turn
         GatewayQueuedState.WAITING_FOR_GATEWAY -> R.string.gateway_home_queue_waiting_connection
@@ -335,17 +346,29 @@ private fun GatewayHistoryRow(conversation: GatewayConversationSnapshot, opening
         modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp).testTag("gateway_conversation_${conversation.conversationId}")
             .clickable(enabled = enabled && canOpen, onClick = onOpen),
         headlineContent = { Text(conversation.title.ifBlank { stringResource(R.string.gateway_browser_untitled) }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        leadingContent = { GatewayConversationIcon(working = live && conversation.isWorking(), unread = false) },
-        supportingContent = {
-            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                if (conversation.model.isNotBlank()) Text(conversation.model, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                val context = listOfNotNull(conversation.repository, conversation.sourceBranch ?: conversation.branch).filter(String::isNotBlank).joinToString(" · ")
-                if (context.isNotBlank()) Text(context, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (live && conversation.isWorking()) Text(stringResource(R.string.gateway_browser_active_job), style = MaterialTheme.typography.labelMedium)
-                if (!conversation.historyComplete) Text(conversation.historyLimitation ?: stringResource(R.string.gateway_transcript_history_partial), maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (!conversation.transcriptAvailable) Text(stringResource(R.string.gateway_browser_transcript_unavailable))
-                if (opening) Text(stringResource(R.string.gateway_browser_opening))
+        leadingContent = {
+            Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
+                GatewayConversationIcon(working = live && conversation.isWorking(), unread = false)
             }
+        },
+        supportingContent = {
+            val jobGroup = conversation.jobState?.takeIf { live && conversation.activeJobId != null }?.let(::gatewayJobGroup)
+            val label = when {
+                opening -> stringResource(R.string.gateway_browser_opening)
+                jobGroup == GatewayJobGroup.QUEUED -> "Queued"
+                jobGroup == GatewayJobGroup.RUNNING -> "Running"
+                jobGroup == GatewayJobGroup.NEEDS_ATTENTION -> "Needs attention"
+                !conversation.transcriptAvailable -> stringResource(R.string.gateway_browser_transcript_unavailable)
+                !conversation.historyComplete -> stringResource(R.string.gateway_transcript_history_partial)
+                !live -> stringResource(R.string.gateway_home_saved_history)
+                else -> listOfNotNull(conversation.repository, conversation.sourceBranch ?: conversation.branch)
+                    .filter(String::isNotBlank).joinToString(" · ")
+            }
+            val timestamp = remember(conversation.updatedAt) {
+                conversation.updatedAt.takeIf { it.isFinite() && it > 0 }
+                    ?.let { DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT).format(Date((it * 1_000).toLong())) }
+            }
+            Text(listOfNotNull(label.takeIf(String::isNotBlank), timestamp).joinToString(" · "), maxLines = 1, overflow = TextOverflow.Ellipsis)
         },
         trailingContent = {
             if (conversation.transcriptAvailable) {

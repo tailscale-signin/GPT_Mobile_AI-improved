@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavGraphBuilder
@@ -14,6 +15,7 @@ import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStatus
+import dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
 import dev.chungjungsoo.gptmobile.presentation.common.Route
 
 internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, origin: () -> Offset) {
@@ -29,9 +31,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
         val moonshine = stores?.moonshine?.state?.collectAsStateWithLifecycle()?.value
         val kokoro = stores?.kokoro?.state?.collectAsStateWithLifecycle()?.value
         val modelsReady = moonshine?.status == LocalVoiceModelStatus.READY && kokoro?.status == LocalVoiceModelStatus.READY
-        LaunchedEffect(state.loaded, state.selected, state.enabled, modelsReady) {
-            if (modelsReady && state.loaded && state.enabled && state.selected.isNotBlank() && state.error == null) model.start()
-        }
+        val context = LocalContext.current
         VoiceEntryScreen(
             state,
             origin(),
@@ -43,12 +43,8 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             recheckModel = { model.recheckGatewayModel(state.selected) },
             modelsReady = modelsReady,
             setup = {
-                if (!modelsReady && moonshine != null && kokoro != null) {
-                    LocalVoiceSetupCard(moonshine, voiceSettings::installLocalModel, voiceSettings::cancelLocalModelInstall, {}, compact = true)
-                    KokoroPlaybackCard(
-                        kokoro, null, 2, true, null, {}, {}, voiceSettings::installKokoroModel,
-                        voiceSettings::cancelKokoroInstall, {}, {}, setup = true
-                    )
+                if (moonshine != null && kokoro != null) {
+                    VoicePluginSetup(moonshine, kokoro, { VoicePluginInstall.start(context) }, { VoicePluginInstall.cancel(context) })
                 }
             }
         )
@@ -64,5 +60,33 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             onEnd = { navController.navigateUp() },
             onOpenChat = { navController.navigate("chat_room/$id") { popUpTo(Route.VOICE_CHAT) { inclusive = true } } }
         )
+    }
+}
+
+@androidx.compose.runtime.Composable
+private fun VoicePluginSetup(
+    recognition: dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState,
+    playback: dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState,
+    onStart: () -> Unit,
+    onCancel: () -> Unit
+) {
+    val context = LocalContext.current
+    val total = recognition.totalBytes + playback.totalBytes
+    val received = recognition.downloadedBytes + playback.downloadedBytes
+    val checking = recognition.status == LocalVoiceModelStatus.CHECKING || playback.status == LocalVoiceModelStatus.CHECKING
+    val downloading = recognition.status == LocalVoiceModelStatus.DOWNLOADING || playback.status == LocalVoiceModelStatus.DOWNLOADING
+    val message = recognition.message ?: playback.message
+    if (downloading) {
+        androidx.compose.material3.Text(if (received >= total) "Checking voice files…" else "Downloading voice files…")
+        androidx.compose.material3.LinearProgressIndicator(progress = { (received.toFloat() / total).coerceIn(0f, 1f) })
+        androidx.compose.material3.Text("${android.text.format.Formatter.formatShortFileSize(context, received)} of ${android.text.format.Formatter.formatShortFileSize(context, total)}")
+        androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text("Cancel download") }
+    } else {
+        val remaining = listOf(recognition, playback).filter { it.status != LocalVoiceModelStatus.READY }.sumOf { it.totalBytes }
+        androidx.compose.material3.Text("English · ${android.text.format.Formatter.formatShortFileSize(context, remaining)}")
+        message?.let { androidx.compose.material3.Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
+        androidx.compose.material3.Button(onClick = onStart, enabled = !checking) {
+            androidx.compose.material3.Text(if (message == null) "Download Voice Chat plugin" else "Resume download")
+        }
     }
 }

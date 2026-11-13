@@ -3,7 +3,6 @@ package dev.chungjungsoo.gptmobile.presentation.ui.home
 import android.content.ClipData
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -12,10 +11,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -39,7 +34,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.items
@@ -78,6 +72,7 @@ import androidx.compose.material3.LargeFloatingActionButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -379,34 +374,32 @@ fun HomeScreen(
                     onSearchQueryChanged = homeViewModel::updateSearchQuery,
                     searchQuery = searchQuery
                 )
-                if (completedGenerations.isNotEmpty() && !chatListState.isSelectionMode) {
-                    val knownChats = remember(chatListState.chats, archivedChats) {
-                        (chatListState.chats + archivedChats).associateBy { it.id }
-                    }
-                    CompletedGenerationNavigator(
-                        items = completedGenerations,
-                        profileNames = platformState.associate { it.uid to plainProfileName(it.name, it.model.ifBlank { "AI profile" }) },
-                        chatTitles = completedGenerations.associate { item ->
-                            item.chatId to ((knownChats[item.visibleChatId]?.title ?: "Conversation ${item.visibleChatId}") + if (knownChats[item.visibleChatId]?.isArchived == true) " · Archived" else "")
-                        },
-                        onOpen = { item ->
-                            homeViewModel.consumeCompletedGeneration(item.runId)
-                            homeViewModel.getChatRoom(item.chatId) { room ->
-                                if (room != null) openExistingChat(room, item.assistantMessageId)
-                            }
-                        }
-                    )
-                }
             }
         },
         floatingActionButton = {
-            Column(
-                horizontalAlignment = Alignment.End,
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceChatButton(onClick = navigateToVoice)
+            if (currentTab == HomeTab.CHATS && !chatListState.isSelectionMode && !chatListState.isSearchMode) {
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.Bottom) {
+                    dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceChatButton(onClick = navigateToVoice)
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (completedGenerations.isNotEmpty()) {
+                            val knownChats = remember(chatListState.chats, archivedChats) {
+                                (chatListState.chats + archivedChats).associateBy { it.id }
+                            }
+                            CompletedGenerationNavigator(
+                                items = completedGenerations,
+                                profileNames = platformState.associate { it.uid to plainProfileName(it.name, it.model.ifBlank { "AI profile" }) },
+                                chatTitles = completedGenerations.associate { item ->
+                                    val room = knownChats[item.visibleChatId]
+                                    item.chatId to ((room?.title ?: "Conversation ${item.visibleChatId}") + if (room?.isArchived == true) " · Archived" else "")
+                                },
+                                onOpen = { item ->
+                                    homeViewModel.consumeCompletedGeneration(item.runId)
+                                    homeViewModel.getChatRoom(item.chatId) { room ->
+                                        if (room != null) openExistingChat(room, item.assistantMessageId)
+                                    }
+                                }
+                            )
+                        }
                         NewChatButton(onClick = navigateToNewChat)
                     }
                 }
@@ -453,7 +446,7 @@ fun HomeScreen(
                         }
                         LazyColumn(
                             modifier = Modifier.fillMaxWidth().weight(1f).homeRowFades(listState, homeFeatures.edgeFades && !chatListState.isSelectionMode).onGloballyPositioned { conversationListTop = it.boundsInRoot().top },
-                            contentPadding = PaddingValues(top = 12.dp, bottom = 144.dp),
+                            contentPadding = PaddingValues(top = 12.dp, bottom = if (completedGenerations.isEmpty() || chatListState.isSearchMode || chatListState.isSelectionMode) 104.dp else 156.dp),
                             state = listState
                         ) {
                             if (chatListState.isSearchMode && chatListState.chats.isEmpty() && searchQuery.isNotEmpty()) {
@@ -892,6 +885,7 @@ fun HomeScreen(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun CompletedGenerationNavigator(
     items: List<CompletedGeneration>,
@@ -904,28 +898,25 @@ private fun CompletedGenerationNavigator(
         if (items.size <= 1) expanded = false
     }
 
-    Column(
-        horizontalAlignment = Alignment.End,
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        AnimatedVisibility(
-            visible = expanded && items.size > 1,
-            enter = expandVertically(expandFrom = Alignment.Bottom) + fadeIn(),
-            exit = shrinkVertically(shrinkTowards = Alignment.Bottom) + fadeOut()
-        ) {
+    if (expanded && items.size > 1) {
+        ModalBottomSheet(onDismissRequest = { expanded = false }) {
+            Text("New replies", Modifier.padding(horizontal = 24.dp, vertical = 8.dp), style = MaterialTheme.typography.titleLarge)
             LazyColumn(
-                modifier = Modifier.heightIn(max = 360.dp).widthIn(min = 210.dp, max = 320.dp),
+                modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp).padding(horizontal = 16.dp, vertical = 8.dp),
                 horizontalAlignment = Alignment.End,
                 verticalArrangement = Arrangement.spacedBy(7.dp)
             ) {
-                items(items, key = { it.runId }) { item ->
+                items(items, key = { "${it.runId}:${it.revision}" }) { item ->
                     Surface(
-                        onClick = { onOpen(item) },
+                        onClick = {
+                            expanded = false
+                            onOpen(item)
+                        },
                         shape = RoundedCornerShape(18.dp),
                         color = MaterialTheme.colorScheme.surfaceContainerHigh,
                         tonalElevation = 8.dp,
                         shadowElevation = 6.dp,
-                        modifier = Modifier.widthIn(min = 210.dp, max = 320.dp)
+                        modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
                             Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
@@ -963,38 +954,37 @@ private fun CompletedGenerationNavigator(
                 }
             }
         }
-
-        Box {
-            FilledIconButton(
-                onClick = {
-                    if (items.size == 1) onOpen(items.first()) else expanded = !expanded
-                },
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = MaterialTheme.colorScheme.onPrimary,
-                    contentColor = MaterialTheme.colorScheme.primary
-                ),
-                modifier = Modifier.size(52.dp)
-            ) {
-                Icon(
-                    Icons.Rounded.ChatBubble,
-                    contentDescription = if (items.size == 1) "Open finished AI response" else "Show ${items.size} finished AI responses",
-                    modifier = Modifier.size(25.dp)
-                )
-            }
-            Surface(
-                shape = CircleShape,
-                color = Color(0xFFFFEBEF),
-                contentColor = Color(0xFFD50032),
-                shadowElevation = 3.dp,
-                modifier = Modifier.align(Alignment.TopEnd)
-            ) {
-                Text(
-                    text = if (items.size > 99) "99+" else items.size.toString(),
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                )
-            }
+    }
+    Box {
+        FilledIconButton(
+            onClick = {
+                if (items.size == 1) onOpen(items.first()) else expanded = !expanded
+            },
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+            ),
+            modifier = Modifier.size(52.dp)
+        ) {
+            Icon(
+                Icons.Rounded.ChatBubble,
+                contentDescription = if (items.size == 1) "1 new reply" else "${items.size} new replies",
+                modifier = Modifier.size(25.dp)
+            )
+        }
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            shadowElevation = 3.dp,
+            modifier = Modifier.align(Alignment.TopEnd)
+        ) {
+            Text(
+                text = if (items.size > 99) "99+" else items.size.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+            )
         }
     }
 }

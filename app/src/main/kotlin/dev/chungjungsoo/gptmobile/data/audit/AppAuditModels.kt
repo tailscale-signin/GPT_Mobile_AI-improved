@@ -66,9 +66,17 @@ data class AppAuditMetric(val name: AppAuditMetricName, val value: Double, val u
 }
 
 @Serializable
+enum class AppAuditMode(val title: String) {
+    QUICK("Quick"),
+    COMPREHENSIVE("Comprehensive"),
+    STRESS("Stress")
+}
+
+@Serializable
 data class AppAuditOptions(
     val allowNetworkReads: Boolean = false,
-    val selectedProfileIds: List<String> = emptyList()
+    val selectedProfileIds: List<String> = emptyList(),
+    val mode: AppAuditMode = AppAuditMode.COMPREHENSIVE
 )
 
 /** These bound logical probes; the existing clients retain their physical request limits. */
@@ -84,7 +92,7 @@ data class AppAuditLimits(
         require(maxExecutedProbes in 1..512)
         require(maxNetworkProbes in 0..128)
         require(perProbeTimeoutMs in 1..60_000)
-        require(totalTimeoutMs in 1..600_000)
+        require(totalTimeoutMs in 1..900_000)
         require(maxMetricsPerProbe in 0..32)
     }
 }
@@ -106,9 +114,11 @@ data class AppAuditPlanEntry(
     val configFingerprint: String? = null,
     val fixtureHash: String? = null,
     val weight: Int = 1,
-    val configurationRevision: String? = null
+    val configurationRevision: String? = null,
+    val iteration: Int? = null
 ) {
     init {
+        require(iteration == null || iteration in 1..20)
         require(listOf(id, sourceId, probeId, componentId).all(::appAuditIdentifier))
         require(label.isNotBlank() && label.length <= 120 && label.none(Char::isISOControl))
         require(sourceAreaIds.all(::appAuditIdentifier))

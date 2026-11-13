@@ -26,8 +26,8 @@ internal fun Modifier.chatMessageBackdrop(
         drawContent()
         if (size.height <= 0f || (topFade.value <= 0f && bottomFadeStartFromBottom.value <= 0f)) return@drawWithContent
 
-        val topStart = (topFadeStart.toPx() / size.height).coerceIn(0f, 0.45f)
-        val topStop = (topFade.toPx() / size.height).coerceIn(topStart, 0.5f)
+        val topStart = (topFadeStart.toPx() / size.height).coerceIn(0f, 1f)
+        val topStop = (topFade.toPx() / size.height).coerceIn(topStart, 1f)
         val bottomOpaqueStop = (1f - (bottomFadeStartFromBottom.toPx() / size.height))
             .coerceIn(topStop, 1f)
         val bottomTransparentStop = (1f - (bottomFadeEndFromBottom.toPx() / size.height))

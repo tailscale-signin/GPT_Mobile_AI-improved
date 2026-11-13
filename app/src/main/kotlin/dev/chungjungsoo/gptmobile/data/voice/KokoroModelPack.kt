@@ -73,7 +73,7 @@ internal object KokoroModelPack {
                 }
             }
         }
-        check(extracted.size == files.size && archiveFile.delete()) { "Could not finish preparing the Kokoro model." }
+        check(extracted.size == files.size) { "Could not finish preparing the Kokoro model." }
     }
 
     private fun file(name: String, bytes: Long, sha256: String) = LocalVoiceAsset(name, bytes, sha256, emptyList())

@@ -4,6 +4,8 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Keep logical gateway operation identities stable and retain bounded model preparation, gateway capture retrieval, MCP rejection, tool provenance, GitHub verdict provenance, and frame timing evidence. Defer eligible pre-dispatch provider connectivity failures with bounded backoff.",
+    "Improve GitHub chat scrolling and progress, Gateway conversation navigation, background voice plugin installation, and bounded app audit modes. Add safe observations for URL-reader DNS cooldowns, saved-view recovery, and fixture approval.",
     "Preserve task-bound GitHub fixture decisions and expose bounded run, tool, provider recovery, branch-policy and crash evidence in approved reports.",
     "Add a source-backed disposition for all 92 supplied findings, meaningful regressions, independent full-suite and API 34/API 36 emulator validation and a release with a new version/build identity.",
     "Add an authenticated gateway-wide Jobs catalog, saved conversations, command reconciliation and bounded transactional Android replay with Room migration.",
@@ -114,6 +116,8 @@
     "Repair the November 13 diagnostic workflow failures with exact provider-tool replay, bounded argument correction, review baseline parsing, task-aware status budgets, separate ordinary and engineering conversation bindings, native integration routing, and immutable context-v7 incident evidence; retain unconfirmed historical causes as diagnostic follow-up."
   ],
   "limitations": [
+    "The November 13 gateway session repairs still require paired phone and gateway validation. Automatic connectivity recovery covers eligible initial runs; broader GitHub fixtures, durable gateway supplements, and device performance qualification remain pending.",
+    "The November 13 interface and voice changes still require physical-device gesture, audio, and background installation checks. Measured voice latency improvements, the full stress workload suite, and Macrobenchmark evidence import remain pending. New diagnostic fields require a hosted reporter advertising RECOVERY_OBSERVATIONS_V1.",
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
     "Android webhook push, complete approval/activity history, unified model readiness, full mutation fixtures, attestation retrieval and remaining performance/accessibility work are partial.",
     "App audit inventories supported production files and executes named local or selected metadata probes; it does not establish complete file, line or branch coverage, arbitrary plugin tool execution, physical-device qualification or private service availability.",
@@ -2477,6 +2481,13 @@
     "authentication/test_incident_report_contract.py",
     "docs/repairs/diagnostic-workflow-recovery-2026-11-13-task.json",
     "docs/repairs/diagnostic-workflow-recovery-2026-11-13.md",
-    "docs/repairs/pr-branches-ci-2026-11-13-task.json"
+    "docs/repairs/pr-branches-ci-2026-11-13-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginInstall.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMessageBackdrop.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GeneratingEllipsis.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceButtonFeedback.kt",
+    "app/src/main/res/raw/voice_button_click.wav",
+    "app/src/main/res/raw/voice_mic_start.wav",
+    "app/src/main/res/raw/voice_mic_stop.wav"
   ]
 }

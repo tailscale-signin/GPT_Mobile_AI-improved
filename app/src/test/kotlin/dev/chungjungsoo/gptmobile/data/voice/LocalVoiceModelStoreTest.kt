@@ -135,6 +135,34 @@ class LocalVoiceModelStoreTest {
         assertFalse(File(root, "installing").exists())
     }
 
+    @Test fun interruptedAssetResumesAtItsValidatedOffsetAndVerifiesTheWholeFile() = runBlocking {
+        val root = files.newFolder()
+        val offsets = mutableListOf<Long>()
+        fun installer() = LocalVoiceModelStore(root, listOf(asset)) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String) = error("Expected a resumable request")
+                override fun open(url: String, offset: Long, validator: String?): LocalVoiceAssetStream {
+                    offsets += offset
+                    if (offset == 0L) {
+                        return LocalVoiceAssetStream(ByteArrayInputStream(contents.copyOfRange(0, 5)), asset.bytes, validator = "\"test-etag\"")
+                    }
+                    assertEquals("\"test-etag\"", validator)
+                    val remaining = contents.copyOfRange(offset.toInt(), contents.size)
+                    return LocalVoiceAssetStream(ByteArrayInputStream(remaining), remaining.size.toLong(), offset, validator)
+                }
+                override fun cancel() = Unit
+            }
+        }
+        val first = installer()
+        first.install()
+        assertFalse(first.isInstalled())
+        val resumed = installer()
+        resumed.refresh()
+        resumed.install()
+        assertTrue(resumed.verifyInstalledFiles())
+        assertEquals(listOf(0L, 5L), offsets)
+    }
+
     @Test fun exactEnglishLanguageSupportNeverSilentlyChangesAnotherLocale() {
         assertTrue(LocalVoiceModelStore.supportsLanguage("en-CA"))
         assertTrue(LocalVoiceModelStore.supportsLanguage("en-US"))

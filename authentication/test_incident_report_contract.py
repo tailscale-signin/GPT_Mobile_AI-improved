@@ -134,12 +134,13 @@ class IncidentReportContractTest(unittest.TestCase):
     def test_run_failure_evidence_accepts_only_closed_values_and_stays_in_the_capsule(self):
         examples = (
             ("TOOL", {"semantic_read_rules": ["LINE_WINDOW"], "validation_field_names": ["ranges", "end_line"],
-                      "dependency_admission_reasons": ["CALL_ALLOWANCE"]}),
+                      "dependency_admission_reasons": ["CALL_ALLOWANCE"], "saved_view_restore_state": "CURSOR_INDEX_MISSING",
+                      "url_reader_dns_state": "RECOVERY_COOLDOWN"}),
             ("INCIDENT", {"incident_capture_site": "CHAT_REPOSITORY_PREFLIGHT", "incident_origin": "APPLICATION",
                           "local_readiness_failure": "PENDING_CLEANUP", "pending_tool_count": 2,
                           "pending_tool_identity_hashes": ["a" * 64], "pending_tool_receipt_state": "SOME_TERMINAL_RECEIPTS_MISSING"}),
             ("APP", {"crash_surface": "CHAT", "crash_boundary": "ANDROID_VIEW_DRAW"}),
-            ("ACCEPTANCE", {"fixture_approval_state": "READY", "branch_protection_observation": "ACCESS_DENIED",
+            ("ACCEPTANCE", {"fixture_approval_state": "READY", "fixture_decision_mode": "AUTO_APPROVE", "branch_protection_observation": "ACCESS_DENIED",
                             "branch_rules_observation": "OBSERVED"}),
             ("PROVIDER", {"provider_wait_state": "RESUMED", "provider_wait_terminal_status": "COMPLETED",
                           "provider_wait_claim_hash": "b" * 64, "provider_wait_checkpoint_hash": "c" * 64, "provider_route_hash": "d" * 64}),

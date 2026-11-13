@@ -82,7 +82,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
         }
     }
 
-    private class CaptureRun(val listener: VoiceAudio.Listener, val diagnostics: VoiceDiagnosticTrace.Probe?) {
+    private class CaptureRun(val listener: VoiceAudio.Listener, val diagnostics: VoiceDiagnosticTrace.Probe?, val feedback: (() -> Boolean)?) {
         val lease = "local-voice:${UUID.randomUUID()}"
         val startedNanos = System.nanoTime()
         val cancelled = AtomicBoolean()
@@ -117,6 +117,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
 
     override fun listen(listener: VoiceAudio.Listener) {
         if (closed) return
+        val feedback = if (manualFeedback.getAndSet(false)) onManualCaptureReady else null
         val diagnostics = diagnosticProbe
         diagnostics?.engine(VoiceDiagnosticTrace.Engine.LOCAL)
         if (!LocalVoiceModelStore.supportsLanguage(languageTag)) {
@@ -134,7 +135,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
             return
         }
         if (active != null) return
-        val run = CaptureRun(listener, diagnostics)
+        val run = CaptureRun(listener, diagnostics, feedback)
         if (!VoiceMicrophoneLease.acquire(run.lease)) {
             listener.failure("The previous voice session is releasing the microphone. Try again shortly.", "VOICE_MICROPHONE_BUSY", retryMillis = 500, retryable = true)
             return
@@ -384,6 +385,17 @@ internal class MoonshineVoiceRecognizer internal constructor(
         }
     }
 
+    @Volatile var onManualCaptureReady: (() -> Boolean)? = null
+    private val manualFeedback = java.util.concurrent.atomic.AtomicBoolean()
+
+    fun armManualCaptureFeedback() {
+        manualFeedback.set(true)
+    }
+
+    fun clearManualCaptureFeedback() {
+        manualFeedback.set(false)
+    }
+
     private fun captureAudio(run: CaptureRun, capture: LocalVoiceCapture) {
         if (run.cancelled.get() || run.ending.get()) return
         capture.start()
@@ -399,10 +411,12 @@ internal class MoonshineVoiceRecognizer internal constructor(
         run.cancelTurnDeadline = schedule(30_000) {
             if (run.capture === capture && run.captureAttempts.get() == attempt && !run.cancelled.get()) requestEnd(run)
         }
+        val cuePlayed = run.feedback?.invoke() == true
+        val cueEnd = if (cuePlayed) System.nanoTime() + 150_000_000 else 0
         deliver(run) { run.listener.ready() }
         while (!run.cancelled.get() && !run.ending.get()) {
             val samples = capture.read()
-            if (samples.isEmpty()) continue
+            if (samples.isEmpty() || System.nanoTime() < cueEnd) continue
             if (run.capturedChunks.incrementAndGet() == 1) engineEvent(run, "first_pcm")
             if (!run.audio.offer(samples)) {
                 recordFailure(run, "AUDIO_QUEUE_OVERFLOW", "Local speech could not keep up with the microphone. Your captured text is retained; close other heavy apps and try again.")

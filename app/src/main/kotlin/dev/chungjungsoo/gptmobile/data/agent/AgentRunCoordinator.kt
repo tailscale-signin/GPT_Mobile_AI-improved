@@ -1010,7 +1010,7 @@ class AgentRunCoordinator @Inject constructor(
                         "retry_delay_ms" to dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy.remainingMillis(decision.retryAt, System.currentTimeMillis()),
                         "retry_delay_source" to when (decision.retrySource) {
                             "RETRY_AFTER", "RATE_LIMIT_RESET" -> "PROVIDER_HEADER"
-                            "APP_BACKOFF" -> "LOCAL_BACKOFF"
+                            "APP_BACKOFF", "CONNECTIVITY_BACKOFF" -> "LOCAL_BACKOFF"
                             else -> "UNKNOWN"
                         }
                     )

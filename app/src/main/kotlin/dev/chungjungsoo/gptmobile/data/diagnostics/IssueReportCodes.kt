@@ -248,6 +248,7 @@ internal object IssueReportCodes {
     /** Reporting aliases only; the original tool receipt remains authoritative for recovery. */
     fun toolResult(code: String?): String? = when (code) {
         "DEPENDENCY_FAILED", "DEPENDENCY_DEFERRED" -> "TOOL_FAILURE"
+        "DNS_FAILED", "DNS_RECOVERY" -> "DNS_RESOLUTION_FAILED"
         "GITHUB_PR_VALIDATION_FAILED" -> "GITHUB_VALIDATION_FAILED"
         "GITHUB_SEARCH_CURSOR_UNAVAILABLE" -> "SAVED_VIEW_UNAVAILABLE"
         "UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE" -> "TOOL_UNAVAILABLE"

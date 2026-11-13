@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -25,14 +26,14 @@ internal data class IssueReportDiagnostics(
 
     /** Constructor/copy callers and restored payloads must pass the same contract as live observations. */
     fun validated(): IssueReportDiagnostics? {
-        if (schemaVersion != 1 || area !in areas || capturedAtMillis !in 1..9_999_999_999_999L || captureMode !in captureModes) return null
-        val allowed = fieldsByArea.getValue(area)
+        if (schemaVersion !in setOf(1, 2) || schemaVersion == 2 && area != "GATEWAY" || area !in areas || capturedAtMillis !in 1..9_999_999_999_999L || captureMode !in captureModes) return null
+        val allowed = fieldsByArea.getValue(area) + if (schemaVersion == 2) gatewayAdmissionFields else emptySet()
         if (values.keys.any { it !in allowed } || omittedFields.any { it !in allowed || it in values } || omittedFields.distinct().size != omittedFields.size) return null
         if (captureMode == "NO_CAPTURE" && (values.isNotEmpty() || omittedFields.isNotEmpty())) return null
         val copied = linkedMapOf<String, JsonElement>()
         values.forEach { (key, value) -> copied[key] = validatedValue(key, value) ?: return null }
         if (!alignedCriteria(copied)) return null
-        val expectedUnavailable = coreFields.getValue(area).filterNot { it in copied }
+        val expectedUnavailable = (coreFields.getValue(area) + if (schemaVersion == 2) gatewayAdmissionCore else emptyList()).filterNot { it in copied }
         if (unavailableFields.toSet() != expectedUnavailable.toSet() || unavailableFields.distinct().size != unavailableFields.size) return null
         val snapshot = copy(values = copied.toMap(), unavailableFields = unavailableFields.toList(), omittedFields = omittedFields.toList())
         return snapshot.takeIf { IssueReport.json.encodeToString(serializer(), it).encodeToByteArray().size <= MAX_BYTES }
@@ -47,12 +48,12 @@ internal data class IssueReportDiagnostics(
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
         private val hashFields = commonHashes + setOf(
             "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash",
-            "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash"
+            "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash"
         )
         private val hashLists = setOf("unmet_criterion_id_hashes", "unmet_criterion_reason_hashes")
         private val flags = setOf(
             "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "privacy_zdr_required", "privacy_fallbacks_allowed",
-            "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced"
+            "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "gateway_admission_ready"
         )
         private val attempts = setOf("backend_attempts", "backend_completed_attempts", "backend_failed_attempt", "repair_attempts", "repair_attempt_limit")
         private val durations = setOf(
@@ -85,6 +86,8 @@ internal data class IssueReportDiagnostics(
             "voice_phase" to setOf("PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "SPEAKING", "ERROR", "CLOSED"),
             "voice_focus_result" to setOf("GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"),
             "voice_first_audio_basis" to setOf("UTTERANCE_START", "PLAYBACK_HEAD"),
+            "gateway_reason_code" to GatewayInputRejectionDetails.reasonCodes,
+            "gateway_failure_phase" to setOf("model_preparation", "connection_preflight", "provider_admission", "request_validation", "engineering_guard", "binding_admission", "message_admission", "conversation_admission", "execution_admission", "gateway_recovery", "transport"),
             "gateway_state" to setOf("QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED"),
             "app_exit_kind" to setOf("JVM_CRASH", "NATIVE_CRASH", "APP_NOT_RESPONDING", "STARTUP_FAILED")
         )
@@ -101,6 +104,8 @@ internal data class IssueReportDiagnostics(
             )
         )
         private val criterionFields = hashLists + setOf("unmet_criterion_categories", "unmet_criterion_states", "unmet_criterion_blockers")
+        private val gatewayAdmissionFields = setOf("gateway_operation_id_hash", "gateway_manifest_hash", "gateway_version", "gateway_protocol_version", "gateway_admission_ready", "gateway_failure_phase", "gateway_http_status", "gateway_reason_code")
+        private val gatewayAdmissionCore = listOf("gateway_manifest_hash", "gateway_protocol_version", "gateway_admission_ready")
         private val fieldsByArea = mapOf(
             "PROVIDER" to commonHashes + setOf(
                 "original_error_code_hash", "server_request_id_hash", "generation_id_hash", "response_format", "finish_reason", "configured_output_limit", "effective_output_limit", "backend_output_limit",
@@ -130,9 +135,12 @@ internal data class IssueReportDiagnostics(
             val area = string(fields["diagnostic_area"])?.takeIf { it in areas } ?: return null
             val mode = if ("diagnostic_capture_mode" in fields) string(fields["diagnostic_capture_mode"]) ?: return null else "INCIDENT"
             if (mode !in captureModes) return null
+            val version = if (area == "GATEWAY" && gatewayAdmissionFields.any { it in fields }) 2 else 1
+            val allowed = fieldsByArea.getValue(area) + if (version == 2) gatewayAdmissionFields else emptySet()
+            val core = coreFields.getValue(area) + if (version == 2) gatewayAdmissionCore else emptyList()
             val values = linkedMapOf<String, JsonElement>()
             if (mode != "NO_CAPTURE") {
-                fieldsByArea.getValue(area).forEach { key ->
+                allowed.forEach { key ->
                     element(fields[key])?.let { validatedValue(key, it) }?.let { values[key] = it }
                 }
             }
@@ -143,7 +151,7 @@ internal data class IssueReportDiagnostics(
                     omitted.add(it)
                 }
             }
-            fun snapshot() = IssueReportDiagnostics(1, area, occurredAtMillis, mode, values.toMap(), coreFields.getValue(area).filterNot { it in values }, omitted.toList())
+            fun snapshot() = IssueReportDiagnostics(version, area, occurredAtMillis, mode, values.toMap(), core.filterNot { it in values }, omitted.toList())
             var result = snapshot()
             // Bound before preview/approval, and say exactly which otherwise valid fields did not fit.
             while (IssueReport.json.encodeToString(serializer(), result).encodeToByteArray().size > MAX_BYTES && values.isNotEmpty()) {
@@ -191,13 +199,15 @@ internal data class IssueReportDiagnostics(
                 return JsonArray(copied)
             }
             val primitive = value as? JsonPrimitive ?: return null
+            if (key == "gateway_version") return string(primitive)?.takeIf { it.matches(Regex("[0-9]{1,4}(?:\\.[0-9]{1,4}){1,3}")) }?.let(::JsonPrimitive)
             if (key in hashFields) return string(primitive)?.takeIf(hashPattern::matches)?.let(::JsonPrimitive)
             enums[key]?.let { allowed -> return string(primitive)?.takeIf { it in allowed }?.let(::JsonPrimitive) }
             if (key in flags) return primitive.takeUnless { it.isString }?.booleanOrNull?.let(::JsonPrimitive)
             val number = primitive.takeUnless { it.isString }?.longOrNull ?: return null
             val range = when (key) {
                 "voice_generation" -> 0..Long.MAX_VALUE
-                "backend_terminal_status" -> 100L..599L
+                "backend_terminal_status", "gateway_http_status" -> 100L..599L
+                "gateway_protocol_version" -> 1L..1000L
                 in attempts -> 0L..10_000L
                 in durations -> 0L..86_400_000L
                 in counts -> 0L..16_000_000L

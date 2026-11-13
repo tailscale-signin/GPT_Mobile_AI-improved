@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.coroutines.currentCoroutineContext
@@ -59,7 +60,9 @@ data class ProviderFailureReceipt(
     val usageInvocationId: String? = null,
     val outputTokenSource: String? = null,
     val causeStage: String? = null,
-    val gatewayAttemptEvidence: JsonObject? = null
+    val gatewayAttemptEvidence: JsonObject? = null,
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val engineeringRejection: JsonObject? = null
 ) {
     internal fun valid(): Boolean = provider in setOf("OPENAI", "ANTHROPIC", "GOOGLE", "GROQ", "OPENROUTER", "OLLAMA", "CUSTOM", "LITERT_LM", "LLAMA", "FREE", "NVIDIA") &&
         listOf(profileHash, modelHash).all { it.matches(Regex("[a-f0-9]{64}")) } &&
@@ -68,6 +71,7 @@ data class ProviderFailureReceipt(
         (outputTokens == null || outputTokens >= 0) &&
         (reasoningTokens == null || reasoningTokens >= 0) &&
         (gatewayAttemptEvidence == null || dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(gatewayAttemptEvidence) == gatewayAttemptEvidence) &&
+        (engineeringRejection == null || errorCode == "ENGINEERING_STATE_OR_INPUT_CHANGED" && GatewayInputRejectionDetails.retained(engineeringRejection) == engineeringRejection) &&
         listOfNotNull(invocationId, usageInvocationId).all { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) } &&
         (outputTokenSource == null || safeUsageSource(outputTokenSource) != null) &&
         listOfNotNull(serverRequestId, generationId).all { dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(it) != null } &&
@@ -81,6 +85,7 @@ data class ProviderFailureReceipt(
 
         // Provider error strings are untrusted content, even when they look like an enum.
         private val ERROR_CODES = setOf(
+            "MODEL_PREPARATION_INCOMPLETE", "MODEL_PREPARATION_REJECTED", "MODEL_PREPARATION_STORAGE_UNAVAILABLE", "MODEL_PREPARATION_CONNECTION_FAILED",
             "UNCLASSIFIED_PROVIDER_FAILURE", "HTTP_ERROR", "TRANSPORT_ERROR", "OUTPUT_LIMIT", "CONTEXT_CAPACITY_EXCEEDED",
             "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED",
             "DISPATCH_POLICY_CHANGED", "SAVED_EVIDENCE_REVOKED", "REPLAY_EVIDENCE_REQUIRED", "NOT_DISPATCHED",
@@ -93,7 +98,7 @@ data class ProviderFailureReceipt(
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
             "OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_UNAVAILABLE", "OUTPUT_PROTOCOL_INVALID",
             "INVALID_ARGUMENTS", "TOOL_OUTCOME_UNKNOWN", "TOOL_PROTOCOL_INVALID_FRAME", "TOOL_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED",
-            "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM"
+            "WAITING_FOR_APPROVAL", "PROVIDER_INVOCATION_FAILED", "INCOMPLETE_PROVIDER_STREAM", "ENGINEERING_STATE_OR_INPUT_CHANGED", "REVIEW_INPUT_REQUIRED"
         ) + dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES +
             dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES +
             dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.codes +
@@ -113,6 +118,7 @@ data class ProviderFailureReceipt(
             val attemptEvidence = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromDetails(failure.failureDetails)
                 ?: dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(correlatedUsage?.gatewayRecovery)
             val stage = when {
+                classified.isUserInputRequired || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD
                 classified.dispatched == false && failedStage in setOf("provider_admission", "connection_preflight", "backend_admission", "request_validation", "message_admission") -> ProviderFailureStage.ADMISSION
@@ -157,6 +163,7 @@ data class ProviderFailureReceipt(
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
                 causeTypes = classified.causeTypes,
                 failureDomain = when {
+                    classified.isUserInputRequired || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
                     code == "GITHUB_TASK_INCOMPLETE" || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
                     code in dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.CODES -> FailureDomain.APPLICATION_VERIFICATION
@@ -168,7 +175,8 @@ data class ProviderFailureReceipt(
                 usageInvocationId = correlatedUsage?.invocationId,
                 outputTokenSource = correlatedUsage?.let { safeUsageSource(it.outputSource) ?: "unavailable" },
                 causeStage = classified.phase.takeUnless { it.isBlank() || it == "stage_not_recorded" },
-                gatewayAttemptEvidence = attemptEvidence
+                gatewayAttemptEvidence = attemptEvidence,
+                engineeringRejection = classified.engineeringRejection
             )
         }
     }

@@ -149,14 +149,14 @@ looks for the original issue.
 ### Report context and rollout compatibility
 
 The ready response preserves `service: "gpt-mobile-issue-reporter"` and
-`version: 1`, and advertises `reportContextVersions: [1, 2, 3, 4]`. Clients with a
+`version: 1`, and advertises `reportContextVersions: [1, 2, 3, 4, 5, 6]`. Clients with a
 context-bearing report check support for that report's schema and any retained
 review extensions before marking it dispatched or sending the POST. An older
 service without all required versions has not declared
 support: the app retains the approved report and displays a native
 service-update requirement. It must not silently strip context or change a
 previously submitted payload. Deploy the updated reporter before shipping a
-hosted reporting route; the distribution readiness check requires all four versions
+hosted reporting route; the distribution readiness check requires all six versions
 so current reports and retained legacy reports remain supported.
 
 The optional top-level `context` object has a schema version, a bounded client
@@ -204,6 +204,19 @@ reasons are rejected under versions 1 through 3. Version-4 payloads require expl
 version-4 readiness before the dispatch marker or POST; unsupported services do not
 receive a stripped or downgraded report.
 
+Schema 5 adds a bounded, version-1 diagnostic snapshot for incident or manual
+report previews. Manual observations are labeled as selected observations and
+expire into an explicit `NO_CAPTURE` snapshot; they are not proof of the reported
+incident's cause. Schema 6 preserves allowlisted engineering rejection reasons
+and invalid request-field names and permits version-2 gateway snapshots. The
+gateway snapshot can retain observed manifest hash, protocol/version, readiness,
+HTTP status and admission phase before a job exists. It never initiates a network
+probe, invents a job/checkpoint, or publishes raw request values. Existing
+version-1 snapshots remain accepted in schema 6. Schema 5 continues to accept
+only version-1 snapshots, and schemas 1 through 5 do not accept the new engineering
+reason vocabulary. New schema-6 reports require explicit version-6 readiness
+before dispatch; previously approved reports keep their exact bytes and version.
+
 An earlier app revision used schema 2 for those review extensions. Its approved
 payloads remain unchanged: the app requires readiness support for both their
 declared version 2 and the version-3 review contract, then posts their original
@@ -220,7 +233,7 @@ non-retryable; unknown GitHub outcomes still require reconciliation.
 The rendered issue shows captured causal facts and unavailable observations
 separately. A missing field does not establish success, non-dispatch or safe
 retry. The full JSON request still has an 8 KiB maximum. Legacy reports without
-`context`, and existing schema-1 through schema-3 reports, retain their original rendering so
+`context`, and existing schema-1 through schema-5 reports, retain their original rendering so
 previously queued report digests remain valid.
 
 Successful submissions return `{"reportId":"<original UUID>","number":42}`.

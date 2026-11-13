@@ -38,6 +38,16 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun baselineQuestionIsNotAProviderFailureIncident() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf("failed_stage" to "review_comparison", "dispatched" to false, "next_action" to "SELECT_REVIEW_BASELINE")
+        IssueReportIncidents.chatFailure("REVIEW_INPUT_REQUIRED", false, null, fields)
+        assertTrue(IssueReportIncidents.pending.value.isEmpty())
+        IssueReportIncidents.chatFailure("GITHUB_REVIEW_COMPARISON_REQUIRED", false, null, fields)
+        assertEquals(1, IssueReportIncidents.pending.value.size)
+    }
+
+    @Test
     fun debugOptInProducesOneReportForRepeatedErrorAndOnlyProjectedLogs() {
         IssueReportIncidents.chatFailure("LOCAL_PREFILL_TIMEOUT", false)
         assertTrue(IssueReportIncidents.pending.value.isEmpty())

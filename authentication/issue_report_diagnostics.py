@@ -1,9 +1,11 @@
-"""Closed, bounded context-v5 observations. This validator never rewrites approved data."""
+"""Closed, bounded context-v5/v6 observations. This validator never rewrites approved data."""
 
 from __future__ import annotations
 
 import json
 import re
+
+from .engineering_report_contract import ENGINEERING_REASONS, GATEWAY_ADMISSION_CORE, GATEWAY_ADMISSION_FIELDS, GATEWAY_ADMISSION_PHASES
 
 
 MAX_DIAGNOSTIC_BYTES = 3072
@@ -12,12 +14,12 @@ DIAGNOSTIC_CAPTURE_MODES = {"INCIDENT", "SELECTED_CAPTURE", "NO_CAPTURE"}
 COMMON_HASHES = {"run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash"}
 HASH_FIELDS = COMMON_HASHES | {
     "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash",
-    "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash",
+    "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash",
 }
 HASH_LISTS = {"unmet_criterion_id_hashes", "unmet_criterion_reason_hashes"}
 FLAGS = {
     "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "privacy_zdr_required", "privacy_fallbacks_allowed",
-    "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced",
+    "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "gateway_admission_ready",
 }
 ATTEMPTS = {"backend_attempts", "backend_completed_attempts", "backend_failed_attempt", "repair_attempts", "repair_attempt_limit"}
 DURATIONS = {"voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms"}
@@ -44,6 +46,8 @@ ENUMS = {
     "voice_phase": {"PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "SPEAKING", "ERROR", "CLOSED"},
     "voice_focus_result": {"GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"},
     "voice_first_audio_basis": {"UTTERANCE_START", "PLAYBACK_HEAD"},
+    "gateway_reason_code": ENGINEERING_REASONS,
+    "gateway_failure_phase": GATEWAY_ADMISSION_PHASES,
     "gateway_state": {"QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED"},
     "app_exit_kind": {"JVM_CRASH", "NATIVE_CRASH", "APP_NOT_RESPONDING", "STARTUP_FAILED"},
 }
@@ -93,6 +97,8 @@ def _valid_value(key, value):
         return isinstance(value, list) and 1 <= len(value) <= 8 and all(
             isinstance(item, str) and (bool(re.fullmatch(r"[a-f0-9]{64}", item)) if key in HASH_LISTS else item in ENUM_LISTS[key]) for item in value
         )
+    if key == "gateway_version":
+        return isinstance(value, str) and bool(re.fullmatch(r"[0-9]{1,4}(?:\.[0-9]{1,4}){1,3}", value))
     if key in HASH_FIELDS:
         return isinstance(value, str) and bool(re.fullmatch(r"[a-f0-9]{64}", value))
     if key in ENUMS:
@@ -103,7 +109,9 @@ def _valid_value(key, value):
         return False
     if key == "voice_generation":
         return 0 <= value <= 9_223_372_036_854_775_807
-    if key == "backend_terminal_status":
+    if key == "gateway_protocol_version":
+        return 1 <= value <= 1000
+    if key in {"backend_terminal_status", "gateway_http_status"}:
         return 100 <= value <= 599
     if key in ATTEMPTS:
         return 0 <= value <= 10_000
@@ -116,23 +124,28 @@ def validate_diagnostics(value):
     required = {"schemaVersion", "area", "capturedAtMillis", "captureMode", "values", "unavailableFields"}
     if not isinstance(value, dict) or not required <= value.keys() or set(value) - required - {"omittedFields"}:
         raise ValueError("invalid diagnostic fields")
-    if type(value["schemaVersion"]) is not int or value["schemaVersion"] != 1:
+    if type(value["schemaVersion"]) is not int or value["schemaVersion"] not in {1, 2}:
         raise ValueError("invalid diagnostic version")
     area, mode, captured = value["area"], value["captureMode"], value["capturedAtMillis"]
     if not isinstance(area, str) or area not in DIAGNOSTIC_AREAS or not isinstance(mode, str) or mode not in DIAGNOSTIC_CAPTURE_MODES:
         raise ValueError("invalid diagnostic capture")
     if type(captured) is not int or not 1 <= captured <= 9_999_999_999_999:
         raise ValueError("invalid diagnostic time")
+    extended = value["schemaVersion"] == 2
+    if extended and area != "GATEWAY":
+        raise ValueError("invalid diagnostic extension area")
+    allowed = FIELDS_BY_AREA[area] | (GATEWAY_ADMISSION_FIELDS if extended else set())
+    core = CORE_FIELDS[area] | (GATEWAY_ADMISSION_CORE if extended else set())
     values = value["values"]
-    if not isinstance(values, dict) or set(values) - FIELDS_BY_AREA[area] or not all(_valid_value(key, item) for key, item in values.items()):
+    if not isinstance(values, dict) or set(values) - allowed or not all(_valid_value(key, item) for key, item in values.items()):
         raise ValueError("invalid diagnostic values")
     lengths = {len(values[key]) for key in CRITERION_FIELDS & values.keys()}
     if len(lengths) > 1:
         raise ValueError("unaligned criterion observations")
     unavailable, omitted = value["unavailableFields"], value.get("omittedFields", [])
-    if not _string_list(unavailable, CORE_FIELDS[area]) or set(unavailable) != CORE_FIELDS[area] - values.keys():
+    if not _string_list(unavailable, core) or set(unavailable) != core - values.keys():
         raise ValueError("invalid diagnostic availability")
-    if not _string_list(omitted, FIELDS_BY_AREA[area]) or set(omitted) & values.keys():
+    if not _string_list(omitted, allowed) or set(omitted) & values.keys():
         raise ValueError("invalid diagnostic omissions")
     if mode == "NO_CAPTURE" and (values or omitted):
         raise ValueError("no-capture observation contains data")

@@ -13,7 +13,9 @@ class IssueReportingConfigurationTest(unittest.TestCase):
             validate("", "false")
 
     def test_missing_or_misspelled_native_configuration_is_not_truthy(self):
-        for value in ("", "TRUE", "yes", "1"):
+        for value in (
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, 5]},
+            {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, 5, "6"]},"", "TRUE", "yes", "1"):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 validate("", value)
 
@@ -29,7 +31,7 @@ class IssueReportingConfigurationTest(unittest.TestCase):
         observed = []
         def fetch(url):
             observed.append(url)
-            return b'{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5]}'
+            return b'{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6]}'
         check_readiness("https://reports.project.org/", fetch)
         self.assertEqual(["https://reports.project.org/health/ready"], observed)
         for value in (

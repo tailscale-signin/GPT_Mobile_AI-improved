@@ -195,6 +195,16 @@ internal object IssueReportIncidents {
     fun chatFailure(code: String?, rateLimited: Boolean) = chatFailure(code, rateLimited, null)
 
     fun chatFailure(code: String?, rateLimited: Boolean, error: Throwable?, fields: Map<String, Any?> = emptyMap(), invocationId: String? = null) {
+        val input = IssueReportContext.fromFields("CHAT_FAILURE", fields)
+        if (code == "REVIEW_INPUT_REQUIRED" &&
+            input.stage == "review_comparison" &&
+            input.dispatched == false &&
+            input.recoveryAction == "SELECT_REVIEW_BASELINE" &&
+            input.requiresReconciliation != true
+        ) {
+            // A prerequisite question is already delivered in the task. It is not a provider incident.
+            return
+        }
         val localRecovery = IssueReportContext.localRecoveryCode(fields) != null
         val specificCode = IssueReportCodes.known(code)?.takeUnless { it == "CHAT_FAILED" }
             ?: "GITHUB_TASK_INCOMPLETE".takeIf {

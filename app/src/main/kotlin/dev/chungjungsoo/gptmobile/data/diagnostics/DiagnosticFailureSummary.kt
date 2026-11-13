@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -36,6 +37,12 @@ internal fun diagnosticMessageFailureEvidence(messageId: Long, timeline: JsonEle
         text("dispatchState", Regex("NOT_DISPATCHED|PRECHECK_REJECTED|DISPATCHED|FAILED|COMPLETED|UNKNOWN"))?.let { put("dispatch_state", it) }
         val recovery = (failure["recoveryActions"] as? JsonArray)?.singleOrNull() as? JsonPrimitive
         recovery?.takeIf { it.isString && it.content.matches(Regex("[A-Z][A-Z0-9_]{2,95}")) }?.let { put("recovery_action", it) }
+        if (category == "ENGINEERING_STATE_OR_INPUT_CHANGED") {
+            GatewayInputRejectionDetails.retained(failure["engineeringRejection"] as? JsonObject)?.let { details ->
+                details["reasonCode"]?.let { put("reason_code", it) }
+                details["invalid_fields"]?.let { put("invalid_fields", it) }
+            }
+        }
         dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedDetails(failure["recoveryDetails"] as? JsonObject)?.let { details ->
             put(
                 "latest_recovery_failure",
@@ -201,6 +208,18 @@ internal fun diagnosticFailureSummary(
         put("invocation_id", record("invocation_id", readFrom(causal, "invocation_id")))
         put("failed_stage", record("failed_stage", failedStage))
         put("failure_code", record("failure_code", failure))
+        if (failure?.value == "ENGINEERING_STATE_OR_INPUT_CHANGED") {
+            causal.firstNotNullOfOrNull { item ->
+                val reason = item.payload["reason_code"] ?: return@firstNotNullOfOrNull null
+                val safe = GatewayInputRejectionDetails.retained(JsonObject(item.payload + ("reasonCode" to reason))) ?: return@firstNotNullOfOrNull null
+                item to safe
+            }?.let { (item, safe) ->
+                put("reason_code", safe.getValue("reasonCode"))
+                put("invalid_fields", safe.getValue("invalid_fields"))
+                sources["reason_code"] = JsonPrimitive(item.source)
+                sources["invalid_fields"] = JsonPrimitive(item.source)
+            }
+        }
         if (terminalRecoveryCode != null && retainedFailure != null && retainedFailure.value != terminalRecoveryCode) {
             put("prior_interruption_code", record("prior_interruption_code", retainedFailure))
         }

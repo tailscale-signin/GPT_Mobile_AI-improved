@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
@@ -15,6 +16,40 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class DiagnosticFailureSummaryTest {
+    @Test fun durableEngineeringRejectionKeepsSanitizedReasonFieldsAndSourceInCompactSummary() {
+        val original = ProfileFailureRecord.fromProvider(
+            "Private gateway details",
+            "ENGINEERING_STATE_OR_INPUT_CHANGED",
+            buildJsonObject {
+                put("reasonCode", "ENGINEERING_SOURCE_REVISION_REQUIRED")
+                put("invalid_fields", JsonArray(listOf(JsonPrimitive("source_sha"), JsonPrimitive("private-token"))))
+                put("failed_stage", "request_validation")
+                put("dispatched", false)
+            }
+        )
+        val restored = Json.decodeFromString<ProfileFailureRecord>(Json.encodeToString(ProfileFailureRecord.serializer(), original))
+        val timeline = JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("type", "NOTICE")
+                    put("modelAuthored", false)
+                    put("profileFailure", Json.encodeToJsonElement(ProfileFailureRecord.serializer(), restored))
+                }
+            )
+        )
+        val evidence = requireNotNull(diagnosticMessageFailureEvidence(17, timeline))
+        val result = summary(null, listOf(evidence))
+        assertEquals(JsonPrimitive("ENGINEERING_STATE_OR_INPUT_CHANGED"), result["failure_code"])
+        assertEquals(JsonPrimitive("ENGINEERING_SOURCE_REVISION_REQUIRED"), result["reason_code"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("source_sha"))), result["invalid_fields"])
+        assertEquals(JsonPrimitive("MESSAGE_PROFILE_FAILURE"), result.getValue("field_sources").jsonObject["reason_code"])
+        assertEquals(JsonPrimitive(false), result["dispatched"])
+        assertFalse(result.toString().contains("private", ignoreCase = true))
+        val completed = diagnosticFailureSummary("run", "COMPLETED", null, "test", 141, "build", listOf(evidence))
+        assertFalse(completed.containsKey("reason_code"))
+        assertFalse(completed.containsKey("invalid_fields"))
+    }
+
     @Test fun latestLocalRecoveryFailureDoesNotBorrowTheOriginalProviderInvocation() {
         val original = buildJsonObject {
             put("code", "429")

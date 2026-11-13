@@ -16,6 +16,73 @@ class GatewayReportDiagnosticsTest {
         status = "INTERRUPTED", gatewayJobId = "private-owned-job", gatewayLastSequence = 9, ownershipFence = 4
     )
 
+    @Test fun modelPreparationOperationRemainsSeparateFromInvocationOrJobIdentity() {
+        val snapshot = requireNotNull(
+            GatewayReportDiagnostics.admission(
+                "profile",
+                "model",
+                stage = "model_preparation",
+                ready = false,
+                failureCode = "MODEL_PREPARATION_INCOMPLETE",
+                operationId = "private-load-operation",
+                capturedAtMillis = 1_000_000
+            )
+        )
+        assertEquals(JsonPrimitive("model_preparation"), snapshot.values["gateway_failure_phase"])
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("gateway-operation", "private-load-operation")), snapshot.values["gateway_operation_id_hash"])
+        assertNull(snapshot.values["invocation_id_hash"])
+        assertNull(snapshot.values["job_id_hash"])
+        assertNull(snapshot.values["gateway_http_status"])
+        assertFalse(snapshot.toString().contains("private-load-operation"))
+    }
+
+    @Test fun admissionSnapshotNeedsNoJobAndManualApprovalRetainsTheSameObservation() {
+        val snapshot = requireNotNull(
+            GatewayReportDiagnostics.admission(
+                "private-profile", "private-model", "sha256:" + "a".repeat(64), "16.0.0", 1,
+                "request_validation", 409, false, "ENGINEERING_STATE_OR_INPUT_CHANGED", "ENGINEERING_TASK_SCOPE_REQUIRED", 1_000_000
+            )
+        )
+        assertEquals(2, snapshot.schemaVersion)
+        assertEquals(JsonPrimitive("a".repeat(64)), snapshot.values["gateway_manifest_hash"])
+        assertEquals(JsonPrimitive(false), snapshot.values["gateway_admission_ready"])
+        assertEquals(JsonPrimitive(409), snapshot.values["gateway_http_status"])
+        assertTrue("job_id_hash" in snapshot.unavailableFields)
+        assertNull(snapshot.values["job_id_hash"])
+        assertNull(snapshot.values["request_replay_allowed"])
+        val report = IssueReport("11111111-1111-4111-8111-111111111111", "manual", "1.0", 1, "abcdef0", "16", 36, "Fixture")
+        val preview = IssueReportManualCapture.preview(report, true, "GATEWAY", snapshot, emptyList(), 1_000_001)
+        val approved = IssueReportManualCapture.submission(preview, "Gateway admission", "A request was rejected", true)
+        assertEquals(6, approved.context?.schemaVersion)
+        assertEquals(snapshot.copy(captureMode = "SELECTED_CAPTURE"), approved.context?.diagnostics)
+        val payload = approved.approvedPayload()
+        assertFalse(payload.contains("private-profile"))
+        assertFalse(payload.contains("private-model"))
+        assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.parseToJsonElement(payload).let { (it as kotlinx.serialization.json.JsonObject)["context"] }))
+        val stale = IssueReportManualCapture.preview(report, true, "GATEWAY", snapshot, emptyList(), 1_600_001)
+        assertEquals("NO_CAPTURE", stale.context?.diagnostics?.captureMode)
+        assertEquals(payload, approved.approvedPayload())
+    }
+
+    @Test fun admissionSnapshotRedactsPrivateValuesWithoutInventingGatewayReadiness() {
+        val snapshot = requireNotNull(
+            GatewayReportDiagnostics.admission(
+                "profile", "model", "private-host", "16.0.0 private-path", -1,
+                "private-stage", 999, null, "private-error", "private-reason", 1_000_000
+            )
+        )
+        assertEquals(2, snapshot.schemaVersion)
+        assertNull(snapshot.values["gateway_manifest_hash"])
+        assertNull(snapshot.values["gateway_version"])
+        assertNull(snapshot.values["gateway_protocol_version"])
+        assertNull(snapshot.values["gateway_failure_phase"])
+        assertNull(snapshot.values["gateway_http_status"])
+        assertNull(snapshot.values["gateway_admission_ready"])
+        assertNull(snapshot.values["gateway_reason_code"])
+        assertFalse(Json.encodeToString(IssueReportDiagnostics.serializer(), snapshot).contains("private"))
+        assertNull(GatewayReportDiagnostics.admission(null, null, capturedAtMillis = 1_000_000))
+    }
+
     @Test fun ownedRecoveryPreservesRemoteStateAndCheckpointWithoutInventingReplayAuthority() {
         val snapshot = requireNotNull(GatewayReportDiagnostics.recovery(run, "private-owned-job", "completed", 1_000_000))
         assertEquals("GATEWAY", snapshot.area)

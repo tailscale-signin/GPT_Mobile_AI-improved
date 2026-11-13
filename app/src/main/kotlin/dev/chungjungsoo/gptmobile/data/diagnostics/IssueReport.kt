@@ -52,10 +52,7 @@ internal data class IssueReport(
         )
 
         fun debug(feature: ReportFeature, code: String, events: List<String>, error: Throwable? = null, context: IssueReportContext? = null): IssueReport {
-            val type = error?.javaClass?.simpleName?.takeIf(typePattern::matches)
-            val frames = generateSequence(error) { it.cause }.take(4).flatMap { it.stackTrace.asSequence().take(48) }
-                .map { "${it.className}.${it.methodName}:${it.lineNumber.coerceAtLeast(0)}" }
-                .filter(framePattern::matches).distinct().take(8).toList()
+            val (type, frames) = exceptionMetadata(error)
             return base("debug", events).copy(
                 feature = feature.name.lowercase(),
                 errorCode = IssueReportCodes.select(code, fallbackCode(feature)),
@@ -63,6 +60,15 @@ internal data class IssueReport(
                 frames = frames,
                 context = (context ?: IssueReportContext.fromFields(if (error == null) "CODE_ONLY" else "EXCEPTION")).withException(type, frames)
             )
+        }
+
+        /** Shared bounded metadata; never reads exception messages, file names or arbitrary stack text. */
+        internal fun exceptionMetadata(error: Throwable?): Pair<String?, List<String>> {
+            val type = error?.javaClass?.simpleName?.takeIf(typePattern::matches)
+            val frames = generateSequence(error) { it.cause }.take(4).flatMap { it.stackTrace.asSequence().take(48) }
+                .map { "${it.className}.${it.methodName}:${it.lineNumber.coerceAtLeast(0)}" }
+                .filter(framePattern::matches).distinct().take(8).toList()
+            return type to frames
         }
 
         private fun base(source: String, events: List<String>) = IssueReport(

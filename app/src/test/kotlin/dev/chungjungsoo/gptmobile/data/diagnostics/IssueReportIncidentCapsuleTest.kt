@@ -13,6 +13,51 @@ import org.junit.Test
 class IssueReportIncidentCapsuleTest {
     private val time = 1_800_000_000_000L
 
+    @Test fun caughtExceptionRetainsBoundedOriginEvidenceWithoutInventingFailurePhase() {
+        val error = IllegalStateException("private-message https://private.example/token", java.io.IOException("private-inner"))
+        error.stackTrace = arrayOf(StackTraceElement("dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl", "completeChat", "private-file", 2591))
+        error.cause!!.stackTrace = arrayOf(StackTraceElement("outside.private.Package", "privateMethod", "private-file", 99))
+        val observed = IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_TERMINAL_CATCH)
+        val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", observed + mapOf("run_id" to "private-run", "provider_kind" to "OPENROUTER"))
+        val values = requireNotNull(context.diagnostics).values
+        assertEquals(JsonPrimitive("CHAT_REPOSITORY_TERMINAL_CATCH"), values["incident_capture_site"])
+        assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), values["incident_phase_provenance"])
+        assertEquals(JsonPrimitive("unknown"), values["incident_phase"])
+        assertEquals(
+            JsonArray(listOf("java.lang.IllegalStateException", "java.io.IOException").map { JsonPrimitive(requireNotNull(IssueReportContext.identifierHash("exception-type", it))) }),
+            values["exception_type_hashes"]
+        )
+        assertEquals(
+            IssueReportContext.fromFields("EXCEPTION", occurredAtMillis = time).withException("IllegalStateException", listOf("dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl.completeChat:2591")).exceptionFingerprint,
+            context.exceptionFingerprint
+        )
+        assertNull(context.stage)
+        assertNull(context.httpStatus)
+        assertNull(context.dispatched)
+        assertNull(context.remoteAcceptance)
+        assertNull(context.retryable)
+        assertNull(context.invocationIdHash)
+        assertNull(IssueReportIncidentCapsule.identity(context, "CHAT_FAILED"))
+        val approved = report(context).approvedPayload()
+        assertFalse(approved.contains("private"))
+        assertFalse(approved.contains("IllegalStateException"))
+        assertFalse(approved.contains("ChatRepositoryImpl.completeChat"))
+        assertFalse(approved.contains("cause_types"))
+        assertEquals(approved, report(context).approvedPayload())
+    }
+
+    @Test fun exceptionObservationRejectsOpenCaptureNamesAndMalformedFingerprints() {
+        val observed = IssueReportIncidentCapsule.exceptionFields(IllegalArgumentException("private"), IssueReportIncidentCapsule.ExceptionCaptureSite.OPENAI_ADAPTER_STREAM_CATCH)
+        val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", observed)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertNull(diagnostic.copy(values = diagnostic.values + ("incident_capture_site" to JsonPrimitive("private-site"))).validated())
+        assertNull(diagnostic.copy(values = diagnostic.values + ("incident_phase_provenance" to JsonPrimitive("ASSUMED_PROVIDER_DISPATCH"))).validated())
+        assertNull(IssueReportContext.fromFields("CHAT_FAILURE", mapOf("exception_fingerprint" to "private-stack")).exceptionFingerprint)
+        val changed = IllegalArgumentException("private-changed-message").also { it.stackTrace = emptyArray() }
+        val same = IllegalArgumentException("private-different-message").also { it.stackTrace = emptyArray() }
+        assertEquals(IssueReportContext.exceptionFingerprint(changed), IssueReportContext.exceptionFingerprint(same))
+    }
+
     @Test fun genericChatFailureStatesMissingEvidenceWithoutInventingProviderPhaseOrReplay() {
         val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", mapOf("run_id" to "private-run", "provider" to "OPENROUTER", "message" to "private-message", "token" to "private-token"))
         val values = requireNotNull(context.diagnostics).values

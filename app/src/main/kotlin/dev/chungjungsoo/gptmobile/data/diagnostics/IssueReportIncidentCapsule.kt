@@ -3,10 +3,13 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 import java.util.Locale
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
+import kotlinx.serialization.json.put
 
 /** Versioned, closed incident evidence. It describes observations and never authorizes a retry. */
 internal object IssueReportIncidentCapsule {
@@ -28,7 +31,7 @@ internal object IssueReportIncidentCapsule {
         "cursor", "view_cursor", "index_cursor", "search_id", "view_id", "operation", "operation_id", "model", "schema", "schema_version",
         "url", "download_url", "accept", "since", "until", "filter", "status", "conclusion", "inputs", "files", "encoding", "recursive"
     )
-    private val common = setOf("incident_phase", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "provider_wait_state", "provider_wait_persisted", "recovery_authority")
+    private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "provider_wait_state", "provider_wait_persisted", "recovery_authority")
     private val toolFields = setOf(
         "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count",
         "argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types", "resolved_argument_shape_hash",
@@ -56,6 +59,8 @@ internal object IssueReportIncidentCapsule {
     private val mcpHealth = setOf("DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "TLS_FAILED", "CONNECT_TIMEOUT", "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT", "HEALTHY", "UNKNOWN")
     private val enums = mapOf(
         "incident_phase" to phases,
+        "incident_capture_site" to ExceptionCaptureSite.entries.mapTo(mutableSetOf()) { it.name },
+        "incident_phase_provenance" to setOf("CAPTURE_BOUNDARY_ONLY"),
         "causal_provenance" to setOf("TOOL_CALL", "MODEL_INVOCATION", "GATEWAY_COMMAND", "EXPLICIT_CAUSE", "UNAVAILABLE"),
         "causal_failure_code" to IssueReportCodes.allowed,
         "incident_evidence_status" to setOf("TYPED_EVIDENCE", "CAUSAL_EVIDENCE_UNAVAILABLE"),
@@ -103,7 +108,17 @@ internal object IssueReportIncidentCapsule {
         "receipt_exclusion_reasons" to setOf("WRONG_OPERATION", "WRONG_ACTION", "WRONG_REVISION", "WRONG_SCOPE", "PRECHECK_ONLY", "NOT_SUCCESSFUL", "UNKNOWN_OUTCOME", "STALE", "MISSING_IDENTITY", "UNVERIFIED")
     )
     val coreFields = listOf("incident_phase", "causal_id_hash", "causal_provenance", "incident_evidence_status")
-    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin")
+    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes")
+
+    enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, OPENAI_ADAPTER_STREAM_CATCH }
+
+    /** Captured at the actual catch. A boundary identifies where observed, not where dispatched. */
+    fun exceptionFields(error: Throwable, site: ExceptionCaptureSite): JsonObject = buildJsonObject {
+        put("incident_capture_site", site.name)
+        put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+        put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).map(::JsonPrimitive)))
+        IssueReportContext.exceptionFingerprint(error)?.let { put("exception_fingerprint", it) }
+    }
 
     fun fieldsFor(area: String): Set<String> = common + when (area) {
         "TOOL" -> toolFields

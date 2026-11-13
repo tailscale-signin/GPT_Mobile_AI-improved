@@ -155,6 +155,7 @@ FIELD_NAMES = {
 }
 
 COMMON = {
+    'incident_capture_site', 'incident_phase_provenance',
     'retry_delay_source',
     'provider_wait_state',
     'provider_wait_persisted',
@@ -377,6 +378,8 @@ OPERATIONS = {
 MCP_HEALTH = {'DNS_FAILED', 'DNS_RECOVERY', 'ROUTE_UNAVAILABLE', 'CONNECTION_REFUSED', 'AUTHENTICATION_FAILED', 'TLS_FAILED', 'CONNECT_TIMEOUT', 'HTTP_ERROR', 'MCP_HANDSHAKE_FAILED', 'STREAM_INTERRUPTED', 'STREAM_IDLE_TIMEOUT', 'REQUEST_TIMEOUT', 'HEALTHY', 'UNKNOWN'}
 
 ENUMS = {
+    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'OPENAI_ADAPTER_STREAM_CATCH'},
+    'incident_phase_provenance': {'CAPTURE_BOUNDARY_ONLY'},
     'native_dependency_state': {'DEFERRED', 'FAILED'},
     'search_cursor_state': {'RETAINED_SEARCH_MISSING', 'PAGE_BOUNDARY_UNOBSERVED'},
     'mcp_failure_phase': {'configuration', 'catalog', 'discovery', 'initialization', 'execution', 'connection', 'dns', 'tls', 'oauth_refresh', 'local_validation'},

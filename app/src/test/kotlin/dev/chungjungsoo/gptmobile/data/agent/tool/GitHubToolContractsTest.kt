@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
 import dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
@@ -231,6 +232,46 @@ class GitHubToolContractsTest {
         } finally {
             http.close()
         }
+    }
+
+    @Test fun issueContextAcceptsResponseDetailWithoutChangingNativeReadOrBody() = runTest {
+        val issue = args("""{"number":7,"title":"Issue details","body":"Keep the complete issue body.","state":"open"}""")
+        val expectedNative = call("issue_context", """, "issue_number":7""")
+        for (detail in listOf("compact", "full")) {
+            val backend = Backend().apply { value = issue }
+            val tool = GitHubOperationTool("github_issue", backend, "issue-detail-$detail", views = GitHubResultViews())
+            val result = tool.execute("issue-$detail", call("context", """, "issue_number":7, "response_detail":"$detail""""))
+
+            assertFalse(result.isError)
+            assertEquals(expectedNative, backend.calls.single())
+            assertEquals(issue, data(result)["data"])
+        }
+    }
+
+    @Test fun issueResponseDetailKeepsStrictArgumentAdmission() = runTest {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_issue", backend, "issue-detail-invalid", views = GitHubResultViews())
+        val invalid = listOf(
+            call("context", """, "issue_number":7, "response_detail":"expanded""""),
+            call("context", """, "issue_number":7, "response_detail":"full", "unexpected":true"""),
+            call("context", """, "response_detail":"full"""")
+        )
+        invalid.forEachIndexed { index, input ->
+            val result = tool.execute("invalid-$index", input)
+            assertEquals("INVALID_ARGUMENTS", result.errorCode)
+            assertFalse(result.dispatched)
+        }
+        assertTrue(backend.calls.isEmpty())
+    }
+
+    @Test fun reportedIssueContextShapeIncludesResponseDetail() {
+        // Reports #899-#905 retain field names and types through this digest,
+        // not scalar values. These synthetic values reproduce the reported shape.
+        val input = call("context", """, "issue_number":7, "response_detail":"full"""")
+        assertEquals(
+            "d84f4d7c6b24827fab1139fb9887f733db91550b89b4e76b0920f103515c11e8",
+            ToolReportDiagnostics.shapeHash(input)
+        )
     }
 
     @Test fun issuesHaveDirectInspectionAndDoNotIncludePullRequests() = runTest {

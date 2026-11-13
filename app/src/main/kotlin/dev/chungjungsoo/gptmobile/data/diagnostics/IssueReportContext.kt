@@ -329,6 +329,7 @@ internal data class IssueReportContext(
                 callIdHash = callIdHash,
                 jobIdHash = jobIdHash,
                 activeJobIdHash = identifierHash("job", text("active_job_id", "activeJobId")),
+                exceptionFingerprint = text("exception_fingerprint")?.takeIf { it.matches(Regex("[a-f0-9]{64}")) },
                 originalFailureCode = originalCode,
                 originalHttpStatus = originalStatus,
                 checkpointBindingHash = recoveryHash("checkpoint_binding", "checkpoint-binding", Regex("[a-f0-9]{64}")),
@@ -341,6 +342,12 @@ internal data class IssueReportContext(
 
         /** Domain-separated hashes join an explicit ID without publishing the original provider value. */
         fun identifierHash(kind: String, value: String?): String? = value?.takeIf { it.isNotBlank() && it.length <= 256 && it !in setOf("-1", "unknown") }?.let { digest(kind, it) }
+
+        /** Match withException's existing bounded privacy projection without retaining the throwable. */
+        fun exceptionFingerprint(error: Throwable): String? {
+            val (type, frames) = IssueReport.exceptionMetadata(error)
+            return type?.let { digest("exception", (listOf(it) + frames).joinToString("\n")) }
+        }
 
         private fun digest(kind: String, value: String): String = MessageDigest.getInstance("SHA-256")
             .digest("gptmobile.issue-context.v1:$kind:$value".toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }

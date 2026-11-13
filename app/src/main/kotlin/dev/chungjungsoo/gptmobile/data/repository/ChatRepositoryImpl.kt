@@ -2588,7 +2588,11 @@ class ChatRepositoryImpl(
             return@catch
         }
         val classified = ErrorClassification.classify(error)
-        emit(ApiState.Error(classified.userMessage, errorCode = classified.errorCode, failureDetails = failureContext()))
+        val exceptionEvidence = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.exceptionFields(
+            error,
+            dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_TERMINAL_CATCH
+        )
+        emit(ApiState.Error(classified.userMessage, errorCode = classified.errorCode, failureDetails = failureContext(exceptionEvidence)))
     }.onCompletion { failure ->
         if (failure == null) emit(ApiState.Done)
     }.let { upstream ->

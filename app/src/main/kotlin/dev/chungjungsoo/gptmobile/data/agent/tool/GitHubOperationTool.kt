@@ -1095,7 +1095,7 @@ internal class GitHubOperationTool(
                 properties["lock_reason"] = choice("off-topic", "too heated", "resolved", "spam")
                 properties["merge_method"] = choice("squash", "merge", "rebase")
             }
-            if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
+            if (operation in setOf("github_context", "github_ci", "github_pr", "github_read", "github_issue")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."

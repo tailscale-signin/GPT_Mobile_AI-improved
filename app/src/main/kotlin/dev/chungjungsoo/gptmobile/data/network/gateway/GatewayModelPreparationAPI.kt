@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
@@ -30,8 +32,52 @@ data class GatewayModelPreparationReceipt(
     val reasonCode: String? = null,
     val inferenceTested: Boolean = false,
     val automaticSubstitution: Boolean = false,
-    val reasoningSettingsChanged: Boolean = false
-)
+    val reasoningSettingsChanged: Boolean = false,
+    val preparationAction: String? = null,
+    val failure: GatewayModelPreparationFailure? = null,
+    val reconciliationFailure: GatewayModelPreparationFailure? = null
+) {
+    internal fun sanitized(): GatewayModelPreparationReceipt = copy(
+        modelState = GatewayReadinessFailure.modelState(modelState),
+        reasonCode = reasonCode?.takeIf { it in setOf("MODEL_PREPARATION_UNSUPPORTED", "MODEL_PREPARATION_CANCELLED", "MODEL_PREPARATION_CONFIGURATION_CONFLICT") },
+        preparationAction = preparationAction?.takeIf { it in setOf("NONE", "LOAD", "WAKE") },
+        failure = failure?.sanitized(),
+        reconciliationFailure = reconciliationFailure?.sanitized()
+    )
+
+    internal fun rejectionMessage(): String {
+        val evidence = failure ?: reconciliationFailure
+        return when {
+            reasonCode == "MODEL_PREPARATION_UNSUPPORTED" || evidence?.failureCategory == "unsupported" -> "This gateway’s backend does not support the selected model’s load or wake action. Update the backend or load this exact model with its host controls, then recheck."
+            evidence?.failureCategory == "denied" || evidence?.upstreamStatus in setOf(401, 403) -> "The backend rejected the gateway’s access to load this model. Repair gateway-to-backend authorization, then recheck."
+            evidence?.reasonCode == "SELECTED_MODEL_NOT_AVAILABLE" -> "The exact selected model is no longer advertised by the backend. Restore its model configuration on the gateway computer, then recheck."
+            evidence?.upstreamStatus != null -> "The backend rejected the selected model’s preparation (HTTP ${evidence.upstreamStatus}). Check that model’s backend settings, then recheck."
+            else -> "The gateway could not start loading this exact model. Check the backend model and access settings, then recheck."
+        }
+    }
+}
+
+/** Only typed, allowlisted backend evidence survives decoding; upstream prose is ignored. */
+@Serializable
+data class GatewayModelPreparationFailure(
+    val reasonCode: String? = null,
+    val failureCode: String? = null,
+    val failureCategory: String? = null,
+    val dependency: String? = null,
+    val upstreamStatus: Int? = null,
+    val upstreamMessageCode: String? = null,
+    val upstreamErrorBodyState: String? = null
+) {
+    internal fun sanitized() = copy(
+        reasonCode = GatewayReadinessFailure.reasonCode(reasonCode),
+        failureCode = GatewayReadinessFailure.failureCode(failureCode),
+        failureCategory = GatewayReadinessFailure.category(failureCategory),
+        dependency = GatewayReadinessFailure.dependency(dependency),
+        upstreamStatus = upstreamStatus?.takeIf { it in 100..599 },
+        upstreamMessageCode = GatewayReadinessFailure.upstreamMessage(upstreamMessageCode),
+        upstreamErrorBodyState = GatewayReadinessFailure.upstreamBodyState(upstreamErrorBodyState)
+    )
+}
 
 @Serializable
 private data class GatewayModelPreparationRequest(val model: String, val operationId: String)
@@ -83,7 +129,9 @@ class GatewayModelPreparationAPI @Inject constructor(private val network: Networ
                         !receipt.reasoningSettingsChanged &&
                         receipt.state in setOf("PREPARING", "PRECHECK_REJECTED", "LOAD_REJECTED", "LOAD_ACCEPTED", "LOAD_OUTCOME_UNKNOWN", "WAITING_FOR_MODEL", "METADATA_QUALIFIED", "QUALIFICATION_BLOCKED")
                 ) { "Gateway model preparation did not confirm this exact operation and model." }
-                receipt
+                receipt.sanitized().also { safe ->
+                    GatewayReportDiagnostics.modelPreparation(config.profileUid, model, safe)?.let(ReportDiagnosticSnapshots::retain)
+                }
             }
         }
     }

@@ -75,6 +75,27 @@ class IssueReportGitHubSubmissionTest {
         assertEquals(payload, uncertain.payload)
     }
 
+    @Test fun selectedNativeRoutePublishesModelPreparationCaptureWithoutHostedReporterNegotiation() {
+        val context = IssueReportContext.fromFields("STRUCTURED_EVENT", mapOf("diagnostic_area" to "GATEWAY", "model_preparation_action" to "WAKE", "model_preparation_state" to "LOAD_REJECTED", "gateway_upstream_status" to 403), 1_000L)
+        val enriched = report.copy(context = context)
+        val payload = enriched.approvedPayload()
+        val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+        val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+        val requests = mutableListOf<Request>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            requests += request
+            assertEquals("POST", request.method)
+            assertEquals("api.github.com", request.url.host)
+            assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+            assertTrue(rendered.getValue("body").toString().contains("model_preparation_action"))
+            response(request, 201, receipt(body = rendered.getValue("body")).toString())
+        }.build()
+        assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") {})
+        assertEquals(1, requests.size)
+        assertEquals(payload, entry.payload)
+    }
+
     @Test fun explicitApprovalPayloadAndNativeRouteRejectUnknownPrivateDiagnosticFields() {
         val enriched = report.copy(context = IssueReportContext.fromFields("TOOL_RESULT", mapOf("diagnostic_area" to "TOOL", "tool_schema_hash" to "a".repeat(64)), 1_000L))
         val raw = IssueReport.json.parseToJsonElement(enriched.approvedPayload()).jsonObject

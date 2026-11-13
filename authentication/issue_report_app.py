@@ -42,7 +42,8 @@ def create_app(public_url, reporter, rate_key):
 
     @app.get("/health/ready")
     async def ready():
-        return {"service": "gpt-mobile-issue-reporter", "version": 1, "reportContextVersions": [1, 2, 3, 4, 5]}
+        return {"service": "gpt-mobile-issue-reporter", "version": 1, "reportContextVersions": [1, 2, 3, 4, 5],
+                "reportDiagnosticFeatures": ["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1"]}
 
     @app.post("/v1/issue-reports")
     async def submit(request: Request):

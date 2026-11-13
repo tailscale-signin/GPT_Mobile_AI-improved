@@ -48,23 +48,27 @@ internal object GitHubSelfTestReads {
         val status = roots("github_context", "status").firstOrNull()
         val sha = (status?.get("commit_sha") as? JsonPrimitive)?.takeIf { it.content.matches(Regex("[a-fA-F0-9]{40}")) }
         val branch = status?.get("branch") ?: status?.get("ref")
-        val currentRuns = GitHubObservedWorkflowRuns.current(observations, sha)
+        val workflowJobs = GitHubSelfTestWorkflowJobs.select(observations, sha)
+        val currentRuns = workflowJobs.runs
         val run = currentRuns.firstOrNull { it.text("status") == "completed" && it.text("conclusion") in setOf("success", "failure", "timed_out", "action_required") }
             ?: currentRuns.firstOrNull { it.text("status") != "completed" }
             ?: currentRuns.firstOrNull()
         // Failure analysis has its own prerequisite. A successful run selected
         // for ordinary inspection must not hide a different observed failed run.
         val failedRun = currentRuns.firstOrNull { it.text("status") == "completed" && it.text("conclusion") in setOf("failure", "timed_out") }
-        val runId = run?.get("id")
-        val logAttempts = observations.filter { it.text("tool").substringBefore("__") == "github_ci" && (it["arguments"] as? JsonObject)?.text("action") == "logs" }
-        val jobs = records("github_ci", "jobs", "jobs").filter { candidate ->
-            (runId == null || candidate["run_id"] == runId) &&
-                candidate.text("status") == "completed" &&
-                candidate.text("conclusion") !in setOf("skipped", "neutral", "cancelled") &&
-                (candidate["steps"] !is JsonArray || (candidate["steps"] as JsonArray).filterIsInstance<JsonObject>().any { it.text("status") == "completed" && it.text("conclusion") !in setOf("skipped", "neutral", "cancelled") }) &&
-                logAttempts.none { (it["arguments"] as? JsonObject)?.get("job_id") == candidate["id"] }
+        val job = workflowJobs.job
+        val needsJobDependency = tools.any { tool ->
+            if (!tool.modelVisible || tool.name.substringBefore("__") != "github_ci") return@any false
+            val action = (tool.inputSchema["properties"] as? JsonObject)?.get("action") as? JsonObject
+            val actions = (action?.get("enum") as? JsonArray).orEmpty() + listOfNotNull(action?.get("const"))
+            actions.any action@{ value ->
+                val name = (value as? JsonPrimitive)?.contentOrNull
+                if (name !in setOf("job", "logs")) return@action false
+                val prior = observations.filter { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == name }
+                prior.isEmpty() || name == "logs" && prior.size == 1 && prior.single().text("error_code") == "GITHUB_NOT_FOUND_OR_HIDDEN"
+            }
         }
-        val job = jobs.firstOrNull { it["steps"] is JsonArray } ?: jobs.firstOrNull()
+        val jobsRun = if (needsJobDependency) workflowJobs.nextRun else run
         val pr = records("github_pr", "list", "pull_requests", "items").firstOrNull()
             ?: listOf("headers", "context").firstNotNullOfOrNull { action ->
                 roots("github_pr", action).firstNotNullOfOrNull { root ->
@@ -132,7 +136,7 @@ internal object GitHubSelfTestReads {
             // from the pinned source tree instead of assuming the first live ID exists there.
             if (sha != null) recipe("github_ci", "definitions", "commit_sha" to sha)
             run?.get("id")?.let { id ->
-                listOf("run", "status", "jobs", "artifacts").forEach { recipe("github_ci", it, "run_id" to id, "expected_head_sha" to sha) }
+                listOf("run", "status", "artifacts").forEach { recipe("github_ci", it, "run_id" to id, "expected_head_sha" to sha) }
                 if (sha != null) {
                     add(
                         "github_watch_checks" to buildJsonObject {
@@ -143,10 +147,15 @@ internal object GitHubSelfTestReads {
                     )
                 }
             }
-            failedRun?.get("id")?.let { id -> recipe("github_ci", "failure", "run_id" to id, "expected_head_sha" to sha) }
+            jobsRun?.get("id")?.let { id -> recipe("github_ci", "jobs", "run_id" to id, "run_attempt" to jobsRun["run_attempt"], "expected_head_sha" to sha) }
+            if (sha != null) {
+                // The native failure query supports an exact revision without a run ID.
+                // Its no_failed_run response exercises the query, not failure repair.
+                recipe("github_ci", "failure", "run_id" to failedRun?.get("id"), "expected_head_sha" to sha)
+            }
             job?.get("id")?.let { id ->
-                recipe("github_ci", "job", "job_id" to id, "run_id" to job["run_id"], "expected_head_sha" to sha?.takeIf { runId != null && job["run_id"] == runId })
-                recipe("github_ci", "logs", "job_id" to id, "run_id" to job["run_id"], "expected_head_sha" to sha?.takeIf { runId != null && job["run_id"] == runId }, "start_line" to JsonPrimitive(1), "end_line" to JsonPrimitive(40))
+                recipe("github_ci", "job", "job_id" to id, "run_id" to job["run_id"], "run_attempt" to job["run_attempt"], "expected_head_sha" to sha)
+                recipe("github_ci", "logs", "job_id" to id, "run_id" to job["run_id"], "run_attempt" to job["run_attempt"], "expected_head_sha" to sha, "start_line" to JsonPrimitive(1), "end_line" to JsonPrimitive(40))
             }
             pr?.get("number")?.let { id -> listOf("headers", "context", "comments", "reviews", "threads").forEach { recipe("github_pr", it, "pull_number" to id) } }
             issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }
@@ -163,11 +172,17 @@ internal object GitHubSelfTestReads {
             }
             val prior = observations.filter { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == args.text("action") }
             if (prior.isNotEmpty()) {
-                if (prior.any { it["success"] == JsonPrimitive(true) || it["arguments"] == args || GitHubActionIdentity.matches(tool.name, args, it) }) continue
+                val additionalJobs = name == "github_ci" &&
+                    args.text("action") == "jobs" &&
+                    needsJobDependency &&
+                    workflowJobs.nextRun?.get("id") == args["run_id"] &&
+                    prior.all { it["success"] == JsonPrimitive(true) }
+                if (prior.any { !additionalJobs && it["success"] == JsonPrimitive(true) || it["arguments"] == args || GitHubActionIdentity.matches(tool.name, args, it) }) continue
                 // Correct legacy planner arguments once. Authorization failures never
                 // unlock another attempt, and absent logs get only one alternate job.
                 val correctable = when (name to args.text("action")) {
                     "github_release" to "status", "github_ci" to "definitions" -> prior.all { it.text("error_code") == "INVALID_ARGUMENTS" }
+                    "github_ci" to "jobs" -> additionalJobs
                     "github_ci" to "logs" -> prior.size == 1 && prior.single().text("error_code") == "GITHUB_NOT_FOUND_OR_HIDDEN"
                     else -> false
                 }

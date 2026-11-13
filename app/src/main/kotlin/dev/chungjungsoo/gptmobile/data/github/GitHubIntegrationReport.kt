@@ -20,6 +20,8 @@ internal object GitHubIntegrationReport {
         val cleanupStoppedBeforeDispatch = openFixtures.isNotEmpty() && openFixtures.all { it["cleanup_dispatched"] == JsonPrimitive(false) }
         val pending = GitHubTestChecklist.pendingPages(receipts)
         val exhaustiveInventory = GitHubChecklistScope.exhaustive(task)
+        val unmet = capabilities.filter { it["required"] != JsonPrimitive(false) && it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }
+        val blockers = unmet.groupingBy { it.text("blocker_code").ifBlank { "BLOCKER_DETAIL_NOT_RECORDED" } }.eachCount()
         val reason = when {
             GitHubTestChecklist.apiComplete(task, receipts, tools) -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
@@ -30,7 +32,13 @@ internal object GitHubIntegrationReport {
             GitHubAuthorizedCatalog.required(tools, receipts) && catalog["complete"] != JsonPrimitive(true) -> "AUTHORIZED_CATALOG_INCOMPLETE" to "Authorized discovery is ${catalog.text("status").lowercase()}; ${catalog.text("blocker").ifBlank { "the retained version-bound continuation must complete before the denominator is final" }}."
             capabilities.any { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") } -> "RECORDED_OPERATION_BLOCKERS" to "Unresolved operation errors remain. The exact error codes, resources and receipt IDs identify the recovery prerequisites."
             pending.isNotEmpty() && exhaustiveInventory -> "INVENTORY_CONTINUATION_BLOCKED" to "Requested inventory traversal has ${pending.size} unfinished exact recipes; no executable authorized continuation was selected."
-            capabilities.any { it["required"] != JsonPrimitive(false) && it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") } -> "CAPABILITY_PREREQUISITES_MISSING" to "Remaining required capabilities need observed resource identifiers, supported fixture lifecycles or current authorization. No further automatic operation is currently admissible."
+            unmet.isNotEmpty() -> "CAPABILITY_PREREQUISITES_MISSING" to buildString {
+                append("Required capabilities remain unverified. ")
+                if ("FIXTURE_APPROVAL_MODE_REQUIRED" in blockers) append("${blockers.getValue("FIXTURE_APPROVAL_MODE_REQUIRED")} require the explicit fixture approval policy; no fixture mutation was started under the current policy. ")
+                if ("OWNED_FIXTURE_REQUIRED" in blockers) append("${blockers.getValue("OWNED_FIXTURE_REQUIRED")} require a separately authorized disposable resource and verified cleanup lifecycle. ")
+                if ("WORKFLOW_RUN_OR_JOB_REQUIRED" in blockers) append("${blockers.getValue("WORKFLOW_RUN_OR_JOB_REQUIRED")} need an observed workflow resource or executed job at the selected revision. ")
+                append("The retained prerequisite plan identifies the exact missing inputs. Unused budget does not grant approval or establish missing execution.")
+            }
             else -> "ACCEPTANCE_EVIDENCE_MISSING" to "API observations are retained, but one or more independent acceptance criteria lack qualifying execution or identity evidence."
         }
         return buildJsonObject {
@@ -61,6 +69,10 @@ internal object GitHubIntegrationReport {
             remaining?.let { put("remaining_tool_calls", it) }
             put("budget_exhausted", remaining == 0)
             put("pending_continuations", pending.size)
+            put("pending_local_fragments", pending.count { (it["arguments"] as? JsonObject)?.containsKey("view_cursor") == true })
+            put("pending_remote_continuations", pending.count { (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true })
+            put("exhaustive_inventory_required", exhaustiveInventory)
+            put("required_capability_blocker_counts", buildJsonObject { blockers.forEach { (code, count) -> put(code, count) } })
             put("receipt_count", receipts.size)
         }
     }
@@ -165,6 +177,8 @@ internal object GitHubIntegrationReport {
         append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
         if ((stop.number("pending_continuations") ?: 0) > 0) {
             append("\nRetained continuation recipes: ${stop.text("pending_continuations")}. Further reads retain the task's scope, authorization and remaining budget.\n")
+            append("${stop.text("pending_local_fragments")} local response fragments and ${stop.text("pending_remote_continuations")} remote continuation recipes remain. ")
+            append(if (stop["exhaustive_inventory_required"] == JsonPrimitive(true)) "The request requires complete inventory traversal.\n" else "A retained remote inventory page alone is not a missing tool execution; resource prerequisites and fixture approval remain separate requirements.\n")
         }
         append("\nEffective tool-call limit: ${budget.text("effective_call_limit").ifBlank { "not recorded" }} (${budget.text("limit_source")}). Calls used: ${budget.text("used_calls").ifBlank { "not recorded" }}. Budget remaining: ${budget.text("remaining_calls").ifBlank { "not recorded" }}; verification reserve: ${budget.text("verification_reserve")}. ${budget.text("limit_rule")} Elapsed run time is not inferred from tool counts. The checkpoint preserves unmet criteria, exact continuation recipes, fixture state and receipt IDs for resumption.\n")
         append("\n**Overall integration health: Not measured.** API response acceptance, traversal completeness, new CI execution and current-device tests are independent.\n")

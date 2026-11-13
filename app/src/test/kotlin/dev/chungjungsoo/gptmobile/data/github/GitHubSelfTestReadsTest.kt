@@ -223,7 +223,48 @@ class GitHubSelfTestReadsTest {
         val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
         val runs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":7,"run_attempt":1,"head_sha":"$sha","status":"completed","conclusion":"failure"}]}}""")
         val newer = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"run","run_id":7},"result":{"id":7,"run_attempt":2,"head_sha":"$sha","status":"in_progress","conclusion":null}}""")
-        assertEquals(null, GitHubSelfTestReads.next(listOf(tool("github_ci", "failure")), listOf(status, runs, newer)))
+        // Query the exact revision without reusing the superseded failure's ID.
+        assertEquals(json("""{"action":"failure","expected_head_sha":"$sha"}"""), GitHubSelfTestReads.next(listOf(tool("github_ci", "failure")), listOf(status, runs, newer))?.arguments)
+    }
+
+    @Test fun noFailedRunStillAllowsOneExactRevisionFailureQuery() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val tools = listOf(tool("github_ci", "failure"))
+        val call = requireNotNull(GitHubSelfTestReads.next(tools, listOf(status)))
+        assertEquals(json("""{"action":"failure","expected_head_sha":"$sha"}"""), call.arguments)
+        val observed = json("""{"trusted":true,"success":true,"dispatched":true,"evidence_origin":"LIVE","tool":"github_ci","arguments":${call.arguments},"result":{"status":"no_failed_run","head_sha":"$sha"}}""")
+        assertEquals(null, GitHubSelfTestReads.next(tools, listOf(status, observed)))
+        assertEquals(null, GitHubSelfTestReads.next(tools, emptyList()))
+        assertEquals(null, GitHubSelfTestReads.next(listOf(tool("github_ci", "logs")), listOf(status, observed)))
+        val required = tools + tool("github_ci", "logs")
+        val receipts = mapOf("source" to status, "failure-query" to observed)
+        val rows = GitHubTestChecklist.rows(receipts, required, "test all tools").filterIsInstance<JsonObject>()
+        assertEquals(JsonPrimitive("PASSED"), rows.single { it["id"] == JsonPrimitive("github_ci:failure") }["status"])
+        assertEquals(JsonPrimitive("BLOCKED"), rows.single { it["id"] == JsonPrimitive("github_ci:logs") }["status"])
+        assertEquals(false, GitHubSelfTestFixtures.complete(receipts))
+        assertEquals(false, GitHubTestChecklist.apiComplete("test all tools", receipts, required))
+    }
+
+    @Test fun successfulEmptyJobsQueryDoesNotSuppressTheNextBoundedDependencyRead() {
+        val sha = "a".repeat(40)
+        val status = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}""")
+        val runs = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs"},"result":{"workflow_runs":[{"id":10,"head_sha":"$sha","status":"completed","conclusion":"success"},{"id":20,"head_sha":"$sha","status":"completed","conclusion":"success"}]}}""")
+        val first = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"jobs","run_id":10,"expected_head_sha":"$sha"},"result":{"jobs":[]}}""")
+        val tools = listOf(tool("github_ci", "jobs"), tool("github_ci", "logs"))
+        val call = requireNotNull(GitHubSelfTestReads.next(tools, listOf(status, runs, first)))
+        assertEquals(json("""{"action":"jobs","run_id":20,"expected_head_sha":"$sha"}"""), call.arguments)
+        val next = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":${call.arguments},"result":{"jobs":[{"id":21,"run_id":20,"status":"completed","conclusion":"success"}]}}""")
+        val logs = requireNotNull(GitHubSelfTestReads.next(tools, listOf(status, runs, first, next)))
+        assertEquals(JsonPrimitive("logs"), logs.arguments["action"])
+        assertEquals(JsonPrimitive(21), logs.arguments["job_id"])
+        assertEquals(JsonPrimitive(20), logs.arguments["run_id"])
+        assertEquals(JsonPrimitive(sha), logs.arguments["expected_head_sha"])
+        val complete = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":${logs.arguments},"result":{"text":"executed job output"}}""")
+        assertEquals(null, GitHubSelfTestReads.next(tools, listOf(status, runs, first, next, complete)))
+        // Without a dependent job/log action, a jobs-only smoke test does not expand its sample.
+        assertEquals(null, GitHubSelfTestReads.next(listOf(tool("github_ci", "jobs")), listOf(status, runs, first)))
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", tools, mapOf("source" to status, "runs" to runs, "jobs" to first), remainingToolCalls = 2))
     }
 
     @Test fun historyPermissionDenialIsNotRetriedWithAnotherIssue() {

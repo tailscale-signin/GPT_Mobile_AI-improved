@@ -17,6 +17,11 @@ def new_request_defaults(request):
 def retained_request_defaults(request, accepted):
     """An omitted value on a retry means the original allowance, never today's default."""
     result = dict(request)
+    # Older Android requests omitted their default implementation scope. Match
+    # only that retained representation; explicit read/plan authority and every
+    # other accepted field remain part of the immutable request digest.
+    if 'task_scope' not in accepted and 'scope' not in accepted and 'scope' not in result and result.get('task_scope') == 'implement':
+        result.pop('task_scope')
     if 'duration_hours' not in result:
         result['duration_hours'] = accepted.get('duration_hours', 3)
     if 'sampling_policy' not in result and 'sampling_policy' in accepted:

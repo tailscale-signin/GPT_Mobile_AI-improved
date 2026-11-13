@@ -181,7 +181,8 @@ data class GatewayEngineeringRequest(
     @SerialName("profile_id") val profileId: String? = null,
     @SerialName("memory_mode") val memoryMode: GitHubEngineeringMemoryMode = GitHubEngineeringMemoryMode.HYBRID,
     @SerialName("execution_binding_id") val executionBindingId: String? = null,
-    @SerialName("task_scope") val taskScope: String = "implement",
+    // Base-branch admission requires explicit implementation authority on the wire.
+    @EncodeDefault @SerialName("task_scope") val taskScope: String = "implement",
     @SerialName("client_conversation_id") val clientConversationId: String? = null,
     @SerialName("conversation_id") val conversationId: String? = null,
     @SerialName("expected_revision") val expectedRevision: Long? = null,

@@ -25,6 +25,48 @@ from requests import Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_base_branch_admission_reports_scope_and_source_guard_before_execution(self):
+        base = dict(self.request, branch='main', source_branch='main', task_scope='implement')
+        cases = [
+            ({key: value for key, value in base.items() if key != 'task_scope'}, 'ENGINEERING_TASK_SCOPE_REQUIRED', 'task_scope'),
+            ({key: value for key, value in base.items() if key != 'source_sha'}, 'ENGINEERING_SOURCE_REVISION_REQUIRED', 'source_sha'),
+            (dict(base, source_sha='private-source-value'), 'ENGINEERING_SOURCE_REVISION_INVALID', 'source_sha'),
+        ]
+        with patch.object(self.service.bindings, 'validate') as validate:
+            for payload, reason, field in cases:
+                for path in ('/gateway/engineering/preflight', '/gateway/engineering/jobs'):
+                    with self.subTest(reason=reason, path=path):
+                        response = self.client.post(path, json=payload, headers=self.headers)
+                        self.assertEqual(409, response.status_code, response.text)
+                        error = response.json()['error']
+                        self.assertEqual('engineering_state_or_input_changed', error['code'])
+                        self.assertEqual(reason, error['reasonCode'])
+                        self.assertEqual([field], error['invalid_fields'])
+                        self.assertEqual('request_validation', error['failed_stage'])
+                        self.assertFalse(error['retryable'])
+                        self.assertNotIn('private-source-value', response.text)
+            validate.assert_not_called()
+        self.assertEqual(0, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
+        self.assertEqual([], self.backend.calls)
+
+    def test_explicit_implementation_from_base_preflights_and_admits_only_a_separate_branch(self):
+        payload = dict(self.request, branch='main', source_branch='main', task_scope='implement')
+        preflight = self.client.post('/gateway/engineering/preflight', json=payload, headers=self.headers)
+        self.assertEqual(200, preflight.status_code, preflight.text)
+        self.assertTrue(preflight.json()['ready'])
+        admitted = self.client.post('/gateway/engineering/jobs', json=payload, headers=self.headers)
+        self.assertEqual(202, admitted.status_code, admitted.text)
+        job = self.store.get(admitted.json()['id'], 'tailnet:owner')
+        self.assertTrue(job['request']['branch'].startswith('codex/gateway-'))
+        self.assertNotEqual('main', job['request']['branch'])
+        self.assertEqual('main', job['request']['source_branch'])
+        self.assertEqual(payload['source_sha'], job['request']['source_sha'])
+        repeated = self.client.post('/gateway/engineering/jobs', json=payload, headers=self.headers)
+        self.assertEqual(200, repeated.status_code, repeated.text)
+        self.assertEqual(job['id'], repeated.json()['id'])
+        self.assertEqual(1, self.store.tx(lambda db: db.execute('SELECT COUNT(*) FROM engineering_jobs').fetchone()[0]))
+        self.assertEqual([], self.backend.calls)
+
     def test_invalid_branch_retains_exact_guard_reason_before_job_admission(self):
         with patch.object(self.service, 'admit') as admit:
             response = self.client.post('/gateway/engineering/jobs', json=dict(self.request, branch='../private-branch'), headers=self.headers)

@@ -103,8 +103,10 @@ def validate_request(request):
     if 'expected_revision' in result and (type(result['expected_revision']) is not int or result['expected_revision'] < 0):
         raise ValueError('Invalid conversation revision')
     if accepted_scope(result) == 'implement' and result['branch'] == result['base']:
-        if result.get('task_scope') != 'implement' or not result.get('source_sha'):
-            raise ValueError('Engineering jobs require a separate working branch or explicit implementation at a pinned source')
+        if result.get('task_scope') != 'implement':
+            raise ValueError('Base-branch implementation requires explicit task scope')
+        if not result.get('source_sha'):
+            raise ValueError('Base-branch implementation requires a pinned source revision')
         result.setdefault('source_branch', result['branch'])
         result['branch'] = 'codex/gateway-' + digest([result.get('request_id'), result['repository'], result['source_sha']])[:20]
     for key, maximum in (('objective', 16000), ('model', 200), ('request_id', 128)):

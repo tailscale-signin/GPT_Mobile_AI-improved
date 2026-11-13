@@ -4551,6 +4551,7 @@ class ChatRepositoryImpl(
                 trustedTools = evidenceTools.filter { it.nativeGitHub }.mapTo(hashSetOf()) { it.modelToolName } + listOfNotNull(catalog?.definition?.name),
                 currentToolContracts = evidenceTools.filter { it.nativeGitHub }.associate { it.modelToolName to it.tool.definition.inputSchema },
                 authorizationRevision = dispatchAuthority.revision,
+                sourceRunId = runId,
                 readSources = dev.chungjungsoo.gptmobile.data.github.GitHubTargetPolicy.readSources(if (reuse) previousTask else githubEffectiveTask),
                 fixtureDecisionMode = githubContext?.let { context ->
                     settingRepository.getFeatureSettings().githubDecisionMode(user.chatId, context)
@@ -7115,6 +7116,15 @@ class ChatRepositoryImpl(
                 )
             )
             acceptance?.let {
+                it.evidenceProvenance?.let { provenance ->
+                    AppLogRecorder.recordEvent(
+                        "GitHub",
+                        "GITHUB_VERDICT_EVIDENCE",
+                        provenance.filterKeys { key ->
+                            key in setOf("run_id", "current_run_receipts", "current_run_live_operations", "reused_receipts", "unattributed_reused_receipts", "source_run_count")
+                        }
+                    )
+                }
                 dev.chungjungsoo.gptmobile.data.github.GitHubRunAcceptance.diagnosticEvents(it, runId).forEach { fields ->
                     AppLogRecorder.recordEvent("GitHub", "GITHUB_ACCEPTANCE_CRITERION", fields)
                 }

@@ -13,6 +13,31 @@ class GatewayAppDiagnosticProjectionTest {
     private val run = "11111111-1111-1111-1111-111111111111"
     private val invocation = "22222222-2222-2222-2222-222222222222"
 
+    @Test fun rejectedToolProjectionRetainsBoundedIdentityAndProofWithoutArgumentValues() {
+        val message = structuredDiagnosticEventMessage(
+            "Finished",
+            mapOf(
+                "runId" to run,
+                "callId" to invocation,
+                "tool" to "github_issues",
+                "action" to "list",
+                "executionState" to "PRECHECK_REJECTED",
+                "dispatched" to false,
+                "errorCode" to "INVALID_ARGUMENTS",
+                "argumentShapeHash" to "c".repeat(64),
+                "arguments" to "private-argument-canary"
+            )
+        )
+        val result = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1, "E", "Tool", message)))
+        val attributes = result["bounded_attributes"] as JsonObject
+        assertEquals(JsonPrimitive(invocation), result["tool_call_id"])
+        assertEquals(JsonPrimitive("precheck_rejected"), attributes["execution_origin"])
+        assertEquals(JsonPrimitive("tool_precheck"), attributes["source_event_type"])
+        assertEquals(JsonPrimitive(GatewayDiagnosticEvent.digest("list")), attributes["tool_action_digest"])
+        assertEquals(JsonPrimitive("c".repeat(64)), attributes["argument_shape_digest"])
+        assertFalse(result.toString().contains("private-argument-canary"))
+    }
+
     @Test fun healthyLifecycleAndToolEventsDoNotPrescribeFailureRecovery() {
         for (tag in listOf("Lifecycle", "GitHub", "Agent")) {
             val result = requireNotNull(gatewayAppDiagnosticProjection(AppLogEntry(1000, "I", tag, structuredDiagnosticEventMessage("OBSERVED", mapOf("runId" to run)))))

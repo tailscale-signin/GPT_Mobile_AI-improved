@@ -126,6 +126,7 @@ class ProviderWaitStore @Inject constructor(
             stage != null -> ProviderWaitMode.RESEARCH_STAGE
             else -> ProviderWaitMode.INITIAL
         }
+        if (decision.retrySource == "CONNECTIVITY_BACKOFF" && (mode != ProviderWaitMode.INITIAL || combined != null)) return false
         if (mode == ProviderWaitMode.RESEARCH_STAGE && (stage == null || stage.limit != decision || stage.stage.isBlank() || stage.promptDigest.isBlank())) return false
         if (mode != ProviderWaitMode.RESEARCH_STAGE && (decision.profileUid != request.platform.uid || decision.model != request.platform.model)) return false
         val dao = database.agentPersistenceDao()
@@ -177,6 +178,15 @@ class ProviderWaitStore @Inject constructor(
         val limited = limitProfile.copy(model = decision.model)
         val previousRow = database.agentPersistenceDao().rawProviderWait(run.runId)?.takeIf { it.fence == run.ownershipFence }
         val previous = previousRow?.let { runCatching { json.decodeFromString<ProviderWaitCheckpoint>(it.checkpoint) }.getOrNull() }
+        val scheduledDecision = if (decision.retrySource == "CONNECTIVITY_BACKOFF") {
+            val earlier = previous?.decision?.takeIf { it.retrySource == decision.retrySource && it.scope == decision.scope }
+            val count = (earlier?.consecutiveRejections ?: 0) + 1
+            if (count > 6) return false
+            val backoff = (5_000L shl (count - 1)).coerceAtMost(120_000L)
+            decision.copy(retryAt = maxOf(decision.retryAt, System.currentTimeMillis() + backoff), consecutiveRejections = count)
+        } else {
+            decision
+        }
         val checkpoint = ProviderWaitCheckpoint(
             chatId = request.chatId, platform = request.platform.copy(token = null),
             registeredRevision = ConfiguredDispatchAuthority.profileRevision(registered),
@@ -184,14 +194,14 @@ class ProviderWaitStore @Inject constructor(
             permissionRevision = settings.providerPermissionRevision(request.platform),
             users = request.userMessages.map { it.id }, replies = replies.map { row -> row.map { it.id } },
             inputDigest = inputDigest(request.userMessages + replies.flatten()), tools = request.chatToolConfig, stage = request.stage,
-            participants = request.researchParticipantUids, mode = mode, decision = decision, deferredStage = stage,
+            participants = request.researchParticipantUids, mode = mode, decision = scheduledDecision, deferredStage = stage,
             limitPlatform = limited.copy(token = null), limitRegisteredRevision = ConfiguredDispatchAuthority.profileRevision(limitProfile),
             limitPolicyRevision = ConfiguredDispatchAuthority.policyRevision(settings.getFeatureSettings(), limited.uid, request.chatId),
             limitPermissionRevision = settings.providerPermissionRevision(limited), continuation = continuation,
             lastResumedAtMillis = previous?.lastResumedAtMillis, resumeCount = previous?.resumeCount ?: 0,
             waitStartedAtMillis = System.currentTimeMillis(), accumulatedProviderWaitMillis = if (previous == null) 0L else previous.accumulatedProviderWaitMillis
         )
-        val row = ProviderWait(request.runId, run.ownershipFence, decision.scope, decision.retryAt, json.encodeToString(checkpoint))
+        val row = ProviderWait(request.runId, run.ownershipFence, scheduledDecision.scope, scheduledDecision.retryAt, json.encodeToString(checkpoint))
         val acceptedAuthority = decision.authority ?: return false
         if (!acceptedAuthority.matches(limited)) return false
         // Read the checkpoint first, then validate the authority captured before the

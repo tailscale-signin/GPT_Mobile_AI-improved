@@ -10,6 +10,12 @@ Improve GitHub chat scrolling and progress, Gateway conversation navigation, bac
 
 The November 13 interface and voice changes still require physical-device gesture, audio, and background installation checks. Measured voice latency improvements, the full stress workload suite, and Macrobenchmark evidence import remain pending. New diagnostic fields require a hosted reporter advertising RECOVERY_OBSERVATIONS_V1.
 
+## November 13 gateway session repairs
+
+Keep logical gateway operation identities stable and retain bounded model preparation, gateway capture retrieval, MCP rejection, tool provenance, GitHub verdict provenance, and frame timing evidence. Defer eligible pre-dispatch provider connectivity failures with bounded backoff.
+
+The November 13 gateway session repairs still require paired phone and gateway validation. Automatic connectivity recovery covers eligible initial runs; broader GitHub fixtures, durable gateway supplements, and device performance qualification remain pending.
+
 ## November 13 issue follow-up
 
 The [issue repair register](docs/repairs/issue-diagnostics-2026-11-13.md) covers #891–#927. Review presets no longer interpret `head/base revisions` as a Git ref. Tool continuation history preserves the provider's original call while executing normalized arguments, including after checkpoint reload. Issue queries accept the shared presentation option. Reports add bounded readable tool failure details, provider wait/checkpoint observations, chat correlation and separate acceptance counts.

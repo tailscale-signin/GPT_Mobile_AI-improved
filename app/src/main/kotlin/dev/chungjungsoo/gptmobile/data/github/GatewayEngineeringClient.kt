@@ -55,12 +55,12 @@ class GatewayEngineeringClient internal constructor(
     private val capabilityCache = RouteCapabilityCache<CapabilityAttempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
     private fun capabilityKey(config: ProviderRequestConfig) = "${selectionDigest(JsonPrimitive(config.buildEndpoint("gateway/engineering/capabilities")))}|${GatewaySurfacePolicy.identity(config)}"
 
-    private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering"): String {
+    private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering", operationId: String? = null): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
         val endpoint = config.buildEndpoint("$root/$path")
         val bindingRead = body == null && path.startsWith("bindings/") && path.endsWith("/capabilities")
         val exchange: suspend () -> String = {
-            gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST") { headers ->
+            gatewayClientExchange(diagnostic, "engineering", safeRead = body == null, method = if (body == null) "GET" else "POST", operationId = operationId) { headers ->
                 val repositoryRequest = path == "repository-operations" || path.startsWith("repository-operations/")
                 val repositoryRequestId = if (repositoryRequest) GitHubDispatchAccounting.started(body != null) else null
                 (if (body == null) readHttp else http).prepareRequest(endpoint) {
@@ -354,7 +354,7 @@ class GatewayEngineeringClient internal constructor(
 
     suspend fun create(config: ProviderRequestConfig, payload: GatewayEngineeringRequest): GatewayEngineeringJob {
         val response = if (payload.conversationId == null) {
-            request(config, "jobs", json.encodeToString(payload))
+            request(config, "jobs", json.encodeToString(payload), operationId = payload.requestId)
         } else {
             val command = buildJsonObject {
                 put("kind", "message")
@@ -363,7 +363,7 @@ class GatewayEngineeringClient internal constructor(
                 put("expected_revision", requireNotNull(payload.expectedRevision) { "Refresh the saved conversation before replying." })
                 put("engineering_request", json.encodeToJsonElement(GatewayEngineeringRequest.serializer(), payload))
             }
-            request(config, "conversations/${payload.conversationId.encodeURLParameter()}/messages", command.toString(), root = "gateway")
+            request(config, "conversations/${payload.conversationId.encodeURLParameter()}/messages", command.toString(), root = "gateway", operationId = payload.requestId)
         }
         return json.decodeFromString(response)
     }

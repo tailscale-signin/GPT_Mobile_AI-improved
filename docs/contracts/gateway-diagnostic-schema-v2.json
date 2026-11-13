@@ -14,7 +14,9 @@
     "source_available",
     "sustained_jank",
     "truncation_applied",
-    "vendor_log_available"
+    "vendor_log_available",
+    "preparation_load_accepted",
+    "preparation_reconciliation_observed"
   ],
   "choices": {
     "category": [
@@ -134,7 +136,9 @@
     "screen_digest",
     "server_digest",
     "source_event_digest",
-    "tool_digest"
+    "tool_digest",
+    "tool_action_digest",
+    "argument_shape_digest"
   ],
   "enum_attributes": {
     "admission_state": [
@@ -1226,6 +1230,65 @@
       "route_unavailable",
       "io",
       "unknown"
+    ],
+    "preparation_state": [
+      "PREPARING",
+      "PRECHECK_REJECTED",
+      "LOAD_REJECTED",
+      "LOAD_ACCEPTED",
+      "LOAD_OUTCOME_UNKNOWN",
+      "WAITING_FOR_MODEL",
+      "METADATA_QUALIFIED",
+      "QUALIFICATION_BLOCKED"
+    ],
+    "preparation_dispatch_state": [
+      "NOT_DISPATCHED",
+      "DISPATCHED"
+    ],
+    "preparation_action": [
+      "NONE",
+      "LOAD",
+      "WAKE"
+    ],
+    "preparation_model_state": [
+      "UNKNOWN",
+      "UNAVAILABLE",
+      "UNLOADED",
+      "LOADING",
+      "LOADED",
+      "SLEEPING"
+    ],
+    "execution_origin": [
+      "live_remote",
+      "local",
+      "cached",
+      "mocked",
+      "duplicate_suppressed",
+      "precheck_rejected",
+      "unobserved"
+    ],
+    "source_event_type": [
+      "tool_result",
+      "tool_precheck",
+      "gateway_availability",
+      "mcp_discovery",
+      "run_terminal",
+      "acceptance_criterion",
+      "frame_timing",
+      "typed_warning",
+      "unclassified_warning",
+      "verdict_evidence"
+    ],
+    "mcp_rpc_error_code": [
+      "-32700",
+      "-32600",
+      "-32601",
+      "-32602",
+      "-32603",
+      "-32000",
+      "-32020",
+      "-32021",
+      "-32022"
     ]
   },
   "numeric_attributes": [
@@ -1278,7 +1341,20 @@
     "status",
     "upstream_status",
     "verified_criteria",
-    "window_ms"
+    "window_ms",
+    "preparation_load_requests",
+    "frame_phase_input_ns",
+    "frame_phase_animation_ns",
+    "frame_phase_layout_measure_ns",
+    "frame_phase_draw_ns",
+    "frame_phase_sync_ns",
+    "frame_phase_command_issue_ns",
+    "frame_phase_unknown_delay_ns",
+    "current_run_receipts",
+    "current_run_live_operations",
+    "reused_receipts",
+    "unattributed_reused_receipts",
+    "source_run_count"
   ],
   "schema_version": 2
 }

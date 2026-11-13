@@ -5,7 +5,7 @@ import java.net.ProtocolException
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
 
-internal class DiagnosticSyncFailure(val code: String) : IOException(code)
+internal class DiagnosticSyncFailure(val code: String, val httpStatus: Int? = null) : IOException(code)
 
 internal enum class GatewayDiagnosticRetryState { READY, IN_FLIGHT, BACKOFF, BLOCKED, EXHAUSTED }
 

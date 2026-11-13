@@ -72,7 +72,7 @@ internal class GatewayDiagnosticHttpTransport(
             }
             setBody(content)
         }.execute { response ->
-            if (response.status.value !in 200..299) throw DiagnosticSyncFailure(responseCode(response.status.value))
+            if (response.status.value !in 200..299) throw DiagnosticSyncFailure(responseCode(response.status.value), response.status.value)
             decode(response, "INVALID_DIAGNOSTIC_ACK")
         }
     }
@@ -93,7 +93,7 @@ internal class GatewayDiagnosticHttpTransport(
                 socketTimeoutMillis = 10_000
             }
         }.execute { response ->
-            if (response.status.value !in 200..299) throw DiagnosticSyncFailure(responseCode(response.status.value))
+            if (response.status.value !in 200..299) throw DiagnosticSyncFailure(responseCode(response.status.value), response.status.value)
             decode(response, "INVALID_DIAGNOSTIC_PAGE")
         }
     }
@@ -113,7 +113,7 @@ internal class GatewayDiagnosticHttpTransport(
                     socketTimeoutMillis = 10_000
                 }
             }.execute { response ->
-                if (response.status.value != 200) throw DiagnosticSyncFailure(responseCode(response.status.value))
+                if (response.status.value != 200) throw DiagnosticSyncFailure(responseCode(response.status.value), response.status.value)
                 val channel = response.bodyAsChannel()
                 try {
                     destination.outputStream().use { output ->

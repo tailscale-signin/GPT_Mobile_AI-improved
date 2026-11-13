@@ -26,7 +26,8 @@ internal object GitHubRunAcceptance {
         val stopCode: String? = null,
         val approvalState: String? = null,
         val taskOutcome: String? = null,
-        val diagnosticsComplete: Boolean = false
+        val diagnosticsComplete: Boolean = false,
+        val evidenceProvenance: JsonObject? = null
     )
 
     data class CommitEvidence(val expected: Boolean, val acceptance: Assessment?)
@@ -159,6 +160,8 @@ internal object GitHubRunAcceptance {
             put("unresolved_remote_outcomes", unresolved ?: -1)
             put("diagnostics_complete", diagnosticsComplete)
             put("diagnostic_projection", diagnostics)
+            val provenance = report["verdict_evidence_provenance"] as? JsonObject
+            if (provenance?.get("run_id") == JsonPrimitive(runId)) put("verdict_evidence_provenance", provenance)
             if (pages != null) put("diagnostic_pages", JsonArray(pages))
         }
     }
@@ -212,7 +215,8 @@ internal object GitHubRunAcceptance {
             value.text("stop_code").takeIf(String::isNotBlank),
             value.text("approval_state").takeIf(String::isNotBlank),
             value.text("task_outcome").takeIf(String::isNotBlank),
-            diagnosticsComplete
+            diagnosticsComplete,
+            value["verdict_evidence_provenance"] as? JsonObject
         )
     }
 
@@ -243,6 +247,7 @@ internal object GitHubRunAcceptance {
                     put("pages", pages?.size ?: 1)
                     put("criteria_sha256", digest)
                     put("scope", "REQUEST_ACCEPTANCE")
+                    assessment.evidenceProvenance?.let { put("verdict_evidence_provenance", it) }
                     put("diagnostics_complete", assessment.diagnosticsComplete)
                     put("required", assessment.requiredCriteria)
                     put("verified", assessment.verifiedCriteria)

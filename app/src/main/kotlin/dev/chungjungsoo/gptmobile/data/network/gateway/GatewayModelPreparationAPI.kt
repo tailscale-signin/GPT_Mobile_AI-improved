@@ -130,6 +130,7 @@ class GatewayModelPreparationAPI @Inject constructor(private val network: Networ
                         receipt.state in setOf("PREPARING", "PRECHECK_REJECTED", "LOAD_REJECTED", "LOAD_ACCEPTED", "LOAD_OUTCOME_UNKNOWN", "WAITING_FOR_MODEL", "METADATA_QUALIFIED", "QUALIFICATION_BLOCKED")
                 ) { "Gateway model preparation did not confirm this exact operation and model." }
                 receipt.sanitized().also { safe ->
+                    GatewayClientDiagnostics.modelPreparationReceipt(config, headers, safe)
                     GatewayReportDiagnostics.modelPreparation(config.profileUid, model, safe)?.let(ReportDiagnosticSnapshots::retain)
                 }
             }

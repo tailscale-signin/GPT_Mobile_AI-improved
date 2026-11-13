@@ -140,6 +140,35 @@ class GatewayClientDiagnosticsTest {
         assertFalse(invalid.toString().contains("private-host"))
     }
 
+    @Test fun trackedEngineeringResponseAndCancellationKeepTheOriginalOperationIdentity() {
+        val original = LocalDiagnosticsPolicy.enabled
+        val config = ProviderRequestConfig("https://tracked-operation.example/v1", null)
+        try {
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val request = GatewayClientDiagnostics.requestHeaders(config, "engineering", "POST", knownGateway = true, logicalOperationId = "saved-command")
+            try {
+                val response = GatewayClientDiagnostics.responseFields(config, 200, request["traceparent"]) {
+                    when (it) {
+                        "X-Gateway-Request-ID" -> "unrelated-request"
+                        "X-Gateway-HTTP-Request-ID" -> "a".repeat(32)
+                        else -> null
+                    }
+                }
+                assertEquals(researchHash("saved-command"), response["operation_id"]?.jsonPrimitive?.content)
+                assertEquals("a".repeat(32), response["request_id"]?.jsonPrimitive?.content)
+                val cancellation = requireNotNull(GatewayClientDiagnostics.failureFields(config, request, kotlinx.coroutines.CancellationException(), cancellationOrigin = "user"))
+                assertEquals(response["operation_id"], cancellation["operation_id"])
+                assertEquals(response["incident_id"], cancellation["incident_id"])
+                assertEquals(response["request_id"], cancellation["request_id"])
+                assertEquals("reconcile", cancellation["retry_class"]?.jsonPrimitive?.content)
+            } finally {
+                GatewayClientDiagnostics.finished(request)
+            }
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(original)
+        }
+    }
+
     @Test fun metadataContainsVersionedDigestsAndPlatformCountersButNoPersonalText() {
         val config = ProviderRequestConfig("https://private-route.example/v1", "private token", profileUid = "private profile", requestRole = "custom sensitive role")
         val encoded = GatewayClientDiagnostics.metadata(config, "private model", 36, 44, 9)

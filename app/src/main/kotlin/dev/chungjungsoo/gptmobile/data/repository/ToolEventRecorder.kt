@@ -73,6 +73,12 @@ class ToolEventRecorder @Inject constructor(
         return event
     }
 
+    private fun precheckArgumentShape(arguments: String?, result: AgentToolResult): String {
+        if (result.dispatched || !result.isError || arguments == null) return ""
+        val keys = (runCatching { Json.parseToJsonElement(arguments) }.getOrNull() as? JsonObject)?.keys ?: return ""
+        return " · argumentShapeHash=${dev.chungjungsoo.gptmobile.data.research.researchHash(keys.sorted().joinToString("\u0000"))}"
+    }
+
     suspend fun finishTool(
         eventId: String,
         result: AgentToolResult,
@@ -167,8 +173,10 @@ class ToolEventRecorder @Inject constructor(
             normalizedResult.outputBudgetExhausted
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Tool",
-            "Finished · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError} · dispatched=${normalizedResult.dispatched}" +
+            "Finished · runId=${startedEvent?.runId.orEmpty()} · callId=${normalizedResult.callId} · tool=${startedEvent?.toolName.orEmpty()} · error=${normalizedResult.isError} · dispatched=${normalizedResult.dispatched}" +
                 " · errorCode=${normalizedResult.errorCode ?: "none"}" +
+                ToolPrecheckEvidence.reasonCode(normalizedResult)?.let { " · reasonCode=$it" }.orEmpty() +
+                precheckArgumentShape(startedEvent?.arguments, normalizedResult) +
                 " · executionState=${dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(normalizedResult)} · retryable=${dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.retryable(normalizedResult)}" +
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
                 if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",

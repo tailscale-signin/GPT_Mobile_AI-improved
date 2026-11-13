@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Preserve task-bound GitHub fixture decisions and expose bounded run, tool, provider recovery, branch-policy and crash evidence in approved reports.",
     "Add a source-backed disposition for all 92 supplied findings, meaningful regressions, independent full-suite and API 34/API 36 emulator validation and a release with a new version/build identity.",
     "Add an authenticated gateway-wide Jobs catalog, saved conversations, command reconciliation and bounded transactional Android replay with Room migration.",
     "Add and repair bounded repository graph navigation and cumulative audit evidence, while retaining explicit limitations for external Graphify and compiler-resolved semantics.",
@@ -178,6 +179,9 @@
     "v0.9.50 Android acceptance"
   ],
   "allowedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/OpenRouterSettingsScreen.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/viewmodel/OpenRouterSettingsViewModel.kt",
+    "app/src/main/res/values/openrouter_workspace.xml",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationTool.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationToolTest.kt",
     "docs/repairs/diagnostic-correlation-2026-11-13-task.json",

@@ -63,9 +63,23 @@ internal object GitHubOperationArguments {
         null
     }
 
-    fun errors(operation: String, args: JsonObject): List<String> {
+    enum class ReadRule(vararg val fields: String) {
+        RANGE_ARRAY("ranges"),
+        SOURCE_REQUIRED("ranges", "evidence_id"),
+        RANGE_OBJECT("ranges"),
+        RANGE_FIELDS("ranges", "path", "start_line", "end_line", "max_lines", "start_offset"),
+        REPOSITORY_FILE_PATH("ranges", "path"),
+        RANGE_OFFSET("ranges", "start_offset"),
+        LINE_WINDOW("ranges", "start_line", "end_line", "max_lines")
+    }
+
+    fun errors(operation: String, args: JsonObject, readRules: MutableSet<ReadRule>? = null): List<String> {
         fun text(key: String) = (args[key] as? JsonPrimitive)?.content.orEmpty()
         val errors = mutableListOf<String>()
+        fun readError(rule: ReadRule, message: String) {
+            errors += message
+            readRules?.add(rule)
+        }
         fun required(vararg keys: String) {
             keys.filter { text(it).isBlank() }.forEach { errors += "$it is required" }
         }
@@ -125,27 +139,27 @@ internal object GitHubOperationArguments {
                 if ("wait_timeout_seconds" in args && text("wait_timeout_seconds").toIntOrNull()?.let { it in 1..30 } != true) errors += "wait_timeout_seconds must be 1..30; omit it for the existing background subscription"
             }
             "github_read" -> {
-                if ("ranges" in args && args["ranges"] !is JsonArray) errors += "ranges must be an array of source range objects"
+                if ("ranges" in args && args["ranges"] !is JsonArray) readError(ReadRule.RANGE_ARRAY, "ranges must be an array of source range objects")
                 if (text("evidence_id").isBlank() && (args["ranges"] as? JsonArray).isNullOrEmpty()) {
-                    errors += "provide ranges=[{path, start_line, end_line or max_lines}] or a retained evidence_id; end_line=-1 reads to EOF within the output bound"
+                    readError(ReadRule.SOURCE_REQUIRED, "provide ranges=[{path, start_line, end_line or max_lines}] or a retained evidence_id; end_line=-1 reads to EOF within the output bound")
                 }
                 (args["ranges"] as? JsonArray).orEmpty().forEachIndexed { index, item ->
                     val range = item as? JsonObject
                     if (range == null) {
-                        errors += "ranges[$index] must be a source range object"
+                        readError(ReadRule.RANGE_OBJECT, "ranges[$index] must be a source range object")
                         return@forEachIndexed
                     }
                     if (range.keys.any { it !in setOf("path", "start_line", "end_line", "max_lines", "start_offset") }) {
-                        errors += "ranges[$index] accepts only path, start_line, end_line, max_lines and start_offset"
+                        readError(ReadRule.RANGE_FIELDS, "ranges[$index] accepts only path, start_line, end_line, max_lines and start_offset")
                     }
                     val path = (range["path"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
-                    if (runCatching { GitHubWorkspaceClient.filePath(path) }.isFailure) errors += "ranges[$index].path must be a relative repository file path"
+                    if (runCatching { GitHubWorkspaceClient.filePath(path) }.isFailure) readError(ReadRule.REPOSITORY_FILE_PATH, "ranges[$index].path must be a relative repository file path")
                     fun number(key: String) = (range[key] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
                     val start = number("start_line") ?: 1.takeIf { "start_line" !in range }
                     val end = number("end_line")
                     val maximum = number("max_lines")
                     val offset = number("start_offset")
-                    if ("start_offset" in range && (offset == null || offset < 0)) errors += "ranges[$index].start_offset must be an integer from 0 through ${Int.MAX_VALUE}"
+                    if ("start_offset" in range && (offset == null || offset < 0)) readError(ReadRule.RANGE_OFFSET, "ranges[$index].start_offset must be an integer from 0 through ${Int.MAX_VALUE}")
                     if (start == null ||
                         start < 1 ||
                         "end_line" in range &&
@@ -155,7 +169,7 @@ internal object GitHubOperationArguments {
                         "end_line" in range &&
                         (end == null || end != -1 && (end < start || end.toLong() - start >= 2000))
                     ) {
-                        errors += "ranges[$index] needs start_line>=1 and either max_lines=1..2000 or an ordered end_line spanning at most 2000 lines; end_line=-1 means bounded EOF. Do not combine end_line with max_lines. Split larger explicit reads into ranges such as 1..2000, 2001..4000"
+                        readError(ReadRule.LINE_WINDOW, "ranges[$index] needs start_line>=1 and either max_lines=1..2000 or an ordered end_line spanning at most 2000 lines; end_line=-1 means bounded EOF. Do not combine end_line with max_lines. Split larger explicit reads into ranges such as 1..2000, 2001..4000")
                     }
                 }
             }

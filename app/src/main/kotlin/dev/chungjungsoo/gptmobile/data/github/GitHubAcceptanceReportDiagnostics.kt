@@ -66,7 +66,15 @@ internal object GitHubAcceptanceReportDiagnostics {
                 put(target, JsonArray(rows.map { requireNotNull(it[source]) }))
             }
         }
+        (verdict["status_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .firstOrNull { it.text("item") == "Required-check policy" }?.let { coverage ->
+                for (key in listOf("branch_protection_observation", "branch_rules_observation")) {
+                    coverage[key]?.let { put(key, it) }
+                }
+            }
         val checklist = verdict["test_checklist"] as? JsonObject
+        val approval = checklist?.get("fixture_approval_preflight") as? JsonObject
+        approval?.get("state")?.let { put("fixture_approval_state", it) }
         val budget = checklist?.get("stage_budget") as? JsonObject ?: verdict["stage_budget"] as? JsonObject
         for (key in listOf("effective_call_limit", "used_calls", "remaining_calls", "verification_reserve")) {
             budget?.number(key)?.let { put(key, it) }

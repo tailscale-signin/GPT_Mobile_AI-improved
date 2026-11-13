@@ -901,7 +901,7 @@ class AgentRunner(
         // Keep this batch decision-only even if a saved answer is available.
         val dependencyCalls = decisionCalls.ifEmpty { calls }
         val dependencyPlan = planIntelligentBatch(dependencyCalls, toolsForBatch).map { node ->
-            if (node.call.callId in restoredCompleted) node.copy(dependencies = emptySet()) else node
+            if (node.call.callId in restoredCompleted) node.copy(dependencies = emptySet(), failureDependencies = emptySet()) else node
         }
         val admission = planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, restoredCompleted.keys, ::failureScope)
         val plan = dependencyClosedPlan(admission, dependencyPlan, restoredRetained)
@@ -972,9 +972,33 @@ class AgentRunner(
         val pausedGitHubNames = exposedDefinitions.filter { limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it) && it.name !in executableToolByName }.mapTo(hashSetOf()) { it.name }
         val admittedIds = executableCalls.mapTo(hashSetOf()) { it.callId }
         val deferredResults = deferredToolResults(deferredCalls, hostSuppressedIds, perToolSuppressedIds, plan.unavailableIds, executableToolByName.keys, exchanges, pausedGitHubNames).map { result ->
+            fun admissionReason(id: String) = when (id) {
+                in plan.dependencyDeferredIds -> ToolDependencyDiagnostics.Admission.PREREQUISITE_DEFERRED
+                in plan.unavailableIds -> if (decisionCalls.isEmpty()) ToolDependencyDiagnostics.Admission.TOOL_UNAVAILABLE else ToolDependencyDiagnostics.Admission.DECISION_REQUIRED
+                in hostSuppressedIds -> ToolDependencyDiagnostics.Admission.REPEATED_FAILURE
+                in perToolSuppressedIds -> ToolDependencyDiagnostics.Admission.REPEAT_LIMIT
+                else -> ToolDependencyDiagnostics.Admission.CALL_ALLOWANCE
+            }
             if (result.callId in plan.dependencyDeferredIds) {
-                val dependencies = dependencyPlan.single { it.call.callId == result.callId }.dependencies
-                ToolDependencyDiagnostics.rejection(result.callId, ToolDependencyDiagnostics.State.DEFERRED, dependencies, dependencies - admittedIds, "This dependent remains undispatched because a prerequisite was not admitted. Complete the missing read or correct its arguments before resuming this saved dependency group.")
+                val dependencies = dependencyPlan.single { it.call.callId == result.callId }.failureDependencies
+                val blocked = dependencies - admittedIds
+                ToolDependencyDiagnostics.rejection(
+                    result.callId,
+                    ToolDependencyDiagnostics.State.DEFERRED,
+                    dependencies,
+                    blocked,
+                    "A prerequisite was not admitted. Resolve its recorded admission reason before continuing dependent calls.",
+                    blocked.mapTo(linkedSetOf(), ::admissionReason)
+                )
+            } else if (result.isError && !result.dispatched) {
+                result.copy(
+                    executionReceipt = JsonObject(
+                        result.executionReceipt.orEmpty() + buildJsonObject {
+                            put("failed_stage", "tool_precheck")
+                            put("dependency_admission_reasons", JsonArray(listOf(JsonPrimitive(admissionReason(result.callId).name))))
+                        }
+                    )
+                )
             } else {
                 result
             }
@@ -1840,7 +1864,7 @@ class AgentRunner(
                 ToolBatchNode(call, emptySet(), false)
             }
         }
-        val blocked = fullPlan.filter { !admittedIds.containsAll(it.dependencies) }.mapTo(hashSetOf()) { it.call.callId }
+        val blocked = fullPlan.filter { !admittedIds.containsAll(it.failureDependencies) }.mapTo(hashSetOf()) { it.call.callId }
         val nodes = fullPlan.map {
             it.copy(dependencies = it.dependencies.intersect(admittedIds), failureDependencies = it.failureDependencies.intersect(admittedIds))
         }
@@ -1848,7 +1872,7 @@ class AgentRunner(
             nodes,
             dispatch = { call ->
                 if (call.callId in blocked) {
-                    val dependencies = nodesById.getValue(call.callId).dependencies
+                    val dependencies = nodesById.getValue(call.callId).failureDependencies
                     return@execute ToolDependencyDiagnostics.rejection(call.callId, ToolDependencyDiagnostics.State.DEFERRED, dependencies, dependencies - admittedIds, "A prerequisite was deferred by admission. This operation was not dispatched; replan after the missing read completes.")
                 }
                 val signature = call.name + ":" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(call.arguments)

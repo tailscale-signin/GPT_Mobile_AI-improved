@@ -281,8 +281,8 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
     }
 
     private fun branchPolicy(protection: JsonObject, rules: JsonObject): JsonObject {
-        val protectionAvailable = protection["available"] == JsonPrimitive(true)
-        val rulesAvailable = rules["available"] == JsonPrimitive(true)
+        val protectionAvailable = protection["available"] == JsonPrimitive(true) && protection["data"] is JsonObject
+        val rulesAvailable = rules["available"] == JsonPrimitive(true) && (rules["data"] as? JsonArray)?.all { it is JsonObject && it.s("type").isNotBlank() } == true
         val required = mutableListOf<JsonElement>()
         val classic = ((protection["data"] as? JsonObject)?.get("required_status_checks") as? JsonObject)
         (classic?.get("contexts") as? JsonArray)?.let { required.addAll(it) }

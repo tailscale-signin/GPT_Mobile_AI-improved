@@ -67,8 +67,11 @@ internal data class IssueReport(
             val type = error?.javaClass?.simpleName?.takeIf(typePattern::matches)
             val frames = generateSequence(error) { it.cause }.take(4).flatMap { it.stackTrace.asSequence().take(48) }
                 .map { "${it.className}.${it.methodName}:${it.lineNumber.coerceAtLeast(0)}" }
-                .filter(framePattern::matches).distinct().take(8).toList()
-            return type to frames
+                .filter(framePattern::matches).distinct().toList()
+            val application = frames.filter { it.startsWith("dev.chungjungsoo.gptmobile.") || it.startsWith("dev.melo.gptmobile.") }
+            // Reserve room for app frames when Android's draw stack is deep.
+            val selected = (frames.take(4) + application).distinct().take(8)
+            return type to (selected + frames).distinct().take(8)
         }
 
         private fun base(source: String, events: List<String>) = IssueReport(

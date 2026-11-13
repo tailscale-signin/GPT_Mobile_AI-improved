@@ -198,6 +198,35 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun blockedContinuationKeepsReconciliationEvidenceInTheApprovedReport() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val identity = "a".repeat(64)
+        IssueReportIncidents.chatFailure(
+            "OUTPUT_CONTINUATION_PENDING_TOOLS",
+            false,
+            null,
+            mapOf(
+                "run_id" to "pending-run",
+                "failed_stage" to "tool_reconciliation",
+                "dispatched" to false,
+                "requires_reconciliation" to true,
+                "recovery_action" to "RECONCILE_OUTCOME",
+                "pending_tool_count" to 2,
+                "pending_tool_identity_hashes" to listOf(identity),
+                "pending_tool_receipt_state" to "SOME_TERMINAL_RECEIPTS_MISSING",
+                "pending_invocation_fingerprints" to listOf("private-invocation")
+            )
+        )
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("RECONCILIATION_REQUIRED", report.errorCode)
+        val context = requireNotNull(report.context)
+        assertEquals("RECONCILE_OUTCOME", context.recoveryAction)
+        assertTrue("RUN_FAILURE_EVIDENCE_V1" in requireNotNull(context.diagnostics).requiredServiceFeatures())
+        assertTrue(report.approvedPayload().contains(identity))
+        assertFalse(report.approvedPayload().contains("private-invocation"))
+    }
+
+    @Test
     fun providerRateLimitFallbackDoesNotReplaceSpecificFailuresOrUnknownOutcomes() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val fields = mapOf<String, Any?>(

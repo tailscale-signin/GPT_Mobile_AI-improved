@@ -7,7 +7,7 @@ import kotlinx.serialization.Serializable
 data class GitHubQuickWorkflow(val id: String, val title: String, val prompt: String) {
     companion object {
         val defaults = listOf(
-            GitHubQuickWorkflow("integration", "Full GitHub integration test", GitHubWorkflowPreset.selected("test_integration").prompt()),
+            GitHubQuickWorkflow("integration", "Test GitHub integration (supported fixtures)", GitHubWorkflowPreset.selected("test_integration").prompt()),
             GitHubQuickWorkflow("review", "Review this branch", GitHubWorkflowPreset.selected("review_branch").prompt()),
             GitHubQuickWorkflow("ci", "Diagnose failing checks", GitHubWorkflowPreset.selected("diagnose_ci").prompt()),
             GitHubQuickWorkflow("status", "Repository health report", "Inspect this repository and current branch, open pull requests, required checks, recent failures and outstanding review decisions. Report confirmed status, blockers and the next useful actions. Do not modify the repository."),

@@ -38,6 +38,7 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
     require(calls.map { it.callId }.distinct().size == calls.size)
     val nodes = mutableListOf<ToolBatchNode>()
     var barrier: String? = null
+    var firstContextBarrier: String? = null
     fun action(call: ProviderEvent.ToolCall) = (call.arguments["action"] as? JsonPrimitive)?.content ?: when (GitHubOperationTool.operationName(call.name)) {
         "github_read" -> "ranges"
         "github_pr" -> "context"
@@ -50,13 +51,31 @@ internal fun planIntelligentBatch(calls: List<ProviderEvent.ToolCall>, tools: Ma
         val read = parallelBatchRead(call, tool)
         val dependencies = mutableSetOf<String>()
         val discovery = tool != null && call.name == ProgressiveToolCatalog.NAME
+        val initialContext = barrier == null &&
+            tool != null &&
+            GitHubOperationTool.operationName(call.name) == "github_context" &&
+            action(call) in setOf("resolve", "default")
         barrier?.let(dependencies::add)
         if (!read) dependencies += nodes.map { it.call.callId }
-        tool?.definition?.workflowLinks.orEmpty().filter { it.action == action(call) }.forEach { link ->
-            nodes.lastOrNull { it.call.name == link.sourceTool && action(it.call) == link.sourceAction }?.let { dependencies += it.call.callId }
+        val required = when {
+            discovery || initialContext -> mutableSetOf()
+            read &&
+                barrier != null &&
+                barrier == firstContextBarrier &&
+                GitHubOperationTool.immutableRead(call.name, call.arguments) &&
+                "evidence_id" !in call.arguments -> mutableSetOf()
+            else -> dependencies.toMutableSet()
         }
-        // Inventory discovery waits its turn but needs no result from earlier tools.
-        nodes += ToolBatchNode(call, dependencies, read, if (discovery) emptySet() else dependencies)
+        tool?.definition?.workflowLinks.orEmpty().filter { it.action == action(call) }.forEach { link ->
+            nodes.lastOrNull { it.call.name == link.sourceTool && action(it.call) == link.sourceAction }?.let {
+                dependencies += it.call.callId
+                required += it.call.callId
+            }
+        }
+        // Keep scheduling order for context selection. Only a source read with
+        // its own immutable revision can proceed independently of that selection.
+        nodes += ToolBatchNode(call, dependencies, read, required)
+        if (initialContext) firstContextBarrier = call.callId
         if (!read) barrier = call.callId
     }
     return nodes
@@ -158,9 +177,9 @@ internal class IntelligentToolBatch(private val window: AdaptiveBatchWindow, pri
 /** Admission may run prerequisites alone, but never a dependent whose sources were excluded. */
 internal fun dependencyClosedPlan(plan: ToolBatchPlan, nodes: List<ToolBatchNode>, retainedIds: Set<String> = emptySet()): ToolBatchPlan {
     val admitted = plan.executable.mapTo(hashSetOf()) { it.callId }
-    val dependencies = nodes.associate { it.call.callId to it.dependencies }
+    val requiredDependencies = nodes.associate { it.call.callId to it.failureDependencies }
     do {
-        val excluded = admitted.filter { !admitted.containsAll(dependencies[it].orEmpty()) }
+        val excluded = admitted.filter { !admitted.containsAll(requiredDependencies[it].orEmpty()) }
         admitted.removeAll(excluded.toSet())
     } while (excluded.isNotEmpty())
     val removed = plan.executable.filter { it.callId !in admitted }

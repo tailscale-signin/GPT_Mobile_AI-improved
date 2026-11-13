@@ -4,10 +4,12 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolWorkflowLink
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentRepairScope
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GitHubArgumentProvenance
 import dev.chungjungsoo.gptmobile.data.github.GitHubSourceReadRecovery
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -36,7 +38,9 @@ internal class GitHubOperationTool(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, arguments)
         val started = System.nanoTime()
+        val repairScope = currentCoroutineContext()[ToolArgumentRepairScope]
         val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }
+            ?.takeUnless { repairScope != null && it.executionReceipt?.containsKey("argument_repair_attempt") == true }
         // Reuse an identical pre-dispatch rejection so a provider cannot spin on
         // the same invalid call. Never execute the suggested correction on its
         // behalf: saved-view selectors are an authorization boundary, and only
@@ -191,11 +195,14 @@ internal class GitHubOperationTool(
             )
         }
         if (operation in names) {
+            val readRules = linkedSetOf<GitHubOperationArguments.ReadRule>()
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema).ifEmpty {
-                GitHubOperationArguments.errors(operation, arguments)
+                GitHubOperationArguments.errors(operation, arguments, readRules)
             }
             if (errors.isNotEmpty()) {
-                return ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, errors)
+                val budget = currentCoroutineContext()[ToolArgumentRepairScope]?.budget
+                return budget?.rejection(callId, definition, arguments, errors, readRules)
+                    ?: ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, errors, readRules)
             }
         }
         if (operation == "github_write") {

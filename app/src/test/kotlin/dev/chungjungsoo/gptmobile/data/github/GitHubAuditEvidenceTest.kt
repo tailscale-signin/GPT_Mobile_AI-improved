@@ -251,6 +251,24 @@ class GitHubAuditEvidenceTest {
         assertEquals(JsonArray(listOf(JsonPrimitive("Required verification"))), policy["observed_required_checks"])
     }
 
+    @Test fun policyRequiresTwoValidResponsesBeforeReportingPresentOrAbsentChecks() = runBlocking {
+        val required = json("""{"type":"required_status_checks","parameters":{"required_status_checks":[{"context":"Required verification"}]}}""")
+        for ((rules, expected) in listOf(
+            JsonArray(listOf(required)) to "VERIFIED_PRESENT",
+            JsonArray(emptyList()) to "VERIFIED_NONE",
+            JsonArray(listOf(JsonPrimitive("unexpected"))) to "UNKNOWN"
+        )) {
+            val observed = GitHubInspection { path ->
+                when {
+                    path.endsWith("/protection") -> json("{}")
+                    path.contains("/rules/branches/") -> rules
+                    else -> json("""{"name":"main"}""")
+                }
+            }.execute("branch_context", "/repos/owner/repo", json("""{"branch":"main"}"""), 1)
+            assertEquals(JsonPrimitive(expected), (observed["policy"] as JsonObject)["required_checks_state"])
+        }
+    }
+
     @Test fun runtimeQualificationIdentifiesExcludedCachedReceiptDespiteMatchingSha() {
         val runtime = json("""{"identity_source":"RUNNING_PROCESS_BUILD_CONFIG","application_id":"app","version_name":"1","version_code":1,"app_source_sha":"$head"}""")
         val cached = JsonObject(status() + mapOf("runtime_identity" to runtime, "evidence_origin" to JsonPrimitive("CACHED")))

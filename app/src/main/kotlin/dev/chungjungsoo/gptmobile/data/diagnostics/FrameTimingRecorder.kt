@@ -20,6 +20,13 @@ internal object FrameTimingRecorder {
         while (screens.size > 16) screens.keys.minOrNull()?.let(screens::remove)
         return { screens.remove(id) }
     }
+    fun activeReportSurface(): String? = when (screens.entries.maxByOrNull { it.key }?.value) {
+        "Chat" -> "CHAT"
+        "Debug/Logs" -> "DEBUG_LOGS"
+        "GitHubWorkspace" -> "GITHUB_WORKSPACE"
+        else -> null
+    }
+
     private val runPhases = FrameRunPhases()
     fun phase(runId: String, phase: String) {
         runPhases.observe(runId, phase, AppLogRecorder.operationCaptureEpoch())

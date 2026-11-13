@@ -39,7 +39,7 @@ internal object ToolArgumentValidator {
     }
 
     /** A safe read recipe is constructed from the actual registered schema; no ID is inferred. */
-    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema)): AgentToolResult {
+    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet()): AgentToolResult {
         val correction = discoveryCorrection(toolName, arguments, schema)
         val selector = selectorProblem(toolName, arguments)
         return AgentToolResult(
@@ -84,7 +84,14 @@ internal object ToolArgumentValidator {
             true,
             errorCode = "INVALID_ARGUMENTS",
             dispatched = false,
-            executionReceipt = rejectionReceipt(arguments, schema, validationErrors, selector)
+            executionReceipt = JsonObject(
+                rejectionReceipt(arguments, schema, validationErrors, selector) + buildJsonObject {
+                    if (readRules.isNotEmpty()) {
+                        put("semantic_read_rules", JsonArray(readRules.map { JsonPrimitive(it.name) }))
+                        put("validation_field_names", JsonArray(readRules.flatMap { it.fields.asList() }.distinct().sorted().map(::JsonPrimitive)))
+                    }
+                }
+            )
         )
     }
 

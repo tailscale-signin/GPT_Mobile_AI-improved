@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -18,6 +20,23 @@ class GitHubOperationArgumentsTest {
         for (range in listOf("""{"path":"README.md","max_lines":0}""", """{"path":"README.md","max_lines":2001}""", """{"path":"README.md","end_line":0}""", """{"path":"README.md","end_line":-2}""", """{"path":"README.md","end_line":-1,"max_lines":20}""")) {
             assertTrue(range, GitHubOperationArguments.errors("github_read", args("""{"ranges":[$range]}""")).isNotEmpty())
         }
+    }
+
+    @Test fun nativeSourceReadRepairKeepsStableRuleAndStopsAnUnchangedInvalidProposal() {
+        val definition = GitHubOperationTool.definition("github_read")
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolArgumentRepairBudget()
+        val invalid = args("""{"ranges":[{"path":"private-file.md","end_line":20,"max_lines":4}]}""")
+        val rules = linkedSetOf<GitHubOperationArguments.ReadRule>()
+        val errors = GitHubOperationArguments.errors("github_read", invalid, rules)
+        assertEquals(setOf(GitHubOperationArguments.ReadRule.LINE_WINDOW), rules)
+        val initial = budget.rejection("first", definition, invalid, errors, rules)
+        val repeated = budget.rejection("second", definition, invalid, errors, rules)
+        assertFalse(initial.dispatched)
+        assertFalse(repeated.dispatched)
+        assertEquals(args("""{"value":["LINE_WINDOW"]}""")["value"], initial.executionReceipt?.get("semantic_read_rules"))
+        assertEquals(args("""{"value":true}""")["value"], repeated.executionReceipt?.get("argument_repair_exhausted"))
+        assertFalse(initial.executionReceipt.toString().contains("private-file"))
+        assertTrue(GitHubOperationArguments.errors("github_read", args("""{"ranges":[{"path":"private-file.md","max_lines":4}]}""")).isEmpty())
     }
 
     @Test fun boundedCheckWaitIsOptionalAndRejectsUnboundedOrMalformedIntervals() {

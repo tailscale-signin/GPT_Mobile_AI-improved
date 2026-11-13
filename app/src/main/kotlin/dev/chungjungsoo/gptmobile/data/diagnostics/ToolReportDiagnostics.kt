@@ -79,7 +79,7 @@ internal object ToolReportDiagnostics {
             shapeHash(it)?.let { hash -> put("resolved_argument_shape_hash", hash) }
             putAll(typeShape(it, "resolved_argument"))
         }
-        val validationFields = listOf("missing_fields", "invalid_fields").flatMap { key ->
+        val validationFields = listOf("missing_fields", "invalid_fields", "validation_field_names").flatMap { key ->
             (receipt?.get(key) as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull }
         }.filter { it in IssueReportIncidentCapsule.fieldNames }.distinct().sorted().take(8)
         if (validationFields.isNotEmpty()) put("validation_field_names", validationFields)

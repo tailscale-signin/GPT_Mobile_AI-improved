@@ -11,13 +11,14 @@ import kotlinx.serialization.json.put
 
 /** A status assessment cites captured sources without rewriting them or the accepted task. */
 internal object GitHubStatusEvidence {
-    data class Coverage(val item: String, val available: Boolean, val receiptIds: Set<String>, val reason: String = "", val summary: String = "") {
+    data class Coverage(val item: String, val available: Boolean, val receiptIds: Set<String>, val reason: String = "", val summary: String = "", val policyEvidence: JsonObject? = null) {
         fun row() = buildJsonObject {
             put("item", item)
             put("observed", available)
             put("receipt_ids", JsonArray(receiptIds.sorted().map(::JsonPrimitive)))
             if (reason.isNotBlank()) put("reason", reason)
             if (summary.isNotBlank()) put("summary", summary)
+            policyEvidence?.forEach { (key, value) -> put(key, value) }
         }
     }
 
@@ -210,10 +211,57 @@ internal object GitHubStatusEvidence {
             val details = data["branch"] as? JsonObject
             (args.text("branch") == branch || details?.text("name") == branch) && (details?.get("commit") as? JsonObject)?.text("sha") == head
         }
-        val policyKnown = policy.values.any { receipt ->
-            (data(receipt)?.get("policy") as? JsonObject)?.let { it["required_checks_complete"] == JsonPrimitive(true) && it.text("required_checks_state") in setOf("VERIFIED_NONE", "VERIFIED_PRESENT") } == true
+        val latestPolicy = policy.values.lastOrNull()?.let(::data)
+        val policyKnown = (latestPolicy?.get("policy") as? JsonObject)?.let {
+            it["required_checks_complete"] == JsonPrimitive(true) && it.text("required_checks_state") in setOf("VERIFIED_NONE", "VERIFIED_PRESENT")
+        } == true
+        fun sourceState(key: String, expectsArray: Boolean): String {
+            val observation = latestPolicy?.get(key) as? JsonObject ?: return "UNOBSERVED"
+            val status = observation.integer("http_status")
+            if (observation["available"] == JsonPrimitive(true)) {
+                val data = observation["data"]
+                val valid = if (expectsArray) {
+                    (data as? JsonArray)?.all { it is JsonObject && it.text("type").isNotBlank() } == true
+                } else {
+                    data is JsonObject
+                }
+                return if (valid) "OBSERVED" else "INVALID_RESPONSE"
+            }
+            return when (status) {
+                401, 403 -> "ACCESS_DENIED"
+                404 -> "NOT_FOUND_OR_INACCESSIBLE"
+                429 -> "RATE_LIMITED"
+                null -> "UNAVAILABLE"
+                else -> "HTTP_FAILURE"
+            }
         }
-        rows += Coverage("Required-check policy", selected && policyKnown, policy.keys, if (policyKnown) "" else "The selected branch's protection and rules must both be observed; unavailable policy remains unknown.")
+        val protectionState = sourceState("protection", expectsArray = false)
+        val rulesState = sourceState("rules", expectsArray = true)
+        val recovery = if (!policyKnown) {
+            buildString {
+                append("Required-check policy is unknown. Branch protection: ${protectionState.lowercase().replace('_', ' ')}. ")
+                append("Applicable rules: ${rulesState.lowercase().replace('_', ' ')}. ")
+                append(
+                    if ("ACCESS_DENIED" in setOf(protectionState, rulesState) || "NOT_FOUND_OR_INACCESSIBLE" in setOf(protectionState, rulesState)) {
+                        "Check access to both policy endpoints, then refresh the selected branch at its current head."
+                    } else {
+                        "Refresh both policy observations at the selected branch head."
+                    }
+                )
+            }
+        } else {
+            ""
+        }
+        rows += Coverage(
+            "Required-check policy",
+            selected && policyKnown,
+            policy.keys,
+            recovery,
+            policyEvidence = buildJsonObject {
+                put("branch_protection_observation", protectionState)
+                put("branch_rules_observation", rulesState)
+            }
+        )
         val failures = matching("github_ci", "runs") { data, args ->
             args.text("status") == "failure" &&
                 args.text("branch") == branch &&

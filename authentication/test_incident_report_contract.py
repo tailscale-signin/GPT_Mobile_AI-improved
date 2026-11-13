@@ -131,6 +131,28 @@ class IncidentReportContractTest(unittest.TestCase):
                 self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
 
 
+    def test_run_failure_evidence_accepts_only_closed_values_and_stays_in_the_capsule(self):
+        examples = (
+            ("TOOL", {"semantic_read_rules": ["LINE_WINDOW"], "validation_field_names": ["ranges", "end_line"],
+                      "dependency_admission_reasons": ["CALL_ALLOWANCE"]}),
+            ("INCIDENT", {"incident_capture_site": "CHAT_REPOSITORY_PREFLIGHT", "incident_origin": "APPLICATION",
+                          "local_readiness_failure": "PENDING_CLEANUP", "pending_tool_count": 2,
+                          "pending_tool_identity_hashes": ["a" * 64], "pending_tool_receipt_state": "SOME_TERMINAL_RECEIPTS_MISSING"}),
+            ("APP", {"crash_surface": "CHAT", "crash_boundary": "ANDROID_VIEW_DRAW"}),
+            ("ACCEPTANCE", {"fixture_approval_state": "READY", "branch_protection_observation": "ACCESS_DENIED",
+                            "branch_rules_observation": "OBSERVED"}),
+            ("PROVIDER", {"provider_wait_state": "RESUMED", "provider_wait_terminal_status": "COMPLETED",
+                          "provider_wait_claim_hash": "b" * 64, "provider_wait_checkpoint_hash": "c" * 64}),
+        )
+        for area, values in examples:
+            with self.subTest(area=area):
+                capture = self.capture(area, values)
+                self.assertEqual(capture, validate_diagnostics(capture))
+                self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+        for key in ("semantic_read_rules", "dependency_admission_reasons"):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {key: ["private-value"]}))
+
     def test_rate_limit_scheduling_is_an_observation_without_replay_authority(self):
         capture = self.capture("PROVIDER", {"incident_phase": "provider_wait", "causal_provenance": "MODEL_INVOCATION",
                                             "causal_failure_code": "PROVIDER_RATE_LIMITED", "provider_wait_state": "WAITING_PROVIDER_LIMIT",

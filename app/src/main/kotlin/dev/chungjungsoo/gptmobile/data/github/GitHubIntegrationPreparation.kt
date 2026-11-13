@@ -94,6 +94,7 @@ internal object GitHubIntegrationPreparation {
 
     private fun requiredInputs(code: String): List<String> = when (code) {
         "OWNED_FIXTURE_REQUIRED" -> listOf("Task/repository-bound ownership", "Exact current resource lease", "Authorized cleanup operation", "Remaining cleanup and verification allowance")
+        "FIXTURE_APPROVAL_STATE_UNKNOWN" -> listOf("Effective task-bound approval decision")
         "FIXTURE_APPROVAL_MODE_REQUIRED" -> listOf("Explicit fixture-only automatic approval or the existing native approval interaction")
         "APPROVAL_REQUIRED" -> listOf("Decision on the existing exact approval card")
         "ISSUE_ID_REQUIRED" -> listOf("Issue number from an authorized issue inventory; PR numbers cannot substitute")

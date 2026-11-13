@@ -35,6 +35,21 @@ class IntelligentToolBatchTest {
         assertEquals(listOf("read", "write"), complete.executable.map { it.callId })
     }
 
+    @Test fun pinnedSourceCanUseRemainingAllowanceWhenInitialContextIsDeferred() {
+        val context = call("context", "github_context", "resolve")
+        val read = ProviderEvent.ToolCall("read", "github_read", buildJsonObject { put("commit_sha", "a".repeat(40)) })
+        val unpinned = call("unpinned", "github_read")
+        val tools = listOf(tool("github_context"), tool("github_read")).associateBy { it.definition.name }
+        val nodes = planIntelligentBatch(listOf(context, read, unpinned), tools)
+        assertEquals(setOf("context"), nodes[1].dependencies)
+        assertTrue(nodes[1].failureDependencies.isEmpty())
+        assertEquals(setOf("context"), nodes[2].failureDependencies)
+        val partial = ToolBatchPlan(listOf(read, unpinned), listOf(context), emptySet(), emptySet(), emptySet(), emptyMap())
+        val closed = dependencyClosedPlan(partial, nodes)
+        assertEquals(listOf(read), closed.executable)
+        assertEquals(setOf("unpinned"), closed.dependencyDeferredIds)
+    }
+
     @Test fun sameToolReadsOverlapAndReceiptsRemainInModelOrder() = runTest {
         val calls = List(10) { call(it.toString()) }
         val nodes = planIntelligentBatch(calls, mapOf("github_read" to tool("github_read")))

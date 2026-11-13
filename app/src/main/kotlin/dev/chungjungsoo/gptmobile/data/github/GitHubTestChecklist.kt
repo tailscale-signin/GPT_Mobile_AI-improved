@@ -45,7 +45,16 @@ internal object GitHubTestChecklist {
         put("repository", repository)
         put("selected_branch", branch)
         put("decision_mode", mode?.name ?: "UNKNOWN")
-        put("state", if (automatic) "READY" else "CONDITIONAL")
+        put(
+            "state",
+            if (automatic) {
+                "READY"
+            } else if (mode == null) {
+                "UNKNOWN"
+            } else {
+                "CONDITIONAL"
+            }
+        )
         put("mutation_dispatched", false)
         put("runtime_identity", runtime)
         put("scope", "AUTO_APPROVE applies only to the dedicated codex-self-test/* fixture branch; regular repository writes still use their configured approval policy.")
@@ -54,7 +63,11 @@ internal object GitHubTestChecklist {
             if (automatic) {
                 "The effective GitHub decision mode was verified before fixture creation. Fixture-only native auto-approval is restricted to the owned codex-self-test/* branch."
             } else {
-                "Fixture testing is conditional because effective GitHub decision mode is ${mode?.name ?: "unavailable"}. No branch or fixture mutation was started; enable the explicit fixture-only automatic approval mode or use the approval interaction harness."
+                if (mode == null) {
+                    "The effective GitHub approval mode could not be verified. Recheck the bound profile and task before preparing a fixture."
+                } else {
+                    "Fixture testing needs an explicit approval decision. Enable fixture-only automatic approval or use the approval interaction harness."
+                }
             }
         )
     }
@@ -558,14 +571,18 @@ internal object GitHubTestChecklist {
                 val notRequested = GitHubChecklistScope.readOnly(task) && !readOnly(capability) || GitHubChecklistScope.supportedFixturePlan(task) && unsupportedFixture || ciActionWithoutRun
                 val readyCall = if (authorized && readOnly(capability) && eligible.isEmpty()) readyReads[capability.tool to capability.action] else null
                 val conditionalDecision = capability.tool == "github_decide" && observed.isEmpty()
-                val fixtureApprovalConditional = !readOnly(capability) &&
+                val awaitingFixtureStart = !readOnly(capability) &&
                     GitHubSelfTestFixtures.supports(capability.tool, capability.action) &&
-                    fixturePreflight?.get("state") != JsonPrimitive("READY") &&
                     !waitingApproval &&
                     GitHubSelfTestFixtures.checkpoint(receipts).isEmpty() &&
-                    successes.isEmpty()
+                    successes.isEmpty() &&
+                    failures.isEmpty()
+                val fixtureApprovalUnknown = awaitingFixtureStart && fixturePreflight?.text("state") !in setOf("READY", "CONDITIONAL")
+                val fixtureApprovalConditional = awaitingFixtureStart && fixturePreflight?.text("state") == "CONDITIONAL"
                 val blocker = when {
-                    fixtureApprovalConditional -> "Effective GitHub approval mode was checked before fixture creation. Native approval is manual, so this owned fixture is conditional and no branch or mutation was started. Enable fixture-only auto approval for codex-self-test/* or run the approval interaction harness."
+                    fixtureApprovalUnknown -> "Fixture approval mode is unavailable. Recheck the effective approval policy for this task before creating a fixture."
+                    fixtureApprovalConditional -> "The effective approval mode requires an explicit fixture approval decision. Enable fixture-only auto approval for codex-self-test/* or run the approval interaction harness."
+                    awaitingFixtureStart -> "Fixture-only approval is available. The owned fixture still needs execution and verified cleanup within the remaining budget."
                     ciActionWithoutRun -> "No workflow run or job ID was supplied or deliberately created for this task. This CI mutation is conditional and was not requested."
                     repositoryStatusWithoutOperation -> "No repository creation, fork, import or clone was started in this task. This status read is conditional on a retained lifecycle receipt: operation_id for a gateway transfer, or expected_repository_id and the exact original destination for native creation. A selected revision or source path cannot supply that identity; no unrelated repository is created just to exercise status."
                     notRequested -> if (unsupportedFixture && GitHubChecklistScope.supportedFixturePlan(task)) "No supported owned-resource cleanup recipe is admitted for this action. It is outside this preset, remains untested, and requires a separate authorized fixture lifecycle." else "Write operations are excluded by the requested read-only scope."
@@ -590,7 +607,7 @@ internal object GitHubTestChecklist {
                     notRequested -> "NOT_REQUESTED"
                     excluded -> "OUT_OF_SCOPE"
                     waitingApproval -> "WAITING_FOR_APPROVAL"
-                    fixtureApprovalConditional || repositoryStatusWithoutOperation -> "CONDITIONAL"
+                    fixtureApprovalUnknown || fixtureApprovalConditional || repositoryStatusWithoutOperation -> "CONDITIONAL"
                     incomplete || tools.isNotEmpty() && !authorized -> "BLOCKED"
                     latest?.get("success") == JsonPrimitive(false) -> if (latest["dispatched"] == JsonPrimitive(false)) "PREFLIGHT_REJECTED" else "FAILED"
                     transportMissing -> unqualifiedStatus
@@ -608,7 +625,9 @@ internal object GitHubTestChecklist {
                     tools.isNotEmpty() && !authorized -> GitHubCriterionBlocker.AUTHORIZATION_REQUIRED
                     eligible.isEmpty() && observed.isNotEmpty() -> GitHubCriterionBlocker.HISTORICAL_CONTRACT_CHANGED
                     waitingApproval -> GitHubCriterionBlocker.APPROVAL_REQUIRED
+                    fixtureApprovalUnknown -> GitHubCriterionBlocker.FIXTURE_APPROVAL_STATE_UNKNOWN
                     fixtureApprovalConditional -> GitHubCriterionBlocker.FIXTURE_APPROVAL_MODE_REQUIRED
+                    awaitingFixtureStart && authorized -> GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
                     repositoryStatusWithoutOperation -> GitHubCriterionBlocker.REPOSITORY_LIFECYCLE_REQUIRED
                     transportMissing -> GitHubCriterionBlocker.LIVE_EVIDENCE_REQUIRED
                     incomplete -> GitHubCriterionBlocker.CONTINUATION_REQUIRED
@@ -633,6 +652,8 @@ internal object GitHubTestChecklist {
                         "applicability",
                         if (ciActionWithoutRun || repositoryStatusWithoutOperation) {
                             "CONDITIONAL_RESOURCE_NOT_PRESENT"
+                        } else if (fixtureApprovalUnknown) {
+                            "CONDITIONAL_APPROVAL_UNKNOWN"
                         } else if (fixtureApprovalConditional) {
                             "CONDITIONAL_APPROVAL_MODE"
                         } else if (conditionalDecision) {
@@ -871,7 +892,7 @@ internal object GitHubTestChecklist {
         put("evidence_classes", GitHubIntegrationAcceptance.evidenceClasses(receipts))
         val budget = stageBudget ?: GitHubChecklistBudget.checkpoint(receipts, remainingToolCalls, GitHubSelfTestFixtures.minimumCalls(tools), acceptedContract)
         put("stage_budget", budget)
-        if (integrationCoverage) put("preparation", GitHubIntegrationPreparation.snapshot(task, receipts, tools, capabilities, remainingToolCalls, fixturePreflight, budget))
+        if (integrationCoverage) put("preparation", GitHubIntegrationPreparation.snapshot(task, receipts, tools, capabilities, remainingToolCalls, fixturePreflight, budget, acceptedContract))
         put(
             "resume_plan",
             buildJsonObject {

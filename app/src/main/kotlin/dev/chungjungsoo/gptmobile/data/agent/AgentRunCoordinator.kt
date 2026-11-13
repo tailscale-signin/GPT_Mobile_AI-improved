@@ -963,6 +963,31 @@ class AgentRunCoordinator @Inject constructor(
                 AppLogRecorder.record("ProviderRetry", "RECOVERY_RECEIPT_PENDING · runId=${request.runId} · cause=${error.javaClass.simpleName}", "W")
             }
         }
+        fun observeClaimedProviderWait(status: String? = null) {
+            val claim = request.providerWaitClaimId ?: return
+            val checkpoint = request.providerGitHubCheckpoint
+            val report = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+            runCatching {
+                dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.providerRecoveryObservation(
+                    mapOf(
+                        "run_id" to request.runId,
+                        "profile_id" to request.platform.uid,
+                        "model" to request.platform.model,
+                        "stage" to "provider_wait",
+                        "provider_wait_state" to "RESUMED",
+                        "provider_wait_persisted" to true,
+                        "provider_wait_checkpoint_hash" to report.identifierHash("provider-wait-checkpoint", checkpoint?.digest),
+                        "provider_wait_claim_hash" to report.identifierHash("provider-wait-claim", claim),
+                        "provider_wait_terminal_status" to status,
+                        "recovery_observation" to when (status) {
+                            null -> "RETRY_ATTEMPTED"
+                            AgentRunStatus.COMPLETED -> "RECOVERED"
+                            else -> "TERMINAL"
+                        }
+                    )
+                )
+            }
+        }
         suspend fun pauseForProvider(decision: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision, stage: dev.chungjungsoo.gptmobile.data.research.ResearchDeferredStage? = null): Boolean {
             if (!decision.mayWait) return false
             val savedStage = stage ?: researchLifecycle?.let { lifecycle ->
@@ -979,6 +1004,7 @@ class AgentRunCoordinator @Inject constructor(
                         "profile_id" to decision.profileUid,
                         "model" to decision.model,
                         "stage" to "provider_wait",
+                        "provider_wait_checkpoint_hash" to dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("provider-wait-checkpoint", decision.gitHubCheckpoint?.digest),
                         "recovery_observation" to if (persisted == true) "RETRY_SCHEDULED" else "UNOBSERVED",
                         "recovery_authority" to if (persisted == true) "VALID" else "UNVERIFIED",
                         "retry_delay_ms" to dev.chungjungsoo.gptmobile.data.network.ProviderRetryPolicy.remainingMillis(decision.retryAt, System.currentTimeMillis()),
@@ -1042,6 +1068,7 @@ class AgentRunCoordinator @Inject constructor(
                     if (request.providerWaitClaimId != null) providerWaits?.startClaimed(request) == true else chatRepository.markAgentRunRunning(request.runId, startedAt)
                 }
                 if (!ownsExecution) return@coroutineScope
+                observeClaimedProviderWait()
                 val gatewayHandoff = try {
                     gatewayChatSubmission?.submitIfSupported(request)
                 } catch (failure: dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException) {
@@ -1261,7 +1288,10 @@ class AgentRunCoordinator @Inject constructor(
                     return@coroutineScope
                 }
                 committedForHandoff = committed
-                if (committed) settleResearchOutcome(request, researchLifecycle, terminalMessage, terminal.status, terminal.error)
+                if (committed) {
+                    observeClaimedProviderWait(terminal.status)
+                    settleResearchOutcome(request, researchLifecycle, terminalMessage, terminal.status, terminal.error)
+                }
                 if (committed && terminal.status == AgentRunStatus.COMPLETED && terminalMessage.id > 0) {
                     completionStore.record(request.runId, request.chatId, terminalMessage.id, completedAt)
                 }
@@ -1347,7 +1377,10 @@ class AgentRunCoordinator @Inject constructor(
                     if (committed && operationId != null && typedFailure?.category !in setOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN")) {
                         AppLogRecorder.record("Agent", "ADMISSION_FAILURE_LINK · runId=${request.runId} · causalIncidentId=$operationId · operation_id=$operationId · dependentDispatch=${typedFailure?.dispatched} · preparationPost=${admission?.preparationPost ?: (preparation != null)}")
                     }
-                    if (committed) settleResearchOutcome(request, researchLifecycle, terminalMessage, status, message)
+                    if (committed) {
+                        observeClaimedProviderWait(status)
+                        settleResearchOutcome(request, researchLifecycle, terminalMessage, status, message)
+                    }
                     if (committed && revokedWait) _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Saved work needs review before it can resume. Its evidence and answer are retained.", true))
                 }.onFailure { failure -> finishUnavailablePolicy(failure) }
             }

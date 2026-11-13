@@ -139,7 +139,7 @@ FIELD_NAMES = {
     'side',
     'since',
     'sort',
-    'start_line',
+    'start_line', 'end_line', 'max_lines', 'start_offset', 'ranges', 'evidence_id',
     'start_side',
     'state',
     'state_reason',
@@ -240,6 +240,7 @@ COMMON = {
 TOOL_FIELDS = {
     'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
     'tool_budget_calls_used', 'tool_budget_calls_limit', 'tool_permission_scope',
+    'semantic_read_rules', 'dependency_admission_reasons',
     'native_dependency_state', 'dependency_call_id_hashes', 'dependency_count', 'dependency_failed_count', 'search_cursor_state', 'search_id_hash', 'search_cursor_hash',
     'mcp_connection_hash', 'mcp_failure_phase', 'mcp_failure_category', 'mcp_connection_state', 'mcp_readiness_state', 'mcp_connection_health', 'mcp_health_observation', 'mcp_health_age_ms',
     'saved_view_restore_state', 'saved_view_restore_error_hash',
@@ -269,8 +270,11 @@ TOOL_FIELDS = {
     'validation_path_hashes',
 }
 
+POLICY_OBSERVATION = {'OBSERVED', 'UNOBSERVED', 'INVALID_RESPONSE', 'ACCESS_DENIED', 'NOT_FOUND_OR_INACCESSIBLE', 'RATE_LIMITED', 'UNAVAILABLE', 'HTTP_FAILURE'}
+
 ACCEPTANCE_BLOCKER_FIELDS = {'fixture_approval_blocked_count', 'owned_fixture_blocked_count', 'pending_local_fragments', 'pending_remote_continuations'}
 ACCEPTANCE_FIELDS = {
+    'fixture_approval_state', 'branch_protection_observation', 'branch_rules_observation',
     'receipt_count_scope',
     'acceptance_evaluator_branch',
     'acceptance_mismatch',
@@ -287,8 +291,8 @@ ACCEPTANCE_FIELDS = {
     'verified_capability_count',
 }
 
-COMBINED_FIELDS = {'combined_requirement_gap', 'combined_issue_count'}
-PROVIDER_FIELDS = {'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
+COMBINED_FIELDS = {'combined_requirement_gap', 'combined_issue_count', 'pending_tool_count', 'pending_tool_identity_hashes', 'pending_tool_receipt_state', 'local_readiness_failure'}
+PROVIDER_FIELDS = {'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_wait_terminal_status', 'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
 VOICE_FIELDS = {'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase'}
 
 GATEWAY_FIELDS = {
@@ -299,7 +303,7 @@ GATEWAY_FIELDS = {
 }
 
 HASHES = {
-    'search_id_hash', 'search_cursor_hash',
+    'search_id_hash', 'search_cursor_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash',
     'mcp_connection_hash',
     'saved_view_restore_error_hash',
     'provider_error_type_hash', 'provider_parameter_path_hash', 'voice_chat_failure_code_hash',
@@ -318,7 +322,7 @@ HASHES = {
 }
 
 HASH_LISTS = {
-    'dependency_call_id_hashes',
+    'dependency_call_id_hashes', 'pending_tool_identity_hashes',
     'exception_type_hashes',
     'evidence_ref_hashes',
     'unknown_field_hashes',
@@ -337,7 +341,7 @@ FLAGS = {
 
 COUNTS = {
     'tool_result_bytes_used', 'tool_result_bytes_limit', 'tool_budget_calls_used', 'tool_budget_calls_limit', 'combined_issue_count',
-    'dependency_count', 'dependency_failed_count',
+    'dependency_count', 'dependency_failed_count', 'pending_tool_count',
     'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count',
     'blocked_capability_count',
     'eligible_receipt_count',
@@ -450,8 +454,16 @@ OPERATIONS = {
 MCP_HEALTH = {'DNS_FAILED', 'DNS_RECOVERY', 'ROUTE_UNAVAILABLE', 'CONNECTION_REFUSED', 'AUTHENTICATION_FAILED', 'TLS_FAILED', 'CONNECT_TIMEOUT', 'HTTP_ERROR', 'MCP_HANDSHAKE_FAILED', 'STREAM_INTERRUPTED', 'STREAM_IDLE_TIMEOUT', 'REQUEST_TIMEOUT', 'HEALTHY', 'UNKNOWN'}
 
 ENUMS = {
+    'crash_surface': {'CHAT', 'DEBUG_LOGS', 'GITHUB_WORKSPACE'},
+    'crash_boundary': {'ANDROID_VIEW_DRAW'},
+    'pending_tool_receipt_state': {'CHECKPOINT_STATE_INCONSISTENT', 'TERMINAL_RECEIPTS_MISSING', 'SOME_TERMINAL_RECEIPTS_MISSING', 'OUTCOMES_UNRESOLVED'},
+    'local_readiness_failure': {'INSUFFICIENT_MEMORY', 'PENDING_CLEANUP', 'VERIFICATION_REQUIRED', 'UNSUPPORTED_BACKEND', 'INCOMPATIBLE_MODEL', 'MISSING_RUNTIME', 'INITIALIZATION_TIMEOUT', 'UNKNOWN'},
+    'fixture_approval_state': {'READY', 'CONDITIONAL', 'UNKNOWN'},
+    'branch_protection_observation': POLICY_OBSERVATION,
+    'branch_rules_observation': POLICY_OBSERVATION,
+    'provider_wait_terminal_status': {'COMPLETED', 'PARTIAL', 'FAILED', 'BLOCKED', 'INTERRUPTED', 'CANCELED', 'EVIDENCE_MISSING', 'WAITING_FOR_APPROVAL'},
     'changed_policy_observation': {'OBSERVED', 'PARTIAL', 'MALFORMED'},
-    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'OPENAI_ADAPTER_STREAM_CATCH'},
+    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH'},
     'incident_phase_provenance': {'CAPTURE_BOUNDARY_ONLY'},
     'native_dependency_state': {'DEFERRED', 'FAILED'},
     'tool_execution_observation': {'REMOTE_READ_SUCCEEDED'},
@@ -484,7 +496,7 @@ ENUMS = {
     'recovery_authority': {'VALID', 'CHANGED', 'UNVERIFIED'},
     'causal_provenance': {'GATEWAY_COMMAND', 'UNAVAILABLE', 'MODEL_INVOCATION', 'EXPLICIT_CAUSE', 'TOOL_CALL'},
     'incident_evidence_status': {'TYPED_EVIDENCE', 'CAUSAL_EVIDENCE_UNAVAILABLE'},
-    'incident_origin': {'GATEWAY', 'TOOL', 'LOCAL_RECOVERY', 'ACCEPTANCE', 'PROVIDER', 'UNKNOWN'},
+    'incident_origin': {'GATEWAY', 'TOOL', 'LOCAL_RECOVERY', 'ACCEPTANCE', 'PROVIDER', 'APPLICATION', 'UNKNOWN'},
     'recovery_observation': {'RECONCILIATION_REQUIRED', 'WAITING_RETRY', 'RETRY_SCHEDULED', 'RECOVERED', 'UNOBSERVED', 'RETRY_ATTEMPTED', 'TERMINAL'},
     'task_kind': {'INTEGRATION_TEST', 'STATUS_HEALTH', 'GENERAL', 'REVIEW', 'CI_OBSERVATION', 'INVESTIGATION', 'STATUS_SNAPSHOT', 'UNCLASSIFIED', 'IMPLEMENTATION', 'READ_ONLY'},
     'acceptance_evaluator_branch': {'INFORMATIONAL_CLAIMS', 'OPERATION_ACCEPTANCE', 'REVISION_TEST_ACCEPTANCE', 'ACCEPTANCE_MAPPING_REQUIRED', 'CAPABILITY_COVERAGE', 'STATUS_UNCERTAINTY_REPORT', 'REQUIREMENT_MATCH', 'FIXTURE_LIFECYCLE', 'STATUS_OBSERVATION', 'REVIEW_COMPARISON', 'UNCLASSIFIED', 'EXECUTION_LEDGER', 'CI_REVISION_BINDING'},
@@ -499,6 +511,8 @@ ENUMS = {
 }
 
 ENUM_LISTS = {
+    'semantic_read_rules': {'RANGE_ARRAY', 'SOURCE_REQUIRED', 'RANGE_OBJECT', 'RANGE_FIELDS', 'REPOSITORY_FILE_PATH', 'RANGE_OFFSET', 'LINE_WINDOW'},
+    'dependency_admission_reasons': {'TOOL_UNAVAILABLE', 'REPEATED_FAILURE', 'REPEAT_LIMIT', 'CALL_ALLOWANCE', 'DECISION_REQUIRED', 'PREREQUISITE_DEFERRED'},
     'dispatch_policy_sections': {'PROFILE', 'BUDGET', 'SPEND', 'TOOLS', 'MCP', 'PERMISSIONS', 'ASSIST', 'DELEGATION', 'RESEARCH', 'GATEWAY', 'GITHUB', 'REASONING', 'ENGINEERING'},
     'changed_policy_fields': POLICY_FIELD_NAMES,
     'privacy_blockers': {'MODEL_NOT_IN_ZDR_CATALOG', 'PROVIDER_ALLOWLIST', 'PROVIDER_DENYLIST', 'FALLBACK_ORDER'},
@@ -515,7 +529,7 @@ ENUM_LISTS = {
 
 
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):

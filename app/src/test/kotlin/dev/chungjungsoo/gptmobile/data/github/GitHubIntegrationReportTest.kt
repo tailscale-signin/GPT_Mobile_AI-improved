@@ -57,8 +57,8 @@ class GitHubIntegrationReportTest {
         val ledger = rendered.substringAfter("### Before Continue: remaining prerequisites").substringBefore("### Issues and exact observations")
         assertTrue(ledger.contains("All ${unresolved.size} unresolved capability rows"))
         unresolved.forEach { row -> assertTrue("Missing prerequisite: ${row.text("id")}", ledger.contains("${row.text("id")} (${row.text("status")})")) }
-        assertTrue(ledger.contains("FIXTURE_APPROVAL_MODE_REQUIRED"))
-        assertTrue(ledger.contains("Explicit fixture-only automatic approval"))
+        assertTrue(ledger.contains("FIXTURE_APPROVAL_STATE_UNKNOWN"))
+        assertTrue(ledger.contains("Effective task-bound approval decision"))
         assertTrue(ledger.contains("OWNED_FIXTURE_REQUIRED"))
         assertTrue(ledger.contains("Authorized cleanup operation"))
         assertTrue(ledger.contains("github_ci:logs"))
@@ -68,6 +68,26 @@ class GitHubIntegrationReportTest {
         assertTrue(rendered.contains("Showing 12 of ${unresolved.size} unresolved capability rows; all ${unresolved.size} are included"))
         assertEquals(checkpoint, GitHubTestChecklist.checkpoint(task, receipts, tools, 204))
         assertFalse(GitHubTestChecklist.apiComplete(task, receipts, tools))
+    }
+
+    @Test fun publishedReportAndStopReasonUseTheSameTaskBoundApprovalDecision() {
+        val receipts = mapOf("source" to source())
+        for ((mode, state, blocker) in listOf(
+            Triple(GitHubDecisionMode.AUTO_APPROVE, "READY", "EXECUTION_NOT_EXERCISED"),
+            Triple(GitHubDecisionMode.ASK, "CONDITIONAL", "FIXTURE_APPROVAL_MODE_REQUIRED"),
+            Triple(null, "UNKNOWN", "FIXTURE_APPROVAL_STATE_UNKNOWN")
+        )) {
+            val preflight = GitHubTestChecklist.fixtureApprovalPreflight(mode, "accepted-task", "owner/repo", "main", json("{}"))
+            val (rendered, verdict) = GitHubEvidencePolicy.testing(receipts, 1, 0, task, tools, 204, fixturePreflight = preflight)
+            val checklist = verdict.getValue("test_checklist").jsonObject
+            assertEquals(state, checklist.getValue("fixture_approval_preflight").jsonObject.text("state"))
+            val branch = (checklist.getValue("capabilities") as JsonArray).map { it.jsonObject }.single { it.text("id") == "github_commit:branch" }
+            assertEquals(blocker, branch.text("blocker_code"))
+            val stop = GitHubIntegrationReport.stopReason(task, receipts, tools, 204, checklist)
+            assertEquals(mode == GitHubDecisionMode.ASK, stop.text("detail").contains("explicit fixture approval policy"))
+            assertEquals(mode == GitHubDecisionMode.ASK, rendered.contains("FIXTURE_APPROVAL_MODE_REQUIRED"))
+            assertFalse(verdict["completion_verified"] == JsonPrimitive(true))
+        }
     }
 
     @Test fun remainingBudgetAndMissingPrerequisitesStaySeparateForEachCheckpoint() {

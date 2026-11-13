@@ -1659,6 +1659,32 @@ class ChatRepositoryImpl(
         chatToolConfig: ChatMcpToolConfig?,
         stage: dev.chungjungsoo.gptmobile.data.agent.AgentStageRequest?
     ): Flow<ApiState> = flow {
+        fun preflightError(code: String, message: String, failedStage: String, failure: Throwable, recovery: String, readiness: String? = null): ApiState.Error {
+            val capsule = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
+            val evidence = capsule.exceptionFields(failure, dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_PREFLIGHT)
+            return ApiState.Error(
+                message,
+                errorCode = code,
+                taskOutcome = "BLOCKED",
+                failureDetails = kotlinx.serialization.json.JsonObject(
+                    evidence + kotlinx.serialization.json.buildJsonObject {
+                        put("diagnostic_area", "INCIDENT")
+                        put("failure_origin", "APPLICATION")
+                        put("causal_id", "$runId:$failedStage")
+                        put("run_id", runId)
+                        put("provider_kind", platform.compatibleType.name)
+                        put("profile_hash", dev.chungjungsoo.gptmobile.data.research.researchHash(platform.uid))
+                        put("model_hash", dev.chungjungsoo.gptmobile.data.research.researchHash(platform.model))
+                        put("failed_stage", failedStage)
+                        put("dispatched", false)
+                        put("retryable", false)
+                        put("requires_reconciliation", false)
+                        put("recovery_action", recovery)
+                        readiness?.let { put("local_readiness_failure", it) }
+                    }
+                )
+            )
+        }
         retainToolAdmission(runId, platform, userMessages.lastOrNull()?.chatId, dev.chungjungsoo.gptmobile.data.agent.RunToolAdmissionStage.STAGE_NOT_REACHED)
         val auditUser = userMessages.lastOrNull()
         if (stage == null &&
@@ -1683,7 +1709,7 @@ class ChatRepositoryImpl(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: IllegalArgumentException) {
-            emit(ApiState.Error(failure.message ?: "COMBINED_STAGE_IDENTITY_REJECTED"))
+            emit(preflightError("EXECUTION_SELECTION_INVALID", "The saved stage could not be bound to this run and profile. Reopen the original task before retrying.", "binding_admission", failure, "RETRY_AFTER_CONFIGURATION_CHANGE"))
             emit(ApiState.Done)
             return@flow
         }
@@ -1702,8 +1728,9 @@ class ChatRepositoryImpl(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                AppLogRecorder.record("LocalModel", "LOCAL_PREFLIGHT_TERMINAL · stage=parent_readiness · status=REJECTED · reason=${dev.chungjungsoo.gptmobile.data.localruntime.LocalReadinessFailure.from(failure)} · backend=${platform.accelerator} · exception=${failure.javaClass.simpleName} · profileUid=${platform.uid} · nativeDispatched=false", "W")
-                emit(ApiState.Error(failure.message ?: "Local model readiness check failed. Review Local AI before retrying."))
+                val readiness = dev.chungjungsoo.gptmobile.data.localruntime.LocalReadinessFailure.from(failure)
+                AppLogRecorder.record("LocalModel", "LOCAL_PREFLIGHT_TERMINAL · stage=parent_readiness · status=REJECTED · reason=$readiness · backend=${platform.accelerator} · exception=${failure.javaClass.simpleName} · profileUid=${platform.uid} · nativeDispatched=false", "W")
+                emit(preflightError("LOCAL_INITIALIZATION_FAILED", "Local model readiness failed ($readiness). Review the selected model and backend in Local AI before retrying.", "backend_admission", failure, "LOCAL_MODEL", readiness.name))
                 emit(ApiState.Done)
                 return@flow
             }
@@ -1718,7 +1745,7 @@ class ChatRepositoryImpl(
             emit(ApiState.Done)
             return@flow
         } catch (failure: IllegalStateException) {
-            emit(ApiState.Error(failure.message ?: "POLICY_RESTRICTED: Choose a compatible model in Settings."))
+            emit(preflightError("PRIVACY_CONFIGURATION", "The selected profile could not verify its privacy configuration. Review the provider and model settings before retrying.", "provider_admission", failure, "RETRY_AFTER_CONFIGURATION_CHANGE"))
             emit(ApiState.Done)
             return@flow
         }
@@ -2595,7 +2622,11 @@ class ChatRepositoryImpl(
         val policy = generateSequence(error) { it.cause?.takeUnless { cause -> cause === it } }.take(16)
             .filterIsInstance<dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException>().firstOrNull()
         val localDetails = if (policy == null) {
-            exceptionEvidence
+            if (classified.errorCode == "UNKNOWN") {
+                kotlinx.serialization.json.JsonObject(exceptionEvidence + mapOf("failure_origin" to kotlinx.serialization.json.JsonPrimitive("APPLICATION")))
+            } else {
+                exceptionEvidence
+            }
         } else {
             kotlinx.serialization.json.JsonObject(
                 exceptionEvidence + kotlinx.serialization.json.buildJsonObject {

@@ -57,7 +57,9 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationAttachment
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationSnapshot
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
+import dev.chungjungsoo.gptmobile.data.github.gatewayJobGroup
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailabilityStatus
 import dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedChatState
@@ -350,10 +352,12 @@ private fun GatewayHistoryRow(conversation: GatewayConversationSnapshot, opening
             }
         },
         supportingContent = {
+            val jobGroup = conversation.jobState?.takeIf { live && conversation.activeJobId != null }?.let(::gatewayJobGroup)
             val label = when {
                 opening -> stringResource(R.string.gateway_browser_opening)
-                live && conversation.jobState in setOf("QUEUED", "PENDING") -> "Queued"
-                live && conversation.isWorking() -> "Running"
+                jobGroup == GatewayJobGroup.QUEUED -> "Queued"
+                jobGroup == GatewayJobGroup.RUNNING -> "Running"
+                jobGroup == GatewayJobGroup.NEEDS_ATTENTION -> "Needs attention"
                 !conversation.transcriptAvailable -> stringResource(R.string.gateway_browser_transcript_unavailable)
                 !conversation.historyComplete -> stringResource(R.string.gateway_transcript_history_partial)
                 !live -> stringResource(R.string.gateway_home_saved_history)

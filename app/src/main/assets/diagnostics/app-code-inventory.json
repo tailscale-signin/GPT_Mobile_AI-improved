@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "fcf6559a5941e618875067158b941db891265a101074b472cee34b9e8f4548dc",
+  "source_digest": "d954a6a661530b3b5a83a8ebc7bc9aaf24aa2860f74136b5d31673e076d10655",
   "file_count": 2535,
-  "indexed_line_count": 406156,
+  "indexed_line_count": 406163,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 526,
-      "indexed_line_count": 93562
+      "indexed_line_count": 93566
     },
     {
       "id": "accessibility_and_localization",
@@ -136,7 +136,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 110,
-      "indexed_line_count": 16482
+      "indexed_line_count": 16485
     },
     {
       "id": "auth_and_security",
@@ -3468,8 +3468,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditExport.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "8b6a8d2de549545bda91982c6c6ce766227cc77b95306dc9a260a4ca00d2545c",
-      "indexed_lines": 529
+      "sha256": "69c70b2a42c8bbbfd18cd170a0028a8526dcd77f95f6ee3604165011c58f12f3",
+      "indexed_lines": 532
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditFixtureSource.kt",
@@ -13555,8 +13555,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c71473eb2bd2cc982eaf835972f0c27ec2de055fdce4ccfe3ba7f8ae1a49e80e",
-      "indexed_lines": 377
+      "sha256": "acd4d4d7b32436dacdde4d7df5eadfaad3969a9b0153f07dc9de894b96bb25c0",
+      "indexed_lines": 381
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModel.kt",

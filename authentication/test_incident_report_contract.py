@@ -142,7 +142,7 @@ class IncidentReportContractTest(unittest.TestCase):
             ("ACCEPTANCE", {"fixture_approval_state": "READY", "branch_protection_observation": "ACCESS_DENIED",
                             "branch_rules_observation": "OBSERVED"}),
             ("PROVIDER", {"provider_wait_state": "RESUMED", "provider_wait_terminal_status": "COMPLETED",
-                          "provider_wait_claim_hash": "b" * 64, "provider_wait_checkpoint_hash": "c" * 64}),
+                          "provider_wait_claim_hash": "b" * 64, "provider_wait_checkpoint_hash": "c" * 64, "provider_route_hash": "d" * 64}),
         )
         for area, values in examples:
             with self.subTest(area=area):

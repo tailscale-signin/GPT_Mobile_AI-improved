@@ -179,7 +179,7 @@ class AnthropicAPIImpl @Inject constructor(
                                             type = errorResponse?.error?.type ?: "api_error",
                                             message = errorResponse?.error?.message ?: "HTTP ${observed.status}: $errorBody",
                                             code = typed.code,
-                                            failureDetails = JsonObject(typed.failureDetails.orEmpty() + ProviderRejectionDiagnostics.response(observed.status, errorBody, ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES))
+                                            failureDetails = JsonObject(typed.failureDetails.orEmpty() + ProviderRejectionDiagnostics.response(observed.status, errorBody, ProviderRejectionDiagnostics.Contract.ANTHROPIC_MESSAGES, endpoint))
                                         ).withResponseEvidence(observed, receivedPayload)
                                     )
                                 )

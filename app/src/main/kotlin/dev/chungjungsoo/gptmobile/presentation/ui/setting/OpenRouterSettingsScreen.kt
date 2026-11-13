@@ -317,9 +317,9 @@ private fun OpenRouterRouting(state: OpenRouterWorkspaceState, vm: OpenRouterSet
     val resolved = effective.getOrNull()
     val privacyModel = selectedProfile?.model?.takeIf { resolved?.zdr == true }
     var privacyRefresh by remember { mutableStateOf(0) }
-    var privacyLoading by remember(state.connection?.uid, privacyModel, resolved, privacyRefresh) { mutableStateOf(privacyModel != null) }
-    var privacyCompatible by remember(state.connection?.uid, privacyModel, resolved, privacyRefresh) { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(state.connection?.uid, privacyModel, resolved, privacyRefresh) {
+    var privacyLoading by remember(state.revision, privacyModel, resolved, privacyRefresh) { mutableStateOf(privacyModel != null) }
+    var privacyCompatible by remember(state.revision, privacyModel, resolved, privacyRefresh) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(state.revision, privacyModel, resolved, privacyRefresh) {
         if (privacyModel != null && resolved != null) {
             privacyCompatible = vm.privacyCompatibility(privacyModel, resolved)
             privacyLoading = false

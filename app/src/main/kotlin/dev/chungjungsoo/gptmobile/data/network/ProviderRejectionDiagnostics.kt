@@ -12,7 +12,7 @@ internal object ProviderRejectionDiagnostics {
     enum class Contract { CHAT_COMPLETIONS, ANTHROPIC_MESSAGES, GOOGLE_CONTENT, GATEWAY_GENERATION }
     private val parameters = setOf("model", "messages", "max_tokens", "max_completion_tokens", "temperature", "top_p", "stop", "tools", "tool_choice", "stream", "response_format", "reasoning", "thinking", "metadata", "system")
 
-    fun response(status: Int, body: String, contract: Contract): JsonObject {
+    fun response(status: Int, body: String, contract: Contract, endpoint: String? = null): JsonObject {
         val root = body.takeIf { it.length <= 256 * 1024 }?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
         val error = root?.get("error") as? JsonObject ?: root
         fun text(key: String): String? = (error?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content
@@ -23,7 +23,19 @@ internal object ProviderRejectionDiagnostics {
             text("type") == "invalid_request_error" &&
             text("message")?.startsWith("Your credit balance is too low to access the Anthropic API", ignoreCase = true) == true
         val fields = typed(status, text("type"), text("param") ?: text("parameter"), contract, code)
-        return if (billing) JsonObject(fields + ("provider_rejection_category" to JsonPrimitive("BILLING_UNAVAILABLE"))) else fields
+        if (!billing && status != 410) return fields
+        return JsonObject(
+            fields + buildJsonObject {
+                if (billing) put("provider_rejection_category", "BILLING_UNAVAILABLE")
+                put("retryable", false)
+                put("recovery_action", "RETRY_AFTER_CONFIGURATION_CHANGE")
+                // Hash the route identity without credentials, query parameters or fragments.
+                val route = endpoint?.let { runCatching { java.net.URI(it) }.getOrNull() }
+                if (route != null && route.scheme in setOf("https", "http") && route.host != null) {
+                    put("provider_route_hash", hash("provider.route.v1", "${route.scheme}://${route.host}:${route.port}${route.rawPath.orEmpty()}"))
+                }
+            }
+        )
     }
 
     fun typed(status: Int, errorType: String?, parameter: String? = null, contract: Contract, code: String? = null): JsonObject = buildJsonObject {

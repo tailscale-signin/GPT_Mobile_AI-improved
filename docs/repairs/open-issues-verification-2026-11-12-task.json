@@ -8,7 +8,7 @@
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "open-issues-verification-2026-11-12",
   "checkpoint_storage": "repository_file",
-  "state": "FOLLOWUP_SOURCE_AND_COMPONENT_GATES_PASSED_PUBLISHED_HEAD_ANDROID_PENDING",
+  "state": "FOLLOWUP_VALIDATED_FOR_PUBLICATION_ALL43_REPORTS_CLOSED_FULL_CI_UNQUALIFIED",
   "intent": "Review all open bug reports, including reports arriving during validation; repair reproducible source defects and close only issues with matching resolution evidence.",
   "open_issues_at_start": [
     839,
@@ -154,7 +154,7 @@
     "849": "Matching LLAMA task/invocation/job output allowance, completion usage, finish/output counts, repair attempts and deployed gateway revision; HTTP 200 is not proof of usable completion.",
     "850": "Original LLAMA per-run failure details, terminal notice, invocation receipt and retained exception/cause evidence; generic CHAT_FAILED has no specific causal meaning.",
     "851": "Exact archive run joined: 53 completed receipts, 203 calls remaining and 14 optional continuations; required API coverage and conditional fixture/mutation/cleanup criteria remain unfinished. Claim-scope and stop-reason corrections do not promote acceptance.",
-    "853": "Exact archive run/invocation proves HTTP429, remoteAcceptanceNO and30156ms cooldown without successful live recovery. Confirm the local successful-tool\u2192429\u2192429\u2192success recovery defect with exact-head ownership/no-replay tests; do not equate its repair with upstream throttle recovery.",
+    "853": "Exact archive run/invocation proves HTTP429, remoteAcceptanceNO and30156ms cooldown without successful live recovery. Confirm the local successful-tool→429→429→success recovery defect with exact-head ownership/no-replay tests; do not equate its repair with upstream throttle recovery.",
     "854": "Exact archive run identifies terminal PROVIDER_WAIT_CHECKPOINT_CHANGED. Matching new checkpoint, continuation, ownership and classification tests gate source-defect closure; legacy checkpoints missing journal binding retain reconciliation limits.",
     "855": "Only same-second correlation to RESEARCH_RECOVERY_ACTION_CHANGED is available; no exact run/report identity join. Source guard and stale-summary fixes have independent evidence, but the public incident remains unproven pending an owned capture.",
     "856": "Exact failed acceptance criterion, checkpoint stop/recovery fields and source-bound receipts for run c9f65677; no precise unfinished criterion is published.",
@@ -264,8 +264,8 @@
     879,
     880
   ],
-  "latest_reconciled_published_head": "a08f99e2adbf5a20fd3fafbc7fa3e63ba8b0542b",
-  "state_recorded_at": "2026-11-12T21:58:18Z",
+  "latest_reconciled_published_head": "3e98dcb34f32e943bd0d90d02c75e359e078df4b",
+  "state_recorded_at": "2026-11-13T00:36:13.719500+00:00",
   "closure_candidates_pending_new_android_tests": [
     853,
     854,
@@ -394,7 +394,7 @@
     "849": "Bounded LLAMA completion repair exhausted; matching task and backend attempt/output/usage receipts are missing.",
     "850": "Generic LLAMA chat failure lacks stage, invocation and typed cause; matching saved failure/export needed.",
     "851": "Matching archive establishes partial integration with conditional fixture work. Repair budget, readiness and verification reporting; original unfinished work remains partial.",
-    "853": "Typed numeric429 reporting repaired; matching capture demonstrates failed cooldown wakeups. Await exact-head success\u2192429\u2192429\u2192success regression.",
+    "853": "Typed numeric429 reporting repaired; matching capture demonstrates failed cooldown wakeups. Await exact-head success→429→429→success regression.",
     "854": "Archive run hash matches PROVIDER_WAIT_CHECKPOINT_CHANGED. Repair durable receipt reconciliation and typed current recovery diagnostics; await exact-head regression.",
     "855": "Context-free incident time coincides with archived RESEARCH_RECOVERY_ACTION_CHANGED. Repair demonstrated source path and correlation; do not invent missing report identity.",
     "856": "New incomplete GitHub task is not one of the archive selected runs; matching task/acceptance checkpoint missing.",
@@ -912,5 +912,241 @@
       "host_boundaries": "Actual session/plugin/trace/incident and checked-in test sources; production DeferredKokoroOutput and preview helper extracted verbatim. Explicit Android environment/AtomicFile/model support boundaries are not Android lifecycle or physical audio proof.",
       "overlapping_counts_summed": false
     }
+  },
+  "hosted_validation_checkpoint_2026_11_13": {
+    "kind": "ACTUAL_EXECUTION_WITH_EXPLICIT_GLOBAL_FAILURE",
+    "run_id": 43328429161,
+    "event": "workflow_dispatch",
+    "unit_job_id": 131566717529,
+    "tested_checkout": "a78ffb85d70460e9e0336ed4d64d730b037319cb",
+    "tested_tree": "816d6711bd4b6c1a7eec9dd76a281f3e5c4a1990",
+    "artifact_id": 13995739345,
+    "artifact_bytes": 1557493,
+    "artifact_sha256": "1a3a357ef371abc0662a1de299eec427e5006509b07adc68b13f89747f90bec5",
+    "embedded_checkout_verified": true,
+    "embedded_run_id_verified": true,
+    "app": {
+      "collected": 9926,
+      "passed": 9920,
+      "failed": 1,
+      "skipped": 5
+    },
+    "core": {
+      "collected": 4,
+      "passed": 4,
+      "failed": 0,
+      "skipped": 0
+    },
+    "skipped_scope": "Five separately gated heap tests; not passed in the normal unit job.",
+    "selected_issue_methods": {
+      "853": {
+        "passed": 17,
+        "missing": 0,
+        "skipped": 0
+      },
+      "854": {
+        "passed": 45,
+        "missing": 0,
+        "skipped": 0
+      },
+      "865": {
+        "passed": 41,
+        "missing": 0,
+        "skipped": 0
+      }
+    },
+    "selected_counts_are_not_asserted_unique_across_issues": true,
+    "supplemental_exact_methods": {
+      "passed": 12,
+      "missing": 0,
+      "skipped": 0,
+      "source_class_counts_match": true
+    },
+    "global_result": "FAIL",
+    "junit_failure": "ChatRepositoryImplTest.groq token limit reports failure instead of completing with only thinking",
+    "fixture_corrections": {
+      "groq": "Published concurrently in7e854982; preserve exact event sequence, one call, all12 owned fields and an exact sanitized provider export.",
+      "provider_wait": "The failedDurablePause fixture omitted reconcileTerminalCheckpointSafely in two scenarios. Strictly stub it, await its completion and job removal, and verify exactly one call while retaining all terminal/partial assertions. The old background exceptions remain recorded.",
+      "microphone_factory": "Equivalent independently reviewed lazy permission-guard factory published concurrently in3e98dcb; adopted without replacing its names/placement/inventory. No guard, exception or builder behavior change."
+    },
+    "other_failed_gates": {
+      "android_lint": {
+        "job_id": 131566717540,
+        "error": "MissingPermission at the guarded default AudioRecord factory lambda; no permission guard may be removed."
+      },
+      "manual_format": {
+        "job_id": 131566717572,
+        "error": "Empty manual CHANGE_BASE selected unchanged legacy files. Corrected independently in6f193a55 with11 base-selection regressions; the old run remains failed."
+      }
+    },
+    "coverage": {
+      "available": false,
+      "reason": "INSTRUMENTED_REPORT_NOT_AVAILABLE"
+    },
+    "audit_promotions": {
+      "new_claims": 0,
+      "new_tasks": 0,
+      "pass": 11,
+      "not_run": 99,
+      "partial_component_evidence_sets": 17
+    },
+    "source_transfer_limit": "Required production sources stayed identical through7e854982; source equivalence supports only the named recovery and queued-model regressions, not a current whole-tree, later microphone, gateway matrix, or aggregate CI pass.",
+    "later_geniex": {
+      "run_id": 43332411779,
+      "job_id": 131580108915,
+      "source_commit": "6f193a55b73696bbf1d6adfdef9681d397d798af",
+      "tested_merge": "c947ca6798b2a9527c0040783acba6232e080cbc",
+      "artifact_id": 13996044281,
+      "artifact_sha256": "ac258b27893f87b19fe0b6bf3a426a366f598dd0f0092041d792b5f73c077543",
+      "app_collected": 9927,
+      "app_passed": 9921,
+      "app_failed": 1,
+      "app_skipped": 5,
+      "global_result": "FAIL",
+      "android_voice_capture_methods_passed": 16,
+      "limit": "Actual JVM/Robolectric GenieX variant; later read-path diagnostics and physical device/JNI behavior are not established."
+    },
+    "issue_inventory_at_last_read": {
+      "recorded_at": "2026-11-13T00:12:24Z",
+      "examined_reports": 43,
+      "closed": 40,
+      "open": [
+        853,
+        854,
+        865
+      ],
+      "concurrent_closures": 30,
+      "concurrent_closure_limit": "Preserve their scoped historical uncertainty and unfinished acceptance requirements; these closures do not prove every original incident cause."
+    },
+    "current_followup_execution": "Final host495PASS; journal14PASS with50target repeats and unsafeearlyguardnegativecontrol. Corrected Android fixtures/lint remain pending fresh hosted execution.",
+    "merge_or_deployment_performed": false,
+    "physical_device_qualification": "NOT_MEASURED",
+    "followup_local_validation": {
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASS",
+      "tests": 495,
+      "log_sha256": "cb55034ebd5e79ad1d29d759f0b2724efcf8868e07f418216aaac313a80ad57c",
+      "source_hashes_unchanged_during_execution": true,
+      "formatting": {
+        "tool": "ktlint1.3.1",
+        "changed_kotlin_files": 3,
+        "result": "PASS"
+      },
+      "source_inventory_files": 2517,
+      "source_inventory_areas": 26,
+      "independent_review": "PASS; strict cleanup mock ownership, lazy guarded recorder factory and inherited worker-test isolation reviewed.",
+      "qualification": "Host result is bound to the archived equivalent local helper before adopting3e98. A final gate will follow the cancellation fixture repair; neither host gate executes Android lint."
+    },
+    "closure_scope_review": "All43 reports are now closed according to fresh GitHub readback. Preserve a78 issue regressions17/45/41, later6f17/44-of45/41, current14-method portable journal proof, and the unfinished current Android gates independently.",
+    "later_canonical": {
+      "run_id": 43332411647,
+      "unit_job_id": 131581449922,
+      "source_commit": "6f193a55b73696bbf1d6adfdef9681d397d798af",
+      "tested_merge": "c947ca6798b2a9527c0040783acba6232e080cbc",
+      "artifact_id": 13996994299,
+      "artifact_bytes": 1560380,
+      "artifact_sha256": "54af03efde5d883214b89d14407bfb18382af499c6974e9741379576539c5f3c",
+      "embedded_checkout_and_run_verified": true,
+      "app": {
+        "collected": 9927,
+        "passed": 9920,
+        "failed": 2,
+        "skipped": 5
+      },
+      "core": {
+        "collected": 4,
+        "passed": 4,
+        "failed": 0,
+        "skipped": 0
+      },
+      "global_result": "FAIL",
+      "required_selected": {
+        "853": {
+          "passed": 17,
+          "failed": 0
+        },
+        "854": {
+          "passed": 44,
+          "failed": 1
+        },
+        "865": {
+          "passed": 41,
+          "failed": 0
+        }
+      },
+      "additional_failure": "GitHubProviderJournalRecoveryTest.cancellationAtTheFinalIoReturnLeavesTheProviderRestoreGuardArmed",
+      "observed_boundary": "The checkpoint did not return to its parent dispatcher;10second fixture queue timeout before final cancellation.",
+      "disposition": "Retain the failed required cancellation fixture as contradictory actual evidence. Concurrent scoped closure is not used to discard it. The follow-up corrects its invalid fixed-return assumption and validates the cancellation fence with targeted execution and a negative control."
+    },
+    "cancellation_fixture_repair": {
+      "test": "GitHubProviderJournalRecoveryTest.cancellationAtTheFinalIoReturnLeavesTheProviderRestoreGuardArmed",
+      "test_source_sha256": "d331fa75aabda2b15255cea02fad5c6a75513919a841b2847fcdcbf824be06e9",
+      "change": "Test-only worker-entry handshake guarantees actual IO, Default, final IO suspension before each return. Preserve10second waits, final-return cancellation, changed-journal refusal, no-write assertion and cleanup.",
+      "repository_production_changed": false,
+      "current_portable_suite": {
+        "passed": 14,
+        "failed": 0
+      },
+      "current_target_repetitions": {
+        "passed": 50,
+        "failed": 0
+      },
+      "original_portable_suite": {
+        "passed": 14,
+        "failed": 0
+      },
+      "original_target_repetitions": {
+        "passed": 50,
+        "failed": 0
+      },
+      "original_ci_timing_failure_reproduced_locally": false,
+      "unsafe_early_guard_release_control": {
+        "isolated_copy_only": true,
+        "passed": 13,
+        "failed": 1,
+        "only_failure": "cancellationAtTheFinalIoReturnLeavesTheProviderRestoreGuardArmed",
+        "assertion": "expected PROVIDER_WAIT_CHECKPOINT_CHANGED; actual null"
+      },
+      "source_inputs_verified": 19,
+      "coroutines_version": "1.11.0",
+      "coroutines_jar_sha256": "d1d75aa01dffbb4d1c520e67e4c4e7f5f6174718e7cb4632412503f2f0e604fa",
+      "proof_sha256": "5b06ee2c93f822dcd25b025616468153f2a6f98e491c29560fc6734497dcb505",
+      "limit": "Actual current Kotlin test/checkpoint bodies with Robolectric annotations omitted and the preserved portable AtomicFile boundary. No fresh Android/Room/instrumentation pass. Hosted log does not identify which return was elided or delayed."
+    },
+    "final_local_validation": {
+      "base_head": "3e98dcb34f32e943bd0d90d02c75e359e078df4b",
+      "command": "bash scripts/validate-local.sh fast",
+      "tests": 495,
+      "result": "PASS",
+      "source_hashes_unchanged": true,
+      "log_sha256": "cf2e637eb9e774d52502d68b3acdeb9d9d891b20496660d822241a7bf500cfb9",
+      "pinned_ktlint": "PASS on both changed Kotlin test files",
+      "independent_review": "PASS on cleanup lifecycle, deterministic worker handoff and equivalent published lint factory",
+      "scope": "Host gate; not Android lint or a current whole-CI aggregate."
+    }
+  },
+  "final_issue_inventory": {
+    "recorded_at": "2026-11-13T00:36:13.719500+00:00",
+    "query": "GET /repos/tailscale-signin/GPT_Mobile_AI-improved/issues?state=open&per_page=100",
+    "returned_items": 2,
+    "pull_requests_excluded": [
+      838,
+      881
+    ],
+    "open_issues": [],
+    "reviewed_issue_count": 43,
+    "closed_issue_count": 43,
+    "last_three_closed_concurrently": {
+      "853": "2026-11-13T00:28:19Z",
+      "854": "2026-11-13T00:28:23Z",
+      "865": "2026-11-13T00:28:27Z"
+    },
+    "closure_comments": [
+      6840047843,
+      6840048855,
+      6840049833
+    ],
+    "this_followup_repeated_no_closure_mutation": true,
+    "limit": "Issue state is not a whole-CI, historical-cause or device qualification. Earlier scoped closure evidence and later contradictory test results are both retained."
   }
 }

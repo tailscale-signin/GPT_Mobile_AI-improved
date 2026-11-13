@@ -5,10 +5,15 @@ import dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.ContinuationInterceptor
 import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ThreadContextElement
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
@@ -568,15 +573,37 @@ class GitHubProviderJournalRecoveryTest {
                 }
             }
             fun nextReturn() = checkNotNull(returns.poll(10, TimeUnit.SECONDS)) { "The checkpoint did not return to its parent dispatcher." }
+            val workerEntries = LinkedBlockingQueue<ContinuationInterceptor>()
+            val workerPermits = Semaphore(0)
+            val closing = AtomicBoolean(false)
+            val workerGate = object : ThreadContextElement<Unit> {
+                override val key = object : CoroutineContext.Key<ThreadContextElement<Unit>> {}
+                override fun updateThreadContext(context: CoroutineContext) {
+                    val dispatcher = context[ContinuationInterceptor]
+                    if (!closing.get() && (dispatcher === Dispatchers.IO || dispatcher === Dispatchers.Default)) {
+                        workerEntries.add(dispatcher)
+                        workerPermits.acquireUninterruptibly()
+                    }
+                }
+                override fun restoreThreadContext(context: CoroutineContext, oldState: Unit) = Unit
+            }
+            fun completeWorkerAfterParentSuspends(dispatcher: CoroutineDispatcher) {
+                nextReturn().run()
+                assertEquals(dispatcher, workerEntries.poll(10, TimeUnit.SECONDS))
+                workerPermits.release()
+            }
             var snapshotDelivered = false
-            val restoration = CoroutineScope(parent).launch {
+            val restoration = CoroutineScope(parent + workerGate).launch {
                 guarded.recoverySnapshot()
                 snapshotDelivered = true
             }
             try {
-                // Run the launch, first IO return, and completed snapshot return.
-                // The fourth queued dispatch follows the final locked recheck.
-                repeat(3) { nextReturn().run() }
+                // Fast withContext work may finish before its parent suspends and
+                // omit a return dispatch. Hold each real worker until that parent
+                // turn has returned, then release IO, snapshot parsing, and recheck.
+                completeWorkerAfterParentSuspends(Dispatchers.IO)
+                completeWorkerAfterParentSuspends(Dispatchers.Default)
+                completeWorkerAfterParentSuspends(Dispatchers.IO)
                 val finalReturn = nextReturn()
                 restoration.cancel()
                 finalReturn.run()
@@ -598,7 +625,12 @@ class GitHubProviderJournalRecoveryTest {
                 )
                 assertEquals(0, mutations)
             } finally {
+                // A worker racing cleanup either sees closing or consumes this
+                // permit; it cannot remain blocked after an assertion failure.
+                closing.set(true)
+                workerPermits.release()
                 restoration.cancel()
+                while (!restoration.isCompleted) nextReturn().run()
                 while (true) (returns.poll() ?: break).run()
             }
         } finally {

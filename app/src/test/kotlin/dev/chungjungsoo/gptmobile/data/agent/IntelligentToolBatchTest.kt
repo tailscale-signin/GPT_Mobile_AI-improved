@@ -78,6 +78,28 @@ class IntelligentToolBatchTest {
         assertTrue(results.drop(1).all { it.executionReceipt?.get("dependency_failed_count") == kotlinx.serialization.json.JsonPrimitive(1) })
     }
 
+    @Test fun catalogDiscoveryRunsAfterAnUnrelatedPermissionRejection() = runTest {
+        val calls = listOf(call("location", "device_location"), call("discovery", ProgressiveToolCatalog.NAME))
+        val tools = calls.map { tool(it.name) }.associateBy { it.definition.name }
+        val dispatched = mutableListOf<String>()
+        val results = IntelligentToolBatch(AdaptiveBatchWindow(2)).execute(
+            planIntelligentBatch(calls, tools),
+            dispatch = {
+                dispatched += it.callId
+                if (it.callId == "location") {
+                    ToolResultEnvelope.error(it.callId, "PERMISSION_DENIED", "Permission missing")
+                } else {
+                    AgentToolResult(it.callId, ToolResultContent.Text("catalog"), false)
+                }
+            },
+            completed = { _, _ -> },
+            progress = {}
+        )
+        assertEquals(listOf("location", "discovery"), dispatched)
+        assertEquals("PERMISSION_DENIED", results.first().errorCode)
+        assertFalse(results.last().isError)
+    }
+
     @Test fun restoredFailedReadBlocksQueuedDependentWithoutReemittingItsReceipt() = runTest {
         val read = call("read")
         val write = call("write", "github_commit")

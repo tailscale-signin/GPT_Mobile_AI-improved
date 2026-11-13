@@ -51,6 +51,9 @@ class DeviceLocationToolTest {
         val result = tool.execute(callId = "call-1", arguments = JsonObject(emptyMap()))
 
         assertEquals("call-1", result.callId)
+        assertEquals("PERMISSION_DENIED", result.errorCode)
+        assertFalse(result.dispatched)
+        io.mockk.coVerify(exactly = 0) { locationProvider.getCurrentLocation(any()) }
         assertTrue(result.isError)
         assertTrue(result.content is ToolResultContent.Text)
         val message = (result.content as ToolResultContent.Text).text

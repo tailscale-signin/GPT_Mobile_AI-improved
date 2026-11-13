@@ -11,9 +11,15 @@ import kotlinx.serialization.json.put
 
 /** The task binding includes connection/account authority; resource and revision fields remain exact. */
 internal object GitHubActionIdentity {
+    val prListDefaults = setOf("owner", "repo", "state", "page", "per_page", "response_detail")
+
     /** Match the native facade default before tracing, deduplication and receipt binding. */
     fun canonicalArguments(tool: String, arguments: JsonObject): JsonObject {
-        if (tool.substringBefore("__") != "github_ci" || "view_cursor" in arguments) return arguments
+        val operation = tool.substringBefore("__")
+        if (operation == "github_pr" && arguments.keys.all { it in prListDefaults }) {
+            return JsonObject(arguments + ("action" to JsonPrimitive("list")))
+        }
+        if (operation != "github_ci" || "view_cursor" in arguments) return arguments
         val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString }?.content
         // Invalid non-string values remain invalid; normalization cannot bypass schema validation.
         if (arguments.containsKey("action") && action == null) return arguments

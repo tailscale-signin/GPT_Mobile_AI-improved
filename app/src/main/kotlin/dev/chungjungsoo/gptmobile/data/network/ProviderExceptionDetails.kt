@@ -7,6 +7,20 @@ import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
 internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, nowMillis: Long = System.currentTimeMillis()): ErrorDetail? {
+    if (error is dev.chungjungsoo.gptmobile.data.agent.CombinedBudgetExceeded && !partialOutput) {
+        return ErrorDetail(
+            message = "The Combined turn could not admit another provider attempt within its saved limits.",
+            type = "local_admission",
+            code = "BUDGET_RESTRICTED",
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("failed_stage", "provider_admission")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("request_replay_allowed", false)
+                put("provider_local_budget_block", true)
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.context.RequestCapacityException) {
         return ErrorDetail(
             message = requireNotNull(error.message),
@@ -190,6 +204,14 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 put("retryable", false)
                 put("repair", "CHECK_CONNECTION")
                 put("partial_output_preserved", partialOutput)
+                put(
+                    "reasoning_probe_observation",
+                    when {
+                        error.gatewayFailure != null -> "GATEWAY_OBSERVATION_AVAILABLE"
+                        error.code == "REASONING_CAPABILITY_TIMEOUT" -> "DEADLINE_WITHOUT_GATEWAY_OBSERVATION"
+                        else -> "NO_GATEWAY_OBSERVATION"
+                    }
+                )
                 error.gatewayFailure?.failureFields()?.forEach { (name, value) -> put(name, value) }
             }
         )

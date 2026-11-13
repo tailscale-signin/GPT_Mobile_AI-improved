@@ -54,6 +54,11 @@ internal object IssueReportIncidentCapsule {
     private val policyCounts = setOf("changed_policy_field_count", "changed_policy_unknown_count", "changed_policy_malformed_count", "changed_policy_omitted_count")
     val policyDiagnostics = policyCounts + setOf("changed_policy_fields", "changed_policy_observation")
     private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
+    val toolFailureFields = setOf("tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
+    val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
+    val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection")
+    val combinedDeliveryFields = setOf("combined_requirement_gap", "combined_issue_count")
+    val acceptanceBlockerFields = setOf("fixture_approval_blocked_count", "owned_fixture_blocked_count", "pending_local_fragments", "pending_remote_continuations")
     private val toolFields = setOf(
         "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count",
         "argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types", "resolved_argument_shape_hash",
@@ -71,12 +76,13 @@ internal object IssueReportIncidentCapsule {
         "provider_rejection_category", "provider_error_type_hash", "provider_parameter", "provider_parameter_path_hash", "payload_contract",
         "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count",
         "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "privacy_metadata_age_ms", "privacy_blockers"
-    )
+    ) + gatewayDeliveryFields + providerExecutionFields
     private val voiceFields = setOf("run_id_hash", "invocation_id_hash", "voice_reply_failed", "voice_reply_terminal_status", "voice_reply_failure_evidence", "voice_chat_failure_code", "voice_chat_failure_code_hash", "voice_chat_failure_phase")
     private val hashes = setOf("causal_id_hash", "action_schema_generation_hash", "resolved_argument_shape_hash", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_restore_error_hash", "server_request_id_hash", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash", "argument_repair_signature_hash", "provider_error_type_hash", "provider_parameter_path_hash", "voice_chat_failure_code_hash", "mcp_connection_hash", "search_id_hash", "search_cursor_hash")
     private val hashLists = setOf("validation_path_hashes", "unknown_field_hashes", "evidence_ref_hashes", "exception_type_hashes", "dependency_call_id_hashes")
-    private val flags = setOf("saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required")
+    private val flags = setOf("tls_response_started", "provider_local_budget_block", "saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required")
     private val counts = setOf("recovery_attempt_count", "unknown_field_count", "eligible_receipt_count", "excluded_receipt_count", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count", "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count", "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "dependency_count", "dependency_failed_count") + policyCounts
+    private val executionCounts = setOf("tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "combined_issue_count") + acceptanceBlockerFields
     private val types = setOf("STRING", "NUMBER", "BOOLEAN", "OBJECT", "ARRAY", "NULL")
     private val mcpHealth = setOf("DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "TLS_FAILED", "CONNECT_TIMEOUT", "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT", "HEALTHY", "UNKNOWN")
     private val enums = mapOf(
@@ -94,7 +100,7 @@ internal object IssueReportIncidentCapsule {
         "retry_delay_source" to setOf("PROVIDER_HEADER", "PROVIDER_BODY", "LOCAL_BACKOFF", "UNKNOWN"),
         "recovery_authority" to setOf("VALID", "CHANGED", "UNVERIFIED"),
         "receipt_count_scope" to setOf("LINKED_CRITERION_EVIDENCE"),
-        "provider_rejection_category" to setOf("INVALID_REQUEST", "AUTHENTICATION", "PERMISSION", "RATE_LIMIT", "NOT_FOUND", "GONE", "UNAVAILABLE", "PAYLOAD_SIZE", "MODEL_UNAVAILABLE", "UNKNOWN"),
+        "provider_rejection_category" to setOf("BILLING_UNAVAILABLE", "INVALID_REQUEST", "AUTHENTICATION", "PERMISSION", "RATE_LIMIT", "NOT_FOUND", "GONE", "UNAVAILABLE", "PAYLOAD_SIZE", "MODEL_UNAVAILABLE", "UNKNOWN"),
         "provider_parameter" to setOf("model", "messages", "max_tokens", "max_completion_tokens", "temperature", "top_p", "stop", "tools", "tool_choice", "stream", "response_format", "reasoning", "thinking", "metadata", "system"),
         "payload_contract" to setOf("CHAT_COMPLETIONS", "ANTHROPIC_MESSAGES", "GOOGLE_CONTENT", "GATEWAY_GENERATION"),
         "voice_reply_terminal_status" to setOf("COMPLETED", "FAILED", "CANCELED", "INTERRUPTED", "PARTIAL", "EVIDENCE_MISSING", "BLOCKED", "WAITING_FOR_APPROVAL"),
@@ -111,6 +117,16 @@ internal object IssueReportIncidentCapsule {
         "mcp_readiness_state" to setOf("NOT_DISCOVERED", "DISCOVERING", "READY", "STALE"),
         "mcp_health_observation" to setOf("RETAINED_SNAPSHOT", "UNAVAILABLE"),
         "native_dependency_state" to setOf("DEFERRED", "FAILED"),
+        "tool_execution_observation" to setOf("REMOTE_READ_SUCCEEDED"),
+        "tool_budget_kind" to setOf("CALLS", "RESULT_BYTES", "BOTH"),
+        "tool_budget_phase" to setOf("BEFORE_DISPATCH", "AFTER_DISPATCH"),
+        "tool_permission_scope" to setOf("ANDROID_LOCATION", "GITHUB_LOCAL_GRANT"),
+        "tls_failure_kind" to setOf("CERTIFICATE", "PROTOCOL", "HANDSHAKE", "OTHER"),
+        "provider_tool_rejection" to setOf("TOOL_USE_FAILED"),
+        "reasoning_probe_observation" to setOf("GATEWAY_OBSERVATION_AVAILABLE", "DEADLINE_WITHOUT_GATEWAY_OBSERVATION", "NO_GATEWAY_OBSERVATION"),
+        "gateway_terminal_status" to setOf("completed", "failed", "cancelled", "canceled", "interrupted"),
+        "gateway_result_quality" to setOf("complete", "partial"),
+        "combined_requirement_gap" to setOf("CURRENT_ARTICLE", "LENGTH", "TOPIC", "OTHER"),
         "search_cursor_state" to setOf("RETAINED_SEARCH_MISSING", "PAGE_BOUNDARY_UNOBSERVED"),
         "expected_operation" to IssueReportContext.operations,
         "expected_action" to actions,
@@ -147,8 +163,9 @@ internal object IssueReportIncidentCapsule {
     }
 
     fun fieldsFor(area: String): Set<String> = common + when (area) {
-        "TOOL" -> toolFields
-        "ACCEPTANCE" -> acceptanceFields
+        "TOOL" -> toolFields + toolFailureFields
+        "INCIDENT" -> combinedDeliveryFields
+        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields
         "GATEWAY" -> gatewayFields
         "PROVIDER" -> providerFields
         "VOICE" -> voiceFields
@@ -171,7 +188,7 @@ internal object IssueReportIncidentCapsule {
             "retry_delay_ms", "privacy_metadata_age_ms", "mcp_health_age_ms" -> 0L..86_400_000L
             "tool_contract_version" -> 1L..1000L
             "argument_repair_attempt" -> 1L..3L
-            in counts -> 0L..16_000_000L
+            in counts, in executionCounts -> 0L..16_000_000L
             else -> return null
         }
         return number.takeIf { it in range }?.let(::JsonPrimitive)
@@ -182,7 +199,15 @@ internal object IssueReportIncidentCapsule {
         val types = values["${prefix}_field_types"] as? JsonArray
         names == null && types == null || names != null && types != null && names.size == types.size
     } &&
-        policyAligned(values)
+        policyAligned(values) &&
+        executionCountsAligned(values, "tool_result_bytes_used", "tool_result_bytes_limit") &&
+        executionCountsAligned(values, "tool_budget_calls_used", "tool_budget_calls_limit")
+
+    private fun executionCountsAligned(values: Map<String, JsonElement>, used: String, limit: String): Boolean {
+        val observed = (values[used] as? JsonPrimitive)?.longOrNull ?: return true
+        val maximum = (values[limit] as? JsonPrimitive)?.longOrNull ?: return true
+        return observed <= maximum
+    }
 
     private fun policyAligned(values: Map<String, JsonElement>): Boolean {
         if (policyDiagnostics.none { it in values }) return true

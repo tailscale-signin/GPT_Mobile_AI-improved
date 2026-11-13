@@ -238,6 +238,8 @@ COMMON = {
 } | POLICY_DIAGNOSTICS
 
 TOOL_FIELDS = {
+    'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
+    'tool_budget_calls_used', 'tool_budget_calls_limit', 'tool_permission_scope',
     'native_dependency_state', 'dependency_call_id_hashes', 'dependency_count', 'dependency_failed_count', 'search_cursor_state', 'search_id_hash', 'search_cursor_hash',
     'mcp_connection_hash', 'mcp_failure_phase', 'mcp_failure_category', 'mcp_connection_state', 'mcp_readiness_state', 'mcp_connection_health', 'mcp_health_observation', 'mcp_health_age_ms',
     'saved_view_restore_state', 'saved_view_restore_error_hash',
@@ -267,6 +269,7 @@ TOOL_FIELDS = {
     'validation_path_hashes',
 }
 
+ACCEPTANCE_BLOCKER_FIELDS = {'fixture_approval_blocked_count', 'owned_fixture_blocked_count', 'pending_local_fragments', 'pending_remote_continuations'}
 ACCEPTANCE_FIELDS = {
     'receipt_count_scope',
     'acceptance_evaluator_branch',
@@ -284,7 +287,8 @@ ACCEPTANCE_FIELDS = {
     'verified_capability_count',
 }
 
-PROVIDER_FIELDS = {'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
+COMBINED_FIELDS = {'combined_requirement_gap', 'combined_issue_count'}
+PROVIDER_FIELDS = {'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
 VOICE_FIELDS = {'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase'}
 
 GATEWAY_FIELDS = {
@@ -322,6 +326,7 @@ HASH_LISTS = {
 }
 
 FLAGS = {
+    'tls_response_started', 'provider_local_budget_block',
     'dispatch_policy_resume_required',
     'voice_reply_failed',
     'argument_repair_exhausted',
@@ -331,6 +336,7 @@ FLAGS = {
 }
 
 COUNTS = {
+    'tool_result_bytes_used', 'tool_result_bytes_limit', 'tool_budget_calls_used', 'tool_budget_calls_limit', 'combined_issue_count',
     'dependency_count', 'dependency_failed_count',
     'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count',
     'blocked_capability_count',
@@ -341,7 +347,7 @@ COUNTS = {
     'unknown_field_count',
     'untested_capability_count',
     'verified_capability_count',
-} | POLICY_COUNTS
+} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS
 
 TYPES = {
     'ARRAY',
@@ -448,6 +454,16 @@ ENUMS = {
     'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'OPENAI_ADAPTER_STREAM_CATCH'},
     'incident_phase_provenance': {'CAPTURE_BOUNDARY_ONLY'},
     'native_dependency_state': {'DEFERRED', 'FAILED'},
+    'tool_execution_observation': {'REMOTE_READ_SUCCEEDED'},
+    'tool_budget_kind': {'CALLS', 'RESULT_BYTES', 'BOTH'},
+    'tool_budget_phase': {'BEFORE_DISPATCH', 'AFTER_DISPATCH'},
+    'tool_permission_scope': {'ANDROID_LOCATION', 'GITHUB_LOCAL_GRANT'},
+    'tls_failure_kind': {'CERTIFICATE', 'PROTOCOL', 'HANDSHAKE', 'OTHER'},
+    'provider_tool_rejection': {'TOOL_USE_FAILED'},
+    'reasoning_probe_observation': {'GATEWAY_OBSERVATION_AVAILABLE', 'DEADLINE_WITHOUT_GATEWAY_OBSERVATION', 'NO_GATEWAY_OBSERVATION'},
+    'gateway_terminal_status': {'completed', 'failed', 'cancelled', 'canceled', 'interrupted'},
+    'gateway_result_quality': {'complete', 'partial'},
+    'combined_requirement_gap': {'CURRENT_ARTICLE', 'LENGTH', 'TOPIC', 'OTHER'},
     'search_cursor_state': {'RETAINED_SEARCH_MISSING', 'PAGE_BOUNDARY_UNOBSERVED'},
     'mcp_failure_phase': {'configuration', 'catalog', 'discovery', 'initialization', 'execution', 'connection', 'dns', 'tls', 'oauth_refresh', 'local_validation'},
     'mcp_failure_category': MCP_HEALTH - {'HEALTHY'},
@@ -456,7 +472,7 @@ ENUMS = {
     'mcp_readiness_state': {'NOT_DISCOVERED', 'DISCOVERING', 'READY', 'STALE'},
     'mcp_health_observation': {'RETAINED_SNAPSHOT', 'UNAVAILABLE'},
     'saved_view_restore_state': {'NOT_FOUND', 'LOAD_FAILED', 'IDENTITY_REJECTED', 'RESTORED'},
-    'provider_rejection_category': {'INVALID_REQUEST', 'AUTHENTICATION', 'PERMISSION', 'RATE_LIMIT', 'NOT_FOUND', 'GONE', 'UNAVAILABLE', 'PAYLOAD_SIZE', 'MODEL_UNAVAILABLE', 'UNKNOWN'},
+    'provider_rejection_category': {'BILLING_UNAVAILABLE', 'INVALID_REQUEST', 'AUTHENTICATION', 'PERMISSION', 'RATE_LIMIT', 'NOT_FOUND', 'GONE', 'UNAVAILABLE', 'PAYLOAD_SIZE', 'MODEL_UNAVAILABLE', 'UNKNOWN'},
     'provider_parameter': {'model', 'messages', 'max_tokens', 'max_completion_tokens', 'temperature', 'top_p', 'stop', 'tools', 'tool_choice', 'stream', 'response_format', 'reasoning', 'thinking', 'metadata', 'system'},
     'payload_contract': {'CHAT_COMPLETIONS', 'ANTHROPIC_MESSAGES', 'GOOGLE_CONTENT', 'GATEWAY_GENERATION'},
     'voice_reply_terminal_status': {'COMPLETED', 'FAILED', 'CANCELED', 'INTERRUPTED', 'PARTIAL', 'EVIDENCE_MISSING', 'BLOCKED', 'WAITING_FOR_APPROVAL'},
@@ -499,7 +515,7 @@ ENUM_LISTS = {
 
 
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS, 'ACCEPTANCE': ACCEPTANCE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
@@ -528,6 +544,9 @@ def valid_value(key, value):
 
 
 def aligned(values):
+    for used, limit in (('tool_result_bytes_used', 'tool_result_bytes_limit'), ('tool_budget_calls_used', 'tool_budget_calls_limit')):
+        if used in values and limit in values and values[used] > values[limit]:
+            return False
     for prefix in ('argument', 'resolved_argument'):
         names, types = values.get(prefix + '_field_names'), values.get(prefix + '_field_types')
         if (names is None) != (types is None) or names is not None and len(names) != len(types):

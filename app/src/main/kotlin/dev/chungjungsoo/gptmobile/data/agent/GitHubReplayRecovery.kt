@@ -44,7 +44,14 @@ internal object GitHubReplayRecovery {
         val calls = exchanges.flatMap { it.calls }
         if (calls.count { it.callId.startsWith("remote-result-consume-") } >= 32) return null
         fun canonical(name: String, args: JsonObject) = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(name, args)
-        fun scope(args: JsonObject) = JsonObject((args - "page") + ("per_page" to (args["per_page"] ?: JsonPrimitive(30))))
+        fun scope(args: JsonObject): JsonObject {
+            val normalized = (args - "page").toMutableMap()
+            normalized.putIfAbsent("per_page", JsonPrimitive(30))
+            for (key in listOf("owner", "repo")) {
+                (args[key] as? JsonPrimitive)?.takeIf { it.isString }?.let { normalized[key] = JsonPrimitive(it.content.lowercase(java.util.Locale.ROOT)) }
+            }
+            return JsonObject(normalized)
+        }
         for (exchange in exchanges.asReversed()) {
             for (result in exchange.results.asReversed()) {
                 if (result.isError) continue
@@ -55,12 +62,13 @@ internal object GitHubReplayRecovery {
                 val recipes = listOfNotNull(source?.get("continuation_call") as? JsonObject) +
                     listOf(source?.get("remote_continuations"), result.executionReceipt?.get("retained_remote_continuations"))
                         .flatMap { (it as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it["call"] as? JsonObject }
+                val bound = workflowScope(original, result.executionReceipt)
                 for (recipe in recipes) {
                     val name = (recipe["tool"] as? JsonPrimitive)?.content ?: continue
                     val args = (recipe["arguments"] as? JsonObject)?.let { canonical(name, it) } ?: continue
                     val page = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: continue
                     val priorPage = (original["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
-                    if (name != issuer.name || page != priorPage + 1 || scope(args) != scope(original) || "view_cursor" in args) continue
+                    if (name != issuer.name || page != priorPage + 1 || scope(args) != scope(bound) || "view_cursor" in args) continue
                     val tool = tools.firstOrNull { it.name == name && it.modelVisible } ?: continue
                     if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty() ||
                         state?.hasRemoteRead(name, args) == true ||
@@ -74,6 +82,24 @@ internal object GitHubReplayRecovery {
             }
         }
         return null
+    }
+
+    private fun workflowScope(original: JsonObject, receipt: JsonObject?): JsonObject {
+        if (receipt?.get("schema") != JsonPrimitive("github.dispatch.v1")) return original
+        val resolved = receipt["resolved_arguments"] as? JsonObject ?: return original
+        val resource = receipt["resource_context"] as? JsonObject ?: return original
+        if (resolved["action"] != JsonPrimitive("list_workflows")) return original
+        val defaults = buildMap {
+            for (key in listOf("owner", "repo", "ref")) {
+                if (key in original) continue
+                val selected = resource[if (key == "ref") "selected_ref" else key] as? JsonPrimitive ?: continue
+                val actual = resolved[key] ?: selected.takeIf { key == "ref" }
+                val value = (actual as? JsonPrimitive)?.takeIf { it.isString } ?: continue
+                val matches = if (key == "ref") value.content == selected.content else value.content.equals(selected.content, ignoreCase = true)
+                if (matches) put(key, value)
+            }
+        }
+        return JsonObject(original + defaults)
     }
 
     private fun remoteReadKey(name: String, args: JsonObject): String {

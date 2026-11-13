@@ -29,6 +29,7 @@ FEATURES = {"app": "App", "chat": "Chat", "voice": "Voice Chat", "gateway": "Gat
 ERROR_CODES = {
     "APP_ERROR",
     "CHAT_FAILED",
+    "COMBINED_REQUIREMENTS_UNMET",
     "REVIEW_INPUT_REQUIRED",
     "GITHUB_REVIEW_COMPARISON_REQUIRED",
     "PRIVACY_CONFIGURATION",

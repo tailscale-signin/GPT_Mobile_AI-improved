@@ -12,6 +12,9 @@ import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** One budget per user turn, shared by every bound tool, including the native engine bridge. */
 class ToolExecutionBudget(
@@ -540,12 +543,28 @@ class ToolExecutionBudget(
         // and a zero payload allowance must still let the model finish the turn.
         if (available == 0) {
             val message = outputBudgetMessage()
+            val receipt = result.executionReceipt
+            val observedRead = !result.isError &&
+                result.dispatched &&
+                receipt?.get("schema") == JsonPrimitive("github.dispatch.v1") &&
+                receipt["phase"] == JsonPrimitive("OBSERVED") &&
+                receipt["parent_result_successful"] == JsonPrimitive(true) &&
+                receipt["mutation_requests"] == JsonPrimitive(0)
+            val summary = if (observedRead) {
+                buildJsonObject {
+                    put("schema", "github.evidence-summary.v1")
+                    put("message", message)
+                    put("result_delivery", "WITHHELD_BY_RESULT_BUDGET")
+                }
+            } else {
+                null
+            }
             return withBudgetState(
                 result.copy(
-                    content = ToolResultContent.Text(message),
+                    content = summary?.let { ToolResultContent.Json(it) } ?: ToolResultContent.Text(message),
                     retainedContent = result.retainedContent ?: result.content,
                     traceContent = ToolResultContent.Text(message),
-                    isError = true,
+                    isError = !observedRead,
                     outputBudgetExhausted = true,
                     toolCallBudgetExhausted = result.toolCallBudgetExhausted || callBudgetIsExhausted()
                 )

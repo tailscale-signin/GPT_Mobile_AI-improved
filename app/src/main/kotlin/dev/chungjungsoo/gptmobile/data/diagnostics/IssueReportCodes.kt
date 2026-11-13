@@ -5,6 +5,7 @@ internal object IssueReportCodes {
     val allowed = setOf(
         "APP_ERROR",
         "CHAT_FAILED",
+        "COMBINED_REQUIREMENTS_UNMET",
         "REVIEW_INPUT_REQUIRED",
         "GITHUB_REVIEW_COMPARISON_REQUIRED",
         "PRIVACY_CONFIGURATION",
@@ -246,6 +247,8 @@ internal object IssueReportCodes {
 
     /** Reporting aliases only; the original tool receipt remains authoritative for recovery. */
     fun toolResult(code: String?): String? = when (code) {
+        "BUDGET_EXHAUSTED" -> "BUDGET_RESTRICTED"
+        "DEPENDENCY_FAILED", "DEPENDENCY_DEFERRED" -> "TOOL_FAILURE"
         "GITHUB_PR_VALIDATION_FAILED" -> "GITHUB_VALIDATION_FAILED"
         "GITHUB_SEARCH_CURSOR_UNAVAILABLE" -> "SAVED_VIEW_UNAVAILABLE"
         "UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE" -> "TOOL_UNAVAILABLE"

@@ -178,6 +178,10 @@
     "v0.9.50 Android acceptance"
   ],
   "allowedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationTool.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/DeviceLocationToolTest.kt",
+    "docs/repairs/diagnostic-correlation-2026-11-13-task.json",
+    "docs/repairs/diagnostic-correlation-2026-11-13.md",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedWordingLineageTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedAnswerMapping.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/CombinedDeliverySession.kt",

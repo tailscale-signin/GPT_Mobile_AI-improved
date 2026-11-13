@@ -44,9 +44,15 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in failureDetailFields }) add("INCIDENT_FAILURE_DETAILS_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.dispatchPolicyFields }) add("DISPATCH_POLICY_DIAGNOSTICS_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.policyDiagnostics }) add("CHANGED_POLICY_FIELDS_V1")
+        if ((values.keys + omittedFields).any { it in executionFields && (area != "GATEWAY" || it !in modelPreparationFields) } ||
+            values["provider_rejection_category"] == JsonPrimitive("BILLING_UNAVAILABLE")
+        ) {
+            add("EXECUTION_OUTCOME_DIAGNOSTICS_V1")
+        }
     }
 
     companion object {
+        private val executionFields = IssueReportIncidentCapsule.toolFailureFields + IssueReportIncidentCapsule.gatewayDeliveryFields + IssueReportIncidentCapsule.providerExecutionFields + IssueReportIncidentCapsule.combinedDeliveryFields + IssueReportIncidentCapsule.acceptanceBlockerFields
         val failureDetailFields = setOf("provider_failure_stage", "provider_failure_domain", "provider_failure_code", "voice_reply_state", "voice_reply_characters", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "chat_failure_code_state", "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections", "unmet_requirement_count", "unmet_capability_count")
         const val MAX_BYTES = 3072
         const val MAX_CRITERIA = 8

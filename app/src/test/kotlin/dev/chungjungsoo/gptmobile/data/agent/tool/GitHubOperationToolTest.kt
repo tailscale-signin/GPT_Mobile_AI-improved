@@ -33,6 +33,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubOperationToolTest {
+    @Test fun implicitPrListDoesNotReplaceExplicitSinglePrReads() = runBlocking {
+        val observed = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += arguments
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject {}), false)
+            }
+        }
+        val tool = GitHubOperationTool("github_pr", backend, "diagnostic-contract", "github_pr__github_api")
+        valid("github_pr", args("{}"))
+        valid("github_pr", args("""{"state":"open","page":2}"""))
+        assertFalse(tool.execute("list", args("{}")).isError)
+        assertFalse(tool.execute("context", args("""{"pull_number":17}""")).isError)
+        assertTrue(tool.execute("headers", args("""{"action":"headers"}""")).isError)
+        assertTrue(tool.execute("mutation", args("""{"action":"merge"}""")).isError)
+        assertEquals(listOf(JsonPrimitive("list_pull_requests"), JsonPrimitive("pr_context")), observed.map { it["action"] })
+    }
+
     @Test fun prPageSizeAndReadOnlySearchAliasesReachTheirAdvertisedBackend() = runBlocking {
         val observed = mutableListOf<JsonObject>()
         val backend = object : AgentTool {

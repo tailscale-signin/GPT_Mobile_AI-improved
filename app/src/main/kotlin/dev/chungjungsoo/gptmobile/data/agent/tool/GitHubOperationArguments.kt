@@ -40,14 +40,29 @@ internal object GitHubOperationArguments {
             else -> "workflows"
         }
         return JsonArray(
-            listOf(buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive("view_cursor")))) }) + alternatives.map { (actions, required) ->
-                buildJsonObject {
-                    put("properties", buildJsonObject { put("action", buildJsonObject { put("enum", JsonArray(actions.map(::JsonPrimitive))) }) })
-                    put("required", JsonArray((required + if (default in actions) emptyList() else listOf("action")).map(::JsonPrimitive)))
+            listOf(buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive("view_cursor")))) }) +
+                listOfNotNull(prListAlternative(operation)) + alternatives.map { (actions, required) ->
+                    buildJsonObject {
+                        put("properties", buildJsonObject { put("action", buildJsonObject { put("enum", JsonArray(actions.map(::JsonPrimitive))) }) })
+                        put("required", JsonArray((required + if (default in actions) emptyList() else listOf("action")).map(::JsonPrimitive)))
+                    }
                 }
-            }
         )
     }
+    private fun prListAlternative(operation: String): JsonObject? = if (operation == "github_pr") {
+        buildJsonObject {
+            put(
+                "properties",
+                buildJsonObject {
+                    dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.prListDefaults.forEach { put(it, buildJsonObject {}) }
+                }
+            )
+            put("additionalProperties", false)
+        }
+    } else {
+        null
+    }
+
     fun errors(operation: String, args: JsonObject): List<String> {
         fun text(key: String) = (args[key] as? JsonPrimitive)?.content.orEmpty()
         val errors = mutableListOf<String>()

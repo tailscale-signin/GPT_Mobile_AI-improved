@@ -69,7 +69,9 @@ class DeviceLocationTool @Inject constructor(
             return AgentToolResult(
                 callId = callId,
                 content = ToolResultContent.Text("Android location permission is not granted. Enable Device location in this AI profile and grant the app location permission in Android settings. No separate MCP server is required."),
-                isError = true
+                isError = true,
+                errorCode = "PERMISSION_DENIED",
+                dispatched = false
             )
         }
 
@@ -77,7 +79,8 @@ class DeviceLocationTool @Inject constructor(
             ?: return AgentToolResult(
                 callId = callId,
                 content = ToolResultContent.Text("No recent device location fix is available after requesting Android location. Turn on Location in Android settings, keep this app open while retrying, and allow Precise location for better accuracy. A cold GPS fix may need up to 30 seconds and a clearer view of the sky. Opening Google Maps is not required. Do not substitute a timezone or remembered address for a current location."),
-                isError = true
+                isError = true,
+                errorCode = "TOOL_UNAVAILABLE"
             )
 
         val categoryName = arguments["nearby"]?.jsonPrimitive?.contentOrNull

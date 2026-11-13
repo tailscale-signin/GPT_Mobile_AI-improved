@@ -123,6 +123,33 @@ class GatewayModelPreparationRepositoryTest {
         assertEquals(2, loads)
     }
 
+    @Test fun unresolvedLoadKeepsItsTypedPhaseTransportCauseAndOriginalIdentity() = runTest {
+        var operationId: String? = null
+        var ready = false
+        val repository = GatewayModelPreparationRepository(
+            { capabilities },
+            { p, m -> observation(p, m, ready = ready) },
+            { _, operation ->
+                operationId = operation
+                throw java.io.EOFException("private socket address")
+            },
+            { testScheduler.currentTime },
+            pause = {},
+            maxPolls = 1
+        )
+        val blocked = requireNotNull(repository.prepareSelected(profile, ReasoningMode.OFF))
+        assertEquals("MODEL_PREPARATION_INCOMPLETE", blocked.failureCode)
+        assertEquals(operationId, blocked.operationId)
+        assertEquals("CONNECTION_ABORTED", blocked.transportCode)
+        assertEquals("MODEL_PREPARATION_INCOMPLETE", GatewayModelPreparationException(blocked).code)
+        assertFalse(blocked.message.contains("private socket"))
+        ready = true
+        val completed = requireNotNull(repository.prepareSelected(profile, ReasoningMode.OFF, forceRefresh = true))
+        assertEquals(GatewayModelPreparationPhase.READY, completed.phase)
+        assertNull(completed.failureCode)
+        assertNull(completed.transportCode)
+    }
+
     @Test fun cancellationAfterDispatchRetainsUnresolvedLoadForTheNextScreen() = runTest {
         var loads = 0
         val operations = mutableListOf<String>()

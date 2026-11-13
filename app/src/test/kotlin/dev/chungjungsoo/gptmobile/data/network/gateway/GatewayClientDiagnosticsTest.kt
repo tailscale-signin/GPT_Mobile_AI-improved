@@ -14,6 +14,46 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayClientDiagnosticsTest {
+    @Test fun interruptedPreparationPostRetainsAnIncidentWithoutPretendingItWasAMetadataRead() {
+        val original = LocalDiagnosticsPolicy.enabled
+        try {
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val config = ProviderRequestConfig("https://preparation.example/v1", null, providerType = "LLAMA")
+            val headers = GatewayClientDiagnostics.requestHeaders(config, "engineering", method = "POST")
+            val operation = GatewayClientDiagnostics.operationIdentity(headers)
+            val fields = requireNotNull(GatewayClientDiagnostics.failureFields(config, headers, java.io.EOFException("private socket"), "engineering"))
+            assertTrue(operation?.matches(Regex("[a-f0-9]{32}")) == true)
+            assertEquals(operation, fields.diagnosticText("operation_id"))
+            assertEquals(operation, fields.diagnosticText("incident_id"))
+            assertEquals("unknown", fields.diagnosticText("dispatch_state"))
+            assertEquals("reconcile", fields.diagnosticText("retry_class"))
+            assertEquals("POST", (fields["bounded_attributes"] as JsonObject).diagnosticText("method"))
+            assertEquals(null, (fields["bounded_attributes"] as JsonObject)["retry_attempt"])
+            assertEquals(null, GatewayClientDiagnostics.metadataReadCompletionFields(config, headers))
+            assertFalse(fields.toString().contains("private socket"))
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(original)
+        }
+    }
+
+    @Test fun recheckingAnExistingLoadRetainsItsOperationAcrossDifferentHttpAttempts() {
+        val original = LocalDiagnosticsPolicy.enabled
+        try {
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val config = ProviderRequestConfig("https://preparation.example/v1", null, providerType = "LLAMA")
+            val failures = (0..1).map {
+                val headers = GatewayClientDiagnostics.requestHeaders(config, "models", method = "POST", logicalOperationId = "original-load")
+                requireNotNull(GatewayClientDiagnostics.failureFields(config, headers, java.io.EOFException(), "models"))
+            }
+            assertEquals(researchHash("original-load"), failures.first().diagnosticText("operation_id"))
+            assertEquals(failures.first().diagnosticText("incident_id"), failures.last().diagnosticText("incident_id"))
+            assertNotEquals(failures.first().diagnosticText("parent_span_id"), failures.last().diagnosticText("parent_span_id"))
+            assertTrue(failures.all { it.diagnosticText("dispatch_state") == "unknown" })
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(original)
+        }
+    }
+
     @Test fun abortedReadAndRetryTimeoutRetainPhysicalFailuresUnderOneLogicalIncident() {
         val original = LocalDiagnosticsPolicy.enabled
         val config = ProviderRequestConfig("https://retry.example/v1", null, extraHeaders = mapOf(GatewayClientDiagnostics.CLIENT_HEADER to "{}"))

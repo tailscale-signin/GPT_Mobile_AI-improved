@@ -45,7 +45,7 @@ class GatewayModelPreparationAPI @Inject constructor(private val network: Networ
     suspend fun prepare(config: ProviderRequestConfig, model: String, operationId: String): GatewayModelPreparationReceipt {
         require(model.length in 1..512 && model == model.trim() && model.none { it.code < 32 })
         require(operationId.matches(Regex("[A-Za-z0-9_-]{1,128}")))
-        return gatewayClientExchange(config, "models", safeRead = false, method = "POST") { headers ->
+        return gatewayClientExchange(config, "models", safeRead = false, method = "POST", operationId = operationId) { headers ->
             network().preparePost(config.buildEndpoint("gateway/models/prepare")) {
                 config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                 headers.forEach { (key, value) -> header(key, value) }

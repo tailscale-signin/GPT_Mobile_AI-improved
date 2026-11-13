@@ -984,6 +984,11 @@ class AgentRunCoordinator @Inject constructor(
             }
         }
         try {
+            // Gateway admission can fail before the chat pipeline registers this run.
+            // Resolve privacy first so those failures retain the same minimal journal.
+            RunDiagnostics.journal?.let { journal ->
+                journal.setRunPrivacy(request.runId, isTemporary = !chatRepository.researchPersistenceAllowed(request.chatId))
+            }
             currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
             request.providerWaitAuthority?.validate(settingRepository)
             researchLifecycle = prepareResearchLifecycle(request, eligibilityFailure)
@@ -1296,8 +1301,13 @@ class AgentRunCoordinator @Inject constructor(
                     val committed = chatRepository.commitAgentRun(terminalMessage, request.runId, status, completedAt, message)
                     committedForHandoff = committed && !revokedWait
                     val admission = terminalFailure as? dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException
-                    if (committed && typedFailure?.isUnsentSetup == true && admission != null) {
-                        runCatching { recordGatewaySetupReceipt(request, typedFailure, admission) }
+                    if (committed && typedFailure != null && typedFailure.invocationId == null) {
+                        runCatching { recordSetupFailureReceipt(request, typedFailure, terminalFailure, assistantMessage.content.isNotBlank() || assistantMessage.thoughts.isNotBlank()) }
+                    }
+                    val preparation = terminalFailure as? dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationException
+                    val operationId = admission?.operationId ?: preparation?.state?.operationId?.let { dev.chungjungsoo.gptmobile.data.research.researchHash(it) }
+                    if (committed && operationId != null && typedFailure?.category !in setOf("GATEWAY_OUTCOME_UNKNOWN", "TOOL_OUTCOME_UNKNOWN")) {
+                        AppLogRecorder.record("Agent", "ADMISSION_FAILURE_LINK · runId=${request.runId} · causalIncidentId=$operationId · operation_id=$operationId · dependentDispatch=${typedFailure?.dispatched} · preparationPost=${admission?.preparationPost ?: (preparation != null)}")
                     }
                     if (committed) settleResearchOutcome(request, researchLifecycle, terminalMessage, status, message)
                     if (committed && revokedWait) _notices.tryEmit(AgentRunNotice(request.chatId, request.runId, "Saved work needs review before it can resume. Its evidence and answer are retained.", true))
@@ -1348,24 +1358,14 @@ class AgentRunCoordinator @Inject constructor(
         }
     }
 
-    private suspend fun recordGatewaySetupReceipt(
+    private fun recordSetupFailureReceipt(
         request: AgentRunRequest,
         failure: ProfileFailureRecord,
-        admission: dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException
+        error: Throwable,
+        partialOutput: Boolean
     ) {
         val journal = RunDiagnostics.journal ?: return
-        journal.setRunPrivacy(request.runId, isTemporary = !chatRepository.researchPersistenceAllowed(request.chatId))
-        val event = ProviderEvent.Failed(
-            message = failure.category,
-            errorCode = failure.category,
-            failureDetails = kotlinx.serialization.json.JsonObject(
-                mapOf(
-                    "failed_stage" to JsonPrimitive(failure.phase),
-                    "dispatched" to JsonPrimitive(false),
-                    "remote_acceptance" to JsonPrimitive("NO")
-                ) + listOfNotNull(admission.httpStatus?.let { "http_status" to JsonPrimitive(it) }).toMap()
-            )
-        )
+        val event = coordinatorSetupFailureEvent(failure, error, partialOutput) ?: return
         journal.record(request.runId, RunDiagnosticKind.FAILURE_RECEIPT, successful = false, providerFailure = ProviderFailureReceipt.from(request.platform, "primary", event))
     }
 }

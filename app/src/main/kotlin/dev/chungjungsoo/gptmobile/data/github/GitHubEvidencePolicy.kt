@@ -461,7 +461,8 @@ internal object GitHubEvidencePolicy {
         )
     }
 
-    fun status(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "status", acceptedCriteria: List<String>? = null): Pair<String, JsonObject>? {
+    fun status(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "status", acceptedCriteria: List<String>? = null, acceptedRepository: String? = null): Pair<String, JsonObject>? {
+        val selectedReceipts = GitHubStatusEvidence.selected(receipts, acceptedRepository)
         val claims = linkedMapOf<String, JsonObject>()
         val statusPaths = setOf(
             "/state", "/checks", "/statuses", "/data/state", "/data/checks", "/data/statuses", "/commit_sha", "/data/commit_sha", "/branch", "/data/branch",
@@ -473,7 +474,7 @@ internal object GitHubEvidencePolicy {
             "/data/latest_workflow/head_branch", "/data/latest_workflow/head_sha", "/data/latest_workflow/html_url",
             "/data/status_availability/latest_workflow", "/data/policy/required_checks_state", "/data/policy/required_checks_complete"
         )
-        val currentSha = receipts.entries.reversed().firstNotNullOfOrNull { (id, receipt) ->
+        val currentSha = selectedReceipts.entries.reversed().firstNotNullOfOrNull { (id, receipt) ->
             if (!GitHubStatusEvidence.operation(receipt, "github_context", "status")) return@firstNotNullOfOrNull null
             val root = receipt["result"] as? JsonObject
             val data = (root?.get("data") as? JsonObject) ?: root
@@ -484,9 +485,9 @@ internal object GitHubEvidencePolicy {
                 put("pointer", pointer)
                 put("value", sha)
             }
-            sha.takeIf { it.content.matches(Regex("[a-fA-F0-9]{40}")) && verify(claim, receipts, now, epoch).string("status") == "VERIFIED" }
+            sha.takeIf { it.content.matches(Regex("[a-fA-F0-9]{40}")) && verify(claim, selectedReceipts, now, epoch).string("status") == "VERIFIED" }
         }
-        val scopedReceipts = receipts.filterValues { receipt ->
+        val scopedReceipts = selectedReceipts.filterValues { receipt ->
             val root = receipt["result"] as? JsonObject
             val data = (root?.get("data") as? JsonObject) ?: root
             val pinned = GitHubStatusEvidence.operation(receipt, "github_context", "checks") || GitHubStatusEvidence.operation(receipt, "github_context", "commits")
@@ -495,8 +496,10 @@ internal object GitHubEvidencePolicy {
                 (!policy || currentSha != null && ((data?.get("branch") as? JsonObject)?.get("commit") as? JsonObject)?.get("sha") == currentSha)
         }
         val inventory = GitHubStatusEvidence.checks(scopedReceipts, currentSha?.content.orEmpty(), now, epoch)
+        val currentPullIds = GitHubStatusEvidence.openPullPages(scopedReceipts, now, epoch).keys
         val representedFields = mutableSetOf<String>()
         for ((id, receipt) in scopedReceipts.entries.reversed()) {
+            if (GitHubStatusEvidence.operation(receipt, "github_pr", "list") && id !in currentPullIds) continue
             val root = receipt["result"] as? JsonObject
             val data = (root?.get("data") as? JsonObject) ?: root
             for ((pointer, value) in facts(receipt["result"] ?: JsonNull)) {
@@ -520,18 +523,18 @@ internal object GitHubEvidencePolicy {
                     put("value", value)
                 }
                 val fieldKey = if (healthField || pullRequestField) "$id:$pointer" else pointer.removePrefix("/data")
-                if (verify(claim, receipts, now, epoch).string("status") == "VERIFIED" && representedFields.add(fieldKey)) claims[fieldKey] = claim
+                if (verify(claim, scopedReceipts, now, epoch).string("status") == "VERIFIED" && representedFields.add(fieldKey)) claims[fieldKey] = claim
             }
         }
         if (claims.keys.none { it in setOf("/data/repository/full_name", "/repository/full_name", "/state", "/data/state") }) return null
         val coverage = GitHubStatusEvidence.coverage(scopedReceipts, now, epoch, task, inventory)
         val missing = coverage.filterNot(GitHubStatusEvidence.Coverage::available)
-        val requirements = GitHubStatusEvidence.requirements(task, acceptedCriteria, coverage, receipts)
+        val requirements = GitHubStatusEvidence.requirements(task, acceptedCriteria, coverage, scopedReceipts)
         val displayedClaims = claims.values.sortedBy { claim ->
-            val receipt = receipts[claim.string("receipt_id")]
+            val receipt = scopedReceipts[claim.string("receipt_id")]
             if (receipt != null && GitHubStatusEvidence.operation(receipt, "github_context", "status")) 0 else 1
         }.take(96)
-        val (text, report) = render(buildJsonObject { put("claims", JsonArray(displayedClaims)) }, receipts, now, epoch, task)
+        val (text, report) = render(buildJsonObject { put("claims", JsonArray(displayedClaims)) }, scopedReceipts, now, epoch, task)
         val completed = missing.isEmpty() && requirements.isNotEmpty() && requirements.all { it["status"] == JsonPrimitive("PASSED") }
         val outcome = JsonObject(
             report + buildJsonObject {

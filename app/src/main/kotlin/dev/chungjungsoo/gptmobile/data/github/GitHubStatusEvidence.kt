@@ -44,9 +44,25 @@ internal object GitHubStatusEvidence {
 
     fun data(receipt: JsonObject): JsonObject? = (receipt["result"] as? JsonObject)?.let(GitHubSemanticSummary::data)
 
+    /** Read-source observations remain valid evidence for their source, never for the accepted target. */
+    fun selected(receipts: Map<String, JsonObject>, acceptedRepository: String?): Map<String, JsonObject> = receipts.filterValues { receipt ->
+        val role = receipt.text("repository_role")
+        if (acceptedRepository == null) {
+            role in setOf("", "WRITE_DESTINATION")
+        } else {
+            role == "WRITE_DESTINATION" && receipt.text("repository").equals(acceptedRepository, true)
+        }
+    }
+
+    private fun pageSize(receipt: JsonObject, default: Int): Int? {
+        val sizes = listOfNotNull(data(receipt)?.integer("per_page"), (receipt["arguments"] as? JsonObject)?.integer("per_page"))
+        return if (sizes.any { it !in 1..100 } || sizes.distinct().size > 1) null else sizes.firstOrNull() ?: default
+    }
+
     fun fresh(receipt: JsonObject, now: Long, epoch: Long?): Boolean {
         val observed = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: return false
         return receipt["trusted"] == JsonPrimitive(true) &&
+            receipt.text("repository_role") in setOf("", "WRITE_DESTINATION") &&
             receipt["verification_eligible"] != JsonPrimitive(false) &&
             (epoch == null || receipt["epoch"] == JsonPrimitive(epoch)) &&
             observed > 0 &&
@@ -59,6 +75,7 @@ internal object GitHubStatusEvidence {
     fun checks(receipts: Map<String, JsonObject>, head: String, now: Long, epoch: Long?): CheckInventory {
         if (!head.matches(Regex("[a-fA-F0-9]{40}"))) return CheckInventory()
         val pages = linkedMapOf<Int, Pair<String, JsonObject>>()
+        val pageSizes = linkedMapOf<Int, Int?>()
         receipts.forEach { (id, receipt) ->
             if (!operation(receipt, "github_context", "checks") || receipt["success"] != JsonPrimitive(true) || !fresh(receipt, now, epoch)) return@forEach
             val data = data(receipt) ?: return@forEach
@@ -69,15 +86,19 @@ internal object GitHubStatusEvidence {
             if (number !in 1..1000 || args?.integer("page")?.let { it != number } == true) return@forEach
             // Refreshing page one starts a new mutable inventory at the same SHA.
             // Older trailing pages cannot silently complete that new traversal.
-            if (number == 1) pages.clear()
+            if (number == 1) {
+                pages.clear()
+                pageSizes.clear()
+            }
             pages[number] = id to data
+            pageSizes[number] = pageSize(receipt, 100)
         }
         if (pages.isEmpty()) return CheckInventory()
         val runs = linkedMapOf<String, JsonObject>()
         val statuses = linkedMapOf<String, JsonObject>()
         val checkTotals = mutableSetOf<Int>()
         val statusTotals = mutableSetOf<Int>()
-        var intact = true
+        var intact = pageSizes.values.all { it != null } && pageSizes.values.distinct().size == 1
         val ids = linkedSetOf<String>()
         pages.toSortedMap().forEach { (page, source) ->
             val (id, data) = source
@@ -207,6 +228,8 @@ internal object GitHubStatusEvidence {
         rows += Coverage("Recent failures", selected && failures.isNotEmpty(), failures.keys, summary = failureSummary)
         val inventoryComplete = pulls.isNotEmpty() &&
             pulls.values.lastOrNull()?.let { data(it)?.get("has_more") } == JsonPrimitive(false) &&
+            pulls.values.map { pageSize(it, 20) }.let { sizes -> sizes.all { it != null } && sizes.distinct().size == 1 } &&
+            pulls.values.toList().dropLast(1).all { receipt -> ((data(receipt)?.get("items") ?: data(receipt)?.get("pull_requests")) as? JsonArray)?.size == pageSize(receipt, 20) } &&
             pullRows.mapNotNull { it.integer("number") }.let { it.size == pullRows.size && it.distinct().size == it.size } &&
             pulls.values.map { data(it)?.integer("page") ?: ((it["arguments"] as? JsonObject)?.integer("page") ?: 1) }.toSet().let { pages -> pages == (1..(pages.maxOrNull() ?: 1)).toSet() }
         val reviews = matching("github_pr", "context") { _, args -> args["include_health"] == JsonPrimitive(true) }

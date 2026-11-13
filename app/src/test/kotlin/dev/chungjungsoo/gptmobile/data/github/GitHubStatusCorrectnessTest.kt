@@ -308,6 +308,130 @@ class GitHubStatusCorrectnessTest {
         assertNotNull(report["remaining_requirements"])
     }
 
+    @Test fun readSourceStatusAndSameShaForkChecksCannotSatisfyTheAcceptedRepository() {
+        val target = base().filterKeys { it != "prs" }.mapValues { scoped(it.value) }
+        val source = base().mapValues { scoped(it.value, "upstream/fork", "READ_SOURCE") }
+        val records = target + source.mapKeys { "source-${it.key}" } +
+            ("source-checks" to scoped(receipt("github_context", args("checks"), checks(1, 0, 0)), "upstream/fork", "READ_SOURCE"))
+        val unchanged = records.toString()
+        val next = requireNotNull(GitHubStatusRequest.nextCall(tools, records, now, 0, acceptedRepository = "owner/repo"))
+        assertEquals(JsonPrimitive("checks"), next.arguments["action"])
+        assertEquals(JsonPrimitive(head), next.arguments["commit_sha"])
+        val initial = requireNotNull(GitHubEvidencePolicy.status(records, now, 0, acceptedRepository = "owner/repo")).second
+        assertEquals(JsonPrimitive(false), initial["completion_verified"])
+        assertEquals(JsonPrimitive(0), initial.getValue("check_inventory").jsonObject["observed_checks"])
+        val withChecks = records + ("target-checks" to scoped(receipt("github_context", args("checks"), checks(1, 0, 0))))
+        assertEquals(JsonPrimitive("list"), requireNotNull(GitHubStatusRequest.nextCall(tools, withChecks, now, 0, acceptedRepository = "owner/repo")).arguments["action"])
+        assertEquals(JsonPrimitive(false), requireNotNull(GitHubEvidencePolicy.status(withChecks, now, 0, acceptedRepository = "owner/repo")).second["completion_verified"])
+        assertEquals(unchanged, records.toString())
+    }
+
+    @Test fun repositoryIdentityAndDestinationRoleAreBothRequiredForAcceptedStatus() {
+        val records = (base() + ("checks" to receipt("github_context", args("checks"), checks(1, 0, 0)))).mapValues { scoped(it.value) }
+        assertEquals(JsonPrimitive(true), requireNotNull(GitHubEvidencePolicy.status(records, now, 0, acceptedRepository = "OWNER/REPO")).second["completion_verified"])
+        for ((repo, role) in listOf("upstream/fork" to "WRITE_DESTINATION", "owner/repo" to "READ_SOURCE", "owner/repo" to "LIFECYCLE_DESTINATION", "owner/repo" to "")) {
+            val wrong = records + ("checks" to scoped(records.getValue("checks"), repo, role))
+            assertEquals(JsonPrimitive(false), requireNotNull(GitHubEvidencePolicy.status(wrong, now, 0, acceptedRepository = "owner/repo")).second["completion_verified"])
+        }
+    }
+
+    @Test fun mixedPullPageSizesCannotProveTheOpenReviewInventoryComplete() {
+        val records = base().toMutableMap()
+        fun page(number: Int, perPage: Int, rows: List<JsonObject>, more: Boolean) = receipt(
+            "github_pr",
+            buildJsonObject {
+                put("action", "list")
+                put("state", "open")
+                put("page", number)
+                put("per_page", perPage)
+            },
+            buildJsonObject {
+                put("items", JsonArray(rows))
+                put("page", number)
+                put("per_page", perPage)
+                put("has_more", more)
+            }
+        )
+        records["prs"] = page(1, 5, (1..5).map(::pull), true)
+        records["prs2"] = page(2, 100, listOf(pull(106)), false)
+        for (number in (1..5) + 106) {
+            records["review-$number"] = receipt(
+                "github_pr",
+                buildJsonObject {
+                    put("action", "context")
+                    put("pull_number", number)
+                    put("include_health", true)
+                },
+                buildJsonObject {
+                    put(
+                        "merge_health",
+                        buildJsonObject {
+                            put("headSha", head)
+                            put("baseSha", other)
+                            put("review", "APPROVED")
+                        }
+                    )
+                }
+            )
+        }
+        fun reviewed() = GitHubStatusEvidence.coverage(records, now, 0, health, GitHubStatusEvidence.CheckInventory()).single { it.item == "Outstanding review decisions" }.available
+        assertFalse(reviewed())
+        records["prs2"] = page(2, 5, listOf(pull(106)), false)
+        assertTrue(reviewed())
+        records["prs2"] = JsonObject(records.getValue("prs2") + ("result" to JsonObject(records.getValue("prs2").getValue("result").jsonObject + ("per_page" to JsonPrimitive(100)))))
+        assertFalse(reviewed())
+    }
+
+    @Test fun mixedCheckPageSizesCannotCompleteEvenWhenCountsCoincidentallyMatch() {
+        fun page(number: Int, perPage: Int, returned: Int) = receipt("github_context", JsonObject(args("checks") + mapOf("page" to JsonPrimitive(number), "per_page" to JsonPrimitive(perPage))), JsonObject(checks(number, returned, 6) + mapOf("per_page" to JsonPrimitive(perPage), "has_more" to JsonPrimitive(number == 1))))
+        val first = page(1, 5, 5)
+        val mixed = mapOf("first" to first, "second" to page(2, 100, 1))
+        assertFalse(GitHubStatusEvidence.checks(mixed, head, now, 0).complete)
+        assertTrue(GitHubStatusEvidence.checks(mapOf("first" to first, "second" to page(2, 5, 1)), head, now, 0).complete)
+    }
+
+    @Test fun refreshedPullListDoesNotRenderOlderDraftAndHeadObservationsAsCurrent() {
+        val old = JsonObject(
+            pull(881) + mapOf(
+                "title" to JsonPrimitive("Old draft title"),
+                "head" to buildJsonObject {
+                    put("ref", "old-pr-branch")
+                    put("sha", head)
+                }
+            )
+        )
+        val updated = JsonObject(
+            pull(881) + mapOf(
+                "title" to JsonPrimitive("Current ready title"),
+                "draft" to JsonPrimitive(false),
+                "head" to buildJsonObject {
+                    put("ref", "new-pr-branch")
+                    put("sha", other)
+                }
+            )
+        )
+        val records = base(listOf(old)) + (
+            "updated-prs" to receipt(
+                "github_pr",
+                args("list"),
+                buildJsonObject {
+                    put("items", JsonArray(listOf(updated)))
+                    put("has_more", false)
+                    put("page", 1)
+                }
+            )
+            )
+        val original = records.toString()
+        val text = requireNotNull(GitHubEvidencePolicy.status(records, now, 0)).first
+        assertTrue(text.contains("Current ready title"))
+        assertTrue(text.contains("new-pr-branch"))
+        assertFalse(text.contains("Old draft title"))
+        assertFalse(text.contains("old-pr-branch"))
+        assertEquals(original, records.toString())
+    }
+
+    private fun scoped(receipt: JsonObject, repository: String = "owner/repo", role: String = "WRITE_DESTINATION") = JsonObject(receipt + mapOf("repository" to JsonPrimitive(repository), "repository_role" to JsonPrimitive(role)))
+
     private fun args(action: String) = buildJsonObject {
         put("action", action)
         if (action in setOf("checks", "commits")) put("commit_sha", head)

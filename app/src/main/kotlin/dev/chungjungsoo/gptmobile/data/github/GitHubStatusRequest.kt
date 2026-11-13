@@ -14,9 +14,10 @@ import kotlinx.serialization.json.put
 /** Exact short status intents only: an audit or a repair keeps the full engineering workflow. */
 internal object GitHubStatusRequest {
     /** Base reads happen first; remaining accepted calls can follow pinned pages or health obligations. */
-    fun nextCall(tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), epoch: Long? = null, task: String = "status"): ProviderEvent.ToolCall? {
+    fun nextCall(tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), epoch: Long? = null, task: String = "status", acceptedRepository: String? = null): ProviderEvent.ToolCall? {
+        val selectedReceipts = GitHubStatusEvidence.selected(receipts, acceptedRepository)
         fun fresh(receipt: JsonObject) = GitHubStatusEvidence.fresh(receipt, now, epoch)
-        val context = receipts.values.toList().asReversed().firstNotNullOfOrNull { receipt ->
+        val context = selectedReceipts.values.toList().asReversed().firstNotNullOfOrNull { receipt ->
             if ((receipt["tool"] as? JsonPrimitive)?.content?.substringBefore("__") != "github_context" || (receipt["arguments"] as? JsonObject)?.get("action") != JsonPrimitive("status") || receipt["success"] != JsonPrimitive(true) || !fresh(receipt)) return@firstNotNullOfOrNull null
             GitHubStatusEvidence.data(receipt)
         }
@@ -25,7 +26,7 @@ internal object GitHubStatusRequest {
         fun call(operation: String, arguments: JsonObject, afterReceiptId: String? = null): ProviderEvent.ToolCall? {
             val tool = tools.firstOrNull { it.name.substringBefore("__") == operation } ?: return null
             val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
-            val candidates = if (afterReceiptId == null) receipts.values else receipts.entries.dropWhile { it.key != afterReceiptId }.map { it.value }
+            val candidates = if (afterReceiptId == null) selectedReceipts.values else selectedReceipts.entries.dropWhile { it.key != afterReceiptId }.map { it.value }
             val attempts = candidates.filter {
                 it["tool"] == JsonPrimitive(tool.name) &&
                     (
@@ -89,7 +90,7 @@ internal object GitHubStatusRequest {
             )?.let { return it }
         }
         if (head != null) {
-            val inventory = GitHubStatusEvidence.checks(receipts, head, now, epoch)
+            val inventory = GitHubStatusEvidence.checks(selectedReceipts, head, now, epoch)
             inventory.nextPage?.let { page ->
                 call(
                     "github_context",
@@ -119,7 +120,7 @@ internal object GitHubStatusRequest {
                 put("per_page", 5)
             }
         )?.let { return it }
-        val pullPages = GitHubStatusEvidence.openPullPages(receipts, now, epoch)
+        val pullPages = GitHubStatusEvidence.openPullPages(selectedReceipts, now, epoch)
         val pulls = pullPages.values
         // Use only observed PR identities and revision leases; never invent a PR or follow a tool-supplied write recipe.
         pulls.forEach { receipt ->

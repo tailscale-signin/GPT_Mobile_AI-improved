@@ -330,7 +330,8 @@ internal class GitHubVerifiedSession(
         }
         if (GitHubStatusRequest.matches(task) && tools.isNotEmpty()) {
             val (receipts, epoch) = evidence.snapshot()
-            val next = if (remainingToolCalls()?.let { it > 0 } != false) GitHubStatusRequest.nextCall(tools, receipts, now(), epoch, task) else null
+            val acceptedRepository = (evidence.acceptedPromptContract()?.get("repository") as? JsonPrimitive)?.contentOrNull
+            val next = if (remainingToolCalls()?.let { it > 0 } != false) GitHubStatusRequest.nextCall(tools, receipts, now(), epoch, task, acceptedRepository) else null
             if (next != null) {
                 lifecycle(dev.chungjungsoo.gptmobile.data.diagnostics.RunDiagnosticKind.CONTINUATION_SELECTED)
                 emit(next)
@@ -636,8 +637,10 @@ internal class GitHubVerifiedSession(
             val (receipts, epoch) = evidence.snapshot()
             val ciObservation = withContext(computationDispatcher) { GitHubCiObservationReport.render(task, receipts, now(), epoch) }
             val status = if (GitHubStatusRequest.matches(task)) {
-                val acceptedCriteria = (evidence.acceptedPromptContract()?.get("acceptance_criteria") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
-                withContext(computationDispatcher) { GitHubEvidencePolicy.status(receipts, now(), epoch, task, acceptedCriteria) }
+                val acceptedContract = evidence.acceptedPromptContract()
+                val acceptedCriteria = (acceptedContract?.get("acceptance_criteria") as? JsonArray)?.mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+                val acceptedRepository = (acceptedContract?.get("repository") as? JsonPrimitive)?.contentOrNull
+                withContext(computationDispatcher) { GitHubEvidencePolicy.status(receipts, now(), epoch, task, acceptedCriteria, acceptedRepository) }
             } else {
                 null
             }

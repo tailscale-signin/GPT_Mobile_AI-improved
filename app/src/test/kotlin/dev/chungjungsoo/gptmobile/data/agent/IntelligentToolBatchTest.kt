@@ -74,6 +74,8 @@ class IntelligentToolBatchTest {
         )
         assertEquals(listOf("read"), dispatched)
         assertTrue(results.drop(1).all { it.errorCode == "DEPENDENCY_FAILED" && !it.dispatched })
+        assertTrue(results.drop(1).all { it.executionReceipt?.get("native_dependency_state") == kotlinx.serialization.json.JsonPrimitive("FAILED") })
+        assertTrue(results.drop(1).all { it.executionReceipt?.get("dependency_failed_count") == kotlinx.serialization.json.JsonPrimitive(1) })
     }
 
     @Test fun restoredFailedReadBlocksQueuedDependentWithoutReemittingItsReceipt() = runTest {

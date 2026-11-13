@@ -101,10 +101,28 @@ class GitHubSavedViewRecoveryTest {
         var available = false
         val restored = GitHubOperationTool("github_commit", backend, "scope", views = GitHubResultViews(pageBytes = 2048), loadSavedView = { if (available) store.load(it) else null }, saveSavedView = store::save)
         val cursor = continuation(first)
-        assertEquals("SAVED_VIEW_UNAVAILABLE", restored.execute("lost", cursor).errorCode)
+        val lost = restored.execute("lost", cursor)
+        assertEquals("SAVED_VIEW_UNAVAILABLE", lost.errorCode)
+        assertEquals(JsonPrimitive("NOT_FOUND"), lost.executionReceipt?.get("saved_view_restore_state"))
         available = true
-        assertFalse(restored.execute("retry-local", cursor).isError)
+        val recovered = restored.execute("retry-local", cursor)
+        assertFalse(recovered.isError)
+        assertEquals(JsonPrimitive("RESTORED"), recovered.executionReceipt?.get("saved_view_restore_state"))
         assertEquals(1, backend.calls)
+    }
+
+    @Test fun savedViewLoadFailureRecordsOnlyTypedStateAndHashedExceptionClass() = runBlocking {
+        val backend = Backend()
+        val tool = GitHubOperationTool("github_issue", backend, "scope", views = GitHubResultViews(), loadSavedView = { throw IllegalStateException("private storage path") })
+        val result = tool.execute("saved-read", buildJsonObject { put("view_cursor", "lost-view:0:1536") })
+        assertEquals("SAVED_VIEW_UNAVAILABLE", result.errorCode)
+        assertFalse(result.dispatched)
+        assertEquals(0, backend.calls)
+        val details = requireNotNull(result.executionReceipt)
+        assertEquals(JsonPrimitive("LOAD_FAILED"), details["saved_view_restore_state"])
+        assertTrue((details["saved_view_restore_error_hash"] as JsonPrimitive).content.matches(Regex("[a-f0-9]{64}")))
+        assertFalse(details.toString().contains("private storage path"))
+        assertFalse(details.toString().contains("IllegalStateException"))
     }
 
     @Test fun secondaryStoreFailurePreservesAcceptedMutationReceipt() = runBlocking {

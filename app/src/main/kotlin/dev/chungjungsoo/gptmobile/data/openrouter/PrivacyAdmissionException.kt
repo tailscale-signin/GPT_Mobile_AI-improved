@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -12,7 +13,8 @@ internal class PrivacyAdmissionException(
     message: String,
     private val model: String? = null,
     private val policy: OpenRouterProviderRouting? = null,
-    private val observation: Observation? = null
+    private val observation: Observation? = null,
+    private val endpointObservation: JsonObject? = null
 ) : IllegalStateException(message) {
     enum class Observation { CACHED_REJECTION, NO_COMPATIBLE_ENDPOINT }
 
@@ -41,6 +43,7 @@ internal class PrivacyAdmissionException(
                 policy.only?.let { put("privacy_provider_allowlist_count", it.size) }
                 policy.ignore?.let { put("privacy_provider_denylist_count", it.size) }
                 policy.order?.let { put("privacy_provider_order_count", it.size) }
+                endpointObservation?.forEach { (key, value) -> put(key, value) }
             }
         }
     )

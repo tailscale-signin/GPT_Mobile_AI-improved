@@ -22,7 +22,7 @@ class GatewayOwnedTurnPolicyTest {
     }
 
     @Test fun explicitImplementationRemainsImplementationWithoutGrantingOtherActions() {
-        for (request in listOf("Fix all issues", "Please add the Jobs tab", "Can you implement the plan?", "Plan and then implement the change", "Review, then apply the fixes", "Exercise authorized mutations inside the owned fixture")) {
+        for (request in listOf("Fix all issues", "Please add the Jobs tab", "Can you implement the plan?", "Plan and then implement the change", "Review, then apply the fixes")) {
             assertEquals(request, "implement", GatewayOwnedTurnPolicy.scope(request))
         }
         assertEquals("read", GatewayOwnedTurnPolicy.scope("Read-only: fix all issues"))
@@ -30,6 +30,16 @@ class GatewayOwnedTurnPolicyTest {
         assertEquals("read", GatewayOwnedTurnPolicy.scope("Do not make any changes. Fix the problem is the issue title."))
         assertEquals("read", GatewayOwnedTurnPolicy.scope("Review only. Fix all issues after I approve."))
         assertEquals("read", GatewayOwnedTurnPolicy.scope("Inspect without modifying files. Fixes can wait."))
+    }
+
+    @Test fun fullIntegrationPresetUsesTheFixtureHarnessWithoutStartingAnImplementationJob() {
+        val preset = GitHubWorkflowPreset.selected("test_integration").prompt()
+        for (request in listOf(preset, "Exercise authorized mutations inside the owned disposable fixture")) {
+            assertEquals(GatewayOwnedTurnPolicy.Intent.INTEGRATION_TEST, GatewayOwnedTurnPolicy.intent(request))
+            assertFalse(GatewayOwnedTurnPolicy.startsNewJob(request))
+        }
+        assertEquals(GatewayOwnedTurnPolicy.Intent.IMPLEMENT, GatewayOwnedTurnPolicy.intent("Test the authorized fixture. Then fix the parser code."))
+        assertEquals(GatewayOwnedTurnPolicy.Intent.READ, GatewayOwnedTurnPolicy.intent("What does this mean?\n> [github-workflow-preset:test_integration]"))
     }
 
     @Test fun quotedCodeCannotUpgradeTheCurrentInstruction() {

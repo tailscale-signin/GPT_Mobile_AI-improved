@@ -91,6 +91,19 @@ class GatewayAdmissionClientTest {
         }
     }
 
+    @Test fun missingCommandReceiptRetainsUnknownOutcomeWithoutClaimingContractIncompatibility() {
+        val missing = gatewayAdmissionFailure(404, GatewayAdmissionSurface.COMMAND, null)
+        assertEquals(GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE, missing.reason)
+        assertEquals(GatewayAdmissionDispatchState.UNKNOWN, missing.dispatchState)
+        assertEquals(GatewayAdmissionRetryability.RECONCILE_ORIGINAL_COMMAND, missing.retryability)
+        assertEquals(GatewayAdmissionPhase.RECONCILIATION, missing.phase)
+        assertTrue(missing.message.orEmpty().contains("outcome remains unconfirmed"))
+        assertFalse(missing is GatewayHistoryUnsupported)
+        assertEquals(GatewayAdmissionReason.UNSUPPORTED_CONTRACT, gatewayAdmissionFailure(404, GatewayAdmissionSurface.CAPABILITIES, null).reason)
+        assertEquals(GatewayAdmissionReason.MISSING_SCOPE, gatewayAdmissionFailure(404, GatewayAdmissionSurface.COMMAND, "scope_not_granted").reason)
+        assertEquals(GatewayAdmissionReason.UNSUPPORTED_CONTRACT, gatewayAdmissionFailure(405, GatewayAdmissionSurface.COMMAND, null).reason)
+    }
+
     @Test fun explicitRemoteSurfaceDenialKeepsItsRepairAndNeverRequestsAnApiTokenOrRetries() = runBlocking {
         var calls = 0
         HttpClient(

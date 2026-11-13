@@ -260,7 +260,11 @@ internal object GitHubStatusEvidence {
                 requirements[0] -> listOf("Selected branch and current commit")
                 requirements[1] -> listOf("Recent commits", "Open pull requests (draft/ready)")
                 requirements[2] -> listOf("Checks and statuses for the current commit", "Latest workflow")
-                requirements[3] -> listOf("Selected branch and current commit") + if (GitHubStatusRequest.health(task)) listOf("Required-check policy", "Recent failures", "Outstanding review decisions") else emptyList()
+                // The deterministic status renderer explicitly lists every
+                // unavailable observation and keeps policy/health unknown.
+                // Reporting that uncertainty does not require those unknowns
+                // to become healthy; their separate obligations remain open.
+                requirements[3] -> listOf("Selected branch and current commit")
                 GitHubStatusRequest.POLICY_REQUIREMENT -> listOf("Required-check policy")
                 GitHubStatusRequest.FAILURES_REQUIREMENT -> listOf("Recent failures")
                 GitHubStatusRequest.REVIEWS_REQUIREMENT -> listOf("Outstanding review decisions")
@@ -274,6 +278,8 @@ internal object GitHubStatusEvidence {
                 put("requirement", criterion)
                 put("status", if (passed) "PASSED" else "BLOCKED")
                 put("acceptance_state", if (passed) "PASS" else "BLOCKED")
+                put("acceptance_evaluator_branch", if (criterion == requirements[3]) "STATUS_UNCERTAINTY_REPORT" else "STATUS_OBSERVATION")
+                if (!passed) put("acceptance_mismatch", if (items.isEmpty()) "UNSUPPORTED_CRITERION" else "MATCHING_OBSERVATION_INCOMPLETE")
                 put("receipt_ids", JsonArray(ids.sorted().map(::JsonPrimitive)))
                 put("missing_evidence_ids", JsonArray(emptyList()))
                 put(

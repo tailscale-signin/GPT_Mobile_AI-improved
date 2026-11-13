@@ -13,6 +13,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAcceptanceDiagnosticsTest {
+    @Test fun ciDiagnosisKeepsItsReadOnlyRecoveryIntent() {
+        val diagnosis = GitHubWorkflowPreset.selected("diagnose_ci")
+        val observations = listOf(diagnosis.objective, diagnosis.acceptance.first(), "Report recent failed workflow runs", "Inspect CI logs; do not run a new workflow", "Inspect this CI log: `run a workflow`")
+        for (criterion in observations) {
+            assertEquals(criterion, "CI_OBSERVATION", GitHubAcceptanceDiagnostics.category(criterion))
+            val ledger = GitHubAcceptanceLedger.snapshot(requirements = JsonArray(listOf(requirement("ci", criterion, "NOT_TESTED"))))
+            val diagnostic = GitHubAcceptanceDiagnostics.snapshot(ledger)
+            val row = (diagnostic["criteria"] as JsonArray).single().jsonObject
+            assertEquals(JsonPrimitive("INSPECT_EXISTING_WORKFLOW_AT_RECORDED_REVISION"), row["next_action"])
+            assertTrue(GitHubAcceptanceDiagnostics.valid(diagnostic))
+        }
+        for (criterion in listOf("Run CI at the selected revision", "Dispatch the verification workflow", "Verify the owned workflow run at its exact revision", "Inspect CI and run unit tests")) {
+            assertEquals(criterion, "CI_VERIFICATION", GitHubAcceptanceDiagnostics.category(criterion))
+            val ledger = GitHubAcceptanceLedger.snapshot(requirements = JsonArray(listOf(requirement("ci", criterion, "NOT_TESTED"))))
+            val row = (GitHubAcceptanceDiagnostics.snapshot(ledger)["criteria"] as JsonArray).single().jsonObject
+            assertEquals(JsonPrimitive("VERIFY_OWNED_WORKFLOW_AT_EXACT_REVISION"), row["next_action"])
+        }
+    }
+
     @Test fun exportedSummarySeparatesTaskCriteriaRequiredCapabilitiesAndExcludedRows() {
         val capabilities = JsonArray(
             listOf(

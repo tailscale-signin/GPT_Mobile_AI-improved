@@ -627,13 +627,27 @@ class GitHubVerifiedSessionTest {
             val receipts = linkedMapOf<String, JsonObject>()
             val actions = mutableListOf<String>()
             repeat(4) { index ->
-                val call = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts, 1000L))
+                val call = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts, 1000L, task = task))
                 actions += call.arguments.getValue("action").toString()
                 if (index == 1 || index == 3) assertEquals(JsonPrimitive("a".repeat(40)), call.arguments["commit_sha"])
-                receipts[index.toString()] = JsonObject(mapOf("tool" to JsonPrimitive(call.name), "arguments" to call.arguments, "observed_at_ms" to JsonPrimitive(1000L), "success" to JsonPrimitive(true), "result" to JsonObject(mapOf("commit_sha" to JsonPrimitive("a".repeat(40))))))
+                receipts[index.toString()] = JsonObject(mapOf("tool" to JsonPrimitive(call.name), "arguments" to call.arguments, "observed_at_ms" to JsonPrimitive(1000L), "trusted" to JsonPrimitive(true), "success" to JsonPrimitive(true), "result" to JsonObject(mapOf("commit_sha" to JsonPrimitive("a".repeat(40))))))
             }
             assertEquals(listOf("\"status\"", "\"checks\"", "\"list\"", "\"commits\""), actions)
-            assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts, 1000L))
+            assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts, 1000L, task = task))
+            val untrusted = receipts.mapValues { JsonObject(it.value + ("trusted" to JsonPrimitive(false))) }
+            assertEquals(JsonPrimitive("status"), GitHubStatusRequest.nextCall(tools, untrusted, 1000L, task = task)?.arguments?.get("action"))
+        }
+    }
+
+    @Test fun statusWithoutAnObservedFullHeadNeverInventsPinnedChecksOrCommits() {
+        val tools = listOf("github_context", "github_pr").map { AgentToolDefinition(it, "Read", JsonObject(emptyMap())) }
+        for (head in listOf("", "abc123", "main")) {
+            val status = Json.parseToJsonElement("""{"tool":"github_context","arguments":{"action":"status"},"trusted":true,"success":true,"observed_at_ms":1000,"result":{"branch":"main","commit_sha":"$head"}}""") as JsonObject
+            val next = requireNotNull(GitHubStatusRequest.nextCall(tools, mapOf("status" to status), 1000L))
+            assertEquals("github_pr", next.name)
+            assertEquals(JsonPrimitive("list"), next.arguments["action"])
+            val listed = Json.parseToJsonElement("""{"tool":"github_pr","arguments":${next.arguments},"trusted":true,"success":true,"observed_at_ms":1000,"result":{"items":[],"has_more":false}}""") as JsonObject
+            assertEquals(null, GitHubStatusRequest.nextCall(tools, mapOf("status" to status, "list" to listed), 1000L))
         }
     }
 
@@ -644,7 +658,7 @@ class GitHubVerifiedSessionTest {
             ProviderEvent.ToolCall("checks", "github_context", JsonObject(mapOf("action" to JsonPrimitive("checks")))),
             AgentToolResult("checks", ToolResultContent.Json(JsonObject(mapOf("checks" to JsonPrimitive(1)))), false)
         )
-        val gate = GitHubVerifiedSession(answer("unused"), book, "inspect checks and recent changes", { 8192 }, { error("No extraction after failure") }, {}, {})
+        val gate = GitHubVerifiedSession(answer("unused"), book, "inspect checks and recent changes", { 8192 }, { error("No extraction after failure") }, {}, {}, remainingToolCalls = { 7 })
         val failure = ProviderEvent.Failed("Gateway could not continue after tool result; job=job-7", errorCode = "client_tool_results_mismatch")
         val events = gate.retainedFailureResponse(failure).toList()
         val terminal = events.last() as ProviderEvent.Failed
@@ -656,6 +670,10 @@ class GitHubVerifiedSessionTest {
         assertEquals(JsonPrimitive(true), report["response_delivered"])
         assertTrue(report.toString().contains("inspect checks and recent changes"))
         assertTrue(report.toString().contains("original_failure"))
+        val budget = report.getValue("stage_budget").jsonObject
+        assertEquals(JsonPrimitive(7), budget["remaining_calls"])
+        assertFalse(budget.containsKey("effective_call_limit"))
+        assertFalse(budget.containsKey("used_calls"))
     }
 
     @Test fun absentIntegrationCatalogStopsBeforeProviderDenialCanBeDispatched() = runTest {
@@ -838,11 +856,24 @@ class GitHubVerifiedSessionTest {
         var rounds = 0
         var executions = 0
         var publicationChecks = 0
+        val head = "a".repeat(40)
         val read = object : AgentTool {
             override val definition = AgentToolDefinition("github_context", "Status", JsonObject(emptyMap()))
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
                 executions++
-                return AgentToolResult(callId, ToolResultContent.Json(Json.parseToJsonElement("""{"schema":"github.operation.v1","data":{"repository":{"full_name":"o/r","default_branch":"main"},"open_pull_request_count":0,"latest_workflow":{"name":"Build","status":"completed","conclusion":"success"}}}""")), false)
+                val data = when (arguments["action"]) {
+                    JsonPrimitive("status") -> """{"repository":{"full_name":"o/r","default_branch":"main"},"branch":"main","commit_sha":"$head","open_pull_request_count":0,"latest_workflow":{"name":"Build","status":"completed","conclusion":"success","head_sha":"$head","head_branch":"main"}}"""
+                    JsonPrimitive("checks") -> {
+                        assertEquals(JsonPrimitive(head), arguments["commit_sha"])
+                        """{"commit_sha":"$head","checks":0,"statuses":0,"check_details":{"total_count":0,"check_runs":[]},"status_details":{"total_count":0,"statuses":[]},"has_more":false}"""
+                    }
+                    JsonPrimitive("commits") -> {
+                        assertEquals(JsonPrimitive(head), arguments["commit_sha"])
+                        """{"commit_sha":"$head","items":[],"has_more":false}"""
+                    }
+                    else -> error("Unexpected status action")
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(Json.parseToJsonElement("""{"schema":"github.operation.v1","data":$data}""")), false)
             }
         }
         val provider = object : AgentProviderSession {
@@ -860,10 +891,53 @@ class GitHubVerifiedSessionTest {
         assertEquals(3, executions)
         assertEquals(2, publicationChecks)
         assertTrue(text.startsWith("# Repository status"))
-        assertTrue(text.contains("| Open pull requests | 0 |"))
-        assertTrue(text.contains("| Workflow result | success |"))
+        assertTrue(text.contains("| Branch main · Open pull requests | 0 |"))
+        assertTrue(text.contains("| Branch main · Workflow result | success |"))
         assertFalse(text.contains("/data/") || text.contains("ev_") || text.contains("clean state"))
         assertEquals("PARTIAL", (published.last() as ProviderEvent.Failed).taskOutcome)
+    }
+
+    @Test fun exhaustedStatusPublishesItsBudgetAndNextReadWithoutOpeningAModelContinuation() = runTest {
+        val task = GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt + "\nBudget: 1 tool call."
+        val tools = listOf("github_context", "github_pr", "github_ci").map { AgentToolDefinition(it, "Read", JsonObject(emptyMap())) }
+        val saved = mutableMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook("status-budget", "o/r", "main", tools.map { it.name }.toSet(), now = { 1000L }, save = { key, value -> saved[key] = value }, load = { saved[it] })
+        book.retainTaskContract(task, 42, tools, 1)
+        book.observe(
+            ProviderEvent.ToolCall("status", "github_context", Json.parseToJsonElement("""{"action":"status"}""").jsonObject),
+            AgentToolResult("status", ToolResultContent.Json(Json.parseToJsonElement("""{"repository":{"full_name":"o/r"},"branch":"main","commit_sha":"${"a".repeat(40)}"}""")), false)
+        )
+        var report: JsonObject? = null
+        val provider = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Deterministic status cannot invoke model planning")
+        }
+        val session = GitHubVerifiedSession(
+            provider, book, task, { 8192 }, { error("Status needs no model formatter") }, {}, {},
+            now = { 1000L }, computationDispatcher = StandardTestDispatcher(testScheduler), authorizedTools = tools,
+            remainingToolCalls = { 0 }, onPublication = { report = it },
+            openExecutionContinuation = { error("Budget exhaustion cannot open a model continuation") }
+        )
+        val events = session.streamRound(tools, emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("accepted tool allowance is exhausted"))
+        val verdict = requireNotNull(report)
+        val budget = verdict.getValue("stage_budget").jsonObject
+        assertEquals(JsonPrimitive(1), budget["effective_call_limit"])
+        assertEquals(JsonPrimitive(1), budget["used_calls"])
+        assertEquals(JsonPrimitive(0), budget["remaining_calls"])
+        assertEquals(JsonPrimitive(0), budget["verification_reserve"])
+        val next = verdict.getValue("status_checkpoint").jsonObject.getValue("next_read").jsonObject
+        assertEquals(JsonPrimitive("checks"), next.getValue("arguments").jsonObject["action"])
+        assertEquals(JsonPrimitive("a".repeat(40)), next.getValue("arguments").jsonObject["commit_sha"])
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(JsonPrimitive("TOOL_BUDGET_EXHAUSTED"), failure.failureDetails?.get("stop_reason"))
+        assertEquals("PARTIAL", failure.taskOutcome)
+        val restored = GitHubEvidenceBook("status-budget", "o/r", "main", tools.map { it.name }.toSet(), load = { saved[it] }).stageBudget(emptyMap(), null, 0)
+        for (key in listOf("effective_call_limit", "used_calls", "remaining_calls", "accepted_contract_identity")) assertEquals(budget[key], restored[key])
+        assertEquals(JsonPrimitive("RETAINED_EXECUTION_CHECKPOINT"), restored["remaining_source"])
+        val unrelated = GitHubEvidenceBook("status-budget", "other/repo", "main", tools.map { it.name }.toSet(), load = { saved[it] }).stageBudget(emptyMap(), null, 0)
+        assertFalse(unrelated.containsKey("effective_call_limit"))
+        assertFalse(unrelated.containsKey("remaining_calls"))
     }
 
     @Test fun runnerRetriesTransientFailuresBeforePublishingWithoutRepeatingCompletedTools() = runTest {

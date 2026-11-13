@@ -180,7 +180,7 @@ class IssueReportIncidentsTest {
         val report = IssueReportIncidents.pending.value.single()
         val context = requireNotNull(report.context)
         assertEquals("CHAT_FAILED", report.errorCode)
-        assertEquals(4, context.schemaVersion)
+        assertEquals(7, context.schemaVersion)
         assertEquals("lifecycle", context.stage)
         assertEquals("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", context.reasonCode)
         assertEquals("REVIEW_SAVED_RECOVERY", context.recoveryAction)
@@ -402,6 +402,43 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun explicitToolCauseSuppressesItsChatPropagationWithoutRewritingTheFirstReport() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val toolFields = mapOf("run_id" to "owned-run", "call_id" to "owned-call", "tool" to "github_context", "phase" to "tool_execution", "http_status" to 422)
+        IssueReportIncidents.failure(ReportFeature.TOOLS, "GITHUB_VALIDATION_FAILED", null, toolFields, "TOOL_RESULT")
+        val first = IssueReportIncidents.pending.value.single()
+        val approved = first.approvedPayload()
+        val propagated = mapOf("run_id" to "owned-run", "causal_id" to "owned-call", "causal_provenance" to "TOOL_CALL", "causal_failure_code" to "GITHUB_VALIDATION_FAILED", "failed_stage" to "review_comparison")
+        IssueReportIncidents.chatFailure("GITHUB_VALIDATION_FAILED", false, null, propagated)
+        assertEquals(listOf(first), IssueReportIncidents.pending.value)
+        assertEquals(approved, first.approvedPayload())
+        IssueReportIncidents.chatFailure("GITHUB_VALIDATION_FAILED", false, null, propagated + ("causal_id" to "different-call"))
+        assertEquals(2, IssueReportIncidents.pending.value.size)
+        IssueReportIncidents.chatFailure("GITHUB_VALIDATION_FAILED", false, null, propagated - "causal_id")
+        assertEquals(3, IssueReportIncidents.pending.value.size)
+    }
+
+    @Test
+    fun laterProviderWaitObservationRetainsExplicitPersistenceForFollowupOnly() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure("PROVIDER_RATE_LIMITED", true, null, mapOf("run_id" to "owned-run", "provider" to "OPENROUTER", "failed_stage" to "model_invocation", "http_status" to 429))
+        val first = IssueReportIncidents.pending.value.single()
+        val approved = first.approvedPayload()
+        val observation = mapOf("run_id" to "owned-run", "profile_id" to "private-profile", "model" to "private-model", "stage" to "provider_wait", "provider_wait_state" to "WAITING_PROVIDER_LIMIT", "provider_wait_persisted" to true, "recovery_observation" to "RETRY_SCHEDULED", "retry_delay_ms" to 30_000L, "recovery_authority" to "VALID")
+        IssueReportIncidents.providerRecoveryObservation(observation)
+        val snapshot = requireNotNull(IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+        assertEquals(JsonPrimitive(true), snapshot.values["provider_wait_persisted"])
+        assertEquals(JsonPrimitive("provider_wait"), snapshot.values["incident_phase"])
+        assertNull(snapshot.values["request_replay_allowed"])
+        assertEquals(listOf(first), IssueReportIncidents.pending.value)
+        assertEquals(approved, first.approvedPayload())
+        assertFalse(snapshot.toString().contains("private"))
+        IssueReportIncidents.privacyChanged(true)
+        IssueReportIncidents.providerRecoveryObservation(observation)
+        assertNull(IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+    }
+
+    @Test
     fun structuredRecorderRetainsTypedOperationFactsWithoutRawPayloadOrIdentifiers() {
         LocalDiagnosticsPolicy.setEnabled(true)
         AppLogRecorder.recordEvent(
@@ -458,8 +495,20 @@ class IssueReportIncidentsTest {
 
         IssueReportIncidents.chatFailure("CHAT_FAILED", false)
         val second = IssueReportIncidents.pending.value.last()
-        assertNull(second.context?.diagnostics)
+        val generic = requireNotNull(second.context?.diagnostics)
+        assertEquals(7, second.context?.schemaVersion)
+        assertEquals(3, generic.schemaVersion)
+        assertEquals("INCIDENT", generic.area)
+        assertEquals(JsonPrimitive("unknown"), generic.values["incident_phase"])
+        assertEquals(JsonPrimitive("UNAVAILABLE"), generic.values["causal_provenance"])
+        assertEquals(JsonPrimitive("CAUSAL_EVIDENCE_UNAVAILABLE"), generic.values["incident_evidence_status"])
+        for (field in listOf("causal_id_hash", "run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "model_hash", "output_tokens")) {
+            assertFalse(field in generic.values)
+        }
         assertNull(second.context?.runIdHash)
+        assertNull(second.context?.invocationIdHash)
+        assertNull(second.context?.callIdHash)
+        assertNull(second.context?.jobIdHash)
         assertEquals(first.context?.diagnostics, IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
         assertFalse(first.approvedPayload().contains("owned-run"))
     }

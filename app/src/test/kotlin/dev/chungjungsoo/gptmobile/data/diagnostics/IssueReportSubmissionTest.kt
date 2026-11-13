@@ -23,6 +23,43 @@ class IssueReportSubmissionTest {
         .apply { retryAfter?.let { header("Retry-After", it) } }.body(body.toResponseBody("application/json".toMediaType())).build()
     private fun body(request: Request) = Buffer().also { request.body?.writeTo(it) }.readUtf8()
 
+    @Test fun incidentCapsuleRequiresSevenAndNeverDowngradesTheApprovedPayloadForAnOlderService() {
+        val context = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", mapOf("run_id" to "owned-run")),
+            1_000L
+        )
+        val enriched = report.copy(context = context)
+        val payload = enriched.approvedPayload()
+        var versions = "[1,2,3,4,5,6]"
+        val posted = mutableListOf<String>()
+        var dispatched = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":$versions}""")
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${report.reportId}","number":742}""")
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        for (unsupported in listOf("[1,2,3,4,5,6]", "[1,2,3,4,5,6,\"7\"]", "[1,2,3,4,5,6,true]")) {
+            versions = unsupported
+            val failure = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", failure.code)
+            assertTrue(failure.retryable)
+            assertFalse(failure.automaticRetry)
+            assertTrue(posted.isEmpty())
+            assertEquals(0, dispatched)
+            assertEquals(payload, enriched.approvedPayload())
+        }
+        versions = "[1,2,3,4,5,6,7]"
+        assertEquals(IssueReportSubmission.Confirmed(742), submission.send(report.reportId, payload) { dispatched++ })
+        assertEquals(listOf(payload), posted)
+        assertEquals(1, dispatched)
+    }
+
     @Test fun engineeringContextRequiresSixBeforeDispatchAndKeepsTheExactApprovedPayload() {
         val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("reasonCode" to "ENGINEERING_BUDGET_INVALID", "invalid_fields" to listOf("execution_budget"), "failed_stage" to "request_validation"), 1_000L)
         val enriched = report.copy(context = context)

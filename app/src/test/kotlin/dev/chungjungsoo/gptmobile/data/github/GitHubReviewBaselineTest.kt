@@ -50,6 +50,20 @@ class GitHubReviewBaselineTest {
 
     private fun failed(ref: String, code: String, action: String = "commit") = JsonObject(resolved(ref, success = false, action = action) + ("error_code" to JsonPrimitive(code)))
 
+    @Test fun blockedComparisonPreservesOnlyTheConcreteFailedLookupCause() {
+        val original = JsonObject(failed("release/stable", "GITHUB_REF_UNAVAILABLE") + ("call_id" to JsonPrimitive("baseline-lookup")))
+        val plan = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: release/stable", tools, mapOf("status" to context(), "failed" to original)))
+        val failure = GitHubReviewComparison.blockedFailure(plan)
+        assertEquals(JsonPrimitive("baseline-lookup"), failure.failureDetails?.get("causal_id"))
+        assertEquals(JsonPrimitive("TOOL_CALL"), failure.failureDetails?.get("causal_provenance"))
+        assertEquals(JsonPrimitive("GITHUB_REF_UNAVAILABLE"), failure.failureDetails?.get("causal_failure_code"))
+        val withoutCall = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: release/stable", tools, mapOf("status" to context(), "failed" to failed("release/stable", "GITHUB_REF_UNAVAILABLE"))))
+        assertFalse(requireNotNull(GitHubReviewComparison.blockedFailure(withoutCall).failureDetails).containsKey("causal_id"))
+        val unclassified = JsonObject(original + ("error_code" to JsonPrimitive("UNRECOGNIZED_PRIVATE_ERROR")))
+        val unknown = requireNotNull(GitHubReviewComparison.plan("$review\nBaseline: release/stable", tools, mapOf("status" to context(), "failed" to unclassified)))
+        assertFalse(requireNotNull(GitHubReviewComparison.blockedFailure(unknown).failureDetails).containsKey("causal_failure_code"))
+    }
+
     @Test fun toolAndIssueReviewsOnABranchDoNotBecomeChangedSourceReviews() {
         for (task in listOf("Review all GitHub tools on the selected branch", "Review open issues on this branch", "Review this session and list the branch status", "Review the integration test results on branch main", "Review source tool permissions on this branch", "Review code test results on this branch", "Explain this quoted request: `Review code on this branch`")) {
             assertFalse(task, GitHubReviewComparison.matches(task))
@@ -78,6 +92,24 @@ class GitHubReviewBaselineTest {
             assertTrue(failure.transportComplete)
             assertEquals(JsonPrimitive("SELECT_REVIEW_BASELINE"), failure.failureDetails?.get("next_action"))
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        }
+    }
+
+    @Test fun completeShippedReviewPresetNeverTreatsHeadBaseProseAsARef() {
+        val preset = GitHubWorkflowPreset.selected("review_branch").prompt()
+        assertTrue(preset.contains("head/base revisions"))
+        for (task in listOf(preset, preset.replace("head/base", "base/head"), preset + "\nInspect feature/base and base/head source paths.")) {
+            val missing = requireNotNull(GitHubReviewComparison.plan(task, tools, mapOf("status" to context(), "prs" to noPulls())))
+            assertEquals(JsonPrimitive("BASELINE_REQUIRED"), missing.checkpoint["state"])
+            assertNull(missing.nextCall)
+            val feature = requireNotNull(GitHubReviewComparison.plan(task, tools, mapOf("status" to featureContext(), "prs" to noPulls())))
+            assertEquals(JsonPrimitive("main"), feature.nextCall?.arguments?.get("ref"))
+            val explicit = requireNotNull(GitHubReviewComparison.plan("$task\nBaseline: release/stable", tools, mapOf("status" to context())))
+            assertEquals(JsonPrimitive("release/stable"), explicit.nextCall?.arguments?.get("ref"))
+            val observed = requireNotNull(GitHubReviewComparison.plan(task, tools, mapOf("status" to featureContext(), "prs" to matchingPull())))
+            assertEquals(JsonPrimitive("changes"), observed.nextCall?.arguments?.get("action"))
+            assertEquals(JsonPrimitive("c".repeat(40)), observed.nextCall?.arguments?.get("base_sha"))
+            assertEquals(JsonPrimitive(head), observed.nextCall?.arguments?.get("commit_sha"))
         }
     }
 

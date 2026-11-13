@@ -1,16 +1,19 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
 import dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
-/** Finite observations only: this boundary cannot accept text, audio, paths or model names. */
+/** Finite observations only. Reply identifiers are hashed by the closed reporting projection before retention. */
 class VoiceDiagnosticTrace internal constructor(
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
     private val wallClock: () -> Long = System::currentTimeMillis,
@@ -109,6 +112,16 @@ class VoiceDiagnosticTrace internal constructor(
 
     /** Backends retain this immutable ticket inside their capture/playback operation. */
     class Probe internal constructor(private val owner: VoiceDiagnosticTrace, internal val generation: Long, internal val epoch: Long, internal val collectable: Boolean) {
+        /** Keep a terminal run join through pause/close, but clear it before another capture generation. */
+        internal fun replyFailure(fields: Map<String, Any?>) {
+            val snapshot = IssueReportContext.fromFields(
+                "VOICE_STATE",
+                IssueReportIncidentCapsule.fields(ReportFeature.VOICE, "VOICE_STATE", "VOICE_SESSION_FAILED", fields + ("diagnostic_area" to "VOICE"))
+            ).diagnostics ?: return
+            owner.record(this) {
+                snapshot.values.filterKeys { it in IssueReportIncidentCapsule.fieldsFor("VOICE") }.forEach { (key, value) -> owner.values[key] = value }
+            }
+        }
         fun engine(engine: Engine) = owner.record(this) {
             val previous = owner.values["voice_engine"]
             if (previous != null && previous != engine.name) {

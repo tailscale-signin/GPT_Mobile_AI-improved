@@ -139,10 +139,14 @@ class GitHubStatusAuditRegressionTest {
 
     @Test fun logPlanningSelectsCompletedJobsAndPreservesTheObservedId() {
         val definition = AgentToolDefinition("github_ci", "logs", json("""{"type":"object","properties":{"action":{"const":"logs"}}}"""))
-        fun jobs(status: String) = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"jobs"},"result":{"jobs":[{"id":125885674437,"status":"$status"}]}}""")
-        assertEquals(null, GitHubSelfTestReads.next(listOf(definition), listOf(jobs("in_progress"))))
-        val next = requireNotNull(GitHubSelfTestReads.next(listOf(definition), listOf(jobs("completed"))))
+        fun jobs(status: String, conclusion: String? = null) = json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"jobs","run_id":41626680355,"run_attempt":2},"result":{"jobs":[{"id":125885674437,"run_id":41626680355,"run_attempt":2,"status":"$status","conclusion":${conclusion?.let { "\"$it\"" } ?: "null"}}]}}""")
+        for ((status, conclusion) in listOf("in_progress" to null, "completed" to null, "completed" to "skipped", "completed" to "cancelled")) {
+            assertEquals(null, GitHubSelfTestReads.next(listOf(definition), listOf(jobs(status, conclusion))))
+        }
+        val next = requireNotNull(GitHubSelfTestReads.next(listOf(definition), listOf(jobs("completed", "failure"))))
         assertEquals(JsonPrimitive(125885674437L), next.arguments["job_id"])
+        assertEquals(JsonPrimitive(41626680355L), next.arguments["run_id"])
+        assertEquals(JsonPrimitive(2), next.arguments["run_attempt"])
     }
 
     @Test fun cumulativeCoveragePreservesFailedAttemptsAfterRecovery() {

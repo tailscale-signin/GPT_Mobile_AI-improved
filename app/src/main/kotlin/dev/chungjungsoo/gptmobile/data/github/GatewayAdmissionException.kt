@@ -11,6 +11,7 @@ enum class GatewayAdmissionReason {
     TRANSPORT_IDENTITY_REQUIRED,
     IDENTITY_MISMATCH,
     UNSUPPORTED_CONTRACT,
+    COMMAND_RECEIPT_UNAVAILABLE,
     INVALID_RESPONSE,
     INVALID_CONNECTION,
     STORAGE_UNAVAILABLE,
@@ -106,6 +107,7 @@ private fun admissionMessage(reason: GatewayAdmissionReason, status: Int?, surfa
         GatewayAdmissionReason.TRANSPORT_IDENTITY_REQUIRED -> "The gateway did not recognize this connection's transport identity. Check its configured access mode and original connection. Key-free LAN mode does not require adding an API token."
         GatewayAdmissionReason.IDENTITY_MISMATCH -> "The gateway installation or account changed. Restore the original connection and refresh its identity before sending the saved command."
         GatewayAdmissionReason.UNSUPPORTED_CONTRACT -> "The selected address does not expose the required gateway saved-work contract. A direct model server can answer model requests without providing gateway Jobs. Verify the configured gateway address and reverse-proxy routes; if this is the intended gateway, update its running package and verify its identity, conversation and Jobs routes."
+        GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE -> "The saved command receipt is not available from this connection. A missing receipt does not establish whether the command was accepted or whether this route is supported. Recheck the original gateway identity and command receipt."
         GatewayAdmissionReason.INVALID_RESPONSE -> "The gateway returned an incompatible saved-work document. Verify the selected address, installed source commit and saved-work contract."
         GatewayAdmissionReason.INVALID_CONNECTION -> "The gateway rejected this connection's host, origin or admission headers. Check the configured destination and access mode on the PC gateway."
         GatewayAdmissionReason.STORAGE_UNAVAILABLE -> "The gateway's saved-work storage is unavailable. Restore its durable journal on the PC, then reconnect to the original jobs."
@@ -156,7 +158,8 @@ internal fun gatewayAdmissionFailure(status: Int, surface: GatewayAdmissionSurfa
         safeGatewayAdmissionCode((error?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull)
     }
     val reason = admissionReasons[code] ?: when (status) {
-        404, 405, 501 -> GatewayAdmissionReason.UNSUPPORTED_CONTRACT
+        404 -> if (surface == GatewayAdmissionSurface.COMMAND) GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE else GatewayAdmissionReason.UNSUPPORTED_CONTRACT
+        405, 501 -> GatewayAdmissionReason.UNSUPPORTED_CONTRACT
         410 -> GatewayAdmissionReason.CURSOR_EXPIRED
         else -> GatewayAdmissionReason.HTTP_REJECTED
     }

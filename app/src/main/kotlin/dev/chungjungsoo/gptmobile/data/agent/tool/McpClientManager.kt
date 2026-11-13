@@ -632,6 +632,21 @@ class McpClientManager internal constructor(
     fun healthSnapshot(connectionUid: String): McpConnectionHealth =
         _health.value[connectionUid] ?: McpConnectionHealth()
 
+    /** Retained health is labeled separately; it cannot establish this call's dispatch or cause. */
+    internal fun failureReportFields(connectionUid: String?, error: Throwable, phase: String): kotlinx.serialization.json.JsonObject {
+        val snapshot = connectionUid?.let { _health.value[it] }
+        val observedAt = snapshot?.let { listOfNotNull(it.lastFailureAtMs, it.lastSuccessAtMs).maxOrNull() }
+        return dev.chungjungsoo.gptmobile.data.diagnostics.McpReportDiagnostics.fields(
+            connectionUid = connectionUid,
+            failurePhase = phase,
+            failureCategory = dev.chungjungsoo.gptmobile.data.network.LocalServiceHealth.classify(error).name,
+            connectionState = snapshot?.state?.name,
+            readinessState = snapshot?.toolReadiness?.name,
+            connectionHealth = snapshot?.connectionHealth?.name,
+            observedAgeMs = observedAt?.let { (nowMs() - it).coerceAtLeast(0) }
+        )
+    }
+
     fun resetHealth(connectionUid: String) {
         validatedCatalogues.remove(connectionUid)
         _health.update { current -> current - connectionUid }
@@ -1028,7 +1043,8 @@ class McpClientManager internal constructor(
                             "Connect failed · operation_id=${observation.operationId} · connection=${config.connectionUid} · elapsedMs=${nowMs() - connectStartedAtMs} · transportTimeoutMs=$transportConnectTimeoutMs · initializationTimeoutMs=$effectiveSessionTimeoutMs · errorType=${error.javaClass.simpleName} · httpStatus=${httpStatus ?: "unavailable"}",
                             "E",
                             reportCode = mcpConnectFailureReportCode(reportedFailure),
-                            reportError = error
+                            reportError = error,
+                            reportFields = failureReportFields(config.connectionUid, reportedFailure, "initialization")
                         )
                         throw reportedFailure
                     }

@@ -67,6 +67,9 @@ object AppLogRecorder {
 
     @Volatile private var process: java.lang.Process? = null
     private val fileLock = Any()
+
+    // UI publication must never wait for a log-file write or fsync.
+    private val recentLock = Any()
     private val exportLock = Any()
     private val recent = ArrayDeque<AppLogEntry>()
     private var recentCharacters = 0
@@ -120,28 +123,30 @@ object AppLogRecorder {
             var publication: Job? = null
             while (isActive) {
                 queue.awaitRecords()
-                synchronized(fileLock) {
+                val retained = synchronized(fileLock) {
                     if (!mutableEnabled.value || privateSessions.isNotEmpty()) {
                         queue.clear()
-                        return@synchronized
+                        return@synchronized null
                     }
-                    // Drain under this lock, so a snapshot cannot miss a dequeued but unwritten batch.
-                    val batch = queue.drainBatch()
-                    var retained = false
-                    // Persist one bounded record at a time, including lifecycle and tool failures.
-                    // A large batch must not overrun the critical ring or allocate one giant string.
-                    batch.forEach { (epoch, event) ->
-                        if (epoch != captureEpoch.get()) return@forEach
-                        runCatching { persistEntry(event) }
-                            .onFailure { mutableError.value = "Unable to save logs. Check available storage." }
-                        dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.appEvent(event)
-                        retainRecent(event)
-                        retained = true
+                    // Dequeue and persist exactly one bounded record atomically
+                    // with respect to export. The next capture sees it either in
+                    // the queue or on disk, without waiting for a 64-record fsync burst.
+                    val pending = queue.poll() ?: return@synchronized null
+                    if (pending.first != captureEpoch.get()) return@synchronized null
+                    runCatching { persistEntry(pending.second) }
+                        .onFailure { mutableError.value = "Unable to save logs. Check available storage." }
+                    pending
+                }
+                if (retained != null) {
+                    val (epoch, event) = retained
+                    if (operationCaptureCurrent(epoch)) dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.appEvent(event)
+                    synchronized(recentLock) {
+                        if (operationCaptureCurrent(epoch)) retainRecent(event)
                     }
-                    if (retained && publication?.isActive != true) {
+                    if (publication?.isActive != true) {
                         publication = scope.launch {
                             kotlinx.coroutines.delay(250)
-                            synchronized(fileLock) {
+                            synchronized(recentLock) {
                                 mutableEntries.value = if (mutableEnabled.value && privateSessions.isEmpty()) recent.toList() else emptyList()
                             }
                         }
@@ -299,9 +304,11 @@ object AppLogRecorder {
         val entry = AppLogEntry(System.currentTimeMillis(), level, tag.take(64), diagnosticMessageForStorage(message, tag))
         synchronized(fileLock) {
             if (!mutableEnabled.value || privateSessions.isNotEmpty() || epoch != captureEpoch.get()) return
-            retainRecent(entry)
+            synchronized(recentLock) {
+                retainRecent(entry)
+                mutableEntries.value = recent.toList()
+            }
             dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics.appEvent(entry)
-            mutableEntries.value = recent.toList()
             runCatching {
                 val line = entry.line()
                 appendCritical(line)
@@ -325,13 +332,15 @@ object AppLogRecorder {
                     CombinedOperationTrace.clearFrameHistory()
                     FrameTimingRecorder.clearRunHistory()
                     queue.clear()
-                    recent.clear()
-                    recentCharacters = 0
+                    synchronized(recentLock) {
+                        recent.clear()
+                        recentCharacters = 0
+                        mutableEntries.value = emptyList()
+                    }
                     coalescer.clear()
                     dev.chungjungsoo.gptmobile.data.agent.ToolCatalogDiagnostics.clear()
                     droppedRecords.set(0)
                     droppedCriticalRecords.set(0)
-                    mutableEntries.value = emptyList()
                     runCatching {
                         directory()?.listFiles()?.forEach { it.delete() }
                         app?.let { File(it.cacheDir, "diagnostics").listFiles()?.forEach { file -> file.deleteRecursively() } }

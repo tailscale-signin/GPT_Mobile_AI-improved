@@ -1693,6 +1693,7 @@ class AgentToolResolver @Inject constructor(
                 val tool = McpAgentTool(
                     definition = GitHubProviderPolicy.definition(connection, mcpToolDefinition(connection.alias, remoteTool)),
                     authType = connection.authType,
+                    connectionUid = connection.connectionUid,
                     config = { forceRefresh, rejectedHeader ->
                         val current = toolConnectionRepository.getConnection(connection.connectionUid)
                             ?: error("MCP connection was uninstalled.")
@@ -1861,7 +1862,8 @@ internal class McpAgentTool(
     private val outputSchema: io.modelcontextprotocol.kotlin.sdk.types.ToolSchema? = null,
     override val approvedReadOnly: Boolean = false,
     private val firecrawlRead: Boolean = false,
-    private val metadata: (suspend () -> JsonObject)? = null
+    private val metadata: (suspend () -> JsonObject)? = null,
+    private val connectionUid: String? = null
 ) : AgentTool,
     dev.chungjungsoo.gptmobile.data.agent.ApprovedReadOnlyAgentTool {
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
@@ -1887,8 +1889,9 @@ internal class McpAgentTool(
             config(false, null)
         } catch (cancelled: CancellationException) {
             throw cancelled
-        } catch (_: Exception) {
+        } catch (error: Exception) {
             return dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.error(callId, "MCP_CONNECTION_UNAVAILABLE", "MCP connection unavailable. Check installation, enable state and credentials in Tool connections.")
+                .copy(executionReceipt = clientManager.failureReportFields(connectionUid, error, "configuration"))
         }
         val trustedMetadata = metadata?.invoke()
         val result = try {
@@ -1904,6 +1907,7 @@ internal class McpAgentTool(
                     executionReceipt = buildJsonObject {
                         put("schema", "gptmobile.mcp-operation.v1")
                         put("dispatch_evidence", "LOCAL_CATALOGUE_PRECHECK")
+                        clientManager.failureReportFields(initialConfig.connectionUid, rejected, "catalog").forEach { (key, value) -> put(key, value) }
                     }
                 ),
                 definition.name,

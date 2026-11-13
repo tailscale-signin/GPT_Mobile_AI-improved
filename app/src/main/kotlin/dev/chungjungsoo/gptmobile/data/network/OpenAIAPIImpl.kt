@@ -46,8 +46,10 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.put
 
 class OpenAIAPIImpl @Inject constructor(
     private val networkClient: NetworkClient,
@@ -249,7 +251,13 @@ class OpenAIAPIImpl @Inject constructor(
                         config.freeDiagnostics?.responded()
                         if (!response.status.isSuccess()) {
                             val errorBody = if (free != null) readFreeErrorBody(response) else response.body<String>()
-                            val failureDetails = structuredProviderFailure(errorBody, response.status.value)
+                            val failureDetails = JsonObject(
+                                kotlinx.serialization.json.buildJsonObject {
+                                    put("failed_stage", "model_invocation")
+                                    put("http_status", response.status.value)
+                                } + ProviderRejectionDiagnostics.response(response.status.value, errorBody, ProviderRejectionDiagnostics.Contract.CHAT_COMPLETIONS) +
+                                    structuredProviderFailure(errorBody, response.status.value).orEmpty()
+                            )
                             val retainedGatewayAttempts = hasRetainedGatewayAttempts(failureDetails)
                             // Error responses also own durable job identity. Publish trusted headers
                             // before any saved-result lookup which may itself lose connectivity.

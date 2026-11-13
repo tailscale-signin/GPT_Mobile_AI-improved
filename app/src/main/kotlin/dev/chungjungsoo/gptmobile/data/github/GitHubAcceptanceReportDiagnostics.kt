@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -15,6 +17,24 @@ internal object GitHubAcceptanceReportDiagnostics {
         put("diagnostic_area", "ACCEPTANCE")
         put("diagnostic_capture_mode", "INCIDENT")
         put("acceptance_evidence_scope", if (retainedReport) "RETAINED_VERDICT" else "CURRENT_VERDICT")
+        val requirements = (ledger["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+        val unmetRequirements = requirements.filter { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") }
+        val capabilities = (ledger["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["required"] == JsonPrimitive(true) }
+        if (ledger["capabilities"] is JsonArray) {
+            put("required_capability_count", capabilities.size)
+            put("verified_capability_count", capabilities.count { it["state"] == JsonPrimitive("PASS") })
+            put("blocked_capability_count", capabilities.count { it["state"] == JsonPrimitive("BLOCKED") })
+            put("untested_capability_count", capabilities.count { it["state"] == JsonPrimitive("NOT_TESTED") })
+        }
+        for (key in listOf("task_kind", "acceptance_evaluator_branch", "acceptance_mismatch", "expected_operation", "expected_action", "eligible_receipt_count", "excluded_receipt_count", "receipt_count_scope", "receipt_exclusion_reasons")) {
+            val observed = unmetRequirements.map { it[key] }
+            val value = verdict[key] ?: observed.takeIf { rows -> rows.isNotEmpty() && rows.all { it != null } }?.distinct()?.singleOrNull()
+            value?.let { IssueReportIncidentCapsule.validValue(key, it) }?.let { put(key, it) }
+        }
+        val evidence = (unmetRequirements + capabilities.filter { it["state"] != JsonPrimitive("PASS") }).flatMap { row ->
+            (row["receipt_ids"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull }
+        }.distinct().take(8).mapNotNull { IssueReportContext.identifierHash("acceptance-receipt", it) }
+        if (evidence.isNotEmpty()) put("evidence_ref_hashes", JsonArray(evidence.map(::JsonPrimitive)))
         val unmet = listOf("requirements", "capabilities").asSequence()
             .flatMap { (ledger[it] as? JsonArray).orEmpty().asSequence() }.filterIsInstance<JsonObject>()
             .filter { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") }

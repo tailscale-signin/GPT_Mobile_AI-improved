@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Process
 import android.util.AtomicFile
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.data.voice.VoiceDiagnosticTrace
 import java.io.File
 import kotlinx.coroutines.CancellationException
@@ -18,6 +19,8 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 /** Local projection for public reports. Raw messages, identifiers and OS logcat never enter it. */
 internal object IssueReportIncidents {
@@ -36,6 +39,7 @@ internal object IssueReportIncidents {
         val activeJobId: String?
     )
     private val lastFailures = mutableMapOf<FailureKey, Long>()
+    private val lastCauses = mutableMapOf<IssueReportIncidentCapsule.CausalIdentity, Long>()
     private val persistenceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pendingCorrelations = Channel<IssueReport>(PENDING_LIMIT)
     private val mutablePending = MutableStateFlow<List<IssueReport>>(emptyList())
@@ -100,6 +104,7 @@ internal object IssueReportIncidents {
     fun clearRecent() = synchronized(lock) {
         events.clear()
         lastFailures.clear()
+        lastCauses.clear()
         clearDiagnosticSnapshots()
     }
 
@@ -115,6 +120,29 @@ internal object IssueReportIncidents {
         if (!LocalDiagnosticsPolicy.enabled || isPrivate || area !in IssueReportDiagnostics.areas) return null
         if (area == "VOICE") VoiceDiagnosticTrace.manualSnapshot()?.let(ReportDiagnosticSnapshots::retain)
         ReportDiagnosticSnapshots.latest(area)
+    }
+
+    /** A later scheduler observation is available for an explicit follow-up, never appended to approved bytes. */
+    fun providerRecoveryObservation(fields: Map<String, Any?>) = synchronized(lock) {
+        if (!LocalDiagnosticsPolicy.enabled || isPrivate) return@synchronized
+        fun hash(key: String): String? {
+            val text = when (val value = fields[key]) {
+                is String -> value
+                is JsonPrimitive -> value.takeIf { it.isString }?.contentOrNull
+                else -> null
+            }
+            return text?.takeIf { it.isNotBlank() && it.length <= 256 }?.let(::researchHash)
+        }
+        val evidence = IssueReportContext.fromFields(
+            "STRUCTURED_EVENT",
+            IssueReportIncidentCapsule.fields(
+                ReportFeature.CHAT,
+                "STRUCTURED_EVENT",
+                "PROVIDER_RATE_LIMITED",
+                fields + mapOf("diagnostic_area" to "PROVIDER", "profile_hash" to hash("profile_id"), "model_hash" to hash("model"))
+            )
+        )
+        if (evidence.runIdHash != null) evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
     }
 
     fun recentEvents(): List<String> = synchronized(lock) {
@@ -171,23 +199,31 @@ internal object IssueReportIncidents {
             if (!LocalDiagnosticsPolicy.enabled || isPrivate) return
             val now = System.nanoTime() / 1_000_000L
             val publicCode = IssueReportCodes.select(code, fallbackCode(feature))
+            val reportSource = source ?: if (fields.isNotEmpty()) {
+                "STRUCTURED_EVENT"
+            } else if (error == null) {
+                "CODE_ONLY"
+            } else {
+                "EXCEPTION"
+            }
             val evidence = IssueReportContext.fromFields(
-                source ?: if (fields.isNotEmpty()) {
-                    "STRUCTURED_EVENT"
-                } else if (error == null) {
-                    "CODE_ONLY"
-                } else {
-                    "EXCEPTION"
-                },
-                if (feature == ReportFeature.APP) fields + appDiagnosticFields(code) else fields
+                reportSource,
+                IssueReportIncidentCapsule.fields(feature, reportSource, publicCode, if (feature == ReportFeature.APP) fields + appDiagnosticFields(code) else fields)
             )
             val key = FailureKey(feature, publicCode, evidence.runIdHash, evidence.invocationIdHash, evidence.callIdHash, evidence.jobIdHash, evidence.activeJobIdHash)
             evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
             addEvent('E', feature, publicCode)
-            if ((lastFailures[key] ?: Long.MIN_VALUE / 2) + DUPLICATE_MILLIS > now) return
+            val cause = IssueReportIncidentCapsule.identity(evidence, publicCode)
+            if (cause == null && (lastFailures[key] ?: Long.MIN_VALUE / 2) + DUPLICATE_MILLIS > now) return
+            if (cause != null && (lastCauses[cause] ?: Long.MIN_VALUE / 2) + DUPLICATE_MILLIS > now) return
             lastFailures.entries.removeAll { it.value < now - DUPLICATE_MILLIS }
+            lastCauses.entries.removeAll { it.value < now - DUPLICATE_MILLIS }
             if (lastFailures.size >= 128) lastFailures.remove(lastFailures.minBy { it.value }.key)
-            lastFailures[key] = now
+            if (cause == null) lastFailures[key] = now
+            if (cause != null) {
+                if (lastCauses.size >= 128) lastCauses.remove(lastCauses.minBy { it.value }.key)
+                lastCauses[cause] = now
+            }
             addPending(IssueReport.debug(feature, publicCode, recentEvents(), error, evidence))
         }
     }

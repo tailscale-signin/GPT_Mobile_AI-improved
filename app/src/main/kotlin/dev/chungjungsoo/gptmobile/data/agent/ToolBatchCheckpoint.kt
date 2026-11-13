@@ -61,8 +61,8 @@ data class ToolBatchRecoverySnapshot(
 
 /** Durable dispatch receipts. A crash after dispatch is unknown, never permission to repeat a side effect. */
 class ToolBatchCheckpoint(private val file: File?, private val binding: String, private val initialJob: ToolBatchJobContext? = null, private val expectedProviderEvidenceDigest: String? = null, private val expectedProviderJournalDigest: String? = null) {
-    @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject, val originalInvocationFingerprint: String? = null) {
-        fun event() = ProviderEvent.ToolCall(id, name, arguments, originalInvocationFingerprint)
+    @Serializable private data class Call(val id: String, val name: String, val arguments: JsonObject, val originalInvocationFingerprint: String? = null, val originalInvocation: ProviderToolInvocation? = null) {
+        fun event() = ProviderEvent.ToolCall(id, name, arguments, originalInvocationFingerprint, originalInvocation)
     }
 
     @Serializable private data class Result(val body: String, val json: Boolean, val error: Boolean, val dispatched: Boolean, val code: String?, val callLimit: Boolean, val outputLimit: Boolean, val execution: JsonObject? = null, val sourceResultSha256: String? = null, val projectionSha256: String? = null) {
@@ -106,6 +106,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         require(saved.binding == binding) { "Tool recovery authorization changed." }
         require(saved.entries.size <= 1024 && saved.pending.distinct().size == saved.pending.size && saved.pending.all(saved.entries::containsKey)) { "Tool recovery journal has invalid call identities." }
         require(saved.entries.all { (id, entry) -> id.isNotBlank() && id == entry.call.id }) { "Tool recovery journal has inconsistent receipts." }
+        saved.entries.values.forEach { entry -> if (entry.call.originalInvocation != null) entry.call.event().providerInvocation() }
         require(saved.batches.size <= 1024 && saved.batches.sumOf { it.size } <= 8192 && saved.batches.all { batch -> batch.isNotEmpty() && batch.distinct().size == batch.size && batch.all(saved.entries::containsKey) }) { "Tool recovery journal has invalid batch identities." }
         require(saved.batches.isEmpty() || saved.pending.isEmpty() || saved.batches.last() == saved.pending) { "Tool recovery pending batch no longer matches its original grouping." }
         require(saved.consumedCallIds.size <= 1024 && saved.consumedCallIds.all { saved.entries[it]?.result != null }) { "Tool recovery ledger has invalid consumed identities." }
@@ -310,7 +311,8 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
         ) { "An earlier batch still has queued calls; restore it before starting another batch." }
         val entries = state.entries.toMutableMap()
         calls.forEach { call ->
-            val row = Call(call.callId, call.name, call.arguments, call.originalInvocationFingerprint)
+            if (call.originalInvocation != null) call.providerInvocation()
+            val row = Call(call.callId, call.name, call.arguments, call.originalInvocationFingerprint, call.originalInvocation)
             require(entries[call.callId]?.call?.let { it == row } != false) { "Tool call ID changed its operation; dispatch rejected." }
             entries.putIfAbsent(call.callId, Entry(row))
         }

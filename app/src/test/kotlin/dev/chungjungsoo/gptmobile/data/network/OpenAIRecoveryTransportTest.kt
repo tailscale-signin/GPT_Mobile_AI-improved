@@ -25,6 +25,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenAIRecoveryTransportTest {
+    @Test fun httpGoneRetainsObservedCategoryAndPayloadContractWithoutGuessingModelReplacement() = runTest {
+        var requests = 0
+        withApi(
+            MockEngine {
+                requests++
+                respond(
+                    """{"error":{"type":"endpoint_gone","message":"private endpoint detail","param":"model"}}""",
+                    HttpStatusCode.Gone,
+                    headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            }
+        ) { api ->
+            val error = api.streamChatCompletion(request, 5, config).toList().mapNotNull { it.error }.single()
+            assertEquals(1, requests)
+            assertEquals("410", error.code)
+            val details = requireNotNull(error.failureDetails)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("model_invocation"), details["failed_stage"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(410), details["http_status"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("GONE"), details["provider_rejection_category"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("CHAT_COMPLETIONS"), details["payload_contract"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("model"), details["provider_parameter"])
+            assertTrue(details.containsKey("provider_error_type_hash"))
+            assertFalse(details.toString().contains("private endpoint detail"))
+        }
+    }
+
     @Test fun secondBackendRejectionRetainsPriorAttemptsWithoutReplayOrNestedCauseReclassification() = runTest {
         for (stream in listOf(false, true)) {
             for (status in listOf(429, 503)) {

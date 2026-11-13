@@ -111,4 +111,13 @@ class ToolFailureMetadataTest {
         assertEquals(JsonPrimitive(true), failure.failureDetails["retryable"])
         assertEquals(JsonPrimitive("READINESS_INCOMPLETE"), failure.failureDetails["disposition"])
     }
+
+    @Test fun promotedToolFailureKeepsItsExactCausalIdentityAndOriginalFailureCode() {
+        val result = AgentToolResult("opaque-tool-call", ToolResultContent.Text("retained unknown outcome"), true, errorCode = "DISPATCH_OUTCOME_UNKNOWN", executionReceipt = buildJsonObject { put("authority_invalidation_code", "DISPATCH_POLICY_CHANGED") })
+        val failure = ToolFailureMetadata.authorityFailure(result, hasUnknownOutcome = true)
+        assertEquals("RECONCILIATION_REQUIRED", failure.errorCode)
+        assertEquals(JsonPrimitive(result.callId), failure.failureDetails?.get("causal_id"))
+        assertEquals(JsonPrimitive("TOOL_CALL"), failure.failureDetails?.get("causal_provenance"))
+        assertEquals(JsonPrimitive("DISPATCH_OUTCOME_UNKNOWN"), failure.failureDetails?.get("causal_failure_code"))
+    }
 }

@@ -33,7 +33,7 @@ class ToolExecutionBudget(
     private val attempts = AtomicInteger()
     private val invocationIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val failures = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
-    private val rejectedArguments = java.util.concurrent.ConcurrentHashMap<String, AgentToolResult>()
+    private val argumentRepairs = ToolArgumentRepairBudget()
     private val completed = AtomicInteger()
     private val outputAdmissionLock = Any()
     private var outputAdmissionClosed = false
@@ -116,13 +116,9 @@ class ToolExecutionBudget(
             terminalToolFailures[tool.definition.name]?.let { code ->
                 return { withBudgetState(ToolResultEnvelope.error(callId, code, "This tool's permission or authentication failed earlier in this turn. Review its grants or credentials before starting a new turn; changing arguments will not retry it.")) }
             }
-            rejectedArguments[signature]?.let { previous ->
-                return { withBudgetState(previous.copy(callId = callId, sharedResult = true)) }
-            }
             val invalid = ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
             if (invalid.isNotEmpty()) {
-                val rejected = ToolArgumentValidator.rejection(callId, tool.definition.name, arguments, tool.definition.inputSchema, invalid)
-                if (rejectedArguments.size < 128) rejectedArguments.putIfAbsent(signature, rejected)
+                val rejected = argumentRepairs.rejection(callId, tool.definition, arguments, invalid)
                 return { withBudgetState(rejected) }
             }
             if (!separateResultAllowance && remainingBytes.get() <= 0) {

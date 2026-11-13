@@ -44,7 +44,8 @@ internal object IssueReportManualCapture {
     /** Takes the rendered preview, not a fresh snapshot collected after the user pressed Send. */
     fun submission(preview: IssueReport, title: String, description: String, include: Boolean, relatedIssueNumber: Int? = null): IssueReport {
         require(preview.source == "manual")
-        // IssueReport.manual redacts before applying the final description bound.
+        // Retain the metadata already shown in the preview. Constructing a fresh
+        // report here would read Android state after review and break pure callers.
         val body = followUpPrefix(relatedIssueNumber) + description
         val context = if (include) {
             preview.context
@@ -54,7 +55,11 @@ internal object IssueReportManualCapture {
                 occurredAtMillis = preview.context?.occurredAtMillis ?: System.currentTimeMillis()
             )
         }
-        return IssueReport.manual(title, body, if (include) preview.events else emptyList())
-            .copy(reportId = preview.reportId, context = context)
+        return preview.copy(
+            title = diagnosticMessageForStorage(title.trim()).issueReportPrefix(IssueReport.TITLE_LIMIT),
+            description = diagnosticMessageForStorage(body.trim()).issueReportPrefix(IssueReport.DESCRIPTION_LIMIT),
+            events = if (include) preview.events else emptyList(),
+            context = context
+        )
     }
 }

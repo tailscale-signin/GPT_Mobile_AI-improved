@@ -697,9 +697,20 @@ private fun ChatMarkdownContent(
             // Compose still invalidates text for width, density, font scale and style.
             val measurementModifier = remember(layoutOwner) {
                 Modifier.layout { measurable, constraints ->
-                    val measured = CombinedOperationTrace.measure("text_measure", layoutOwner) { measurable.measure(constraints) }
+                    val observedOwner = layoutOwner.copy(
+                        textLayoutContext = dev.chungjungsoo.gptmobile.data.diagnostics.TextLayoutDiagnosticContext(
+                            constraints.minWidth,
+                            constraints.maxWidth,
+                            constraints.minHeight,
+                            constraints.maxHeight,
+                            density,
+                            fontScale,
+                            layoutDirection == androidx.compose.ui.unit.LayoutDirection.Rtl
+                        )
+                    )
+                    val measured = CombinedOperationTrace.measure("text_measure", observedOwner) { measurable.measure(constraints) }
                     layout(measured.width, measured.height) {
-                        CombinedOperationTrace.measure("text_layout", layoutOwner) { measured.placeRelative(0, 0) }
+                        CombinedOperationTrace.measure("text_layout", observedOwner) { measured.placeRelative(0, 0) }
                     }
                 }
             }

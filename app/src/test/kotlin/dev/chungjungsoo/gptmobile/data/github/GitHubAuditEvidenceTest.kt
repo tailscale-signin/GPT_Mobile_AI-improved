@@ -114,7 +114,12 @@ class GitHubAuditEvidenceTest {
         val envelope = (result.content as ToolResultContent.Json).value.jsonObject
         assertEquals(JsonPrimitive(true), envelope["local_page_complete"])
         assertTrue(envelope.toString().encodeToByteArray().size.toString(), envelope.toString().encodeToByteArray().size <= 8192)
-        assertEquals(18, ((envelope["data"] as JsonObject)["check_details"] as JsonObject)["check_runs"].let { it as JsonArray }.size)
+        val compact = envelope.getValue("data").jsonObject
+        assertEquals(JsonPrimitive(18), compact["observed_checks"])
+        assertFalse("check_details" in compact)
+        assertFalse("status_details" in compact)
+        assertEquals(JsonPrimitive("CAPTURED_STATUS_COUNTS"), compact.getValue("projection").jsonObject["kind"])
+        assertEquals(JsonPrimitive(GitHubEvidenceBook.digest(source.toString())), compact.getValue("projection").jsonObject["source_result_sha256"])
         assertEquals(source, (result.retainedContent as ToolResultContent.Json).value)
         assertFalse(envelope.toString().contains("avatar_url"))
         assertFalse(envelope.toString().contains("\"required\":true"))

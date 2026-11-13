@@ -6,10 +6,11 @@ import json
 import re
 
 from .engineering_report_contract import ENGINEERING_REASONS, GATEWAY_ADMISSION_CORE, GATEWAY_ADMISSION_FIELDS, GATEWAY_ADMISSION_PHASES, MODEL_PREPARATION_REASONS
+from . import incident_report_contract as capsule
 
 
 MAX_DIAGNOSTIC_BYTES = 3072
-DIAGNOSTIC_AREAS = {"PROVIDER", "TOOL", "ACCEPTANCE", "VOICE", "GATEWAY", "APP"}
+DIAGNOSTIC_AREAS = {"PROVIDER", "TOOL", "ACCEPTANCE", "VOICE", "GATEWAY", "APP", "INCIDENT"}
 DIAGNOSTIC_CAPTURE_MODES = {"INCIDENT", "SELECTED_CAPTURE", "NO_CAPTURE"}
 COMMON_HASHES = {"run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash"}
 HASH_FIELDS = COMMON_HASHES | {
@@ -60,7 +61,7 @@ ENUMS = {
 }
 ENUM_LISTS = {
     "invalid_field_classes": {"MISSING_REQUIRED", "WRONG_TYPE", "EMPTY_STRING", "OUT_OF_RANGE", "INVALID_ENUM", "PATTERN_MISMATCH", "UNKNOWN_FIELD", "COMPOSITE_CONSTRAINT"},
-    "unmet_criterion_categories": {"BUILD_REVISION_BINDING", "AUTHORIZED_CATALOG", "FIXTURE_LIFECYCLE", "TOOL_ACTION_COVERAGE", "EVIDENCE_SEPARATION", "DEVICE_EXECUTION", "REPOSITORY_GRAPH", "CI_VERIFICATION", "API_OPERATION", "REPOSITORY_LIFECYCLE", "REQUIREMENT"},
+    "unmet_criterion_categories": {"BUILD_REVISION_BINDING", "AUTHORIZED_CATALOG", "FIXTURE_LIFECYCLE", "TOOL_ACTION_COVERAGE", "EVIDENCE_SEPARATION", "DEVICE_EXECUTION", "REPOSITORY_GRAPH", "CI_VERIFICATION", "CI_OBSERVATION", "API_OPERATION", "REPOSITORY_LIFECYCLE", "REQUIREMENT"},
     "unmet_criterion_states": {"PASS", "FAIL", "BLOCKED", "NOT_TESTED"},
     "unmet_criterion_blockers": {
         "OUT_OF_SCOPE", "REPOSITORY_SCOPE_EXCLUDED", "OPERATION_IDENTITY_REQUIRED", "AUTHORIZATION_REQUIRED", "HISTORICAL_CONTRACT_CHANGED", "APPROVAL_REQUIRED", "FIXTURE_APPROVAL_MODE_REQUIRED",
@@ -88,6 +89,7 @@ FIELDS_BY_AREA = {
         "gateway_model_state", "gateway_failure_category", "gateway_dependency", "gateway_upstream_status", "gateway_upstream_message_code", "gateway_reconciliation_status",
     },
     "APP": {"original_error_code_hash", "app_exit_kind"},
+    "INCIDENT": COMMON_HASHES | {"original_error_code_hash"},
 }
 CORE_FIELDS = {
     "PROVIDER": {"profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"},
@@ -96,6 +98,7 @@ CORE_FIELDS = {
     "VOICE": {"voice_engine", "voice_phase", "voice_capture_attempts", "voice_recognized_characters", "voice_response_to_queue_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms"},
     "GATEWAY": {"job_id_hash", "gateway_state", "checkpoint_hash", "transport_complete"},
     "APP": {"original_error_code_hash", "app_exit_kind"},
+    "INCIDENT": set(),
 }
 
 
@@ -104,6 +107,8 @@ def _string_list(value, allowed):
 
 
 def _valid_value(key, value):
+    if capsule.valid_value(key, value):
+        return True
     if key in HASH_LISTS or key in ENUM_LISTS:
         return isinstance(value, list) and 1 <= len(value) <= 8 and all(
             isinstance(item, str) and (bool(re.fullmatch(r"[a-f0-9]{64}", item)) if key in HASH_LISTS else item in ENUM_LISTS[key]) for item in value
@@ -137,24 +142,27 @@ def validate_diagnostics(value):
     required = {"schemaVersion", "area", "capturedAtMillis", "captureMode", "values", "unavailableFields"}
     if not isinstance(value, dict) or not required <= value.keys() or set(value) - required - {"omittedFields"}:
         raise ValueError("invalid diagnostic fields")
-    if type(value["schemaVersion"]) is not int or value["schemaVersion"] not in {1, 2}:
+    if type(value["schemaVersion"]) is not int or value["schemaVersion"] not in {1, 2, 3}:
         raise ValueError("invalid diagnostic version")
     area, mode, captured = value["area"], value["captureMode"], value["capturedAtMillis"]
     if not isinstance(area, str) or area not in DIAGNOSTIC_AREAS or not isinstance(mode, str) or mode not in DIAGNOSTIC_CAPTURE_MODES:
         raise ValueError("invalid diagnostic capture")
     if type(captured) is not int or not 1 <= captured <= 9_999_999_999_999:
         raise ValueError("invalid diagnostic time")
-    extended = value["schemaVersion"] == 2
-    if extended and area != "GATEWAY":
+    version = value["schemaVersion"]
+    extended = version >= 2 and area == "GATEWAY"
+    if version == 2 and area != "GATEWAY" or area == "INCIDENT" and version != 3:
         raise ValueError("invalid diagnostic extension area")
-    allowed = FIELDS_BY_AREA[area] | (GATEWAY_ADMISSION_FIELDS if extended else set())
-    core = CORE_FIELDS[area] | (GATEWAY_ADMISSION_CORE if extended else set())
+    allowed = FIELDS_BY_AREA[area] | (GATEWAY_ADMISSION_FIELDS if extended else set()) | (capsule.fields_for(area) if version == 3 else set())
+    core = CORE_FIELDS[area] | (GATEWAY_ADMISSION_CORE if extended else set()) | (capsule.CORE if version == 3 else set())
     values = value["values"]
     if not isinstance(values, dict) or set(values) - allowed or not all(_valid_value(key, item) for key, item in values.items()):
         raise ValueError("invalid diagnostic values")
     lengths = {len(values[key]) for key in CRITERION_FIELDS & values.keys()}
     if len(lengths) > 1:
         raise ValueError("unaligned criterion observations")
+    if version == 3 and not capsule.aligned(values):
+        raise ValueError("unaligned argument shape observations")
     unavailable, omitted = value["unavailableFields"], value.get("omittedFields", [])
     if not _string_list(unavailable, core) or set(unavailable) != core - values.keys():
         raise ValueError("invalid diagnostic availability")

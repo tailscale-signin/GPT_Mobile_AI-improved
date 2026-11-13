@@ -45,6 +45,8 @@ class GatewayJobClient internal constructor(
     private data class CommandObservation(val receipt: GatewayCommandReceipt?, val interval: Long, val runtime: String)
     private val commandMisses = linkedMapOf<String, Int>()
     private val commandObservations = RouteCapabilityCache<CommandObservation>(now, valueTtl = { it.interval })
+    private data class IdentityObservation(val identity: GatewayScopeIdentity, val runtime: String)
+    private val identityReads = RouteCapabilityCache<IdentityObservation>(now, positiveTtl = 1_000)
 
     private suspend fun read(config: ProviderRequestConfig, path: String, maxBytes: Int = 2_000_000): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
@@ -173,12 +175,20 @@ class GatewayJobClient internal constructor(
 
     /** Canonical journal identity; the inference installation identifier may be different. */
     internal suspend fun identity(config: ProviderRequestConfig): GatewayScopeIdentity {
-        val body = read(config, "identity")
-        return decode(GatewayAdmissionSurface.IDENTITY) {
-            val document = json.parseToJsonElement(body) as? JsonObject ?: error("Invalid identity")
-            require(document.integer("schema_version") == 1 && document.integer("protocol_version") == 1)
-            json.decodeFromString<GatewayScopeIdentity>(body).also { requireGatewayIdentity(it.gatewayId, it.principalId) }
-        }
+        val key = gatewayJobObservationIdentity(config)
+        // Each sequential admission still observes the server. Only overlapping
+        // reads of the same authenticated route share their in-flight response.
+        return requireNotNull(
+            identityReads.getOrLoad(key, forceRefresh = true, isCurrent = { it?.runtime == GatewaySurfacePolicy.identity(config) }) {
+                val body = read(config, "identity")
+                val identity = decode(GatewayAdmissionSurface.IDENTITY) {
+                    val document = json.parseToJsonElement(body) as? JsonObject ?: error("Invalid identity")
+                    require(document.integer("schema_version") == 1 && document.integer("protocol_version") == 1)
+                    json.decodeFromString<GatewayScopeIdentity>(body).also { requireGatewayIdentity(it.gatewayId, it.principalId) }
+                }
+                IdentityObservation(identity, GatewaySurfacePolicy.identity(config))
+            }
+        ).identity
     }
 
     /** Explicit reconciliation always reads live; a prior missing receipt never authorizes a write. */
@@ -213,8 +223,9 @@ class GatewayJobClient internal constructor(
     private suspend fun readCommand(config: ProviderRequestConfig, commandId: String): GatewayCommandReceipt? {
         val payload = try {
             read(config, "commands/${pathId(commandId)}?include_outcome=true")
-        } catch (_: GatewayHistoryUnsupported) {
-            return null
+        } catch (failure: GatewayAdmissionException) {
+            if (failure.reason == GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE) return null
+            throw failure
         }
         return decode(GatewayAdmissionSurface.COMMAND) {
             val document = json.parseToJsonElement(payload) as? JsonObject ?: error("Invalid command receipt")

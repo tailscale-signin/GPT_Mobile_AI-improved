@@ -26,14 +26,14 @@ internal data class IssueReportDiagnostics(
 
     /** Constructor/copy callers and restored payloads must pass the same contract as live observations. */
     fun validated(): IssueReportDiagnostics? {
-        if (schemaVersion !in setOf(1, 2) || schemaVersion == 2 && area != "GATEWAY" || area !in areas || capturedAtMillis !in 1..9_999_999_999_999L || captureMode !in captureModes) return null
-        val allowed = fieldsByArea.getValue(area) + if (schemaVersion == 2) gatewayAdmissionFields else emptySet()
+        if (schemaVersion !in setOf(1, 2, 3) || schemaVersion == 2 && area != "GATEWAY" || area == "INCIDENT" && schemaVersion != 3 || area !in areas || capturedAtMillis !in 1..9_999_999_999_999L || captureMode !in captureModes) return null
+        val allowed = allowedFields(area, schemaVersion)
         if (values.keys.any { it !in allowed } || omittedFields.any { it !in allowed || it in values } || omittedFields.distinct().size != omittedFields.size) return null
         if (captureMode == "NO_CAPTURE" && (values.isNotEmpty() || omittedFields.isNotEmpty())) return null
         val copied = linkedMapOf<String, JsonElement>()
         values.forEach { (key, value) -> copied[key] = validatedValue(key, value) ?: return null }
-        if (!alignedCriteria(copied)) return null
-        val expectedUnavailable = (coreFields.getValue(area) + if (schemaVersion == 2) gatewayAdmissionCore else emptyList()).filterNot { it in copied }
+        if (!alignedCriteria(copied) || schemaVersion == 3 && !IssueReportIncidentCapsule.aligned(copied)) return null
+        val expectedUnavailable = requiredFields(area, schemaVersion).filterNot { it in copied }
         if (unavailableFields.toSet() != expectedUnavailable.toSet() || unavailableFields.distinct().size != unavailableFields.size) return null
         val snapshot = copy(values = copied.toMap(), unavailableFields = unavailableFields.toList(), omittedFields = omittedFields.toList())
         return snapshot.takeIf { IssueReport.json.encodeToString(serializer(), it).encodeToByteArray().size <= MAX_BYTES }
@@ -46,7 +46,7 @@ internal data class IssueReportDiagnostics(
         const val MAX_BYTES = 3072
         const val MAX_CRITERIA = 8
         const val MODEL_PREPARATION_FEATURE = "GATEWAY_MODEL_PREPARATION_V1"
-        val areas = setOf("PROVIDER", "TOOL", "ACCEPTANCE", "VOICE", "GATEWAY", "APP")
+        val areas = setOf("PROVIDER", "TOOL", "ACCEPTANCE", "VOICE", "GATEWAY", "APP", "INCIDENT")
         private val captureModes = setOf("INCIDENT", "SELECTED_CAPTURE", "NO_CAPTURE")
         private val hashPattern = Regex("[a-f0-9]{64}")
 
@@ -119,7 +119,7 @@ internal data class IssueReportDiagnostics(
         )
         private val enumLists = mapOf(
             "invalid_field_classes" to setOf("MISSING_REQUIRED", "WRONG_TYPE", "EMPTY_STRING", "OUT_OF_RANGE", "INVALID_ENUM", "PATTERN_MISMATCH", "UNKNOWN_FIELD", "COMPOSITE_CONSTRAINT"),
-            "unmet_criterion_categories" to setOf("BUILD_REVISION_BINDING", "AUTHORIZED_CATALOG", "FIXTURE_LIFECYCLE", "TOOL_ACTION_COVERAGE", "EVIDENCE_SEPARATION", "DEVICE_EXECUTION", "REPOSITORY_GRAPH", "CI_VERIFICATION", "API_OPERATION", "REPOSITORY_LIFECYCLE", "REQUIREMENT"),
+            "unmet_criterion_categories" to setOf("BUILD_REVISION_BINDING", "AUTHORIZED_CATALOG", "FIXTURE_LIFECYCLE", "TOOL_ACTION_COVERAGE", "EVIDENCE_SEPARATION", "DEVICE_EXECUTION", "REPOSITORY_GRAPH", "CI_VERIFICATION", "CI_OBSERVATION", "API_OPERATION", "REPOSITORY_LIFECYCLE", "REQUIREMENT"),
             "unmet_criterion_states" to setOf("PASS", "FAIL", "BLOCKED", "NOT_TESTED"),
             "unmet_criterion_blockers" to setOf(
                 "OUT_OF_SCOPE", "REPOSITORY_SCOPE_EXCLUDED", "OPERATION_IDENTITY_REQUIRED", "AUTHORIZATION_REQUIRED", "HISTORICAL_CONTRACT_CHANGED", "APPROVAL_REQUIRED", "FIXTURE_APPROVAL_MODE_REQUIRED",
@@ -148,7 +148,8 @@ internal data class IssueReportDiagnostics(
             "ACCEPTANCE" to commonHashes + criterionFields + setOf("effective_call_limit", "used_calls", "remaining_calls", "verification_reserve", "pending_continuations", "unresolved_outcomes", "unmet_criterion_count", "unmet_criterion_omitted_count", "checkpoint_hash", "acceptance_evidence_scope"),
             "VOICE" to setOf("voice_session_id_hash", "profile_hash", "model_hash", "voice_generation", "voice_engine", "voice_phase", "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_focus_result", "voice_input_silenced", "voice_first_audio_basis"),
             "GATEWAY" to commonHashes + modelPreparationFields + setOf("checkpoint_hash", "original_error_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed"),
-            "APP" to setOf("original_error_code_hash", "app_exit_kind")
+            "APP" to setOf("original_error_code_hash", "app_exit_kind"),
+            "INCIDENT" to commonHashes + setOf("original_error_code_hash")
         )
         private val coreFields = mapOf(
             "PROVIDER" to listOf("profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"),
@@ -156,8 +157,17 @@ internal data class IssueReportDiagnostics(
             "ACCEPTANCE" to listOf("unmet_criterion_id_hashes", "unmet_criterion_categories", "unmet_criterion_states", "effective_call_limit", "used_calls", "remaining_calls", "checkpoint_hash"),
             "VOICE" to listOf("voice_engine", "voice_phase", "voice_capture_attempts", "voice_recognized_characters", "voice_response_to_queue_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms"),
             "GATEWAY" to listOf("job_id_hash", "gateway_state", "checkpoint_hash", "transport_complete"),
-            "APP" to listOf("original_error_code_hash", "app_exit_kind")
+            "APP" to listOf("original_error_code_hash", "app_exit_kind"),
+            "INCIDENT" to emptyList()
         )
+
+        private fun allowedFields(area: String, version: Int) = fieldsByArea.getValue(area) +
+            (if (version >= 2 && area == "GATEWAY") gatewayAdmissionFields else emptySet()) +
+            (if (version == 3) IssueReportIncidentCapsule.fieldsFor(area) else emptySet())
+
+        private fun requiredFields(area: String, version: Int) = coreFields.getValue(area) +
+            (if (version >= 2 && area == "GATEWAY") gatewayAdmissionCore else emptyList()) +
+            (if (version == 3) IssueReportIncidentCapsule.coreFields else emptyList())
 
         /** Unknown/private input is not copied. Explicit area selection is required to opt into context v5. */
         fun fromFields(source: String, fields: Map<String, Any?>, occurredAtMillis: Long): IssueReportDiagnostics? {
@@ -165,9 +175,13 @@ internal data class IssueReportDiagnostics(
             val area = string(fields["diagnostic_area"])?.takeIf { it in areas } ?: return null
             val mode = if ("diagnostic_capture_mode" in fields) string(fields["diagnostic_capture_mode"]) ?: return null else "INCIDENT"
             if (mode !in captureModes) return null
-            val version = if (area == "GATEWAY" && gatewayAdmissionFields.any { it in fields }) 2 else 1
-            val allowed = fieldsByArea.getValue(area) + if (version == 2) gatewayAdmissionFields else emptySet()
-            val core = coreFields.getValue(area) + if (version == 2) gatewayAdmissionCore else emptyList()
+            val version = when {
+                area == "INCIDENT" || IssueReportIncidentCapsule.fieldsFor(area).any { it in fields } -> 3
+                area == "GATEWAY" && gatewayAdmissionFields.any { it in fields } -> 2
+                else -> 1
+            }
+            val allowed = allowedFields(area, version)
+            val core = requiredFields(area, version)
             val values = linkedMapOf<String, JsonElement>()
             if (mode != "NO_CAPTURE") {
                 allowed.forEach { key ->
@@ -181,12 +195,34 @@ internal data class IssueReportDiagnostics(
                     omitted.add(it)
                 }
             }
+            if (version == 3 && !IssueReportIncidentCapsule.aligned(values)) {
+                listOf("argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types").filter { it in values }.forEach {
+                    values.remove(it)
+                    omitted.add(it)
+                }
+            }
             fun snapshot() = IssueReportDiagnostics(version, area, occurredAtMillis, mode, values.toMap(), core.filterNot { it in values }, omitted.toList())
             var result = snapshot()
             // Bound before preview/approval, and say exactly which otherwise valid fields did not fit.
             while (IssueReport.json.encodeToString(serializer(), result).encodeToByteArray().size > MAX_BYTES && values.isNotEmpty()) {
-                val key = values.maxBy { it.key.length + it.value.toString().length }.key
-                val remove = if (key in criterionFields) criterionFields.filter { it in values } else listOf(key)
+                val optional = if (version == 3) values.filterKeys { it !in IssueReportIncidentCapsule.priorityFields } else values
+                val key = (optional.ifEmpty { values }).maxBy { it.key.length + it.value.toString().length }.key
+                val criterionSize = (values[key] as? JsonArray)?.size ?: 0
+                if (version == 3 && key in criterionFields && criterionSize > 1) {
+                    // Keep a useful aligned sample when the capsule consumes space;
+                    // never discard every criterion merely to add causal metadata.
+                    criterionFields.forEach { field -> (values[field] as? JsonArray)?.let { values[field] = JsonArray(it.dropLast(1)) } }
+                    val omittedCount = (values["unmet_criterion_omitted_count"] as? JsonPrimitive)?.intOrNull
+                    if (omittedCount != null) values["unmet_criterion_omitted_count"] = JsonPrimitive(omittedCount + 1)
+                    result = snapshot()
+                    continue
+                }
+                val shapePair = listOf("argument", "resolved_argument").firstOrNull { key in setOf("${it}_field_names", "${it}_field_types") }
+                val remove = when {
+                    key in criterionFields -> criterionFields.filter { it in values }
+                    shapePair != null -> listOf("${shapePair}_field_names", "${shapePair}_field_types").filter { it in values }
+                    else -> listOf(key)
+                }
                 remove.forEach {
                     values.remove(it)
                     omitted.add(it)
@@ -218,6 +254,7 @@ internal data class IssueReportDiagnostics(
             criterionFields.mapNotNull { (values[it] as? JsonArray)?.size }.distinct().size <= 1
 
         private fun validatedValue(key: String, value: JsonElement): JsonElement? {
+            IssueReportIncidentCapsule.validValue(key, value)?.let { return it }
             if (key in hashLists || key in enumLists) {
                 val items = value as? JsonArray ?: return null
                 if (items.size !in 1..MAX_CRITERIA) return null

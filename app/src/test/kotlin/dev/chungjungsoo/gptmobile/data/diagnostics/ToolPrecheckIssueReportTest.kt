@@ -53,7 +53,7 @@ class ToolPrecheckIssueReportTest {
             val diagnostics = requireNotNull(context.diagnostics)
             assertEquals("TOOL_FAILURE", report.errorCode)
             assertEquals(code, context.reasonCode)
-            assertEquals(5, context.schemaVersion)
+            assertEquals(7, context.schemaVersion)
             assertEquals("TOOL", diagnostics.area)
             assertEquals("INCIDENT", diagnostics.captureMode)
             assertEquals(JsonPrimitive(IssueReportContext.identifierHash("call", callId)), diagnostics.values["call_id_hash"])

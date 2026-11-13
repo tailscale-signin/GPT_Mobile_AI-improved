@@ -473,7 +473,7 @@ private fun VoiceChatSessionScreen(
         if (run.status in AgentRunStatus.terminal) {
             val failure = reply.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
                 ?: run.terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
-            session.reply(run.runId, text, run.status != AgentRunStatus.COMPLETED, failure)
+            session.reply(run.runId, text, run.status != AgentRunStatus.COMPLETED, failure, terminalStatus = run.status)
         } else {
             session.streamReply(run.runId, text)
         }

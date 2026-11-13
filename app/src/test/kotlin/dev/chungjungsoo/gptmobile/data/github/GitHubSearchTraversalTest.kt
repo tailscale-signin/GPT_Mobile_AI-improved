@@ -126,4 +126,25 @@ class GitHubSearchTraversalTest {
         assertEquals(JsonPrimitive(false), partial["matches_complete"])
         assertFalse(partial.containsKey("continuation"))
     }
+
+    @Test fun unavailableSearchIdentityAndUnobservedBoundaryKeepTheirActualFailureBranch() = runBlocking {
+        val fixture = fixture(105)
+        suspend fun reject(arguments: JsonObject): GitHubReadValidation {
+            try {
+                fixture.session.execute("search_repository", "owner", "repo", arguments)
+                error("An unissued continuation must be rejected")
+            } catch (failure: GitHubReadValidation) {
+                return failure
+            }
+        }
+        val missing = reject(JsonObject(args("paths") + mapOf("search_id" to JsonPrimitive("unissued"), "index_cursor" to JsonPrimitive(1))))
+        assertEquals("GITHUB_SEARCH_CURSOR_UNAVAILABLE", missing.code)
+        assertEquals(JsonPrimitive("RETAINED_SEARCH_MISSING"), missing.details["search_cursor_state"])
+        val first = fixture.session.execute("search_repository", "owner", "repo", args("paths")).jsonObject
+        val continuation = first.getValue("continuation").jsonObject
+        val boundary = reject(JsonObject(continuation + ("index_cursor" to JsonPrimitive(1))))
+        assertEquals("GITHUB_SEARCH_CURSOR_UNAVAILABLE", boundary.code)
+        assertEquals(JsonPrimitive("PAGE_BOUNDARY_UNOBSERVED"), boundary.details["search_cursor_state"])
+        assertEquals(0, fixture.blobs.get())
+    }
 }

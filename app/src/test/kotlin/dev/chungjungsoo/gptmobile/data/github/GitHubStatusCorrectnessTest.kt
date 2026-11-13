@@ -139,8 +139,76 @@ class GitHubStatusCorrectnessTest {
         records["policy"] = receipt("github_context", branch.arguments, unknown)
         assertEquals(JsonPrimitive(false), requireNotNull(GitHubEvidencePolicy.status(records, now, 0, health)).second["completion_verified"])
         assertEquals(6, GitHubExecutionLimits.toolCalls("status", 100, GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID)))
-        assertEquals(6, GitHubExecutionLimits.toolCalls("$health Budget: 8 tool calls.", 100, GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID)))
+        assertEquals(8, GitHubExecutionLimits.toolCalls("$health Budget: 8 tool calls.", 100, GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID)))
         assertEquals(4, GitHubExecutionLimits.toolCalls("$health Budget: 4 tool calls.", 100, GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID)))
+    }
+
+    @Test fun completeHealthPresetCollectsTwoCheckPagesAndTwoPrReviewsWithinItsAllowance() {
+        val records = linkedMapOf<String, JsonObject>()
+        val limit = GitHubExecutionLimits.toolCalls(health, 100, GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID))
+        val actions = mutableListOf<String>()
+        while (records.size < limit) {
+            val next = GitHubStatusRequest.nextCall(tools, records, now, 0, health) ?: break
+            actions += "${next.name}:${next.arguments.getValue("action").jsonPrimitive.content}"
+            records[next.callId] = receipt(next.name, next.arguments, healthSource(next.name, next.arguments))
+        }
+        assertEquals(listOf("github_context:status", "github_context:checks", "github_pr:list", "github_context:commits", "github_context:checks", "github_context:branch", "github_ci:runs", "github_pr:context", "github_pr:context"), actions)
+        assertEquals(32, limit)
+        val report = requireNotNull(GitHubEvidencePolicy.status(records, now, 0, health)).second
+        assertEquals(JsonPrimitive(true), report["completion_verified"])
+        assertEquals(JsonPrimitive(150), report.getValue("check_inventory").jsonObject["observed_checks"])
+        assertEquals(7, report.getValue("requirements").jsonArray.size)
+        assertEquals(null, GitHubStatusRequest.nextCall(tools, records, now, 0, health))
+    }
+
+    @Test fun anExplicitSixCallHealthCeilingRetainsThePendingReadAndDoesNotFailUncertaintyReporting() {
+        val request = "$health\nBudget: 6 tool calls."
+        val records = linkedMapOf<String, JsonObject>()
+        val limit = GitHubExecutionLimits.toolCalls(request, 100, GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID))
+        repeat(limit) {
+            val next = requireNotNull(GitHubStatusRequest.nextCall(tools, records, now, 0, request))
+            records[next.callId] = receipt(next.name, next.arguments, healthSource(next.name, next.arguments))
+        }
+        assertEquals(6, limit)
+        val (text, report) = requireNotNull(GitHubEvidencePolicy.status(records, now, 0, request))
+        val requirements = report.getValue("requirements").jsonArray.map { it.jsonObject }
+        assertEquals(JsonPrimitive("PASS"), requirements[3]["acceptance_state"])
+        assertEquals(JsonPrimitive("BLOCKED"), requirements[5]["acceptance_state"])
+        assertEquals(JsonPrimitive("BLOCKED"), requirements[6]["acceptance_state"])
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        assertTrue(text.contains("Unavailable observations"))
+        val budget = buildJsonObject {
+            put("effective_call_limit", limit)
+            put("used_calls", limit)
+            put("remaining_calls", 0)
+        }
+        val before = records.toString()
+        val checkpoint = GitHubStatusRequest.checkpoint(tools, records, now, 0, request, null, report, budget)
+        assertEquals(JsonPrimitive("TOOL_BUDGET_EXHAUSTED"), checkpoint.getValue("stop_reason").jsonObject["code"])
+        val next = checkpoint.getValue("next_read").jsonObject
+        assertEquals(JsonPrimitive("github_ci"), next["tool"])
+        assertEquals(JsonPrimitive("runs"), next.getValue("arguments").jsonObject["action"])
+        assertEquals(JsonPrimitive("main"), next.getValue("arguments").jsonObject["branch"])
+        assertEquals(JsonPrimitive(true), next["requires_new_allowance"])
+        assertEquals(2, checkpoint.getValue("remaining_requirement_ids").jsonArray.size)
+        assertEquals(before, records.toString())
+        assertEquals(4, GitHubExecutionLimits.toolCalls(health, 4, GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID)))
+        val allocation = GitHubStatusRequest.budget(JsonObject(budget + mapOf("used_calls" to JsonPrimitive(5), "remaining_calls" to JsonPrimitive(1), "verification_reserve" to JsonPrimitive(1))))
+        assertEquals(JsonPrimitive(0), allocation["verification_reserve"])
+        assertEquals(JsonPrimitive(true), allocation["acquisition_allowed"])
+        assertEquals(budget["effective_call_limit"], allocation["effective_call_limit"])
+        assertEquals(JsonPrimitive(false), GitHubStatusRequest.budget(budget)["acquisition_allowed"])
+    }
+
+    @Test fun reportingUnknownPolicyDoesNotClaimPolicyOrHealthVerified() {
+        val records = base() + ("checks" to receipt("github_context", args("checks"), checks(1, 0, 0)))
+        val (text, report) = requireNotNull(GitHubEvidencePolicy.status(records, now, 0, health))
+        val requirements = report.getValue("requirements").jsonArray.map { it.jsonObject }
+        assertEquals(JsonPrimitive("PASS"), requirements[3]["acceptance_state"])
+        assertEquals(JsonPrimitive("BLOCKED"), requirements[4]["acceptance_state"])
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        assertTrue(text.contains("an unavailable policy remains unknown"))
+        assertEquals(JsonPrimitive(false), report.getValue("status_coverage").jsonArray.map { it.jsonObject }.single { it["item"] == JsonPrimitive("Required-check policy") }["observed"])
     }
 
     @Test fun reviewDecisionsMustMatchEveryOpenPullRequestHeadAndBase() {
@@ -431,6 +499,30 @@ class GitHubStatusCorrectnessTest {
     }
 
     private fun scoped(receipt: JsonObject, repository: String = "owner/repo", role: String = "WRITE_DESTINATION") = JsonObject(receipt + mapOf("repository" to JsonPrimitive(repository), "repository_role" to JsonPrimitive(role)))
+
+    private fun healthSource(tool: String, arguments: JsonObject): JsonObject = when (tool to arguments.getValue("action").jsonPrimitive.content) {
+        "github_context" to "status" -> base().getValue("status").getValue("result").jsonObject
+        "github_context" to "checks" -> if (arguments["page"] == JsonPrimitive(1)) checks(1, 100, 150) else checks(2, 50, 150)
+        "github_context" to "commits" -> base().getValue("commits").getValue("result").jsonObject
+        "github_context" to "branch" -> policy()
+        "github_pr" to "list" -> base(listOf(pull(838), pull(881))).getValue("prs").getValue("result").jsonObject
+        "github_pr" to "context" -> buildJsonObject {
+            put(
+                "merge_health",
+                buildJsonObject {
+                    put("headSha", head)
+                    put("baseSha", other)
+                    put("review", "REVIEW_REQUIRED")
+                }
+            )
+        }
+        "github_ci" to "runs" -> buildJsonObject {
+            put("workflow_runs", JsonArray(emptyList()))
+            put("returned", 0)
+            put("has_more", false)
+        }
+        else -> error("Unexpected health read: $tool $arguments")
+    }
 
     private fun args(action: String) = buildJsonObject {
         put("action", action)

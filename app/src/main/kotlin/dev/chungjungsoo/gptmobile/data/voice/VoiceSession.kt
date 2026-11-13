@@ -215,12 +215,6 @@ class VoiceSession(
         }
         return diagnosticTrace.incidentFields() + mapOf("failed_stage" to operation, "operation" to operation)
     }
-    private fun replyFailureFields(id: String): Map<String, Any?> = mapOf(
-        "run_id" to id,
-        // Terminal prose is not evidence of a microphone fault or provider dispatch.
-        "operation" to null,
-        "failed_stage" to "delivery"
-    )
     private fun stopAudio(reason: String = "session_reset") {
         generation++
         diagnosticProbe = diagnosticTrace.advance(generation)
@@ -482,7 +476,7 @@ class VoiceSession(
         update(state.copy(phase = VoicePhase.PAUSED))
         resume()
     }
-    fun reply(id: String, text: String, failed: Boolean = false, failure: ProfileFailureRecord? = null) {
+    fun reply(id: String, text: String, failed: Boolean = false, failure: ProfileFailureRecord? = null, terminalStatus: String? = null) {
         if (!waiting || id == lastReply || state.phase == VoicePhase.CLOSED) return
         if (streamId == id && !failed && text.isNotBlank()) {
             lastReply = id
@@ -497,6 +491,9 @@ class VoiceSession(
         waiting = false
         lastReply = id
         if (failed || text.isBlank()) {
+            val replyEvidence = VoiceReplyFailureDiagnostics.fields(id, state.phase, failed, failure, terminalStatus)
+            diagnosticProbe.replyFailure(replyEvidence)
+            diagnosticTrace.retain()
             draftPending = state.transcript.isNotBlank()
             if (text.isNotBlank()) update(state.copy(reply = text))
             if (failed && failure != null) {
@@ -516,7 +513,7 @@ class VoiceSession(
             }
             fail(
                 "This turn did not finish. Your words are kept. Open chat to review it or try again.",
-                failureFields = replyFailureFields(id)
+                failureFields = replyEvidence
             )
             return
         }

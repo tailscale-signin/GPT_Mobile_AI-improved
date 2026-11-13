@@ -37,6 +37,15 @@ class GatewayAvailabilityTargetsTest {
         assertTrue(gatewayAvailabilityTargets(listOf(inference, engineering), AppFeatureSettings(), forGitHub = true).isEmpty())
     }
 
+    @Test fun savedEngineeringBindingDoesNotProbeACloudModelOnTheLocalGateway() {
+        val cloud = inference.copy(uid = "cloud", compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.example/v1", model = "remote/gemini")
+        val saved = AppFeatureSettings(githubProfileOverrides = mapOf(cloud.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = engineering.uid)))
+        assertTrue(gatewayAvailabilityTargets(listOf(cloud, engineering), saved, forGitHub = true).isEmpty())
+        val menu = gatewayMenuTargets(listOf(cloud, engineering), saved)
+        assertEquals(listOf(engineering.model), menu.map { it.model })
+        assertEquals(listOf(engineering.uid), menu.map { it.gatewayProfileUid })
+    }
+
     @Test fun deletedDisabledOrMalformedGatewayConfigurationNeedsAttentionWithoutSubstitution() {
         for (profiles in listOf(listOf(inference), listOf(inference, engineering.copy(enabled = false)), listOf(inference, engineering.copy(apiUrl = "http://user:secret@192.168.1.2/v1")))) {
             val target = gatewayAvailabilityTargets(profiles, features, forGitHub = true).single()

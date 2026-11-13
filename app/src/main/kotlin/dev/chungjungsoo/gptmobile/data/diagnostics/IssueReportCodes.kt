@@ -153,6 +153,7 @@ internal object IssueReportCodes {
         "GATEWAY_TRANSPORT_IDENTITY_REQUIRED",
         "GATEWAY_IDENTITY_MISMATCH",
         "GATEWAY_UNSUPPORTED_CONTRACT",
+        "GATEWAY_COMMAND_RECEIPT_UNAVAILABLE",
         "GATEWAY_INVALID_RESPONSE",
         "GATEWAY_INVALID_CONNECTION",
         "GATEWAY_STORAGE_UNAVAILABLE",
@@ -245,6 +246,8 @@ internal object IssueReportCodes {
 
     /** Reporting aliases only; the original tool receipt remains authoritative for recovery. */
     fun toolResult(code: String?): String? = when (code) {
+        "GITHUB_PR_VALIDATION_FAILED" -> "GITHUB_VALIDATION_FAILED"
+        "GITHUB_SEARCH_CURSOR_UNAVAILABLE" -> "SAVED_VIEW_UNAVAILABLE"
         "UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE" -> "TOOL_UNAVAILABLE"
         // Preserve only bounded native causes for the context-gated classifier; these are
         // still projected to supported public categories before approved bytes are built.

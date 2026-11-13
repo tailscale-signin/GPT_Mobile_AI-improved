@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayActionReadinessEvidence
+import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
 import dev.chungjungsoo.gptmobile.data.github.engineeringConfig
 import dev.chungjungsoo.gptmobile.data.github.engineeringGatewayProfile
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -110,6 +111,9 @@ internal fun gatewayAvailabilityTargets(
     if (profiles.count { it.uid == selected.uid } != 1) return@mapNotNull null
     val binding = features.githubProfileOverrides[selected.uid]?.engineeringGatewayProfileUid
     val gateway = if (forGitHub) {
+        // A retained binding does not make a remote inference profile eligible for
+        // saved engineering jobs, or make its remote model local to that gateway.
+        if (!GitHubAutonomousEngineeringPolicy.supportsSavedJobs(selected)) return@mapNotNull null
         if (binding.isNullOrBlank()) return@mapNotNull null
         engineeringGatewayProfile(profiles, binding)
     } else {

@@ -205,16 +205,26 @@ class GatewayConversationRepository @Inject constructor(
         return settings.ensureConversationIdentity(chatId, previousKey)
     }
 
-    suspend fun savedConversation(chatId: Int, connectionProfileUid: String, endpoint: String, principalId: String, executionProfileUid: String): GatewayConversationRecord? =
-        dao.conversationsForChat(chatId).singleOrNull {
-            it.connectionProfileUid == connectionProfileUid && it.endpoint == endpoint && it.principalId == principalId && it.executionProfileUid == executionProfileUid
+    /** Engineering admission must never reuse an ordinary generation receipt. */
+    suspend fun savedConversation(chatId: Int, connectionProfileUid: String, endpoint: String, principalId: String, executionProfileUid: String): GatewayConversationRecord? {
+        val retained = dao.conversationsForChat(chatId).filter {
+            it.connectionProfileUid == connectionProfileUid &&
+                it.endpoint == endpoint &&
+                it.principalId == principalId &&
+                it.executionProfileUid == executionProfileUid &&
+                json.decodeFromString<GatewayConversationSnapshot>(it.snapshot).repository != null
         }
+        check(retained.size <= 1) { "This room has multiple saved repository conversations. Open the intended conversation before sending." }
+        return retained.singleOrNull()
+    }
 
     /** Routing for a Send in an attached conversation; never chooses the active workspace or account. */
     suspend fun requestBinding(chatId: Int, profileUid: String, endpoint: String, model: String): GatewayConversationRecord? {
         val retained = dao.conversationsForChat(chatId).filter { it.executionProfileUid == profileUid }
         if (retained.isEmpty()) return null
-        val matching = retained.filter { it.endpoint == endpoint.trimEnd('/') }
+        val sameRoute = retained.filter { it.endpoint == endpoint.trimEnd('/') }
+        val ordinary = sameRoute.filter { json.decodeFromString<GatewayConversationSnapshot>(it.snapshot).repository == null }
+        val matching = ordinary.ifEmpty { sameRoute }
         check(matching.size == 1) { "Restore the original gateway connection and AI profile to send in this saved conversation." }
         val binding = matching.single()
         val snapshot = json.decodeFromString<GatewayConversationSnapshot>(binding.snapshot)
@@ -225,8 +235,13 @@ class GatewayConversationRepository @Inject constructor(
     suspend fun boundSnapshot(chatId: Int, profileUid: String, model: String): Pair<GatewayConversationRecord, GatewayConversationSnapshot>? {
         val retained = dao.conversationsForChat(chatId).filter { it.executionProfileUid == profileUid }
         if (retained.isEmpty()) return null
-        check(retained.size == 1) { "This local room has multiple saved gateway bindings. Open the intended server conversation before sending." }
-        val binding = retained.single()
+        // A room can retain its ordinary transcript and one subsequently created
+        // engineering transcript. Prefer only the explicitly repository-bound
+        // conversation; multiple engineering bindings remain an ambiguity error.
+        val engineering = retained.filter { json.decodeFromString<GatewayConversationSnapshot>(it.snapshot).repository != null }
+        val candidates = if (engineering.isNotEmpty()) engineering else retained
+        check(candidates.size == 1) { "This local room has multiple saved gateway bindings. Open the intended server conversation before sending." }
+        val binding = candidates.single()
         val route = jobs.originalRoute(binding.connectionProfileUid, binding.endpoint)
         val snapshot = client.conversation(route.config, binding.conversationId)
         requireSameIdentity(snapshot, binding.gatewayId, binding.principalId, binding.conversationId)

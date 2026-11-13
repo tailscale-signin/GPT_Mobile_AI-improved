@@ -33,6 +33,7 @@ internal object GitHubAcceptanceDiagnostics {
         "EVIDENCE_SEPARATION" to "Evidence provenance separation",
         "DEVICE_EXECUTION" to "Current device execution",
         "REPOSITORY_GRAPH" to "Selected repository graph",
+        "CI_OBSERVATION" to "Existing CI observation",
         "CI_VERIFICATION" to "CI execution verification",
         "API_OPERATION" to "GitHub API operation",
         "REPOSITORY_LIFECYCLE" to "Repository creation and transfer",
@@ -49,10 +50,19 @@ internal object GitHubAcceptanceDiagnostics {
             ("fixture" in value || "disposable" in value) && listOf("mutation", "write", "cleanup", "delet").any { it in value } -> "FIXTURE_LIFECYCLE"
             "graph" in value -> "REPOSITORY_GRAPH"
             Regex("\\b(device|android|instrumentation)\\b").containsMatchIn(value) -> "DEVICE_EXECUTION"
-            Regex("\\b(ci|workflow)\\b").containsMatchIn(value) -> "CI_VERIFICATION"
+            Regex("\\b(ci|workflows?)\\b").containsMatchIn(value) -> if (ciExecutionRequested(value)) "CI_VERIFICATION" else "CI_OBSERVATION"
             GitHubTaskCoverage.matches(text) && ("tool" in value || "integration" in value) -> "TOOL_ACTION_COVERAGE"
             else -> "REQUIREMENT"
         }
+    }
+
+    private fun ciExecutionRequested(value: String): Boolean {
+        // A diagnosis reads an existing attempt. Mentioning a workflow or its
+        // failed tests cannot grant execution or an owned-run requirement.
+        if (GitHubRequestCompletion.informational(value)) return false
+        val positive = value.replace(Regex("\\b(?:do not|don't|never)\\s+(?:run|rerun|execute|dispatch|trigger|launch)[^.;\\n]*"), "")
+        return Regex("\\b(?:run|rerun|execute|dispatch|trigger|launch)\\s+(?:(?:the|a|an|new|current|owned|ci|test|verification|selected|all|required|unit|integration)\\s+){0,4}(?:ci|workflow|workflows|tests?|jobs?)\\b").containsMatchIn(positive) ||
+            Regex("\\b(?:owned|newly dispatched|executed)\\s+(?:ci\\s+)?(?:workflow|run|job)\\b").containsMatchIn(positive)
     }
 
     fun snapshot(ledger: JsonObject, receipts: Map<String, JsonObject> = emptyMap(), limit: Int = LIMIT): JsonObject {
@@ -251,6 +261,7 @@ internal object GitHubAcceptanceDiagnostics {
         category == "REPOSITORY_LIFECYCLE" -> "VERIFY_RETAINED_REPOSITORY_OPERATION"
         category == "EVIDENCE_SEPARATION" -> "CLASSIFY_RETAINED_EVIDENCE_SOURCES"
         category in setOf("API_OPERATION", "TOOL_ACTION_COVERAGE") -> "PERFORM_UNVERIFIED_AUTHORIZED_OPERATION"
+        category == "CI_OBSERVATION" -> "INSPECT_EXISTING_WORKFLOW_AT_RECORDED_REVISION"
         category == "CI_VERIFICATION" -> "VERIFY_OWNED_WORKFLOW_AT_EXACT_REVISION"
         else -> "INSPECT_PROTECTED_CRITERION_AND_MATCHING_EVIDENCE"
     }

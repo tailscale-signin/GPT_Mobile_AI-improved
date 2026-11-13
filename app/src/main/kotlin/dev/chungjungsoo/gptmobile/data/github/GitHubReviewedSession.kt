@@ -578,12 +578,12 @@ internal class GitHubReviewedSession(
         val completedOutputLimit: Boolean = false
     ) : IllegalStateException(message)
 
-    /** Only the synthetic, tools-disabled probe gets one compact fallback.
+    /** The synthetic, tools-disabled probe starts with a compact verdict request.
      * An interrupted request, admission failure or malformed completed verdict
      * keeps its original outcome; no repository work or alternate profile is used.
      */
     private suspend fun collectPreflight(): String = try {
-        collectPass(GitHubReviewCompatibility.PROMPT, "github-review-preflight", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
+        collectPass(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, "github-review-preflight", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
     } catch (failure: ReviewPassFailure) {
         if (!failure.completedOutputLimit) throw failure
         progress("Retrying the synthetic review check once with a compact verdict; repository work has not started")

@@ -127,12 +127,12 @@ class GitHubLiveProgressTest {
 
         compose.runOnIdle { timeline = timeline + line("The files are available; checking the next step.", true) }
         compose.mainClock.advanceTimeBy(16)
-        compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(1)
-        compose.onAllNodesWithTag("github_previous_preview").assertCountEquals(1)
+        compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(0)
+        compose.onAllNodesWithTag("github_previous_preview").assertCountEquals(2)
         compose.onAllNodesWithTag("github_activity_summary").assertCountEquals(2)
         val newSummary = compose.onNodeWithText("The files are available; checking the next step.").fetchSemanticsNode()
-        val activePreview = compose.onNodeWithTag("github_latest_preview").fetchSemanticsNode()
-        assertTrue(newSummary.boundsInRoot.bottom <= activePreview.boundsInRoot.top)
+        val previousPreview = compose.onAllNodesWithTag("github_previous_preview").fetchSemanticsNodes().last()
+        assertTrue("The next summary follows the faded preview", newSummary.boundsInRoot.top >= previousPreview.boundsInRoot.bottom)
         val enteringTop = newSummary.boundsInRoot.top
         compose.mainClock.advanceTimeBy(320)
         val settledTop = compose.onNodeWithText("The files are available; checking the next step.").fetchSemanticsNode().boundsInRoot.top
@@ -168,7 +168,7 @@ class GitHubLiveProgressTest {
         assertEquals(1, layouts.single().lineCount)
     }
 
-    @Test fun updatedCounterBecomesActiveAtTheTailWithTheSameIdentity() {
+    @Test fun updatedCounterBecomesActiveInItsExistingPosition() {
         val checks = line("Checks: 1/103 complete").copy(progressSequence = 1)
         val files = line("Files: 1/3 complete").copy(progressSequence = 2)
         var timeline by mutableStateOf(listOf(checks, files))
@@ -178,8 +178,7 @@ class GitHubLiveProgressTest {
         compose.runOnIdle { timeline = listOf(checks.copy(content = "Checks: 2/103 complete", progressSequence = 3), files) }
         val updated = compose.onNodeWithTag("github_latest_preview").assertTextEquals("Checks: 2/103 complete").fetchSemanticsNode()
         assertEquals(original.id, updated.id)
-        assertTrue(updated.boundsInRoot.top > original.boundsInRoot.top)
-        assertTrue(updated.boundsInRoot.top >= compose.onNodeWithText(files.content).fetchSemanticsNode().boundsInRoot.bottom)
+        assertEquals(original.boundsInRoot.top, updated.boundsInRoot.top, 0.1f)
         compose.onAllNodesWithTag("github_preview_row").assertCountEquals(2)
     }
 

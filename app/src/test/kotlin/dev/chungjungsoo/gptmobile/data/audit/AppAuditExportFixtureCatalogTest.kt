@@ -17,7 +17,7 @@ class AppAuditExportFixtureCatalogTest {
     fun compiledFixturePlansRetainTheirAllowlistedIdentitiesAndTypedReasons() = runBlocking {
         val sources = listOf(AppAuditBehaviorProbeSource(), AppAuditAppearanceProbeSource(), AppAuditResearchProbeSource(), AppAuditMemoryProbeSource())
         val plan = sources.flatMap { it.plan(AppAuditOptions()) }
-        assertEquals(11, plan.size)
+        assertEquals(12, plan.size)
         val run = AppAuditRun(
             "a4772c4f-25b9-44b0-81cd-1e14cadbdb7c", 1, "c".repeat(64), "a".repeat(40), "0.9.66.6", "debug",
             AppAuditSourceInventory.sourceDigest, AppAuditSourceInventory.fileCount, AppAuditSourceInventory.lineCount, plan,

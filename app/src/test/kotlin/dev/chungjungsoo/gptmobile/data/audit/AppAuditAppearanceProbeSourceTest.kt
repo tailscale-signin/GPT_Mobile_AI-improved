@@ -9,7 +9,7 @@ class AppAuditAppearanceProbeSourceTest {
     @Test fun originAndContrastUseActualPresentationPoliciesWithFixtureEvidence() = runBlocking {
         val source = AppAuditAppearanceProbeSource()
         val plan = source.plan(AppAuditOptions())
-        assertEquals(2, plan.size)
+        assertEquals(3, plan.size)
         for (entry in plan) {
             val observed = source.execute(entry, AppAuditProbeContext(AppAuditLimits()) { error("No external operation") })
             assertEquals(entry.id, AppAuditOutcome.PASS, observed.outcome)

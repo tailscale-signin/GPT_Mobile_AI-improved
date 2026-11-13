@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "16.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "7fd99490171368aa3369cac7ed8b8c1d13c5debc",
+  "sourceCommit": "642b35a35f9201875b326ab81f8ef68b42efb816",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -97,7 +97,7 @@
     "tests/test_gateway_full_integration_batch.py": "7bb176d28b4bd1629962e6e85e396b151c9a903a0e617bfd6ade7679dd3affce",
     "tests/test_gateway_general_routing.py": "b4ccf714844c92aa43c907f10737a90a5c410b32542365b7506c628998da0b09",
     "tests/test_gateway_github_api_governor.py": "220502d2ca1b0c1e4279830af731c45b8ef62c925f0fa03af7a3e395e0c74d44",
-    "tests/test_gateway_incremental_delivery.py": "8ef5c0fa28f2b7ef09c9982fa60fade5503723228ba9fef1cdf4b69f494efc89",
+    "tests/test_gateway_incremental_delivery.py": "1a77721c7ebab7f94590858991d61fcbf8d921ebbdf24cbca7087c420ce85d29",
     "tests/test_gateway_message_contract.py": "ea036cb46fdc0910f676463d17d13d8d6b61d15f4fa0650cb2dc78f7506ba08f",
     "tests/test_gateway_model_preparation.py": "f3aebb54af2a21937fef7b362c4a87a63a8b58731daf90c142182bfebc3d4273",
     "tests/test_gateway_model_preparation_http.py": "8416d37b61bae9d7beab1821987e414c467f36c1f5f0f1b3ae9ed6743b7e5a23",

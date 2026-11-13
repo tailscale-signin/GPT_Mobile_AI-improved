@@ -1148,7 +1148,7 @@
       "concurrent_pr": 928,
       "concurrent_head": "63c175208dfd965e44dd5f593158fce0d1ceebc4",
       "intent": "Reconcile the latest PR 928 diagnostic policy fields with PR 941 while preserving both histories, dispatch observations, privacy bounds and all regressions.",
-      "status": "LOCALLY_VALIDATED_AWAITING_FINAL_SOURCE_PACKAGE_BINDING_AND_HOSTED_CI",
+      "status": "SOURCE_AND_PACKAGE_VALIDATED_AWAITING_FINAL_CURRENT_HEAD_CI",
       "checkpoint_store": "Existing approved repository checkpoint; Android Room engineering task store is unavailable on the host.",
       "merge_policy": "No merge to main until all applicable current-head CI and repository rules pass; no force pushes.",
       "reconciliation_decisions": [
@@ -1213,10 +1213,26 @@
           },
           "full_omission": "A valid payload omitting the entire detailed policy group still blocks before POST until its capability is advertised."
         },
-        "additional_fixture_repair": "The existing incident feature-negotiation fixture now advertises and asserts context schema 7 selected by its retained unknown_field_count, preserving its original missing-feature rejection and approved-byte success checks."
+        "additional_fixture_repair": "The existing incident feature-negotiation fixture now advertises and asserts context schema 7 selected by its retained unknown_field_count, preserving its original missing-feature rejection and approved-byte success checks.",
+        "exact_release_scope": {
+          "source_candidate": "6282c7a0bd0d3c34f399e1875d42ebadb287d87f",
+          "result": "scoped",
+          "mode": "SCOPE_ONLY_NOT_ACCEPTANCE"
+        }
       },
       "concurrent_code_head": "c52741d92f26556188289cbae7d6267fe09ed6bb",
-      "concurrent_followup": "Preserve the later PR 928 documentation-only ledger update exactly; production and tests match c52741d92."
+      "concurrent_followup": "Preserve the later PR 928 documentation-only ledger update exactly; production and tests match c52741d92.",
+      "source_commit": "642b35a35f9201875b326ab81f8ef68b42efb816",
+      "preserved_remote_parents": [
+        "45a7da68dd2d7ee6462c76d16379e990f404fa69",
+        "63c175208dfd965e44dd5f593158fce0d1ceebc4"
+      ],
+      "source_tree": "cec383752dfeea72de5d88d7d07eabb75dd779aa",
+      "gateway_manifest": {
+        "source_commit": "642b35a35f9201875b326ab81f8ef68b42efb816",
+        "sha256": "10171b1ae3b18ad7b045c02667a9f939a58b634fd69687954dd43f320e837f06",
+        "validation": "Generated from exact reviewed source commit; every packaged file hash validates."
+      }
     }
   }
 }

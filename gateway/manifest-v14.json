@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "16.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "39cc5354f89fe5a2e6cefd093d59f7380dbee908",
+  "sourceCommit": "c39fa7f98cb281062a037a1ef7255d4d0ce0542c",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "652622ecc9a5441af9fbce994d1be6481bdb499003ac7e76cb2cf4bec6f72add",
@@ -138,7 +138,7 @@
     "tests/test_gateway_v14_evidence.py": "d34f53afeaa584fb8e4d540c8c5be6acb2d91c56660b26ca5055bfebdd391d06",
     "tests/test_gateway_v14_github.py": "fb28af7edfecc961d49da2a2613a7b2362fef725969a01708ff8b8799908cb64",
     "tests/test_gateway_v14_http.py": "e8825d767a06dae4322586e6567a9ef91117c88c933154dd6f664d24895d0b36",
-    "tests/test_gateway_v14_jobs.py": "6d0fced15df2e4709ce7886ff02559a497577a491b4fe2bc564478ca5441632a",
+    "tests/test_gateway_v14_jobs.py": "19bb0ba1e939757a68272693878d18d9356542ef81d741f9caf9f2701c55e47c",
     "tests/test_gateway_v14_readiness.py": "20aa28a5d7df5991fdbc62e591ec3586a60b877ce4f205b5d54b661a2d2f1c80",
     "tests/test_gateway_v14_stability.py": "805a81f1ff8d41875ff949eed154ecd41984aa96429a7f11d3af3a93895c93f5",
     "tests/test_gateway_v14_state_lock.py": "6abd0acc2e07c860a930631339e4f1813a39b5a3f22ca8a210defa6b1c6f6a31",

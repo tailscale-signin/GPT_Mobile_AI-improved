@@ -591,6 +591,103 @@
       "browser": "PASS_7_TESTS",
       "inventory_ktlint": "PASS"
     },
-    "external_validation": "Actual corrected Windows installer smoke remains required. Historical successful and failed same-head runs remain separate."
+    "external_validation": "Actual corrected Windows installer smoke remains required. Historical successful and failed same-head runs remain separate.",
+    "later_platform_evidence": {
+      "source": "d50273852658b63d0e90fe0c6d727404dd74fbdd",
+      "run": 43334363413,
+      "job": 131586691482,
+      "desktop_passed": 49,
+      "network_passed": 15,
+      "dashboard_passed": 12,
+      "skipped": 0,
+      "installer_smoke_passed": 11,
+      "real_windows_file_sharing_fixture_executed": true,
+      "user_machine_installation_performed": false
+    }
+  },
+  "gateway_fixture_admission_followup": {
+    "repair_id": "R39",
+    "state": "LOCAL_GATES_PASSED_PENDING_PUBLISHED_WINDOWS_AND_CURRENT_ANDROID_CI",
+    "application_source_parent": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+    "gateway_source_commit": "c39fa7f98cb281062a037a1ef7255d4d0ce0542c",
+    "gateway_source_tree": "72f92705e497ab0fd679411319172096727637ce",
+    "failure_source": "3e98dcb34f32e943bd0d90d02c75e359e078df4b",
+    "failure_run": 43336778504,
+    "failure_job": 131594827861,
+    "failure": "Fixture model-start wait expired before follower creation; exact Windows scheduling/I/O cause is unisolated.",
+    "failure_gateway_cases": {
+      "modules": 70,
+      "tests": 916,
+      "passed": 915,
+      "failed": 1,
+      "skipped": 0
+    },
+    "failure_authentication_step": "SKIPPED",
+    "failure_browser_passed": 7,
+    "correction": "Observe real durable admission, notify model entry on its owning event loop without an executor waiter, surface early request failure and await fixture-owned cleanup. No production gateway change.",
+    "bounds_seconds": {
+      "postAdmissionModelEntry": 2,
+      "followerAttachment": 2,
+      "blockedModelRelease": 3,
+      "fixtureTaskCleanup": 3,
+      "moduleWatchdog": 120
+    },
+    "assertions_preserved": true,
+    "source_file_sha256": "19bb0ba1e939757a68272693878d18d9356542ef81d741f9caf9f2701c55e47c",
+    "original_one_worker_negative_control": {
+      "cases": 1,
+      "expected_failures": 1,
+      "log_sha256": "8c7ae6cc973e28f34bbc1f048021a2d1c6ab114ef95e22276c25bc71d5d0dc0f"
+    },
+    "local_validation": {
+      "focused": {
+        "passed": 5,
+        "seconds": 9.236,
+        "is_subset_of_module": true,
+        "log_sha256": "0be08c1fa0f42eb375f2af9af132cb16b1c742d3cb996cea53c4a29f46e93acd"
+      },
+      "module": {
+        "passed": 32,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 40.4,
+        "log_sha256": "2d7cbdac5f8976891dbebf42fa2489d7a3692ae38827865f0b5deafe9f86db04"
+      },
+      "fast": {
+        "passed": 495,
+        "log_sha256": "5d3555b83151e0fea0783e35b8b0efd26681d46db37a4f2316213712d50831cf",
+        "source_inputs_unchanged": true
+      },
+      "independent_source_review": "PASS"
+    },
+    "package_manifest": {
+      "source_commit": "c39fa7f98cb281062a037a1ef7255d4d0ce0542c",
+      "source_tree": "72f92705e497ab0fd679411319172096727637ce",
+      "files_verified": 219,
+      "manifest_sha256": "98112cfb6a0a8665dc9d278c64b17dc8df30374657a5cf47e0e91fa65cb1b8c2",
+      "source_and_worktree_bytes_match": true,
+      "generated_by": "gateway/build_v14_package.py --manifest-only",
+      "checked_at": "2026-11-13T00:57:24.164932+00:00"
+    },
+    "publication_scope": "Primary PR838 only; preserve mirror641 Android execution. Application production and Android test bytes are unchanged; no whole-tree equivalence claim.",
+    "remaining": "Actual Windows execution on this source/package and current Android aggregate. External operational acceptance remains open."
+  },
+  "gateway_four_platform_execution_7e": {
+    "source": "7e854982b2df9479a5b0aba49bdcc9193ce7459a",
+    "run": 43335327467,
+    "modules": 70,
+    "cases_per_platform": 916,
+    "windows_py312_and_py313_each": {
+      "passed": 916,
+      "skipped": 0
+    },
+    "ubuntu_py312_and_py313_each": {
+      "passed": 914,
+      "skipped": 2
+    },
+    "authentication_passed_each": 66,
+    "browser_passed_each": 7,
+    "scope": "Historical full matrix; later3e readiness failure retained and corrected separately. Repeated-platform totals are not unique tests."
   }
 }

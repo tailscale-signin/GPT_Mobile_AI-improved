@@ -24,6 +24,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.ForegroundInfo
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import dev.chungjungsoo.gptmobile.R
@@ -66,12 +67,26 @@ internal object VoicePluginInstall {
     }
 
     fun refresh(context: Context) {
-        if (Build.VERSION.SDK_INT >= 34 &&
-            !state.value.pending &&
-            context.getSystemService(JobScheduler::class.java).getPendingJob(JOB_ID) != null
-        ) {
-            observe("QUEUED")
+        if (state.value.pending) return
+        if (Build.VERSION.SDK_INT >= 34) {
+            if (context.getSystemService(JobScheduler::class.java).getPendingJob(JOB_ID) != null) {
+                observe("QUEUED")
+            }
+            return
         }
+        val pendingWork = WorkManager.getInstance(context).getWorkInfosForUniqueWork(WORK)
+        pendingWork.addListener({
+            val phase = runCatching { pendingWork.get() }.getOrNull().orEmpty()
+                .map { it.state }
+                .let(::phaseForWorkStates)
+            if (phase != null) observe(phase)
+        }, androidx.core.content.ContextCompat.getMainExecutor(context))
+    }
+
+    internal fun phaseForWorkStates(states: List<WorkInfo.State>): String? = when {
+        WorkInfo.State.RUNNING in states -> "RUNNING"
+        states.any { it == WorkInfo.State.ENQUEUED || it == WorkInfo.State.BLOCKED } -> "QUEUED"
+        else -> null
     }
 
     const val WORK = "voice-plugin-bundle-v1"

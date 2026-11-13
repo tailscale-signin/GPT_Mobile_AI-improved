@@ -81,7 +81,7 @@ internal object VoicePluginInstall {
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "Voice plugin download", NotificationManager.IMPORTANCE_LOW))
         val percent = if (total > 0) (downloaded * 100 / total).toInt().coerceIn(0, 100) else 0
         return NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_ai_notification)
             .setContentTitle("Voice Chat plugin")
             .setContentText(if (percent == 100) "Checking files" else "Downloading")
             .setProgress(100, percent, total == 0L || percent == 100)

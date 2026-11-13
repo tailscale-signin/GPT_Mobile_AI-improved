@@ -527,16 +527,7 @@ internal class AndroidVoiceCapture(
     private val context: Context,
     private val manager: AudioManager? = context.getSystemService(AudioManager::class.java),
     private val minimumBufferSize: () -> Int = { AudioRecord.getMinBufferSize(16_000, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT) },
-    private val createRecorder: (Int) -> AudioRecord = { bufferSize ->
-        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            throw SecurityException("Microphone permission was revoked before recorder creation.")
-        }
-        AudioRecord.Builder()
-            .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
-            .setAudioFormat(AudioFormat.Builder().setSampleRate(16_000).setChannelMask(AudioFormat.CHANNEL_IN_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
-            .setBufferSizeInBytes(bufferSize)
-            .build()
-    }
+    private val createRecorder: (Int) -> AudioRecord = { bufferSize -> createAudioRecorder(context, bufferSize) }
 ) : LocalVoiceCapture {
     private val lock = Any()
     private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
@@ -703,4 +694,15 @@ internal class AndroidVoiceCapture(
         focus?.let { manager?.abandonAudioFocusRequest(it) }
         focus = null
     }
+}
+
+private fun createAudioRecorder(context: Context, bufferSize: Int): AudioRecord {
+    if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+        throw SecurityException("Microphone permission was revoked before recorder creation.")
+    }
+    return AudioRecord.Builder()
+        .setAudioSource(MediaRecorder.AudioSource.VOICE_RECOGNITION)
+        .setAudioFormat(AudioFormat.Builder().setSampleRate(16_000).setChannelMask(AudioFormat.CHANNEL_IN_MONO).setEncoding(AudioFormat.ENCODING_PCM_16BIT).build())
+        .setBufferSizeInBytes(bufferSize)
+        .build()
 }

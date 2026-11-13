@@ -12,7 +12,12 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(manifest = Config.NONE, sdk = [34])
 class OriginalToolCallCheckpointTest {
     @Test fun originalArgumentsRemainInTheContinuationTokenBudget() {
         val canonical = ProviderEvent.ToolCall("call", "read", JsonObject(emptyMap()))

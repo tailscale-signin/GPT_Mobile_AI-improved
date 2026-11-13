@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import android.app.Application
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayModelPreparationFailure
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayModelPreparationReceipt
@@ -10,7 +11,12 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
 class GatewayReportDiagnosticsTest {
     private val run = AgentRun(
         runId = "private-owned-run", chatId = 1, userMessageId = 2, assistantMessageId = 3,

@@ -1,0 +1,39 @@
+{
+  "task_store": "engineering_agent_checkpoints",
+  "checkpoint_kind": "local_repository_checkpoint",
+  "host_checkpoint_note": "The Android Room task store is unavailable on this host; this repository checkpoint records the reconciled work.",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "start_sha": "b3eb5e1ec71cd38d78acfa9462c174f3e06a0f8e",
+  "working_branch": "fix/session-reliability-reporting-2026-11-12",
+  "related_prs": [838, 881],
+  "intent": "Repair the six current JVM regressions repeated across both open PRs, preserve concurrent work and all evidence gates, and verify the resulting branch revisions before merge.",
+  "state": "READY_FOR_HOSTED_VALIDATION",
+  "locally_tested_code_sha": "4a6b120a4e7028fece3edb99f52474bb68b07379",
+  "observed_failure_run": 43358696592,
+  "observed_failure_job": 131666785699,
+  "observed_failed_tests": [
+    "GatewayReportDiagnosticsTest.admissionSnapshotNeedsNoJobAndManualApprovalRetainsTheSameObservation",
+    "GitHubAuditEvidenceTest.eighteenHeavyChecksFitOneFacadeResponseAndRetainFullOriginal",
+    "GitHubEvidencePolicyTest.sessionReviewPreservesReceiptTimeAndLinksCrossRepositoryReferences",
+    "GitHubStatusAuditRegressionTest.logPlanningSelectsCompletedJobsAndPreservesTheObservedId",
+    "GitHubVerifiedSessionTest.statusAliasesCollectTheSamePinnedFourReads",
+    "GitHubVerifiedSessionTest.statusCollectsChecksWithoutModelPlanningOrVerifierRound"
+  ],
+  "repairs": [
+    "Supply trusted observed-head and executed-job fixtures without weakening status or log-read authority.",
+    "Assert compact check counts and source digest while retaining every original check row.",
+    "Deduplicate evidence labels after applying the existing sanitization.",
+    "Run the gateway manual-submission regression with the established Android 35 Robolectric runner.",
+    "Use a bounded 4 GiB heap only for diagnostic lint after run 43358733105 exhausted 3 GiB and exceeded its existing 35-minute deadline. Retain one worker, 1 GiB metaspace and all lint checks; stop the child process after 2040 seconds."
+  ],
+  "local_validation": {
+    "canonical_host_tests_passed": 495,
+    "status_planner_focused_host_tests_passed": 31,
+    "evidence_focused_host_tests_passed": 8,
+    "pinned_ktlint": "1.3.1",
+    "limitations": "Focused harnesses use explicit boundaries for unrelated Android facilities. They do not establish full AgentRunner/session integration or Robolectric runtime execution. Full Android tests and diagnostic lint must execute in hosted CI."
+  },
+  "merge_requirement": "Every applicable hosted check must pass on the current head and base. Missing, failed, cancelled and unfinished checks are not passes."
+}

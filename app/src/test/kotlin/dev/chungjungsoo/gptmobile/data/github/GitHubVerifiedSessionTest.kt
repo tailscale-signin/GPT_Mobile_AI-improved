@@ -627,13 +627,15 @@ class GitHubVerifiedSessionTest {
             val receipts = linkedMapOf<String, JsonObject>()
             val actions = mutableListOf<String>()
             repeat(4) { index ->
-                val call = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts, 1000L))
+                val call = requireNotNull(GitHubStatusRequest.nextCall(tools, receipts, 1000L, task = task))
                 actions += call.arguments.getValue("action").toString()
                 if (index == 1 || index == 3) assertEquals(JsonPrimitive("a".repeat(40)), call.arguments["commit_sha"])
-                receipts[index.toString()] = JsonObject(mapOf("tool" to JsonPrimitive(call.name), "arguments" to call.arguments, "observed_at_ms" to JsonPrimitive(1000L), "success" to JsonPrimitive(true), "result" to JsonObject(mapOf("commit_sha" to JsonPrimitive("a".repeat(40))))))
+                receipts[index.toString()] = JsonObject(mapOf("tool" to JsonPrimitive(call.name), "arguments" to call.arguments, "observed_at_ms" to JsonPrimitive(1000L), "trusted" to JsonPrimitive(true), "success" to JsonPrimitive(true), "result" to JsonObject(mapOf("commit_sha" to JsonPrimitive("a".repeat(40))))))
             }
             assertEquals(listOf("\"status\"", "\"checks\"", "\"list\"", "\"commits\""), actions)
-            assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts, 1000L))
+            assertEquals(null, GitHubStatusRequest.nextCall(tools, receipts, 1000L, task = task))
+            val untrusted = receipts.mapValues { JsonObject(it.value + ("trusted" to JsonPrimitive(false))) }
+            assertEquals(JsonPrimitive("status"), GitHubStatusRequest.nextCall(tools, untrusted, 1000L, task = task)?.arguments?.get("action"))
         }
     }
 
@@ -836,13 +838,20 @@ class GitHubVerifiedSessionTest {
 
     @Test fun statusCollectsChecksWithoutModelPlanningOrVerifierRound() = runTest {
         var rounds = 0
-        var executions = 0
+        val sha = "a".repeat(40)
+        val calls = mutableListOf<JsonObject>()
         var publicationChecks = 0
         val read = object : AgentTool {
             override val definition = AgentToolDefinition("github_context", "Status", JsonObject(emptyMap()))
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
-                executions++
-                return AgentToolResult(callId, ToolResultContent.Json(Json.parseToJsonElement("""{"schema":"github.operation.v1","data":{"repository":{"full_name":"o/r","default_branch":"main"},"open_pull_request_count":0,"latest_workflow":{"name":"Build","status":"completed","conclusion":"success"}}}""")), false)
+                calls += arguments
+                val data = when (arguments["action"]) {
+                    JsonPrimitive("status") -> """{"repository":{"full_name":"o/r","default_branch":"main"},"branch":"main","commit_sha":"$sha","open_pull_request_count":0,"latest_workflow":{"name":"Build","head_sha":"$sha","head_branch":"main","status":"completed","conclusion":"success"}}"""
+                    JsonPrimitive("checks") -> """{"commit_sha":"$sha","checks":0,"statuses":0,"check_details":{"total_count":0,"check_runs":[]},"status_details":{"total_count":0,"statuses":[]},"page":1,"has_more":false}"""
+                    JsonPrimitive("commits") -> """{"commit_sha":"$sha","items":[{"sha":"$sha","message":"Observed commit"}],"returned":1,"has_more":false}"""
+                    else -> error("Unexpected status action: $arguments")
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(Json.parseToJsonElement("""{"schema":"github.operation.v1","data":$data}""")), false)
             }
         }
         val provider = object : AgentProviderSession {
@@ -857,11 +866,12 @@ class GitHubVerifiedSessionTest {
         val published = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         val text = published.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertEquals(0, rounds)
-        assertEquals(3, executions)
+        assertEquals(listOf("status", "checks", "commits").map(::JsonPrimitive), calls.map { it["action"] })
+        assertTrue(calls.drop(1).all { it["commit_sha"] == JsonPrimitive(sha) })
         assertEquals(2, publicationChecks)
         assertTrue(text.startsWith("# Repository status"))
-        assertTrue(text.contains("| Open pull requests | 0 |"))
-        assertTrue(text.contains("| Workflow result | success |"))
+        assertTrue(text, text.contains("| Branch main · Open pull requests | 0 |"))
+        assertTrue(text, text.contains("| Branch main · Workflow result | success |"))
         assertFalse(text.contains("/data/") || text.contains("ev_") || text.contains("clean state"))
         assertEquals("PARTIAL", (published.last() as ProviderEvent.Failed).taskOutcome)
     }

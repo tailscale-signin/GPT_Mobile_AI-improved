@@ -648,7 +648,8 @@ internal object GitHubEvidencePolicy {
             }
             else -> null
         }
-        return if (subject.isNullOrBlank() || field.startsWith("$subject ·")) field else "${safe(subject)} · $field"
+        val displayedSubject = subject?.let(::safe)
+        return if (displayedSubject.isNullOrBlank() || field.startsWith("$displayedSubject ·")) field else "$displayedSubject · $field"
     }
 
     private fun fieldLabel(pointer: String, receipt: JsonObject? = null): String = when (pointer) {

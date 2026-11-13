@@ -1478,6 +1478,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubWorkflowRecoveryActionsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/AndroidPdfFontsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensionsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateTerminalCollectionTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateOutputPublicationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/DocumentTextExtractorTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/PdfFontFallbackPolicyTest.kt",

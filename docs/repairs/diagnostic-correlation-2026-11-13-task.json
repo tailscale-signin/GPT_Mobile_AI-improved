@@ -79,5 +79,16 @@
     "logical_records_reassembled": 3,
     "host_validation": "495 tests passed. Changed Kotlin formatting and source inventory passed.",
     "android_validation": "Local Gradle daemon exited during annotation processing. Exact-head hosted Android checks still required."
+  },
+  "strict_scope_followup": {
+    "pull_request": 970,
+    "starting_head": "b92842875b8a86ecd0ad24e698e35f79caabc2ba",
+    "base_sha": "79c58260de528068ee07e03e9d2ec0c5ab9e74b8",
+    "failed_run": 43429987343,
+    "failed_job": 131900777584,
+    "finding": "The new provider-terminal regression was not listed in the strict release-scope manifest.",
+    "repair": "Add the exact regression path to release-scope.json without changing the gate or its enforcement.",
+    "host_validation": "scripts/validate-local.sh fast passed 495 tests on b92842875b8a86ecd0ad24e698e35f79caabc2ba before this metadata-only repair.",
+    "verification_state": "REQUIRES_FRESH_CANDIDATE_CI"
   }
 }

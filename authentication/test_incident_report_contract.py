@@ -4,7 +4,7 @@ import unittest
 
 from authentication import incident_report_contract as capsule
 from authentication.issue_report_diagnostics import CORE_FIELDS, MAX_DIAGNOSTIC_BYTES, validate_diagnostics
-from authentication.issue_reports import CONTEXT_FIELDS_V5, ReportError, issue_from_report
+from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CONTEXT_FIELDS_V5, ReportError, issue_from_report
 
 
 class IncidentReportContractTest(unittest.TestCase):
@@ -70,6 +70,29 @@ class IncidentReportContractTest(unittest.TestCase):
             legacy["context"]["schemaVersion"] = 7
             with self.assertRaises(ReportError):
                 issue_from_report(legacy)
+
+
+    def test_voice_reply_context_stages_match_the_context_seven_client_contract(self):
+        for stage in ("voice_reply", "voice_response_wait"):
+            with self.subTest(stage=stage):
+                self.assertIn(stage, CONTEXT_ENUMS_V7["stage"])
+                self.assertNotIn(stage, CONTEXT_ENUMS_V6["stage"])
+                capture = self.capture("VOICE", {
+                    "incident_phase": stage,
+                    "causal_provenance": "EXPLICIT_CAUSE",
+                    "causal_failure_code": "VOICE_SESSION_FAILED",
+                    "voice_reply_failed": True,
+                    "voice_reply_failure_evidence": "MISSING_FAILURE_RECORD",
+                })
+                report = self.report(capture)
+                report.update(feature="voice", errorCode="VOICE_SESSION_FAILED")
+                report["context"].update(source="VOICE_STATE", stage=stage)
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertIn(f"| Failure stage | `{stage}` |", issue["body"])
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+
 
     def test_rate_limit_scheduling_is_an_observation_without_replay_authority(self):
         capture = self.capture("PROVIDER", {"incident_phase": "provider_wait", "causal_provenance": "MODEL_INVOCATION",

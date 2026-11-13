@@ -319,6 +319,7 @@ CONTEXT_ENUMS_V4 = {
     "originalFailureCode": ERROR_CODES,
 }
 CONTEXT_ENUMS_V6 = {**CONTEXT_ENUMS_V4, "reasonCode": CONTEXT_ENUMS_V4["reasonCode"] | ENGINEERING_REASONS | MODEL_PREPARATION_REASONS, "stage": CONTEXT_ENUMS_V4["stage"] | {"model_preparation"}}
+CONTEXT_ENUMS_V7 = {**CONTEXT_ENUMS_V6, "stage": CONTEXT_ENUMS_V6["stage"] | {"voice_reply", "voice_response_wait"}}
 CONTEXT_NUMBERS = {"occurredAtMillis": (1, 9_999_999_999_999), "httpStatus": (100, 599), "retryAfterMillis": (0, 86_400_000)}
 CONTEXT_ACCEPTANCE_NUMBERS = {"requiredCriteria": (0, 100_000), "verifiedCriteria": (0, 100_000), "remainingCriteria": (0, 100_000)}
 CONTEXT_RECOVERY_NUMBERS = {"originalHttpStatus": (100, 599), "ownershipFence": (0, 9_223_372_036_854_775_807)}
@@ -395,7 +396,7 @@ def _report_context(value):
         raise ReportError(422, "INVALID_REPORT")
     # A released client used v2 for review extensions. Accept those exact approved
     # payloads as well as v3; clients require readiness for both 2 and 3 before sending them.
-    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V6 if version >= 6 else CONTEXT_ENUMS_V4 if version in (4, 5) else CONTEXT_ENUMS_V3
+    enums = CONTEXT_ENUMS if version == 1 else CONTEXT_ENUMS_V7 if version >= 7 else CONTEXT_ENUMS_V6 if version >= 6 else CONTEXT_ENUMS_V4 if version in (4, 5) else CONTEXT_ENUMS_V3
     for key, choices in enums.items():
         if key in value and (not isinstance(value[key], str) or value[key] not in choices):
             raise ReportError(422, "INVALID_REPORT")

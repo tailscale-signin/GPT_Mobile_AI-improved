@@ -1709,7 +1709,20 @@ class ChatRepositoryImpl(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: IllegalArgumentException) {
-            emit(preflightError("EXECUTION_SELECTION_INVALID", "The saved stage could not be bound to this run and profile. Reopen the original task before retrying.", "binding_admission", failure, "RETRY_AFTER_CONFIGURATION_CHANGE"))
+            val claimInventoryRejected = failure.message.orEmpty().contains("Combined claim inventory")
+            emit(
+                preflightError(
+                    if (claimInventoryRejected) "COMBINED_CLAIM_INVENTORY_INVALID" else "EXECUTION_SELECTION_INVALID",
+                    if (claimInventoryRejected) {
+                        "Combined claim inventory validation failed. Reopen the original task to rebuild its accepted evidence before retrying."
+                    } else {
+                        "The saved stage could not be bound to this run and profile. Reopen the original task before retrying."
+                    },
+                    if (claimInventoryRejected) "claim_inventory_admission" else "binding_admission",
+                    failure,
+                    "RETRY_AFTER_CONFIGURATION_CHANGE"
+                )
+            )
             emit(ApiState.Done)
             return@flow
         }

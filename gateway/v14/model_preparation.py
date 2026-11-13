@@ -9,12 +9,12 @@ from v14.execution_binding import ExecutionBindingError, configured_route
 def preparation_receipt(model):
     return {'schema': 'gptmobile.gateway.model-preparation.v1', 'requestedModel': model,
             'state': 'PRECHECK_REJECTED', 'dispatchState': 'NOT_DISPATCHED', 'loadAccepted': None,
-            'loadRequests': 0, 'modelState': 'UNKNOWN', 'selectedModel': None,
+            'loadRequests': 0, 'preparationAction': 'NONE', 'modelState': 'UNKNOWN', 'selectedModel': None,
             'inferenceTested': False, 'automaticSubstitution': False, 'reasoningSettingsChanged': False}
 
 
 def prepare_model(capabilities, model, *, before_dispatch=None, prior=None, expected_route=None):
-    """Load one advertised llama.cpp router model once, then reconcile by reading.
+    """Load or wake one advertised llama.cpp router model once, then reconcile by reading.
 
     The CLI invokes this directly; the explicit HTTP action first records its
     operation and passes a durable before_dispatch fence. A prior dispatch is
@@ -61,21 +61,41 @@ def prepare_model(capabilities, model, *, before_dispatch=None, prior=None, expe
             return dict(receipt, state='LOAD_REJECTED' if receipt['loadAccepted'] is False else 'LOAD_OUTCOME_UNKNOWN', reconciliationFailure=rejected(error),
                         nextAction='Recheck the exact model state; the prior load outcome is unresolved. Do not repeat the load.')
         return dict(receipt, state='PRECHECK_REJECTED', failure=rejected(error), nextAction='Repair the exact backend configuration, then recheck; no model load was sent.')
+    observed = None
+    if state == 'LOADED':
+        capabilities.invalidate_model(route, model)
+        observed = capabilities.selected_model(model, force=True)
+        # Older routers keep a sleeping child marked loaded in the catalogue.
+        # The exact child's fresh properties are authoritative about sleep.
+        if observed.get('modelState') == 'SLEEPING':
+            state = 'SLEEPING'
     receipt['modelState'] = state
     if state in {'UNLOADED', 'SLEEPING'}:
         if prior is not None:
             return dict(receipt, state='LOAD_REJECTED' if receipt['loadAccepted'] is False else 'LOAD_OUTCOME_UNKNOWN' if receipt['loadRequests'] else 'PRECHECK_REJECTED',
                         nextAction='Recheck the exact model state before another explicit preparation; this operation cannot dispatch twice.')
-        receipt.update(dispatchState='DISPATCHED', loadRequests=1, state='LOAD_OUTCOME_UNKNOWN')
+        waking = state == 'SLEEPING'
+        receipt.update(dispatchState='DISPATCHED', loadRequests=1, state='LOAD_OUTCOME_UNKNOWN',
+                       preparationAction='WAKE' if waking else 'LOAD')
         if before_dispatch is not None:
             before_dispatch(copy.deepcopy(receipt))
         try:
             # Never wrap this POST in the idempotent metadata retry policy.
-            result = capabilities._json('POST', root + '/models/load', body={'model': model})
-            if result.get('success') is True:
+            if waking:
+                # A sleeping llama.cpp child still counts as running, so
+                # /models/load rejects it. Empty tokenization wakes that exact
+                # child without inference, unloading, or sending user content.
+                # Disable router autoload if the child disappears before POST.
+                result = capabilities._json('POST', root + '/tokenize',
+                    body={'model': model, 'content': '', 'add_special': False}, params={'autoload': 'false'})
+                accepted = result.get('tokens') == []
+            else:
+                result = capabilities._json('POST', root + '/models/load', body={'model': model})
+                accepted = result.get('success') is True
+            if accepted:
                 receipt.update(loadAccepted=True, state='LOAD_ACCEPTED')
             else:
-                receipt['failure'] = {'failureCode': 'EXECUTION_CAPABILITY_INVALID', 'dependency': 'selected_model'}
+                receipt['failure'] = dict(failure('invalid_response', 'selected_model'), failureCode='EXECUTION_CAPABILITY_INVALID')
         except ExecutionBindingError as error:
             receipt['failure'] = rejected(error)
             # Only a definite rejection establishes non-acceptance. A timeout,
@@ -95,9 +115,25 @@ def prepare_model(capabilities, model, *, before_dispatch=None, prior=None, expe
         unresolved = receipt['loadRequests'] and receipt['loadAccepted'] is not False
         return dict(receipt, state='WAITING_FOR_MODEL' if state == 'LOADING' else 'LOAD_OUTCOME_UNKNOWN' if unresolved else receipt['state'],
                     nextAction='Wait for the selected model to finish loading and run doctor --model. Do not repeat a load while its outcome is unresolved.')
-    capabilities.invalidate_model(route, model)
-    observed = capabilities.selected_model(model, force=True)
+    if observed is None or receipt['loadRequests']:
+        capabilities.invalidate_model(route, model)
+        observed = capabilities.selected_model(model, force=True)
     receipt['selectedModel'] = observed
     receipt['modelState'] = observed.get('modelState', state)
-    return dict(receipt, state='METADATA_QUALIFIED' if observed.get('limitsVerified') is True else 'QUALIFICATION_BLOCKED',
+    if observed.get('limitsVerified') is not True:
+        # A fresh properties/readiness failure wins over a stale loaded catalogue.
+        # Keep only the typed failure evidence so clients can retain this blocked
+        # qualification without exposing backend addresses or arbitrary prose.
+        receipt['reconciliationFailure'] = {
+            key: observed[key] for key in ('reasonCode', 'failureCode', 'failureCategory', 'dependency',
+                'upstreamStatus', 'upstreamMessageCode', 'upstreamErrorBodyState') if key in observed}
+    qualified = observed.get('limitsVerified') is True
+    unresolved = receipt['loadRequests'] and receipt['loadAccepted'] is not False
+    # A stale router catalogue cannot retire a durable dispatch fence. A fresh
+    # sleeping, loading or failed observation leaves the host action unresolved
+    # until the exact loaded allocation is qualified, even after an accepted POST.
+    result_state = ('METADATA_QUALIFIED' if qualified else 'LOAD_REJECTED' if receipt['loadAccepted'] is False else
+                    'WAITING_FOR_MODEL' if observed.get('modelState') == 'LOADING' else
+                    'LOAD_OUTCOME_UNKNOWN' if unresolved else 'QUALIFICATION_BLOCKED')
+    return dict(receipt, state=result_state,
                 nextAction='Recheck the same profile and its reasoning controls in the app before resuming the saved task.')

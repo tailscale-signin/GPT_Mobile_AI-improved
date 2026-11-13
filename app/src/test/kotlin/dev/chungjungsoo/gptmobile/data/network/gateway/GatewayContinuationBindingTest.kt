@@ -3,7 +3,11 @@ package dev.chungjungsoo.gptmobile.data.network.gateway
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ProviderToolInvocation
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.captureProviderInvocation
+import dev.chungjungsoo.gptmobile.data.agent.provider.toChatMessages
+import dev.chungjungsoo.gptmobile.data.agent.providerInvocation
 import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -41,6 +45,26 @@ class GatewayContinuationBindingTest {
         assertTrue(runCatching { binding.requireResults(listOf(Triple("original-call", "write_file", arguments)), listOf("original-call")) }.exceptionOrNull()?.message.orEmpty().contains("CLIENT_TOOL_RESULT_IDENTITY_MISMATCH"))
     }
 
+    @Test fun routedCallReturnsOriginalProviderIdentityWithoutChangingExecution() {
+        val binding = GatewayContinuationBinding.verified("profile", "https://gateway.test/v1", "selected", "saved", saved)
+        val routed = ProviderEvent.ToolCall(
+            "original-call",
+            "read_file__authorized",
+            buildJsonObject {
+                put("path", "README.md")
+                put("response_detail", "compact")
+            },
+            originalInvocationFingerprint = ProviderToolInvocation("read_file", arguments).fingerprint("original-call"),
+            originalInvocation = ProviderToolInvocation("read_file", arguments)
+        )
+        binding.requireResults(listOf(exchange(routed)))
+        assertEquals("read_file__authorized", routed.name)
+        assertEquals("read_file", routed.providerInvocation().name)
+        assertEquals(arguments, routed.providerInvocation().arguments)
+        assertTrue(runCatching { binding.requireResults(listOf(exchange(routed.copy(originalInvocation = ProviderToolInvocation("read_file", buildJsonObject { put("path", "changed") }))))) }.isFailure)
+        assertTrue(runCatching { routed.copy(originalInvocation = null).providerInvocation() }.isFailure)
+    }
+
     @Test fun opaquePendingIdsArePreservedVerbatim() {
         val id = "opaque call/東京:0"
         val opaque = json.decodeFromString<GatewayJobResult>(json.encodeToString(saved).replace("original-call", id))
@@ -50,6 +74,42 @@ class GatewayContinuationBindingTest {
     }
 
     private fun exchange(call: ProviderEvent.ToolCall) = AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, ToolResultContent.Text("retained result"), false)))
+
+    @Test fun normalizedExecutionKeepsExactOriginalGatewayIdentityOnWire() {
+        val binding = GatewayContinuationBinding.verified("profile", "https://gateway.test/v1", "selected", "saved", saved)
+        val original = ProviderEvent.ToolCall("original-call", "read_file", arguments)
+        val execution = original.captureProviderInvocation().copy(name = "read_file__account", arguments = buildJsonObject { put("path", "resolved-path") })
+        val retained = exchange(execution)
+        binding.requireResults(listOf(retained))
+        val messages = retained.toChatMessages()
+        val wire = messages.first().toolCalls!!.single()
+        assertEquals(original.callId, wire.id)
+        assertEquals(original.name, wire.function.name)
+        assertEquals(original.arguments.toString(), wire.function.arguments)
+        assertEquals(original.callId, messages.last().toolCallId)
+    }
+
+    @Test fun legacyNormalizedEnvelopeRestoresOnlyFromVerifiedPendingCallAndSavedFingerprint() {
+        val binding = GatewayContinuationBinding.verified("profile", "https://gateway.test/v1", "selected", "saved", saved)
+        val original = ProviderEvent.ToolCall("original-call", "read_file", arguments)
+        val legacy = original.captureProviderInvocation().copy(name = "read_file__account", originalInvocation = null)
+        val retained = exchange(legacy)
+        assertTrue(runCatching { binding.requireResults(listOf(retained)) }.isFailure)
+        val recovered = binding.restoreProviderInvocations(listOf(retained, local())).first()
+        assertEquals(ProviderToolInvocation(original.name, original.arguments), recovered.calls.single().originalInvocation)
+        assertEquals(retained.results, recovered.results)
+        assertNull(retained.calls.single().originalInvocation)
+        val wire = recovered.toChatMessages().first().toolCalls!!.single()
+        binding.requireResults(listOf(Triple(wire.id, wire.function.name, json.parseToJsonElement(wire.function.arguments) as JsonObject)), listOf(original.callId))
+        for (invalid in listOf(
+            legacy.copy(originalInvocationFingerprint = "0".repeat(64)),
+            legacy.copy(originalInvocationFingerprint = null),
+            legacy.copy(originalInvocation = ProviderToolInvocation("write_file", arguments)),
+            legacy.copy(callId = "different-call")
+        )) {
+            assertTrue(runCatching { binding.restoreProviderInvocations(listOf(exchange(invalid))) }.isFailure)
+        }
+    }
 
     private fun local(cursor: String = "saved-view:0:2048"): AgentToolExchange {
         val name = "github_read__account"

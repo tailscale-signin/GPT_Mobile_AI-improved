@@ -149,14 +149,47 @@ looks for the original issue.
 ### Report context and rollout compatibility
 
 The ready response preserves `service: "gpt-mobile-issue-reporter"` and
-`version: 1`, and advertises `reportContextVersions: [1]`. Clients with a
-context-bearing report check this capability before the first submission. An
-older service without that field has not declared support: the app retains the
-approved report and displays a native service-update requirement. It must not
-silently strip context or change a previously submitted payload. Deploy the
-updated reporter before enabling context-bearing submissions in a release.
+`version: 1`, and advertises `reportContextVersions: [1, 2, 3, 4, 5, 6, 7]`. Clients with a
+context-bearing report check support for that report's schema and any retained
+review extensions before marking it dispatched or sending the POST. An older
+service without all required versions has not declared
+support: the app retains the approved report and displays a native
+service-update requirement. It must not silently strip context or change a
+previously submitted payload. Deploy the updated reporter before shipping a
+hosted reporting route; the distribution readiness check requires all seven versions
+so current reports and retained legacy reports remain supported.
 
-The optional top-level `context` object has `schemaVersion: 1`, a bounded client
+Exact-model preparation captures extend the closed schema-5 diagnostics with
+bounded load/wake states, typed backend failures and hashed operation/profile/model
+identities. The updated ready response advertises
+`reportDiagnosticFeatures: ["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1"]`. The app requires the first
+feature only when the approved capture contains these extension fields (including
+their omission declarations). A reporter advertising schema 5 without this feature
+does not establish support: the app returns `REPORT_SERVICE_UPDATE_REQUIRED`
+before POST, keeps the approved bytes and disables automatic retries. Deploy this
+reporter update before distributing these captures through the hosted route.
+Native GitHub reporting remains a separately selected route and does not depend
+on this service feature; the app never changes destinations or strips fields to
+work around an older reporter.
+
+`REVIEW_COMPARISON_V1` declares support for the public report codes
+`REVIEW_INPUT_REQUIRED` and `GITHUB_REVIEW_COMPARISON_REQUIRED`. The app checks this
+feature when either code appears as the report error, a retained original failure,
+or an exact code token in a bounded event, including reports without context.
+Older reporters stay blocked before POST with the same service-update requirement.
+
+`DISPATCH_POLICY_DIAGNOSTICS_V1` declares support for the closed policy-section,
+failure-stage and resume observations. `CHANGED_POLICY_FIELDS_V1` separately
+declares support for the bounded changed-setting names and their observed,
+unknown, malformed and omitted counts. These names come from the native policy
+contract, including `providerPermissions`; setting values, private names, tokens
+and URLs are excluded. Reports containing either extension, including omission
+declarations, require its advertised feature before POST. Context version 7 or
+dispatch-section support alone does not establish support for changed-setting
+details. Update the reporter before delivering these captures; approved bytes
+remain unchanged while an older service is blocked.
+
+The optional top-level `context` object has a schema version, a bounded client
 occurrence timestamp, a fixed capture-source enum, and `unavailableFields`.
 Optional observations use only fixed stage/provider/operation/recovery enums,
 typed HTTP status and relative retry delay, dispatch/retry/reconciliation
@@ -168,11 +201,113 @@ messages, URLs, tool arguments, model names and original run/job/call IDs are
 not accepted in this context. The existing approved manual description remains
 a separate, bounded, redacted user-authored field.
 
+Schema 1 remains unchanged. Schema 2 adds fixed GitHub acceptance stop/recovery
+codes and the optional integer fields `requiredCriteria`, `verifiedCriteria`
+and `remainingCriteria` (0 through 100,000). Supplied counts must be consistent;
+missing counts stay unknown and are never replaced with zero. The app selects
+schema 2 only when it has this acceptance metadata without review extensions.
+Schema 3 adds the `review_comparison` and `approval` stages and the
+`SELECT_REVIEW_BASELINE` and `RESTORE_REVIEW_COMPARISON_EVIDENCE` recovery actions.
+New reports use schema 3 when any of these values is present. Versions 2 and 3
+share the acceptance-count and exact `unavailableFields` contract. No schema
+accepts criterion text.
+
+Schema 4 adds closed local recovery and claim-extraction reasons and their recovery
+actions. The public issue code remains `CHAT_FAILED`; `reasonCode` identifies the
+specific local recovery refusal or retained extraction failure. An earlier provider
+429 remains a separate `originalFailureCode: PROVIDER_RATE_LIMITED` and optional
+`originalHttpStatus`, read only from explicit typed interruption fields. Current
+dispatch, invocation, retry and remote-acceptance facts are never copied from that
+earlier interruption. Checkpoint binding, checkpoint digest and resume-claim IDs
+are published only as separately domain-separated SHA-256 hashes. The optional
+`ownershipFence` is an integer from 0 through 9,223,372,036,854,775,807. Missing or
+malformed observations stay unavailable; raw checkpoint values, claim IDs,
+provider messages and free-text recovery details are not accepted.
+
+Version 4 also retains a closed reason for locally rejected tool calls, including
+exhausted allowance, duplicate suppression and unavailable checkpoints. Those
+reasons require `source: TOOL_RESULT`, `stage: tool_precheck`, `dispatched: false`
+and no positive reconciliation requirement. An otherwise unknown tool code may
+use the existing `TOOL_FAILURE` category while preserving these non-dispatch facts;
+known codes such as `INVALID_ARGUMENTS` stay unchanged. New recovery fields and
+reasons are rejected under versions 1 through 3. Version-4 payloads require explicit
+version-4 readiness before the dispatch marker or POST; unsupported services do not
+receive a stripped or downgraded report.
+
+Schema 5 adds the required `diagnostics` object with its own `schemaVersion: 1`.
+Its compact UTF-8 JSON representation is limited to 3,072 bytes. The object
+retains a fixed diagnostic area, capture mode and timestamp, area-specific
+allowlisted values, and explicit unavailable or omitted fields. Values are
+bounded counts, durations, flags, enums and correlation hashes. `NO_CAPTURE`
+contains no observed values or omitted fields. Raw logs, prompts, transcripts,
+audio, tool arguments and original identifiers are not accepted. A version-5
+report requires explicit version-5 readiness before the dispatch marker or POST;
+the total request limit remains 8 KiB. Existing approved reports are not rewritten
+to add these observations.
+
+Manual observations are labeled as selected observations and
+expire into an explicit `NO_CAPTURE` snapshot; they are not proof of the reported
+incident's cause. Schema 6 preserves allowlisted engineering rejection reasons
+and invalid request-field names and permits version-2 gateway snapshots. The
+gateway snapshot can retain observed manifest hash, protocol/version, readiness,
+HTTP status and admission phase before a job exists. It never initiates a network
+probe, invents a job/checkpoint, or publishes raw request values. Existing
+version-1 snapshots remain accepted in schema 6. Schema 5 continues to accept
+only version-1 snapshots, and schemas 1 through 5 do not accept the new engineering
+reason vocabulary. New schema-6 reports require explicit version-6 readiness
+before dispatch; previously approved reports keep their exact bytes and version.
+
+Schema 7 requires diagnostics version 3. Its incident capsule keeps the existing
+3,072-byte diagnostic limit and admits only closed phases and categories,
+bounded counts and durations, flags, and domain-separated identity hashes.
+Native and hosted reporting validate the same fields. Generic failures retain an
+explicit unknown phase or unavailable cause when no typed observation exists.
+Tool captures can retain public action/schema names, argument types, validation
+paths as hashes, closed GitHub error categories and saved-view restoration state.
+They never include argument values, server messages, request bodies or arbitrary
+field names. Acceptance captures distinguish the actual evaluator branch,
+mismatch and linked-criterion evidence counts; they do not infer historical causes.
+Provider rejection and privacy admission captures retain closed categories and
+aggregate eligibility counts without endpoint names or policy changes.
+
+Cross-layer duplicate suppression requires the same run, explicit typed causal
+identity and failure code. Temporal proximity or the latest tool in a run is not
+causal evidence. The first pending or approved report is never rewritten. Durable
+provider-wait decisions become separately selectable manual observations after
+the coordinator observes persistence; unknown persistence stays unavailable.
+Those observations do not authorize a retry or establish provider acceptance.
+Voice captures retain the actual reply phase and a correlated typed chat-failure
+reference when one exists, without audio or transcript content. MCP captures
+separate the current configuration/catalog/connection failure from a retained
+connection/readiness snapshot; retained health is not proof of this call's cause
+or dispatch, and no hostname, URL or port is exported.
+
+A hosted service advertising only versions 1 through 6 cannot accept a new
+schema-7 report. The client returns `REPORT_SERVICE_UPDATE_REQUIRED` before POST,
+keeps the approved bytes and disables automatic retries for that refusal. Deploy
+this reporter update before enabling schema-7 hosted submissions. A separately
+configured native GitHub route validates schema 7 locally; the app never silently
+switches destinations, downgrades an approved payload or changes its privacy
+consent. This source change does not establish deployment of the hosted service.
+
+An earlier app revision used schema 2 for those review extensions. Its approved
+payloads remain unchanged: the app requires readiness support for both their
+declared version 2 and the version-3 review contract, then posts their original
+bytes. An older reporter advertising only `[1, 2]` is blocked before submission;
+the report stays retryable after a service update. An endpoint advertising only
+`[3]` also cannot accept these retained v2 reports, because it has not declared
+support for their wire version. The updated reporter accepts retained extended-v2
+payloads as well as v3, preserving existing issue-body digests and reconciliation.
+Original v2 acceptance reports still need only version 2 at runtime. Native
+GitHub reporting continues to render and hash the exact approved payload without
+hosted-service negotiation. Invalid reports rejected with HTTP 422 remain
+non-retryable; unknown GitHub outcomes still require reconciliation.
+
 The rendered issue shows captured causal facts and unavailable observations
 separately. A missing field does not establish success, non-dispatch or safe
 retry. The full JSON request still has an 8 KiB maximum. Legacy reports without
-`context` retain their original rendering so previously queued report digests
-remain valid.
+`context`, and existing schema-1 through schema-5 reports, retain their original rendering so
+previously queued report digests remain valid.
 
 Successful submissions return `{"reportId":"<original UUID>","number":42}`.
 Context-bearing submissions require that matching report ID before the app
@@ -187,12 +322,28 @@ when known. An uncertain publication only reconciles the original GitHub write;
 it never creates a replacement issue automatically. No browser handoff or
 alternate unauthenticated publication route is needed.
 
-Deploy the reporter and its persistent database before shipping builds, then set
-the repository Actions variable `ISSUE_REPORT_ORIGIN` to its public HTTPS origin
-for release workflows. Production APK and bundle packaging requires a fixed
-HTTPS origin. Pull request compilation and lint can run before deployment. For local
-release builds, pass `-PISSUE_REPORT_ORIGIN=…` or set the environment variable
-`ISSUE_REPORT_ORIGIN`. Debug builds may omit it; the dialog reports that issue
-submission is unavailable in those builds. Validate the service with
+The app also supports a native authenticated GitHub route. It is enabled by default
+(`ISSUE_REPORT_GITHUB_ENABLED=true`) and uses an existing, verified public GitHub
+connection with write-capable policy. The dialog displays the selected public
+author before Send. Multiple accounts require a choice; no account offers Connect
+or review GitHub and Save for later. Saved reports retain the approved account ID,
+connection and exact payload. A native create that loses its receipt is never
+repeated: automatic and manual retries only search for the original report marker,
+exact body and account. Empty or delayed search results remain unconfirmed.
+Explicit authentication/permission rejection can be retried after repair because
+GitHub rejected that create. Credentials remain in the existing encrypted vault.
+
+The hosted route is optional when native GitHub reporting is enabled. To offer it,
+deploy this reporter and its persistent database, then set repository Actions
+variable `ISSUE_REPORT_ORIGIN` to the real public HTTPS root. For local builds use
+`-PISSUE_REPORT_ORIGIN=…` or the environment variable. Verify read-only readiness with
+`python3 scripts/check_issue_reporting_configuration.py --probe-service`.
+Never use a placeholder origin: the APK appends `/v1/issue-reports` itself.
+Approval pins this service origin so an update cannot reroute an uncertain write.
+If native reporting is disabled, both debug/review and release packaging require
+the configured service. Only local debug builds can explicitly opt out with
+`-PallowUnconfiguredIssueReporting=true`; CI and release packaging reject that
+exception. No new service deployment, repository variable change or live issue
+submission is implied by passing fixture tests. Validate the service with
 `python -m unittest authentication.test_app`. The hosted HTTP tests use a
 simulated GitHub publisher.

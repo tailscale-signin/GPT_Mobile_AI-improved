@@ -235,7 +235,7 @@ class AnthropicEventAssembler {
             events
         }
 
-        is ErrorResponseChunk -> listOf(ProviderEvent.Failed(event.error.message))
+        is ErrorResponseChunk -> listOf(ProviderEvent.Failed(event.error.message, errorCode = event.error.code, failureDetails = event.error.failureDetails))
 
         MessageStopResponseChunk -> buildList {
             outputTokens?.let { add(ProviderEvent.Usage(inputTokens, it, inputTokens?.plus(it), phase = ProviderUsagePhase.FINAL)) }

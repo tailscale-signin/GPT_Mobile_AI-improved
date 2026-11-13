@@ -1,5 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -7,6 +12,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -111,4 +117,149 @@ class ToolFailureMetadataTest {
         assertEquals(JsonPrimitive(true), failure.failureDetails["retryable"])
         assertEquals(JsonPrimitive("READINESS_INCOMPLETE"), failure.failureDetails["disposition"])
     }
+
+    @Test fun promotedToolFailureKeepsItsExactCausalIdentityAndOriginalFailureCode() {
+        val result = AgentToolResult("opaque-tool-call", ToolResultContent.Text("retained unknown outcome"), true, errorCode = "DISPATCH_OUTCOME_UNKNOWN", executionReceipt = buildJsonObject { put("authority_invalidation_code", "DISPATCH_POLICY_CHANGED") })
+        val failure = ToolFailureMetadata.authorityFailure(result, hasUnknownOutcome = true)
+        assertEquals("RECONCILIATION_REQUIRED", failure.errorCode)
+        assertEquals(JsonPrimitive(result.callId), failure.failureDetails?.get("causal_id"))
+        assertEquals(JsonPrimitive("TOOL_CALL"), failure.failureDetails?.get("causal_provenance"))
+        assertEquals(JsonPrimitive("DISPATCH_OUTCOME_UNKNOWN"), failure.failureDetails?.get("causal_failure_code"))
+    }
+
+    @Test fun policyPrecheckProjectionRetainsChangedFieldsAndExplicitPromotionIdentity() {
+        val changed =
+            dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException(
+                listOf("tools", "profile.model", "PRIVATE_FIELD_VALUE")
+            )
+        val result = requireNotNull(ToolFailureMetadata.authorityPrecheck("private-call", "github_ci", changed))
+        val failure = ToolFailureMetadata.authorityFailure(result, hasUnknownOutcome = false)
+        val tool =
+            policyIncident(
+                ReportFeature.TOOLS,
+                "TOOL_RESULT",
+                requireNotNull(result.errorCode),
+                result.executionReceipt.orEmpty() + mapOf("call_id" to JsonPrimitive(result.callId), "tool" to JsonPrimitive("github_ci"))
+            )
+        val chat = policyIncident(ReportFeature.CHAT, "CHAT_FAILURE", requireNotNull(failure.errorCode), failure.failureDetails.orEmpty())
+
+        assertFalse(result.dispatched)
+        assertEquals("DISPATCH_POLICY_CHANGED", failure.errorCode)
+        assertEquals("tool_precheck", chat.stage)
+        assertEquals(false, chat.dispatched)
+        assertEquals(
+            IssueReportIncidentCapsule.identity(tool, result.errorCode),
+            IssueReportIncidentCapsule.identity(chat, failure.errorCode)
+        )
+        assertTrue(IssueReportIncidentCapsule.identity(chat, failure.errorCode) != null)
+        for (context in listOf(tool, chat)) {
+            val values = requireNotNull(context.diagnostics).values
+            assertEquals(JsonArray(listOf(JsonPrimitive("profile.model"), JsonPrimitive("tools"))), values["changed_policy_fields"])
+            assertEquals(JsonPrimitive(3), values["changed_policy_field_count"])
+            assertEquals(JsonPrimitive(1), values["changed_policy_unknown_count"])
+            assertEquals(JsonPrimitive("PARTIAL"), values["changed_policy_observation"])
+            assertFalse(policyReport(context).contains("PRIVATE_FIELD_VALUE"))
+            assertFalse(policyReport(context).contains("private-call"))
+            assertFalse(policyReport(context).contains("private-run"))
+        }
+    }
+
+    @Test fun deliveryPolicyProjectionPreservesTheCompletedDomainReceipt() {
+        val original =
+            AgentToolResult(
+                "private-completed-call",
+                ToolResultContent.Text(
+                    "PRIVATE_SUCCESS_BODY"
+                ),
+                false,
+                executionReceipt =
+                buildJsonObject {
+                    put("remote_receipt", "PRIVATE_RECEIPT")
+                }
+            )
+        val changed =
+            dev.chungjungsoo.gptmobile.data.context
+                .DispatchPolicyChangedException(listOf("profile.token"))
+        val result = requireNotNull(ToolFailureMetadata.withAuthorityFailure(original, changed, "delivery"))
+        val failure = ToolFailureMetadata.authorityFailure(result, hasUnknownOutcome = false)
+        val context =
+            policyIncident(ReportFeature.CHAT, "CHAT_FAILURE", requireNotNull(failure.errorCode), failure.failureDetails.orEmpty())
+
+        assertEquals(original.content, result.content)
+        assertEquals(original.errorCode, result.errorCode)
+        assertFalse(result.isError)
+        assertTrue(result.dispatched)
+        assertEquals(original.executionReceipt?.get("remote_receipt"), result.executionReceipt?.get("remote_receipt"))
+        assertEquals("delivery", context.stage)
+        assertEquals(true, context.dispatched)
+        assertEquals(false, context.requiresReconciliation)
+        val values = requireNotNull(context.diagnostics).values
+        assertEquals(JsonArray(listOf(JsonPrimitive("profile.token"))), values["changed_policy_fields"])
+        assertEquals(JsonPrimitive("OBSERVED"), values["changed_policy_observation"])
+        assertFalse(policyReport(context).contains("PRIVATE_"))
+        assertNull(original.executionReceipt?.get("authority_invalidation_code"))
+    }
+
+    @Test fun policyProjectionCannotDowngradeAnUnknownMutationOutcome() {
+        val original =
+            AgentToolResult(
+                "private-uncertain-call",
+                ToolResultContent.Text(
+                    "PRIVATE_MUTATION_BODY"
+                ),
+                true,
+                errorCode = "DISPATCH_OUTCOME_UNKNOWN",
+                executionReceipt =
+                buildJsonObject {
+                    put("requires_reconciliation", true)
+                }
+            )
+        val changed =
+            dev.chungjungsoo.gptmobile.data.context
+                .DispatchPolicyChangedException(listOf("engineering"))
+        val result = requireNotNull(ToolFailureMetadata.withAuthorityFailure(original, changed, "delivery"))
+        val failure = ToolFailureMetadata.authorityFailure(result, hasUnknownOutcome = true)
+        val context =
+            policyIncident(ReportFeature.CHAT, "CHAT_FAILURE", requireNotNull(failure.errorCode), failure.failureDetails.orEmpty())
+
+        assertEquals("DISPATCH_OUTCOME_UNKNOWN", result.errorCode)
+        assertTrue(result.dispatched)
+        assertEquals("RECONCILIATION_REQUIRED", failure.errorCode)
+        assertEquals("PARTIAL", failure.taskOutcome)
+        assertEquals(true, context.requiresReconciliation)
+        assertNull(context.dispatched)
+        assertNull(context.retryable)
+        val values = requireNotNull(context.diagnostics).values
+        assertEquals(JsonPrimitive("DISPATCH_OUTCOME_UNKNOWN"), values["causal_failure_code"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("engineering"))), values["changed_policy_fields"])
+        assertNull(values["request_replay_allowed"])
+        assertFalse(policyReport(context).contains("PRIVATE_MUTATION_BODY"))
+    }
+
+    private fun policyIncident(
+        feature: ReportFeature,
+        source: String,
+        code: String,
+        fields: Map<String, Any?>
+    ): IssueReportContext =
+        IssueReportContext.fromFields(
+            source,
+            IssueReportIncidentCapsule.fields(feature, source, code, fields + ("run_id" to "private-run")),
+            1_800_000_000_000L
+        )
+
+    private fun policyReport(context: IssueReportContext): String =
+        IssueReport(
+            "11111111-1111-4111-8111-111111111111",
+            "debug",
+            "1.0",
+            1,
+            "abcdef0",
+            "16",
+            36,
+            "Fixture",
+            feature = "chat",
+            errorCode = "DISPATCH_POLICY_CHANGED",
+            context = context
+        ).approvedPayload()
 }

@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.audit.AppAuditRun
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditScore
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSelectedModelProbeSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditSummary
+import dev.chungjungsoo.gptmobile.data.audit.appAuditInterpretation
 import dev.chungjungsoo.gptmobile.data.audit.appAuditScore
 import dev.chungjungsoo.gptmobile.data.audit.appAuditSummary
 import dev.chungjungsoo.gptmobile.data.audit.appAuditTargetAliases
@@ -36,7 +37,9 @@ internal data class AppAuditPresentation(
     val summary: AppAuditSummary,
     val score: AppAuditScore,
     val components: List<AppAuditComponentPresentation>,
-    val evidenceText: String
+    val evidenceText: String,
+    val configurationText: String,
+    val prerequisiteText: String
 ) {
     val scoreText: String get() = "Measured check pass score: ${benchmarkMetricText(score.score, "/ 100", 1)}"
     val weightText: String get() = "Passing weight ${score.passedWeight} / measured weight ${score.measuredWeight}"
@@ -80,7 +83,12 @@ internal fun appAuditPresentation(run: AppAuditRun, currentTargetNames: Map<Stri
     val evidenceText = "Verified measured evidence: ${verified(AppAuditEvidenceKind.LOCAL_CONTRACT)} local checks · " +
         "${verified(AppAuditEvidenceKind.LIVE_METADATA)} metadata checks · ${verified(AppAuditEvidenceKind.TOOL_EXECUTION)} tool executions · " +
         "${verified(AppAuditEvidenceKind.MODEL_EXECUTION)} model executions · ${verified(AppAuditEvidenceKind.DEVICE_MEASUREMENT)} device measurements"
-    return AppAuditPresentation(appAuditSummary(run), appAuditScore(run), components, evidenceText)
+    val interpretation = appAuditInterpretation(run)
+    val configurationText = "${interpretation.configurationPasses} configuration checks passed; configuration passes are excluded from the measured score. " +
+        "${interpretation.disabledTargets} disabled integrations · ${interpretation.optionalAbsentTargets} optional integrations not installed. These settings do not establish a defect."
+    val prerequisiteText = "${interpretation.credentialBlockers} credential blockers · ${interpretation.dependentUntestedChecks} execution checks depend on an unresolved prerequisite. " +
+        "Dependent checks remain included in the untested total; they are not additional connection failures."
+    return AppAuditPresentation(appAuditSummary(run), appAuditScore(run), components, evidenceText, configurationText, prerequisiteText)
 }
 
 /** Display-only current labels. Exact UIDs never fall back to a name, URL or another target. */
@@ -108,12 +116,15 @@ internal fun appAuditModelProfileUid(entry: AppAuditPlanEntry): String? = entry.
     ?.removePrefix(AppAuditSelectedModelProbeSource.TARGET_PREFIX)
     ?.takeIf { it.isNotBlank() && it.length <= 160 && it.none(Char::isISOControl) }
 
-internal fun appAuditConnectionActionLabel(item: AppAuditEntryPresentation): String = when (item.result?.reasonCode ?: item.entry.reasonCode) {
-    "MCP_RESPONSE_ID_MISMATCH" -> "Review bridge request correlation"
-    "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED" -> "Reconnect saved connection"
-    "MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID", "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
-    "MCP_AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED" -> "Repair credentials and reconnect"
-    else -> "Open connection settings and checks"
+internal fun appAuditConnectionActionLabel(item: AppAuditEntryPresentation): String = when {
+    item.result?.observation?.validationRule == "CREDENTIAL_REAUTHORIZATION_REQUIRED" -> "Open affected connection to sign in"
+    else -> when (item.result?.reasonCode ?: item.entry.reasonCode) {
+        "MCP_RESPONSE_ID_MISMATCH" -> "Review bridge request correlation"
+        "MCP_LOCAL_CREDENTIAL_REFRESH_REQUIRED" -> "Reconnect saved connection"
+        "MCP_LOCAL_CREDENTIAL_MISSING", "MCP_LOCAL_CREDENTIAL_INVALID", "PLUGIN_CREDENTIAL_IDENTITY_UNAVAILABLE",
+        "MCP_AUTHENTICATION_REQUIRED", "AUTHENTICATION_FAILED" -> "Repair credentials and reconnect"
+        else -> "Open affected connection"
+    }
 }
 
 /** A retained observation's age is anchored to its original check, not the time this screen opens. */
@@ -161,7 +172,7 @@ internal fun appAuditReason(item: AppAuditEntryPresentation): String {
             "CREDENTIAL_REAUTHORIZATION_REQUIRED" -> return "The saved OAuth authorization requires a new sign-in. Open this exact connection, sign in again, then reconnect. This local rejection did not send an MCP request; retrying the unchanged credential cannot repair it."
             "RESPONSE_ID_MATCH_REQUIRED" -> return MCP_RESPONSE_CORRELATION_GUIDANCE
             "PROTOCOL_VERSIONS_ARRAY_REQUIRED", "PROTOCOL_VERSIONS_NONEMPTY_REQUIRED", "PROTOCOL_VERSION_FORMAT_REQUIRED" -> return "The discovery response omitted or malformed supportedVersions. Repair the bridge to advertise a nonempty array of protocol revisions it actually implements, then reconnect to verify negotiation and tools/list. HTTP 200 does not make invalid discovery usable and cannot justify silently switching protocols."
-            "DISCOVERY_METHOD_SUPPORTED_REQUIRED" -> return "The endpoint answered JSON-RPC but rejected server/discover. Verify its supported protocol and repair bridge negotiation, then reconnect. This recognized modern unknown-method response does not establish that the endpoint path is missing or that legacy initialization is supported."
+            "DISCOVERY_METHOD_SUPPORTED_REQUIRED" -> return "The endpoint ${if (item.result.observation.httpStatus == 404) "returned HTTP 404 with a recognized MCP method rejection" else "answered JSON-RPC"} but rejected server/discover. Review this saved endpoint and its discovery adapter, then explicitly reconnect. Repeating unchanged settings will not repair a protocol mismatch. This response does not establish that the endpoint path is missing or that legacy initialization is supported."
             "ENDPOINT_ROUTE_REQUIRED" -> return "The configured endpoint returned HTTP 404 without a recognized MCP method response. Check the URL path and running service, then reconnect. The supported protocol has not been established."
         }
     }
@@ -190,6 +201,7 @@ internal fun appAuditReason(item: AppAuditEntryPresentation): String {
 }
 
 internal fun appAuditReasonCodeMessage(code: String?): String? = when (code) {
+    "MCP_NETWORK_IO_FAILED" -> "Discovery failed during network I/O before a more specific transport receipt was available. Review this exact connection's host, port and service, then retry after its bounded recovery delay. Receipt of the request by the server is unknown."
     "MCP_RESPONSE_ID_MISMATCH" -> MCP_RESPONSE_CORRELATION_GUIDANCE
     "NETWORK_READS_DISABLED", "NETWORK_READS_NOT_SELECTED" -> "Service reads were disabled for this plan. Enable them and start a new audit to measure this connection."
     "MODEL_EXECUTION_NOT_SELECTED", "MODEL_BENCHMARK_REQUIRED" -> "Model generation is untested in this audit. Prepare this exact saved profile in the model benchmark queue, review the suite, then explicitly run it."

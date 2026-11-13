@@ -10,6 +10,7 @@ internal data class ProviderContractFailure(val code: String, val phase: String,
         )
         private val failures = listOf(
             template,
+            ProviderContractFailure("ENGINEERING_STATE_OR_INPUT_CHANGED", "engineering_guard", "The gateway rejected a request or state prerequisite. Preserve the saved draft and inspect the retained reason and fields; a changed conversation has not been established."),
             ProviderContractFailure("GATEWAY_CAPABILITY_UNAVAILABLE", "connection_preflight", "The selected gateway's capability check did not complete. Check the connection and explicitly recheck it before sending the saved request."),
             ProviderContractFailure("GATEWAY_ISOLATION_UNAVAILABLE", "connection_preflight", "The selected gateway did not confirm the required tool isolation controls. Check or update that gateway before sending the saved request."),
             ProviderContractFailure("SELECTED_MODEL_NOT_LOADED", "provider_admission", "Load the exact selected model on its gateway or choose a ready model, then recheck."),

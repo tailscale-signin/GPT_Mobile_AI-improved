@@ -18,6 +18,25 @@ class CombinedProfileFailureCacheTest {
     private val sibling = MessageV2(id = 3, chatId = 1, linkedMessageId = 1, platformType = "q", currentRunId = "q-run", content = "Still writing")
     private val streaming = AgentRun("q-run", 1, 1, 3, "q", "FREE", "model", "RUNNING")
 
+    @Test fun baselineQuestionKeepsItsTaskActionWithoutOfferingProviderRemoval() {
+        val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord(
+            "REVIEW_INPUT_REQUIRED",
+            false,
+            dispatched = false,
+            phase = "review_comparison",
+            recoveryActions = listOf("SELECT_REVIEW_BASELINE")
+        )
+        val notice = dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(
+            dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE,
+            profileFailure = classified
+        )
+        val message = partial.copy(content = "Choose a baseline commit or tag to review main.", timeline = listOf(notice))
+        val run = failed.copy(status = AgentRunStatus.BLOCKED, terminalError = message.content)
+        assertTrue(combinedProfileFailures(1, "Review main", listOf(message), mapOf(run.runId to run), emptyMap(), emptyMap()).isEmpty())
+        assertEquals("Choose a baseline commit or tag to review main.", message.content)
+        assertEquals(listOf("SELECT_REVIEW_BASELINE"), classified.recoveryActions)
+    }
+
     @Test fun taskAcceptanceGapsDoNotOfferProviderRetriesOrRemoval() {
         for (code in listOf("GITHUB_TASK_INCOMPLETE", "GITHUB_EVIDENCE_REQUIRED")) {
             val taskRun = failed.copy(status = AgentRunStatus.PARTIAL, terminalError = "$code: Required receipt missing")
@@ -84,10 +103,30 @@ class CombinedProfileFailureCacheTest {
         assertSame(updated, cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(changed.runId to changed)).single())
     }
 
+    @Test fun aSharedScheduleExtensionKeepsTheOriginalReceiptAndRefreshesTheVisibleCountdown() {
+        val cache = CombinedProfileFailureCache()
+        val message = partial.copy(content = "")
+        val waiting = failed.copy(status = AgentRunStatus.WAITING_PROVIDER_LIMIT, terminalError = null)
+        val runs = mapOf(waiting.runId to waiting)
+        val original = ProviderWaitDeadline(waiting.runId, waiting.ownershipFence, 30_156)
+        val first = cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(original.runId to original)).single()
+        assertEquals("Retry available", first.shortStatus(40_000))
+        val extended = original.withSchedule(120_000)
+        val updated = cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(extended.runId to extended)).single()
+        assertNotSame(first, updated)
+        assertEquals(original.retryAt, extended.retryAt)
+        assertEquals(120_000L, updated.retryAfterMillis)
+        assertEquals("Rate limited · 2m left", updated.shortStatus(40_000))
+        assertSame(updated, cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(extended.runId to extended.withSchedule(120_000))).single())
+        val expired = extended.withSchedule(null)
+        val ready = cache.failures(1, "Question", listOf(message), runs, emptyMap(), emptyMap(), mapOf(expired.runId to expired)).single()
+        assertEquals("Retry available", ready.shortStatus(120_000))
+    }
+
     @Test fun staleWaitDeadlineCannotAttachToAnotherMessageOwnerOrFence() {
         val message = partial.copy(content = "")
         val waiting = failed.copy(status = AgentRunStatus.WAITING_PROVIDER_LIMIT, terminalError = null)
-        val saved = ProviderWaitDeadline(waiting.runId, waiting.ownershipFence, 91_000)
+        val saved = ProviderWaitDeadline(waiting.runId, waiting.ownershipFence, 91_000).withSchedule(181_000)
         val invalid = listOf(
             message to saved.copy(runId = "older-attempt"),
             message to saved.copy(fence = saved.fence + 1),

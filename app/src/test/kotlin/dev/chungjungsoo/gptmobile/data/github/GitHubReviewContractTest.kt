@@ -65,8 +65,9 @@ class GitHubReviewContractTest {
         }
         val compatibility = GitHubReviewCompatibility { 1000L }
         repeat(2) {
-            val events = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Change the repository", 8192, { _, kind ->
+            val events = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Change the repository", 8192, { prompt, kind ->
                 assertEquals("github-review-preflight", kind)
+                assertEquals(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, prompt)
                 probes++
                 session(ProviderEvent.TextDelta("unstructured review"), ProviderEvent.Completed)
             }, {}, compatibility = compatibility, reviewerRevision = "selected-profile").streamRound(emptyList(), emptyList()).toList()

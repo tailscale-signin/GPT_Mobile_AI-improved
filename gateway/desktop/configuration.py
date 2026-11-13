@@ -4,6 +4,8 @@ import json
 import os
 import re
 import socket
+import sys
+import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -72,7 +74,7 @@ def validate(value):
     return cfg
 
 
-def atomic_json(path, value):
+def atomic_json(path, value, *, retry_windows_sharing=False):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temporary = path.with_name(path.name + '.tmp-' + uuid.uuid4().hex)
@@ -81,7 +83,19 @@ def atomic_json(path, value):
             json.dump(value, stream, indent=2)
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(temporary, path)
+        # Status readers can briefly deny rename/delete sharing on Windows.
+        # Retry only the same closed, fsynced payload, never a new write or an
+        # unlink of the last valid destination. Persistent access denial still
+        # fails after at most 310 ms of backoff; other writes/errors fail once.
+        for attempt in range(6):
+            try:
+                os.replace(temporary, path)
+                break
+            except OSError as error:
+                if not (retry_windows_sharing and sys.platform == 'win32' and
+                        getattr(error, 'winerror', None) in {5, 32} and attempt < 5):
+                    raise
+                time.sleep(.01 * (2 ** attempt))
     finally:
         temporary.unlink(missing_ok=True)
 

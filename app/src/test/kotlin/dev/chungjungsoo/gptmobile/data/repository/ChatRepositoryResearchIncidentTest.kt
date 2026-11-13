@@ -18,4 +18,8 @@ class ChatRepositoryResearchIncidentTest {
     @Test fun incidentReplayRetainsEvidenceAcrossTwentyFourHelperRequestsWriter403AndContinue() {
         fixture.incidentReplayRetainsEvidenceAcrossTwentyFourHelperRequestsWriter403AndContinue()
     }
+
+    @Test fun genericPreparationExceptionRetainsEvidenceThroughCollector() {
+        fixture.genericPreparationExceptionRetainsEvidenceThroughCollector()
+    }
 }

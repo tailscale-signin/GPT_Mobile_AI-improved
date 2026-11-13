@@ -394,8 +394,46 @@ class AppAuditRunnerTest {
         assertEquals(3, h.audit.networkAttemptBudgetUsed)
         assertEquals(1, h.audit.networkProbesConfirmed)
         assertEquals(1, h.audit.networkProbesDispatchUnknown)
+        assertEquals(3, h.audit.networkProbesStarted)
+        assertEquals(1, h.audit.networkProbesRejectedLocally)
+        assertEquals(0, h.audit.networkProbesAdmissionUnknown)
+        assertEquals(AppAuditNetworkAdmission.ADMITTED, h.audit.results.first().networkAdmission)
         assertEquals(AppAuditDispatchEvidence.NOT_DISPATCHED, h.audit.results.first().dispatchEvidence)
         assertEquals("NETWORK_BUDGET_EXHAUSTED", h.audit.results.first { it.entryId == "over-budget" }.reasonCode)
+    }
+
+    @Test fun credentialPrecheckStartsAProbeWithoutConsumingNetworkAdmission() = runBlocking {
+        val revision = "a".repeat(64)
+        val h = harness(
+            Source(listOf(entry("credential", true).copy(configurationRevision = revision), entry("live", true))) { e, context ->
+                if (e.id == "credential") {
+                    AppAuditObservation(
+                        AppAuditOutcome.BLOCKED,
+                        "MCP_LOCAL_CREDENTIAL_INVALID",
+                        evidenceKind = e.evidenceKind,
+                        failurePhase = "local_validation",
+                        validationRule = "CREDENTIAL_REAUTHORIZATION_REQUIRED",
+                        configurationRevision = e.configurationRevision
+                    )
+                } else {
+                    context.beforeDispatch()
+                    passed(e)
+                }
+            },
+            network = true,
+            limits = AppAuditLimits(maxNetworkProbes = 1)
+        )
+        h.run()
+        val credential = h.audit.results.first { it.entryId == "credential" }
+        assertTrue(credential.attempted)
+        assertEquals(AppAuditNetworkAdmission.NOT_ADMITTED, credential.networkAdmission)
+        assertEquals(revision, credential.observation.configurationRevision)
+        assertEquals(2, h.audit.networkProbesStarted)
+        assertEquals(1, h.audit.networkAttemptBudgetUsed)
+        assertEquals(1, h.audit.networkProbesNotAdmitted)
+        assertEquals(1, h.audit.networkProbesRejectedLocally)
+        assertEquals(1, h.audit.networkProbesConfirmed)
+        assertEquals(0, h.audit.networkProbesAdmissionUnknown)
     }
 
     @Test fun aNetworkPassWithoutConfirmationRemainsUnknownAndStopsTheInvalidSource() = runBlocking {

@@ -124,6 +124,48 @@ class McpFailurePresentationTest {
         assertFalse(result.authenticationRequired)
         assertTrue(result.message.contains("DNS and VPN"))
         assertTrue(result.message.contains("Other connections"))
+        assertEquals("dns", result.phase)
+        assertEquals("UNKNOWN", result.dispatchEvidence)
+    }
+
+    @Test fun transportFailuresHaveActionableReceiptsBeforeHealthPublication() {
+        val failures = listOf(
+            Triple(java.net.ConnectException("Connection refused"), "CONNECTION_REFUSED", "connection"),
+            Triple(java.net.NoRouteToHostException("No route to host"), "ROUTE_UNAVAILABLE", "connection"),
+            Triple(java.net.SocketTimeoutException("connect timed out"), "CONNECT_TIMEOUT", "connection"),
+            Triple(java.net.SocketTimeoutException("read timed out"), "STREAM_IDLE_TIMEOUT", "discovery"),
+            Triple(IOException("Transport failed before health publication"), "MCP_NETWORK_IO_FAILED", "discovery")
+        )
+        failures.forEach { (error, code, phase) ->
+            val result = mcpFailurePresentation(IOException("SDK wrapper", error), McpConnectionHealth())
+            assertEquals("NETWORK_UNAVAILABLE", result.outcome)
+            assertEquals(code, result.errorCode)
+            assertEquals(phase, result.phase)
+            assertEquals(true, result.retryable)
+            assertEquals("AFTER_BACKOFF", result.retryDecision)
+            assertEquals("UNKNOWN", result.dispatchEvidence)
+            assertEquals(null, result.httpStatus)
+            assertEquals(null, result.configurationRevision)
+        }
+    }
+
+    @Test fun currentConnectionRefusalCannotInheritAStaleAuthenticationReceipt() {
+        val result = mcpFailurePresentation(
+            java.net.ConnectException("Connection refused"),
+            paused("MCP_AUTHENTICATION_REQUIRED", "Earlier credential rejection").copy(
+                failedStage = "authentication",
+                lastHttpStatus = 401,
+                lastDispatchEvidence = "CONFIRMED",
+                failureConfigurationRevision = "a".repeat(64)
+            )
+        )
+        assertEquals("CONNECTION_REFUSED", result.errorCode)
+        assertEquals("connection", result.phase)
+        assertEquals("UNKNOWN", result.dispatchEvidence)
+        assertEquals(null, result.httpStatus)
+        assertEquals(null, result.configurationRevision)
+        assertEquals(true, result.retryable)
+        assertFalse(result.message.contains("Earlier"))
     }
 
     @Test fun permanentFailuresRetainTheirCodeAndOriginalDetailThroughARepeatedBackoff() {
@@ -221,8 +263,8 @@ class McpFailurePresentationTest {
         val health = paused("TLS_FAILURE", "Earlier TLS detail").copy(state = McpConnectionHealthState.CONNECTED)
         val failure = mcpFailurePresentation(IOException("Current network failure"), health)
         assertEquals("NETWORK_UNAVAILABLE", failure.outcome)
-        assertEquals(null, failure.retryable)
-        assertEquals(null, failure.errorCode)
+        assertEquals(true, failure.retryable)
+        assertEquals("MCP_NETWORK_IO_FAILED", failure.errorCode)
         assertTrue(failure.message.contains("Current network failure"))
         assertFalse(failure.message.contains("Earlier TLS detail"))
     }

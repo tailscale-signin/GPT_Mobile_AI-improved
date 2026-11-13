@@ -10,7 +10,7 @@ import javax.inject.Singleton
 /** A grant is scoped to a tool and connection destination, not a mutable display name. */
 @Singleton
 class ToolTrustStore @Inject constructor(@ApplicationContext context: Context) {
-    private val preferences = context.getSharedPreferences("tool_always_allow", Context.MODE_PRIVATE)
+    private val preferences by lazy { context.getSharedPreferences("tool_always_allow", Context.MODE_PRIVATE) }
     private fun scopes(connection: ToolConnection, key: String) = listOf("connection:${connection.connectionUid}", "grant:$key")
     private fun allowed(connection: ToolConnection, key: String, read: () -> Boolean): Boolean {
         val snapshot = revocations.snapshot(scopes(connection, key)) ?: return false

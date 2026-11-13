@@ -119,7 +119,10 @@ class GatewayEngineeringRepository @Inject constructor(
     ): GatewayEngineeringBinding {
         val profileUid = requireNotNull(context.mainProfileUid)
         val model = selectedModel ?: settings.fetchPlatformV2s().single { it.uid == profileUid }.model
-        val bound = conversations.boundSnapshot(chatId, profileUid, model)
+        // Ordinary generation and engineering have separate server conversation
+        // identities. Retain the ordinary transcript in this room, but never use
+        // it as the repository binding of a newly authorized engineering task.
+        val bound = conversations.boundSnapshot(chatId, profileUid, model)?.takeIf { it.second.repository != null }
         if (draftRepair != null) {
             draftRepair.requireSource(context)
             check(bound == null && base == draftRepair.baseBranch && branch == draftRepair.branch && taskScope == "implement") { "A draft repair needs a separate saved conversation and its verified branches." }
@@ -229,8 +232,22 @@ class GatewayEngineeringRepository @Inject constructor(
         // The inference profile supplies the model; the verified engineering Gateway owns the load.
         val preparationProfile = gateway.copy(model = profile.model, compatibleType = profile.compatibleType)
         val prepared = modelPreparation.prepareSelected(preparationProfile, reasoningMode, forceRefresh = true)
-        check(prepared == null || prepared.phase == GatewayModelPreparationPhase.READY && prepared.observation?.permitsRequest == true) {
-            prepared?.message ?: "The exact selected model could not be prepared. Your saved draft was not submitted."
+        prepared?.let {
+            dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.admission(
+                profileUid = preparationProfile.uid,
+                modelId = preparationProfile.model,
+                serverBuild = capability.serverBuild,
+                gatewayVersion = capability.gatewayVersion,
+                protocolVersion = capability.protocolVersion,
+                stage = "model_preparation",
+                ready = it.phase == GatewayModelPreparationPhase.READY && it.observation?.permitsRequest == true,
+                failureCode = it.failureCode,
+                reasonCode = it.observation?.safeReasonCode,
+                operationId = it.operationId
+            )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
+            if (it.phase != GatewayModelPreparationPhase.READY || it.observation?.permitsRequest != true) {
+                throw dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationException(it)
+            }
         }
         if (!admissionAllowed()) throw GatewayEngineeringRequestRejected(403, "Remote tool permission changed during model preparation. The draft was not submitted.")
         val afterPreparation = settings.fetchPlatformV2s().singleOrNull { it.uid == profileUid && it.enabled }

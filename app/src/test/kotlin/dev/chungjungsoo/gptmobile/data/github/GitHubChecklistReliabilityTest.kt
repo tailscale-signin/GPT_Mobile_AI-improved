@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -38,6 +39,62 @@ class GitHubChecklistReliabilityTest {
         assertEquals(0, GitHubChecklistBudget.remaining(historical, current = 0))
     }
 
+    @Test fun acceptedBudgetSurvivesAbsentTransportCountersAndReachesTheFinalReport() {
+        val contract = json("""{"tool_call_limit":256,"tool_call_limit_source":"AUTHORIZED_RUN_CONTRACT"}""")
+        val checkpoint = GitHubTestChecklist.checkpoint("test all tools", emptyMap(), listOf(branches), remainingToolCalls = 203, acceptedContract = contract)
+        val budget = checkpoint["stage_budget"] as JsonObject
+        assertEquals(JsonPrimitive(256), budget["effective_call_limit"])
+        assertEquals(JsonPrimitive("AUTHORIZED_RUN_CONTRACT"), budget["limit_source"])
+        assertEquals(JsonPrimitive(53), budget["used_calls"])
+        assertEquals(JsonPrimitive(203), budget["remaining_calls"])
+        assertEquals(budget, (checkpoint["preparation"] as JsonObject)["budget"])
+        val (report, verdict) = GitHubEvidencePolicy.testing(emptyMap(), 1_000, 0, "test all tools", listOf(branches), 203, acceptedContract = contract)
+        assertTrue(report, report.contains("Effective tool-call limit: 256 (AUTHORIZED_RUN_CONTRACT)"))
+        assertEquals(budget, ((verdict["test_checklist"] as JsonObject)["stage_budget"]))
+        assertEquals(JsonPrimitive(false), verdict["completion_verified"])
+    }
+
+    @Test fun restoredBudgetCannotRaiseAnAcceptedCeilingOrInventSpentCalls() {
+        val contract = json("""{"tool_call_limit":256}""")
+        val larger = mapOf("old" to json("""{"tool_budget":{"limit":512,"used":5}}"""))
+        val checkpoint = GitHubChecklistBudget.checkpoint(larger, current = 203, acceptedContract = contract)
+        assertEquals(JsonPrimitive(256), checkpoint["effective_call_limit"])
+        assertEquals(JsonPrimitive("AUTHORIZED_RUN_CONTRACT"), checkpoint["limit_source"])
+        val tighter = mapOf("current" to json("""{"tool_budget":{"limit":100,"used":98}}"""))
+        assertEquals(JsonPrimitive(100), GitHubChecklistBudget.checkpoint(tighter, acceptedContract = contract)["effective_call_limit"])
+        val withoutCounter = GitHubChecklistBudget.checkpoint(emptyMap(), acceptedContract = contract)
+        assertEquals(JsonPrimitive(256), withoutCounter["effective_call_limit"])
+        assertFalse(withoutCounter.containsKey("remaining_calls"))
+        assertFalse(withoutCounter.containsKey("used_calls"))
+        assertEquals(JsonPrimitive("NOT_RECORDED"), GitHubChecklistBudget.checkpoint(emptyMap())["limit_source"])
+    }
+
+    @Test fun progressAfterRestartUsesTheOriginalAcceptedBudget() = runBlocking {
+        val saved = mutableMapOf<String, JsonObject>()
+        fun open() = GitHubEvidenceBook(
+            "task",
+            "owner/repository",
+            "main",
+            setOf(branches.name),
+            now = { 1_000 },
+            load = { saved[it] },
+            save = { key, value -> saved[key] = value },
+            runtimeIdentity = { json("{}") }
+        )
+        val task = "Test all tools"
+        open().retainTaskContract(task, 7, listOf(branches), 256)
+        val restored = open()
+        restored.restore()
+        restored.retainTaskContract(task, 7, listOf(branches), 512)
+        restored.retainProgress(task, listOf(branches), remainingToolCalls = 203)
+        val progress = requireNotNull(saved["verification_current_" + GitHubEvidenceBook.digest("task").take(24)])
+        val budget = (progress["test_checklist"] as JsonObject)["stage_budget"] as JsonObject
+        assertEquals(JsonPrimitive(256), budget["effective_call_limit"])
+        assertEquals(JsonPrimitive("AUTHORIZED_RUN_CONTRACT"), budget["limit_source"])
+        assertEquals(JsonPrimitive(53), budget["used_calls"])
+        assertEquals(JsonPrimitive(false), progress["completion_verified"])
+    }
+
     @Test fun unrequestedCiMutationsAreConditionalWithoutAWorkflowRunOrJob() {
         val ci = tool("github_ci", "\"runs\",\"dispatch\",\"rerun\",\"cancel\"")
         val rows = GitHubTestChecklist.rows(emptyMap(), listOf(ci), "Test GitHub integration coverage").filterIsInstance<JsonObject>()
@@ -71,6 +128,7 @@ class GitHubChecklistReliabilityTest {
         assertEquals(JsonPrimitive("CACHED"), row["status"])
         assertEquals(JsonPrimitive(false), row["live_verified"])
         assertFalse(GitHubTestChecklist.apiComplete("test all tools", records, listOf(branches)))
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(branches), records, remainingToolCalls = 0))
         val next = requireNotNull(GitHubTestChecklist.nextCall("test all tools", listOf(branches), records, remainingToolCalls = 2))
         assertEquals(json("""{"action":"branches","verify_live":true}"""), next.arguments)
         records["retry"] = JsonObject(cached + ("arguments" to next.arguments))

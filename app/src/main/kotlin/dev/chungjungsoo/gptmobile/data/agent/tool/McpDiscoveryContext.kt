@@ -12,7 +12,9 @@ import kotlinx.serialization.json.JsonPrimitive
 internal class McpDiscoveryContext(
     val trigger: McpDiscoveryTrigger,
     val beforeOwnedDispatch: (suspend () -> Unit)? = null,
-    val onSource: (McpDiscoverySource) -> Unit = {}
+    val onSource: (McpDiscoverySource) -> Unit = {},
+    /** Revision of the configuration admitted for this owned attempt, never a cached producer. */
+    val onOwnedConfigurationRevision: (String?) -> Unit = {}
 ) : AbstractCoroutineContextElement(Key) {
     companion object Key : CoroutineContext.Key<McpDiscoveryContext>
 }

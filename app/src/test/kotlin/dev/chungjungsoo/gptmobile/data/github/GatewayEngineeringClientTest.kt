@@ -9,9 +9,12 @@ import io.ktor.client.plugins.HttpTimeout
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.content.TextContent
 import io.ktor.http.headersOf
+import java.io.File
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
@@ -21,6 +24,74 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayEngineeringClientTest {
+    @Test fun defaultImplementationScopeReachesPreflightJobAndConversationAdmission() = runTest {
+        // The Python validator consumes this same wire contract, including its
+        // derived working branch. Do not fill the default taskScope explicitly.
+        val fixtureFile = sequenceOf(File("gateway/contracts/engineering-request-scope-v1.json"), File("../gateway/contracts/engineering-request-scope-v1.json")).first { it.isFile }
+        val fixture = Json.parseToJsonElement(fixtureFile.readText()).jsonObject
+        val expected = fixture.getValue("request").jsonObject
+        val requirement = GatewayEngineeringAcceptance("build", listOf("file"), listOf("tests"))
+        val payload = GatewayEngineeringRequest("owner/repo", "main", "main", "Repair build", "local", chatId = 1, requestId = "scope-contract", acceptance = listOf(requirement), sourceBranch = "main", sourceSha = "a".repeat(40))
+        val admission = GatewayEngineeringPreflight("github.engineering-admission.v1", true, listOf(requirement), objectiveSha256 = GitHubRepositoryStateStore.digest(payload.objective), sourceSha = payload.sourceSha)
+        val accepted = job.copy(branch = fixture.getValue("expected_working_branch").jsonPrimitive.content)
+        val paths = mutableListOf<String>()
+        http(
+            MockEngine { request ->
+                paths += request.url.encodedPath
+                val sent = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                if (request.url.encodedPath.endsWith("/messages")) {
+                    val expectedConversation = JsonObject(expected + mapOf("conversation_id" to JsonPrimitive("saved"), "expected_revision" to JsonPrimitive(2)))
+                    assertEquals(expectedConversation, sent.getValue("engineering_request"))
+                    assertEquals(JsonPrimitive("scope-contract"), sent["command_id"])
+                } else {
+                    assertEquals(expected, sent)
+                }
+                respond(if (request.url.encodedPath.endsWith("/preflight")) Json.encodeToString(admission) else Json.encodeToString(accepted))
+            }
+        ).use { http ->
+            val client = GatewayEngineeringClient(http)
+            assertEquals(admission, client.preflight(config, payload))
+            assertEquals(accepted, client.create(config, payload))
+            assertEquals(accepted, client.create(config, payload.copy(conversationId = "saved", expectedRevision = 2)))
+        }
+        assertEquals(listOf("/v1/gateway/engineering/preflight", "/v1/gateway/engineering/jobs", "/v1/gateway/conversations/saved/messages"), paths)
+    }
+
+    @Test fun readAndPlanScopesRemainExplicitAndNeverBecomeImplementation() = runTest {
+        for (scope in listOf("read", "plan")) {
+            val payload = GatewayEngineeringRequest("owner/repo", "main", "main", "Inspect repository", "local", chatId = 1, requestId = "scope-$scope", taskScope = scope)
+            val admission = GatewayEngineeringPreflight("github.engineering-admission.v1", true, objectiveSha256 = GitHubRepositoryStateStore.digest(payload.objective))
+            http(
+                MockEngine { request ->
+                    val sent = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    assertEquals(JsonPrimitive(scope), sent["task_scope"])
+                    assertEquals(JsonPrimitive("main"), sent["branch"])
+                    assertFalse(sent.containsKey("source_sha"))
+                    respond(Json.encodeToString(admission))
+                }
+            ).use { http ->
+                assertTrue(GatewayEngineeringClient(http).preflight(config, payload).ready)
+            }
+        }
+    }
+
+    @Test fun invalidInputGuardIsNotMisreportedAsAChangedConversation() = runTest {
+        http(
+            MockEngine {
+                respond("""{"error":{"code":"engineering_state_or_input_changed","reasonCode":"ENGINEERING_BRANCH_INVALID","invalid_fields":["branch","private-field"],"message":"private exception"}}""", HttpStatusCode.Conflict)
+            }
+        ).use { http ->
+            val request = GatewayEngineeringRequest("owner/repo", "feature", "main", "Inspect repository", "local", chatId = 1, requestId = "command")
+            val rejected = runCatching { GatewayEngineeringClient(http).preflight(config, request) }.exceptionOrNull() as GatewayEngineeringInputRejected
+            assertTrue(rejected.message.orEmpty().contains("branch"))
+            assertFalse(rejected.message.orEmpty().contains("conversation or job changed"))
+            val failure = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.AgentFailureEvidence.exception(rejected))
+            assertEquals("ENGINEERING_BRANCH_INVALID", failure.failureDetails?.get("reasonCode")?.jsonPrimitive?.content)
+            assertFalse(failure.failureDetails.toString().contains("private"))
+            assertEquals(rejected.diagnosticDetails, rejected.withCommandOutcomeUnknown(true).diagnosticDetails)
+        }
+    }
+
     @Test fun selectionRejectionRetainsSafeMissingFieldEvidenceThroughFailureDelivery() = runTest {
         val selection = GatewayExecutionSelection("profile", "revision", "provider", "provider-revision", "LLAMA", config.apiUrl, "selected", kotlinx.serialization.json.JsonObject(emptyMap()), "PRIVATE")
         http(
@@ -108,23 +179,38 @@ class GatewayEngineeringClientTest {
 
     @Test fun preAdmissionEofIsTypedAsUnsentWhileJobPostEofRemainsAmbiguousAndIsNeverRetried() = runTest {
         val paths = mutableListOf<String>()
+        val bodies = mutableListOf<String>()
+        var idleConnectionEvictions = 0
         http(
             MockEngine { request ->
+                assertEquals(io.ktor.http.HttpMethod.Post, request.method)
                 paths += request.url.encodedPath
+                bodies += (request.body as TextContent).text
                 throw java.io.EOFException("Private socket details")
             }
         ).use { http ->
-            val client = GatewayEngineeringClient(http)
+            val client = GatewayEngineeringClient(http, evictIdleConnections = { idleConnectionEvictions++ })
             val request = GatewayEngineeringRequest("owner/repo", "feature", "main", "Inspect", "local", chatId = 1, requestId = "original")
             val preflight = runCatching { client.preflight(config, request) }.exceptionOrNull()
             assertTrue(preflight is GatewayAdmissionException)
             assertEquals(GatewayAdmissionReason.TRANSPORT_INTERRUPTED, (preflight as GatewayAdmissionException).reason)
             assertEquals(GatewayAdmissionDispatchState.NOT_DISPATCHED, preflight.dispatchState)
             assertNull(preflight.httpStatus)
+            assertTrue(preflight.preparationPost)
+            assertEquals(GatewayAdmissionRetryability.AFTER_REPAIR, preflight.retryability)
+            assertTrue(preflight.message.orEmpty().contains("preparation request may have been accepted"))
+            assertTrue(preflight.message.orEmpty().contains("engineering job was not submitted"))
+            assertTrue(preflight.cause is java.io.EOFException)
             assertFalse(preflight.message.orEmpty().contains("Private socket"))
+            assertEquals(listOf("/v1/gateway/engineering/preflight", "/v1/gateway/engineering/preflight"), paths)
+            assertEquals(1, idleConnectionEvictions)
             val create = runCatching { client.create(config, request) }.exceptionOrNull()
             assertTrue(create is java.io.EOFException)
-            assertEquals(listOf("/v1/gateway/engineering/preflight", "/v1/gateway/engineering/jobs"), paths)
+            assertEquals(listOf("/v1/gateway/engineering/preflight", "/v1/gateway/engineering/preflight", "/v1/gateway/engineering/jobs"), paths)
+            assertEquals(1, paths.count { it == "/v1/gateway/engineering/jobs" })
+            assertEquals(1, idleConnectionEvictions)
+            assertEquals(1, bodies.distinct().size)
+            assertEquals("original", Json.parseToJsonElement(bodies.last()).jsonObject.getValue("request_id").jsonPrimitive.content)
         }
     }
 

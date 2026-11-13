@@ -129,8 +129,10 @@ class Supervisor:
         self.publish()
 
     def publish(self, **values):
-        self.status.update(values, updatedAt=time.time())
-        atomic_json(self.root / 'status.json', self.status)
+        status = dict(self.status)
+        status.update(values, updatedAt=time.time())
+        atomic_json(self.root / 'status.json', status, retry_windows_sharing=True)
+        self.status = status
 
     def control(self, action=None):
         url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/maintenance'

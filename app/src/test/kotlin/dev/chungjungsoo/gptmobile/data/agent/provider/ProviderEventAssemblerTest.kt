@@ -57,6 +57,22 @@ class ProviderEventAssemblerTest {
         assertTrue(stop.none { it == ProviderEvent.Completed })
     }
 
+    @Test fun anthropicFailureEvidenceIsClientOwnedAndSurvivesAssembly() {
+        val remote = NetworkClient.json.decodeFromString<MessageResponseChunk>(
+            """{"type":"error","error":{"type":"api_error","message":"Provider failure","code":"401","failureDetails":{"dispatched":false}}}"""
+        ) as dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk
+        org.junit.Assert.assertNull(remote.error.code)
+        org.junit.Assert.assertNull(remote.error.failureDetails)
+        val details = buildJsonObject {
+            put("http_status", 400)
+            put("dispatched", true)
+            put("failed_stage", "model_invocation")
+        }
+        val failure = AnthropicEventAssembler().accept(remote.copy(error = remote.error.copy(code = "400", failureDetails = details))).single() as ProviderEvent.Failed
+        assertEquals("400", failure.errorCode)
+        assertEquals(details, failure.failureDetails)
+    }
+
     @Test
     fun `all terminal output limit formats preserve partial text and report failure`() {
         val responses = OpenAIResponsesEventAssembler()

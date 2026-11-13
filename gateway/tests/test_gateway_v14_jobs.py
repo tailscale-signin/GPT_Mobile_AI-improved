@@ -10,6 +10,7 @@ import threading
 import time
 import unittest
 from contextlib import ExitStack, closing
+from concurrent.futures import Future, ThreadPoolExecutor
 from itertools import product
 from pathlib import Path
 from unittest.mock import patch
@@ -118,6 +119,75 @@ class JournalTests(unittest.TestCase):
             self.assertEqual(200, recovered.status_code, recovered.text)
             self.assertEqual(result, recovered.json()['result'])
             model.assert_not_called()
+
+    def test_repeated_disconnect_only_persists_the_state_transition(self):
+        job_id = 'durable-repeated-disconnect'
+        soft, hard = threading.Event(), threading.Event()
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+        self.store.claim(job_id, 'local:single-user')
+
+        with patch.object(
+            self.runtime,
+            'durable_persist_job',
+            wraps=self.runtime.durable_persist_job,
+        ) as persist:
+            self.runtime.mark_gateway_job_disconnected(job_id)
+            first_updated_at = self.runtime.job_registry[job_id]['updated_at']
+            self.runtime.mark_gateway_job_disconnected(job_id)
+
+        persist.assert_called_once_with(job_id)
+        self.assertEqual(first_updated_at, self.runtime.job_registry[job_id]['updated_at'])
+        self.assertTrue(self.runtime.gateway_continue_disconnected(job_id))
+
+    def test_failed_disconnect_commit_remains_retryable_and_recovers_journal_health(self):
+        job_id = 'durable-disconnect-commit-retry'
+        soft, hard = threading.Event(), threading.Event()
+        with self.client():
+            self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+            self.store.claim(job_id, 'local:single-user')
+            before = dict(self.runtime.job_registry[job_id])
+            with patch.object(self.runtime, '_durable_connect', side_effect=sqlite3.OperationalError('disk unavailable')):
+                with self.assertRaises(DurableCommitError):
+                    self.runtime.mark_gateway_job_disconnected(job_id)
+            self.assertEqual(before, self.runtime.job_registry[job_id])
+            self.assertFalse(self.runtime.durable_write_healthy)
+            self.assertFalse(self.gateway.service.snapshot()['queueAvailable'])
+            with closing(sqlite3.connect(self.db)) as db:
+                saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+            self.assertFalse(saved['disconnected'])
+
+            # A failed commit must not consume the false-to-true transition.
+            # A later disconnect retries the write; successful duplicates do not.
+            with patch.object(self.runtime, 'durable_persist_job', wraps=self.runtime.durable_persist_job) as persist:
+                self.runtime.mark_gateway_job_disconnected(job_id)
+                self.runtime.mark_gateway_job_disconnected(job_id)
+            persist.assert_called_once_with(job_id)
+            self.assertTrue(self.runtime.durable_write_healthy)
+            self.assertTrue(self.gateway.service.snapshot()['queueAvailable'])
+            self.assertTrue(self.runtime.gateway_continue_disconnected(job_id))
+            with closing(sqlite3.connect(self.db)) as db:
+                saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+            self.assertTrue(saved['disconnected'])
+            self.assertEqual(before['generation'], self.runtime.job_registry[job_id]['generation'])
+
+    def test_reconnect_allows_the_next_disconnect_transition_to_commit_once(self):
+        job_id = 'durable-disconnect-reconnect'
+        soft, hard = threading.Event(), threading.Event()
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+        self.store.claim(job_id, 'local:single-user')
+        self.runtime.mark_gateway_job_disconnected(job_id)
+        self.runtime.register_gateway_job(job_id, 'local', 'interactive', soft, hard)
+        self.assertFalse(self.runtime.job_registry[job_id]['disconnected'])
+        with closing(sqlite3.connect(self.db)) as db:
+            saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+        self.assertFalse(saved['disconnected'])
+        with patch.object(self.runtime, 'durable_persist_job', wraps=self.runtime.durable_persist_job) as persist:
+            self.runtime.mark_gateway_job_disconnected(job_id)
+            self.runtime.mark_gateway_job_disconnected(job_id)
+        persist.assert_called_once_with(job_id)
+        with closing(sqlite3.connect(self.db)) as db:
+            saved = json.loads(db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (job_id,)).fetchone()[0])
+        self.assertTrue(saved['disconnected'])
 
     def test_retained_interrupted_job_is_terminal_even_without_result_after_restart(self):
         job_id = 'interrupted-without-result'
@@ -707,35 +777,108 @@ class JournalTests(unittest.TestCase):
     def test_failed_nonstream_commit_is_shared_without_replacement_execution(self):
         self.assert_failed_commit_is_shared(leader_stream=False)
 
-    def assert_failed_commit_is_shared(self, *, leader_stream):
-        started, release = threading.Event(), threading.Event()
+    def test_failed_commit_fixture_separates_slow_admission_from_model_entry(self):
+        self.assert_failed_commit_is_shared(leader_stream=False, admission_delay=2.1)
+
+    def test_failed_commit_fixture_does_not_occupy_the_model_executor(self):
+        self.assert_failed_commit_is_shared(leader_stream=False, executor=ThreadPoolExecutor(max_workers=1))
+
+    def test_failed_commit_fixture_rejects_a_model_that_never_starts(self):
+        class StalledExecutor(ThreadPoolExecutor):
+            def __init__(self):
+                super().__init__(max_workers=1)
+                self.submissions = []
+
+            def submit(self, *args, **kwargs):
+                future = Future()
+                self.submissions.append(future)
+                return future
+
+        executor = StalledExecutor()
+        with self.assertRaisesRegex(AssertionError, 'Model entry was not observed within 2 seconds'):
+            self.assert_failed_commit_is_shared(leader_stream=False, executor=executor)
+        self.assertEqual(1, len(executor.submissions))
+        self.assertTrue(all(future.cancelled() for future in executor.submissions))
+
+    def assert_failed_commit_is_shared(self, *, leader_stream, admission_delay=0, executor=None):
+        release = threading.Event()
+        loop = started = None
         resolve = self.runtime.resolve_singleflight_job_id
+        register = self.runtime.register_gateway_job
 
         def blocked_model(*args):
-            started.set()
+            loop.call_soon_threadsafe(started.set)
             if not release.wait(3):
                 raise AssertionError('Follower did not attach')
             return self.completion(*args)
 
         async def scenario():
+            nonlocal loop, started
+            loop = asyncio.get_running_loop()
+            if executor is not None:
+                loop.set_default_executor(executor)
+            admitted, started = asyncio.Event(), asyncio.Event()
             attached = asyncio.Event()
+
+            def observe_admission(*args, **kwargs):
+                if admission_delay:
+                    time.sleep(admission_delay)
+                result = register(*args, **kwargs)
+                loop.call_soon_threadsafe(admitted.set)
+                return result
+
             def observe_follower(*args, **kwargs):
                 result = resolve(*args, **kwargs)
                 if result[1]:
                     attached.set()
                 return result
+
+            async def await_phase(event, leader, description, timeout=None):
+                notification = asyncio.create_task(event.wait())
+                try:
+                    done, _ = await asyncio.wait((notification, leader), timeout=timeout,
+                                                 return_when=asyncio.FIRST_COMPLETED)
+                    if notification in done:
+                        return
+                    if leader in done:
+                        response = await leader
+                        self.fail(f'Leader returned HTTP {response.status_code} before {description}')
+                    self.fail(f'{description} was not observed within {timeout} seconds after durable admission')
+                finally:
+                    notification.cancel()
+                    await asyncio.gather(notification, return_exceptions=True)
+
             transport = httpx.ASGITransport(app=self.gateway.app, client=('127.0.0.1', 2222))
             async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8090') as client:
                 payload = {'model': 'local', 'messages': [{'role': 'user', 'content': 'Hello'}]}
-                with patch.object(self.runtime, 'resolve_singleflight_job_id', side_effect=observe_follower):
+                with patch.object(self.runtime, 'resolve_singleflight_job_id', side_effect=observe_follower), \
+                        patch.object(self.runtime, 'register_gateway_job', side_effect=observe_admission):
                     leader = asyncio.create_task(client.post('/v1/chat/completions', json=dict(payload, stream=leader_stream)))
+                    requests = [leader]
                     try:
-                        self.assertTrue(await asyncio.to_thread(started.wait, 2))
+                        # Real SQLite admission is setup, not a two-second app
+                        # latency promise. The unchanged 120-second module
+                        # watchdog bounds it; early request failure is surfaced.
+                        await await_phase(admitted, leader, 'Durable admission')
+                        await await_phase(started, leader, 'Model entry', timeout=2)
                         follower = asyncio.create_task(client.post('/v1/chat/completions', json=dict(payload, stream=False)))
+                        requests.append(follower)
                         await asyncio.wait_for(attached.wait(), 2)
+                        release.set()
+                        return await asyncio.gather(leader, follower)
                     finally:
                         release.set()
-                    return await asyncio.gather(leader, follower)
+                        workers = [entry['task'] for entry in self.runtime.singleflight_workers.values()
+                                   if entry.get('task') is not None and entry['task'].get_loop() is loop]
+                        owned_tasks = {*requests, *workers}
+                        for task in owned_tasks:
+                            if not task.done():
+                                task.cancel()
+                        done, pending = await asyncio.wait(owned_tasks, timeout=3)
+                        for task in done:
+                            if not task.cancelled():
+                                task.exception()
+                        self.assertFalse(pending, 'Failed-commit fixture tasks did not stop during cleanup')
 
         with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=blocked_model) as model:
             with closing(sqlite3.connect(self.db)) as db, db:

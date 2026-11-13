@@ -30,12 +30,19 @@ internal class GitHubOutputContinuationSession(
     private val recoveryRevision: String = "",
     private val expectedProviderCheckpoint: dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint? = null,
     private val checkpointContext: JsonObject = JsonObject(emptyMap()),
+    val toolCheckpointBinding: String? = null,
+    val toolCheckpointEvidenceDigest: String? = null,
+    val toolCheckpointJournalDigest: String? = null,
     private val awaitConnectivity: suspend (Long) -> Boolean = { true },
     private val reconciledCallIds: suspend () -> Set<String> = { emptySet() },
     private val durableToolReceipts: suspend (Set<String>) -> List<ToolHandoffReceipt> = { emptyList() },
     private val publishProgress: suspend (String, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage) -> Unit = { _, _ -> },
     private val readCheckpoint: suspend () -> JsonObject? = { null },
     private val saveCheckpoint: suspend (JsonObject) -> Unit = {},
+    private val saveRecoveryCheckpoint: suspend (JsonObject, JsonObject) -> Boolean = { _, updated ->
+        saveCheckpoint(updated)
+        true
+    },
     private val reopen: suspend (String, List<AgentToolExchange>, List<AgentToolDefinition>) -> AgentProviderSession
 ) : AgentProviderSession by delegate {
     private var currentCheckpoint: JsonObject? = null
@@ -76,6 +83,8 @@ internal class GitHubOutputContinuationSession(
     init {
         require(maxContinuations in 0..4)
         require(maxCharacters in 1..1_048_576)
+        require(toolCheckpointEvidenceDigest == null || toolCheckpointEvidenceDigest.matches(Regex("[a-f0-9]{64}")))
+        require(toolCheckpointJournalDigest == null || toolCheckpointJournalDigest.matches(Regex("[a-f0-9]{64}")))
     }
 
     override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
@@ -89,7 +98,7 @@ internal class GitHubOutputContinuationSession(
         val previous = loadCheckpointForRound(evidence.receipts, providerEvidenceDigest)
         val reconciled = reconciledCallIds()
         val sameEvidence = if (previous?.get("state") == JsonPrimitive("WAITING_PROVIDER_LIMIT")) {
-            previous["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)
+            providerCheckpointValidated || previous["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)
         } else {
             previous?.get("evidence_digest") == JsonPrimitive(evidenceDigest)
         }
@@ -416,12 +425,30 @@ internal class GitHubOutputContinuationSession(
     ): JsonObject? = checkpointMutex.withLock {
         val saved = readCheckpoint() ?: currentCheckpoint
         if (!providerCheckpointValidated && expectedProviderCheckpoint != null) {
-            check(saved != null && expectedProviderCheckpoint.matches(saved) && saved["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)) {
-                "PROVIDER_WAIT_CHECKPOINT_CHANGED"
+            val resume = kotlinx.coroutines.currentCoroutineContext()[GitHubProviderResumeContext]
+            val correlation = ProviderRecoveryFailure.correlation(expectedProviderCheckpoint, resume?.claimId, resume?.fence, recoveryRevision.takeIf(String::isNotBlank))
+            if (saved == null || !expectedProviderCheckpoint.matches(saved)) throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", saved?.let(ProviderRecoveryFailure::interruption), correlation)
+            val retained = (saved["completed_results"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            val fingerprints = retained.mapNotNullTo(linkedSetOf()) { (it["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull } + replayReceipts.map { it.invocationFingerprint }
+            val durable = durableToolReceipts(fingerprints)
+            val reconciledIds = reconciledCallIds()
+            val unknown = durable.any { it.requiresReconciliation && it.callId !in reconciledIds }
+            val sameReplay = saved["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)
+            val reconciled = providerBoundaryMatches(retained, replayReceipts, durable, sameReplay)
+            if (unknown || !reconciled) {
+                val failure = ProviderRecoveryFailure(if (unknown) "PROVIDER_WAIT_OUTCOME_UNKNOWN" else "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", ProviderRecoveryFailure.interruption(saved), correlation)
+                val blocked = failure.block(saved)
+                if (!withContext(NonCancellable) { saveRecoveryCheckpoint(saved, blocked) }) {
+                    currentCheckpoint = readCheckpoint()
+                    throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", ProviderRecoveryFailure.interruption(saved), correlation)
+                }
+                currentCheckpoint = blocked
+                throw failure
             }
             providerCheckpointValidated = true
         }
         if (saved == null || saved["state"] !in GitHubToolHandoff.states) {
+            currentCheckpoint = saved
             saved
         } else {
             val durable = durableToolReceipts(GitHubToolHandoff.pending(saved))
@@ -429,6 +456,39 @@ internal class GitHubOutputContinuationSession(
             if (updated != saved) saveCheckpoint(updated)
             currentCheckpoint = updated
             updated
+        }
+    }
+
+    /** Replay may regroup or omit consumed calls; only durable source identities may prove that change safe. */
+    private fun providerBoundaryMatches(saved: List<JsonObject>, replay: List<ToolHandoffReceipt>, durable: List<ToolHandoffReceipt>, sameReplay: Boolean): Boolean {
+        if ((!sameReplay && saved.isEmpty()) || saved.size > 1024 || replay.size > 1024 || durable.size > 1024) return false
+        val byCall = durable.associateBy { it.callId }
+        if (byCall.size != durable.size || durable.map { it.invocationFingerprint }.distinct().size != durable.size) return false
+        val savedIds = saved.mapNotNull { (it["call_id"] as? JsonPrimitive)?.contentOrNull }.toSet()
+        if (savedIds.size != saved.size) return false
+        val expectedIds = savedIds + replay.map { it.callId }
+        if (durable.any { it.callId !in expectedIds }) return false
+        if (!saved.all { receipt ->
+                val id = (receipt["call_id"] as? JsonPrimitive)?.contentOrNull ?: return@all false
+                val actual = byCall[id] ?: return@all sameReplay
+                val source = (receipt["source_result_sha256"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+                actual.receiptSource == "TOOL_BATCH_CHECKPOINT" &&
+                    receipt["invocation_fingerprint"] == JsonPrimitive(actual.invocationFingerprint) &&
+                    (if (source != null) source == actual.sourceResultSha256 else sameReplay && receipt["projection_sha256"] == JsonPrimitive(actual.projectionSha256)) &&
+                    receipt["dispatched"] == JsonPrimitive(actual.dispatched) &&
+                    receipt["error_code"] == actual.errorCode?.let(::JsonPrimitive)
+            }
+        ) {
+            return false
+        }
+        return replay.all { receipt ->
+            val actual = byCall[receipt.callId] ?: return@all sameReplay && receipt.callId in savedIds
+            actual.receiptSource == "TOOL_BATCH_CHECKPOINT" &&
+                receipt.invocationFingerprint == actual.invocationFingerprint &&
+                (if (receipt.sourceResultSha256 != null) receipt.sourceResultSha256 == actual.sourceResultSha256 else sameReplay && receipt.projectionSha256 == actual.projectionSha256) &&
+                receipt.dispatched == actual.dispatched &&
+                receipt.errorCode == actual.errorCode &&
+                receipt.requiresReconciliation == actual.requiresReconciliation
         }
     }
 
@@ -491,6 +551,20 @@ internal class GitHubOutputContinuationSession(
             put("tool_actions_replayed", false)
             put("draft_kind", if (text.isBlank()) "NO_VISIBLE_DRAFT" else "UNVERIFIED_VISIBLE_DRAFT")
             put("user_input_required", pendingApproval || failure?.failureDetails?.get("user_input_required") == JsonPrimitive(true))
+            currentCheckpoint?.let(ProviderRecoveryFailure::interruption)?.let { put("original_interruption", it) }
+            put(
+                "recovery_kind",
+                when {
+                    state == "RECONCILIATION_REQUIRED" -> "UNKNOWN_REMOTE_OUTCOME"
+                    state == "WAITING_PROVIDER_LIMIT" && failure?.failureDetails?.get("dispatch_state") == JsonPrimitive("PRECHECK_REJECTED") -> "LOCAL_PROVIDER_RETRY_REJECTED"
+                    state == "WAITING_PROVIDER_LIMIT" && failure?.providerLimit?.knownNotAccepted == true -> "PROVIDER_REQUEST_REJECTED"
+                    claimContinuation -> "TRUNCATED_OUTPUT_CONTINUATION"
+                    receiptBoundary.isNotEmpty() -> "RESUMED_TOOL_LOOP"
+                    else -> "PROVIDER_REQUEST"
+                }
+            )
+            if (state == "WAITING_PROVIDER_LIMIT") put("next_action", "WAIT_PROVIDER_DEADLINE")
+            if (state == "COMPLETED") put("next_action", "NONE")
             if (pendingApproval) put("blocking_condition", "WAITING_FOR_APPROVAL")
             if (pendingCalls.isNotEmpty()) {
                 put("pending_calls", JsonArray(pendingCalls.map { JsonPrimitive(callDigest(it)) }))
@@ -514,25 +588,8 @@ internal class GitHubOutputContinuationSession(
                 exchange.calls.joinToString { "${it.callId}:${it.name}:${it.arguments}" } + "\n" + exchange.results.joinToString { "${it.callId}:${it.isError}:${it.dispatched}:${it.content}" }
             }
         )
-        val receipts = exchanges.flatMap { exchange ->
-            exchange.calls.mapNotNull { call ->
-                val result = exchange.results.firstOrNull { it.callId == call.callId } ?: return@mapNotNull null
-                ToolHandoffReceipt.from(call, result, originalAvailable = false)
-            }
-        }
-        val provider = GitHubEvidenceBook.digest(
-            JsonArray(
-                receipts.sortedBy { it.invocationFingerprint }.map { receipt ->
-                    buildJsonObject {
-                        put("invocation", receipt.invocationFingerprint)
-                        put("result", receipt.sourceResultSha256 ?: receipt.projectionSha256)
-                        put("dispatched", receipt.dispatched)
-                        put("requires_reconciliation", receipt.requiresReconciliation)
-                        receipt.errorCode?.let { put("error", it) }
-                    }
-                }
-            ).toString()
-        )
+        val receipts = GitHubProviderReplayEvidence.receipts(exchanges)
+        val provider = GitHubProviderReplayEvidence.digest(receipts)
         ContinuationEvidenceDigests(full, provider, receipts)
     }
 

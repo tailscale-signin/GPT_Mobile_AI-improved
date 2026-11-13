@@ -34,7 +34,7 @@ class VoiceQueuedAdmissionTest {
         coEvery { dao.forChat(7) } answers { retained }
         val database = mockk<ChatDatabaseV2>()
         every { database.pendingPromptDao() } returns dao
-        val queue = DurablePromptQueue(database, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), ApplicationProvider.getApplicationContext(), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
+        val queue = DurablePromptQueue(database, mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), ApplicationProvider.getApplicationContext(), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true), mockk(relaxed = true))
         val observed = mutableListOf<PendingPrompt?>()
         val job = launch { queue.observeRequest(7, "voice-request").take(2).toList(observed) }
         runCurrent()

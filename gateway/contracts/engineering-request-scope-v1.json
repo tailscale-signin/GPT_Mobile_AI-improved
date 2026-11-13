@@ -1,0 +1,19 @@
+{
+  "request": {
+    "repository": "owner/repo",
+    "branch": "main",
+    "base": "main",
+    "objective": "Repair build",
+    "model": "local",
+    "duration_hours": 3,
+    "chat_id": 1,
+    "request_id": "scope-contract",
+    "acceptance": [
+      {"id": "build", "paths": ["file"], "checks": ["tests"]}
+    ],
+    "task_scope": "implement",
+    "source_branch": "main",
+    "source_sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  "expected_working_branch": "codex/gateway-839b201f4ebe8cabbf88"
+}

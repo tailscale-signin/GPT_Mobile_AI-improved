@@ -1,8 +1,14 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -30,6 +36,72 @@ internal data class GitHubAssistantReferenceContext(
 
 /** The small receipt fields used to bind prose links to the repository that produced them. */
 internal data class GitHubReferenceReceipt(val toolName: String, val arguments: String, val result: String?)
+
+private const val MAX_REFERENCE_RECEIPTS = 128
+
+internal fun boundedGitHubReferenceReceipts(receipts: List<GitHubReferenceReceipt>): List<GitHubReferenceReceipt> = receipts.takeLast(MAX_REFERENCE_RECEIPTS)
+    .filter { it.arguments.length <= 8_192 && it.result.orEmpty().length <= 32_768 }
+
+/** Each visible response row owns a bounded cache; there is no global receipt retention. */
+internal class GitHubReferenceProjectionCache(
+    private val projectReceipt: (GitHubAssistantReferenceContext, GitHubReferenceReceipt) -> Map<String, String?> = { context, receipt ->
+        context.withReceiptReferences(listOf(receipt)).receiptUrlsByReference
+    }
+) {
+    private var previousContext: GitHubAssistantReferenceContext? = null
+    private var previousReceipts: List<GitHubReferenceReceipt> = emptyList()
+    private var receiptLinks = emptyMap<GitHubReferenceReceipt, Map<String, String?>>()
+    private var previousProjection: GitHubAssistantReferenceContext? = null
+
+    // Cancelled Compose producers may briefly overlap on Default. No caller holds this lock on the UI thread.
+    @Synchronized
+    fun project(context: GitHubAssistantReferenceContext, receipts: List<GitHubReferenceReceipt>): GitHubAssistantReferenceContext {
+        val bounded = boundedGitHubReferenceReceipts(receipts)
+        if (context == previousContext && bounded == previousReceipts) previousProjection?.let { return it }
+        val reusable = if (context == previousContext) receiptLinks else emptyMap()
+        val retained = linkedMapOf<GitHubReferenceReceipt, Map<String, String?>>()
+        val links = linkedMapOf<String, String?>()
+        for (receipt in bounded) {
+            val projected = retained.getOrPut(receipt) { reusable[receipt] ?: projectReceipt(context, receipt) }
+            for ((reference, repository) in projected) {
+                if (reference !in links) {
+                    links[reference] = repository
+                } else if (links[reference] != repository) {
+                    links[reference] = null
+                }
+            }
+        }
+        val projected = if (context.repositoryUrl == null) context else context.copy(receiptUrlsByReference = links)
+        val result = previousProjection?.takeIf { it == projected } ?: projected
+        previousContext = context
+        previousReceipts = bounded
+        receiptLinks = retained
+        previousProjection = result
+        return result
+    }
+}
+
+internal data class GitHubReceiptReferenceRequest(val context: GitHubAssistantReferenceContext?, val receipts: List<GitHubReferenceReceipt>)
+
+internal data class PreparedGitHubReceiptReferences(val request: GitHubReceiptReferenceRequest, val context: GitHubAssistantReferenceContext) {
+    fun forRequest(current: GitHubReceiptReferenceRequest): GitHubAssistantReferenceContext? = context.takeIf { request == current }
+}
+
+/** Parsing a growing receipt history must not run inside lazy-list composition or measurement. */
+@Composable
+internal fun rememberGitHubReceiptReferences(context: GitHubAssistantReferenceContext?, receipts: List<GitHubReferenceReceipt>): GitHubAssistantReferenceContext? {
+    val cache = remember { GitHubReferenceProjectionCache() }
+    val request = remember(context, receipts) { GitHubReceiptReferenceRequest(context, boundedGitHubReferenceReceipts(receipts)) }
+    val prepared by produceState<PreparedGitHubReceiptReferences?>(null, request) {
+        value = request.context?.let { selected ->
+            withContext(Dispatchers.Default) {
+                PreparedGitHubReceiptReferences(request, cache.project(selected, request.receipts))
+            }
+        }
+    }
+    // Until the current projection is ready, show plain references instead of an old repository binding.
+    return prepared?.forRequest(request)
+}
 
 internal fun GitHubAssistantReferenceContext.withReceiptReferences(receipts: List<GitHubReferenceReceipt>): GitHubAssistantReferenceContext {
     val selected = repositoryUrl ?: return this
@@ -87,7 +159,7 @@ internal fun GitHubAssistantReferenceContext.withReceiptReferences(receipts: Lis
             links[key] = null
         }
     }
-    for (receipt in receipts.takeLast(128)) {
+    for (receipt in receipts.takeLast(MAX_REFERENCE_RECEIPTS)) {
         if (receipt.arguments.length > 8_192 || receipt.result.orEmpty().length > 32_768) continue
         val args = runCatching { Json.parseToJsonElement(receipt.arguments) as? JsonObject }.getOrNull() ?: continue
         val result = runCatching { Json.parseToJsonElement(receipt.result.orEmpty()) as? JsonObject }.getOrNull() ?: JsonObject(emptyMap())

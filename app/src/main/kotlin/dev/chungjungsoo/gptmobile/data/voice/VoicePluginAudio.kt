@@ -12,11 +12,15 @@ internal enum class KokoroVoice(val speakerId: Int, val label: String, val lexic
 
 internal interface KokoroOutput {
     fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit)
+    fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit) = speak(text, voice, complete, error)
     fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit): VoiceReplyPlayback? = null
     fun configureThreads(value: Int) = Unit
     fun prewarm(voice: KokoroVoice) = Unit
     fun releaseWarmModel() = Unit
     fun stop()
+    fun stop(reason: String) = stop()
+    fun bindReply(id: String) = Unit
+    fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) = Unit
     fun close()
 }
 
@@ -91,7 +95,7 @@ internal class VoicePluginAudio(
     override fun listen(listener: VoiceAudio.Listener) {
         if (closed) return
         playbackGeneration++
-        kokoro?.stop()
+        kokoro?.stop("microphone_started")
         when (recognitionBackend) {
             VoiceRecognitionBackend.LOCAL_MOONSHINE -> {
                 system.stop()
@@ -119,7 +123,7 @@ internal class VoicePluginAudio(
             return
         }
         system.stop()
-        kokoro.speak(text, voice, complete = {
+        kokoro.speakProjected(text, voice, complete = {
             if (!closed && ticket == playbackGeneration) {
                 playbackGeneration++
                 complete()
@@ -132,11 +136,23 @@ internal class VoicePluginAudio(
         })
     }
 
-    override fun stop() {
+    override fun bindReply(id: String) {
+        kokoro?.bindReply(id)
+    }
+
+    override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        system.bindDiagnostics(probe)
+        local.bindDiagnostics(probe)
+        kokoro?.bindDiagnostics(probe)
+    }
+
+    override fun stop() = stop("audio_stop")
+
+    override fun stop(reason: String) {
         if (closed) return
         playbackGeneration++
         local.stop()
-        kokoro?.stop()
+        kokoro?.stop(reason)
         system.stop()
     }
 

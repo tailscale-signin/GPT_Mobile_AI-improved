@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequest
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequestRejected
 import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.data.github.GitHubWorkflowPreset
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ChatMcpToolConfig
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -88,6 +89,20 @@ class GatewayChatSubmissionTest {
         coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
         coVerify(exactly = 0) { workspace.defaultBranch(any()) }
         coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+    }
+
+    @Test
+    fun fullFixtureIntegrationPresetStaysOnTheNativeTestRoute() = runTest {
+        supported()
+        val prompt = GitHubWorkflowPreset.selected("test_integration").prompt()
+        val turn = request.userMessages.single().copy(content = prompt)
+
+        assertNull(service.submitIfSupported(request.copy(userMessages = listOf(turn))))
+
+        coVerify(exactly = 0) { engineering.submitBoundTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { engineering.supportsDurableChat(any()) }
+        coVerify(exactly = 0) { engineering.submitTurn(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) }
+        coVerify(exactly = 0) { workspace.defaultBranch(any()) }
     }
 
     @Test

@@ -34,13 +34,16 @@ internal class GitHubOperationTool(
     private val rejectedCalls = linkedMapOf<JsonObject, AgentToolResult>()
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+        val arguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, arguments)
         val started = System.nanoTime()
         val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }
         // Reuse an identical pre-dispatch rejection so a provider cannot spin on
         // the same invalid call. Never execute the suggested correction on its
         // behalf: saved-view selectors are an authorization boundary, and only
         // the caller can submit the exact cursor-only correction.
-        val result = previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
+        val result = dev.chungjungsoo.gptmobile.data.agent.currentGitHubInvocationReceipt(
+            previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
+        )
         if (result.isError && !result.dispatched && result.errorCode in setOf("INVALID_ARGUMENTS", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")) {
             synchronized(rejectedCalls) {
                 rejectedCalls[arguments] = result
@@ -141,16 +144,33 @@ internal class GitHubOperationTool(
             val context = JsonObject(arguments - "view_cursor")
             var saved = views.read(scope, operation, definition.name, cursor, callId, context)
             if (saved.errorCode == "SAVED_VIEW_UNAVAILABLE") {
+                var restoreState = "NOT_FOUND"
+                var restoreErrorHash: String? = null
                 val snapshot = try {
                     loadSavedView(cursor.substringBefore(':'))
                 } catch (cancelled: kotlinx.coroutines.CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
+                } catch (error: Exception) {
+                    restoreState = "LOAD_FAILED"
+                    restoreErrorHash = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryStateStore.digest("github.saved-view.restore-error.v1\u0000${error.javaClass.name}")
                     null
                 }
-                if (snapshot != null && views.restore(scope, operation, definition.name, cursor, snapshot)) {
-                    saved = views.read(scope, operation, definition.name, cursor, callId, context)
+                if (snapshot != null) {
+                    if (views.restore(scope, operation, definition.name, cursor, snapshot)) {
+                        restoreState = "RESTORED"
+                        saved = views.read(scope, operation, definition.name, cursor, callId, context)
+                    } else {
+                        restoreState = "IDENTITY_REJECTED"
+                    }
                 }
+                saved = saved.copy(
+                    executionReceipt = JsonObject(
+                        saved.executionReceipt.orEmpty() + buildJsonObject {
+                            put("saved_view_restore_state", restoreState)
+                            restoreErrorHash?.let { put("saved_view_restore_error_hash", it) }
+                        }
+                    )
+                )
             }
             val retained = retainSavedView(saved, cursor)
             savedViewAuthorizationFailure(callId)?.let { return it }
@@ -1075,7 +1095,7 @@ internal class GitHubOperationTool(
                 properties["lock_reason"] = choice("off-topic", "too heated", "resolved", "spam")
                 properties["merge_method"] = choice("squash", "merge", "rebase")
             }
-            if (operation in setOf("github_context", "github_ci", "github_pr", "github_read")) properties["response_detail"] = choice("compact", "full")
+            if (operation in setOf("github_context", "github_ci", "github_pr", "github_read", "github_issue")) properties["response_detail"] = choice("compact", "full")
             val description = when (operation) {
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."

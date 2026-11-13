@@ -3,13 +3,18 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorCategory
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure
 import java.io.File
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -30,6 +35,16 @@ class IssueReportIncidentsTest {
         IssueReportIncidents.privacyChanged(false)
         IssueReportIncidents.debugPreferenceChanged(false)
         IssueReportIncidents.clearRecent()
+    }
+
+    @Test
+    fun baselineQuestionIsNotAProviderFailureIncident() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf("failed_stage" to "review_comparison", "dispatched" to false, "next_action" to "SELECT_REVIEW_BASELINE")
+        IssueReportIncidents.chatFailure("REVIEW_INPUT_REQUIRED", false, null, fields)
+        assertTrue(IssueReportIncidents.pending.value.isEmpty())
+        IssueReportIncidents.chatFailure("GITHUB_REVIEW_COMPARISON_REQUIRED", false, null, fields)
+        assertEquals(1, IssueReportIncidents.pending.value.size)
     }
 
     @Test
@@ -104,6 +119,128 @@ class IssueReportIncidentsTest {
         val reports = IssueReportIncidents.pending.value
         assertEquals(listOf("BACKEND_TEMPLATE_INVALID", "SERVICE_UNAVAILABLE", "AUTHENTICATION_FAILED"), reports.map { it.errorCode })
         assertFalse(reports.flatMap { it.events }.any { "private details" in it })
+    }
+
+    @Test
+    fun rejectedProviderRateLimitKeepsItsCauseWithoutAResumableWait() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure(
+            "429",
+            false,
+            null,
+            mapOf(
+                "failed_stage" to JsonPrimitive("model_invocation"),
+                "provider" to JsonPrimitive("OPENROUTER"),
+                "http_status" to JsonPrimitive(429),
+                "retry_after_ms" to JsonPrimitive(30156L),
+                "dispatched" to JsonPrimitive(true),
+                "retryable" to JsonPrimitive(true),
+                "remote_acceptance" to JsonPrimitive("NO"),
+                "message" to "private provider response"
+            )
+        )
+
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("PROVIDER_RATE_LIMITED", report.errorCode)
+        assertEquals("model_invocation", report.context?.stage)
+        assertEquals("OPENROUTER", report.context?.provider)
+        assertEquals(429, report.context?.httpStatus)
+        assertEquals(30156L, report.context?.retryAfterMillis)
+        assertEquals(true, report.context?.dispatched)
+        assertEquals(true, report.context?.retryable)
+        assertEquals("NO", report.context?.remoteAcceptance)
+        assertEquals(null, report.context?.resumeAllowed)
+        assertFalse(report.approvedPayload().contains("private provider response"))
+    }
+
+    @Test
+    fun typedLocalRecoveryFailureRetainsItsCauseWithoutReusingTheOriginalRateLimitOrInvocation() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val original = buildJsonObject {
+            put("code", "429")
+            put(
+                "details",
+                buildJsonObject {
+                    put("http_status", 429)
+                    put("dispatched", true)
+                    put("invocation_id", "private-original-invocation")
+                    put("message", "private provider reply")
+                }
+            )
+        }
+        val correlation = buildJsonObject {
+            put("checkpoint_binding", "a".repeat(64))
+            put("checkpoint_digest", "b".repeat(64))
+            put("resume_claim_id", "11111111-1111-4111-8111-111111111111")
+            put("ownership_fence", 3)
+            put("run_id", "private-recovery-run")
+        }
+        val failure = ProviderRecoveryFailure("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", original, correlation).event()
+        IssueReportIncidents.chatFailure(failure.errorCode, true, null, requireNotNull(failure.failureDetails))
+        val report = IssueReportIncidents.pending.value.single()
+        val context = requireNotNull(report.context)
+        assertEquals("CHAT_FAILED", report.errorCode)
+        assertEquals(7, context.schemaVersion)
+        assertEquals("lifecycle", context.stage)
+        assertEquals("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", context.reasonCode)
+        assertEquals("REVIEW_SAVED_RECOVERY", context.recoveryAction)
+        assertEquals("PROVIDER_RATE_LIMITED", context.originalFailureCode)
+        assertEquals(429, context.originalHttpStatus)
+        assertEquals(null, context.httpStatus)
+        assertEquals(false, context.dispatched)
+        assertEquals(false, context.retryable)
+        assertEquals(false, context.resumeAllowed)
+        assertEquals("NO", context.remoteAcceptance)
+        assertEquals(null, context.invocationIdHash)
+        assertEquals(3L, context.ownershipFence)
+        assertEquals(IssueReportContext.identifierHash("run", "private-recovery-run"), context.runIdHash)
+        for (privateValue in listOf("private-original-invocation", "private provider reply", "private-recovery-run", "a".repeat(64), "b".repeat(64), "11111111-1111-4111-8111-111111111111")) assertFalse(report.approvedPayload().contains(privateValue))
+    }
+
+    @Test
+    fun providerRateLimitFallbackDoesNotReplaceSpecificFailuresOrUnknownOutcomes() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf<String, Any?>(
+            "failed_stage" to "model_invocation",
+            "provider" to "OPENROUTER",
+            "http_status" to 429,
+            "remote_acceptance" to "NO"
+        )
+        IssueReportIncidents.chatFailure("COMPLETION_REPAIR_BUDGET_EXHAUSTED", false, null, fields)
+        IssueReportIncidents.chatFailure("RECONCILIATION_REQUIRED", false, null, fields)
+        IssueReportIncidents.chatFailure("429", false, null, fields + mapOf("requires_reconciliation" to true, "run_id" to "reconciliation-run"))
+        IssueReportIncidents.chatFailure("429", false, null, fields + mapOf("remote_acceptance" to "UNKNOWN", "run_id" to "unknown-run"))
+
+        assertEquals(
+            listOf("COMPLETION_REPAIR_BUDGET_EXHAUSTED", "RECONCILIATION_REQUIRED", "CHAT_FAILED", "CHAT_FAILED"),
+            IssueReportIncidents.pending.value.map { it.errorCode }
+        )
+    }
+
+    @Test
+    fun rateLimitFallbackRequiresTypedProviderRejectionEvidence() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val fields = mapOf<String, Any?>(
+            "failed_stage" to "model_invocation",
+            "provider" to "OPENROUTER",
+            "http_status" to 429,
+            "remote_acceptance" to "NO"
+        )
+        val unrelated = listOf(
+            fields + ("failed_stage" to "tool_execution"),
+            fields - "provider",
+            fields + ("http_status" to "429"),
+            fields - "remote_acceptance",
+            mapOf("message" to "HTTP 429 private provider response")
+        )
+        unrelated.forEachIndexed { index, evidence ->
+            IssueReportIncidents.chatFailure(null, false, null, evidence + ("run_id" to "unrelated-$index"))
+        }
+
+        val reports = IssueReportIncidents.pending.value
+        assertEquals(unrelated.size, reports.size)
+        assertTrue(reports.all { it.errorCode == "CHAT_FAILED" })
+        assertTrue(reports.none { it.approvedPayload().contains("private provider response") })
     }
 
     @Test
@@ -265,6 +402,43 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun explicitToolCauseSuppressesItsChatPropagationWithoutRewritingTheFirstReport() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val toolFields = mapOf("run_id" to "owned-run", "call_id" to "owned-call", "tool" to "github_context", "phase" to "tool_execution", "http_status" to 422)
+        IssueReportIncidents.failure(ReportFeature.TOOLS, "GITHUB_VALIDATION_FAILED", null, toolFields, "TOOL_RESULT")
+        val first = IssueReportIncidents.pending.value.single()
+        val approved = first.approvedPayload()
+        val propagated = mapOf("run_id" to "owned-run", "causal_id" to "owned-call", "causal_provenance" to "TOOL_CALL", "causal_failure_code" to "GITHUB_VALIDATION_FAILED", "failed_stage" to "review_comparison")
+        IssueReportIncidents.chatFailure("GITHUB_VALIDATION_FAILED", false, null, propagated)
+        assertEquals(listOf(first), IssueReportIncidents.pending.value)
+        assertEquals(approved, first.approvedPayload())
+        IssueReportIncidents.chatFailure("GITHUB_VALIDATION_FAILED", false, null, propagated + ("causal_id" to "different-call"))
+        assertEquals(2, IssueReportIncidents.pending.value.size)
+        IssueReportIncidents.chatFailure("GITHUB_VALIDATION_FAILED", false, null, propagated - "causal_id")
+        assertEquals(3, IssueReportIncidents.pending.value.size)
+    }
+
+    @Test
+    fun laterProviderWaitObservationRetainsExplicitPersistenceForFollowupOnly() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure("PROVIDER_RATE_LIMITED", true, null, mapOf("run_id" to "owned-run", "provider" to "OPENROUTER", "failed_stage" to "model_invocation", "http_status" to 429))
+        val first = IssueReportIncidents.pending.value.single()
+        val approved = first.approvedPayload()
+        val observation = mapOf("run_id" to "owned-run", "profile_id" to "private-profile", "model" to "private-model", "stage" to "provider_wait", "provider_wait_state" to "WAITING_PROVIDER_LIMIT", "provider_wait_persisted" to true, "recovery_observation" to "RETRY_SCHEDULED", "retry_delay_ms" to 30_000L, "recovery_authority" to "VALID")
+        IssueReportIncidents.providerRecoveryObservation(observation)
+        val snapshot = requireNotNull(IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+        assertEquals(JsonPrimitive(true), snapshot.values["provider_wait_persisted"])
+        assertEquals(JsonPrimitive("provider_wait"), snapshot.values["incident_phase"])
+        assertNull(snapshot.values["request_replay_allowed"])
+        assertEquals(listOf(first), IssueReportIncidents.pending.value)
+        assertEquals(approved, first.approvedPayload())
+        assertFalse(snapshot.toString().contains("private"))
+        IssueReportIncidents.privacyChanged(true)
+        IssueReportIncidents.providerRecoveryObservation(observation)
+        assertNull(IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+    }
+
+    @Test
     fun structuredRecorderRetainsTypedOperationFactsWithoutRawPayloadOrIdentifiers() {
         LocalDiagnosticsPolicy.setEnabled(true)
         AppLogRecorder.recordEvent(
@@ -300,7 +474,66 @@ class IssueReportIncidentsTest {
         val report = IssueReport.json.decodeFromString(IssueReport.serializer(), raw)
         assertEquals("JVM_CRASH", report.errorCode)
         assertEquals("IllegalStateException", report.errorType)
+        assertEquals("APP", report.context?.diagnostics?.area)
+        assertEquals(JsonPrimitive("JVM_CRASH"), report.context?.diagnostics?.values?.get("app_exit_kind"))
         assertEquals(listOf("dev.chungjungsoo.gptmobile.data.voice.VoiceSession.update:162"), report.frames)
         assertFalse(raw.contains("private exception payload"))
+    }
+
+    @Test
+    fun diagnosticSnapshotUsesOnlyItsIncidentAndContextlessFailureDoesNotBorrowIt() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.chatFailure(
+            "CHAT_FAILED",
+            false,
+            null,
+            mapOf("diagnostic_area" to "PROVIDER", "run_id" to "owned-run", "model_hash" to "a".repeat(64), "output_tokens" to 27)
+        )
+        val first = IssueReportIncidents.pending.value.single()
+        assertEquals(first.context?.diagnostics, IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+        assertNull(IssueReportIncidents.diagnosticSnapshot("VOICE"))
+
+        IssueReportIncidents.chatFailure("CHAT_FAILED", false)
+        val second = IssueReportIncidents.pending.value.last()
+        val generic = requireNotNull(second.context?.diagnostics)
+        assertEquals(7, second.context?.schemaVersion)
+        assertEquals(3, generic.schemaVersion)
+        assertEquals("INCIDENT", generic.area)
+        assertEquals(JsonPrimitive("unknown"), generic.values["incident_phase"])
+        assertEquals(JsonPrimitive("UNAVAILABLE"), generic.values["causal_provenance"])
+        assertEquals(JsonPrimitive("CAUSAL_EVIDENCE_UNAVAILABLE"), generic.values["incident_evidence_status"])
+        for (field in listOf("causal_id_hash", "run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "model_hash", "output_tokens")) {
+            assertFalse(field in generic.values)
+        }
+        assertNull(second.context?.runIdHash)
+        assertNull(second.context?.invocationIdHash)
+        assertNull(second.context?.callIdHash)
+        assertNull(second.context?.jobIdHash)
+        assertEquals(first.context?.diagnostics, IssueReportIncidents.diagnosticSnapshot("PROVIDER"))
+        assertFalse(first.approvedPayload().contains("owned-run"))
+    }
+
+    @Test
+    fun privacyAndDebugOptOutClearSnapshotsEvenWhenGeneralLoggingRemainsEnabled() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.failure(ReportFeature.APP, "STARTUP_FAILED")
+        assertEquals(JsonPrimitive("STARTUP_FAILED"), IssueReportIncidents.diagnosticSnapshot("APP")?.values?.get("app_exit_kind"))
+        IssueReportIncidents.privacyChanged(true)
+        assertNull(IssueReportIncidents.diagnosticSnapshot("APP"))
+        IssueReportIncidents.privacyChanged(false)
+        assertNull(IssueReportIncidents.diagnosticSnapshot("APP"))
+
+        IssueReportIncidents.failure(ReportFeature.APP, "STARTUP_FAILED")
+        assertTrue(IssueReportIncidents.diagnosticSnapshot("APP") != null)
+        val wasEnabled = AppLogRecorder.enabled.value
+        try {
+            AppLogRecorder.setEnabled(true)
+            LocalDiagnosticsPolicy.setEnabled(false)
+            IssueReportIncidents.debugPreferenceChanged(false)
+            LocalDiagnosticsPolicy.setEnabled(true)
+            assertNull(IssueReportIncidents.diagnosticSnapshot("APP"))
+        } finally {
+            AppLogRecorder.setEnabled(wasEnabled)
+        }
     }
 }

@@ -14,6 +14,59 @@ import org.junit.Test
 
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class GitHubTaskRecoveryTest {
+    @Test fun unknownModelExceptionWithTransportOrProtocolWordsCannotRestartAfterCompletedWrite() = runTest {
+        for (message in listOf("stream ended in invalid state", "Tool arguments were not valid JSON")) {
+            var rounds = 0
+            var writes = 0
+            var retainedResponses = 0
+            var retainedFailureDetails: JsonObject? = null
+            val tool = object : AgentTool {
+                override val definition = AgentToolDefinition("github_commit", "Commit authorized changes", JsonObject(emptyMap()))
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    writes++
+                    return AgentToolResult(callId, ToolResultContent.Text("saved commit receipt"), false)
+                }
+            }
+            val session = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = flow {
+                    if (rounds++ == 0) {
+                        emit(ProviderEvent.ToolCall("commit-once", tool.definition.name, JsonObject(emptyMap())))
+                        emit(ProviderEvent.Completed)
+                    } else {
+                        assertEquals("commit-once", exchanges.single().results.single().callId)
+                        throw IllegalStateException(message)
+                    }
+                }
+
+                override fun retainedFailureResponse(failure: ProviderEvent.Failed): Flow<ProviderEvent> = flow {
+                    retainedResponses++
+                    retainedFailureDetails = failure.failureDetails
+                    emit(ProviderEvent.TextDelta("Saved commit-once receipt; one acceptance requirement remains unverified."))
+                    emit(failure.copy(taskOutcome = "PARTIAL"))
+                }
+            }
+
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, listOf(tool)).toList()
+            val failure = events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(2, rounds)
+            assertEquals(1, writes)
+            assertEquals(1, retainedResponses)
+            assertEquals(1, events.filterIsInstance<AgentRunEvent.ToolFinished>().size)
+            assertEquals(0L, testScheduler.currentTime)
+            assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
+            assertEquals("PARTIAL", failure.taskOutcome)
+            assertEquals(retainedFailureDetails, failure.failureDetails)
+            assertEquals(
+                "Saved commit-once receipt; one acceptance requirement remains unverified.",
+                events.filterIsInstance<AgentRunEvent.Provider>().map { it.event }.filterIsInstance<ProviderEvent.TextDelta>().single().text
+            )
+            assertNull(GitHubTaskRecovery.delayMillis(failure, 0))
+            assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Completed })
+        }
+        // Existing events without an explicit continuation prohibition retain bounded recovery.
+        assertEquals(1000L, GitHubTaskRecovery.delayMillis(ProviderEvent.Failed("stream ended", errorCode = "PROVIDER_INVOCATION_FAILED"), 0))
+    }
+
     @Test fun repeatedEmptyRoundsFinalizeFromReceiptsWithoutRepeatingTheTool() = runTest {
         var rounds = 0
         var executions = 0

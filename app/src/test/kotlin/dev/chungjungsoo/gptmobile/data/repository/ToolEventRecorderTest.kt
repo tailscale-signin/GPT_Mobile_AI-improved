@@ -19,7 +19,12 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnResult
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
@@ -32,10 +37,260 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolEventRecorderTest {
+    @Test fun actualRejectedCallPublishesOwnedContractAndShapeWithoutArgumentValues() = runBlocking {
+        val reports = mutableListOf<Map<String, Any?>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg(5))
+                Unit
+            }
+            val schema = Json.parseToJsonElement("""{"type":"object","properties":{"action":{"type":"string"},"pull_number":{"type":"integer","minimum":1}},"additionalProperties":false}""").jsonObject
+            val arguments = buildJsonObject {
+                put("action", "context")
+                put("pull_number", "private selector value")
+            }
+            val event = recorder.startTool("owned-tool-run", 0, "owned-tool-call", "github_pr", "github_pr__github_api", arguments, startedAt = 10)
+            val rejected = dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.rejection(event.callId, event.modelToolName, arguments, schema)
+            recorder.finishTool(event.eventId, rejected, 20)
+            val context = IssueReportContext.fromFields("TOOL_RESULT", reports.single(), 1_000_000)
+            val diagnostic = requireNotNull(context.diagnostics)
+            val values = diagnostic.values
+            assertEquals("TOOL", diagnostic.area)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(1), values["invalid_field_count"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(0), values["missing_field_count"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(dev.chungjungsoo.gptmobile.data.agent.ToolContractFingerprint.schema(schema)), values["tool_schema_hash"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(IssueReportContext.identifierHash("tool-reason-code", "PR_SELECTOR_REQUIRED")), values["original_reason_code_hash"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(IssueReportContext.identifierHash("call", event.callId)), values["call_id_hash"])
+            assertEquals(kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("WRONG_TYPE"))), values["invalid_field_classes"])
+            assertEquals(false, context.dispatched)
+            assertEquals(false, context.retryable)
+            assertFalse(Json.encodeToString(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.serializer(), diagnostic).contains("private"))
+            val changedValues = buildJsonObject {
+                put("action", "headers")
+                put("pull_number", "different private value")
+            }
+            assertEquals(
+                dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.shapeHash(arguments),
+                dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.shapeHash(changedValues)
+            )
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
+    @Test fun unavailablePersistedArgumentsNeverInheritReceiptDiagnosticHashes() = runBlocking {
+        data class Case(val label: String, val arguments: String, val actionAvailable: Boolean, val shapeAvailable: Boolean)
+
+        val action = "context"
+        val ordinary = buildJsonObject { put("action", action) }
+        var nested = buildJsonObject { put("leaf", true) }
+        repeat(14) {
+            val child = nested
+            nested = buildJsonObject { put("child", child) }
+        }
+        val cases = listOf(
+            Case("ordinary", ordinary.toString(), actionAvailable = true, shapeAvailable = true),
+            Case("malformed", "{", actionAvailable = false, shapeAvailable = false),
+            Case(
+                "oversized",
+                buildJsonObject {
+                    put("action", action)
+                    put("padding", "x".repeat(65_536))
+                }.toString(),
+                actionAvailable = false,
+                shapeAvailable = false
+            ),
+            Case(
+                "depth bound",
+                buildJsonObject {
+                    put("action", action)
+                    put("nested", nested)
+                }.toString(),
+                actionAvailable = true,
+                shapeAvailable = false
+            ),
+            Case(
+                "node bound",
+                buildJsonObject {
+                    put("action", action)
+                    repeat(256) { put("field$it", true) }
+                }.toString(),
+                actionAvailable = true,
+                shapeAvailable = false
+            ),
+            Case("missing action", buildJsonObject { put("query", "private value") }.toString(), actionAvailable = false, shapeAvailable = true),
+            Case("nonstring action", buildJsonObject { put("action", 1) }.toString(), actionAvailable = false, shapeAvailable = true)
+        )
+        val foreignReceipt = buildJsonObject {
+            put("diagnostic_area", "APP")
+            put("diagnostic_capture_mode", "SELECTED_CAPTURE")
+            put("argument_shape_hash", "a".repeat(64))
+            put("tool_action_hash", "b".repeat(64))
+            put("run_id_hash", "c".repeat(64))
+            put("call_id_hash", "d".repeat(64))
+            put("tool_name_hash", "e".repeat(64))
+            put("original_error_code_hash", "f".repeat(64))
+            put("original_reason_code_hash", "0".repeat(64))
+        }
+        val reports = mutableListOf<Map<String, Any?>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg(5))
+                Unit
+            }
+            for ((index, case) in cases.withIndex()) {
+                val event = recorder.startTool("owned-tool-run", index, "owned-tool-call-$index", "github_read", "github_read", ordinary, startedAt = 10)
+                dao.rows[dao.rows.indexOfFirst { it.eventId == event.eventId }] = event.copy(arguments = case.arguments)
+                val saved = requireNotNull(
+                    recorder.finishTool(
+                        event.eventId,
+                        AgentToolResult(
+                            event.callId,
+                            ToolResultContent.Text("private failure detail"),
+                            true,
+                            errorCode = "INVALID_ARGUMENTS",
+                            dispatched = false,
+                            executionReceipt = foreignReceipt
+                        ),
+                        20
+                    )
+                )
+                val storedReceipt = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(saved))
+                foreignReceipt.forEach { (key, value) -> assertEquals("${case.label}: retained $key", value, storedReceipt[key]) }
+
+                val context = IssueReportContext.fromFields("TOOL_RESULT", reports.last(), 1_000_000)
+                val diagnostic = requireNotNull(context.diagnostics)
+                val values = diagnostic.values
+                assertEquals(case.label, "TOOL", diagnostic.area)
+                assertEquals(case.label, "INCIDENT", diagnostic.captureMode)
+                assertEquals(case.label, false, context.dispatched)
+                assertEquals(case.label, "tool_precheck", context.stage)
+                assertEquals(case.label, IssueReportContext.identifierHash("run", event.runId), values["run_id_hash"]?.jsonPrimitive?.content)
+                assertEquals(case.label, IssueReportContext.identifierHash("call", event.callId), values["call_id_hash"]?.jsonPrimitive?.content)
+                assertEquals(case.label, IssueReportContext.identifierHash("tool-name", event.modelToolName), values["tool_name_hash"]?.jsonPrimitive?.content)
+                assertEquals(case.label, IssueReportContext.identifierHash("tool-error-code", "INVALID_ARGUMENTS"), values["original_error_code_hash"]?.jsonPrimitive?.content)
+                assertFalse(case.label, values.containsKey("original_reason_code_hash"))
+                assertEquals(case.label, case.actionAvailable, values.containsKey("tool_action_hash"))
+                if (case.actionAvailable) {
+                    assertEquals(case.label, IssueReportContext.identifierHash("tool-action", action), values["tool_action_hash"]?.jsonPrimitive?.content)
+                }
+                assertEquals(case.label, case.shapeAvailable, values.containsKey("argument_shape_hash"))
+                if (case.shapeAvailable) {
+                    assertEquals(
+                        case.label,
+                        dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.shapeHash(Json.parseToJsonElement(case.arguments).jsonObject),
+                        values["argument_shape_hash"]?.jsonPrimitive?.content
+                    )
+                }
+            }
+            assertEquals(cases.size, reports.size)
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
+    @Test fun unavailableToolPrechecksKeepPrivateReceiptsAndPublishOnlyTheSupportedCategory() = runBlocking {
+        val reports = mutableListOf<Triple<String?, Map<String, Any?>, String?>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(Triple(arg(3), arg(5), arg(6)))
+                Unit
+            }
+            for ((index, code) in listOf("UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE").withIndex()) {
+                val event = recorder.startTool("unavailable-run", index, "unavailable-call-$index", "mcp", "mcp", buildJsonObject {}, startedAt = 10L)
+                recorder.finishTool(
+                    event.eventId,
+                    AgentToolResult(
+                        event.callId,
+                        ToolResultContent.Text("private unavailable tool details"),
+                        true,
+                        errorCode = code,
+                        dispatched = false,
+                        executionReceipt = buildJsonObject {
+                            put("retryable", false)
+                            put("requires_reconciliation", false)
+                            put("private_detail", "private selected connection")
+                        }
+                    ),
+                    20L
+                )
+                val saved = dao.rows.last()
+                val receipt = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(saved))
+                assertEquals(code, receipt.getValue("error_code").jsonPrimitive.content)
+                assertEquals("private selected connection", receipt.getValue("private_detail").jsonPrimitive.content)
+                assertEquals("private unavailable tool details", saved.recoveryResult())
+                assertEquals(ToolEventStatus.FAILED, saved.status)
+
+                val (publicCode, fields, source) = reports.last()
+                assertEquals("TOOL_UNAVAILABLE", publicCode)
+                assertEquals("TOOL_RESULT", source)
+                val context = IssueReportContext.fromFields(requireNotNull(source), fields)
+                assertEquals("tool_precheck", context.stage)
+                assertEquals(false, context.dispatched)
+                assertEquals(false, context.retryable)
+                assertEquals(false, context.requiresReconciliation)
+                assertEquals(IssueReportContext.identifierHash("run", event.runId), context.runIdHash)
+                assertEquals(IssueReportContext.identifierHash("call", event.callId), context.callIdHash)
+                val projected = Json.encodeToString(IssueReportContext.serializer(), context)
+                assertFalse(projected.contains("private"))
+                assertFalse(projected.contains(event.runId))
+                assertFalse(projected.contains(event.callId))
+            }
+            assertEquals(3, reports.size)
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
+    @Test fun ambiguousToolCodesAndUnknownOutcomesKeepTheirRecordedDispatchEvidence() = runBlocking {
+        val reports = mutableListOf<Triple<String?, Map<String, Any?>, String?>>()
+        val cases = listOf(
+            Triple("NOT_DISPATCHED", true, null),
+            Triple("DUPLICATE_ACTION", false, null),
+            Triple("UNSUPPORTED_OPERATION", false, null),
+            Triple("PRIVATE_PROVIDER_CODE", true, null),
+            Triple("INVALID_ARGUMENTS", false, "INVALID_ARGUMENTS"),
+            Triple("TOOL_OUTCOME_UNKNOWN", false, "TOOL_OUTCOME_UNKNOWN")
+        )
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(Triple(arg(3), arg(5), arg(6)))
+                Unit
+            }
+            for ((index, case) in cases.withIndex()) {
+                val (code, dispatched, expectedCode) = case
+                val event = recorder.startTool("ambiguous-run", index, "ambiguous-call-$index", "github_read", "github_read", buildJsonObject {}, startedAt = 10L)
+                recorder.finishTool(event.eventId, AgentToolResult(event.callId, ToolResultContent.Text("private tool failure"), true, errorCode = code, dispatched = dispatched), 20L)
+
+                val receipt = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(dao.rows.last()))
+                assertEquals(code, receipt.getValue("error_code").jsonPrimitive.content)
+                assertEquals(dispatched.toString(), receipt.getValue("dispatched").jsonPrimitive.content)
+                val (publicCode, fields, source) = reports.last()
+                assertEquals(expectedCode, publicCode)
+                assertEquals("TOOL_RESULT", source)
+                val context = IssueReportContext.fromFields(requireNotNull(source), fields)
+                assertEquals(dispatched, context.dispatched)
+                assertEquals(if (dispatched) "tool_execution" else "tool_precheck", context.stage)
+                assertEquals(null, context.retryable)
+                assertEquals(null, context.resumeAllowed)
+                assertEquals(if (code == "TOOL_OUTCOME_UNKNOWN") true else null, context.requiresReconciliation)
+                assertEquals(null, context.remoteAcceptance)
+            }
+            assertEquals(cases.size, reports.size)
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
     @Test fun normalizedPrecheckIsRecoverableButUncertainPriorWriteRemainsBlocked() = runBlocking {
         val precheck = recorder.startTool("run", 0, "precheck", "github_write", "github_write", buildJsonObject {}, startedAt = 10L)
         recorder.finishTool(precheck.eventId, AgentToolResult("precheck", ToolResultContent.Text("Invalid arguments"), true, errorCode = "INVALID_ARGUMENTS", dispatched = false), 20L)
@@ -492,14 +747,19 @@ private class FakeAgentPersistenceDao :
     }
     override suspend fun providerWaits(): List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait> = emptyList()
     override fun observeProviderWaitDeadlines(chatId: Int): Flow<List<dev.chungjungsoo.gptmobile.data.agent.ProviderWaitDeadline>> = kotlinx.coroutines.flow.flowOf(emptyList())
+    override fun observeProviderWaitRows(runIds: List<String>): Flow<List<dev.chungjungsoo.gptmobile.data.agent.ProviderWait>> = kotlinx.coroutines.flow.flowOf(emptyList())
     override suspend fun rawProviderWait(runId: String): dev.chungjungsoo.gptmobile.data.agent.ProviderWait? = null
+    override suspend fun terminalProviderWaitIds(): List<String> = emptyList()
+    override suspend fun markClaimedProviderWaiting(runId: String, fence: Long): Int = 0
     override suspend fun saveProviderWait(row: dev.chungjungsoo.gptmobile.data.agent.ProviderWait) {
         error("Not used in tool recorder tests")
     }
     override suspend fun markProviderWaiting(runId: String, fence: Long): Int = 0
     override suspend fun markRunningProviderWaiting(runId: String, fence: Long): Int = 0
     override suspend fun claimProviderWait(runId: String, fence: Long): Int = 0
-    override suspend fun blockProviderWait(runId: String, reason: String): Int = 0
+    override suspend fun blockProviderWait(runId: String, reason: String, completedAt: Long): Int = 0
+
+    override suspend fun markProviderResumeRunning(runId: String, fence: Long, startedAt: Long): Int = 0
 
     override suspend fun rawSynthesisRunsForTurn(chatId: Int, userId: Int): List<AgentRun> = synthesisRunsForTurn(chatId, userId)
     override suspend fun rawGetCompletedRuns(chatId: Int): List<AgentRun> = getCompletedRuns(chatId)

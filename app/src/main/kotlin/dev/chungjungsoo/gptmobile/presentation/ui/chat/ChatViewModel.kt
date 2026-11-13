@@ -803,6 +803,17 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    fun retryGatewayModelPreparation(runId: String) {
+        val chatId = _chatRoom.value.id
+        viewModelScope.launch(Dispatchers.IO) {
+            _attachmentNotice.value = if (durablePromptQueue?.retryGatewayModelPreparation(chatId, runId) == true) {
+                "Retrying preparation of this saved message's original Gateway model."
+            } else {
+                "This saved message changed or may already have a remote job. Check its existing job before retrying."
+            }
+        }
+    }
+
     fun addMessage(userMessage: MessageV2) {
         _groupedMessages.update {
             it.copy(
@@ -1297,6 +1308,9 @@ class ChatViewModel @Inject constructor(
             submitOrQueueQuestion(request, emptyList())
         }
     }
+
+    /** Check the selected account and privacy policy before activating microphone capture. */
+    suspend fun preflightVoiceProfile(profile: PlatformV2) = chatRepository.preflightAnswerPrivacy(profile)
 
     /** Preserve an unsent recognized draft through the existing durable conversation draft path. */
     fun checkpointVoiceDraft(text: String) {
@@ -2541,7 +2555,6 @@ class ChatViewModel @Inject constructor(
             retryFrozenCombined(turnIndex, platformIndex, currentAssistantMessage, platformWithChatModel)
             return
         }
-        combinedSynthesisAttempts.reset(userMessage.id)
         val runId = UUID.randomUUID().toString()
         val prior = dev.chungjungsoo.gptmobile.data.agent.resolveTaskRecovery(_groupedMessages.value.userMessages.take(turnIndex + 1))
         val sourceMessageId = prior?.sourceMessageId ?: userMessage.id
@@ -2561,6 +2574,12 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             agentRunCoordinator.withChatGate(userMessage.chatId) {
+                if (agentRunCoordinator.reattachProviderWait(currentAssistantMessage)) {
+                    _attachmentNotice.value = "Saved work is waiting for the provider or already resuming. Its existing continuation and completed tool results are retained."
+                    _loadingStates.update { states -> states.mapIndexed { index, state -> if (enabledPlatformsInChat.getOrNull(index) == ownerProfileUid) LoadingState.Idle else state } }
+                    return@withChatGate
+                }
+                combinedSynthesisAttempts.reset(userMessage.id)
                 persistBeforeProvider(
                     persist = {
                         refreshGatewayWriteBlocker(userMessage.chatId)?.let { error(it) }
@@ -3129,45 +3148,56 @@ class ChatViewModel @Inject constructor(
 
     suspend fun exportChat(format: ChatExportFormat = ChatExportFormat.MARKDOWN): Pair<String, String> {
         require(format != ChatExportFormat.DEBUG) { "Diagnostic exports use exportDebugFile so large histories stay off the heap." }
+        // Capture the selected conversation/revision before leaving the UI caller.
+        // Formatting, thinking extraction, grouping and redaction may scan the full
+        // retained transcript and must not compete with Compose on the main thread.
         val room = _chatRoom.value
         val roomId = room.id
         val github = _chatToolConfig.value.github
-        val runStates = _agentRunsById.value.values.filter { it.chatId == roomId }.map { it.status }
-        val visible = completeWindowMessages(_groupedMessages.value)
-        val live = agentRunCoordinator.streamMessages.value.values.filter { it.chatId == roomId }.toList()
-        val snapshot = chatRepository.fetchMessagesV2(roomId).associateBy { it.id }.toMutableMap().apply {
-            visible.filter { it.id > 0 && it.chatId == roomId }.forEach { put(it.id, it) }
-            live.filter { it.id > 0 }.forEach { put(it.id, chatRepository.resolveCombinedMessage(it)) }
-        }.values.toList().sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
-        val exported = groupPersistedMessages(snapshot, enabledPlatformsInChat, roomId)
-        val content = if (github != null) {
-            val turns = exported.userMessages.mapIndexed { index, user ->
-                user.content to exported.assistantMessages.getOrNull(index).orEmpty().map { assistantExportText(it, format) }
+        val runSnapshot = _agentRunsById.value
+        val visibleSnapshot = _groupedMessages.value
+        val liveSnapshot = agentRunCoordinator.streamMessages.value
+        val profileSnapshot = _platformsInApp.value
+        val selectedPlatforms = enabledPlatformsInChat.toList()
+        val includeDebug = debugMode.value
+        return withContext(Dispatchers.Default) {
+            val runStates = runSnapshot.values.filter { it.chatId == roomId }.map { it.status }
+            val visible = completeWindowMessages(visibleSnapshot)
+            val live = liveSnapshot.values.filter { it.chatId == roomId }.toList()
+            val snapshot = chatRepository.fetchMessagesV2(roomId).associateBy { it.id }.toMutableMap().apply {
+                visible.filter { it.id > 0 && it.chatId == roomId }.forEach { put(it.id, it) }
+                live.filter { it.id > 0 }.forEach { put(it.id, chatRepository.resolveCombinedMessage(it)) }
+            }.values.toList().sortedWith(compareBy<MessageV2> { it.createdAt }.thenBy { it.id })
+            val exported = groupPersistedMessages(snapshot, selectedPlatforms, roomId)
+            val content = if (github != null) {
+                val turns = exported.userMessages.mapIndexed { index, user ->
+                    user.content to exported.assistantMessages.getOrNull(index).orEmpty().map { assistantExportText(it, format) }
+                }
+                val transcript = githubConversationExport(
+                    room.title,
+                    "${github.owner}/${github.repo}",
+                    github.ref,
+                    github.commitSha,
+                    turns,
+                    runStates,
+                    java.time.Instant.now().toString(),
+                    format
+                )
+                (
+                    dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(
+                        kotlinx.serialization.json.JsonPrimitive(transcript),
+                        profileSnapshot.mapNotNull { it.token }
+                    ) as kotlinx.serialization.json.JsonPrimitive
+                    ).content
+            } else {
+                exported.assistantMessages.flatten()
+                    .map { assistantExportText(it, format, debugMode = includeDebug) }
+                    .filter(String::isNotBlank)
+                    .joinToString("\n\n")
             }
-            val transcript = githubConversationExport(
-                room.title,
-                "${github.owner}/${github.repo}",
-                github.ref,
-                github.commitSha,
-                turns,
-                runStates,
-                java.time.Instant.now().toString(),
-                format
-            )
-            (
-                dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(
-                    kotlinx.serialization.json.JsonPrimitive(transcript),
-                    _platformsInApp.value.mapNotNull { it.token }
-                ) as kotlinx.serialization.json.JsonPrimitive
-                ).content
-        } else {
-            exported.assistantMessages.flatten()
-                .map { assistantExportText(it, format, debugMode = debugMode.value) }
-                .filter(String::isNotBlank)
-                .joinToString("\n\n")
+            val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
+            "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to content
         }
-        val safeTitle = room.title.replace(Regex("[^\\p{L}\\p{N}._ -]"), "_").take(80)
-        return "export_${safeTitle}_${System.currentTimeMillis()}.${format.extension}" to content
     }
 
     private fun completeChat(
@@ -4690,13 +4720,17 @@ internal fun updateAssistantSlot(
 ): ChatViewModel.GroupedMessages {
     if (turnIndex !in groupedMessages.assistantMessages.indices) return groupedMessages
 
-    val currentTurnMessages = groupedMessages.assistantMessages[turnIndex].toMutableList()
+    val currentTurnMessages = groupedMessages.assistantMessages[turnIndex]
     if (platformIndex !in currentTurnMessages.indices) return groupedMessages
 
-    currentTurnMessages[platformIndex] = transform(currentTurnMessages[platformIndex])
+    val currentMessage = currentTurnMessages[platformIndex]
+    val updatedMessage = transform(currentMessage)
+    if (updatedMessage === currentMessage || updatedMessage == currentMessage) return groupedMessages
 
+    val updatedTurnMessages = currentTurnMessages.toMutableList()
+    updatedTurnMessages[platformIndex] = updatedMessage
     val updatedAssistantMessages = groupedMessages.assistantMessages.toMutableList()
-    updatedAssistantMessages[turnIndex] = currentTurnMessages
+    updatedAssistantMessages[turnIndex] = updatedTurnMessages
 
     return groupedMessages.copy(assistantMessages = updatedAssistantMessages)
 }

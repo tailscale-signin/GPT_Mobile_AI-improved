@@ -1,0 +1,116 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "fix/issue-diagnostics-2026-11-13",
+  "starting_sha": "b3eb5e1ec71cd38d78acfa9462c174f3e06a0f8e",
+  "parent_pr": 881,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "issue-diagnostics-2026-11-13",
+  "state": "READY_FOR_HOSTED_CI",
+  "intent": "Review all 37 open issues #891\u2013#927, including six arriving during review and current diagnostic archives; preserve the existing repair candidate and put all additional fixes and diagnostic capture on this one new draft branch. Close issues only with verified fix or explicitly identified diagnostic follow-up.",
+  "issue_numbers": [
+    891,
+    892,
+    893,
+    894,
+    895,
+    896,
+    897,
+    898,
+    899,
+    900,
+    901,
+    902,
+    903,
+    904,
+    905,
+    906,
+    907,
+    908,
+    909,
+    910,
+    911,
+    912,
+    913,
+    914,
+    915,
+    916,
+    917,
+    918,
+    919,
+    920,
+    921,
+    922,
+    923,
+    924,
+    925,
+    926,
+    927
+  ],
+  "implemented": [
+    "baseline slash-prose boundary",
+    "original provider identity with journal v2 compatibility",
+    "github_issue presentation schema",
+    "negotiated failure detail reporting"
+  ],
+  "validation": {
+    "baseline_host": {
+      "passed": 24
+    },
+    "identity_host": {
+      "passed": 13
+    },
+    "report_host": {
+      "passed": 39
+    },
+    "producer_host": {
+      "passed": 2
+    },
+    "reporting_service": {
+      "passed": 74
+    },
+    "android_gradle": "BLOCKED: Gradle 9.8.0 download network unavailable",
+    "canonical_fast": "PASS: 495 script tests and policy/schema/dependency/secret/regex/resources/diff checks",
+    "device_private_host": "NOT_RUN",
+    "cross_language_reports": {
+      "passed": 5
+    },
+    "voice_diagnostic_host": {
+      "passed": 1,
+      "scenarios": 2
+    },
+    "release_scope_delta": "PASS",
+    "ktlint_changed": "PASS"
+  },
+  "issue_closure_policy": "Fixed code paths or explicitly documented diagnostic follow-up, per user instruction; original symptom not assumed resolved for diagnostic-only closures.",
+  "issue_closures": "Pending publication and individual evidence comments",
+  "follow_up": {
+    "working_branch": "fix/open-reports-and-protected-merge-2026-11-13",
+    "pull_request": 941,
+    "parent_pr": 929,
+    "starting_sha": "d8d5c2c439cfdc05bc213a4dc320db51aac898a2",
+    "main_at_start": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "additional_pr_heads": {
+      "928": "0f88ca1783ef435b71d5c104be84d11ebd27bbdd",
+      "838_and_881": "8e8e1aa70703bb2ed4ea6158ecb3d80afb19377a"
+    },
+    "reviewed_issue_numbers": [
+      930,
+      931,
+      932,
+      933,
+      934,
+      935,
+      936,
+      937,
+      938,
+      939,
+      940,
+      942
+    ],
+    "state": "PENDING_HOSTED_CI",
+    "merge_gate": "Latest main and PR heads, required GitHub checks and protected-branch review."
+  }
+}

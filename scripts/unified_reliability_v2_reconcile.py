@@ -26,7 +26,7 @@ SHA = re.compile(r"^[0-9a-f]{40}$")
 ARTIFACT_SHA = re.compile(r"^[0-9a-f]{64}$")
 RUN_URL = re.compile(r"https://github\.com/([\w.-]+/[\w.-]+)/actions/runs/([1-9]\d*)/attempts/([1-9]\d*)")
 MAX_REPORTS = 4096
-MAX_ARCHIVE_XML_BYTES = 256 * 1024 * 1024
+MAX_TOTAL_XML_BYTES = 256 * 1024 * 1024
 
 
 def _artifact_junit_observations(source, since, until, artifact_sha256):
@@ -40,7 +40,7 @@ def _artifact_junit_observations(source, since, until, artifact_sha256):
         with ZipFile(artifact) as archive:
             reports = [entry for entry in archive.infolist() if not entry.is_dir()
                        and Path(entry.filename).match("TEST-*.xml")]
-            if (len(reports) > MAX_REPORTS or sum(entry.file_size for entry in reports) > MAX_ARCHIVE_XML_BYTES
+            if (len(reports) > MAX_REPORTS or sum(entry.file_size for entry in reports) > MAX_TOTAL_XML_BYTES
                     or any(entry.file_size > MAX_REPORT_BYTES for entry in reports)):
                 raise ValueError("JUnit archive exceeds collection bounds")
 
@@ -66,15 +66,26 @@ def _junit_tests(source, qualification, source_sha, run_url, artifact_sha256):
         raise ValueError("JUnit qualification receipt does not match the tested SHA and workflow attempt")
     since = timestamp(qualification.get("execution_window_start") or "")
     until = timestamp(qualification.get("collected_at") or "")
-    if source.is_dir():
-        paths = list(source.rglob("TEST-*.xml"))
-        if len(paths) > MAX_REPORTS:
-            raise ValueError("JUnit report count exceeds the collection bound")
-        classes, errors = junit_observations(paths, since, until)
-    elif is_zipfile(source):
-        classes, errors = _artifact_junit_observations(source, since, until, artifact_sha256)
-    else:
+    sources = source if isinstance(source, (list, tuple)) else [source]
+    if not sources:
         raise ValueError("JUnit source must be a directory or ZIP archive")
+    if all(directory.is_dir() for directory in sources):
+        # Enumerate the same explicit report directories as the qualification
+        # collector. Never deduplicate paths: repeated inputs must fail receipt validation.
+        paths, total_bytes = [], 0
+        for directory in sources:
+            for report in directory.glob("TEST-*.xml"):
+                paths.append(report)
+                total_bytes += report.stat().st_size
+                if len(paths) > MAX_REPORTS:
+                    raise ValueError("JUnit report count exceeds the collection bound")
+                if total_bytes > MAX_TOTAL_XML_BYTES:
+                    raise ValueError("JUnit report bytes exceed the collection bound")
+        classes, errors = junit_observations(paths, since, until)
+    elif len(sources) == 1 and is_zipfile(sources[0]):
+        classes, errors = _artifact_junit_observations(sources[0], since, until, artifact_sha256)
+    else:
+        raise ValueError("JUnit sources must be directories or one ZIP archive supplied alone")
     receipt = current_junit_receipt(classes, errors)
     if not receipt or receipt != qualification.get("junit_receipt") or qualification.get("report_errors") != []:
         raise ValueError("JUnit reports are stale, duplicate, invalid, or differ from the qualification digest")
@@ -181,7 +192,8 @@ def reconcile(scope=SCOPE, candidates=CANDIDATES, junit_dir=None,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--junit-dir", type=Path)
+    parser.add_argument("--junit-dir", type=Path, action="append",
+                        help="Repeat for independent current-run JVM report directories, or supply one ZIP archive.")
     parser.add_argument("--source-sha", default="UNKNOWN")
     parser.add_argument("--run-url")
     parser.add_argument("--qualification", type=Path)

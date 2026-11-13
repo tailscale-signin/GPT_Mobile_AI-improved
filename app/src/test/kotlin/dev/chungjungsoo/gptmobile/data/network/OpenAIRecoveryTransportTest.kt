@@ -25,6 +25,67 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class OpenAIRecoveryTransportTest {
+    @Test fun httpGoneRetainsObservedCategoryAndPayloadContractWithoutGuessingModelReplacement() = runTest {
+        var requests = 0
+        withApi(
+            MockEngine {
+                requests++
+                respond(
+                    """{"error":{"type":"endpoint_gone","message":"private endpoint detail","param":"model"}}""",
+                    HttpStatusCode.Gone,
+                    headersOf(HttpHeaders.ContentType, "application/json")
+                )
+            }
+        ) { api ->
+            val error = api.streamChatCompletion(request, 5, config).toList().mapNotNull { it.error }.single()
+            assertEquals(1, requests)
+            assertEquals("410", error.code)
+            val details = requireNotNull(error.failureDetails)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("model_invocation"), details["failed_stage"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(410), details["http_status"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("GONE"), details["provider_rejection_category"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("CHAT_COMPLETIONS"), details["payload_contract"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("model"), details["provider_parameter"])
+            assertTrue(details.containsKey("provider_error_type_hash"))
+            assertFalse(details.toString().contains("private endpoint detail"))
+        }
+    }
+
+    @Test fun secondBackendRejectionRetainsPriorAttemptsWithoutReplayOrNestedCauseReclassification() = runTest {
+        for (stream in listOf(false, true)) {
+            for (status in listOf(429, 503)) {
+                for (measured in listOf(false, true)) {
+                    var requests = 0
+                    val usage = if (measured) """, "usage_origin":"PROVIDER_REPORTED","usage_estimated":false,"completed_attempts":1,"failed_attempt":2,"failed_attempt_usage_available":false,"attempt_usage":[{"prompt_tokens":12,"completion_tokens":7,"total_tokens":19}]""" else ""
+                    val body = """{"error":{"code":"$status","message":"Backend unavailable","gateway_recovery":{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"},{"attempt":2,"output_allowance":43,"finish_reason":"UNKNOWN","visible_output_bytes":null,"reasoning_output_bytes":null,"terminal_error_code":"backend_http_error","terminal_status_code":$status,"backend_response_observed":true,"status":"FAILED"}]$usage}}}"""
+                    withApi(
+                        MockEngine {
+                            requests++
+                            respond(if (stream) "data: $body\n\n" else body, if (stream) HttpStatusCode.OK else HttpStatusCode.fromValue(status), headersOf(HttpHeaders.ContentType, if (stream) "text/event-stream" else "application/json"))
+                        }
+                    ) { api ->
+                        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+                            val error = api.streamChatCompletion(request, 5, config).toList().mapNotNull { it.error }.single()
+                            assertEquals(1, requests)
+                            assertEquals(status.toString(), error.code)
+                            assertEquals(false, error.retryable)
+                            assertFalse(error.providerLimit?.knownNotAccepted == true)
+                            val details = requireNotNull(error.failureDetails)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+                            val recovery = details.getValue("gateway_recovery").jsonObject
+                            val receipts = recovery.getValue("attempt_receipts") as kotlinx.serialization.json.JsonArray
+                            assertEquals(2, receipts.size)
+                            assertEquals(kotlinx.serialization.json.JsonPrimitive(11), receipts.first().jsonObject["reasoning_output_bytes"])
+                            val known = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(details)
+                            assertEquals(if (measured) 7 else null, known?.outputTokens)
+                            assertFalse(known?.outputComplete == true)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     @org.junit.Before fun resetConnectivity() = LocalServiceHealth.networkChanged()
 
     @org.junit.After fun clearConnectivity() = LocalServiceHealth.networkChanged()

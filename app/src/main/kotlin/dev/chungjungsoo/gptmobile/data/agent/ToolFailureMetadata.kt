@@ -85,6 +85,9 @@ internal object ToolFailureMetadata {
             errorCode = if (unknown) "RECONCILIATION_REQUIRED" else code,
             taskOutcome = if (unknown) "PARTIAL" else "CONFIGURATION_INVALIDATED",
             failureDetails = buildJsonObject {
+                put("causal_id", result.callId)
+                put("causal_provenance", "TOOL_CALL")
+                put("causal_failure_code", result.errorCode ?: code)
                 put("failed_stage", if (unknown) "tool_dispatch" else stage)
                 if (!unknown) put("dispatched", result.dispatched)
                 put("authority_invalidation_code", code)

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/session-reliability-reporting-2026-11-12",
+  "base_sha": "f19269f82da46197a43843ac4a0af55ca0b2fed0",
+  "working_branch": "codex/gateway-queue-preparation",
+  "target_branch": "fix/session-reliability-reporting-2026-11-12",
+  "parent_pr": 838,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "gateway-queued-model-preparation-2026-11-12",
+  "state": "READY_FOR_INTEGRATION",
+  "intent": "Repair issue865: a queued Gateway prompt waits for selected-model readiness but never invokes durable exact-model preparation. Prepare only under its existing global queue lease and revalidate unsent run/configuration authority at each preparation boundary. Preserve unknown generation outcomes and existing model-load operation identities.",
+  "validation": {
+    "focused_behavior": "PASS: 33 current-source JVM tests, including 10 queue model admission cases and 23 existing preparation/coordinator/API cases.",
+    "host": "PASS: bash scripts/validate-local.sh fast, 476 tests; ktlint 1.3.1 and git diff --check.",
+    "room_queue": "PENDING_CURRENT_HEAD_CI: 11 new actual Room/GatewayQueueStore/DurablePromptQueue behavior tests. Local host has no generated Room database or Android runtime.",
+    "android": "PENDING_CURRENT_HEAD_CI",
+    "live_gateway": "NOT_RUN",
+    "peer_review": "PASS: independent queue, lease, authorization, retry and UI review by tool_issue_repairs."
+  },
+  "changes": [
+    "Fresh connected conversation-capable selected-model unloaded/loading evidence may acquire the existing global local queue lease.",
+    "Exact frozen model preparation runs under that lease before initial or undispatched restarted generation; dispatch still requires fresh online readiness.",
+    "Configured permissions, selected route/model, consumed prompt, unchanged lease/run/assistant ownership, profile pause and existing remote-job fences are revalidated at every model metadata/load boundary and before dispatch.",
+    "Known model-load rejection persists a stop on the exact lease. Only the separate run-bound Retry model preparation action clears it; Check saved jobs remains read-only.",
+    "Unknown model-load outcomes reconcile the same durable operation ID. Started, restored or unknown generation is never prepared or replayed by this path."
+  ],
+  "issue_disposition": {
+    "865": "Concrete current-source queue omission fixed; full Android/Room gate and live gateway acceptance remain pending."
+  }
+}

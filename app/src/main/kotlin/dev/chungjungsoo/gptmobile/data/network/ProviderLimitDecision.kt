@@ -32,18 +32,6 @@ data class ProviderLimitDecision(
     }
 }
 
-@Serializable
-data class GitHubProviderCheckpoint(val binding: String, val digest: String) {
-    init {
-        require(binding.matches(Regex("[a-f0-9]{64}")) && digest.matches(Regex("[a-f0-9]{64}")))
-    }
-
-    internal fun matches(checkpoint: kotlinx.serialization.json.JsonObject): Boolean =
-        checkpoint["state"] == kotlinx.serialization.json.JsonPrimitive("WAITING_PROVIDER_LIMIT") &&
-            checkpoint["resume_allowed"] == kotlinx.serialization.json.JsonPrimitive(true) &&
-            dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(checkpoint.toString()) == digest
-}
-
 internal suspend fun ProviderLimitDecision.bindAuthority(guard: dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard): ProviderLimitDecision {
     if (!knownNotAccepted && !checkpointContinuationAllowed) return this
     guard.validate()
@@ -69,6 +57,9 @@ internal fun providerLimitDecision(profile: PlatformV2, outcome: FreePreflightOu
         httpStatus = outcome.cooldown?.status
     )
 }
+
+internal fun providerPreflightLimit(profile: PlatformV2): ProviderLimitDecision? =
+    FreeProviderPreflight.check(profile)?.let { providerLimitDecision(profile, it) } ?: ProviderCooldown.preflight(profile)
 
 internal fun providerLimitDecision(config: ProviderRequestConfig, model: String, receivedPayload: Boolean, error: Exception): ProviderLimitDecision? {
     val prefixDigest = config.continuationPrefixDigest?.takeIf { !receivedPayload && config.requestRole.contains("continuation") }

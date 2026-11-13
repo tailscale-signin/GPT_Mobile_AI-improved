@@ -83,7 +83,7 @@ class GradleRetryTest(unittest.TestCase):
                             f'if [ "$(wc -l < "{counter}")" -eq 1 ]; then\n' +
                             ' echo "Could not resolve plugin artifact. HTTP 503"\n exit 1\nfi\nexit 0\n')
             fake.chmod(0o755)
-            arguments = [':app:clean', ':app:compileDebugKotlin', ':app:compileDebugJavaWithJavac', '--no-build-cache', '--rerun-tasks', '--info']
+            arguments = [':app:compileDebugKotlin', '--rerun', ':app:compileDebugJavaWithJavac', '--rerun', '-Pkotlin.incremental=false', '--no-build-cache', '--info']
             self.assertEqual(0, retry.run(arguments, delay_seconds=0, executable=str(fake)))
             self.assertEqual([' '.join(arguments)] * 2, counter.read_text().splitlines())
 

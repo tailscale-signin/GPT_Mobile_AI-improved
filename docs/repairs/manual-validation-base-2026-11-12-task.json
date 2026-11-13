@@ -1,0 +1,45 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "fix/manual-validation-base-2026-11-12",
+  "starting_sha": "1caf601660d90f8eec2def3cfd38eda96c03cf9b",
+  "intent": "Resolve a pinned comparison base for manual PR Validation without changing PR/push/merge-group scope or suppressing formatting failures.",
+  "observed_failure": {
+    "run_id": 43328429161,
+    "job_id": 131566717572,
+    "head_sha": "a78ffb85d70460e9e0336ed4d64d730b037319cb",
+    "event": "workflow_dispatch",
+    "cause": "Empty change base selected the whole repository and surfaced unchanged legacy formatting findings."
+  },
+  "status": "IMPLEMENTED_LOCAL_VALIDATION_PASSED",
+  "validation": [
+    {
+      "check": "git-fixture resolver and checker regressions",
+      "result": "PASS",
+      "tests": 11
+    },
+    {
+      "check": "canonical fast host gate",
+      "result": "PASS",
+      "tests": 495
+    },
+    {
+      "check": "pinned ktlint 1.3.1 against comparison 97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+      "result": "PASS",
+      "files": 306
+    },
+    {
+      "check": "CI policy, YAML wiring, whitespace and scoped release",
+      "result": "PASS"
+    }
+  ],
+  "resulting_behavior": {
+    "pull_request_push_merge_group": "Keep the exact event base; missing, zero, nonexistent or noncommit objects fail closed. Manual input cannot override these events.",
+    "manual_feature": "Use the pinned fetched default-branch commit. Missing remote refs fail closed.",
+    "manual_default_branch": "Use the tested HEAD first parent, covering the latest default-branch change or merge.",
+    "explicit_manual_base": "Require a full commit SHA with common history that does not already contain HEAD; self/descendant comparisons fail instead of silently checking no changed files.",
+    "formatting": "The existing changed-file checker and linter failure propagation are unchanged."
+  },
+  "qualification_limit": "Hosted execution of the published combined candidate remains required; these local checks do not mark an earlier failed/cancelled workflow green."
+}

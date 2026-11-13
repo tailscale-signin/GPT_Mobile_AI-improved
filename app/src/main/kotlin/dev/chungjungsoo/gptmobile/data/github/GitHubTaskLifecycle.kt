@@ -6,6 +6,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Task state is persisted alongside its receipts, independently of a provider's terminal frame. */
@@ -56,11 +57,63 @@ internal object GitHubTaskLifecycle {
         }
     )
 
+    /** Use this exact delivered verdict for fresh and retained reports; never borrow another run. */
+    fun acceptanceFailureDetails(verdict: JsonObject, automaticContinuations: Int? = null, retainedReport: Boolean = false): JsonObject = buildJsonObject {
+        val originalFailure = verdict["original_failure"] as? JsonObject
+        val ledger = verdict["execution_ledger"] as? JsonObject
+        val unresolved = (ledger?.get("unresolved_remote_outcomes") as? JsonPrimitive)?.intOrNull?.let { it > 0 } == true
+        val extractionCode = (verdict["failure_code"] as? JsonPrimitive)?.contentOrNull
+        val extractionFailure = (verdict["verification_failure"] as? JsonObject)?.takeIf { it["failed_stage"] == JsonPrimitive("claim_extraction") }
+        if (originalFailure == null) {
+            put(
+                "failed_stage",
+                when {
+                    unresolved -> "tool_reconciliation"
+                    extractionFailure != null || extractionCode?.startsWith("GITHUB_EXTRACTION_") == true -> "claim_extraction"
+                    else -> "acceptance_verification"
+                }
+            )
+        } else {
+            // A saved primary cause remains primary. Historical attempt flags do
+            // not describe this retained report's current local delivery.
+            listOf("failed_stage", "review_stage")
+                .forEach { key -> originalFailure[key]?.let { put(key, it) } }
+        }
+        if (originalFailure == null && !unresolved && extractionFailure != null) {
+            extractionFailure["code"]?.let { put("failure_code", it) }
+            // The extraction owns these observations. A prior generation or tool
+            // receipt cannot supply its attempt facts, nor can saved-report delivery.
+            if (!retainedReport) {
+                listOf(
+                    "invocation_id", "provider_error_code", "provider_kind", "http_status", "retry_after_ms",
+                    "dispatched", "retryable", "remote_acceptance", "requires_reconciliation", "resume_allowed",
+                    "automatic_retry_allowed", "request_replay_allowed", "logical_continuation_allowed", "cause_types"
+                ).forEach { key -> extractionFailure[key]?.let { put(key, it) } }
+            }
+        }
+        extractionFailure?.get("batch")?.let { put("extraction_batch", it) }
+        val extractionReason = ((extractionFailure?.get("code") as? JsonPrimitive)?.contentOrNull ?: extractionCode)
+            ?.takeIf { it in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED") }
+        if (originalFailure == null && !unresolved) extractionReason?.let { put("reason_code", it) }
+        listOf("extraction_batches_completed", "extraction_batches_total").forEach { key -> verdict[key]?.let { put(key, it) } }
+        val stop = verdict["stop_reason"] as? JsonObject
+        put("stop_reason", originalFailure?.get("stop_reason") ?: stop?.get("code") ?: originalFailure?.get("code") ?: JsonPrimitive("UNVERIFIED_ACCEPTANCE_CRITERIA"))
+        stop?.let { put("acceptance_stop", it) }
+        val domain = originalFailure?.get("failure_domain") ?: verdict["failure_domain"]
+        if (domain != null || originalFailure == null) put("failure_domain", domain ?: JsonPrimitive("APPLICATION_VERIFICATION"))
+        val extractionRecovery = extractionFailure?.get("recovery_action").takeIf { originalFailure == null && !unresolved }
+        val recovery = if (unresolved) JsonPrimitive("RECONCILE_REMOTE_OUTCOME") else originalFailure?.get("recovery_action") ?: originalFailure?.get("next_action") ?: extractionRecovery ?: stop?.get("recovery_action") ?: ledger?.get("recovery")
+        if (recovery != null || originalFailure == null) put("recovery_action", recovery ?: JsonPrimitive("RESUME_UNFINISHED_WORK"))
+        automaticContinuations?.let { put("automatic_continuations", it) }
+        listOf("required_criteria", "verified_criteria", "remaining_criteria").forEach { key -> ledger?.get(key)?.let { put(key, it) } }
+        GitHubAcceptanceReportDiagnostics.fields(verdict, retainedReport).forEach { (key, value) -> put(key, value) }
+    }
+
     /** Absence is explicitly unknown; prior tool dispatch does not prove review dispatch. */
     fun failureMetadata(failure: ProviderEvent.Failed): JsonObject {
         val classification = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
         val details = failure.failureDetails.orEmpty()
-        val review = failure.errorCode?.startsWith("GITHUB_REVIEW_") == true || classification.phase == "answer_review"
+        val review = failure.errorCode?.startsWith("GITHUB_REVIEW_") == true || classification.phase == "answer_review" || details["review_stage"] == JsonPrimitive("answer_review")
         val outcome = buildJsonObject {
             put("schema", "github.failure-outcome.v1")
             put("failure_code", failure.errorCode ?: classification.category)
@@ -68,6 +121,7 @@ internal object GitHubTaskLifecycle {
             put("failure_scope", "CURRENT_STAGE")
             if (classification.isTaskVerification) put("continuation_required", true)
             put("failed_stage", details["failed_stage"] ?: JsonPrimitive(if (review) "answer_review" else classification.phase.ifBlank { "stage_not_recorded" }))
+            if (review) put("review_stage", "answer_review")
             details["dispatched"]?.let { put("failed_stage_dispatched", it) }
                 ?: classification.dispatched?.let { put("failed_stage_dispatched", it) }
             put("retryable_without_new_input", details["retryable_without_new_input"] != JsonPrimitive(false) && failure.taskOutcome !in setOf("BLOCKED", "CONFIGURATION_INVALIDATED") && classification.retryAllowed)
@@ -89,6 +143,7 @@ internal object GitHubTaskLifecycle {
             details["corrective_actions"]?.let { put("corrective_actions", it) }
             listOf(
                 "stop_reason", "next_action", "resume_allowed", "resume_kind", "user_input_required", "requires_reconciliation",
+                "automatic_retry_allowed", "user_resumable", "resume_requires_changed_input_or_configuration",
                 "pending_invocation_fingerprints", "continuations_used", "continuation_limit", "rounds_used", "round_limit",
                 "tool_calls_used", "tool_call_limit", "tool_calls_remaining", "execution_state"
             ).forEach { key -> details[key]?.let { put(key, it) } }

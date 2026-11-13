@@ -1,7 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.permissions
 
 import android.app.Application
+import android.content.ContextWrapper
+import android.content.SharedPreferences
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -13,6 +16,28 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class ToolTrustStoreTest {
+    @Test fun constructionDefersPreferencesAndKeepsExistingGrants() {
+        val context = RuntimeEnvironment.getApplication()
+        val connection = ToolConnection("lazy-preferences", "Name", "test", "MCP", "https://example.com/mcp", "OAUTH", null, "client-one")
+        ToolTrustStore(context).allow(connection, "write_file")
+        var preferenceReads = 0
+        val deferredContext = object : ContextWrapper(context) {
+            override fun getSharedPreferences(name: String, mode: Int): SharedPreferences {
+                preferenceReads++
+                return super.getSharedPreferences(name, mode)
+            }
+        }
+        val restored = ToolTrustStore(deferredContext)
+        assertEquals(0, preferenceReads)
+        assertTrue(restored.allows(connection, "write_file"))
+        assertEquals(1, preferenceReads)
+        assertFalse(restored.allows(connection, "delete_file"))
+        assertEquals(1, preferenceReads)
+        restored.revoke(connection.connectionUid)
+        assertFalse(restored.allows(connection, "write_file"))
+        assertEquals(1, preferenceReads)
+    }
+
     @Test fun `grant persists and is scoped to tool endpoint and account then revokes`() {
         val context = RuntimeEnvironment.getApplication()
         val store = ToolTrustStore(context)

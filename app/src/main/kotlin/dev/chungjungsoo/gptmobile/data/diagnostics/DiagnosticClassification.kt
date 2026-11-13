@@ -26,9 +26,18 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         tag == "ProcessExit" && Regex("(?:^| · )reasoncode=6(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("historical_anr", "warning", true, "inspect_same_process_anr_receipt")
         tag == "ProcessExit" -> DiagnosticClassification("historical_process_exit", "info", false, "use_os_exit_reason_without_attributing_nearby_exceptions")
+        tag == "VoiceEngine" &&
+            text.startsWith("moonshine_failure") &&
+            "cancelled=false" in text &&
+            Regex("(?:^| · )failurecode=(?!none(?: · |$))[a-z0-9_]+").containsMatchIn(text) ->
+            DiagnosticClassification("voice_capture_or_recognition_failure", "warning", true, "inspect_native_operation_and_capture_state")
+        tag == "VoiceEngine" &&
+            text.startsWith("moonshine_") &&
+            (text.startsWith("moonshine_released") || text.startsWith("moonshine_decoder_close") || "cancelled=true" in text) ->
+            DiagnosticClassification("native_voice_cleanup", "info", false)
         transcriptionCode == 0 -> DiagnosticClassification("native_transcription_success", "info", false)
         transcriptionCode != null -> DiagnosticClassification("native_operation_failure", "error", true, "inspect_operation_receipt")
-        tag == "Android" && capturedTag == "sherpa-onnx" && kokoroConfiguration.any(text::contains) ->
+        tag == "Android" && capturedTag == "sherpa-onnx" && isSherpaConfigurationRecord(text) ->
             DiagnosticClassification("native_voice_configuration", "info", false)
         tag == "VoiceTiming" && text.startsWith("kokoro_terminal") && Regex("(?:^| · )reason=(?:timeout|engine_failed|synthesis_failed|audio_failed|text_queue_full|memory_pressure)(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("voice_playback_failure", "warning", true, "review_playback_timing_and_selected_voice")
@@ -193,7 +202,34 @@ private fun diagnosticRecorderPayload(message: String): String = message.replace
 
 private val capturedAndroidPrefix = Regex("^[VDIWEF]/([^(:]+)(?:\\(\\s*([0-9]+)\\))?:\\s*")
 private val moonshineTranscriptionCode = Regex("\\btranscription error:\\s*(-?[0-9]+)\\s*$")
-private val kokoroConfiguration = setOf("offlinettsconfig(", "offlinettsmodelconfig(", "offlinettskokoromodelconfig(")
+private val sherpaConfigurationRoot = Regex("^(?:config:\\s*)?(?:offlinettsconfig|offlinettsmodelconfig|offlinettskokoromodelconfig)\\(")
+
+/** Sherpa's JNI writes config headers/dumps at ERROR level; mentions in actual failures are not dumps. */
+private fun isSherpaConfigurationRecord(text: String): Boolean {
+    val value = text.trim()
+    // The upstream newFromFile diagnostic uses "config:\n%s" before Validate().
+    // Its following "Errors found in config!" remains an actionable error.
+    if (value == "config:") return true
+    val root = sherpaConfigurationRoot.find(value) ?: return false
+    var depth = 1
+    var quoted = false
+    var escaped = false
+    for (index in root.range.last + 1 until value.length) {
+        val char = value[index]
+        when {
+            escaped -> escaped = false
+            quoted && char == '\\' -> escaped = true
+            char == '"' -> quoted = !quoted
+            !quoted && char == '(' -> depth++
+            !quoted && char == ')' -> {
+                depth--
+                if (depth == 0) return value.substring(index + 1).isBlank()
+            }
+        }
+    }
+    // Unrecognized or truncated fragments retain their recorded severity.
+    return false
+}
 
 internal fun diagnosticStructuredEvent(message: String): StructuredDiagnosticEvent? =
     parseStructuredDiagnosticEvent(diagnosticRecorderPayload(message).replace(capturedAndroidPrefix, ""))

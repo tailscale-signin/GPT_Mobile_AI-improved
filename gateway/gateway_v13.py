@@ -1141,18 +1141,21 @@ def update_gateway_job(
 def mark_gateway_job_disconnected(
     job_id,
 ):
+    changed = False
     with job_registry_lock:
         job = job_registry.get(
             job_id
         )
 
-        if job:
+        if job and not job.get("disconnected"):
             job["disconnected"] = True
             job["updated_at"] = (
                 time.time()
             )
+            changed = True
 
-    durable_persist_job(job_id)
+    if changed:
+        durable_persist_job(job_id)
 
 
 def completion_contains_tool_calls(result):

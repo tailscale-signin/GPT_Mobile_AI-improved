@@ -61,6 +61,9 @@ internal object GitHubRequestCompletion {
     }
 
     fun requirements(task: String): List<String> {
+        if (GitHubStatusRequest.matches(task)) {
+            return GitHubStatusRequest.requirements(task)
+        }
         val requested = GitHubTaskContinuity.request(task).lineSequence().map(String::trim)
             .filter { it.isNotBlank() && it !in setOf("Acceptance criteria:", "Request details:") && !it.startsWith("Budget:") && !it.startsWith("[github-workflow-preset:") }
             .map { it.removePrefix("- ") }.toList().ifEmpty { listOf("Requested answer") }
@@ -160,7 +163,10 @@ internal object GitHubRequestCompletion {
         val informational = informational(task)
         val sessionReview = informational && sessionReview(requestText(task))
         val acceptedClaimStatuses = if (sessionReview) setOf("VERIFIED", "INFERRED", "HISTORICAL") else setOf("VERIFIED", "INFERRED")
-        val verified = claims.isNotEmpty() && claims.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
+        // An explicit unmeasured scope is a limitation, not an unsupported factual
+        // claim. It still prevents that requirement from being counted as covered.
+        val factualClaims = claims.filterNot(GitHubEvidencePolicy::explicitlyUnmeasured)
+        val verified = factualClaims.isNotEmpty() && factualClaims.all { (it["status"] as? JsonPrimitive)?.contentOrNull in acceptedClaimStatuses }
         val requirements = requirements(task)
         val coverage = (answer["requirement_claims"] as? JsonObject).orEmpty()
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts).isNotEmpty()
@@ -202,15 +208,21 @@ internal object GitHubRequestCompletion {
             val recommendationRequirement = requirement.startsWith("Recommendations are clearly labeled", true)
             val recommendationClaimed = selectedClaims.any { it["kind"] == JsonPrimitive("recommendation") && it["status"] == JsonPrimitive("INFERRED") }
             val covered = claimsCovered && (!sessionReview || linkedReceiptIds.isNotEmpty()) && (!recommendationRequirement || recommendationClaimed)
+            var acceptanceBranch = "ACCEPTANCE_MAPPING_REQUIRED"
             val assessment = acceptance?.let {
                 GitHubOperationAcceptance.evaluate(requirement, it, receipts, now)?.let { operation ->
                     if (operation.state == GitHubAcceptanceLedger.State.PASS && GitHubRepositoryLifecycle.intent(requirement) != null && GitHubRepositoryAcceptance.requiresAdditionalEvidence(requirement)) {
+                        acceptanceBranch = "REVISION_TEST_ACCEPTANCE"
                         engineeringAcceptance(it, receipts, operation.repository)
                     } else {
+                        acceptanceBranch = "OPERATION_ACCEPTANCE"
                         Assessment(operation.state, operation.reason)
                     }
                 }
-                    ?: engineeringAcceptance(it, receipts)
+                    ?: run {
+                        acceptanceBranch = "REVISION_TEST_ACCEPTANCE"
+                        engineeringAcceptance(it, receipts)
+                    }
             }
             val implementedAndTested = assessment?.state == GitHubAcceptanceLedger.State.PASS
             val reviewBlocker = comparisonMissing?.takeIf { GitHubReviewComparison.requiresComparison(requirement) }
@@ -239,6 +251,38 @@ internal object GitHubRequestCompletion {
                     }
                 )
                 put("acceptance_state", state.name)
+                put("acceptance_evaluator_branch", if (informational) "INFORMATIONAL_CLAIMS" else acceptanceBranch)
+                put("eligible_receipt_count", linkedReceiptIds.size)
+                put("excluded_receipt_count", missingReceiptIds.size)
+                put("receipt_count_scope", "LINKED_CRITERION_EVIDENCE")
+                put(
+                    "receipt_exclusion_reasons",
+                    JsonArray(
+                        missingReceiptIds.map { receiptId ->
+                            when {
+                                receipts[receiptId] == null -> "MISSING_IDENTITY"
+                                receipts[receiptId]?.get("trusted") != JsonPrimitive(true) || receipts[receiptId]?.get("verification_eligible") == JsonPrimitive(false) -> "UNVERIFIED"
+                                else -> "NOT_SUCCESSFUL"
+                            }
+                        }.distinct().sorted().map(::JsonPrimitive)
+                    )
+                )
+                if (!passed) {
+                    put(
+                        "acceptance_mismatch",
+                        when {
+                            unanswered -> "UNRESOLVED_USER_DECISION"
+                            reviewBlocker != null -> "COMPARISON_REQUIRED"
+                            selectedClaims.isEmpty() -> "NO_MATCHING_CLAIMS"
+                            missingReceiptIds.isNotEmpty() -> "LINKED_RECEIPT_INELIGIBLE"
+                            !claimsCovered -> "UNSUPPORTED_CLAIMS"
+                            !covered -> "ACCEPTANCE_EVIDENCE_MISSING"
+                            !informational && acceptance == null -> "ACCEPTANCE_MAPPING_REQUIRED"
+                            !informational && !implementedAndTested -> "NO_EXECUTION_PROOF"
+                            else -> "ACCEPTANCE_EVIDENCE_MISSING"
+                        }
+                    )
+                }
                 put(
                     "acceptance",
                     if (unanswered) {
@@ -261,6 +305,7 @@ internal object GitHubRequestCompletion {
         }
         val complete = rows.all { it["status"] == JsonPrimitive("PASSED") }
         return buildJsonObject {
+            put("task_kind", if (informational) "READ_ONLY" else "GENERAL")
             put("answer_verified", verified)
             put("completion_verified", complete)
             put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")

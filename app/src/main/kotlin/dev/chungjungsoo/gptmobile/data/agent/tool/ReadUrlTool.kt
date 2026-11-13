@@ -177,7 +177,7 @@ class ReadUrlTool(
                 if (missingUntil.size < 256) missingUntil[start.toASCIIString()] = now + 300_000
             }
             recordFailure(start, "protocol", exception.javaClass.simpleName, exception.message)
-            error(callId, "Read URL failed: ${exception.message}.", exception.dispatched)
+            error(callId, "Read URL failed: ${exception.message}.", exception.dispatched, status = exception.httpStatus)
         } catch (exception: UnknownHostException) {
             recordFailure(start, "dns", exception.javaClass.simpleName, null)
             error(callId, "Read URL failed: DNS lookup could not resolve the hostname. Check the URL and network connection.")
@@ -250,7 +250,7 @@ class ReadUrlTool(
                     if (rateLimitUntil.size >= 128) rateLimitUntil.entries.removeAll { it.value <= now }
                     if (rateLimitUntil.size < 128) rateLimitUntil[authority] = date?.coerceIn(now + 1000, now + 86_400_000) ?: (now + (seconds ?: 60) * 1000)
                 }
-                if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status", dispatched = true)
+                if (!response.status.isSuccess()) throw ReadUrlException("HTTP $status", dispatched = true, httpStatus = status)
                 val contentType = response.headers[HttpHeaders.ContentType].orEmpty()
                 val documentExtension = when (contentType.substringBefore(';').trim().lowercase()) {
                     "application/pdf" -> "pdf"
@@ -555,24 +555,28 @@ class ReadUrlTool(
         )
     }
 
-    private fun error(callId: String, message: String, dispatched: Boolean = false, requestSent: Boolean? = dispatched, code: String = readerFailureCode(message)): AgentToolResult = AgentToolResult(
+    private fun error(callId: String, message: String, dispatched: Boolean = false, requestSent: Boolean? = dispatched, status: Int? = null, code: String = readerFailureCode(message, status)): AgentToolResult = AgentToolResult(
         callId = callId,
         content = ToolResultContent.Text(message.take(ERROR_BYTES)),
         isError = true,
         errorCode = code,
         dispatched = dispatched,
-        executionReceipt = searchOperationReceipt(callId, "read_url", if (dispatched) "RETRIEVAL" else "PRECHECK", requestSent, false, code),
+        executionReceipt = searchOperationReceipt(callId, "read_url", if (dispatched) "RETRIEVAL" else "PRECHECK", requestSent, false, code, status = status),
         retainedContent = ToolResultContent.Json(
             dev.chungjungsoo.gptmobile.data.research.ResearchDocumentResult(
                 url = "",
-                status = readerFailureStatus(message),
+                status = readerFailureStatus(code),
                 failureCode = code,
                 failureReason = message.take(ERROR_BYTES)
             ).toJson()
         )
     )
 
-    private fun readerFailureCode(message: String): String = when {
+    private fun readerFailureCode(message: String, status: Int? = null): String = when {
+        status == 402 -> "SOURCE_PAYMENT_REQUIRED"
+        status in setOf(404, 405, 410) -> "SOURCE_UNAVAILABLE"
+        status != null && status >= 500 -> "SOURCE_SERVER_ERROR"
+        status != null && status !in setOf(401, 403, 429) -> "SOURCE_HTTP_ERROR"
         "BUDGET_EXHAUSTED" in message -> "BUDGET_EXHAUSTED"
         "SOURCE_CHANGED" in message -> "SOURCE_CHANGED"
         "document text offset" in message -> "INVALID_ARGUMENTS"
@@ -587,10 +591,11 @@ class ReadUrlTool(
         else -> "READER_FAILED"
     }
 
-    private fun readerFailureStatus(message: String): String = when (readerFailureCode(message)) {
+    private fun readerFailureStatus(code: String): String = when (code) {
         "JAVA_HEAP_PRESSURE", "BUDGET_EXHAUSTED" -> "waiting_capacity"
         "DNS_RECOVERY", "DNS_FAILED" -> "offline"
         "SOURCE_ACCESS_BLOCKED" -> "blocked"
+        "SOURCE_PAYMENT_REQUIRED" -> "payment_required"
         "RATE_LIMITED" -> "rate_limited"
         "REDIRECT_FAILED" -> "redirect_failed"
         "SOURCE_CHANGED" -> "source_changed"
@@ -692,7 +697,7 @@ internal object SpecialUseAddress {
     }
 }
 
-private class ReadUrlException(message: String, val dispatched: Boolean = false) : Exception(message)
+private class ReadUrlException(message: String, val dispatched: Boolean = false, val httpStatus: Int? = null) : Exception(message)
 
 private data class BoundedBody(
     val bytes: ByteArray,

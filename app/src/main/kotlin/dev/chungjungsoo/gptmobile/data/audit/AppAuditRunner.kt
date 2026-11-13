@@ -103,7 +103,7 @@ class AppAuditRunner internal constructor(
             catalog.source(entry.sourceId) == null -> AppAuditOutcome.UNAVAILABLE to "PROBE_SOURCE_UNAVAILABLE"
             else -> null
         } ?: return null
-        return AppAuditObservation(disposition.first, disposition.second, stage = "admission", evidenceKind = entry.evidenceKind)
+        return AppAuditObservation(disposition.first, disposition.second, stage = "admission", evidenceKind = entry.evidenceKind, configurationRevision = entry.configurationRevision)
     }
 
     private suspend fun execute(batch: BenchmarkBatch, entry: AppAuditPlanEntry) {
@@ -155,7 +155,10 @@ class AppAuditRunner internal constructor(
                 evidenceKind = entry.evidenceKind,
                 observationSource = if (dispatched) AppAuditObservationSource.LIVE else AppAuditObservationSource.NONE,
                 dispatchEvidence = if (dispatched) AppAuditDispatchEvidence.UNKNOWN else AppAuditDispatchEvidence.NOT_DISPATCHED,
-                configChanged = authority != null
+                configChanged = authority != null,
+                failurePhase = if (outcome == AppAuditOutcome.BLOCKED && !dispatched) "admission" else "execution",
+                retryable = failure is TimeoutCancellationException && entry.safetyClass == AppAuditSafetyClass.NETWORK_READ,
+                configurationRevision = entry.configurationRevision
             )
         }
         val latest = checkNotNull(read(batch.id))
@@ -165,7 +168,10 @@ class AppAuditRunner internal constructor(
             code,
             evidenceKind = entry.evidenceKind,
             dispatchEvidence = if (current.activeDispatchEvidence == AppAuditDispatchEvidence.ATTEMPTED || entry.safetyClass == AppAuditSafetyClass.NETWORK_READ) AppAuditDispatchEvidence.UNKNOWN else AppAuditDispatchEvidence.NOT_DISPATCHED,
-            configChanged = observation.configChanged
+            configChanged = observation.configChanged,
+            failurePhase = "validation",
+            retryable = false,
+            configurationRevision = observation.configurationRevision ?: entry.configurationRevision
         )
         val normalized = when {
             observation.evidenceKind != entry.evidenceKind -> contractFailure("PROBE_EVIDENCE_MISMATCH")
@@ -185,7 +191,12 @@ class AppAuditRunner internal constructor(
         val run = checkNotNull(batch.audit)
         val now = epochMs()
         check(run.results.none { it.entryId == entry.id })
-        val result = AppAuditResult(entry.id, observation, started, now, durationMs, attempted)
+        val admission = when {
+            entry.safetyClass != AppAuditSafetyClass.NETWORK_READ -> AppAuditNetworkAdmission.NOT_APPLICABLE
+            run.activeProbeId == entry.id && run.activeDispatchEvidence in setOf(AppAuditDispatchEvidence.ATTEMPTED, AppAuditDispatchEvidence.CONFIRMED, AppAuditDispatchEvidence.UNKNOWN) -> AppAuditNetworkAdmission.ADMITTED
+            else -> AppAuditNetworkAdmission.NOT_ADMITTED
+        }
+        val result = AppAuditResult(entry.id, observation, started, now, durationMs, attempted, admission)
         checkpoint(batch.copy(audit = run.copy(results = run.results + result, activeProbeId = null, activeStartedAtEpochMs = null, activeDispatchEvidence = AppAuditDispatchEvidence.NOT_ATTEMPTED, updatedAtEpochMs = now)), "AUDIT_PROBE_FINISHED")
     }
 

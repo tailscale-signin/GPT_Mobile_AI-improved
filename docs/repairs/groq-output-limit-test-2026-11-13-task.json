@@ -1,0 +1,48 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "parent_pr": 838,
+  "starting_sha": "d50273852658b63d0e90fe0c6d727404dd74fbdd",
+  "working_branch": "fix/groq-output-limit-diagnostics-2026-11-13",
+  "intent": "Update the Groq output-limit regression to require the current bounded provider diagnostics while preserving the exact failure event sequence and no-retry behavior.",
+  "observed_failure": {
+    "run_id": 43328429161,
+    "job_id": 131566717529,
+    "head_sha": "a78ffb85d70460e9e0336ed4d64d730b037319cb",
+    "artifact_id": 13995739345,
+    "artifact_sha256": "1a3a357ef371abc0662a1de299eec427e5006509b07adc68b13f89747f90bec5",
+    "test": "ChatRepositoryImplTest.groq token limit reports failure instead of completing with only thinking",
+    "cause": "The exact error assertion omitted the sanitized provider diagnostics now included by the owning failure receipt."
+  },
+  "status": "IMPLEMENTED_LOCAL_VALIDATION_PASSED",
+  "validation": [
+    {
+      "check": "verified a78 JUnit evidence compared to the complete new diagnostic expectation",
+      "result": "PASS",
+      "fields": 12,
+      "sanitized_hashes": 4,
+      "artifact_sha256_verified": true
+    },
+    {
+      "check": "pinned ktlint 1.3.1 on ChatRepositoryImplTest.kt",
+      "result": "PASS",
+      "files": 1
+    },
+    {
+      "check": "canonical fast host gate",
+      "result": "PASS",
+      "tests": 495
+    },
+    {
+      "check": "git whitespace",
+      "result": "PASS"
+    },
+    {
+      "check": "updated Android regression execution",
+      "result": "NOT_RUN",
+      "reason": "Android SDK unavailable locally; hosted candidate execution required"
+    }
+  ],
+  "qualification_limit": "The observed Android test execution is from a78, not this new test correction. Hosted Android execution is still required; no local Android SDK is installed."
+}

@@ -239,7 +239,7 @@ class GitHubChecklistPaginationTest {
         assertFalse(GitHubTestChecklist.apiComplete(task, receipts, tools))
     }
 
-    @Test fun terminalReadbackPreventsWatchOfHistoricalPendingState() {
+    @Test fun terminalReadbackAllowsOnlyOneBoundedWatchQualificationInsteadOfHistoricalPendingWait() {
         val sha = "a".repeat(40)
         val receipts = mapOf(
             "status" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$sha"}}"""),
@@ -247,7 +247,10 @@ class GitHubChecklistPaginationTest {
             "run" to json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"run","run_id":7},"result":{"id":7,"run_attempt":1,"head_sha":"$sha","status":"completed","conclusion":"success"}}""")
         )
         val watch = AgentToolDefinition("github_watch_checks", "Watch", json("""{"type":"object"}"""))
-        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(watch), receipts))
+        val probe = requireNotNull(GitHubTestChecklist.nextCall("test all tools", listOf(watch), receipts))
+        assertEquals(json("""{"run_id":7,"commit_sha":"$sha","wait_timeout_seconds":1}"""), probe.arguments)
+        val observed = json("""{"trusted":true,"success":true,"tool":"github_watch_checks","arguments":${probe.arguments},"result":{"status":"completed","inline":true}}""")
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(watch), receipts + ("watch" to observed)))
     }
 
     @Test fun failedPageAdviceDoesNotClaimThatPaginationWasCompleted() {

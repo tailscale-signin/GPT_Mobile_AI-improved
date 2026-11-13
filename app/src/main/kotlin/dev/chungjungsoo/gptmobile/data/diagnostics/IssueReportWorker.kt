@@ -32,10 +32,13 @@ class IssueReportWorker(context: Context, parameters: WorkerParameters) : Corout
                 val report = IssueReport.json.decodeFromString(IssueReport.serializer(), payload)
                 IssueReportIncidents.retainCorrelation(report)
                 reportId = outbox.approve(report, payload).reportId
+                // Old WorkManager payloads did not retain their endpoint or prior
+                // dispatch. Preserve the bytes, but never invent a safe write replay.
+                outbox.dispatching(reportId)
             }
             val id = checkNotNull(reportId)
-            val client = IssueReportSubmission(BuildConfig.ISSUE_REPORT_ORIGIN)
-            val result = IssueReportDelivery.attempt(outbox, id, client::send) {
+            val router = routing(applicationContext)
+            val result = IssueReportDelivery.attempt(outbox, id, { _, _ -> router.send(outbox, id) }) {
                 setProgress(workDataOf(REPORT_ID to id, PHASE to "SENDING"))
             }
             val saved = outbox.load(id)
@@ -65,29 +68,45 @@ class IssueReportWorker(context: Context, parameters: WorkerParameters) : Corout
         private const val PHASE = "phase"
         private const val LEGACY_PAYLOAD = "approved-report"
         private val queueLock = Mutex()
-        internal val configured: Boolean get() = IssueReportSubmission.configured(BuildConfig.ISSUE_REPORT_ORIGIN)
+        internal val configured: Boolean get() = IssueReportSubmission.configured(BuildConfig.ISSUE_REPORT_ORIGIN) || BuildConfig.ISSUE_REPORT_GITHUB_ENABLED
+        internal fun routing(context: Context): IssueReportRouting = IssueReportRouting.forContext(context)
 
-        internal suspend fun enqueue(context: Context, report: IssueReport): IssueReportOutbox.Entry = withContext(Dispatchers.IO) {
+        internal suspend fun enqueue(context: Context, report: IssueReport, route: IssueReportRoute? = null): IssueReportOutbox.Entry = withContext(Dispatchers.IO) {
             val payload = report.approvedPayload()
             IssueReportIncidents.retainCorrelation(report)
             val approved = IssueReportOutbox.forContext(context).approve(report, payload)
-            enqueueApproved(context, approved.reportId, manualRetry = false)
+            enqueueApproved(context, approved.reportId, manualRetry = false, route = route)
         }
 
-        internal suspend fun retry(context: Context, reportId: String): IssueReportOutbox.Entry =
-            withContext(Dispatchers.IO) { enqueueApproved(context, reportId, manualRetry = true) }
+        internal suspend fun retry(context: Context, reportId: String, route: IssueReportRoute? = null): IssueReportOutbox.Entry =
+            withContext(Dispatchers.IO) { enqueueApproved(context, reportId, manualRetry = true, route = route) }
 
         internal suspend fun resumeApproved(context: Context) = withContext(Dispatchers.IO) {
-            IssueReportOutbox.forContext(context).entries().filter { it.state in setOf(IssueReportOutbox.State.QUEUED, IssueReportOutbox.State.SENDING) }.forEach {
+            IssueReportOutbox.forContext(context).entries().filter {
+                it.state in setOf(IssueReportOutbox.State.QUEUED, IssueReportOutbox.State.SENDING) ||
+                    it.state == IssueReportOutbox.State.FAILED &&
+                    it.route != null &&
+                    !it.mayHaveBeenSubmitted &&
+                    it.failureCode == "REPORT_SERVICE_UNCONFIGURED"
+            }.forEach {
                 enqueueApproved(context, it.reportId, manualRetry = false)
             }
         }
 
-        private suspend fun enqueueApproved(context: Context, reportId: String, manualRetry: Boolean): IssueReportOutbox.Entry = queueLock.withLock {
+        private suspend fun enqueueApproved(context: Context, reportId: String, manualRetry: Boolean, route: IssueReportRoute? = null): IssueReportOutbox.Entry = queueLock.withLock {
             val outbox = IssueReportOutbox.forContext(context)
-            val saved = checkNotNull(outbox.load(reportId)) { "Approved report is unavailable" }
+            var saved = checkNotNull(outbox.load(reportId)) { "Approved report is unavailable" }
             if (saved.state == IssueReportOutbox.State.SENT || !saved.retryable) return@withLock saved
-            if (!configured) return@withLock outbox.failed(reportId, IssueReportSubmission.Failure("REPORT_SERVICE_UNCONFIGURED", retryable = true, automaticRetry = false), automaticRetry = false)
+            if (route != null) saved = outbox.bindRoute(reportId, route)
+            // Legacy attempted reports lack their original origin. Never assume a new
+            // build's origin/account can reconcile or safely repeat that old write.
+            if (saved.route == null) {
+                return@withLock outbox.failed(
+                    reportId,
+                    IssueReportSubmission.Failure(if (saved.mayHaveBeenSubmitted) "REPORT_LEGACY_DESTINATION_UNKNOWN" else "REPORT_DESTINATION_REQUIRED", retryable = !saved.mayHaveBeenSubmitted, automaticRetry = false),
+                    automaticRetry = false
+                )
+            }
             try {
                 val manager = WorkManager.getInstance(context)
                 val name = "$TAG:$reportId"

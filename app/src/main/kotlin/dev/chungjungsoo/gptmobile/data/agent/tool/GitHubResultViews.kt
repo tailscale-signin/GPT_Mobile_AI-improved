@@ -40,7 +40,8 @@ internal class GitHubResultViews(
         val recovery: JsonObject?,
         val cursors: Set<String>,
         val expires: Long,
-        val context: JsonObject
+        val context: JsonObject,
+        val sourceSha256: String?
     )
     private val entries = LinkedHashMap<String, Entry>()
     private val evicted = LinkedHashMap<String, EvictedView>()
@@ -124,7 +125,7 @@ internal class GitHubResultViews(
         val context = JsonObject((defaults + (value as? JsonObject).orEmpty() + request).filterKeys { it in SAVED_CONTEXT_KEYS })
         val retained = buffer.bytes + metadata.toString().toByteArray().size * 2L + lastContinuations.sumOf { it.toString().toByteArray().size * 2L + 256 } + context.toString().toByteArray().size * 2L + sourceRecovery.toString().toByteArray().size * 2L + 1024
         if (retained > capacityBytes) return compressed(scope, upstream, operation, modelName, value, request, pageBytes, display)
-        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery)
+        val entry = Entry(scope, operation, modelName, fragments, metadata, lastContinuations, now() + 10 * 60_000, retained.toInt(), upstream.isError, upstream.errorCode, pageBytes, context, sourceRecovery, sourceSha256 = GitHubRepositoryStateStore.digest(value.toString()))
         if (small.toString().toByteArray().size <= pageBytes) {
             authorize(entry, small)
             store(id, entry)
@@ -194,7 +195,8 @@ internal class GitHubResultViews(
                     ),
                     true,
                     errorCode = "SAVED_VIEW_CURSOR_ALTERED",
-                    dispatched = false
+                    dispatched = false,
+                    executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, false, false, entry.sourceSha256)
                 )
             }
         }
@@ -226,7 +228,8 @@ internal class GitHubResultViews(
                 ),
                 true,
                 errorCode = "SAVED_VIEW_WRONG_OPERATION",
-                dispatched = false
+                dispatched = false,
+                executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
             )
         }
         if (parts.size !in 2..3 || entry == null || offset == null || requestedBytes == null || requestedBytes !in 1024..entry.pageBytes || entry.scope != scope || entry.operation != operation || offset !in 0 until entry.fragmentCount || cursor !in entry.issuedCursors) {
@@ -235,6 +238,7 @@ internal class GitHubResultViews(
             // original and requested operation identities in the recovery object;
             // never make recovery depend on guessing the old tool route.
             val known = evicted[parts.firstOrNull()]?.takeIf { it.scope == scope && cursor in it.cursors }
+            val scopedEntry = entry?.takeIf { it.scope == scope }
             return AgentToolResult(
                 callId,
                 ToolResultContent.Json(
@@ -268,7 +272,15 @@ internal class GitHubResultViews(
                 ),
                 true,
                 errorCode = "SAVED_VIEW_UNAVAILABLE",
-                dispatched = false
+                dispatched = false,
+                executionReceipt = savedViewDiagnostics(
+                    scope,
+                    cursor,
+                    known?.operation ?: scopedEntry?.operation,
+                    if (known != null) true else scopedEntry?.let { cursor in it.issuedCursors },
+                    if (known != null) known.reason == "EXPIRED" else scopedEntry?.let { false },
+                    known?.sourceSha256 ?: scopedEntry?.sourceSha256
+                )
             )
         }
         val conflictingFields = context.filter { (key, value) ->
@@ -294,7 +306,8 @@ internal class GitHubResultViews(
                 ),
                 true,
                 errorCode = "INVALID_ARGUMENTS",
-                dispatched = false
+                dispatched = false,
+                executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
             )
         }
         // Active readers can take longer than ten minutes to consume a large result.
@@ -325,10 +338,10 @@ internal class GitHubResultViews(
             put("operation", entry.operation)
             put("model_name", entry.modelName)
             put("fragments", JsonArray(entry.fragments))
+            entry.sourceSha256?.let { put("source_sha256", it) }
             entry.compressedSource?.let {
                 put("source_gzip_base64", Base64.getEncoder().encodeToString(it))
                 put("source_characters", entry.sourceCharacters)
-                put("source_sha256", entry.sourceSha256)
             }
             put("metadata", entry.metadata)
             put("continuations", JsonArray(entry.continuations))
@@ -365,6 +378,7 @@ internal class GitHubResultViews(
         if (encoded != null && compressed == null || fragments.isEmpty() && compressed == null || fragments.size != (snapshot["fragments"] as JsonArray).size) return false
         val sourceCharacters = (snapshot["source_characters"] as? JsonPrimitive)?.intOrNull ?: 0
         val sourceHash = text("source_sha256")
+        if (sourceHash != null && !sourceHash.matches(Regex("[a-f0-9]{64}"))) return false
         if (compressed != null && (fragments.isNotEmpty() || sourceCharacters !in 1..MAX_SERIALIZED_SOURCE_BYTES || sourceHash?.matches(Regex("[a-f0-9]{64}")) != true)) return false
         if (compressed != null && runCatching { decodeSource(compressed, sourceCharacters, requireNotNull(sourceHash)) }.isFailure) return false
         val pageSize = (snapshot["page_bytes"] as? JsonPrimitive)?.intOrNull?.takeIf { it in 2048..pageBytes } ?: return false
@@ -817,7 +831,8 @@ internal class GitHubResultViews(
                 recovery = it.sourceRecovery,
                 cursors = it.issuedCursors.toList().takeLast(128).toSet(),
                 expires = now() + 24 * 60 * 60_000,
-                context = JsonObject(it.context.filterKeys { key -> key in setOf("owner", "repo") })
+                context = JsonObject(it.context.filterKeys { key -> key in setOf("owner", "repo") }),
+                sourceSha256 = it.sourceSha256
             )
             while (evicted.size > 64) evicted.remove(evicted.keys.first())
         }
@@ -869,6 +884,15 @@ internal class GitHubResultViews(
         put("reason", reason)
         put("source_recovery_available", sourceRecoveryAvailable)
         put("mutation_replay_allowed", false)
+    }
+
+    private fun savedViewDiagnostics(scope: String, cursor: String, ownerOperation: String?, issued: Boolean?, expired: Boolean?, sourceHash: String?): JsonObject = buildJsonObject {
+        put("saved_view_scope_hash", GitHubRepositoryStateStore.digest("github.saved-view.scope.v1\u0000$scope"))
+        put("saved_view_cursor_hash", GitHubRepositoryStateStore.digest("github.saved-view.cursor.v1\u0000$cursor"))
+        ownerOperation?.let { put("saved_view_owner_operation", it) }
+        issued?.let { put("saved_view_cursor_issued", it) }
+        expired?.let { put("saved_view_expired", it) }
+        sourceHash?.let { put("saved_view_source_hash", it) }
     }
 
     companion object {

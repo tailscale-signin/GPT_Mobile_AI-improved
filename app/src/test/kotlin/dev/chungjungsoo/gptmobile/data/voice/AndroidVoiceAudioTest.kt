@@ -28,6 +28,51 @@ import org.robolectric.annotation.LooperMode
 @Config(manifest = Config.NONE, sdk = [34])
 @LooperMode(LooperMode.Mode.PAUSED)
 class AndroidVoiceAudioTest {
+    @Test fun diagnosticTimingUsesRealTtsCallbacksAndRejectsCancelledUtterances() {
+        var time = 10L
+        val trace = VoiceDiagnosticTrace({ time }, { 1000 + time }, { true }, {})
+        val probe = trace.advance(1, reset = true)
+        probe.responseText()
+        time = 30
+        probe.queued()
+        var initialized: TextToSpeech.OnInitListener? = null
+        val engine = mock(TextToSpeech::class.java)
+        val audio = AndroidVoiceAudio(RuntimeEnvironment.getApplication(), java.util.concurrent.Executor { it.run() }) { _, listener ->
+            initialized = listener
+            engine
+        }
+        audio.allowOnlineSpeech = true
+        audio.bindDiagnostics(probe)
+        try {
+            audio.speak("Measured words.", {}, { error(it) })
+            time = 130
+            requireNotNull(initialized).onInit(TextToSpeech.SUCCESS)
+            shadowOf(Looper.getMainLooper()).idle()
+            val callbacks = ArgumentCaptor.forClass(UtteranceProgressListener::class.java)
+            verify(engine).setOnUtteranceProgressListener(callbacks.capture())
+            val utterance = ArgumentCaptor.forClass(String::class.java)
+            verify(engine).speak(eq<CharSequence>("Measured words."), eq(TextToSpeech.QUEUE_ADD), isNull(), utterance.capture())
+            time = 200
+            callbacks.value.onBeginSynthesis(utterance.value, 24000, 2, 1)
+            time = 400
+            callbacks.value.onStart(utterance.value)
+            assertEquals(100L, trace.incidentFields()["voice_warmup_ms"])
+            assertEquals(170L, trace.incidentFields()["voice_queue_to_synthesis_ms"])
+            assertEquals(200L, trace.incidentFields()["voice_synthesis_to_first_audio_ms"])
+            assertEquals(390L, trace.incidentFields()["voice_response_to_first_audio_ms"])
+            assertEquals("UTTERANCE_START", trace.incidentFields()["voice_first_audio_basis"])
+            audio.stop()
+            val stopped = trace.incidentFields()
+            time = 900
+            callbacks.value.onStart(utterance.value)
+            callbacks.value.onBeginSynthesis(utterance.value, 24000, 2, 1)
+            assertEquals(stopped, trace.incidentFields())
+        } finally {
+            audio.close()
+            trace.close()
+        }
+    }
+
     @Test fun speechConfigurationRunsOnWorkerAndIsReusedUntilSettingsChange() {
         val work = java.util.ArrayDeque<Runnable>()
         var initialized: TextToSpeech.OnInitListener? = null

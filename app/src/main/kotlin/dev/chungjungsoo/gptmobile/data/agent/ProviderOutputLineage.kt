@@ -6,5 +6,6 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 internal fun ProviderEvent.withInvocationLineage(invocationId: String): ProviderEvent = when (this) {
     is ProviderEvent.TextDelta -> if (lineage.origin == OutputOrigin.MODEL_TEXT && lineage.invocationId == null) copy(lineage = lineage.copy(invocationId = invocationId)) else this
     is ProviderEvent.Failed -> if (this.invocationId == null) copy(invocationId = invocationId) else this
+    is ProviderEvent.Usage -> if (this.invocationId == null) copy(invocationId = invocationId) else this
     else -> this
 }

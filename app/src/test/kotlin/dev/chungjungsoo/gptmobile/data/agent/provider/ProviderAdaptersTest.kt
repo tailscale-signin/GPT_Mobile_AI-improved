@@ -67,6 +67,7 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -83,6 +84,50 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun savedJobBindingPrecedesHistoricalAttemptMetadataAndFailure() = runBlocking {
+        val recovery = NetworkClient.json.parseToJsonElement("""{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"}]}""").jsonObject
+        for (failed in listOf(false, true)) {
+            val chunk = ChatCompletionChunk(
+                choices = if (failed) null else listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop")),
+                gatewayMetadata = dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata(jobId = "original-job", singleflightRole = "saved_result", transportVerified = true),
+                gatewayRecovery = recovery.takeUnless { failed },
+                error = if (failed) dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail("Original failed attempt", code = "EMPTY_COMPLETION", retryable = false, failureDetails = JsonObject(mapOf("gateway_recovery" to recovery))) else null
+            )
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA)).streamRound(emptyList(), emptyList()).toList()
+            val binding = events.indexOfFirst { it is ProviderEvent.GatewayMetadataCaptured }
+            val observation = events.indexOfFirst { if (failed) it is ProviderEvent.Failed else it is ProviderEvent.Usage && it.gatewayRecovery != null }
+            assertTrue(binding >= 0)
+            assertTrue(observation > binding)
+            assertTrue(events.filterIsInstance<ProviderEvent.Usage>().all { it.inputTokens == null && it.outputTokens == null })
+        }
+    }
+
+    @Test fun repairedGatewayMetadataTravelsSeparatelyFromFinalAggregateUsage() = runBlocking {
+        val recovery = NetworkClient.json.parseToJsonElement("""{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"},{"attempt":2,"output_allowance":39,"finish_reason":"STOP","visible_output_bytes":9,"reasoning_output_bytes":0,"terminal_error_code":null,"terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"}]}""").jsonObject
+        for (measured in listOf(false, true)) {
+            val chunk = ChatCompletionChunk(
+                choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop")),
+                gatewayRecovery = recovery,
+                usage = if (measured) dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionUsage(promptTokens = 12, completionTokens = 18, totalTokens = 30) else null
+            )
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(chunk))))
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.LLAMA)).streamRound(emptyList(), emptyList()).toList()
+            val observations = events.filterIsInstance<ProviderEvent.Usage>()
+            val metadata = observations.single { it.gatewayRecovery != null }
+            assertEquals(recovery, metadata.gatewayRecovery)
+            assertEquals(ProviderUsagePhase.INTERIM, metadata.phase)
+            assertNull(metadata.inputTokens)
+            assertNull(metadata.outputTokens)
+            val usage = observations.filter { it.inputTokens != null || it.outputTokens != null }
+            assertEquals(if (measured) 1 else 0, usage.size)
+            if (measured) {
+                assertEquals(12, usage.single().inputTokens)
+                assertEquals(18, usage.single().outputTokens)
+            }
+        }
+    }
+
     @Test fun githubClaimExtractionSendsStrictSchemaAndUsesLowAdvertisedReasoning() = runBlocking {
         OpenRouterCatalogLimits.remember(listOf(OpenRouterModelItem("audit/claim-extraction", supportedParameters = listOf("reasoning"))))
         val schema = """{"type":"json_schema","json_schema":{"name":"github_evidence_claims","strict":true,"schema":{"type":"object","properties":{"claims":{"type":"array","items":{"type":"string"}}},"required":["claims"],"additionalProperties":false}}}"""
@@ -857,6 +902,53 @@ class ProviderAdaptersTest {
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, events.size)
         assertTrue(events.single() is ProviderEvent.Failed)
+    }
+
+    @Test
+    fun `OpenRouter unclassified stream exception retains bounded capture evidence`() = runBlocking {
+        val error = IllegalStateException("PRIVATE_UPSTREAM https://private.invalid/token", IllegalArgumentException("PRIVATE_INNER"))
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow { throw error })))
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OPENROUTER))
+            .streamRound(emptyList(), emptyList()).toList()
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertFalse(events.any { it == ProviderEvent.Completed })
+        assertEquals(1, api.chatRequests.size)
+        val details = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("OPENAI_ADAPTER_STREAM_CATCH"), details["incident_capture_site"])
+        assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), details["incident_phase_provenance"])
+        assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.exceptionFingerprint(error)), details["exception_fingerprint"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("java.lang.IllegalStateException"), JsonPrimitive("java.lang.IllegalArgumentException"))), details["cause_types"])
+        assertNull(failure.invocationId)
+        for (key in listOf("failed_stage", "dispatched", "http_status", "remote_acceptance", "retryable", "request_replay_allowed", "invocation_id")) assertNull(details[key])
+        assertFalse(details.toString().contains("PRIVATE_"))
+        assertFalse(details.toString().contains("private.invalid"))
+    }
+
+    @Test
+    fun `OpenRouter typed rejection remains authoritative after trailing stream exception`() = runBlocking {
+        val typed = buildJsonObject {
+            put("failed_stage", "backend_template")
+            put("http_status", 400)
+            put("dispatched", false)
+            put("retryable", false)
+        }
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow {
+                        emit(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Typed failure", code = "BACKEND_TEMPLATE_INVALID", failureDetails = typed)))
+                        throw IllegalStateException("PRIVATE_LATE_FAILURE")
+                    }
+                )
+            )
+        )
+        val failure = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OPENROUTER))
+            .streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("BACKEND_TEMPLATE_INVALID", failure.errorCode)
+        assertEquals(typed, failure.failureDetails)
+        assertEquals(1, api.chatRequests.size)
+        assertNull(failure.failureDetails?.get("incident_capture_site"))
+        assertNull(failure.failureDetails?.get("exception_fingerprint"))
     }
 
     @Test
@@ -1797,6 +1889,129 @@ class ProviderAdaptersTest {
             .toList()
 
         assertNull(api.requests.single().tools)
+    }
+
+    @Test fun anthropicAdapterRetainsTypedFailureDetailsAfterAssembly() = runBlocking {
+        val details = buildJsonObject {
+            put("http_status", 403)
+            put("failed_stage", "model_invocation")
+            put("dispatched", true)
+            put("server_request_id", "req_fixture")
+        }
+        val api = FakeAnthropicAPI(
+            ArrayDeque(
+                listOf(
+                    flowOf(
+                        dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk(
+                            dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorDetail("permission_error", "Request refused", "403", details)
+                        )
+                    )
+                )
+            )
+        )
+        val failure = AnthropicMessagesAdapter(api, attachmentEncoder())
+            .openSession(turns(), platform(ClientType.ANTHROPIC))
+            .streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("403", failure.errorCode)
+        assertEquals(details, failure.failureDetails)
+        assertFalse(failure.transportComplete)
+    }
+
+    @Test fun anthropicCredentialRotationDoesNotCopyThePreviousResponsesFactsOntoCurrentAdmission() = runBlocking {
+        val firstDetails = buildJsonObject {
+            put("http_status", 429)
+            put("dispatched", true)
+            put("server_request_id", "earlier_request")
+        }
+        val api = FakeAnthropicAPI(
+            ArrayDeque(
+                listOf(
+                    flowOf(
+                        dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk(
+                            dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorDetail("rate_limit_error", "Quota exceeded", "429", firstDetails)
+                        )
+                    ),
+                    flow { throw dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF) }
+                )
+            )
+        )
+        val failure = AnthropicMessagesAdapter(api, attachmentEncoder())
+            .openSession(turns(), platform(ClientType.ANTHROPIC).copy(uid = "anthropic-evidence-${java.util.UUID.randomUUID()}", token = "first,second"))
+            .streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(2, api.requests.size)
+        assertEquals("REASONING_OFF_UNSUPPORTED", failure.errorCode)
+        assertEquals(JsonPrimitive("provider_admission"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
+        assertNull(failure.failureDetails?.get("http_status"))
+        assertNull(failure.failureDetails?.get("server_request_id"))
+        assertNull(failure.failureDetails?.get("dispatched"))
+    }
+
+    @Test fun anthropicAdapterRetainsCompletedTransportForAnOutputLimitedResponse() = runBlocking {
+        val delta = NetworkClient.json.decodeFromString<MessageResponseChunk>(
+            """{"type":"message_delta","delta":{"stop_reason":"max_tokens","stop_sequence":null},"usage":{"output_tokens":100}}"""
+        )
+        val api = FakeAnthropicAPI(ArrayDeque(listOf(flowOf(delta, MessageStopResponseChunk))))
+        val events = AnthropicMessagesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.ANTHROPIC))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().transportComplete)
+        assertTrue(events.none { it == ProviderEvent.Completed })
+    }
+
+    @Test fun anthropicUnknownFailureCannotRotateCredentialsBecauseItsMessageMentionsQuota() = runBlocking {
+        for (throws in listOf(false, true)) {
+            val details = buildJsonObject {
+                put("failed_stage", "model_invocation")
+                put("retryable", false)
+                put("request_replay_allowed", false)
+                put("logical_continuation_allowed", false)
+                put("remote_acceptance", "UNKNOWN")
+            }
+            val first = flow<MessageResponseChunk> {
+                if (throws) throw IllegalStateException("Unknown preparation failure mentioning quota")
+                emit(
+                    dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorResponseChunk(
+                        dev.chungjungsoo.gptmobile.data.dto.anthropic.response.ErrorDetail(
+                            "client_error",
+                            "Unknown preparation failure mentioning quota",
+                            "PROVIDER_INVOCATION_FAILED",
+                            details
+                        )
+                    )
+                )
+            }
+            val api = FakeAnthropicAPI(ArrayDeque(listOf(first, flowOf(MessageStopResponseChunk))))
+            val events = AnthropicMessagesAdapter(api, attachmentEncoder())
+                .openSession(turns(), platform(ClientType.ANTHROPIC).copy(uid = "anthropic-unknown-${java.util.UUID.randomUUID()}", token = "first,second"))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(1, api.requests.size)
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
+            assertEquals(JsonPrimitive("model_invocation"), failure.failureDetails?.get("failed_stage"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+            assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+            assertEquals(JsonPrimitive("UNKNOWN"), failure.failureDetails?.get("remote_acceptance"))
+            assertNull(failure.failureDetails?.get("dispatched"))
+            assertTrue(events.none { it == ProviderEvent.Completed })
+        }
+    }
+
+    @Test fun anthropicUnfinishedStreamRetainsPartialTextAndExplicitlyProhibitsReplay() = runBlocking {
+        val api = FakeAnthropicAPI(
+            ArrayDeque(listOf(flowOf(ContentDeltaResponseChunk(0, ContentBlock(type = ContentBlockType.DELTA, text = "Retained text")))))
+        )
+        val events = AnthropicMessagesAdapter(api, attachmentEncoder()).openSession(turns(), platform(ClientType.ANTHROPIC))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals("Retained text", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
+        assertEquals(JsonPrimitive("response_stream"), failure.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("partial_output_preserved"))
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("logical_continuation_allowed"))
+        assertFalse(failure.transportComplete)
+        assertTrue(events.none { it == ProviderEvent.Completed })
     }
 
     @Test

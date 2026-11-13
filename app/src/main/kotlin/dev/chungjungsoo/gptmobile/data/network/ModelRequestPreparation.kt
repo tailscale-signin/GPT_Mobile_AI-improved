@@ -86,7 +86,7 @@ internal class ModelRequestPreparation(client: NetworkClient) {
         var original = Json.parseToJsonElement(payload) as JsonObject
         config.requireSelectedRoute((original["model"] as? JsonPrimitive)?.content ?: model)
         val review = config.requestRole.startsWith("github-review") && !config.requestRole.endsWith("repair")
-        val briefHelper = review || config.requestRole in setOf("github-claim-extraction", "github-progress-summary", "answer_contract_rewrite", "synthesis")
+        val briefHelper = config.requestRole.startsWith("github-review") || config.requestRole in setOf("github-claim-extraction", "github-progress-summary", "answer_contract_rewrite", "synthesis")
         val reasoning = if (config.providerType == "LLAMA") {
             val needsControl = briefHelper || config.maximizeReasoning || !config.allowReasoning || config.reasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.AUTO
             val control = if (needsControl && discovered != null) llama.reasoningControl(config, model, discovered) else null
@@ -155,11 +155,37 @@ internal class ModelRequestPreparation(client: NetworkClient) {
             "WIRE_SCHEMA · role=${config.requestRole} · serializedTools=${toolNames.size} · names=${toolNames.joinToString()} · serializedBytes=${toolSchema.toByteArray(Charsets.UTF_8).size} · schemaTokens=${if (toolSchema.isEmpty()) 0 else RequestAdmission.estimate(toolSchema).promptTokens} · measurement=UTF8_ESTIMATE"
         )
         val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(finalPayload, measured, finalAllowance.tokens, snapshot.contextTokens, snapshot.fingerprint.templateRevision)
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Admission", "RUNTIME_IDENTITY · ${snapshot.fingerprint} · reasoningAllowed=${config.allowReasoning} · requestedMode=${config.reasoningMode} · toolReserveState=serialized_results_replace_planning_estimate · usage=Not measured until server receipt")
+        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.recordEvent(
+            "Admission",
+            "RUNTIME_IDENTITY",
+            mapOf(
+                "connectionId" to snapshot.fingerprint.connectionId,
+                "route" to snapshot.fingerprint.route,
+                "credentialRevision" to snapshot.fingerprint.credentialRevision,
+                "requestedModel" to snapshot.fingerprint.requestedModel,
+                "resolvedModel" to snapshot.fingerprint.resolvedModel,
+                "runtimeRevision" to snapshot.fingerprint.runtimeRevision,
+                "templateRevision" to snapshot.fingerprint.templateRevision,
+                "allocationRevision" to snapshot.fingerprint.allocationRevision,
+                "routeContextTokens" to discovered?.contextTokens,
+                "catalogContextTokens" to catalog?.context,
+                "configuredContextCeiling" to declared,
+                "effectiveContextTokens" to snapshot.contextTokens,
+                "capacityProvenance" to snapshot.provenance.name,
+                "reasoningAllowed" to config.allowReasoning,
+                "reasoningRequestedMode" to config.reasoningMode.name,
+                "reasoningControlMode" to reasoning?.effective?.name,
+                "reasoningControl" to reasoning?.transmittedControl,
+                "reasoningTemplateProbeVerified" to reasoning?.templateProbeVerified,
+                "reasoningObserved" to reasoning?.observedComputationEnabled,
+                "toolReserveState" to "serialized_results_replace_planning_estimate",
+                "usageMeasured" to false
+            )
+        )
         val prepared = RequestAdmission.prepare(finalPayload, config.requestRole, snapshot, measured, finalAllowance.tokens, permissionRevision, requireKnownCapacity = config.requireKnownCapacity, serializerRevision = if (config.freeProvider == dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.POLLINATIONS) PollinationsClassic.SERIALIZER_REVISION else "provider-json-v1", reasoning = reasoning, messageValidatorRevision = dev.chungjungsoo.gptmobile.data.context.ProviderMessageValidator.VERSION, promptBudget = budget, requestDeadline = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]?.preflight())
         dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
             "Admission",
-            "FINAL_REQUEST · role=${config.requestRole} · promptTokens=${prepared.receipt.promptTokens} · outputTokens=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · contextTokens=${prepared.receipt.contextTokens ?: "unknown"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningEffective=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
+            "FINAL_REQUEST · role=${config.requestRole} · promptTokens=${prepared.receipt.promptTokens} · outputTokens=${prepared.receipt.outputTokens ?: "unknown"} · safety=${prepared.receipt.safetyTokens} · admittedContextTokens=${prepared.receipt.contextTokens ?: "unknown"} · routeContextTokens=${discovered?.contextTokens ?: "unknown"} · configuredContextCeiling=${declared ?: "unset"} · measurement=${prepared.receipt.measurement} · capacity=${prepared.receipt.capacityProvenance} · checked=${prepared.receipt.capacityChecked} · reasoningRequested=${reasoning?.requested} · reasoningControlMode=${reasoning?.effective} · reasoningControl=${reasoning?.transmittedControl} · reasoningObserved=unknown"
         )
         config.freeDiagnostics?.admission = prepared.receipt
         prepared.receipt.outputTokens?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { config.onSerializedOutputTokens?.invoke(it) }
@@ -175,9 +201,18 @@ internal fun resolveOutputAllowance(payload: String, requested: Long?, capacity:
     val measurement = RequestAdmission.estimate(payload)
     return try {
         dev.chungjungsoo.gptmobile.data.context.EffectiveOutputAllowance.resolve(requested, capacity.outputTokens, capacity.contextTokens, measurement)
-    } catch (rejected: IllegalStateException) {
+    } catch (rejected: dev.chungjungsoo.gptmobile.data.context.RequestCapacityException) {
         val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(payload, measurement, requested, capacity.contextTokens, capacity.fingerprint.templateRevision)
-        throw IllegalStateException("${rejected.message}. ${budget.explain()}. Reduce the dominant input component or choose a verified larger context.", rejected)
+        throw dev.chungjungsoo.gptmobile.data.context.RequestCapacityException(
+            rejected.code,
+            "Reduce the dominant input component or choose a verified larger context; no inference was sent.",
+            measurement.promptTokens,
+            measurement.uncertaintyTokens,
+            requested,
+            capacity.contextTokens,
+            measurement.kind,
+            budget
+        )
     }
 }
 

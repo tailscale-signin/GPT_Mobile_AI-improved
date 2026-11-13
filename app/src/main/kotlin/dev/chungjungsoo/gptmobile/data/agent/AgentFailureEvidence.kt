@@ -45,6 +45,24 @@ internal object AgentFailureEvidence {
 
     /** A typed binding rejection preserves server facts without logging its response body. */
     fun exception(error: Throwable, partialOutput: Boolean = false): ProviderEvent.Failed? {
+        if (error is ProviderRecoveryFailure) return error.event()
+        (error as? dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringInputRejected)?.let { rejected ->
+            return ProviderEvent.Failed(
+                message = rejected.message.orEmpty(),
+                errorCode = if (rejected.commandOutcomeUnknown) GatewayOutcomeRecovery.ERROR_CODE else rejected.errorCode,
+                transportComplete = !rejected.commandOutcomeUnknown,
+                taskOutcome = if (rejected.commandOutcomeUnknown) "PARTIAL" else "BLOCKED",
+                failureDetails = buildJsonObject {
+                    rejected.diagnosticDetails.forEach { (key, value) -> put(key, value) }
+                    put("failed_stage", requireNotNull(rejected.failedStage))
+                    put("http_status", rejected.httpStatus)
+                    put("retryable", false)
+                    put("partial_output_preserved", partialOutput)
+                    put("requires_reconciliation", rejected.commandOutcomeUnknown)
+                    put("request_replay_allowed", false)
+                }
+            )
+        }
         val rejected = error as? GatewayExecutionRejected ?: return null
         val unknown = rejected.commandOutcomeUnknown || rejected.code == "EXECUTION_OPERATION_UNKNOWN_OUTCOME"
         val inference = rejected.inferenceAttempted

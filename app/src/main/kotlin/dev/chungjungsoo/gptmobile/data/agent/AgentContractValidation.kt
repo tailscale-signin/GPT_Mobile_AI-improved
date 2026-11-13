@@ -21,7 +21,7 @@ internal object AgentContractValidation {
     fun receipt(callId: String, result: AgentToolResult): AgentToolResult = when {
         result.callId != callId -> ToolResultEnvelope.error(callId, "TOOL_RESULT_ID_MISMATCH", "The returned receipt belongs to another call. This action may have executed; reconcile its external state before retrying.", dispatched = true)
         result.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !result.isError -> result.copy(isError = true)
-        else -> ToolFailureMetadata.normalize(result)
+        else -> ToolFailureMetadata.normalize(currentGitHubInvocationReceipt(result))
     }
 
     /** Refuse malformed replay before it crosses a provider boundary; never invent a missing receipt. */

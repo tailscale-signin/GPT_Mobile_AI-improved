@@ -13,7 +13,7 @@ import kotlinx.serialization.json.longOrNull
 internal fun providerErrorDetails(body: String, fallback: String, credential: String? = null): String {
     val envelope = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
     val error = envelope?.get("error") as? JsonObject ?: envelope
-    val templateFailure = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(body)?.takeIf { it.code == "BACKEND_TEMPLATE_INVALID" }
+    val templateFailure = providerResponseContractFailure(body)?.takeIf { it.code == "BACKEND_TEMPLATE_INVALID" }
     val metadata = error?.get("metadata") as? JsonObject
     fun JsonObject?.value(key: String) = (this?.get(key) as? JsonPrimitive)?.contentOrNull
     val details = listOfNotNull(
@@ -48,6 +48,24 @@ internal fun providerErrorDetails(body: String, fallback: String, credential: St
     return redactLogMessage(redacted).replace('\n', ' ').replace('\r', ' ').take(1600)
 }
 
+/** An earlier attempt's cause cannot replace the terminal envelope's current error. */
+internal fun providerResponseContractFailure(body: String): dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure? {
+    val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+    val error = root?.get("error") as? JsonObject
+    return if (dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(error?.get("gateway_recovery") as? JsonObject) != null) {
+        dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(
+            (error?.get("code") as? JsonPrimitive)?.contentOrNull,
+            (error?.get("message") as? JsonPrimitive)?.contentOrNull
+        )
+    } else {
+        dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(body)
+    }
+}
+
+internal fun hasRetainedGatewayAttempts(details: JsonObject?): Boolean =
+    dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromDetails(details) != null ||
+        dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(details) != null
+
 /** Allowlisted gateway context survives HTTP and SSE parsing without retaining request bodies. */
 internal fun structuredProviderFailure(body: String, httpStatus: Int? = null): JsonObject? {
     val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
@@ -81,7 +99,15 @@ internal fun structuredProviderFailure(body: String, httpStatus: Int? = null): J
     }?.let { fields["reasonCode"] = it }
     (error?.get("unknown_field_count") as? JsonPrimitive)?.takeIf { !it.isString && it.intOrNull?.let { count -> count in 0..98_304 } == true }
         ?.let { fields["unknown_field_count"] = it }
-    boundedRepairUsage(error?.get("gateway_recovery") as? JsonObject)?.let { fields["gateway_recovery"] = it }
+    boundedRepairUsage(error?.get("gateway_recovery") as? JsonObject)?.let {
+        fields["gateway_recovery"] = it
+        // The gateway has retained prior backend work or uncertainty. A later
+        // rejection cannot authorize replay of the complete logical request.
+        if (hasRetainedGatewayAttempts(JsonObject(mapOf("gateway_recovery" to it)))) {
+            fields["retryable"] = JsonPrimitive(false)
+            fields["request_replay_allowed"] = JsonPrimitive(false)
+        }
+    }
     httpStatus?.takeIf { it in 100..599 }?.let { fields["http_status"] = JsonPrimitive(it) }
     dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(
         (error?.get("code") as? JsonPrimitive)?.contentOrNull,
@@ -107,12 +133,13 @@ internal fun structuredProviderFailure(body: String, httpStatus: Int? = null): J
 
 /** Keep exact measured attempts separately; missing usage is never an estimated total. */
 private fun boundedRepairUsage(recovery: JsonObject?): JsonObject? {
-    if (recovery?.get("usage_origin") != JsonPrimitive("PROVIDER_REPORTED") || recovery["usage_estimated"] != JsonPrimitive(false)) return null
-    val observed = mutableMapOf<String, kotlinx.serialization.json.JsonElement>(
-        "usage_origin" to JsonPrimitive("PROVIDER_REPORTED"),
-        "usage_estimated" to JsonPrimitive(false)
-    )
-    for (key in listOf("attempts", "failed_attempt", "output_allowance")) {
+    val observed = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(recovery).orEmpty().toMutableMap()
+    if (recovery?.get("usage_origin") != JsonPrimitive("PROVIDER_REPORTED") || recovery["usage_estimated"] != JsonPrimitive(false)) {
+        return observed.takeIf { it.isNotEmpty() }?.let(::JsonObject)
+    }
+    observed["usage_origin"] = JsonPrimitive("PROVIDER_REPORTED")
+    observed["usage_estimated"] = JsonPrimitive(false)
+    for (key in listOf("attempts", "completed_attempts", "failed_attempt", "output_allowance")) {
         val value = (recovery[key] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
         if (value != null && value >= 0 && (key == "output_allowance" || value <= 8)) observed[key] = JsonPrimitive(value)
     }

@@ -6,6 +6,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PreparationErrorClassificationTest {
+    @Test fun changedRecoveryCheckpointsRetainTheirCauseAndRequireReconciliation() {
+        for (code in listOf("PROVIDER_WAIT_CHECKPOINT_CHANGED", "RESEARCH_RECOVERY_ACTION_CHANGED")) {
+            val result = ErrorClassification.classify(IllegalStateException("Request failed", IllegalStateException(code)))
+            assertEquals(ErrorCategory.POLICY_STALE, result.category)
+            assertEquals("POLICY_STALE", result.errorCode)
+            assertFalse(result.isRetryable)
+            assertFalse(ErrorTemplates.getTemplateFor(result).autoRetry)
+            assertTrue(result.userMessage.startsWith("$code:"))
+            assertTrue(result.userMessage.contains("completed actions remain recorded"))
+        }
+    }
+
+    @Test fun providerProseCannotManufactureALocalCheckpointGuard() {
+        val result = ErrorClassification.classify(IllegalStateException("Provider mentioned PROVIDER_WAIT_CHECKPOINT_CHANGED in its response"))
+        assertEquals(ErrorCategory.UNKNOWN, result.category)
+    }
+
     @Test fun staleAuthorizationRequiresFreshPreparationAndNeverBlindReplay() {
         val cases = mapOf(
             "MEMORY_STALE" to ErrorCategory.MEMORY_STALE,

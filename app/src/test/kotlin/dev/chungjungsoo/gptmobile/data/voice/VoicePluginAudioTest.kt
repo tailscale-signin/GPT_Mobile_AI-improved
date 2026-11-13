@@ -6,6 +6,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePluginAudioTest {
+    @Test fun projectedReplyAndReplayPreserveLeadingNumbersThroughTheDeferredOutput() {
+        val spoken = mutableListOf<String>()
+        val completions = mutableListOf<() -> Unit>()
+        val output = object : KokoroOutput {
+            override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) =
+                kotlin.error("Already-projected speech must not reenter raw Markdown projection")
+            override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
+                spoken += requireNotNull(KokoroSpeechText.projectedParts(text) { true }).joinToString(" ")
+                completions += complete
+            }
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val plugin = VoicePluginAudio(system, local, DeferredKokoroOutput { output }) {}.apply { kokoroVoice = KokoroVoice.HEART }
+        val session = VoiceSession(plugin, { true }, {})
+        session.access(true, true, true)
+        session.restore("Read this answer", "", review = false, pending = true)
+        session.resume()
+        val original = "<span>1. Continue with the answer.</span>"
+        session.reply("run", original)
+        var completion = 0
+        while (completion < completions.size) completions[completion++]()
+        assertEquals("one. continue with the answer.", spoken.joinToString(" "))
+        assertEquals(original, session.state.reply)
+        session.replay()
+        while (completion < completions.size) completions[completion++]()
+        assertEquals("one. continue with the answer. one. continue with the answer.", spoken.joinToString(" "))
+        assertEquals(original, session.state.reply)
+        session.close()
+    }
+
     private class SystemAudio : VoiceAudio {
         var starts = 0
         var stops = 0

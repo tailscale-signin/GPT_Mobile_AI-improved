@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
+import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
@@ -18,6 +19,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -75,12 +77,17 @@ class ToolCatalogAdmissionTest {
             ResolvedAgentTool(tool, null, "GitHub", tool.definition.name, tool.definition.name, progressiveCatalog = catalog.takeIf { tool === catalog })
         }
         val turns = listOf(ConversationTurn(MessageV2(content = "check repo status", platformType = null), null, true))
-        val plan = planAuthorizedToolContext(turns, "Use current schemas.", resolved, TokenBudgetSettings(contextTokens = 4096, outputTokens = 1024), true)
-        assertEquals(setOf("github_context", "github_search", "github_read", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
+        val blocked = assertThrows(IllegalArgumentException::class.java) {
+            planAuthorizedToolContext(turns, "Use current schemas.", resolved, TokenBudgetSettings(contextTokens = 4096, outputTokens = 1024), true)
+        }
+        assertTrue(blocked.message.orEmpty().startsWith("GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET:"))
+        val plan = planAuthorizedToolContext(turns, "Use current schemas.", resolved, TokenBudgetSettings(contextTokens = 8192, outputTokens = 1024), true)
+        assertEquals(setOf("github_context", "github_pr", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
         assertFalse(plan.tools.any { !it.modelVisible })
         assertEquals(resolved.map { it.modelToolName }.toSet(), plan.authorizedTools.map { it.name }.toSet())
-        println("GitHub ordinary admitted prompt: ${plan.promptTokens} estimated tokens, ${plan.tools.size} definitions")
-        assertTrue("Ordinary prompt estimate was ${plan.promptTokens}", plan.promptTokens < 1500)
+        val expected = resolved.map { it.tool.definition }.filter { it.name in setOf("github_context", "github_pr", ProgressiveToolCatalog.NAME) }
+        assertEquals(ContextBudgetService.breakdown(turns, "Use current schemas.", expected).total, plan.promptTokens)
+        assertTrue(plan.promptTokens < ContextBudgetService.breakdown(turns, "Use current schemas.", backends.map { it.definition }).total / 2)
         val prompt = liveToolSystemPrompt(null, resolved.map { it.modelToolName }, deferCapabilities = true)
         assertFalse(prompt.contains("Live mobile tool context"))
         assertFalse(prompt.contains("github_stage_patch"))

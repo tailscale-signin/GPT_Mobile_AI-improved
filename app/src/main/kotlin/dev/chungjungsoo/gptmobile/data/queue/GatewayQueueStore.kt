@@ -406,6 +406,36 @@ class GatewayQueueStore @Inject constructor(
         dao.releaseQueuedDispatch(lease.commandId, "USER_CANCELLED_BEFORE_DISPATCH") == 1
     }
 
+    internal suspend fun blockModelPreparation(lease: GatewaySubmissionRecord): Boolean = database.withTransaction {
+        if (dao.submission(lease.commandId) != lease || !canPrepareModel(lease)) return@withTransaction false
+        dao.saveSubmission(lease.copy(receipt = MODEL_PREPARATION_BLOCKED))
+        true
+    }
+
+    /** Explicit user retry only; this marker never grants authority over a started or unknown generation. */
+    internal suspend fun resumeModelPreparation(lease: GatewaySubmissionRecord): Boolean = database.withTransaction {
+        if (lease.receipt != MODEL_PREPARATION_BLOCKED || dao.submission(lease.commandId) != lease || !canPrepareModel(lease)) return@withTransaction false
+        dao.saveSubmission(lease.copy(receipt = null))
+        true
+    }
+
+    private suspend fun canPrepareModel(lease: GatewaySubmissionRecord): Boolean {
+        val run = lease.runId?.let { database.agentRunDao().getById(it) } ?: return false
+        val assistant = dao.localMessage(run.assistantMessageId) ?: return false
+        return lease.receipt != "BACKUP_RESTORED" &&
+            dao.queuedDispatches().singleOrNull() == lease &&
+            run.chatId == lease.chatId &&
+            run.userMessageId == lease.userMessageId &&
+            run.assistantMessageId == lease.assistantMessageId &&
+            assistant.currentRunId == run.runId &&
+            assistant.ownershipFence == run.ownershipFence &&
+            run.status in setOf("QUEUED", "INTERRUPTED") &&
+            run.startedAt == null &&
+            run.gatewayJobId == null &&
+            run.terminalError != "BACKUP_RESTORED" &&
+            dao.submissionsForRun(run.runId).isEmpty()
+    }
+
     internal suspend fun refresh(lease: GatewaySubmissionRecord) {
         if (dao.localChat(lease.chatId) != null) conversations.refreshChat(lease.chatId)
     }
@@ -434,6 +464,7 @@ class GatewayQueueStore @Inject constructor(
     internal suspend fun finishDelivery(lease: GatewaySubmissionRecord): Boolean = dao.finishQueuedDelivery(lease.commandId) == 1
 
     internal companion object {
+        const val MODEL_PREPARATION_BLOCKED = "MODEL_PREPARATION_REQUIRES_USER_RETRY"
         val TERMINAL_REMOTE_STATES = setOf("completed", "failed", "cancelled", "canceled", "interrupted", "expired")
     }
 }

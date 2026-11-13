@@ -29,7 +29,8 @@ internal fun searchFailureRetryable(code: String): Boolean = code in setOf(
     "TIMEOUT",
     "RATE_LIMITED",
     "UNAVAILABLE",
-    "SEARCH_PROVIDERS_UNAVAILABLE"
+    "SEARCH_PROVIDERS_UNAVAILABLE",
+    "SOURCE_SERVER_ERROR"
 )
 
 internal fun searchOperationReceipt(

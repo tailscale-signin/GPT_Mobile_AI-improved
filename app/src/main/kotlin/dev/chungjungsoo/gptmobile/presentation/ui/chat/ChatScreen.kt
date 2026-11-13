@@ -372,6 +372,9 @@ private fun ChatScreenContent(
     }
     val hiddenTurnCount = firstVisibleTurn
     val visibleTurnCount = groupedMessages.userMessages.size - firstVisibleTurn
+    val visibleUserMessages = remember(groupedMessages.userMessages, firstVisibleTurn) {
+        groupedMessages.userMessages.drop(firstVisibleTurn)
+    }
     val historyHeaderCount = (if (hiddenTurnCount > 0) 1 else 0) + (if (hasOlderHistory) 1 else 0)
     // Existing expanded/retained turn counts, not a claim about viewport visibility.
     val transcriptTiming = remember(visibleTurnCount, groupedMessages.userMessages.size) {
@@ -386,6 +389,11 @@ private fun ChatScreenContent(
         messageCount = visibleTurnCount + historyHeaderCount,
         hasTargetMessage = hasTargetMessage
     )
+    // Layout offsets change on every scroll/animation frame. Only a viewport
+    // resize changes the reserved height; avoid invalidating long answer rows.
+    val transcriptViewportHeight by remember(listState) {
+        derivedStateOf { listState.layoutInfo.viewportSize.height }
+    }
     val isUserDragging by listState.interactionSource.collectIsDraggedAsState()
     var isFollowingBottom by remember { mutableStateOf(!hasTargetMessage) }
     var isHoldingEntryCenter by remember { mutableStateOf(hasTargetMessage) }
@@ -934,17 +942,24 @@ private fun ChatScreenContent(
                     }
                 }
                 itemsIndexed(
-                    items = groupedMessages.userMessages.drop(firstVisibleTurn),
+                    items = visibleUserMessages,
                     key = { visibleIndex, message ->
                         chatMessagePairKey(message, firstVisibleTurn + visibleIndex)
-                    }
+                    },
+                    contentType = { _, _ -> "chat_turn" }
                 ) { visibleIndex, message ->
                     val index = firstVisibleTurn + visibleIndex
+                    val pairKey = chatMessagePairKey(message, index)
+                    // Read acknowledgment needs visibility transitions, not each
+                    // measured position of every item during smooth scrolling.
+                    val replyVisible by remember(listState, pairKey) {
+                        derivedStateOf { listState.layoutInfo.visibleItemsInfo.any { it.key == pairKey } }
+                    }
                     ChatMessagePair(
                         awaitingGitHubTurn = index == lastMessageIndex && awaitingGitHubTurn,
-                        reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { listState.layoutInfo.viewportSize.height.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
+                        reservedTurnHeight = if (githubPromptMode && index == lastMessageIndex) (with(density) { transcriptViewportHeight.toDp() } - composerHeight - 16.dp - innerPadding.calculateTopPadding()).coerceAtLeast(0.dp) else 0.dp,
                         replyRevision = pendingReplies.hashCode().toLong(),
-                        replyVisible = listState.layoutInfo.visibleItemsInfo.any { it.key == chatMessagePairKey(message, index) },
+                        replyVisible = replyVisible,
                         onAnswerDisplayed = { displayed -> chatViewModel.acknowledgeDisplayedReplies(listOf(displayed), pendingReplies) },
                         currentResearchTools = { chatViewModel.chatToolConfig.value },
                         githubAssistantReferences = githubResponseLinkContext,
@@ -1118,6 +1133,11 @@ private fun ChatScreenContent(
                                 if (queued.queuedCount > 0) Text("${queued.queuedCount} saved message${if (queued.queuedCount == 1) "" else "s"} waiting", style = MaterialTheme.typography.bodySmall)
                                 if (queued.state != dev.chungjungsoo.gptmobile.data.queue.GatewayQueuedState.RUNNING) {
                                     TextButton(onClick = chatViewModel::checkGatewayQueue) { Text("Check saved jobs") }
+                                }
+                                if (queued.canRetryModelPreparation) {
+                                    queued.runId?.let { runId ->
+                                        TextButton(onClick = { chatViewModel.retryGatewayModelPreparation(runId) }) { Text("Retry model preparation") }
+                                    }
                                 }
                                 if (queued.canCancelUnsubmitted) TextButton(onClick = chatViewModel::cancelUnsubmittedGateway) { Text("Stop unsubmitted message") }
                             }
@@ -1712,8 +1732,11 @@ internal fun ChatMessagePair(
     val agentRun = selectedRunId?.let(agentRunsById::get)
     val waitingForProvider = agentRun?.status == AgentRunStatus.WAITING_PROVIDER_LIMIT
     val waitingForApproval = agentRun?.status == AgentRunStatus.WAITING_FOR_APPROVAL
-    val providerRetryAt = selectedRunId?.let(providerWaitDeadlines::get)?.takeIf { it.fence == agentRun?.ownershipFence }?.retryAt
-    val rawAssistantContent = if (selectedSourceReader != null) "" else dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(selectedAssistantMessage?.effectiveContent().orEmpty())
+    val providerRetryAt = selectedRunId?.let(providerWaitDeadlines::get)?.takeIf { it.runId == selectedRunId && it.fence == agentRun?.ownershipFence }?.effectiveRetryAt
+    val effectiveAssistantContent = if (selectedSourceReader != null) "" else selectedAssistantMessage?.effectiveContent().orEmpty()
+    val rawAssistantContent = remember(effectiveAssistantContent) {
+        dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(effectiveAssistantContent)
+    }
     val assistantContent = when {
         selectedSourceReader != null -> ""
         rawAssistantContent.isBlank() && selectedAssistantMessage?.currentRunId?.let(agentRunsById::get)?.status == AgentRunStatus.WAITING_REMOTE_JOB -> "Waiting for the saved remote job. Check its status without submitting another generation."
@@ -1774,13 +1797,16 @@ internal fun ChatMessagePair(
         activeProfileUids = activePlatformUids - disabledPlatformUids,
         eventsByRun = toolEventsByRun
     )
-    val receiptScopedGitHubReferences = remember(githubAssistantReferences, provenanceToolEvents) {
-        githubAssistantReferences?.withReceiptReferences(
-            provenanceToolEvents.map { event ->
+    val referenceReceipts = remember(githubAssistantReferences != null, provenanceToolEvents) {
+        if (githubAssistantReferences == null) {
+            emptyList()
+        } else {
+            provenanceToolEvents.takeLast(128).filter { it.arguments.length <= 8_192 && it.result.orEmpty().length <= 32_768 }.map { event ->
                 GitHubReferenceReceipt(event.toolName, event.arguments, event.result)
             }
-        )
+        }
     }
+    val receiptScopedGitHubReferences = if (githubAssistantReferences == null) null else rememberGitHubReceiptReferences(githubAssistantReferences, referenceReceipts)
     val canShowPreviousRevision = !isSourceResponse &&
         (
             selectedAssistantMessage?.let { assistantMessage ->

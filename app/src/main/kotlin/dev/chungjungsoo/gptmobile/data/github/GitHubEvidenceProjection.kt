@@ -63,7 +63,13 @@ internal object GitHubEvidenceProjection {
     fun receipt(source: JsonObject): JsonObject {
         val original = source["result"] ?: return source
         if (source["review_projection"] == JsonPrimitive("EXACT_VALUES_WITH_DURABLE_ORIGINAL")) return source
-        val compact = if (source["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL)) catalog(original) ?: result(original) else result(original)
+        val compact = when {
+            source["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL) -> catalog(original) ?: result(original)
+            (source["tool"] as? JsonPrimitive)?.content?.substringBefore("__") == "github_context" &&
+                (source["arguments"] as? JsonObject)?.get("action") == JsonPrimitive("checks") &&
+                original is JsonObject -> result(checkRows(original))
+            else -> result(original)
+        }
         var excerptBytes = 0
         val excerpts = GitHubEvidenceExcerpts.collect(source).filter { (key, value) ->
             val cost = key.encodeToByteArray().size + value.toString().encodeToByteArray().size
@@ -80,6 +86,43 @@ internal object GitHubEvidenceProjection {
                 put("original_retrieval", "The immutable receipt and saved result pages retain omitted text. A projection does not establish omitted facts or complete remote coverage.")
             }
         )
+    }
+
+    /** Keep exact check pointers while removing repeated producer metadata before the byte budget. */
+    private fun checkRows(source: JsonObject): JsonObject {
+        val data = source["data"] as? JsonObject
+        val page = data ?: source
+        val changes = linkedMapOf<String, JsonElement>()
+        val checks = page["check_details"] as? JsonObject
+        (checks?.get("check_runs") as? JsonArray)?.let { rows ->
+            changes["check_details"] = JsonObject(
+                checks + (
+                    "check_runs" to JsonArray(
+                        rows.map { raw ->
+                            val row = raw as? JsonObject ?: return@map raw
+                            buildJsonObject {
+                                row.filterKeys { it in setOf("id", "name", "head_sha", "status", "conclusion", "required", "required_verified") }.forEach { (key, value) -> put(key, value) }
+                                (row["app"] as? JsonObject)?.get("id")?.let { put("app", buildJsonObject { put("id", it) }) }
+                            }
+                        }
+                    )
+                    )
+            )
+        }
+        val statuses = page["status_details"] as? JsonObject
+        (statuses?.get("statuses") as? JsonArray)?.let { rows ->
+            changes["status_details"] = JsonObject(
+                statuses + (
+                    "statuses" to JsonArray(
+                        rows.map { raw ->
+                            if (raw is JsonObject) JsonObject(raw.filterKeys { it in setOf("id", "context", "state", "target_url", "description", "created_at", "updated_at") }) else raw
+                        }
+                    )
+                    )
+            )
+        }
+        val compact = JsonObject(page + changes)
+        return if (data == null) compact else JsonObject(source + ("data" to compact))
     }
 
     /** Discovery metadata may be large; its exact, bounded page proof must survive independently. */

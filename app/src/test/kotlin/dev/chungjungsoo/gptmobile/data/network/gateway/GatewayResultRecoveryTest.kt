@@ -19,6 +19,31 @@ import org.junit.Test
 class GatewayResultRecoveryTest {
     private val json = Json { ignoreUnknownKeys = true }
 
+    @Test fun boundSavedResultRetainsAttemptMetadataWithoutRechargingItsHistoricalUsage() = runTest {
+        val attempts = """{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"},{"attempt":2,"output_allowance":39,"finish_reason":"STOP","visible_output_bytes":9,"reasoning_output_bytes":0,"terminal_error_code":null,"terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"}]}"""
+        val saved = decodeGatewayJobResult(json, """{"job_id":"saved","status":"completed","result_quality":"complete","job":{"job_id":"saved","model":"selected"},"result":{"model":"selected","choices":[{"message":{"content":"Recovered"},"finish_reason":"stop"}],"usage":{"prompt_tokens":12,"completion_tokens":18,"total_tokens":30},"gateway_recovery":$attempts}}""")
+        assertEquals(18, saved.result?.usage?.completionTokens)
+        val api = mockk<GatewayAPI>()
+        val config = ProviderRequestConfig("https://gateway.test/v1", "secret", extraHeaders = mapOf("X-Gateway-Job-ID" to "saved"))
+        coEvery { api.getJobResult("saved", config) } returns saved
+        val rejection = json.parseToJsonElement("""{"code":"terminal_job_not_resumable","job_id":"saved"}""").jsonObject
+        val recovered = requireNotNull(GatewayTerminalRecovery(api).read(409, rejection, config, "selected", "saved"))
+        assertEquals(saved.result?.gatewayRecovery, recovered.gatewayRecovery)
+        assertEquals(2, (requireNotNull(recovered.gatewayRecovery).getValue("attempt_receipts") as kotlinx.serialization.json.JsonArray).size)
+        assertNull(recovered.usage)
+        assertNull(recovered.error)
+        coEvery { api.getJobResult("saved", config) } returns saved.copy(jobId = "different")
+        assertNull(GatewayTerminalRecovery(api).read(409, rejection, config, "selected", "saved")?.gatewayRecovery)
+    }
+
+    @Test fun durableFailureDecoderRetainsNoUsageAttemptEvidenceInTheOriginalCause() {
+        val saved = decodeGatewayJobResult(json, """{"job_id":"saved","status":"failed","job":{"job_id":"saved","model":"selected"},"result":{"error":{"code":"completion_repair_budget_exhausted","message":"Repair exhausted","gateway_recovery":{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":1536,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"completion_repair_budget_exhausted","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"}]}}}}""")
+        val failure = requireNotNull(saved.savedFailure())
+        val recovery = requireNotNull(failure.failureDetails).getValue("gateway_recovery").jsonObject
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(11), ((recovery.getValue("attempt_receipts") as kotlinx.serialization.json.JsonArray).single().jsonObject)["reasoning_output_bytes"])
+        assertNull(dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails))
+    }
+
     @Test fun ordinaryProviderHeadersAndUntrustedBodiesCannotSupplyGatewayProof() {
         val ordinaryHeaders = mapOf("X-Request-ID" to "remote-request", "request-id" to "another-request", "X-Amzn-RequestId" to "cloud-request")
         assertNull(gatewayResponseMetadata(ordinaryHeaders::get))

@@ -1,0 +1,46 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "verify/session-reliability-77c55cc-2026-11-12",
+  "starting_sha": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+  "parent_pr": 881,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "pr881-open-issues-2026-11-12",
+  "state": "IMPLEMENTED_HOST_VERIFIED",
+  "intent": "Repair the seven currently open repository issues on PR 881, preserve concurrent changes and selected-model authority, verify the resulting changes, and close only with a specific resolution or improved diagnostic evidence when host conditions cannot be reproduced.",
+  "issues": {
+    "884": "Exact selected gateway model preparation and missing failure capture",
+    "885": "Review baseline resolution and typed input-required failure",
+    "886": "Repeated review baseline resolution failure",
+    "887": "GitHub acceptance prerequisite discovery and continuation",
+    "888": "Repeated GitHub acceptance prerequisite failure",
+    "889": "Full-scope GitHub acceptance fixture and workflow prerequisites",
+    "890": "Repeated full-scope acceptance prerequisite failure"
+  },
+  "validation": {
+    "focused_behavior": "PASS: current-source host harnesses; platform substitutions and limits described in the repair register",
+    "canonical_host": "PASS: bash scripts/validate-local.sh fast; 495 script tests plus schema, catalog, secret, regex and resource checks",
+    "hosted_android": "PENDING_NEW_CANDIDATE",
+    "physical_phone_and_private_gateway": "NOT_RUN",
+    "review_baseline": "PASS: 16 focused current-source Kotlin tests; pagination boundary explicitly substituted",
+    "failure_classification": "PASS: 34 current ProfileFailureRecord behavior tests; Android logging/persistence ports substituted",
+    "acceptance_planner": "PASS: 59 current-source Kotlin tests, with old-source negative control reproducing three planner failures",
+    "gateway_host": "PASS: isolated venv, unchanged hash-locked requirements; 70 Python module invocations, 925 reported test executions with 3 expected Windows/network skips; all 7 JavaScript tests passed",
+    "authentication_host": "PASS: 68 tests with unchanged hash-locked requirements",
+    "model_preparation": "PASS: 46 Kotlin tests, 21 direct gateway preparation tests and 35 gateway HTTP tests; original-source negative controls reproduce repaired defects",
+    "approved_reporting": "PASS: 35 Kotlin tests and three unchanged Kotlin payloads through the Python validator and renderer",
+    "ktlint": "PASS: pinned ktlint 1.3.1 on all 25 changed Kotlin files",
+    "package_provenance": "PASS: all 219 package hashes match; published source tree equals tested source tree",
+    "generated_inventories": "PASS: architecture and app audit inventory; 2518 app files, 26 areas; no executed-line coverage claim",
+    "release_scope": "CHECKED_BEFORE_PUBLICATION"
+  },
+  "review_followups": [
+    "Preserve durable model wake uncertainty when legacy catalogue and fresh model state disagree",
+    "Negotiate new gateway fields and review codes before hosted report submission",
+    "Preserve transport/authentication causes when an explicit baseline lookup fails"
+  ],
+  "published_source_sha": "4fc665accca064a3f35703a0837d13ab3e42df86",
+  "review_followups_status": "RESOLVED_AND_BEHAVIOR_TESTED"
+}

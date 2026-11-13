@@ -66,13 +66,13 @@ internal data class AgentRunTerminalDiagnostics(
                 dispatched = if (unknown) true.takeIf { failure?.dispatched == true } else failure?.dispatched.takeUnless { completed },
                 remoteAcceptance = if (unknown || completed) RemoteRequestAcceptance.UNKNOWN else failure?.remoteAcceptance ?: RemoteRequestAcceptance.UNKNOWN,
                 invocationId = failure?.invocationId.takeUnless { completed },
-                recoveryAction = failure?.recoveryActions?.firstOrNull() ?: recoveryAction(failure?.category, acceptance),
+                recoveryAction = if (completed) "NONE" else failure?.recoveryActions?.firstOrNull() ?: recoveryAction(failure?.category, acceptance),
                 taskState = acceptance?.taskState ?: when {
                     waitingForApproval -> "WAITING_FOR_APPROVAL"
                     rejectedApproval -> "REJECTED"
                     else -> null
                 },
-                stopCode = acceptance?.stopCode ?: failure?.category?.takeIf { it.startsWith("GITHUB_") || it in setOf("WAITING_FOR_APPROVAL", "APPROVAL_REJECTED", "TOOL_BUDGET_EXHAUSTED", "TASK_BUDGET_EXHAUSTED") },
+                stopCode = if (completed) null else acceptance?.stopCode ?: failure?.category?.takeIf { it.startsWith("GITHUB_") || it in setOf("WAITING_FOR_APPROVAL", "APPROVAL_REJECTED", "TOOL_BUDGET_EXHAUSTED", "TASK_BUDGET_EXHAUSTED") },
                 approvalState = acceptance?.approvalState ?: when {
                     waitingForApproval -> "WAITING_FOR_APPROVAL"
                     rejectedApproval -> "REJECTED"

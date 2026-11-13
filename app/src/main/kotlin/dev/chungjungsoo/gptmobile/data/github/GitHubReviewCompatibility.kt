@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.context.RouteCapabilityCache
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /** A short synthetic check uses only the selected route. No user prompt or GitHub write is sent. */
 internal class GitHubReviewCompatibility(now: () -> Long = { System.nanoTime() / 1_000_000L }) {
@@ -33,6 +35,36 @@ internal class GitHubReviewCompatibility(now: () -> Long = { System.nanoTime() /
         check(revision) { if (probe()) Result.Supported else Result.UnsupportedFormat } == Result.Supported
 
     companion object {
+        /** Capability identity is independent of the task/checkpoint identity.
+         * Permission validation still runs for every real request. Credentials,
+         * model/template observations and accepted reasoning/budget policy must
+         * all invalidate this short-lived format result when they change.
+         */
+        fun revision(
+            routeRevision: String,
+            model: String,
+            profileRevision: String,
+            policyRevision: String,
+            permissionRevision: String,
+            runtimeRevision: String,
+            templateRevision: String,
+            contextTokens: Int,
+            outputTokens: Int
+        ): String = GitHubEvidenceBook.digest(
+            buildJsonObject {
+                put("route", routeRevision)
+                put("model", model)
+                put("profile", profileRevision)
+                put("policy", policyRevision)
+                put("permission", permissionRevision)
+                put("runtime", runtimeRevision)
+                put("template", templateRevision)
+                put("schema", GitHubReviewSchema.format)
+                put("context", contextTokens)
+                put("output", outputTokens)
+            }.toString()
+        )
+
         // The selected profile may explicitly require reasoning. Leave room for
         // that policy and a visible verdict instead of imposing a 512-token cap.
         const val OUTPUT_TOKENS = 2048

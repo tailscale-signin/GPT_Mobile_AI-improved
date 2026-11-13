@@ -135,7 +135,7 @@ internal class ModernMcpTransport(private val http: HttpClient, private val inte
                         -32700 -> "REQUEST_JSON_ACCEPTANCE_REQUIRED" to "request"
                         else -> if (error.status == 404) "ENDPOINT_ROUTE_REQUIRED" to "endpoint" else "DISCOVERY_REQUEST_ACCEPTANCE_REQUIRED" to "server_discover"
                     }
-                    throw McpProtocolConfigurationException("MCP_DISCOVERY_CONFIGURATION", error.message.orEmpty(), error.status, rule, field)
+                    throw McpProtocolConfigurationException("MCP_DISCOVERY_CONFIGURATION", error.message.orEmpty(), error.status, rule, field, error.code?.takeIf { it in MCP_DECLARED_RPC_CODES })
                 }
                 else -> throw error
             }
@@ -623,7 +623,9 @@ internal class McpProtocolConfigurationException(
     detail: String,
     val httpStatus: Int? = null,
     val validationRule: String? = null,
-    val validationField: String? = null
+    val validationField: String? = null,
+    /** A recognized code declared by the remote JSON-RPC error, not independent cause verification. */
+    val declaredRpcErrorCode: Int? = null
 ) : IllegalStateException("$diagnosticCode: $detail Automatic discovery is paused until configuration changes or you reconnect.")
 
 private fun discoveryVersions(value: JsonElement?, field: String, httpStatus: Int): List<String> {

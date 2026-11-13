@@ -42,6 +42,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
         val boundedRun = run.copy(plan = retainedPlan, results = retainedResults)
         val summary = appAuditSummary(boundedRun)
         val score = appAuditScore(boundedRun)
+        val interpretation = appAuditInterpretation(boundedRun)
         val completeEvidence = omittedPlan == 0 && omittedResults == 0
         val inventory = readAppAuditInventory(sourceInventory, run)
         val coroutine = currentCoroutineContext()
@@ -66,12 +67,17 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                 put("selectedProfileCount", run.options.selectedProfileIds.distinct().size)
                 put("networkReadsSelected", run.options.allowNetworkReads)
                 put("executedProbes", run.executedProbes.coerceAtLeast(0))
-                put("networkAccountingVersion", 2)
+                put("networkAccountingVersion", 3)
+                put("networkProbesStarted", run.networkProbesStarted)
+                put("networkProbesAdmitted", run.networkAttemptBudgetUsed.coerceAtLeast(0))
+                put("networkProbesNotAdmitted", run.networkProbesNotAdmitted)
+                put("networkProbesAdmissionUnknown", run.networkProbesAdmissionUnknown)
+                put("networkProbesRejectedLocally", run.networkProbesRejectedLocally)
                 put("networkProbesAttempted", run.networkAttemptBudgetUsed.coerceAtLeast(0))
                 put("networkProbesDispatched", run.networkProbesConfirmed)
                 put("networkProbesConfirmed", run.networkProbesConfirmed)
                 put("networkProbesDispatchUnknown", run.networkProbesDispatchUnknown)
-                put("networkAccountingMeaning", "Attempts are durable logical client admissions and consume budget even when later rejected locally. Confirmed and unknown dispatches come from fresh receipts; cached evidence sends no request.")
+                put("networkAccountingMeaning", "Started means a network-read probe began, including local credential validation. Admitted (legacy attempted) means a durable logical client budget reservation, not remote dispatch. Per-check networkAdmission distinguishes these stages; UNKNOWN preserves older receipts. Local rejections may occur before or after admission. Confirmed and unknown dispatches come from fresh receipts; cached evidence sends no request.")
                 put("maxExecutedProbes", run.limits.maxExecutedProbes)
                 put("maxNetworkProbes", run.limits.maxNetworkProbes)
                 put("perProbeTimeoutMs", run.limits.perProbeTimeoutMs)
@@ -136,6 +142,17 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
             }
         )
         writer.field(
+            "interpretation",
+            buildJsonObject {
+                put("configurationPasses", interpretation.configurationPasses)
+                put("disabledIntegrationTargets", interpretation.disabledTargets)
+                put("optionalIntegrationsNotInstalled", interpretation.optionalAbsentTargets)
+                put("credentialBlockers", interpretation.credentialBlockers)
+                put("dependentUntestedChecks", interpretation.dependentUntestedChecks)
+                put("meaning", "Disabled and absent optional integrations are configuration states. Dependent execution checks remain part of the untested total and are not additional connection failures. Configuration passes do not contribute to measured quality or verified execution coverage.")
+            }
+        )
+        writer.field(
             "score",
             buildJsonObject {
                 put("policy", "app-audit-measured-pass-v1")
@@ -188,11 +205,21 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("observationSource", observation.observationSource.name)
                     put("dispatchEvidence", observation.dispatchEvidence.name)
                     put("attempted", result.attempted)
+                    put("probeStarted", result.attempted)
+                    put("networkAdmission", result.networkAdmission.name)
+                    put(
+                        "blockingPrerequisiteCheckIds",
+                        JsonArray(
+                            boundedRun.plan.firstOrNull { it.id == result.entryId }?.let { appAuditBlockingPrerequisiteIds(boundedRun, it) }.orEmpty()
+                                .mapNotNull(ids::get).map(::JsonPrimitive)
+                        )
+                    )
                     put("startedAtEpochMs", result.startedAtEpochMs.nonnegative())
                     put("finishedAtEpochMs", result.finishedAtEpochMs.nonnegative())
                     put("durationMs", result.durationMs?.nonnegative() ?: JsonNull)
                     put("retryable", observation.retryable?.let(::JsonPrimitive) ?: JsonNull)
                     put("httpStatus", observation.httpStatus?.takeIf { it in 100..599 }?.let(::JsonPrimitive) ?: JsonNull)
+                    put("declaredRpcErrorCode", observation.declaredRpcErrorCode?.takeIf { it in dev.chungjungsoo.gptmobile.data.agent.tool.MCP_DECLARED_RPC_CODES }?.let(::JsonPrimitive) ?: JsonNull)
                     put("configurationChanged", observation.configChanged)
                     put("failurePhase", safeAuditFailurePhase(observation.failurePhase))
                     put("failureCategory", safeAuditFailureCategory(observation.failureCategory))

@@ -145,6 +145,27 @@ class ChatViewModelStartupTest {
         assertTrue(model.loadingStates.value.all { it == ChatViewModel.LoadingState.Idle })
     }
 
+    @Test fun ordinaryTranscriptExportRunsOffTheUiCallerAndRetainsOnlyTheSelectedAnswer() = runTest(dispatcher) {
+        StartupRecoveryGate.start(backgroundScope) {}
+        messages.value = listOf(
+            MessageV2(id = 1, chatId = 7, content = "Private user prompt", platformType = null),
+            MessageV2(id = 2, chatId = 7, content = "<think>Internal thinking</think>\n# Saved answer\n\n**Useful** result.", platformType = profiles.first().uid)
+        )
+        val model = createViewModel(combined = false)
+        val caller = Thread.currentThread()
+        val preparationThread = java.util.concurrent.atomic.AtomicReference<Thread>()
+        coEvery { repository.fetchMessagesV2(7) } answers {
+            preparationThread.set(Thread.currentThread())
+            messages.value
+        }
+        val (name, content) = model.exportChat(ChatExportFormat.PLAIN_TEXT)
+        assertTrue(name.endsWith(".txt"))
+        assertEquals("Saved answer\n\nUseful result.", content)
+        assertNotEquals(caller, preparationThread.get())
+        assertFalse(content.contains("Private user prompt"))
+        assertFalse(content.contains("Internal thinking"))
+    }
+
     @Test fun normalGatewayTurnIsPersistedBeforeItsCoordinatorHandoff() = runTest(dispatcher) {
         verifyGatewayCoordinatorHandoff(backgroundScope)
     }
@@ -377,12 +398,13 @@ class ChatViewModelStartupTest {
         verify(exactly = 0) { coordinator.start(any()) }
         coVerify(exactly = 0) { repository.persistAgentRetry(any()) }
 
-        val extended = deadline.copy(retryAt = deadline.retryAt + 60_000)
+        val extended = deadline.withSchedule(deadline.retryAt + 60_000)
         waitDeadlines.value = listOf(extended)
-        assertEquals(extended.retryAt, model.combinedFailures.value.single().retryAfterMillis)
+        assertEquals(deadline.retryAt, extended.retryAt)
+        assertEquals(extended.effectiveRetryAt, model.combinedFailures.value.single().retryAfterMillis)
         clearViewModels()
         val restored = createViewModel()
-        assertEquals(extended.retryAt, restored.combinedFailures.value.single().retryAfterMillis)
+        assertEquals(extended.effectiveRetryAt, restored.combinedFailures.value.single().retryAfterMillis)
         assertEquals(waiting.runId, restored.combinedFailures.value.single().attemptId)
         verify(exactly = 0) { coordinator.start(any()) }
     }

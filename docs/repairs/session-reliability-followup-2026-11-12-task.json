@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "fix/session-reliability-reporting-2026-11-12",
+  "starting_head": "82dfad5cfa79d7225f45723f8107f40788d9e731",
+  "integrated_concurrent_head": "219172d8e4302652de48159849e7fd1470c24e4b",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "session-reliability-followup-2026-11-12",
+  "checkpoint_storage": "repository_file",
+  "state": "SOURCE_REPAIRS_PUBLISHED_FINAL_METADATA_VALIDATION_PENDING",
+  "intent": "Repair actionable diagnostic failures and review all ten observed issues #839\u2013#848; close only defects with published source and matching execution evidence.",
+  "evidence": {
+    "diagnostics_session": "2984dfe7-f497-4ef6-b235-783847100fd8",
+    "app_commit": "d739321b2ac1eb9eb29675ad3c9b59b2d635a1c2",
+    "verified_section_hashes": 20,
+    "archive_complete": true,
+    "open_issues_at_start": [
+      839,
+      840,
+      841,
+      842,
+      843,
+      844,
+      845,
+      846,
+      847
+    ],
+    "new_issue_during_validation": 848,
+    "issues_reviewed": [
+      839,
+      840,
+      841,
+      842,
+      843,
+      844,
+      845,
+      846,
+      847,
+      848
+    ],
+    "closed_issues": [
+      839,
+      840,
+      842,
+      843,
+      844,
+      845,
+      846,
+      847
+    ],
+    "remaining_open_issues": [
+      841,
+      848
+    ]
+  },
+  "recovery": {
+    "lost_local_commit": "658b559d9d4bb2cbbef983bbc10dc699bddbb01b",
+    "reason": "Executor replacement discarded scratch checkout and final Android validation before remote publication. Reconstruct retained patches, then revalidate.",
+    "prior_observed_results": {
+      "host": 472,
+      "authentication": 48,
+      "browser": 7,
+      "kotlin_style_files": 40,
+      "android": "Production compile passed before last dispatcher/inventory updates; final regression execution interrupted."
+    },
+    "resolution": "Restored patches, preserved concurrent repairs, published with a guarded Git Data fast-forward, then verified the published Android checkout and downloaded its JVM results."
+  },
+  "publication": {
+    "mode": "GUARDED_FAST_FORWARD_ONLY",
+    "force": false,
+    "pull_request": 838,
+    "source_commit": "1b7d1c68936a335dc921815469894bb0a42aea00",
+    "gateway_manifest_commit": "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
+    "completion_context_commit": "c880d5c9b9c8224f8aefd2e9ac4adfb0bac65e39",
+    "preserved_later_gateway_source": "9155a1a23918578baf11261a6152d35d36559598",
+    "preserved_later_accounting_and_qualification": "53e3139889f57467c8e3ca1aa78e7a32183a26c6"
+  },
+  "validation": {
+    "published_core_repair": {
+      "branch_head": "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
+      "tested_pr_merge": "956d50d320c9d2f4794a21eee6886b39eaa14ded",
+      "identical_tree": "6271574ac86dea5aa674a2406c5f2dd4bcb29506",
+      "run_id": 43281518258,
+      "job_id": 131404145679,
+      "production_compilation": "PASSED",
+      "test_compilation": "PASSED",
+      "full_unit_and_coverage_step": "PASSED",
+      "jvm_suites": 1437,
+      "jvm_tests_total": 9551,
+      "jvm_passed": 9546,
+      "jvm_skipped": 5,
+      "jvm_failures": 0,
+      "jvm_errors": 0,
+      "jvm_skips": "Five opt-in heap tests; separate constrained-heap step passed. Affected regression classes have no skips.",
+      "constrained_heap": "PASSED",
+      "test_result_publication": "PASSED",
+      "xml_artifact_id": 13973484820,
+      "xml_artifact_sha256": "9a88f650648e3dfe8088c831824399cea4ddd2e546de40c1b6b2b6f3500904d0",
+      "overall_job": "CANCELLED_DURING_REVIEW_APK_UPLOAD_AFTER_NEW_SOURCE_PUSH",
+      "review_apk_build_and_packaged_runtime": "PASSED",
+      "separate_apk_run": 43281518207,
+      "separate_apk_result": "PASSED",
+      "apk_artifact_id": 13974800800,
+      "windows_gateway_python_3_12": "PASSED",
+      "windows_gateway_python_3_13": "PASSED",
+      "android_acceptance_api_34_and_36": "PASSED",
+      "android_16_r8_real_jni": "PASSED",
+      "host_tests_passed": 472,
+      "authentication_tests_passed": 48,
+      "gateway_python_suites": 69,
+      "gateway_python_collected": 903,
+      "gateway_python_passed": 901,
+      "gateway_python_skipped": 2,
+      "gateway_browser_passed": 7,
+      "gateway_skip_reasons": [
+        "Windows Credential Manager is unavailable on Linux",
+        "No bindable LAN IPv4 address"
+      ],
+      "kotlin_style": "PASSED_40_RECOVERED_FILES_KTLINT_1_3_1",
+      "local_log_sha256": {
+        "host": "72dfe52858b941b94d5090dae67e3ecffb3e8cc5854cd3395a3e6639acc2a0f0",
+        "authentication": "405d242c19017a74ba2882ca0f92d6406de6ed9c46ed12d663d940ff3843a3c0",
+        "gateway": "0332aff1c641b1785291915a9aa03657ac6613e3a874e24fc0299548d8f26d04"
+      }
+    },
+    "final_producer_metadata_followup": {
+      "state": "LOCAL_CHECKS_PASSED_HOSTED_ANDROID_PENDING",
+      "published_results_location": "PR #838 final exact-head validation comment",
+      "host_tests_passed": 473,
+      "authentication_tests_passed": 53,
+      "focused_service_tests_passed": 3,
+      "kotlin_style": "PASSED_7_CHANGED_KOTLIN_FILES_KTLINT_1_3_1",
+      "generated_inventory": "PASSED",
+      "working_tree_release_scope": "PASSED_SCOPED",
+      "android_new_methods": "SIX_ADDED_KOTLIN_REGRESSIONS_PENDING_EXACT_PUBLISHED_HEAD_EXECUTION",
+      "local_log_sha256": {
+        "host": "1e73389af004e495b16129b717f53f91324fd51f794a8bc8579677f5fa690597",
+        "authentication": "184e71b8091bdc098d0343b5622105343de73267f6aedef0b9a87c6f9c3a67f0"
+      },
+      "integrated_parent": "219172d8e4302652de48159849e7fd1470c24e4b"
+    },
+    "device": "NOT_RUN_NO_AFFECTED_PHONE",
+    "private_services": "INACCESSIBLE"
+  },
+  "remaining_evidence": {
+    "841": "Affected phone focus acquisition and actual PCM capture, including lifecycle interruption and bounded retry, remain unobserved.",
+    "848": "Old-build occurrence at 18:08:46.096 UTC is outside the original archive. Need its matching run checkpoint/failed acceptance criterion or a reproducible fresh capture on the repaired build; the new reporting metadata alone does not establish the cause.",
+    "logs": "Matching engineering guard prerequisite evidence, actual private MCP listeners/protocol routes, and phone frame/OEM profiling remain unavailable."
+  }
+}

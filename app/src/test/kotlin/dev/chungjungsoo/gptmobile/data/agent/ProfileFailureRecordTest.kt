@@ -6,6 +6,151 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun typedEngineeringRejectionRetainsSafeDetailsAcrossProcessSerialization() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"reasonCode":"ENGINEERING_BUDGET_INVALID","invalid_fields":["execution_budget","private-field"],"failed_stage":"request_validation","http_status":409,"message":"private gateway reply"}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("The saved request was rejected", "ENGINEERING_STATE_OR_INPUT_CHANGED", details)
+        val encoded = kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure)
+        val restored = kotlinx.serialization.json.Json.decodeFromString(ProfileFailureRecord.serializer(), encoded)
+        assertEquals("ENGINEERING_STATE_OR_INPUT_CHANGED", restored.category)
+        assertEquals("request_validation", restored.phase)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("ENGINEERING_BUDGET_INVALID"), restored.engineeringRejection?.get("reasonCode"))
+        assertEquals(kotlinx.serialization.json.Json.parseToJsonElement("""["execution_budget"]"""), restored.engineeringRejection?.get("invalid_fields"))
+        assertFalse(restored.retryAllowed)
+        assertEquals(false, restored.requestReplayAllowed)
+        assertFalse(encoded.contains("private"))
+        val unrelated = ProfileFailureRecord.fromProvider("A provider error", "PROVIDER_INVOCATION_FAILED", details)
+        assertEquals(null, unrelated.engineeringRejection)
+        val unknown = ProfileFailureRecord.fromProvider("Rejected", "ENGINEERING_STATE_OR_INPUT_CHANGED", kotlinx.serialization.json.Json.parseToJsonElement("""{"reasonCode":"PRIVATE_REASON"}""") as kotlinx.serialization.json.JsonObject)
+        assertEquals(null, unknown.engineeringRejection)
+    }
+
+    @Test fun baselineInputIsAnExplicitTaskPrerequisiteAfterSerialization() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"review_comparison","dispatched":false,"next_action":"SELECT_REVIEW_BASELINE"}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("Choose a baseline commit or tag", "REVIEW_INPUT_REQUIRED", details)
+        val restored = kotlinx.serialization.json.Json.decodeFromString(ProfileFailureRecord.serializer(), kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertTrue(restored.isUserInputRequired)
+        assertFalse(restored.retryAllowed)
+        assertEquals(false, restored.requestReplayAllowed)
+        assertFalse(restored.copy(dispatched = null).isUserInputRequired)
+        assertFalse(restored.copy(category = "PROVIDER_INVOCATION_FAILED").isUserInputRequired)
+    }
+
+    @Test fun typedReviewPrerequisitesKeepTheirCategoryWithoutDependingOnErrorProse() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"review_comparison","dispatched":false,"dispatch_state":"NOT_DISPATCHED","remote_acceptance":"NO","retryable":false,"request_replay_allowed":false,"next_action":"SELECT_REVIEW_BASELINE"}""") as kotlinx.serialization.json.JsonObject
+        for (code in listOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")) {
+            for (message in listOf("", "Which commit or tag should be the review baseline?")) {
+                val failure = ProfileFailureRecord.fromProvider(message, code, details)
+                val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+                assertEquals("REVIEW_INPUT_REQUIRED", restored.category)
+                assertEquals("review_comparison", restored.phase)
+                assertEquals(false, restored.dispatched)
+                assertEquals(RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+                assertFalse(restored.retryAllowed)
+                assertEquals(false, restored.requestReplayAllowed)
+                assertEquals(listOf("SELECT_REVIEW_BASELINE"), restored.recoveryActions)
+            }
+        }
+        assertTrue(ProfileFailureRecord.reviewRetryBlock("REVIEW_INPUT_REQUIRED review_comparison")!!.contains("Baseline:"))
+        assertFalse(ProfileFailureRecord.reviewRetryBlock("REVIEW_INPUT_REQUIRED")!!.contains("Baseline:"))
+    }
+
+    @Test fun typedProviderCooldownKeepsTheSameDeadlineAsTheIncidentAndLocalRejection() {
+        val retryAt = 1_800_000_030_156L
+        for (dispatched in listOf(true, false)) {
+            val details = kotlinx.serialization.json.buildJsonObject {
+                put("failed_stage", kotlinx.serialization.json.JsonPrimitive(if (dispatched) "model_invocation" else "provider_admission"))
+                put("http_status", kotlinx.serialization.json.JsonPrimitive(429))
+                put("dispatched", kotlinx.serialization.json.JsonPrimitive(dispatched))
+                put("dispatch_state", kotlinx.serialization.json.JsonPrimitive(if (dispatched) "FAILED" else "PRECHECK_REJECTED"))
+                put("remote_acceptance", kotlinx.serialization.json.JsonPrimitive("NO"))
+                put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(30_156))
+                put("retry_at_ms", kotlinx.serialization.json.JsonPrimitive(retryAt))
+            }
+            val failure = ProfileFailureRecord.fromProvider("Request unavailable", "429", details)
+            assertEquals("RATE_LIMIT", failure.category)
+            assertEquals(retryAt, failure.retryAfterMillis)
+            assertEquals(dispatched, failure.dispatched)
+            assertEquals(if (dispatched) "FAILED" else "PRECHECK_REJECTED", failure.dispatchState)
+        }
+    }
+
+    @Test fun unknownModelInvocationFailureRetainsItsDomainWithoutGrantingRetryFromProse() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"model_invocation","retryable":true,"request_replay_allowed":true}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("An old HTTP 503 may have been retried. No request was dispatched; retryAfterMs=2000", "PROVIDER_INVOCATION_FAILED", details)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertEquals("PROVIDER_INVOCATION_FAILED", restored.category)
+        assertEquals("model_invocation", restored.phase)
+        assertFalse(restored.retryAllowed)
+        assertEquals(null, restored.dispatched)
+        assertEquals(null, restored.retryAfterMillis)
+        assertEquals(false, restored.requestReplayAllowed)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, restored.remoteAcceptance)
+
+        val typedDispatch = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"model_invocation","dispatched":true,"remote_acceptance":"YES"}""") as kotlinx.serialization.json.JsonObject
+        val dispatched = ProfileFailureRecord.fromProvider("No request was dispatched", "PROVIDER_INVOCATION_FAILED", typedDispatch)
+        assertEquals(true, dispatched.dispatched)
+        assertEquals(RemoteRequestAcceptance.YES, dispatched.remoteAcceptance)
+        assertFalse(dispatched.retryAllowed)
+
+        val uncertain = ProfileFailureRecord.fromProvider("RECONCILIATION_REQUIRED: a previous operation has no receipt", "PROVIDER_INVOCATION_FAILED", details)
+        assertEquals("TOOL_OUTCOME_UNKNOWN", uncertain.category)
+        assertFalse(uncertain.retryAllowed)
+        assertEquals(false, uncertain.requestReplayAllowed)
+    }
+
+    @Test fun githubVerificationAndReviewPhasesAndActionsSurviveSerializationWithoutRetryAuthorization() {
+        for ((stage, action) in listOf("acceptance_verification" to "RESUME_UNFINISHED_WORK", "review_comparison" to "SELECT_REVIEW_BASELINE", "review_comparison" to "RESTORE_REVIEW_COMPARISON_EVIDENCE", "approval" to null)) {
+            val details = kotlinx.serialization.json.buildJsonObject {
+                put("failed_stage", kotlinx.serialization.json.JsonPrimitive(stage))
+                action?.let { put(if (stage == "review_comparison") "next_action" else "recovery_action", kotlinx.serialization.json.JsonPrimitive(it)) }
+            }
+            val code = if (stage == "approval") "WAITING_FOR_APPROVAL" else "GITHUB_TASK_INCOMPLETE"
+            val failure = ProfileFailureRecord.fromProvider("Unfinished task", code, details)
+            val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+            assertEquals(stage, restored.phase)
+            assertEquals(listOfNotNull(action), restored.recoveryActions)
+            assertFalse(restored.retryAllowed)
+            assertEquals(null, restored.requestReplayAllowed)
+            assertEquals(null, restored.dispatched)
+            assertEquals(null, restored.invocationId)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, restored.remoteAcceptance)
+        }
+    }
+
+    @Test fun reconciliationGuidanceCannotWeakenAnUnknownRemoteOutcome() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"acceptance_verification","recovery_action":"RECONCILE_REMOTE_OUTCOME","dispatched":false,"remote_acceptance":"NO","retryable":true,"request_replay_allowed":true}""") as kotlinx.serialization.json.JsonObject
+        val failure = ProfileFailureRecord.fromProvider("An earlier operation has no result", "RECONCILIATION_REQUIRED", details)
+        val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+        assertEquals("TOOL_OUTCOME_UNKNOWN", restored.category)
+        assertEquals("tool_dispatch", restored.phase)
+        assertEquals(listOf("RECONCILE_REMOTE_OUTCOME"), restored.recoveryActions)
+        assertFalse(restored.retryAllowed)
+        assertEquals(false, restored.requestReplayAllowed)
+        assertEquals(null, restored.dispatched)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, restored.remoteAcceptance)
+    }
+
+    @Test fun explicitRecoveryActionTakesPrecedenceAndPrivateActionsRemainExcluded() {
+        val explicit = kotlinx.serialization.json.Json.parseToJsonElement("""{"recovery_action":"RESUME_UNFINISHED_WORK","next_action":"SELECT_REVIEW_BASELINE"}""") as kotlinx.serialization.json.JsonObject
+        assertEquals(listOf("RESUME_UNFINISHED_WORK"), ProfileFailureRecord.fromProvider("", "GITHUB_TASK_INCOMPLETE", explicit).recoveryActions)
+        for (raw in listOf("""{"recovery_action":"https://private.example/path","next_action":"SELECT_REVIEW_BASELINE"}""", """{"next_action":"REPLAY_MUTATION","allowed_recovery_actions":["private-action",42]}""")) {
+            val details = kotlinx.serialization.json.Json.parseToJsonElement(raw) as kotlinx.serialization.json.JsonObject
+            assertEquals(emptyList<String>(), ProfileFailureRecord.fromProvider("", "GITHUB_TASK_INCOMPLETE", details).recoveryActions)
+        }
+    }
+
+    @Test fun typedPrivacyRejectionKeepsItsSetupRecoveryEvenWithoutMessageText() {
+        val api = dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException("private account policy").asApiError("run-privacy")
+        val failure = ProfileFailureRecord.fromProvider("", api.errorCode, api.failureDetails)
+        assertEquals("PRIVACY_CONFIGURATION", failure.category)
+        assertEquals("provider_admission", failure.phase)
+        assertEquals(false, failure.dispatched)
+        assertEquals(RemoteRequestAcceptance.NO, failure.remoteAcceptance)
+        assertFalse(failure.retryAllowed)
+        assertEquals(null, failure.invocationId)
+        assertEquals(listOf("RETRY_AFTER_CONFIGURATION_CHANGE"), failure.recoveryActions)
+    }
+
     @Test fun unavailableSavedViewRequiresSourceProofWithoutEnablingGenericRetry() {
         val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"retryable":true,"source_read_recovery":{"available":true}}""") as kotlinx.serialization.json.JsonObject
         val failure = ProfileFailureRecord.fromProvider("The saved view expired", "SAVED_VIEW_UNAVAILABLE", details)

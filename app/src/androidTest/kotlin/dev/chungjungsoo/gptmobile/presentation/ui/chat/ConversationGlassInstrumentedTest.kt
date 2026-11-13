@@ -1,6 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
+import android.view.PixelCopy
+import androidx.activity.ComponentActivity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -20,11 +24,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.test.captureToImage
-import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.unit.dp
 import androidx.test.filters.SdkSuppress
@@ -38,6 +40,9 @@ import dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayBlur
 import dev.chungjungsoo.gptmobile.presentation.common.LocalOverlayMaterial
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
 import java.io.File
+import java.util.concurrent.CompletableFuture
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -46,7 +51,7 @@ import org.junit.Test
 /** Uses the production viewport capture/fade order, not an unrelated full-screen source. */
 @SdkSuppress(minSdkVersion = 32)
 class ConversationGlassInstrumentedTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val frameEffects = FrameEffectsGuard()
     private var dark by mutableStateOf(false)
     private var backdropEnabled by mutableStateOf(true)
@@ -63,7 +68,7 @@ class ConversationGlassInstrumentedTest {
             }
             val red = samples()
             compose.runOnIdle { pattern = Pattern.BLUE }
-            val blue = samples()
+            val blue = samples("conversation-glass-opacity-${if (darkTheme) "dark" else "light"}.png")
             for ((tag, transparency) in listOf("chat_input_glass" to 0.15, "chat_latest_glass" to 0.50)) {
                 // The plate color cancels out. A red -> blue background changes R-B
                 // by 2 * transparency; an opaque/faded/missing source changes nothing.
@@ -71,7 +76,6 @@ class ConversationGlassInstrumentedTest {
                 assertEquals("$tag dark=$darkTheme must transmit the requested backdrop fraction", transparency, transmission, 0.045)
                 println("CONVERSATION_GLASS_OPACITY tag=$tag dark=$darkTheme transmission=$transmission")
             }
-            saveScreenshot("conversation-glass-opacity-${if (darkTheme) "dark" else "light"}.png")
         }
     }
 
@@ -107,11 +111,9 @@ class ConversationGlassInstrumentedTest {
                 dark = darkTheme
                 backdropEnabled = false
             }
-            val sharp = samples()
-            saveScreenshot("conversation-glass-sharp-${if (darkTheme) "dark" else "light"}.png")
+            val sharp = samples("conversation-glass-sharp-${if (darkTheme) "dark" else "light"}.png")
             compose.runOnIdle { backdropEnabled = true }
-            val filtered = samples()
-            saveScreenshot("conversation-glass-blur-${if (darkTheme) "dark" else "light"}.png")
+            val filtered = samples("conversation-glass-blur-${if (darkTheme) "dark" else "light"}.png")
             for (tag in sharp.keys) {
                 val before = variance(sharp.getValue(tag))
                 val after = variance(filtered.getValue(tag))
@@ -128,8 +130,7 @@ class ConversationGlassInstrumentedTest {
         showConversation()
         val filtered = samples()
         compose.runOnIdle { frameEffects.observeCriticalStall(250_000_000, 1000) }
-        val fallback = samples()
-        saveScreenshot("conversation-glass-pressure-fallback.png")
+        val fallback = samples("conversation-glass-pressure-fallback.png")
         for (tag in fallback.keys) {
             val sharp = variance(fallback.getValue(tag))
             val blurred = variance(filtered.getValue(tag))
@@ -139,8 +140,7 @@ class ConversationGlassInstrumentedTest {
 
         // No healthy frame window is supplied: an idle screen must also recover.
         compose.runOnIdle { frameEffects.recoverAfterCooldown(31000) }
-        val recovered = samples()
-        saveScreenshot("conversation-glass-pressure-recovered.png")
+        val recovered = samples("conversation-glass-pressure-recovered.png")
         for (tag in recovered.keys) {
             val sharp = variance(fallback.getValue(tag))
             val restored = variance(recovered.getValue(tag))
@@ -212,23 +212,39 @@ class ConversationGlassInstrumentedTest {
         }
     }
 
-    private fun samples(): Map<String, List<Double>> {
+    private fun samples(screenshot: String? = null): Map<String, List<Double>> {
         compose.waitForIdle()
-        return listOf("chat_input_glass", "chat_latest_glass").associateWith { tag ->
-            val pixels = compose.onNodeWithTag(tag, useUnmergedTree = true).captureToImage().toPixelMap()
-            val composer = tag == "chat_input_glass"
-            val values = mutableListOf<Double>()
-            val left = (pixels.width * 0.35f).toInt()
-            val right = (pixels.width * 0.65f).toInt()
-            val top = (pixels.height * if (composer) 0.60f else 0.18f).toInt()
-            val bottom = (pixels.height * if (composer) 0.80f else 0.30f).toInt()
-            for (y in top until bottom) {
-                for (x in left until right) {
-                    val color = pixels[x, y]
-                    values += (color.red - color.blue).toDouble()
+        val tags = listOf("chat_input_glass", "chat_latest_glass")
+        val bounds = tags.associateWith { compose.onNodeWithTag(it, useUnmergedTree = true).fetchSemanticsNode().boundsInWindow }
+        val pixels = captureRenderedWindow()
+        try {
+            // Persist exactly the frame whose pixels are asserted, not a later screenshot.
+            screenshot?.let { name ->
+                val context = InstrumentationRegistry.getInstrumentation().targetContext
+                File(context.filesDir, name).outputStream().use {
+                    check(pixels.compress(Bitmap.CompressFormat.PNG, 100, it))
                 }
             }
-            values
+            return bounds.mapValues { (tag, rect) ->
+                val composer = tag == "chat_input_glass"
+                val left = (rect.left + rect.width * 0.35f).toInt()
+                val right = (rect.left + rect.width * 0.65f).toInt()
+                val top = (rect.top + rect.height * if (composer) 0.60f else 0.18f).toInt()
+                val bottom = (rect.top + rect.height * if (composer) 0.80f else 0.30f).toInt()
+                check(left in 0 until right && right <= pixels.width && top in 0 until bottom && bottom <= pixels.height) {
+                    "Sample for $tag is outside the window: $rect, window=${pixels.width}x${pixels.height}"
+                }
+                buildList {
+                    for (y in top until bottom) {
+                        for (x in left until right) {
+                            val color = pixels.getPixel(x, y)
+                            add((android.graphics.Color.red(color) - android.graphics.Color.blue(color)) / 255.0)
+                        }
+                    }
+                }
+            }
+        } finally {
+            pixels.recycle()
         }
     }
 
@@ -237,15 +253,45 @@ class ConversationGlassInstrumentedTest {
         return values.map { (it - mean) * (it - mean) }.average()
     }
 
-    private fun saveScreenshot(name: String) {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+    private fun captureRenderedWindow(): Bitmap {
+        // Compose idle does not guarantee that SurfaceFlinger has presented its draw.
+        // A committed frame plus Window PixelCopy reads the submitted window buffer,
+        // including both controls, without waiting for a per-node draw or sampling retries.
+        val committed = CountDownLatch(1)
+        val callback = Runnable { committed.countDown() }
+        val (view, observer) = compose.runOnIdle {
+            val view = compose.activity.window.decorView
+            check(view.isAttachedToWindow && view.isHardwareAccelerated && view.width > 0 && view.height > 0)
+            val observer = view.viewTreeObserver
+            observer.registerFrameCommitCallback(callback)
+            view.postInvalidateOnAnimation()
+            view to observer
+        }
         try {
-            File(instrumentation.targetContext.filesDir, name).outputStream().use {
-                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
-            }
+            check(committed.await(5, TimeUnit.SECONDS)) { "Conversation fixture did not commit a hardware frame." }
         } finally {
-            bitmap.recycle()
+            compose.runOnUiThread {
+                if (observer.isAlive) observer.unregisterFrameCommitCallback(callback)
+            }
+        }
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        val copied = CompletableFuture<Int>()
+        compose.runOnUiThread {
+            try {
+                PixelCopy.request(compose.activity.window, bitmap, { result -> copied.complete(result) }, Handler(Looper.getMainLooper()))
+            } catch (failure: Throwable) {
+                copied.completeExceptionally(failure)
+            }
+        }
+        return try {
+            val result = copied.get(5, TimeUnit.SECONDS)
+            check(result == PixelCopy.SUCCESS) { "Conversation window pixel copy failed: $result" }
+            bitmap
+        } catch (failure: Throwable) {
+            // PixelCopy cannot be cancelled. A timed-out copy still owns its bitmap
+            // until the callback arrives; recycle only after that write has finished.
+            copied.whenComplete { _, _ -> bitmap.recycle() }
+            throw failure
         }
     }
 

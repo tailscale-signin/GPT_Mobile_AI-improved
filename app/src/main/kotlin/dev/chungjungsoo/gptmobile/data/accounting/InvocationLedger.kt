@@ -248,6 +248,7 @@ class InvocationLedger @Inject constructor(
                 session.streamRound(tools, exchanges).flowOn(dispatch + (combinedAccounting ?: kotlin.coroutines.EmptyCoroutineContext)).collect { event ->
                     val observed = round.preservePreflightFailure(event).withInvocationLineage(record.id)
                     round.observe(observed)
+                    if (observed is ProviderEvent.Failed) round.recoveredUsageEvent()?.let { emit(it) }
                     emit(observed)
                 }
             } catch (cancelled: CancellationException) {

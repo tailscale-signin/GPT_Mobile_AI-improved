@@ -13,6 +13,15 @@ internal object GitHubOperationArguments {
     /** Advertise the same conditional prerequisites enforced before dispatch. */
     fun schemaAlternatives(operation: String): JsonArray? {
         val alternatives: List<Pair<List<String>, List<String>>> = when (operation) {
+            "github_repository" -> listOf(
+                listOf("capabilities") to emptyList(),
+                listOf("create") to listOf("destination_owner", "destination_repo", "owner_type", "visibility"),
+                listOf("fork") to listOf("destination_owner", "destination_repo", "owner_type", "visibility", "source_owner", "source_repo"),
+                listOf("import") to listOf("destination_owner", "destination_repo", "owner_type", "visibility", "source_owner", "source_repo", "source_ref", "copy_mode"),
+                listOf("clone") to listOf("source_owner", "source_repo", "source_ref"),
+                listOf("status") to listOf("operation", "operation_id"),
+                listOf("status") to listOf("operation", "destination_owner", "destination_repo", "owner_type", "visibility", "expected_repository_id")
+            )
             "github_commit" -> listOf(
                 listOf("branch", "delete_branch") to listOf("branch", "expected_head_sha"),
                 listOf("delete_fixture_branch") to listOf("branch", "expected_head_sha", "origin_head_sha"),
@@ -24,6 +33,7 @@ internal object GitHubOperationArguments {
             else -> return null
         }
         val default = when (operation) {
+            "github_repository" -> "capabilities"
             "github_commit" -> "commit"
             "github_pr" -> "context"
             "github_issue" -> "list"

@@ -7,6 +7,35 @@ import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
 internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, nowMillis: Long = System.currentTimeMillis()): ErrorDetail? {
+    if (error is dev.chungjungsoo.gptmobile.data.context.RequestCapacityException) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "local_admission",
+            code = error.code,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("code", error.code)
+                put("failed_stage", "provider_admission")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("retryable", false)
+                put("request_replay_allowed", false)
+                put("repair", "REPLAN_REQUEST_BUDGET")
+                put("prompt_tokens", error.promptTokens)
+                put("safety_tokens", error.safetyTokens)
+                error.outputTokens?.let { put("output_allowance", it) }
+                error.capacityTokens?.let { put("capacity_tokens", it) }
+                put("measurement", error.measurement.name)
+                put("partial_output_preserved", partialOutput)
+                // A rejected continuation cannot prove that an earlier physical
+                // request was unsent. Invocation accounting retains that history.
+                if (!partialOutput) {
+                    put("dispatched", false)
+                    put("dispatch_state", "PRECHECK_REJECTED")
+                    put("remote_acceptance", "NO")
+                }
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.github.GitHubRequestCircuit.Open) {
         return ErrorDetail(
             message = "GitHub is temporarily cooling down. Resume the saved request after the retry time.",
@@ -80,6 +109,32 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
             }
         )
     }
+    if (error is dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationException) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "model_preparation",
+            code = error.code,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                put("code", error.code)
+                put("failed_stage", "model_preparation")
+                put("attempt_dispatch_state", "NOT_DISPATCHED")
+                put("retryable", false)
+                put("partial_output_preserved", partialOutput)
+                // This describes the dependent inference, never the model-load POST.
+                if (!partialOutput) {
+                    put("dispatched", false)
+                    put("dispatch_state", "NOT_DISPATCHED")
+                    put("remote_acceptance", "NO")
+                }
+                put("request_replay_allowed", false)
+                put("logical_continuation_allowed", false)
+                error.state.operationId?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,128}")) }?.let { put("operation_id", it) }
+                error.state.transportCode?.takeIf { code -> NetworkFailureKind.entries.any { it.code == code } }?.let { put("transport_code", it) }
+                error.state.observation?.safeReasonCode?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{0,95}")) }?.let { put("reason_code", it) }
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException) {
         val unsent = error.dispatchState == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionDispatchState.NOT_DISPATCHED
         val code = "GATEWAY_${error.reason.name}"
@@ -92,6 +147,11 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 put("code", code)
                 put("failed_stage", if (error.phase == dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionPhase.PRECHECK) "connection_preflight" else "gateway_recovery")
                 put("attempt_dispatch_state", if (unsent) "NOT_DISPATCHED" else "UNKNOWN")
+                if (error.preparationPost) put("preparation_exchange", "POST_OUTCOME_UNKNOWN")
+                error.operationId?.let {
+                    put("operation_id", it)
+                    put("incident_id", it)
+                }
                 put("repair", error.repair.name)
                 put("retryable", false)
                 put("partial_output_preserved", partialOutput)
@@ -180,7 +240,8 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
     val localBlock = rateLimit?.localBlock == true || free != null && localLimit || httpFailure?.beforeDispatch == true
     val responded = http != null && httpFailure?.beforeDispatch != true || rateLimit?.localBlock == false
     val retryAt = rateLimit?.retryAt ?: free?.providerLimit?.retryAt
-    val observedHttpStatus = httpFailure?.takeUnless { it.beforeDispatch && it.consecutiveRejections == 0 }?.status
+    val observedHttpStatus = httpFailure?.takeUnless { it.beforeDispatch && it.consecutiveRejections == 0 }
+        ?.let { it.observedHttpStatus?.takeIf { status -> status in 100..599 } ?: it.status }
     val observedRetryAt = httpFailure?.takeIf { it.retrySource != null }?.retryAtMillis
     val retryable = !partialOutput && (http?.retryable ?: (retryAt != null && (localLimit || category == FreeFailureCategory.PROVIDER_RATE_LIMITED)))
     val code = http?.status?.toString() ?: requireNotNull(category).name
@@ -207,6 +268,7 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
             }
             (observedHttpStatus ?: rateLimit?.cooldown?.status)
                 ?.let { put(if (responded) "http_status" else "originating_http_status", it) }
+            if (responded) safeProviderRequestIdentity(httpFailure?.serverRequestId)?.let { put("server_request_id", it) }
             rateLimit?.cooldown?.providerCode?.let { put(if (responded) "provider_code" else "originating_provider_code", it) }
             (http?.retryAfterMillis ?: retryAt?.let { ProviderRetryPolicy.remainingMillis(it, nowMillis) })?.let { put("retry_after_ms", it) }
             (retryAt ?: observedRetryAt)?.let { put("retry_at_ms", it) }

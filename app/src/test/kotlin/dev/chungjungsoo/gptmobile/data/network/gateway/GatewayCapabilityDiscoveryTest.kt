@@ -13,6 +13,7 @@ import io.mockk.mockk
 import java.io.EOFException
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -21,6 +22,65 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayCapabilityDiscoveryTest {
+    @Test fun concurrentCapabilityObserversShareOneReadButAuditsKeepTheirOwnReceipt() = kotlinx.coroutines.test.runTest {
+        val selected = config.copy(apiUrl = "https://coalesced-capability.example/v1", profileRevision = "a".repeat(64))
+        val calls = java.util.concurrent.atomic.AtomicInteger()
+        HttpClient(
+            MockEngine {
+                calls.incrementAndGet()
+                kotlinx.coroutines.delay(20)
+                respond("""{"gatewayVersion":"16.0.0","instanceId":"${"a".repeat(32)}"}""")
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network.gatewayReadClient() } returns http
+            val api = GatewayAPIImpl(network)
+            val observations = kotlinx.coroutines.coroutineScope {
+                (1..4).map { async { api.getCapabilities(selected) } }.map { it.await() }
+            }
+            assertEquals(4, observations.size)
+            assertTrue(observations.all { it?.gatewayVersion == "16.0.0" })
+            assertEquals(1, calls.get())
+            assertEquals("16.0.0", api.getCapabilities(selected)?.gatewayVersion)
+            assertEquals(1, calls.get())
+            api.getCapabilities(selected, forceRefresh = true)
+            assertEquals(2, calls.get())
+            kotlinx.coroutines.withContext(GatewayCapabilityReadContext()) {
+                api.getCapabilities(selected)
+                api.getCapabilities(selected)
+            }
+            assertEquals(4, calls.get())
+            coVerify(exactly = 0) { network.evictIdleConnections() }
+        }
+    }
+
+    @Test fun capabilityCacheIsBoundToEndpointCredentialsConfigurationAndObservedRuntime() = runBlocking {
+        var calls = 0
+        var instance = "a".repeat(32)
+        val selected = config.copy(apiUrl = "https://scoped-capability.example/v1", profileRevision = "a".repeat(64))
+        HttpClient(
+            MockEngine {
+                calls++
+                respond("""{"gatewayVersion":"16.0.0","instanceId":"$instance"}""")
+            }
+        ).use { http ->
+            val network = mockk<NetworkClient>()
+            every { network.gatewayReadClient() } returns http
+            val api = GatewayAPIImpl(network)
+            repeat(2) { api.getCapabilities(selected) }
+            assertEquals(1, calls)
+            api.getCapabilities(selected.copy(profileRevision = "b".repeat(64)))
+            api.getCapabilities(selected.copy(token = "replacement-credential"))
+            api.getCapabilities(selected.copy(extraHeaders = mapOf("X-Api-Key" to "replacement-header")))
+            api.getCapabilities(selected.copy(apiUrl = "https://other-scoped-capability.example/v1"))
+            assertEquals(5, calls)
+            instance = "b".repeat(32)
+            GatewayClientDiagnostics.observeInstance(selected, instance)
+            assertEquals(instance, api.getCapabilities(selected)?.instanceId)
+            assertEquals(6, calls)
+        }
+    }
+
     private val config = ProviderRequestConfig("https://capability-discovery.example/v1", "credential", extraHeaders = mapOf("X-Api-Key" to "custom credential"))
 
     @org.junit.Before fun clearRememberedSurfaces() = GatewaySurfacePolicy.shared.invalidate()

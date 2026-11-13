@@ -40,6 +40,7 @@ internal fun AppAuditRun.interrupted(now: Long, reasonCode: String): AppAuditRun
                 reasonCode = reasonCode,
                 stage = "interruption",
                 evidenceKind = active.evidenceKind,
+                configurationRevision = active.configurationRevision,
                 dispatchEvidence = when (activeDispatchEvidence) {
                     AppAuditDispatchEvidence.ATTEMPTED, AppAuditDispatchEvidence.CONFIRMED, AppAuditDispatchEvidence.UNKNOWN -> AppAuditDispatchEvidence.UNKNOWN
                     else -> AppAuditDispatchEvidence.NOT_DISPATCHED
@@ -48,7 +49,12 @@ internal fun AppAuditRun.interrupted(now: Long, reasonCode: String): AppAuditRun
             startedAtEpochMs = activeStartedAtEpochMs ?: now,
             finishedAtEpochMs = now,
             durationMs = null,
-            attempted = true
+            attempted = true,
+            networkAdmission = when {
+                active.safetyClass != AppAuditSafetyClass.NETWORK_READ -> AppAuditNetworkAdmission.NOT_APPLICABLE
+                activeDispatchEvidence in setOf(AppAuditDispatchEvidence.ATTEMPTED, AppAuditDispatchEvidence.CONFIRMED, AppAuditDispatchEvidence.UNKNOWN) -> AppAuditNetworkAdmission.ADMITTED
+                else -> AppAuditNetworkAdmission.NOT_ADMITTED
+            }
         )
     }
     return copy(
@@ -66,10 +72,11 @@ internal fun AppAuditRun.accountRemaining(now: Long, outcome: AppAuditOutcome, r
     results = results + pendingEntries.map { entry ->
         AppAuditResult(
             entryId = entry.id,
-            observation = AppAuditObservation(outcome, reasonCode, stage = "admission", evidenceKind = entry.evidenceKind),
+            observation = AppAuditObservation(outcome, reasonCode, stage = "admission", evidenceKind = entry.evidenceKind, configurationRevision = entry.configurationRevision),
             startedAtEpochMs = now,
             finishedAtEpochMs = now,
-            durationMs = 0
+            durationMs = 0,
+            networkAdmission = if (entry.safetyClass == AppAuditSafetyClass.NETWORK_READ) AppAuditNetworkAdmission.NOT_ADMITTED else AppAuditNetworkAdmission.NOT_APPLICABLE
         )
     },
     updatedAtEpochMs = now,

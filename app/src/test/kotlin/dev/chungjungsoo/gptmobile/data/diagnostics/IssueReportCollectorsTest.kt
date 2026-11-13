@@ -9,13 +9,17 @@ import dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException
 import dev.chungjungsoo.gptmobile.data.repository.ToolEventRecorder
 import dev.chungjungsoo.gptmobile.util.collectApiStateUpdates
 import io.mockk.coEvery
 import io.mockk.mockk
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -29,6 +33,38 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35], application = Application::class)
 class IssueReportCollectorsTest {
+    @Test fun exactExtractionFailuresKeepTaskOwnershipAndTheirOwnAttemptContext() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for ((index, code) in listOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_EXTRACTION_PRIVATE_UNKNOWN").withIndex()) {
+            val invocation = "extraction-only-$index"
+            flowOf(
+                ApiState.Error(
+                    "private extraction detail https://private.example",
+                    errorCode = code,
+                    taskOutcome = "PARTIAL",
+                    failureDetails = buildJsonObject {
+                        put("run_id", "extraction-run-$index")
+                        put("provider_kind", "OPENROUTER")
+                        put("failed_stage", "claim_extraction")
+                        put("retryable", false)
+                        put("request_replay_allowed", false)
+                    },
+                    invocationId = invocation
+                )
+            ).collectApiStateUpdates(onUpdate = { _, _, _ -> })
+            val report = IssueReportIncidents.pending.value.last()
+            assertEquals(if (index < 5) "GITHUB_TASK_INCOMPLETE" else "CHAT_FAILED", report.errorCode)
+            assertEquals("claim_extraction", report.context?.stage)
+            assertEquals("OPENROUTER", report.context?.provider)
+            assertEquals(false, report.context?.retryable)
+            assertEquals(null, report.context?.dispatched)
+            assertEquals(null, report.context?.remoteAcceptance)
+            assertEquals(IssueReportContext.identifierHash("invocation", invocation), report.context?.invocationIdHash)
+            assertFalse(report.approvedPayload().contains("private"))
+            assertFalse(report.approvedPayload().contains(invocation))
+        }
+    }
+
     @Before
     @After
     fun reset() {
@@ -37,6 +73,119 @@ class IssueReportCollectorsTest {
         IssueReportIncidents.privacyChanged(false)
         IssueReportIncidents.debugPreferenceChanged(false)
         IssueReportIncidents.clearRecent()
+    }
+
+    @Test fun reviewComparisonAndApprovalSurviveTheActualCollectorWithoutBorrowingGenerationFacts() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val failures = listOf(
+            Triple("REVIEW_INPUT_REQUIRED", "review_comparison", "SELECT_REVIEW_BASELINE"),
+            Triple("GITHUB_REVIEW_COMPARISON_REQUIRED", "review_comparison", "RESTORE_REVIEW_COMPARISON_EVIDENCE"),
+            Triple("WAITING_FOR_APPROVAL", "approval", null)
+        )
+        for ((index, failure) in failures.withIndex()) {
+            val (code, stage, action) = failure
+            val runId = "owned-review-run-$index"
+            val incidentsBefore = IssueReportIncidents.pending.value.size
+            var retainedStage: String? = null
+            flowOf(
+                ApiState.Error(
+                    "private review details https://private.example",
+                    errorCode = code,
+                    taskOutcome = "BLOCKED",
+                    failureDetails = buildJsonObject {
+                        put("run_id", runId)
+                        put("provider_kind", "OPENROUTER")
+                        put("failed_stage", stage)
+                        put("dispatched", false)
+                        put("retryable", false)
+                        action?.let { put("next_action", it) }
+                        put("private_detail", "private comparison paths")
+                    }
+                )
+            ).collectApiStateUpdates(onUpdate = { _, _, timeline -> retainedStage = timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.phase })
+            assertEquals(stage, retainedStage)
+            if (code == "REVIEW_INPUT_REQUIRED") {
+                assertEquals(incidentsBefore, IssueReportIncidents.pending.value.size)
+                continue
+            }
+            val report = IssueReportIncidents.pending.value.last()
+            val context = requireNotNull(report.context)
+            assertEquals(if (code == "WAITING_FOR_APPROVAL") "CHAT_FAILED" else code, report.errorCode)
+            assertEquals(7, context.schemaVersion)
+            assertEquals(stage, context.stage)
+            assertEquals(action, context.recoveryAction)
+            assertEquals("OPENROUTER", context.provider)
+            assertEquals(false, context.dispatched)
+            assertEquals(false, context.retryable)
+            assertEquals(null, context.remoteAcceptance)
+            assertEquals(null, context.invocationIdHash)
+            assertEquals(IssueReportContext.identifierHash("run", runId), context.runIdHash)
+            assertFalse(report.approvedPayload().contains("private"))
+            assertFalse(report.approvedPayload().contains(runId))
+        }
+    }
+
+    @Test fun typedPrivacyAdmissionSurvivesActualChatCollectorWithoutPublishingPrivateText() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val runId = "exact-admission-run"
+        val failure = PrivacyAdmissionException("private model/account and https://private.example").asApiError(runId)
+        flowOf(failure).collectApiStateUpdates(onUpdate = { _, _, _ -> })
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("PRIVACY_CONFIGURATION", report.errorCode)
+        assertEquals("CHAT_FAILURE", report.context?.source)
+        assertEquals("OPENROUTER", report.context?.provider)
+        assertEquals("provider_admission", report.context?.stage)
+        assertEquals(false, report.context?.dispatched)
+        assertEquals("NO", report.context?.remoteAcceptance)
+        assertEquals(false, report.context?.retryable)
+        assertEquals(false, report.context?.resumeAllowed)
+        assertEquals(false, report.context?.requiresReconciliation)
+        assertEquals("RETRY_AFTER_CONFIGURATION_CHANGE", report.context?.recoveryAction)
+        assertEquals(IssueReportContext.identifierHash("run", runId), report.context?.runIdHash)
+        assertEquals(null, report.context?.invocationIdHash)
+        assertFalse(report.approvedPayload().contains("private"))
+        assertFalse(report.approvedPayload().contains(runId))
+    }
+
+    @Test fun nativeReaderPaymentReceiptSurvivesActualToolRecorderWithoutPublishingSourceContent() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val event = ToolEvent("reader-event", "reader-run", 1, "reader-call", null, null, "read_url", "read_url", "{}", null, null, ToolEventStatus.RUNNING, startedAt = 1L)
+        val dao = mockk<AgentPersistenceDao>()
+        coEvery { dao.getToolEventById(event.eventId) } returns event
+        coEvery { dao.finishToolEvent(any(), any(), any(), any(), any(), any(), any(), any()) } returns 1
+        ToolEventRecorder(dao, mockk()).finishTool(
+            event.eventId,
+            AgentToolResult(
+                event.callId,
+                ToolResultContent.Text("private upstream response https://private.example"),
+                true,
+                errorCode = "SOURCE_PAYMENT_REQUIRED",
+                dispatched = true,
+                executionReceipt = buildJsonObject {
+                    put("phase", "RETRIEVAL")
+                    put("httpStatus", 402)
+                    put("requestSent", true)
+                    put("retryable", false)
+                    put("requires_reconciliation", false)
+                    put("private_url", "https://private.example")
+                }
+            ),
+            2L
+        )
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("SOURCE_PAYMENT_REQUIRED", report.errorCode)
+        assertEquals("TOOL_RESULT", report.context?.source)
+        assertEquals("read_url", report.context?.operation)
+        assertEquals("retrieval", report.context?.stage)
+        assertEquals(402, report.context?.httpStatus)
+        assertEquals(true, report.context?.dispatched)
+        assertEquals(false, report.context?.retryable)
+        assertEquals(false, report.context?.requiresReconciliation)
+        assertEquals(IssueReportContext.identifierHash("run", event.runId), report.context?.runIdHash)
+        assertEquals(IssueReportContext.identifierHash("call", event.callId), report.context?.callIdHash)
+        assertFalse(report.approvedPayload().contains("private"))
+        assertFalse(report.approvedPayload().contains(event.runId))
+        assertFalse(report.approvedPayload().contains(event.callId))
     }
 
     @Test fun chatPublicationUsesTheFailedInvocationAndDoesNotPublishItsMessage() = runBlocking {
@@ -62,6 +211,46 @@ class IssueReportCollectorsTest {
         assertEquals(null, report.context?.jobIdHash)
         assertEquals(409, report.context?.httpStatus)
         assertFalse(report.approvedPayload().contains("private"))
+    }
+
+    @Test fun incompleteTaskPublicationRetainsClosedAcceptanceFactsWithoutPrivateCriteria() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        flowOf(
+            ApiState.Error(
+                "private task and criterion text",
+                errorCode = "GITHUB_TASK_INCOMPLETE",
+                taskOutcome = "PARTIAL",
+                failureDetails = buildJsonObject {
+                    put("run_id", "exact-incomplete-run")
+                    put("provider_kind", "OPENROUTER")
+                    put("failed_stage", "acceptance_verification")
+                    put("stop_reason", "UNVERIFIED_ACCEPTANCE_CRITERIA")
+                    put("recovery_action", "RESUME_UNFINISHED_WORK")
+                    put("required_criteria", 5)
+                    put("verified_criteria", 4)
+                    put("remaining_criteria", 1)
+                    put("acceptance_stop", buildJsonObject { put("detail", "private source and missing criterion") })
+                }
+            )
+        ).collectApiStateUpdates(onUpdate = { _, _, _ -> })
+        val report = IssueReportIncidents.pending.value.single()
+        val context = requireNotNull(report.context)
+        assertEquals("GITHUB_TASK_INCOMPLETE", report.errorCode)
+        assertEquals(7, context.schemaVersion)
+        assertEquals("CHAT_FAILURE", context.source)
+        assertEquals("OPENROUTER", context.provider)
+        assertEquals("acceptance_verification", context.stage)
+        assertEquals("UNVERIFIED_ACCEPTANCE_CRITERIA", context.reasonCode)
+        assertEquals("RESUME_UNFINISHED_WORK", context.recoveryAction)
+        assertEquals(5, context.requiredCriteria)
+        assertEquals(4, context.verifiedCriteria)
+        assertEquals(1, context.remainingCriteria)
+        assertEquals(null, context.dispatched)
+        assertEquals(null, context.retryable)
+        assertEquals(null, context.invocationIdHash)
+        assertEquals(IssueReportContext.identifierHash("run", "exact-incomplete-run"), context.runIdHash)
+        assertFalse(report.approvedPayload().contains("private"))
+        assertFalse(report.approvedPayload().contains("exact-incomplete-run"))
     }
 
     @Test fun persistedToolCompletionUsesLocalCallOwnershipAndTypedReceiptFacts() = runBlocking {
@@ -130,5 +319,57 @@ class IssueReportCollectorsTest {
         assertEquals(true, context.requiresReconciliation)
         assertEquals(false, context.retryable)
         assertEquals(true, context.dispatched)
+    }
+
+    @Test fun nativePrecheckReasonsSurviveTheActualRecorderThroughExistingPublicCategories() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val cases = listOf(
+            Triple("GITHUB_REPOSITORY_TARGET_MISMATCH", "REPOSITORY_TARGET_UNVERIFIED", "CHANGE_REPOSITORY"),
+            Triple("SAVED_VIEW_AUTHORIZATION_CHANGED", "GITHUB_AUTHORIZATION_UNVERIFIED", "REVIEW_AUTHORIZATION"),
+            Triple("SAVED_VIEW_WRONG_OPERATION", "INVALID_ARGUMENTS", null)
+        )
+        for ((index, expected) in cases.withIndex()) {
+            val (localCode, publicCode, recovery) = expected
+            val event = ToolEvent("event-$index", "actual-run", index, "actual-call-$index", null, null, "github_read", "github_read__github_api", "{}", null, null, ToolEventStatus.RUNNING, startedAt = 1L)
+            val dao = mockk<AgentPersistenceDao>()
+            coEvery { dao.getToolEventById(event.eventId) } returns event
+            coEvery { dao.finishToolEvent(any(), any(), any(), any(), any(), any(), any(), any()) } returns 1
+            ToolEventRecorder(dao, mockk()).finishTool(
+                event.eventId,
+                AgentToolResult(
+                    event.callId,
+                    ToolResultContent.Text("private target and path"),
+                    true,
+                    errorCode = localCode,
+                    dispatched = false
+                ),
+                2L
+            )
+            val report = IssueReportIncidents.pending.value.last()
+            val context = requireNotNull(report.context)
+            val diagnostics = requireNotNull(context.diagnostics)
+            assertEquals(publicCode, report.errorCode)
+            assertEquals(recovery, context.recoveryAction)
+            assertEquals(7, context.schemaVersion)
+            assertEquals("TOOL", diagnostics.area)
+            assertEquals("INCIDENT", diagnostics.captureMode)
+            assertEquals(JsonPrimitive(IssueReportContext.identifierHash("call", event.callId)), diagnostics.values["call_id_hash"])
+            assertEquals(JsonPrimitive(IssueReportContext.identifierHash("tool-error-code", localCode)), diagnostics.values["original_error_code_hash"])
+            assertEquals(false, context.dispatched)
+            assertEquals(IssueReportContext.identifierHash("call", event.callId), context.callIdHash)
+            // This closed public reason is retained in its typed context and diagnostic fields.
+            val publicReason = localCode.takeIf { it == "SAVED_VIEW_WRONG_OPERATION" }
+            assertEquals(publicReason, context.reasonCode)
+            val approved = IssueReport.json.parseToJsonElement(report.approvedPayload()).jsonObject
+            val approvedContext = approved.getValue("context").jsonObject
+            assertEquals(publicReason?.let(::JsonPrimitive), approvedContext["reasonCode"])
+            val approvedDiagnostics = approvedContext.getValue("diagnostics").jsonObject
+            val approvedValues = approvedDiagnostics.getValue("values").jsonObject
+            assertEquals(publicReason?.let(::JsonPrimitive), approvedValues["tool_reason_code"])
+            val withoutDiagnosticReason = JsonObject(approvedDiagnostics + ("values" to JsonObject(approvedValues - "tool_reason_code")))
+            val outsideReasons = JsonObject(approved + ("context" to JsonObject(approvedContext - "reasonCode" + ("diagnostics" to withoutDiagnosticReason))))
+            assertFalse(outsideReasons.toString().contains(localCode))
+            assertFalse(report.approvedPayload().contains("private"))
+        }
     }
 }

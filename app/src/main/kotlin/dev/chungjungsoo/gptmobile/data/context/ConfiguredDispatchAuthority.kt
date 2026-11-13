@@ -60,7 +60,9 @@ internal object ConfiguredDispatchAuthority {
         return RequestAuthorizationGuard("configured:$revision", authority) {
             inherited?.validate?.invoke()
             currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.permissions.PersonalDataContext]?.validateModel(platform)
-            check(!settings.providerActivationRequired(platform) && settings.providerPermissionRevision(platform) == privacyRevision) { "DISPATCH_POLICY_CHANGED: Data permissions changed; prepare a new request." }
+            if (settings.providerActivationRequired(platform) || settings.providerPermissionRevision(platform) != privacyRevision) {
+                throw DispatchPolicyChangedException(listOf("providerPermissions"))
+            }
             val currentMatches = settings.fetchPlatformV2s().filter { it.uid == platform.uid }
             check(currentMatches.size <= 1) { "PROFILE_IDENTITY_AMBIGUOUS: multiple profiles use the same identity." }
             val current = currentMatches.singleOrNull()

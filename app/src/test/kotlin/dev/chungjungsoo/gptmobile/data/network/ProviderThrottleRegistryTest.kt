@@ -1,10 +1,73 @@
 package dev.chungjungsoo.gptmobile.data.network
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderThrottleRegistryTest {
+    @Test fun deadlineRevisionCoalescesEqualLimitsAndIgnoresReadAndPermitActivity() {
+        var now = 1000L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        assertEquals(0L, registry.revision.value)
+        registry.defer("account", 5000)
+        val first = registry.revision.value
+        repeat(3) {
+            registry.defer("account", 5000)
+            registry.defer("account", 1000)
+            registry.cooldown("account")
+            registry.blockedMillis("account")
+            registry.admit("account")
+            registry.releaseProbe("account")
+        }
+        assertEquals(first, registry.revision.value)
+        now += 1000
+        registry.defer("account", 10_000)
+        assertEquals(first + 1, registry.revision.value)
+        now += 10_000
+        registry.remainingMillis("account")
+        registry.remainingMillis("account")
+        assertEquals(first + 1, registry.revision.value)
+        registry.accepted("account")
+        assertEquals(first + 2, registry.revision.value)
+        registry.accepted("account")
+        assertEquals(first + 2, registry.revision.value)
+    }
+
+    @Test fun removingExpiredCooldownsPublishesOneChangeWithoutExtendingAnotherScope() {
+        var now = 0L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        registry.defer("expired", 1000)
+        registry.defer("retained", 60_000)
+        val before = registry.revision.value
+        now = 31_000
+        registry.defer("retained", 1000)
+        assertEquals(before + 1, registry.revision.value)
+        assertEquals(29_000L, registry.blockedMillis("retained"))
+        assertNull(registry.cooldown("expired"))
+        registry.defer("retained", 1000)
+        assertEquals(before + 1, registry.revision.value)
+    }
+
+    @Test fun cooldownObservationIsReadOnlyAndDistinguishesTransientDelayFromProviderReset() {
+        var now = 0L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        registry.defer("transient", 5000)
+        registry.defer("reset", 10_000, authoritativeReset = true)
+        repeat(3) {
+            assertEquals(ProviderThrottleRegistry.Cooldown(5000, 0, false), registry.cooldown("transient"))
+            assertEquals(ProviderThrottleRegistry.Cooldown(10_000, 0, true), registry.cooldown("reset"))
+            assertNull(registry.cooldown("available"))
+        }
+        registry.reject("rejected", 10_000)
+        assertEquals(ProviderThrottleRegistry.Cooldown(10_000, 1, false), registry.cooldown("rejected"))
+        now = 10_000
+        assertNull(registry.cooldown("reset"))
+        assertTrue(registry.admit("reset").ownsProbe)
+        assertFalse(registry.admit("reset").ownsProbe)
+    }
+
     @Test fun announcedResetDefersRequestsBeforeAnyProviderRejection() {
         var now = 0L
         val registry = ProviderThrottleRegistry({ now }, { 0 })

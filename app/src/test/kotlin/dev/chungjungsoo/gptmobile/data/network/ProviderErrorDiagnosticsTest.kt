@@ -5,6 +5,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderErrorDiagnosticsTest {
+    @Test fun knownAttemptObservationsSurviveWithoutUsageAndNeverRetainResponseText() {
+        val body = """{"error":{"code":"completion_repair_budget_exhausted","gateway_recovery":{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":1536,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"completion_repair_budget_exhausted","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED","response":"private reasoning"}],"request":"private prompt"}}}"""
+        val details = requireNotNull(structuredProviderFailure(body, 502))
+        val recovery = details.getValue("gateway_recovery") as kotlinx.serialization.json.JsonObject
+        val receipt = (recovery.getValue("attempt_receipts") as kotlinx.serialization.json.JsonArray).single() as kotlinx.serialization.json.JsonObject
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(11), receipt["reasoning_output_bytes"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("LENGTH"), receipt["finish_reason"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(1536), receipt["output_allowance"])
+        assertFalse(recovery.containsKey("usage_origin"))
+        org.junit.Assert.assertNull(dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(details))
+        assertFalse(details.toString().contains("private"))
+    }
+
+    @Test fun attemptReceiptParserBoundsEveryFieldAndRejectsUnboundedOrAmbiguousRows() {
+        val row = """{"attempt":1,"output_allowance":9223372036854775807,"finish_reason":"private finish","visible_output_bytes":-1,"reasoning_output_bytes":"11","terminal_error_code":"private error","terminal_status_code":900,"backend_response_observed":"true","status":"private state","text":"private output"}"""
+        fun parse(rows: String, version: Int = 1) = requireNotNull(structuredProviderFailure("""{"error":{"code":"backend_timeout","gateway_recovery":{"schema_version":$version,"attempt_receipts":$rows}}}"""))
+        val recovery = parse("[$row]").getValue("gateway_recovery") as kotlinx.serialization.json.JsonObject
+        val receipt = (recovery.getValue("attempt_receipts") as kotlinx.serialization.json.JsonArray).single() as kotlinx.serialization.json.JsonObject
+        for (key in listOf("output_allowance", "visible_output_bytes", "reasoning_output_bytes", "terminal_error_code", "terminal_status_code", "backend_response_observed")) {
+            org.junit.Assert.assertEquals(key, kotlinx.serialization.json.JsonNull, receipt[key])
+        }
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN"), receipt["finish_reason"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN"), receipt["status"])
+        assertFalse(recovery.toString().contains("private"))
+        assertFalse(dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.observedBackendExecution(recovery))
+        for (rows in listOf("[$row,$row,$row]", "[$row,$row]", "[42]")) assertFalse(parse(rows).containsKey("gateway_recovery"))
+        assertFalse(parse("[$row]", 2).containsKey("gateway_recovery"))
+    }
+
     @Test fun conflictingCommandWithAnUnknownOutcomeCannotBeClassifiedAsUnsent() {
         val details = requireNotNull(structuredProviderFailure("""{"error":{"code":"conversation_conflict","command_outcome_unknown":true,"retryable":false,"dispatch_state":"not_dispatched","dispatched":false}}""", 409))
         org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("GATEWAY_OUTCOME_UNKNOWN"), details["code"])

@@ -29,22 +29,34 @@ internal class IssueReportSubmission(
         val retryable: Boolean,
         val httpStatus: Int? = null,
         val retryNotBeforeMillis: Long? = null,
-        val automaticRetry: Boolean = retryable
+        val automaticRetry: Boolean = retryable,
+        val creationRejected: Boolean = false
     ) : Outcome
 
-    fun send(reportId: String, payload: String): Outcome {
+    fun send(reportId: String, payload: String, beforeDispatch: () -> Unit = {}): Outcome {
         if (!configured(origin)) return Failure("REPORT_SERVICE_UNCONFIGURED", retryable = true, automaticRetry = false)
         if (payload.encodeToByteArray().size > IssueReport.MAX_PAYLOAD_BYTES) return Failure("REPORT_TOO_LARGE", retryable = false)
         val parsed = runCatching { IssueReport.json.parseToJsonElement(payload) as? JsonObject }.getOrNull()
             ?: return Failure("REPORT_PAYLOAD_INVALID", retryable = false)
         if (parsed["reportId"] != JsonPrimitive(reportId)) return Failure("REPORT_PAYLOAD_INVALID", retryable = false)
+        if (!IssueReportContext.validDiagnosticsIn(parsed["context"])) return Failure("REPORT_PAYLOAD_INVALID", retryable = false)
         val context = parsed["context"] as? JsonObject
-        if (context != null) {
+        val requiredVersions = if (context != null) {
             val version = (context["schemaVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull ?: return Failure("INVALID_REPORT", retryable = false)
-            contextSupport(version)?.let { return it }
+            val stage = (context["stage"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val action = (context["recoveryAction"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            IssueReportContext.requiredServiceVersions(version, stage, action)
+        } else {
+            emptySet()
+        }
+        val diagnosticFeatures = IssueReportDiagnostics.fromJson(context?.get("diagnostics"))?.requiredServiceFeatures().orEmpty()
+        val requiredFeatures = diagnosticFeatures + requiredReviewFeatures(parsed, context)
+        if (context != null || requiredFeatures.isNotEmpty()) {
+            contextSupport(requiredVersions, requiredFeatures)?.let { return it }
         }
         val request = Request.Builder().url("${origin.trimEnd('/')}/v1/issue-reports")
             .post(payload.toRequestBody(JSON_MEDIA_TYPE)).build()
+        beforeDispatch()
         return try {
             client.newCall(request).execute().use { response ->
                 val transient = response.code in 500..599 || response.code in setOf(408, 425, 429)
@@ -76,7 +88,7 @@ internal class IssueReportSubmission(
         }
     }
 
-    private fun contextSupport(version: Int): Failure? = try {
+    private fun contextSupport(requiredVersions: Set<Int>, requiredFeatures: Set<String>): Failure? = try {
         client.newCall(Request.Builder().url("${origin.trimEnd('/')}/health/ready").get().build()).execute().use { response ->
             if (!response.isSuccessful) {
                 val retry = response.code in 500..599 || response.code in setOf(408, 425, 429)
@@ -87,7 +99,8 @@ internal class IssueReportSubmission(
             val ready = IssueReport.json.parseToJsonElement(body.string()) as? JsonObject ?: return@use Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
             if (ready["service"] != JsonPrimitive("gpt-mobile-issue-reporter")) return@use Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
             val versions = (ready["reportContextVersions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeUnless { version -> version.isString }?.intOrNull }
-            if (version in versions) null else Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false)
+            val features = (ready["reportDiagnosticFeatures"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { feature -> feature.isString }?.content }
+            if (versions.containsAll(requiredVersions) && features.containsAll(requiredFeatures)) null else Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false)
         }
     } catch (_: IOException) {
         Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
@@ -97,10 +110,21 @@ internal class IssueReportSubmission(
 
     companion object {
         private const val MAX_RECEIPT_BYTES = 1024L
+        private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
+        private val REVIEW_EVENT = Regex("-[0-9]{1,5}ms [DIWEF] (?:app|chat|voice|gateway|local|tools) ([A-Z][A-Z0-9_]{0,63})")
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
         private val defaultClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .retryOnConnectionFailure(false).callTimeout(40, TimeUnit.SECONDS).build()
         private val ERROR_CODES = setOf("HTTPS_ORIGIN_REQUIRED", "JSON_REQUIRED", "REPORT_TOO_LARGE", "INVALID_REPORT", "GITHUB_REJECTED", "REPORT_ID_CONFLICT", "RATE_LIMITED", "GITHUB_UNAVAILABLE", "RETRY_LATER", "AWAITING_GITHUB_RECEIPT", "REPORT_STORE_UNAVAILABLE")
+
+        private fun requiredReviewFeatures(report: JsonObject, context: JsonObject?): Set<String> {
+            fun reviewCode(value: kotlinx.serialization.json.JsonElement?) = (value as? JsonPrimitive)?.takeIf { it.isString }?.content in REVIEW_CODES
+            val retainedEvent = (report["events"] as? JsonArray).orEmpty().take(IssueReport.EVENT_LIMIT).any { event ->
+                val text = (event as? JsonPrimitive)?.takeIf { it.isString }?.content ?: return@any false
+                REVIEW_EVENT.matchEntire(text)?.groupValues?.get(1) in REVIEW_CODES
+            }
+            return if (reviewCode(report["errorCode"]) || reviewCode(context?.get("originalFailureCode")) || retainedEvent) setOf("REVIEW_COMPARISON_V1") else emptySet()
+        }
 
         fun configured(origin: String): Boolean {
             val url = origin.toHttpUrlOrNull() ?: return false
@@ -121,7 +145,7 @@ internal object IssueReportDelivery {
     const val MAX_AUTOMATIC_ATTEMPTS = 5
     enum class Result { CONFIRMED, RETRY, FAILED }
 
-    suspend fun attempt(outbox: IssueReportOutbox, reportId: String, send: (String, String) -> IssueReportSubmission.Outcome, now: Long = System.currentTimeMillis(), onSending: suspend () -> Unit = {}): Result {
+    suspend fun attempt(outbox: IssueReportOutbox, reportId: String, send: suspend (String, String) -> IssueReportSubmission.Outcome, now: Long = System.currentTimeMillis(), onSending: suspend () -> Unit = {}): Result {
         val approved = checkNotNull(outbox.load(reportId)) { "Approved report is unavailable" }
         if (approved.state == IssueReportOutbox.State.SENT) return Result.CONFIRMED
         if (approved.state == IssueReportOutbox.State.FAILED) return Result.FAILED

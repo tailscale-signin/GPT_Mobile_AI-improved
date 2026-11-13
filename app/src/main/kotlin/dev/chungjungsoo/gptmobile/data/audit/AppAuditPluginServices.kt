@@ -395,7 +395,8 @@ internal class AppAuditPluginServices @Inject constructor(
                 validationRule = safeAuditValidationRule(presentation.validationRule),
                 validationField = safeAuditDiagnosticField(presentation.validationField),
                 observedAtEpochMs = previous.lastFailureAtMs?.takeIf { it >= 0 },
-                configurationRevision = safeAuditConfigurationRevision(previous.failureConfigurationRevision)
+                configurationRevision = safeAuditConfigurationRevision(previous.failureConfigurationRevision),
+                declaredRpcErrorCode = presentation.declaredRpcErrorCode
             )
         }
         return null
@@ -406,11 +407,12 @@ internal class AppAuditPluginServices @Inject constructor(
         val startedAt = System.currentTimeMillis()
         var source: McpDiscoverySource? = null
         var dispatched = false
+        var admittedRevision: String? = null
         return try {
             val context = McpDiscoveryContext(McpDiscoveryTrigger.AUDIT_REFRESH, beforeOwnedDispatch = {
                 beforeDispatch()
                 dispatched = true
-            }, onSource = { source = it })
+            }, onSource = { source = it }, onOwnedConfigurationRevision = { admittedRevision = safeAuditConfigurationRevision(it) })
             val receipt = withContext(context) {
                 resolver.discoverMcpToolsWithReceipt(connection, forceRefresh = true, awaitCompletion = true)
             }
@@ -445,8 +447,10 @@ internal class AppAuditPluginServices @Inject constructor(
             // timestamp or revision merely because its connection UID still matches.
             val currentHealth = health.takeIf { cached || (it.lastFailureAtMs ?: -1) >= startedAt } ?: McpConnectionHealth()
             val presentation = mcpFailurePresentation(failure, currentHealth)
-            val stableLocalRevision = configurationRevision?.takeIf {
-                presentation.phase == "local_validation" && it == mcpConfigurationRevision(connection, secretVault)
+            val stableRevision = configurationRevision?.takeIf {
+                // A read-only audit cannot refresh credentials. Still verify the binding
+                // after failure so an edit or rotation cannot masquerade as the old target.
+                presentation.phase != "oauth_refresh" && it == mcpConfigurationRevision(connection, secretVault)
             }
             val dispatch = when {
                 !dispatched || cached || presentation.dispatchEvidence == "NOT_DISPATCHED" -> AppAuditDispatchEvidence.NOT_DISPATCHED
@@ -474,18 +478,19 @@ internal class AppAuditPluginServices @Inject constructor(
                 validationRule = safeAuditValidationRule(presentation.validationRule),
                 validationField = safeAuditDiagnosticField(presentation.validationField),
                 observedAtEpochMs = presentation.observedAtEpochMs?.takeIf { it >= 0 } ?: System.currentTimeMillis().takeUnless { cached },
-                // A null transport revision may mean the OAuth attempt crossed credential
-                // revisions. Only a proven local rejection can use the stable saved revision.
-                configurationRevision = safeAuditConfigurationRevision(presentation.configurationRevision) ?: stableLocalRevision.takeUnless { cached }
+                configurationRevision = safeAuditConfigurationRevision(presentation.configurationRevision) ?: (admittedRevision ?: stableRevision).takeUnless { cached || source == McpDiscoverySource.SHARED },
+                declaredRpcErrorCode = presentation.declaredRpcErrorCode
             )
         }
     }
 
     private suspend fun capabilities(profile: PlatformV2, configurationRevision: String?): AppAuditObservation = try {
-        val capability = gateway.getCapabilities(
-            ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, requestRole = "app-audit"),
-            forceRefresh = true
-        )
+        val capability = withContext(dev.chungjungsoo.gptmobile.data.network.gateway.GatewayCapabilityReadContext()) {
+            gateway.getCapabilities(
+                ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, profileRevision = configurationRevision, requestRole = "app-audit"),
+                forceRefresh = true
+            )
+        }
         AppAuditObservation(
             if (capability == null) AppAuditOutcome.UNAVAILABLE else AppAuditOutcome.PASS,
             if (capability == null) "GATEWAY_NOT_SUPPORTED" else "GATEWAY_CAPABILITY_VERIFIED",
@@ -549,7 +554,7 @@ internal class AppAuditPluginServices @Inject constructor(
         val SAVED_BINDING_ID = Regex("bind_[a-f0-9]{32}")
         val FRESH_CONTRACT_RECHECK_CODES = setOf(
             "MCP_PROTOCOL_VERSION_UNSUPPORTED", "MCP_INITIALIZATION_SCHEMA_INVALID", "MCP_DISCOVERY_SCHEMA_INVALID", "MCP_DISCOVERY_CONFIGURATION",
-            "MCP_CATALOG_SCHEMA_INVALID", "MCP_CATALOG_LIMIT_EXCEEDED", "MCP_RESPONSE_ID_MISMATCH", "MCP_RESPONSE_SCHEMA_INVALID", "MCP_ENDPOINT_CONFIGURATION"
+            "MCP_CATALOG_CONFIGURATION", "MCP_CATALOG_SCHEMA_INVALID", "MCP_CATALOG_LIMIT_EXCEEDED", "MCP_RESPONSE_ID_MISMATCH", "MCP_RESPONSE_SCHEMA_INVALID", "MCP_ENDPOINT_CONFIGURATION"
         )
     }
 }

@@ -21,6 +21,11 @@ class AppAuditDiagnosticsTest {
         assertEquals("OAUTH_REFRESH_UNAVAILABLE", safeAuditValidationRule("OAUTH_REFRESH_UNAVAILABLE"))
         assertEquals("PROTOCOL_VERSIONS_ARRAY_REQUIRED", safeAuditValidationRule("PROTOCOL_VERSIONS_ARRAY_REQUIRED"))
         assertEquals("error.data.supported", safeAuditDiagnosticField("error.data.supported"))
+        assertEquals("catalogue", safeAuditFailurePhase("catalogue"))
+        assertEquals("CATALOG_ROUTE_REQUIRED", safeAuditValidationRule("CATALOG_ROUTE_REQUIRED"))
+        assertEquals("CAPABILITIES_OBJECT_REQUIRED", safeAuditValidationRule("CAPABILITIES_OBJECT_REQUIRED"))
+        assertEquals("tools_list", safeAuditDiagnosticField("tools_list"))
+        assertEquals("endpoint", safeAuditDiagnosticField("endpoint"))
     }
 
     @Test

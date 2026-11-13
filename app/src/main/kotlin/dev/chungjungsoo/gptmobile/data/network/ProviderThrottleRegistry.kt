@@ -1,5 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+
 /** Cooldowns are credential scoped. Recovery admits one request at a time instead of a synchronized retry burst. */
 internal class ProviderThrottleRegistry(
     private val nowMillis: () -> Long = { System.nanoTime() / 1_000_000L },
@@ -10,8 +14,22 @@ internal class ProviderThrottleRegistry(
     private data class Rejection(val count: Int, val rememberUntil: Long)
     private val rejections = linkedMapOf<String, Rejection>()
     private val activeProbes = mutableSetOf<String>()
+    private val _revision = MutableStateFlow(0L)
+    val revision = _revision.asStateFlow()
 
     data class Admission(val waitMillis: Long = 0, val ownsProbe: Boolean = false, val rejectionCount: Int = 0)
+    data class Cooldown(val waitMillis: Long, val rejectionCount: Int, val authoritativeReset: Boolean)
+
+    /** Admission UI/scheduling must not consume a permit or turn a transient wait into a provider reset. */
+    @Synchronized
+    fun cooldown(identity: String): Cooldown? {
+        val now = nowMillis()
+        val state = states[identity] ?: return null
+        val remaining = ProviderRetryPolicy.remainingMillis(state.blockedUntil, now)
+        if (remaining <= 0) return null
+        val count = rejections[identity]?.takeIf { it.rememberUntil > now }?.count ?: 0
+        return Cooldown(remaining, count, state.authoritativeReset)
+    }
 
     @Synchronized
     fun admit(identity: String): Admission {
@@ -38,6 +56,7 @@ internal class ProviderThrottleRegistry(
         if (state.blockedUntil <= nowMillis()) {
             states.remove(identity)
             rejections.remove(identity)
+            _revision.update { it + 1 }
         }
     }
 
@@ -75,11 +94,14 @@ internal class ProviderThrottleRegistry(
     @Synchronized
     fun defer(identity: String, delayMillis: Long, authoritativeReset: Boolean = false) {
         val now = nowMillis()
-        states.entries.removeIf { it.value.recoveryUntil <= now }
+        val removed = states.entries.removeIf { it.value.recoveryUntil <= now }
         check(identity in states || states.size < 512) { "PROVIDER_THROTTLE_CAPACITY: wait for existing provider cooldowns to expire." }
         val blockedUntil = maxOf(states[identity]?.blockedUntil ?: now, ProviderRetryPolicy.deadlineMillis(now, delayMillis))
         val prior = states[identity]
         states[identity] = State(blockedUntil, ProviderRetryPolicy.deadlineMillis(blockedUntil, 30_000L), maxOf(blockedUntil, prior?.nextPermit ?: now), authoritativeReset || prior?.authoritativeReset == true)
+        // Observation does not consume permits, and equal/shorter cooldowns do
+        // not invalidate the UI. Only a changed scheduling deadline publishes.
+        if (removed || prior?.blockedUntil != blockedUntil) _revision.update { it + 1 }
     }
 
     /** Zero admits this attempt atomically; a positive value is a cancellable wait, not a reserved dispatch. */
@@ -89,6 +111,7 @@ internal class ProviderThrottleRegistry(
         val now = nowMillis()
         if (now >= state.recoveryUntil) {
             states.remove(identity)
+            _revision.update { it + 1 }
             return 0
         }
         val remaining = ProviderRetryPolicy.remainingMillis(maxOf(state.blockedUntil, state.nextPermit), now)

@@ -20,6 +20,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavHostController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import dagger.hilt.android.AndroidEntryPoint
 import dev.chungjungsoo.gptmobile.data.agent.tool.MCP_OAUTH_SCHEME
@@ -36,6 +37,7 @@ import dev.chungjungsoo.gptmobile.presentation.theme.GPTMobileTheme
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.IssueReportHost
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.IssueReportViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ToolConnectionsViewModel
+import dev.chungjungsoo.gptmobile.presentation.ui.setting.shouldCompleteIssueReportSetup
 import kotlinx.coroutines.launch
 
 @AndroidEntryPoint
@@ -67,8 +69,12 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
 
         setContent {
             val navController = rememberNavController()
+            val currentRoute = navController.currentBackStackEntryAsState().value?.destination?.route
             val isReady by mainViewModel.isReady.collectAsStateWithLifecycle()
             val startupError by mainViewModel.startupError.collectAsStateWithLifecycle()
+            LaunchedEffect(currentRoute) {
+                if (shouldCompleteIssueReportSetup(currentRoute)) issueReportViewModel.completeSetup()
+            }
             LaunchedEffect(startupError) {
                 if (startupError != null) {
                     keepSplashOnScreen = false
@@ -83,7 +89,7 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                     customPrimaryArgb = LocalCustomPrimaryArgb.current,
                     customPalette = dev.chungjungsoo.gptmobile.presentation.common.LocalCustomPalette.current
                 ) {
-                    IssueReportHost(issueReportViewModel, showPrompts = isReady || startupError != null) { openReport ->
+                    IssueReportHost(issueReportViewModel, showPrompts = isReady || startupError != null, onOpenGitHubSettings = { if (isReady) navController.navigate(Route.TOOL_CONNECTIONS) { launchSingleTop = true } }) { openReport ->
                         if (startupError != null) {
                             StartupRecoveryScreen(requireNotNull(startupError), mainViewModel::retryStartup)
                         } else if (!isReady) {

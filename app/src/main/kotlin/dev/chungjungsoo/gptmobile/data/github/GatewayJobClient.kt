@@ -7,8 +7,10 @@ import dev.chungjungsoo.gptmobile.data.network.NetworkClient
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayClientDiagnostics
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayJobPollCoordinator
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewaySurfacePolicy
 import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayClientExchange
+import dev.chungjungsoo.gptmobile.data.network.gateway.gatewayJobObservationIdentity
 import io.ktor.client.HttpClient
 import io.ktor.client.plugins.timeout
 import io.ktor.client.request.bearerAuth
@@ -40,11 +42,11 @@ class GatewayJobClient internal constructor(
 ) {
     @Inject constructor(network: NetworkClient) : this(network.gatewayReadClient(), network::evictIdleConnections)
     private val json = Json { ignoreUnknownKeys = true }
-    private data class CommandObservation(val receipt: GatewayCommandReceipt?, val misses: Int)
+    private data class CommandObservation(val receipt: GatewayCommandReceipt?, val interval: Long, val runtime: String)
     private val commandMisses = linkedMapOf<String, Int>()
-    private val commandObservations = RouteCapabilityCache<CommandObservation>(now, valueTtl = {
-        if (it.receipt == null) (5_000L shl (it.misses - 1).coerceIn(0, 4)).coerceAtMost(60_000L) else 0L
-    })
+    private val commandObservations = RouteCapabilityCache<CommandObservation>(now, valueTtl = { it.interval })
+    private data class IdentityObservation(val identity: GatewayScopeIdentity, val runtime: String)
+    private val identityReads = RouteCapabilityCache<IdentityObservation>(now, positiveTtl = 1_000)
 
     private suspend fun read(config: ProviderRequestConfig, path: String, maxBytes: Int = 2_000_000): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
@@ -173,12 +175,20 @@ class GatewayJobClient internal constructor(
 
     /** Canonical journal identity; the inference installation identifier may be different. */
     internal suspend fun identity(config: ProviderRequestConfig): GatewayScopeIdentity {
-        val body = read(config, "identity")
-        return decode(GatewayAdmissionSurface.IDENTITY) {
-            val document = json.parseToJsonElement(body) as? JsonObject ?: error("Invalid identity")
-            require(document.integer("schema_version") == 1 && document.integer("protocol_version") == 1)
-            json.decodeFromString<GatewayScopeIdentity>(body).also { requireGatewayIdentity(it.gatewayId, it.principalId) }
-        }
+        val key = gatewayJobObservationIdentity(config)
+        // Each sequential admission still observes the server. Only overlapping
+        // reads of the same authenticated route share their in-flight response.
+        return requireNotNull(
+            identityReads.getOrLoad(key, forceRefresh = true, isCurrent = { it?.runtime == GatewaySurfacePolicy.identity(config) }) {
+                val body = read(config, "identity")
+                val identity = decode(GatewayAdmissionSurface.IDENTITY) {
+                    val document = json.parseToJsonElement(body) as? JsonObject ?: error("Invalid identity")
+                    require(document.integer("schema_version") == 1 && document.integer("protocol_version") == 1)
+                    json.decodeFromString<GatewayScopeIdentity>(body).also { requireGatewayIdentity(it.gatewayId, it.principalId) }
+                }
+                IdentityObservation(identity, GatewaySurfacePolicy.identity(config))
+            }
+        ).identity
     }
 
     /** Explicit reconciliation always reads live; a prior missing receipt never authorizes a write. */
@@ -191,11 +201,8 @@ class GatewayJobClient internal constructor(
 
     private suspend fun lookupCommand(config: ProviderRequestConfig, commandId: String, forceRefresh: Boolean): GatewayCommandReceipt? {
         pathId(commandId)
-        val authority = config.extraHeaders.entries
-            .filter { it.key.equals("X-Gateway-Installation-ID", true) || it.key.equals("X-Gateway-Principal-ID", true) }
-            .sortedBy { it.key.lowercase() }.joinToString("\n") { "${it.key.lowercase()}:${it.value}" }
-        val key = gatewayIdentityKey(GatewaySurfacePolicy.identity(config), authority, commandId)
-        return commandObservations.getOrLoad(key, forceRefresh = forceRefresh) {
+        val key = gatewayIdentityKey(gatewayJobObservationIdentity(config), commandId)
+        return commandObservations.getOrLoad(key, forceRefresh = forceRefresh, isCurrent = { it?.runtime == GatewaySurfacePolicy.identity(config) }) {
             val receipt = readCommand(config, commandId)
             val misses = synchronized(commandMisses) {
                 if (receipt == null) {
@@ -206,15 +213,19 @@ class GatewayJobClient internal constructor(
                     0
                 }
             }
-            CommandObservation(receipt, misses)
+            // Cache only the immutable accepted binding. Active job/queue state
+            // remains in result reads, and explicit reconciliation stays fresh.
+            val interval = if (receipt == null) (5_000L shl (misses - 1).coerceIn(0, 4)).coerceAtMost(60_000L) else maxOf(30_000L, GatewayJobPollCoordinator.remaining(config, receipt.jobId))
+            CommandObservation(receipt, interval, GatewaySurfacePolicy.identity(config))
         }?.receipt
     }
 
     private suspend fun readCommand(config: ProviderRequestConfig, commandId: String): GatewayCommandReceipt? {
         val payload = try {
             read(config, "commands/${pathId(commandId)}?include_outcome=true")
-        } catch (_: GatewayHistoryUnsupported) {
-            return null
+        } catch (failure: GatewayAdmissionException) {
+            if (failure.reason == GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE) return null
+            throw failure
         }
         return decode(GatewayAdmissionSurface.COMMAND) {
             val document = json.parseToJsonElement(payload) as? JsonObject ?: error("Invalid command receipt")

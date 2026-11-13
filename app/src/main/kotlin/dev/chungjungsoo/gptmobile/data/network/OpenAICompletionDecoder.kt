@@ -21,7 +21,8 @@ internal fun decodeOpenAICompletion(json: Json, payload: String): ChatCompletion
     val delivery = response["gateway_delivery"]?.let {
         runCatching { json.decodeFromJsonElement(dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayDeliveryTiming.serializer(), it) }.getOrNull()
     }
-    val completion = JsonObject(response - setOf("gateway_timing", "gateway_provenance", "gateway_delivery"))
+    val recovery = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(response["gateway_recovery"] as? JsonObject)
+    val completion = JsonObject(response - setOf("gateway_timing", "gateway_provenance", "gateway_delivery", "gateway_recovery"))
     return json.decodeFromJsonElement(ChatCompletionChunk.serializer(), CompletionUsageNormalizer.normalize(completion))
-        .copy(gatewayTiming = timing, gatewayProvenance = provenance, gatewayDeliveryTiming = delivery)
+        .copy(gatewayTiming = timing, gatewayProvenance = provenance, gatewayDeliveryTiming = delivery, gatewayRecovery = recovery)
 }

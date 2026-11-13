@@ -66,7 +66,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                     if (!cursor.moveToFirst()) null else Triple(cursor.getString(0), cursor.getString(1), cursor.getString(2).orEmpty())
                 }
             }
-            suspend fun project(stored: Triple<String, String, String>?, source: String): JsonObject? {
+            suspend fun project(stored: Triple<String, String, String>?, source: String, retain: Boolean = true): JsonObject? {
                 if (stored == null) return null
                 val reasons = mutableListOf<String>()
                 val protected = workspace.diagnosticPayload(chatId, stored.first, stored.second, stored.third, 256 * 1024, beforeRead, reasons::add)
@@ -91,31 +91,90 @@ class DiagnosticDatabaseSource @Inject constructor(
                     // latest-state/workspace collector independently records real omissions.
                     if (reason !in setOf("PROTECTED_PAYLOAD_BYTE_LIMIT", "PROTECTED_METADATA_LIMIT")) omitted(reason)
                 }
-                if (payload != null) evidence += DiagnosticFailureEvidence(stored.first, source, payload)
+                if (payload != null && retain) evidence += DiagnosticFailureEvidence(stored.first, source, payload)
                 return payload
             }
             val current = load("id GLOB 'github-evidence:*:verification_current_*'")
             val report = project(current, "VERIFICATION_CURRENT")
+            var verification = report
+            var binding = current?.first?.removePrefix("github-evidence:")?.substringBeforeLast(':')
             if (report == null) {
                 val event = load("id GLOB 'github-evidence:*:verification_event_*'")
                 val projected = project(event, "VERIFICATION_EVENT")
                 val snapshot = (projected?.get("snapshot_id") as? JsonPrimitive)?.contentOrNull
-                if (current != null && snapshot != current.first.substringAfterLast(':')) {
+                val eventBinding = event?.first?.removePrefix("github-evidence:")?.substringBeforeLast(':')
+                if (current != null && (snapshot != current.first.substringAfterLast(':') || eventBinding != binding)) {
                     evidence.removeAll { it.source == "VERIFICATION_EVENT" }
                     limitations += buildJsonObject {
                         put("source", "VERIFICATION_EVENT")
                         put("reason", "LATEST_FAILURE_SNAPSHOT_MISMATCH")
                     }
+                } else {
+                    verification = projected
+                    if (binding == null && projected != null) binding = eventBinding
                 }
             }
             // The output checkpoint supplies invocation/dispatch/recovery detail when
             // the verification event deliberately contains only a compact verdict.
-            if (report?.get("completion_verified") != JsonPrimitive(true) &&
-                (report == null || listOf("invocation_id", "failed_stage", "recovery_action").any { report[it] == null || report[it] == JsonNull })
+            val retainedVerification = verification
+            if (retainedVerification?.get("completion_verified") != JsonPrimitive(true) &&
+                (retainedVerification == null || listOf("invocation_id", "failed_stage", "recovery_action").any { retainedVerification[it] == null || retainedVerification[it] == JsonNull })
             ) {
-                val binding = current?.first?.removePrefix("github-evidence:")?.substringBeforeLast(':')
                 val output = if (binding == null) load("id GLOB 'github-output:*'") else load("id = ?", "github-output:$binding")
                 project(output, "OUTPUT_CHECKPOINT")
+            }
+            // The key is the same stable account/conversation/repository/task
+            // binding used by ChatRepositoryImpl, and load() also pins this run.
+            // Never search for a nearby/latest review from another binding.
+            if (binding != null && run.second != "COMPLETED" && verification?.get("completion_verified") != JsonPrimitive(true)) {
+                val stored = load("id = ?", "github-review:$binding:active")
+                val review = project(stored, "REVIEW_CHECKPOINT", retain = false)
+                if (stored != null && review != null && unresolvedGitHubReviewFailure(review)) {
+                    evidence.add(0, DiagnosticFailureEvidence(stored.first, "REVIEW_CHECKPOINT", review))
+                }
+            }
+            // Admission can end a run before a workspace checkpoint or invocation
+            // exists. Its exact owned assistant still retains the typed failure.
+            // Do not borrow a newer revision or another run's timeline by recency.
+            if (run.second != "COMPLETED" && verification?.get("completion_verified") != JsonPrimitive(true)) {
+                beforeRead()
+                val wait = database.openHelper.readableDatabase.query(
+                    SimpleSQLiteQuery(
+                        "SELECT w.fence, w.checkpoint FROM provider_waits w JOIN agent_runs r ON r.run_id = w.runId JOIN messages_v2 m ON m.message_id = r.assistant_message_id WHERE r.run_id = ? AND r.chat_id = ? AND r.ownership_fence = w.fence AND m.current_run_id = r.run_id AND m.ownership_fence = w.fence AND length(CAST(w.checkpoint AS BLOB)) <= 262144 LIMIT 1",
+                        arrayOf<Any?>(run.first, chatId)
+                    )
+                ).use { cursor -> if (!cursor.moveToFirst()) null else cursor.getLong(0) to cursor.getString(1) }
+                val savedWait = wait?.second?.let { runCatching { kotlinx.serialization.json.Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+                val recovery = savedWait?.get("recoveryFailure") as? JsonObject
+                if (dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure.retainedDetails(recovery) != null && recovery?.get("failure_origin") == JsonPrimitive("local_recovery")) {
+                    evidence.add(0, DiagnosticFailureEvidence("provider_waits:${run.first}:${wait?.first}", "PROVIDER_WAIT_RECOVERY", buildJsonObject { put("latest_recovery_failure", requireNotNull(recovery)) }))
+                }
+                beforeRead()
+                val message = database.openHelper.readableDatabase.query(
+                    SimpleSQLiteQuery(
+                        "SELECT m.message_id, CASE WHEN length(CAST(m.timeline AS BLOB)) <= 262144 THEN m.timeline ELSE NULL END " +
+                            "FROM messages_v2 m JOIN agent_runs r ON r.assistant_message_id = m.message_id " +
+                            "WHERE r.run_id = ? AND r.chat_id = ? AND m.chat_id = r.chat_id " +
+                            "AND m.current_run_id = r.run_id AND m.ownership_fence = r.ownership_fence LIMIT 1",
+                        arrayOf<Any?>(run.first, chatId)
+                    )
+                ).use { cursor ->
+                    if (!cursor.moveToFirst()) null else cursor.getLong(0) to cursor.getString(1)
+                }
+                if (message != null) {
+                    val reasons = mutableListOf<String>()
+                    val timeline = message.second?.let { DiagnosticValueProjector(256 * 1024, reasons::add).text(it) }
+                    if (timeline == null) reasons += "MESSAGE_TIMELINE_BYTE_LIMIT"
+                    timeline?.let { diagnosticMessageFailureEvidence(message.first, it) }?.let(evidence::add)
+                    reasons.distinct().forEach { reason ->
+                        limitations += buildJsonObject {
+                            put("record_id", "messages_v2:${message.first}:profileFailure")
+                            put("source", "MESSAGE_PROFILE_FAILURE")
+                            put("reason", reason)
+                            put("scope", "COMPACT_SUMMARY_PROJECTION; full records are captured independently")
+                        }
+                    }
+                }
             }
         }
         diagnosticFailureSummary(run?.first, run?.second, run?.third, appVersion, appBuild, appCommit, evidence, limitations)
@@ -363,6 +422,18 @@ class DiagnosticDatabaseSource @Inject constructor(
                         }
                     }
                     JsonObject(fields + ("payload" to payload))
+                } else if (table.name == "provider_waits") {
+                    val saved = fields["checkpoint"] as? JsonObject
+                    val decision = saved?.get("decision") as? JsonObject
+                    JsonObject(
+                        fields.filterKeys { it != "checkpoint" } + (
+                            "recovery" to buildJsonObject {
+                                saved?.filterKeys { it in setOf("mode", "resumeClaimId", "resumeClaimedAtMillis", "lastResumedAtMillis", "resumeCount", "recoveryFailure", "waitStartedAtMillis", "accumulatedProviderWaitMillis") }?.forEach { (key, value) -> put(key, value) }
+                                if (decision != null) put("interruption", JsonObject(decision.filterKeys { it in setOf("category", "knownNotAccepted", "httpStatus", "retryAt", "retrySource", "consecutiveRejections", "checkpointContinuationAllowed", "gitHubCheckpoint") }))
+                                put("first_start_source", "agent_runs.started_at; earlier legacy resume overwrites cannot be reconstructed")
+                            }
+                            )
+                    )
                 } else {
                     fields
                 }
@@ -455,8 +526,8 @@ class DiagnosticDatabaseSource @Inject constructor(
                 ),
                 Table(
                     "provider_waits",
-                    "t.runId IN ($latestRun) AND EXISTS (SELECT 1 FROM agent_runs r WHERE r.run_id = t.runId AND r.status = 'WAITING_PROVIDER_LIMIT' AND r.ownership_fence = t.fence)",
-                    listOf("runId", "fence", "retryAt")
+                    "t.runId IN ($latestRun) AND EXISTS (SELECT 1 FROM agent_runs r JOIN messages_v2 m ON m.message_id = r.assistant_message_id WHERE r.run_id = t.runId AND r.ownership_fence = t.fence AND m.current_run_id = r.run_id AND m.ownership_fence = t.fence)",
+                    listOf("runId", "fence", "retryAt", "checkpoint")
                 ),
                 Table("agent_run_policy_refs", "t.runId IN ($latestRun)"),
                 Table("run_policy_snapshots", "t.chatId = :chatId AND t.digest IN (SELECT digest FROM agent_run_policy_refs WHERE runId IN ($latestRun))"),

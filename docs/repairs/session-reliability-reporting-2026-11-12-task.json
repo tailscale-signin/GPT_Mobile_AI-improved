@@ -1,0 +1,1379 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "fix/session-reliability-reporting-2026-11-12",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "session-reliability-reporting-2026-11-12",
+  "state": "VALIDATING",
+  "intent": "Repair the complete session's diagnostic, GitHub orchestration, model review, native issue reporting, MCP and audit findings while preserving evidence, selected-profile authority and safe recovery.",
+  "evidence": {
+    "diagnostics_session": "b379afe1-b976-4788-a55f-9e5fbd6a23f6",
+    "app_commit": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "verified_section_hashes": 20,
+    "selected_chat_runs": 6,
+    "audit_source": "User-supplied analysis of app-audit-1794498632783.json; original audit file was not attached in this session",
+    "reporting_source": "User-supplied build-log findings for main and PR837; verified against the pinned source",
+    "additional_diagnostics_source": "User-supplied analysis of app-diagnostics-6729730838505374983.jsonl; original file was not attached in this session"
+  },
+  "workstreams": [
+    {
+      "id": "review",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
+      "scope": "Canonical evidence, serialized review admission, bounded review recovery, probe reuse, failure usage and provenance"
+    },
+    {
+      "id": "github_execution",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
+      "scope": "Action-specific duplicate protection, useful CI acquisition, current task authority, criteria, progress and factual partial reports"
+    },
+    {
+      "id": "gateway",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
+      "scope": "Exact selected-model preparation, admission consistency and prerequisite read recovery"
+    },
+    {
+      "id": "reporting",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
+      "scope": "Native Send and retry availability, approved payload identity, meaningful delivery state, build and service configuration"
+    },
+    {
+      "id": "mcp_audit",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
+      "scope": "Typed discovery failures, configuration binding, connection repair, measured coverage and qualification"
+    },
+    {
+      "id": "diagnostics_ui",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
+      "scope": "Early failure receipts, compact causal joins and bounded rendering/export work"
+    },
+    {
+      "id": "voice",
+      "state": "IMPLEMENTED_PENDING_FINAL_INTEGRATED_CI_AND_EXTERNAL_ACCEPTANCE",
+      "scope": "Typed recorder startup and bounded recreation, partial-PCM preservation, playback ownership/drain and correlated native outcomes"
+    }
+  ],
+  "validation": {
+    "host": "PASSED_477_TESTS_AND_FAST_GATE_AFTER_COMPLETE_REPORT_SET_RECONCILIATION_REPAIR",
+    "focused_behavior": "BACKEND_RECEIPT_AND_CONTEXT_V3_REGRESSIONS_PASSED_IN_EXACT_E1A_JVM_RUN;COLLECTOR_RECONCILER_41_PASSED",
+    "android": "9781_PRODUCTION_COMPILE_PASSED_TEST_COMPILE_FAILED_4_FIXTURE_SITES;2BA_FIXTURE_CORRECTION_PENDING_HOSTED_EXECUTION",
+    "gateway": "52EACB_SCHEMA_28_LOCAL_PASSED_218_HASHES_MATCHED;6567_LINUX_FULL_909_PASSED_1_PLATFORM_SKIP_AUTH56_BROWSER7;FINAL_INTEGRATED_HEAD_PENDING",
+    "device": "NOT_RUN_NO_DEVICE",
+    "live_services": "NOT_RUN_NO_USER_ENDPOINT_CREDENTIAL_ACCESS",
+    "authentication": "PASSED_56_TESTS_AFTER_CONTEXT_V3_COMPATIBILITY_REPAIR",
+    "kotlin_style": "PASSED_E1A_CHANGED_KOTLIN_CI;PRIOR_LOCAL_185_FILES_PINNED_1_3_1;CI_SCRIPT_FIX_HAS_NO_KOTLIN_CHANGE",
+    "test_runtime": "Restored hosted execution completed at e1a/f71b with no JVM failures. Current receipt-set correction requires its own CI run; earlier interrupted execution remains unverified.",
+    "jvm_initial": {
+      "commit": "6d79262254559831a85742bd51f627539fb98894",
+      "tests": 9502,
+      "passed": 8322,
+      "failed": 1175,
+      "skipped": 5,
+      "failure_classification": {
+        "attachment_runtime_including_caught_initialization": 1162,
+        "sdk_resolution": 5,
+        "code_and_fixture_followups_corrected": 8,
+        "unclassified": 0
+      }
+    },
+    "jvm_verified_before_followups": {
+      "commit": "82dfad5cfa79d7225f45723f8107f40788d9e731",
+      "tests": 9526,
+      "passed": 9519,
+      "failed": 2,
+      "skipped": 5,
+      "environment_failures": 0,
+      "followups": "Usage event identity expectation and original status intent preservation through workspace setup corrected in a1f595e618f558e7163d3c3b6f0f8596e5ee3920"
+    },
+    "gateway_source_binding": {
+      "source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "files": 218,
+      "mismatches": [],
+      "result": "PASS",
+      "diagnostic_contract_tests_passed": 28,
+      "diagnostic_log_sha256": "ff7c8463b8b95a03455084a05cfa0ab1f14017a39fd9906982b4823a36fcd276",
+      "full_hosted_matrix": "PENDING_NEW_EXACT_HEAD",
+      "hosted_linux_contract": {
+        "head": "6567b4d13aa24d7f8cb80207a62d9fe2964e16ca",
+        "checkout_merge": "b4b4d54e74eb52fcbf1861787b6e7fa6497d4d1c",
+        "gateway_cases": 910,
+        "passed": 909,
+        "skipped": 1,
+        "authentication_passed": 56,
+        "browser_passed": 7
+      }
+    },
+    "ci": {
+      "head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "checkout_merge": "f71b0d355a84c46e34d4c88632c86e64d523a643",
+      "base": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+      "pr_validation_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697498",
+      "state": "JVM_AND_COLLECTION_PASSED_RECONCILIATION_FAILED_HEAP_SKIPPED",
+      "failure": "Collector included app and core-domain; reconciler received app only. Fixed without weakening exact receipt matching."
+    },
+    "jvm_latest_baseline": {
+      "head": "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
+      "checkout_merge": "956d50d320c9d2f4794a21eee6886b39eaa14ded",
+      "reports": 1437,
+      "tests": 9551,
+      "passed": 9546,
+      "failed": 0,
+      "skipped": 5,
+      "dedicated_heap_gate": "PASSED_10_AT_256_MIB_AND_1_AT_64_MIB;ALL_5_NORMAL_SUITE_SKIPS_EXECUTED;NOT_ADDITIONAL_UNIQUE_CASES",
+      "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43281518258",
+      "artifact_id": 13973484820,
+      "junit_content_sha256": "342ed329b2b655afebe782c0bb6de76bcd0f378b47b5be3eb7e36a70b78dc14e",
+      "measured_application_line_percent": 45.382090951711206,
+      "measured_application_branch_percent": 43.786295964569774,
+      "coverage_scope": "Application files in the JaCoCo report; excludes native, script and resource inventory."
+    },
+    "qualification_collection": "FRESH_APP_AND_PORTABLE_DOMAIN_JVM_REPORTS_IN_ONE_EXECUTION_WINDOW;1439_REPORTS_9605_CASES_ZERO_REPORT_ERRORS",
+    "emulator_baseline": {
+      "head": "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
+      "api34_passed": 66,
+      "api36_passed": 66,
+      "native_android16_passed": 3,
+      "native_android16_capability_skips": 2,
+      "physical_device_verified": false
+    },
+    "combined_source": {
+      "code_commit": "2ba80781e2be158a76e797420c8ca6c1063b05f4",
+      "gateway_code_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "host_tests_passed": 477,
+      "authentication_tests_passed": 56,
+      "kotlin_files_checked": 185,
+      "gateway_manifest_files_rechecked": 218,
+      "gateway_content_mismatches": 0,
+      "android_execution": "PENDING_FOR_52EACB_RECOVERY_CHANGES;PRIOR_E1A_9600_PASSED",
+      "preserved_backend_accounting_commit": "53e3139889f57467c8e3ca1aa78e7a32183a26c6",
+      "context_v3": {
+        "configuration_tests_passed": 7,
+        "legacy_publisher_commit": "7aaa9731a2b14e77c65d831ca82d437f92eb4fd6",
+        "original_v2_digest": "ff07f986847ec76f52f5d0e6035d32c4d871bf5ee016d49f3df8ea6241d54a12",
+        "extended_v2_digest": "9c7c90f465bf47dea86a11fc091cbe22c2a6c8c41402b5b7adf7419fffe47852",
+        "independent_source_review": "PASSED",
+        "android_execution": "PASSED_IN_E1A_JVM_RUN"
+      },
+      "logs_sha256": {
+        "host": "1d6475283fb78be6b74d2a6a83ac56158949f6684c92819f30336110e7cd3a3a",
+        "authentication": "9f19ddaf3b4f1069996f000437591c7305323a8def9f2577df9016680d8ad987",
+        "configuration": "820df82ef69f8eb24d268324c7896b481ab7a419ac3ec794780a2cd92d35ddba",
+        "host_reconciliation": "aa599b466e9688b5f9eb6bfef4b5422f33a3c31862b79ee2756b6d81c725a203",
+        "host_integrated": "047a1dd32255707d28e7f9d7e7c1677fa0e6870ac839b806a1d11c4baef5df0f",
+        "host_test_fixture_correction": "7b66a6da3b44fbbb3288e0c74f36df3d5373e2330a1ae6195a8e1c6c8ca8183d"
+      },
+      "application_tested_head": "e1a754336d291ee1ad72878078d7f854d3d0735e"
+    },
+    "ci_history": [
+      {
+        "head": "3b34cb3673964c327b05d4d14ad2406f6158b93a",
+        "checkout_merge": "db199af7511848ba62687c741acf52a186a1fcbe",
+        "base": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+        "pr_validation_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43279859814",
+        "gateway_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43279859811",
+        "state": "SUPERSEDED_BY_CONCURRENT_DDBEA3_UPDATE"
+      }
+    ],
+    "jvm_latest": {
+      "head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "checkout_merge": "f71b0d355a84c46e34d4c88632c86e64d523a643",
+      "reports": 1439,
+      "tests": 9605,
+      "passed": 9600,
+      "failed": 0,
+      "skipped": 5,
+      "modules": {
+        "android_app": {
+          "passed": 9596,
+          "tests": 9601,
+          "reports": 1438,
+          "skipped": 5
+        },
+        "portable_domain": {
+          "passed": 4,
+          "tests": 4,
+          "reports": 1
+        }
+      },
+      "dedicated_heap_gate": "SKIPPED_AFTER_RECONCILIATION_FAILURE;REQUIRES_CORRECTED_HEAD_RUN",
+      "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697498",
+      "artifact_id": 13978924883,
+      "archive_sha256": "9abdfbefcfb191000e6ace20fbba6a1a89f41541c6130453fb975f8612d9e8ec",
+      "junit_content_sha256": "22fdff2c2fa57622b0b2ffdefd2d02b53f755ab057246db95507954e9fe96378",
+      "coverage": {
+        "available": true,
+        "report_sha256": "06bd7ce513cd57f7e0027caf968852e8212d498b3320cdc8c2741b4a651b70c4",
+        "source_files": 2376,
+        "counters": {
+          "LINE": {
+            "covered": 110608,
+            "missed": 132831,
+            "percent": 45.43561220675405
+          },
+          "BRANCH": {
+            "covered": 106574,
+            "missed": 136274,
+            "percent": 43.88506390828831
+          }
+        },
+        "current_run_sessions": 23,
+        "scope": "Application source files present in this JaCoCo report; excludes native, script and resource inventory."
+      },
+      "qualification_area_statuses": {
+        "PARTIAL": 6,
+        "PASS": 16,
+        "NOT_QUALIFIED": 4
+      },
+      "qualification_harness_statuses": {
+        "PASS": 43,
+        "NOT_OBSERVED": 16
+      }
+    },
+    "reconciliation_correction": {
+      "code_commit": "c1495ebc419adcaa73e8b2f59a9eab885f303b02",
+      "focused_tests_passed": 12,
+      "collector_and_reconciler_tests_passed": 41,
+      "actual_combined_artifact_replay": "PASSED_EXACT_SOURCE_RUN_ATTEMPT_DIGEST_AND_FAIL_ON_CANDIDATE_REGRESSION",
+      "app_only_negative_control": "REJECTED_EXACT_SET_MISMATCH",
+      "tested_application_head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "checkout_merge": "f71b0d355a84c46e34d4c88632c86e64d523a643",
+      "workflow_attempt_url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697498/attempts/1",
+      "formal_promotions": 0,
+      "historical_ledger": {
+        "PASS": 11,
+        "NOT_RUN": 99
+      },
+      "independent_source_review": "PASSED_NO_GATE_WEAKENING_NO_SCOPE_OR_INVENTORY_UPDATE_REQUIRED",
+      "host_fast_log_sha256": "aa599b466e9688b5f9eb6bfef4b5422f33a3c31862b79ee2756b6d81c725a203",
+      "published_head_ci": "PENDING",
+      "integrated_commit": "1587c7f8b6a25e7672060e31eef17a542b0f03d7"
+    },
+    "emulator_latest": {
+      "head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "api34_passed": 66,
+      "api36_passed": 66,
+      "api34_36_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697367",
+      "native_android16_passed": 3,
+      "native_android16_capability_skips": 2,
+      "native_failed": 0,
+      "native_run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697636",
+      "physical_device_verified": false
+    },
+    "apk_latest_observed": {
+      "head": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "run": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43293697690",
+      "artifact_id": 13977964681,
+      "build": "PASSED",
+      "ci_environment": {
+        "ISSUE_REPORT_GITHUB_ENABLED": true,
+        "ISSUE_REPORT_ORIGIN": ""
+      },
+      "archive_bytes": 732472486,
+      "github_declared_archive_sha256": "cb65ea2a343433d6a0abae3a41371cd40abc64937c21ad5d135579aa5a81d684",
+      "archive_digest_locally_verified": false,
+      "binary_inspection": "BLOCKED_CONNECTOR_MAX_536870912_BYTES",
+      "size_report_archive_verified": true,
+      "embedded_build_config_independently_read": false,
+      "individual_apk_sha256": null,
+      "signing_certificate_sha256": null,
+      "update_signing_compatibility": "NOT_OBSERVED",
+      "live_report_delivery": "NOT_RUN"
+    },
+    "gateway_source_binding_prior": {
+      "code_commit": "9155a1a23918578baf11261a6152d35d36559598",
+      "manifest_files_verified": 218,
+      "content_mismatches": 0,
+      "log_sha256": "9527e75e1d6a8020f368e4bdfd3ce61a4f1e8dd1b7a21a7f0c75a467808a3635"
+    },
+    "incoming_integration": {
+      "source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "metadata_commit": "6567b4d13aa24d7f8cb80207a62d9fe2964e16ca",
+      "scope_exact_paths_added": 26,
+      "scope_paths_checked": 2032,
+      "scope_regressions_passed": 6,
+      "scope_policy_changed": false,
+      "host_fast_tests_passed": 477,
+      "whitespace_check": "PASS_CONFIGURED_BASE_THROUGH_CURRENT_TREE",
+      "log_normalization": [
+        {
+          "path": "docs/repairs/evidence/diagnostic-a74d18ed-2026-11-12/classification-summary-jvm.log",
+          "original_commit": "b330796aa2b5c5a09f233920b87cd423549c60e3",
+          "original_bytes": 70,
+          "original_sha256": "133590ab115a53f2b28f7c5ca373598fcc1656d3bd9f63f414e20ab8c8e5787a",
+          "normalized_bytes": 69,
+          "normalized_sha256": "0855d74fa337947d2da793cd67d87e98a267bb37969fa078e4fb643435e566de",
+          "transformation": "Remove one empty trailing line; retain all test output lines and facts unchanged."
+        },
+        {
+          "path": "docs/repairs/evidence/diagnostic-a74d18ed-2026-11-12/integration-evidence-jvm.log",
+          "original_commit": "b330796aa2b5c5a09f233920b87cd423549c60e3",
+          "original_bytes": 120,
+          "original_sha256": "ac67d59631f8afba7d2750cfc1cd742769a1832bdc3c4f33f0012f03f85e4987",
+          "normalized_bytes": 119,
+          "normalized_sha256": "9df7be8cf0899daa553b8670251ee0aea9a4303f5204b66bf90ab7435688c040",
+          "transformation": "Remove one empty trailing line; retain all test output lines and facts unchanged."
+        },
+        {
+          "path": "docs/repairs/evidence/diagnostic-a74d18ed-2026-11-12/recovery-policy-jvm.log",
+          "original_commit": "b330796aa2b5c5a09f233920b87cd423549c60e3",
+          "original_bytes": 72,
+          "original_sha256": "58fe4e7bec7c3bb2895a3a404caf28e904f1bee94859486aaf8b8df37aef657e",
+          "normalized_bytes": 71,
+          "normalized_sha256": "79257f8cb3b39a1e6af41d56d40f5114a74929ed3bb80853ebbcca641bcae515",
+          "transformation": "Remove one empty trailing line; retain all test output lines and facts unchanged."
+        }
+      ],
+      "independent_review": "NO_BLOCKER_IN_RECOVERY_AUTHORITY_POLLING_SCHEMA",
+      "android_full_ci": "PENDING",
+      "raw_incoming_diagnostic_archive": "NOT_REAUDITED_BY_THIS_INTEGRATION",
+      "terminal_guard_followup": {
+        "commit": "b330796aa2b5c5a09f233920b87cd423549c60e3",
+        "review": "NO_BLOCKER_ANCHORED_APPLICATION_GRAMMAR",
+        "incoming_helper_test_receipt": 22,
+        "receipt_scope": "Incoming component evidence; exact Android execution pending",
+        "canonical_integrated_host_tests_passed": 477
+      }
+    },
+    "test_fixture_correction": {
+      "code_commit": "2ba80781e2be158a76e797420c8ca6c1063b05f4",
+      "observed_failure": {
+        "head": "9781a4fb1266e7539fe1127ee02cabe577415baa",
+        "merge": "92b5c67801bc5a66cd8b8832e0383969aaffce15",
+        "run": 43301643310,
+        "job": 131474261979,
+        "failed_step": "Compile isolated preview unit tests",
+        "task": ":app:compileDebugUnitTestKotlin",
+        "errors": {
+          "test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitRecoveryTest.kt:241:55": [
+            "No value passed for parameter 'seen0'.",
+            "No value passed for parameter 'thoughts'.",
+            "No value passed for parameter 'content'.",
+            "No value passed for parameter 'attachments'.",
+            "No value passed for parameter 'revisions'.",
+            "No value passed for parameter 'activeRevisionIndex'.",
+            "No value passed for parameter 'createdAt'.",
+            "No value passed for parameter 'timeline'.",
+            "No value passed for parameter 'isFavorite'.",
+            "No value passed for parameter 'timestamp'.",
+            "No value passed for parameter 'combinedSources'.",
+            "No value passed for parameter 'combinedManifest'.",
+            "No value passed for parameter 'serializationConstructorMarker'."
+          ],
+          "test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ProviderWaitPersistenceTest.kt:30:115": [
+            "No value passed for parameter 'seen0'.",
+            "No value passed for parameter 'thoughts'.",
+            "No value passed for parameter 'content'.",
+            "No value passed for parameter 'attachments'.",
+            "No value passed for parameter 'revisions'.",
+            "No value passed for parameter 'activeRevisionIndex'.",
+            "No value passed for parameter 'linkedMessageId'.",
+            "No value passed for parameter 'createdAt'.",
+            "No value passed for parameter 'timeline'.",
+            "No value passed for parameter 'isFavorite'.",
+            "No value passed for parameter 'timestamp'.",
+            "No value passed for parameter 'combinedSources'.",
+            "No value passed for parameter 'combinedManifest'.",
+            "No value passed for parameter 'serializationConstructorMarker'."
+          ],
+          "test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt:486:9": [
+            "Class 'FakeAgentPersistenceDao' is not abstract and does not implement abstract members:"
+          ],
+          "test/kotlin/dev/chungjungsoo/gptmobile/data/workspace/ProtectedSynthesisCheckpointTest.kt:95:13": [
+            "No value passed for parameter 'seen0'.",
+            "No value passed for parameter 'thoughts'.",
+            "No value passed for parameter 'content'.",
+            "No value passed for parameter 'attachments'.",
+            "No value passed for parameter 'revisions'.",
+            "No value passed for parameter 'activeRevisionIndex'.",
+            "No value passed for parameter 'createdAt'.",
+            "No value passed for parameter 'timeline'.",
+            "No value passed for parameter 'isFavorite'.",
+            "No value passed for parameter 'timestamp'.",
+            "No value passed for parameter 'combinedSources'.",
+            "No value passed for parameter 'combinedManifest'.",
+            "No value passed for parameter 'serializationConstructorMarker'."
+          ]
+        },
+        "abstract_members": [
+          "2026-11-12T20:46:00.1948495Z suspend fun terminalProviderWaitIds(): List<String>",
+          "2026-11-12T20:46:00.1949391Z suspend fun markClaimedProviderWaiting(runId: String, fence: Long): Int"
+        ]
+      },
+      "changed_files": 4,
+      "missing_content_fixtures": 3,
+      "missing_event_only_dao_methods": 2,
+      "production_changed": false,
+      "assertions_changed": false,
+      "ownership_or_checkpoint_data_changed": false,
+      "pinned_ktlint": "PASSED_ALL_4",
+      "host_fast_tests_passed": 477,
+      "local_gradle": "NOT_RUN_NO_ANDROID_SDK",
+      "corrected_head_android": "PENDING"
+    },
+    "latest_published_gate_observations": {
+      "head": "9781a4fb1266e7539fe1127ee02cabe577415baa",
+      "checkout_merge": "92b5c67801bc5a66cd8b8832e0383969aaffce15",
+      "scope": "PASS",
+      "diagnostic_preflight": "PASS",
+      "formatting": "PASS",
+      "host_tests_passed": 477,
+      "gateway_tests": 910,
+      "gateway_passed": 909,
+      "gateway_skipped": 1,
+      "authentication_passed": 56,
+      "browser_passed": 7,
+      "production_compilation": "PASS",
+      "test_compilation": "FAILED_4_FIXTURE_SITES",
+      "full_jvm": "NOT_REACHED_AT_CHECKPOINT",
+      "reconciliation": "NOT_REACHED_AT_CHECKPOINT",
+      "heap": "NOT_REACHED_AT_CHECKPOINT"
+    },
+    "verified_gateway_installer": {
+      "head": "9781a4fb1266e7539fe1127ee02cabe577415baa",
+      "gateway_source": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "workflow_run": 43301643424,
+      "artifact_id": 13982047735,
+      "archive_bytes": 49580958,
+      "archive_sha256": "27b3c543cbd128a4c9c52f568087d5ec159316b9ee5f2c029a4b1647167bb0e8",
+      "archive_and_inner_hashes_verified": true,
+      "portable_files_verified": 1357,
+      "gateway_source_files_verified": 218,
+      "ci_smoke_passed": 11,
+      "local_binary_execution": false,
+      "installed_deployment_verification": false
+    }
+  },
+  "external_qualification": [
+    "Restore or reconfigure the user's private MCP endpoints using their actual saved identities; audit aliases are capture-local.",
+    "Reauthorize the saved MCP connection with invalid local credentials; never fabricate an authorization result.",
+    "A live reporting-service deployment needs a real origin and publisher credentials unless native authenticated GitHub delivery is selected.",
+    "Physical phone, voice, GPU/NPU, frame and memory qualification require the intended device and workload.",
+    "Optional absent or deliberately disabled plugins are configuration states and must not be silently enabled or counted as implementation defects."
+  ],
+  "publication": {
+    "mode": "GUARDED_FAST_FORWARD_ONLY",
+    "force": false,
+    "state": "INTEGRATED_SOURCE_COMMITTED_GUARDED_PUBLICATION_CHECKPOINT",
+    "code_commit": "2ba80781e2be158a76e797420c8ca6c1063b05f4",
+    "last_verified_remote_head_before_publication": "9781a4fb1266e7539fe1127ee02cabe577415baa",
+    "branch": "fix/session-reliability-reporting-2026-11-12",
+    "pull_request": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/838",
+    "preserved_independent_updates": [
+      "e7fb818400d66f15afe0838e1e2dcb9cc47f0dd2",
+      "50e431f35544855ff8cc40671af231d9eeec6365",
+      "1b7d1c68936a335dc921815469894bb0a42aea00",
+      "ddbea3a98d8ab5c38fbfec6d6b2a5be789382e2e",
+      "c880d5c9b9c8224f8aefd2e9ac4adfb0bac65e39",
+      "831d3499cb82b928d640022992fda12e9048e8ca",
+      "7aaa9731a2b14e77c65d831ca82d437f92eb4fd6",
+      "0057d4e10808da00fc69bc64a8348639ab8b90bb",
+      "76dcfccee45688533222e8a035830f84cdf69470",
+      "e1a754336d291ee1ad72878078d7f854d3d0735e",
+      "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "6567b4d13aa24d7f8cb80207a62d9fe2964e16ca",
+      "b330796aa2b5c5a09f233920b87cd423549c60e3"
+    ],
+    "gateway_code_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61"
+  },
+  "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
+  "checkpoint_storage": "repository_file",
+  "checkpoint_updated_at": "2026-11-13T02:12:48.692919+00:00",
+  "draft_pr_merge_followup": {
+    "state": "IMPLEMENTED_PENDING_INTEGRATED_VALIDATION",
+    "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "primary_pr": 838,
+    "primary_head": "7ad3ae53803911e563a36e7b874de1e883ac8ccc",
+    "validation_prs": [
+      881,
+      883
+    ],
+    "preserved_unique_commit": "9b03295a68e400e7b1297ba3b5894b8465453dbc",
+    "repairs": [
+      "Port final queued-model authority validation to current leased queue path and retain owned regression coverage.",
+      "Preserve completed-malformed versus incomplete-stream extraction regressions.",
+      "Split traced CodeQL generation and production compilation without relaxing heap or analysis requirements.",
+      "Revalidate microphone permission in deferred default recorder factory and test revocation after startup admission."
+    ],
+    "validation": {
+      "host": "PASSED_484_CANONICAL_HOST_TESTS_AND_FAST_GATE",
+      "android": "PENDING_EXACT_INTEGRATED_HEAD",
+      "codeql": "PENDING_EXACT_INTEGRATED_HEAD",
+      "formatting": "PASSED_PINNED_KTLINT_1_3_1_ALL_6_CHANGED_KOTLIN_FILES",
+      "release_scope": "PASSED_COMBINED_INDEX_AND_ALL_CHANGED_PATHS"
+    },
+    "merge_gate": "Current source and main base, all applicable checks, active repository rules; no bypass. Preserve ancestry with merge commits.",
+    "updated_at": "2026-11-12T23:13:40.939313+00:00",
+    "preserved_concurrent_commit": "832f0201248ae35ccf46fadecc3bc031d5b30f1c"
+  },
+  "stable_validation_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "working_branch": "verify/session-reliability-77c55cc-2026-11-12",
+    "parent_head": "9b03295a68e400e7b1297ba3b5894b8465453dbc",
+    "parent_pull_request": 838,
+    "pull_request": 881,
+    "state": "IMPLEMENTED_PENDING_TARGETED_HOSTED_TESTS_AND_LINT",
+    "intent": "Recheck microphone permission at the deferred default AudioRecord factory, preserving startup validation, typed permission failure and cleanup; do not suppress lint. Add revoke-during-configuration and fresh-capture regrant regressions.",
+    "failure_evidence": {
+      "run_id": 43316086583,
+      "job_id": 131524625524,
+      "artifact_id": 13992546971,
+      "artifact_sha256": "c589c79d5e5d02a4bca1c17fdf109ffb1fee2c26795ca831534deba9b719287e",
+      "rule": "MissingPermission",
+      "source": "MoonshineVoiceRecognizer.kt:515",
+      "error_entries": 2,
+      "unique_locations": 1
+    },
+    "prior_head_validation": "Main 9764 JVM cases:9759pass5deferred; all5 deferred passed in11 bounded heap executions. API34/36:66passes each. Native3pass2explicitcapabilityskips. CodeQL completed with one retained alert in unchanged code. Parent lint failed and aggregate was queued; none of these results is a new-head pass.",
+    "local_validation": {
+      "canonical_fast": "PASS_482_TESTS",
+      "pinned_ktlint_1_3_1": "PASS",
+      "independent_source_review": "PASS",
+      "new_android_regressions": "PENDING_HOSTED_EXECUTION",
+      "lint": "PENDING_HOSTED_EXECUTION"
+    }
+  },
+  "integrated_validation_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "parent_head": "a78ffb85d70460e9e0336ed4d64d730b037319cb",
+    "working_branches": [
+      "fix/session-reliability-reporting-2026-11-12",
+      "verify/session-reliability-77c55cc-2026-11-12"
+    ],
+    "pull_requests": [
+      838,
+      881
+    ],
+    "state": "IMPLEMENTED_PENDING_EXACT_INTEGRATED_CI",
+    "intent": "Preserve the owner consolidation and reviewed queue/provider/reporting/voice repairs; refresh the actual microphone permission observation on recorder creation/start SecurityException without changing authorization or retry behavior.",
+    "source_review": {
+      "queue_provider_replay": "No blocking regression found; Room-backed queue authority tests remain required.",
+      "reporting_authentication": "Closed bounded v5 diagnostics preserve approval bytes, privacy opt-out, legacy contracts and read-only uncertain-delivery reconciliation.",
+      "voice": "Retained guard and original tests; corrected stale permission observation reaching v5 incident after revocation."
+    },
+    "local_validation": {
+      "incoming_fast": "PASS_484_TESTS",
+      "incoming_authentication": "PASS_66_TESTS",
+      "permission_diagnostics_ktlint": "PASS",
+      "android_regressions": "PENDING_HOSTED_EXECUTION",
+      "correction_fast": "PASS_484_TESTS",
+      "correction_scope": "PASS"
+    },
+    "prior_execution": "9b exact JVM/heap/emulator/native/gateway evidence remains historical; 9b lint and aggregate failed. 832 verification was cancelled by the owner consolidation. Neither is current integrated-head execution proof."
+  },
+  "windows_status_publication_followup": {
+    "parent_head": "1caf601660d90f8eec2def3cfd38eda96c03cf9b",
+    "gateway_source_commit": "7e90e579c96686ca9a2b43a2523b8cdbbcc8dd0a",
+    "state": "IMPLEMENTED_PENDING_EXACT_CORRECTED_CI",
+    "repair_id": "R38",
+    "failure_run": 43329441647,
+    "failure_job": 131570155391,
+    "passing_same_head_installer_run": 43329439643,
+    "observed_error": "WinError 5 replacing status.json after rollback runtime startup; exact holder unknown",
+    "correction": "Only supervisor status publication retries the same fsynced temporary bytes on Windows errors 5 or 32, at most six attempts and 310 ms scheduled backoff; prior in-memory and file state survive failure. Other writers and errors do not retry.",
+    "local_validation": {
+      "targeted_tests": 13,
+      "targeted_result": "PASS",
+      "fast": "PASS_484_TESTS",
+      "gateway": {
+        "modules": 69,
+        "tests": 914,
+        "passed": 912,
+        "skipped": 2,
+        "failures": 0,
+        "errors": 0
+      },
+      "scope": "REQUIRED_PUBLICATION_PREFLIGHT",
+      "browser": "PASS_7_TESTS",
+      "inventory_ktlint": "PASS"
+    },
+    "external_validation": "Actual corrected Windows installer smoke remains required. Historical successful and failed same-head runs remain separate.",
+    "later_platform_evidence": {
+      "source": "d50273852658b63d0e90fe0c6d727404dd74fbdd",
+      "run": 43334363413,
+      "job": 131586691482,
+      "desktop_passed": 49,
+      "network_passed": 15,
+      "dashboard_passed": 12,
+      "skipped": 0,
+      "installer_smoke_passed": 11,
+      "real_windows_file_sharing_fixture_executed": true,
+      "user_machine_installation_performed": false
+    }
+  },
+  "gateway_fixture_admission_followup": {
+    "repair_id": "R39",
+    "state": "PUBLISHED_FOUR_PLATFORM_AND_PRIMARY_CANONICAL_EXECUTION_PASSED",
+    "application_source_parent": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+    "gateway_source_commit": "c39fa7f98cb281062a037a1ef7255d4d0ce0542c",
+    "gateway_source_tree": "72f92705e497ab0fd679411319172096727637ce",
+    "failure_source": "3e98dcb34f32e943bd0d90d02c75e359e078df4b",
+    "failure_run": 43336778504,
+    "failure_job": 131594827861,
+    "failure": "Fixture model-start wait expired before follower creation; exact Windows scheduling/I/O cause is unisolated.",
+    "failure_gateway_cases": {
+      "modules": 70,
+      "tests": 916,
+      "passed": 915,
+      "failed": 1,
+      "skipped": 0
+    },
+    "failure_authentication_step": "SKIPPED",
+    "failure_browser_passed": 7,
+    "correction": "Observe real durable admission, notify model entry on its owning event loop without an executor waiter, surface early request failure and await fixture-owned cleanup. No production gateway change.",
+    "bounds_seconds": {
+      "postAdmissionModelEntry": 2,
+      "followerAttachment": 2,
+      "blockedModelRelease": 3,
+      "fixtureTaskCleanup": 3,
+      "moduleWatchdog": 120
+    },
+    "assertions_preserved": true,
+    "source_file_sha256": "19bb0ba1e939757a68272693878d18d9356542ef81d741f9caf9f2701c55e47c",
+    "original_one_worker_negative_control": {
+      "cases": 1,
+      "expected_failures": 1,
+      "log_sha256": "8c7ae6cc973e28f34bbc1f048021a2d1c6ab114ef95e22276c25bc71d5d0dc0f"
+    },
+    "local_validation": {
+      "focused": {
+        "passed": 5,
+        "seconds": 9.236,
+        "is_subset_of_module": true,
+        "log_sha256": "0be08c1fa0f42eb375f2af9af132cb16b1c742d3cb996cea53c4a29f46e93acd"
+      },
+      "module": {
+        "passed": 32,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "seconds": 40.4,
+        "log_sha256": "2d7cbdac5f8976891dbebf42fa2489d7a3692ae38827865f0b5deafe9f86db04"
+      },
+      "fast": {
+        "passed": 495,
+        "log_sha256": "5d3555b83151e0fea0783e35b8b0efd26681d46db37a4f2316213712d50831cf",
+        "source_inputs_unchanged": true
+      },
+      "independent_source_review": "PASS"
+    },
+    "package_manifest": {
+      "source_commit": "c39fa7f98cb281062a037a1ef7255d4d0ce0542c",
+      "source_tree": "72f92705e497ab0fd679411319172096727637ce",
+      "files_verified": 219,
+      "manifest_sha256": "98112cfb6a0a8665dc9d278c64b17dc8df30374657a5cf47e0e91fa65cb1b8c2",
+      "source_and_worktree_bytes_match": true,
+      "generated_by": "gateway/build_v14_package.py --manifest-only",
+      "checked_at": "2026-11-13T00:57:24.164932+00:00"
+    },
+    "publication_scope": "Primary PR838 only; preserve mirror641 Android execution. Application production and Android test bytes are unchanged; no whole-tree equivalence claim.",
+    "remaining": "External operational acceptance remains open as listed in latest_validation_checkpoint.external_acceptance."
+  },
+  "gateway_four_platform_execution_7e": {
+    "source": "7e854982b2df9479a5b0aba49bdcc9193ce7459a",
+    "run": 43335327467,
+    "modules": 70,
+    "cases_per_platform": 916,
+    "windows_py312_and_py313_each": {
+      "passed": 916,
+      "skipped": 0
+    },
+    "ubuntu_py312_and_py313_each": {
+      "passed": 914,
+      "skipped": 2
+    },
+    "authentication_passed_each": 66,
+    "browser_passed_each": 7,
+    "scope": "Historical full matrix; later3e readiness failure retained and corrected separately. Repeated-platform totals are not unique tests."
+  },
+  "latest_validation_checkpoint": {
+    "observed_at": "2026-11-13T02:12:48.692919+00:00",
+    "state": "PRIMARY_CANONICAL_PASSED_EXTERNAL_ACCEPTANCE_OPEN",
+    "history_notice": "Earlier checkpoints retain their original source identity, result and observation time. This section identifies the latest verified evidence; no historical failure or untested acceptance is rewritten.",
+    "documentation_publication": {
+      "kind": "DOCUMENTATION_ONLY",
+      "parent_code_commit": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "runtime_test_workflow_inputs_changed": false,
+      "merge_or_deployment_authorized_by_this_receipt": false
+    },
+    "sources": {
+      "primary": {
+        "sourceCommit": "9568c8915de6d11726af860fc8ca8d21649220bd",
+        "sourceTree": "b9b7150fb0611a8636d3dd4f2eca0adf2746fc63",
+        "sourceParents": [
+          "c39fa7f98cb281062a037a1ef7255d4d0ce0542c"
+        ],
+        "checkoutMergeCommit": "342b48d9e9559fb89e06dbd0b2a3f835eae802ec",
+        "checkoutTree": "b9b7150fb0611a8636d3dd4f2eca0adf2746fc63",
+        "checkoutParents": [
+          "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+          "9568c8915de6d11726af860fc8ca8d21649220bd"
+        ]
+      },
+      "gateway_package": {
+        "source": "c39fa7f98cb281062a037a1ef7255d4d0ce0542c",
+        "files_verified": 219,
+        "manifest_sha256": "98112cfb6a0a8665dc9d278c64b17dc8df30374657a5cf47e0e91fa65cb1b8c2"
+      },
+      "android_verification": {
+        "head": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+        "checkout": "a53e049ebf495e591ef9488cf4fc9c48de71370a",
+        "tree": "041e4999afccaa2b94f714de9e67805733021df3",
+        "android_production_tests_native_and_applicable_ci_inputs_unchanged_at_primary": true,
+        "whole_tree_equal": false
+      }
+    },
+    "main_jvm": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "checkout": "342b48d9e9559fb89e06dbd0b2a3f835eae802ec",
+      "tree": "b9b7150fb0611a8636d3dd4f2eca0adf2746fc63",
+      "run": 43341850280,
+      "job": 131617269760,
+      "artifact": 14001549922,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43341850280/artifacts/14001549922",
+      "archive_sha256": "b34856c6964593c4d4a82f70815628a9559724e7f5b4719a9873d403fcff31c1",
+      "modules": {
+        "android_app": {
+          "passed": 9924,
+          "tests": 9929,
+          "reports": 1471,
+          "skipped": 5
+        },
+        "portable_domain": {
+          "passed": 4,
+          "tests": 4,
+          "reports": 1
+        }
+      },
+      "totals": {
+        "passed": 9928,
+        "tests": 9933,
+        "reports": 1472,
+        "skipped": 5
+      },
+      "unique_cases": 9933,
+      "duplicates": 0,
+      "critical_current_methods_passed": 69,
+      "qualification_checkout_independently_verified": true,
+      "actual_completed_job_log_checkout_verified": true,
+      "strict_reconciliation": "PASS_EXACT_SOURCE_RUN_ATTEMPT_CASE_SET_DIGEST_AND_FRESHNESS",
+      "formal_promotions": 0
+    },
+    "dedicated_heaps": {
+      "artifact_id": 14003855625,
+      "archive_sha256": "2886819c091e63170556852fe740901d6e3a5bdf19e43e2d6f32d379390ef8bc",
+      "passed": 11,
+      "passed_256_mib": 10,
+      "passed_64_mib": 1,
+      "failures": 0,
+      "skips": 0,
+      "all_five_main_deferred_cases_passed": true,
+      "unique_case_identities": true,
+      "log_sha256": "1cd946864a0b188754b1fe482f706d6e51641f193c1140c95cc09560f4fa6228",
+      "heap_bound_proof": "Workflow invokes heap-stress.init.gradle; actual two heap task runs succeeded; all five large-data methods assert Runtime.maxMemory <=256/64MiB and passed in fresh XML.",
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850280
+    },
+    "coverage": {
+      "artifact_id": 14003621583,
+      "archive_sha256": "f5601c6f85a9466e6c87c7470433a45893066094017aab08a3504373e0d5d647",
+      "xml_sha256": "6221fb3c4732098124cf0d8dae37b6272dd2e4d180378a7ebc8b9e88af3ab12d",
+      "counters": {
+        "LINE": {
+          "covered": 112759,
+          "missed": 133657,
+          "percent": 45.759609765599635
+        },
+        "BRANCH": {
+          "covered": 109217,
+          "missed": 138180,
+          "percent": 44.14645286725385
+        }
+      },
+      "application_source_files": 2401,
+      "outside_application_prefix_source_files": 46,
+      "matches_qualification_receipt": true,
+      "all_23_sessions_in_current_run_window": true,
+      "scope": "Application-prefix sourcefile counters in this JVM JaCoCo run, not top-level totals, native/scripts/resources or physical-device coverage.",
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850280
+    },
+    "mirror_canonical_aggregate": {
+      "run": 43339363893,
+      "job": 131633300792,
+      "conclusion": "success",
+      "all_five_required_prerequisites_success": true,
+      "log_sha256": "2c4687095d479295f7b0168087d2113f7a824863a5d4bfa98ccc0ee0e9b9f532"
+    },
+    "primary_canonical_aggregate": {
+      "run": 43341850280,
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "checkout": "342b48d9e9559fb89e06dbd0b2a3f835eae802ec",
+      "job": 131639080509,
+      "conclusion": "success",
+      "all_five_required_prerequisites_success": true,
+      "needs": {
+        "reliability_v2_completion": {
+          "result": "success",
+          "outputs": {}
+        },
+        "validate": {
+          "result": "success",
+          "outputs": {}
+        },
+        "android_lint": {
+          "result": "success",
+          "outputs": {}
+        },
+        "contracts": {
+          "result": "success",
+          "outputs": {}
+        },
+        "format": {
+          "result": "success",
+          "outputs": {}
+        }
+      },
+      "log_sha256": "cf7b15e11159ff55f1a9a122865b2d64d2b2fa6c8a71cca575556bc3b22ae96c",
+      "state": "COMPLETED",
+      "completed_at": "2026-11-13T02:10:06Z"
+    },
+    "gateway_matrix": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850316,
+      "conclusion": "success",
+      "modules_each": 70,
+      "cases_each": 919,
+      "windows_each": {
+        "passed": 919,
+        "skipped": 0
+      },
+      "ubuntu_each": {
+        "passed": 917,
+        "skipped": 2,
+        "skip_reason": "Windows Credential Manager and actual Windows sharing semantics"
+      },
+      "authentication_each_passed": 66,
+      "browser_each_passed": 7,
+      "corrected_journal_module_passed_each": 32,
+      "counts_are_repeated_platform_runs": true
+    },
+    "windows_installer": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850351,
+      "job": 131611798729,
+      "conclusion": "success",
+      "desktop_passed": 49,
+      "network_passed": 15,
+      "dashboard_passed": 12,
+      "smoke_passed": 11,
+      "user_machine_installation": false
+    },
+    "android_lint": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "checkout": "342b48d9e9559fb89e06dbd0b2a3f835eae802ec",
+      "run": 43341850280,
+      "job": 131617269763,
+      "conclusion": "success",
+      "actual_app_lint_analysis_report_and_lintDebug_executed": true,
+      "supporting_gradle_tasks_include_cache_and_up_to_date_reuse": true,
+      "log_sha256": "5b3302fe69968736e2fd779003c5490291d44cb599459c8d7b54d935b0afded1"
+    },
+    "emulators": {
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363957,
+      "api34_passed": 66,
+      "api36_passed": 66,
+      "failures": 0,
+      "skips": 0,
+      "archives_hash_verified": true,
+      "integration_transport": "KTOR_MOCK_ENGINE",
+      "physical_device_acceptance": false
+    },
+    "native": {
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43338588695,
+      "passed": 3,
+      "skipped": 2,
+      "failures": 0,
+      "skip_reason": "No compatible OpenCL/Vulkan GPU or IGPU on emulator",
+      "archive_hash_verified": true,
+      "physical_device_acceptance": false
+    },
+    "codeql": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850210,
+      "analysis_succeeded": true,
+      "artifact": {
+        "id": 13999529897,
+        "bytes": 168777,
+        "sha256": "dbdff4050c8e2bd4005077b04cbdbfe344b05d5ebe2ee888747fab15396d6c64",
+        "downloaded_hash_verified": true,
+        "zip_crc_path_safety_checked": true,
+        "members": 8,
+        "expanded_bytes": 2351856
+      },
+      "sarif_sha256": "4576081c0d0e87c906d6c65ab2eb163938a67636100a9975178d466bf76c73ed",
+      "retained_alerts": 1,
+      "rules": [
+        "java/zipslip"
+      ],
+      "security_severity": 7.5,
+      "scanner_baseline_state": null,
+      "normalized_finding_matches_prior_scan": true,
+      "involved_source_unchanged_from_main": true,
+      "dismissed": false,
+      "security_clean_claim": false,
+      "review": "Existing pre-resolution path and exact app-private linked-asset authority constraints reviewed; no concrete archive-controlled bypass identified. Not exhaustive filesystem/race validation or a proof that the scanner is wrong."
+    },
+    "apk_delivery": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "default_run": 43341850499,
+      "review_run": 43341850473,
+      "default_artifact": 14000977407,
+      "review_artifact": 14001731052,
+      "native_reporting_enabled_observed_in_ci": true,
+      "hosted_origin_observed_in_ci": "",
+      "configuration_gate_executed": true,
+      "size_report_artifact": 14001405689,
+      "size_report_archive_sha256": "119d81a87574b1c2312e107bacbb3764d795b2e7bfbce0f98cc34727538789b0",
+      "size_report_independently_verified": true,
+      "apk_archives_downloaded": false,
+      "individual_apk_digests_independently_verified": false,
+      "signing_certificate_verified": false,
+      "embedded_build_config_independently_verified": false,
+      "installed_update_verified": false,
+      "live_report_delivery_verified": false
+    },
+    "historical_ledger": {
+      "formal_promotions": 0,
+      "pass": 11,
+      "not_run": 99,
+      "distinct_from_historical_app_audit": true
+    },
+    "external_acceptance": {
+      "historical_app_audit_untested": 67,
+      "automatic_promotions": 0,
+      "open": [
+        "compatible_signed_device_update_and_saved_report_preservation",
+        "approved_report_delivery_and_uncertain_response_reconciliation",
+        "private_mcp_listener_protocol_repair_and_reauthorization",
+        "actual_saved_target_plugin_and_tool_execution",
+        "selected_model_generation_identity_timing_and_review_recovery",
+        "authorized_owned_fixture_creation_use_cleanup_and_final_absence",
+        "physical_microphone_playback_lifecycle_and_audio_drain",
+        "release_device_frame_and_memory_measurements",
+        "applicable_external_source_area_qualification",
+        "deployed_service_artifact_attestation"
+      ]
+    },
+    "main_jvm_mirror": {
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363893,
+      "job": 131603716067,
+      "artifact": 14001383672,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43339363893/artifacts/14001383672",
+      "archive_sha256": "320a8c83669bc2d11eaac8afa0975750b8fc281c44a355b45682e73d333221c5",
+      "modules": {
+        "android_app": {
+          "passed": 9924,
+          "tests": 9929,
+          "reports": 1471,
+          "skipped": 5
+        },
+        "portable_domain": {
+          "passed": 4,
+          "tests": 4,
+          "reports": 1
+        }
+      },
+      "totals": {
+        "passed": 9928,
+        "tests": 9933,
+        "reports": 1472,
+        "skipped": 5
+      },
+      "unique_cases": 9933,
+      "duplicates": 0,
+      "critical_current_methods_passed": 69,
+      "actual_job_checkout_and_test_execution_verified": true,
+      "strict_reconciliation": "PASS_EXACT_SOURCE_RUN_ATTEMPT_CASE_SET_DIGEST_AND_FRESHNESS",
+      "formal_promotions": 0
+    },
+    "primary_reported_coverage": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850280,
+      "raw_xml_independently_verified": true,
+      "available": true,
+      "report_sha256": "6221fb3c4732098124cf0d8dae37b6272dd2e4d180378a7ebc8b9e88af3ab12d",
+      "source_files": 2401,
+      "counters": {
+        "LINE": {
+          "covered": 112759,
+          "missed": 133657,
+          "percent": 45.759609765599635
+        },
+        "BRANCH": {
+          "covered": 109217,
+          "missed": 138180,
+          "percent": 44.14645286725385
+        }
+      },
+      "current_run_sessions": 23,
+      "scope": "Application source files present in this JaCoCo report; excludes native, script and resource inventory."
+    },
+    "android_lint_mirror": {
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363893,
+      "job": 131603715399,
+      "conclusion": "success",
+      "actual_lint_task_executed": true
+    },
+    "dedicated_heaps_mirror": {
+      "artifact_id": 14001504660,
+      "archive_sha256": "d9d9c70f74e614c06a065fa61dd260dd629a5e0aeb45e8ae422ce9b963c767f9",
+      "passed": 11,
+      "passed_256_mib": 10,
+      "passed_64_mib": 1,
+      "failures": 0,
+      "skips": 0,
+      "all_five_main_deferred_cases_passed": true,
+      "unique_case_identities": true,
+      "log_sha256": "ec393d0eae727e47569b7b3cd4e8c8bb4f3cae3975edc61d99b1fdb628795d05",
+      "heap_bound_proof": "Workflow invokes heap-stress.init.gradle; actual two heap task runs succeeded; all five large-data methods assert Runtime.maxMemory <=256/64MiB and passed in fresh XML.",
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363893
+    },
+    "coverage_mirror": {
+      "artifact_id": 14003045459,
+      "archive_sha256": "eaf1c6c90ced74c275f1298ab32a0710805f6f09f78a065e249195b4ddd58668",
+      "xml_sha256": "f6da0745df97269b0bd54f86d449cfff3309493841d2e436c30de6c1efa0942e",
+      "counters": {
+        "LINE": {
+          "covered": 112759,
+          "missed": 133657,
+          "percent": 45.759609765599635
+        },
+        "BRANCH": {
+          "covered": 109221,
+          "missed": 138176,
+          "percent": 44.14806970173446
+        }
+      },
+      "application_source_files": 2401,
+      "outside_application_prefix_source_files": 46,
+      "matches_qualification_receipt": true,
+      "all_23_sessions_in_current_run_window": true,
+      "scope": "Application-prefix sourcefile counters in this JVM JaCoCo run, not top-level totals, native/scripts/resources or physical-device coverage.",
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363893
+    }
+  },
+  "pr_branches_ci_2026_11_13": {
+    "task_store": "engineering_agent_checkpoints",
+    "checkpoint_kind": "local_repository_checkpoint",
+    "host_checkpoint_note": "The Android Room task store is unavailable on this host; this repository checkpoint records the reconciled work.",
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+    "start_sha": "b3eb5e1ec71cd38d78acfa9462c174f3e06a0f8e",
+    "working_branch": "fix/session-reliability-reporting-2026-11-12",
+    "related_prs": [
+      838,
+      881
+    ],
+    "intent": "Repair the six current JVM regressions repeated across both open PRs, preserve concurrent work and all evidence gates, and verify the resulting branch revisions before merge.",
+    "state": "SOURCE_VERIFIED_CHECKPOINT_RELOCATED_PENDING_FINAL_HOSTED_CI",
+    "locally_tested_code_sha": "4a6b120a4e7028fece3edb99f52474bb68b07379",
+    "observed_failure_run": 43358696592,
+    "observed_failure_job": 131666785699,
+    "observed_failed_tests": [
+      "GatewayReportDiagnosticsTest.admissionSnapshotNeedsNoJobAndManualApprovalRetainsTheSameObservation",
+      "GitHubAuditEvidenceTest.eighteenHeavyChecksFitOneFacadeResponseAndRetainFullOriginal",
+      "GitHubEvidencePolicyTest.sessionReviewPreservesReceiptTimeAndLinksCrossRepositoryReferences",
+      "GitHubStatusAuditRegressionTest.logPlanningSelectsCompletedJobsAndPreservesTheObservedId",
+      "GitHubVerifiedSessionTest.statusAliasesCollectTheSamePinnedFourReads",
+      "GitHubVerifiedSessionTest.statusCollectsChecksWithoutModelPlanningOrVerifierRound"
+    ],
+    "repairs": [
+      "Supply trusted observed-head and executed-job fixtures without weakening status or log-read authority.",
+      "Assert compact check counts and source digest while retaining every original check row.",
+      "Deduplicate evidence labels after applying the existing sanitization.",
+      "Run the gateway manual-submission regression with the established Android 35 Robolectric runner.",
+      "Use a bounded 4 GiB heap only for diagnostic lint after run 43358733105 exhausted 3 GiB and exceeded its existing 35-minute deadline. Retain one worker, 1 GiB metaspace and all lint checks; stop the child process after 2040 seconds."
+    ],
+    "local_validation": {
+      "canonical_host_tests_passed": 495,
+      "status_planner_focused_host_tests_passed": 31,
+      "evidence_focused_host_tests_passed": 8,
+      "pinned_ktlint": "1.3.1",
+      "limitations": "Focused harnesses use explicit boundaries for unrelated Android facilities. They do not establish full AgentRunner/session integration or Robolectric runtime execution. Full Android tests and diagnostic lint must execute in hosted CI."
+    },
+    "merge_requirement": "Every applicable hosted check must pass on the current head and base. Missing, failed, cancelled and unfinished checks are not passes.",
+    "checkpoint_relocation": {
+      "failed_run": 43375316060,
+      "failed_job": 131728184014,
+      "reason": "The separate checkpoint path was outside the approved release scope.",
+      "repair": "Move the complete checkpoint into this already approved record, preserving all previous entries and leaving release scope and verification gates unchanged."
+    },
+    "hosted_geniex_debug_verification": {
+      "source_head": "e5db3d746a5f5d8148bc4efa101b1d96912909fa",
+      "checkout": "ca8dce22a0ac7fa0a6a1e1134aa0c2880054d899",
+      "tree": "cb86fc8f9693d0bcbe9aba2ae8522161aec65db3",
+      "run": 43375248055,
+      "job": 131720102380,
+      "artifact": 14015332890,
+      "artifact_sha256": "9c0a5befe338e30dad8bb6ee0c2e3123103f25540c40de5a6f9b1389eea7acec",
+      "unique_cases": 10023,
+      "passed": 10018,
+      "failed": 0,
+      "errors": 0,
+      "deferred_heap_cases": 5,
+      "all_six_original_failures_executed_and_passed": true,
+      "malformed_head_negative_executed_and_passed": true,
+      "actual_execution_log_and_fresh_xml_verified": true,
+      "scope": "GenieX debug JVM execution; canonical verification, dedicated heaps and remaining workflows are separate gates. Results retain the original source/run identity after this documentation-only relocation."
+    },
+    "concurrent_pr_reconciliation": {
+      "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+      "base_branch": "main",
+      "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+      "working_branch": "fix/open-reports-and-protected-merge-2026-11-13",
+      "parent_pr": 941,
+      "starting_head": "45a7da68dd2d7ee6462c76d16379e990f404fa69",
+      "concurrent_pr": 928,
+      "concurrent_head": "63c175208dfd965e44dd5f593158fce0d1ceebc4",
+      "intent": "Reconcile the latest PR 928 diagnostic policy fields with PR 941 while preserving both histories, dispatch observations, privacy bounds and all regressions.",
+      "status": "SOURCE_AND_PACKAGE_VALIDATED_AWAITING_FINAL_CURRENT_HEAD_CI",
+      "checkpoint_store": "Existing approved repository checkpoint; Android Room engineering task store is unavailable on the host.",
+      "merge_policy": "No merge to main until all applicable current-head CI and repository rules pass; no force pushes.",
+      "reconciliation_decisions": [
+        "Preserve all PR 941 dispatch section, stage, resume and authorization observations together with the later PR 928 closed changed-policy-name projection and coherent counts.",
+        "Retain the known providerPermissions producer name in the mirrored native and hosted allowlists; retain only names, never settings values or arbitrary private names.",
+        "Require CHANGED_POLICY_FIELDS_V1 independently of DISPATCH_POLICY_DIAGNOSTICS_V1, including omitted-field declarations. Older reporters block before POST and retain exact approved bytes.",
+        "Regenerate source inventories from the reconciled production sources; preserve all correctness, scope and protected-main verification gates."
+      ],
+      "gateway_completion_failure": {
+        "source_head": "8e8e1aa70703bb2ed4ea6158ecb3d80afb19377a",
+        "run_id": 43378936991,
+        "job_id": 131731918483,
+        "job_platform": "Windows / Python 3.12",
+        "test": "test_whitespace_and_hidden_only_attempts_remain_repairable_before_publication",
+        "observed_failure": "Both subcases timed out at line 318 waiting for worker completion after release.set(); no preceding prefix assertion failed. Logs reported 5937 ms model work and slow event-loop callbacks.",
+        "candidate_source_relation": "Test and runtime are byte-identical between the failed head and PR 941 starting head.",
+        "repair_constraint": "Change only the bounded post-release completion allowance. Preserve the 3-second backend readiness and first-visible waits and every content, repair, persistence and replay assertion.",
+        "repair": "Post-release completion allowance is 10 seconds; three-second readiness and first-visible deadlines and all correctness assertions remain unchanged.",
+        "regression_evidence": {
+          "normal_incremental_delivery_suite": {
+            "passed": 9,
+            "failed": 0
+          },
+          "controlled_terminal_delay_seconds": 4,
+          "original_fixture": "Both whitespace and hidden-only subcases reproduce cleanup TimeoutError.",
+          "repaired_fixture": "Both subcases pass every original assertion using real HTTP, ASGI and SQLite boundaries.",
+          "timing_limit": "Hosted log does not establish exact post-release completion duration."
+        }
+      },
+      "validation": {
+        "canonical_fast": {
+          "command": "bash scripts/validate-local.sh fast",
+          "result": "passed",
+          "script_tests": 495,
+          "android_integration": false
+        },
+        "hosted_report_contracts": {
+          "command": "python3 -m unittest authentication.test_incident_report_contract authentication.test_app authentication.test_failure_details",
+          "result": "passed",
+          "tests": 64
+        },
+        "changed_kotlin_formatting": {
+          "version": "1.3.1",
+          "result": "passed"
+        },
+        "hosted_current_head": "NOT_RUN_FOR_LOCAL_RECONCILIATION",
+        "merge_approval": false,
+        "focused_native": {
+          "checked_in_tests": 44,
+          "owned_boundary_probes": 2,
+          "passed": 46,
+          "failed": 0,
+          "tests_jar_sha256": "9339e479392a7e1005d3a5e2478fc739356989db144557157300b923795142e4",
+          "subjects": "Actual reporting capsule/context/serializers/validators/submission/outbox/route implementations; real OkHttp interceptors.",
+          "boundaries": "Android/build/Room/platform collaborators are host fixtures or compile-time types. No device persistence, live reporting delivery or full Gradle qualification.",
+          "negative_control": "Removing only the new capability check causes the unchanged new regression to fail; the actual candidate passes.",
+          "combined_pressure": {
+            "diagnostic_bytes": 2931,
+            "aligned_criteria_retained": 7,
+            "policy_names_retained": 8,
+            "policy_names_omitted": 48
+          },
+          "full_omission": "A valid payload omitting the entire detailed policy group still blocks before POST until its capability is advertised."
+        },
+        "additional_fixture_repair": "The existing incident feature-negotiation fixture now advertises and asserts context schema 7 selected by its retained unknown_field_count, preserving its original missing-feature rejection and approved-byte success checks.",
+        "exact_release_scope": {
+          "source_candidate": "6282c7a0bd0d3c34f399e1875d42ebadb287d87f",
+          "result": "scoped",
+          "mode": "SCOPE_ONLY_NOT_ACCEPTANCE"
+        }
+      },
+      "concurrent_code_head": "c52741d92f26556188289cbae7d6267fe09ed6bb",
+      "concurrent_followup": "Preserve the later PR 928 documentation-only ledger update exactly; production and tests match c52741d92.",
+      "source_commit": "642b35a35f9201875b326ab81f8ef68b42efb816",
+      "preserved_remote_parents": [
+        "45a7da68dd2d7ee6462c76d16379e990f404fa69",
+        "63c175208dfd965e44dd5f593158fce0d1ceebc4"
+      ],
+      "source_tree": "cec383752dfeea72de5d88d7d07eabb75dd779aa",
+      "gateway_manifest": {
+        "source_commit": "642b35a35f9201875b326ab81f8ef68b42efb816",
+        "sha256": "10171b1ae3b18ad7b045c02667a9f939a58b634fd69687954dd43f320e837f06",
+        "validation": "Generated from exact reviewed source commit; every packaged file hash validates."
+      },
+      "checkpoint_runner_followup": {
+        "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+        "base_branch": "main",
+        "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+        "working_branch": "fix/open-reports-and-protected-merge-2026-11-13",
+        "starting_head": "c74853024bb8aa49dd6ad4c7b8ebbb6d7d64ff7e",
+        "intent": "Use the established Robolectric Android AtomicFile fixture for the newly consolidated original-tool-call checkpoint regressions.",
+        "finding": "OriginalToolCallCheckpointTest directly exercises file-backed ToolBatchCheckpoint/Android AtomicFile through ordinary JUnit. Three cases need Android persistence; the future-version rejection can otherwise catch an unrelated framework-stub error.",
+        "repair": "Add only RunWith/RobolectricTestRunner/Config imports and class annotations identical to adjacent ToolBatchCheckpointTest: manifest Config.NONE, SDK 34.",
+        "preservation": {
+          "test_bodies": 5,
+          "test_body_sha256": "f2c11588889480a1f7fc47c4e074a96c7074a42d588852f4ec13d2eacfd916e9",
+          "all_assertions": "byte-for-byte unchanged",
+          "production_and_package_bytes": "unchanged"
+        },
+        "validation": {
+          "ktlint_version": "1.3.1",
+          "ktlint": "passed",
+          "whitespace": "passed",
+          "adjacent_runner_configuration": "exact match",
+          "actual_robolectric": "Not run locally; runtime dependencies unavailable. Fresh hosted execution remains required.",
+          "canonical_fast": {
+            "source_candidate": "9a0464de14b40e60f2ef9bcdecff60b00ab904a4",
+            "command": "bash scripts/validate-local.sh fast",
+            "passed": 495,
+            "failed": 0
+          },
+          "exact_release_scope": {
+            "source_candidate": "9a0464de14b40e60f2ef9bcdecff60b00ab904a4",
+            "result": "scoped"
+          }
+        },
+        "review": "Independent scoped review of provider replay, durable continuation, repair budgets, gateway routing and reporting found no additional concrete blocker. Fourteen other new unit-test classes had no concrete missing Android runner defect.",
+        "status": "APPLIED_AWAITING_FRESH_HOSTED_CI"
+      }
+    },
+    "consolidated_test_contract_followup": {
+      "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+      "base_branch": "main",
+      "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+      "working_branch": "fix/open-reports-and-protected-merge-2026-11-13",
+      "starting_head": "cd1e59ae2432d0af1e34f1dee57a09cc2d2bd1fe",
+      "intent": "Reconcile four current-head test expectations with the deliberately retained bounded repair and typed diagnostic contracts, preserving behavior and privacy assertions.",
+      "observed_evidence": {
+        "run_id": 43383063344,
+        "job_id": 131745206552,
+        "artifact_id": 14018469545,
+        "artifact_sha256": "b08ffe914320c119deb2f1168ab9b5941aae5300a223e0166f7a23c7a2e1c7fe",
+        "test_failures": 4
+      },
+      "state": "APPLIED_AWAITING_FRESH_HOSTED_CI",
+      "findings": {
+        "GitHubSchemaRepairTest.failedReadReportsTheMatchingActionBranchAndOffersAnExactDiscoveryCall": "The repeated rejection deliberately changes only message/reason to ARGUMENT_REPAIR_EXHAUSTED. The stable selector, correction call, validation errors and pre-dispatch state are unchanged. Assert bounded attempt progression and retain zero dispatch/spend before the valid correction.",
+        "IssueReportCollectorsTest.nativePrecheckReasonsSurviveTheActualRecorderThroughExistingPublicCategories": "The closed public reason is intentionally retained in both context.reasonCode and context.diagnostics.values.tool_reason_code. Assert both exact approved locations while scanning all other payload fields and private fixture text.",
+        "ChatRepositoryImplTest.groq token limit reports failure instead of completing with only thinking": "The actual full state list differs only by the intentionally added typed GENERATION/PROVIDER/OUTPUT_LIMIT diagnostics. Preserve exact state and report equality and one provider stream.",
+        "VoiceFailureReportingTest.untypedReplyProseAddsOnlyRunCorrelationAndDoesNotPromoteDispatchEvidence": "VoiceSession deliberately records the observed character count even for an untyped failed reply. Assert the count and retain absent dispatch, remote acceptance, HTTP status and retryability; exclude reply, transcript and raw run identifier from the approved payload."
+      },
+      "production_changes": "None; five test files and this checkpoint only. Expected diagnostic contracts and rendered-frame capture are aligned while preserving validation, privacy, dispatch, pixel and merge gates.",
+      "local_schema_validation": {
+        "current_source_repair_budget_tests": 2,
+        "result": "passed",
+        "hosted_failure_payload": "Stable payload equality and exact correction call verified against the downloaded actual XML.",
+        "boundary": "AgentContracts/platform collaborators use the existing host boundary; full bound GitHub/Android execution awaits fresh CI.",
+        "ktlint": "1.3.1 passed"
+      },
+      "independent_review": {
+        "schema_repair": "Approved: exact bounded repair transition and stable payload/correction checks; no production change indicated.",
+        "reporting_fixtures": "Approved: only the two exact permitted public reason leaves are excluded from the privacy scan; all unknown voice transport fields and raw-text exclusions remain asserted.",
+        "groq_fixture": "Approved: only the three typed provider fields differ in actual hosted state; full sequence, stream count and projected values remain exact."
+      },
+      "prior_head_execution": {
+        "head": "cd1e59ae2432d0af1e34f1dee57a09cc2d2bd1fe",
+        "synthetic_checkout": "f36a45fc112f8a19b3b3944ea3b188ca1fa2b7e2",
+        "identical_tree": "c9a507ab12e1e9bd3f1c4c67878e6bb7901db93e",
+        "xml_suites": 1491,
+        "unique_cases": 10121,
+        "passed": 10112,
+        "failed": 4,
+        "deferred_heap_cases": 5,
+        "duplicate_cases": 0,
+        "original_regressions_passed": 7,
+        "original_tool_checkpoint_regressions_passed": 5,
+        "tool_failure_capsule_submission_cases_passed": 48,
+        "qualification": "Failed prior-head audit execution only; not new-head canonical or heap approval."
+      },
+      "groq_local_probe": {
+        "result": "passed",
+        "negative_control": "Prior expectation fails against exact hosted diagnostic map.",
+        "qualification": "Actual source-matched report validators and copied expected builder; no local ChatRepositoryImpl or Android execution."
+      },
+      "reporting_local_probe": {
+        "passed": 2,
+        "failed": 0,
+        "subjects": "Exact repaired Voice test body with actual VoiceSession/trace/projection/serialization and current finite tool-reason approved-payload projection.",
+        "boundary": "Platform incident retention substituted; reused report jar source hashes verified; no full local Android run.",
+        "privacy_negative_control": "The obsolete single-reason-field scan reproduces the failure; arbitrary unknown local code remains absent.",
+        "ktlint": "1.3.1 passed"
+      },
+      "android_glass_followup": {
+        "source_head": "cd1e59ae2432d0af1e34f1dee57a09cc2d2bd1fe",
+        "run_id": 43383063346,
+        "job_id": 131745107004,
+        "platform": "API 36 / pixel_c",
+        "artifact_id": 14020353169,
+        "artifact_sha256": "eaecc6b85242d54d967e0286a4fd8b98419280e75bb10898bd77c54d30f15596",
+        "test": "ConversationGlassInstrumentedTest.conversationGlassFiltersDetailInBothControls",
+        "observed_failure": "chat_input_glass dark=false sharp and blur sample variances both 0.02220562503922585; compilation, packaging and the three other glass cases passed.",
+        "evidence": "The separately saved sharp-light and blur-light PNGs show correct production blur. Independent fixed ROI variance is 0.0222068435 versus 0.0000024174. Sampling and evidence captured different compositor frames.",
+        "constraint": "Synchronize a bounded capture to actual frame completion, sample both controls and save evidence from the same bitmap. Preserve all opacity/blur/pressure/recovery assertions; no sleeps, blind retries or selection of passing frames.",
+        "state": "APPLIED_AWAITING_FRESH_HOSTED_CI",
+        "repair": "After Compose idle, register a one-shot hardware frame-commit callback and invalidate the decor; await up to five seconds off the UI thread, then use equal-size Window PixelCopy and require SUCCESS within five seconds. Both controls and named PNG evidence use that single bitmap. Window coordinates replace display-offset coordinates.",
+        "resource_lifecycle": "Remove the frame callback in finally. Recycle a timed-out PixelCopy bitmap only after its completion callback, preserving native ownership. No retained screenshot state.",
+        "primary_api_references": [
+          "https://developer.android.com/reference/android/view/ViewTreeObserver#registerFrameCommitCallback(java.lang.Runnable)",
+          "https://developer.android.com/reference/android/view/PixelCopy",
+          "https://android.googlesource.com/platform/frameworks/base/+/HEAD/graphics/java/android/view/PixelCopy.java"
+        ],
+        "review": "Root verified callback semantics and AOSP Window surface-inset handling; pixel thresholds and relative sampling areas are preserved.",
+        "validation": {
+          "exact_helper_sdk37_compilation": "passed",
+          "ktlint_version": "1.3.1",
+          "ktlint": "passed",
+          "whitespace": "passed",
+          "existing_assertions_byte_identical": 9,
+          "original_test_cases_preserved": 4,
+          "local_instrumentation": "Not run; fresh API34/API36 hosted execution required."
+        }
+      },
+      "integrated_validation": {
+        "source_candidate": "e38596b2c7e018ab13aa931abffbc7ccb434d61e",
+        "canonical_fast": "passed",
+        "script_tests": 495,
+        "exact_release_scope": "scoped",
+        "strict_ledger_mode": "SCOPE_ONLY_NOT_ACCEPTANCE",
+        "ledger_counts": [
+          48,
+          110
+        ],
+        "whitespace": "passed",
+        "android_current_head": "Awaiting new hosted run; local probes and prior failed-head results are not merge approval."
+      }
+    }
+  }
+}

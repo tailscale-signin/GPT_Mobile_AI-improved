@@ -16,6 +16,8 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayModelPreparationAPITest {
@@ -81,5 +83,27 @@ class GatewayModelPreparationAPITest {
             assertEquals(true, result.isFailure)
         }
         assertEquals(1, calls)
+    }
+
+    @Test fun nestedBackendRejectionKeepsTypedCauseButDropsUpstreamProse() = runBlocking {
+        HttpClient(
+            MockEngine {
+                respond(
+                    receipt(extra = """, "preparationAction":"WAKE", "failure":{"reasonCode":"BACKEND_METADATA_DENIED","failureCode":"EXECUTION_METADATA_DENIED","failureCategory":"denied","dependency":"selected_model","upstreamStatus":403,"upstreamMessageCode":"INVALID_API_KEY","upstreamMessage":"private token and path"},"reconciliationFailure":{"reasonCode":"private reason","failureCode":"private code","upstreamStatus":999}""")
+                )
+            }
+        ).use { client ->
+            val network = mockk<NetworkClient>()
+            every { network() } returns client
+            val result = GatewayModelPreparationAPI(network).prepare(config, "qwen3.5-9b", "selection-1")
+            assertEquals("WAKE", result.preparationAction)
+            assertEquals("BACKEND_METADATA_DENIED", result.failure?.reasonCode)
+            assertEquals(403, result.failure?.upstreamStatus)
+            assertEquals("INVALID_API_KEY", result.failure?.upstreamMessageCode)
+            assertNull(result.reconciliationFailure?.reasonCode)
+            assertNull(result.reconciliationFailure?.upstreamStatus)
+            assertTrue(result.rejectionMessage().contains("authorization"))
+            assertFalse(result.toString().contains("private"))
+        }
     }
 }

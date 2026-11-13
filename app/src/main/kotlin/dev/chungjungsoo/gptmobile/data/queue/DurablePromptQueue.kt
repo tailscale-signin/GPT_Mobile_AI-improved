@@ -6,12 +6,17 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunCoordinator
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunRequest
 import dev.chungjungsoo.gptmobile.data.agent.temperatureFor
+import dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationRepository
+import dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy
 import dev.chungjungsoo.gptmobile.data.database.ChatDatabaseV2
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunDraft
 import dev.chungjungsoo.gptmobile.data.database.entity.GatewaySubmissionRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.database.entity.PersistAgentTurnRequest
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobGroup
+import dev.chungjungsoo.gptmobile.data.github.GatewayJobSummary
 import dev.chungjungsoo.gptmobile.data.github.engineeringConfig
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayAvailability
@@ -27,6 +32,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -50,10 +57,12 @@ class DurablePromptQueue @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val gatewayStore: GatewayQueueStore,
     private val gatewayAvailability: GatewayAvailabilityRepository,
-    private val gatewayScopes: dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore
+    private val gatewayScopes: dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore,
+    modelPreparation: GatewayModelPreparationRepository
 ) {
     private val dao get() = database.pendingPromptDao()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val modelPreparations = GatewayQueuedModelPreparation(modelPreparation, scope, android.os.SystemClock::elapsedRealtime)
     private val started = AtomicBoolean()
     private val preferences = context.getSharedPreferences("prompt_queue", Context.MODE_PRIVATE)
     private val wake = MutableStateFlow(0)
@@ -103,155 +112,207 @@ class DurablePromptQueue @Inject constructor(
                 .stateIn(scope, SharingStarted.Eagerly, QueueSource(emptyList(), emptyList(), emptyList(), AppFeatureSettings()))
             val availability = source.map(::targets).distinctUntilChanged().flatMapLatest(gatewayAvailability::observe)
                 .stateIn(scope, SharingStarted.Eagerly, emptyMap())
-            combine(source, database.agentRunDao().observeActive(), coordinator.activeRuns, availability, wake) { snapshot, active, live, ready, _ ->
+            val preparationWake = combine(wake, modelPreparations.changes) { requested, prepared -> requested to prepared }
+            combine(source, database.agentRunDao().observeActive(), coordinator.activeRuns, availability, preparationWake) { snapshot, active, live, ready, _ ->
                 Triple(snapshot, active.map { it.chatId }.toSet() + live.values.map { it.chatId }, ready)
             }.collect { (snapshot, busyChats, ready) ->
-                val prompts = snapshot.prompts
-                val profiles = snapshot.profiles
-                val states = mutableMapOf<Int, GatewayQueuedChatState>()
-                val counts = prompts.filter { runCatching { it.details().gateway != null }.getOrDefault(false) }.groupingBy { it.chatId }.eachCount()
-                for (lease in snapshot.leases) {
-                    states[lease.chatId] = reconcile(lease, profiles, ready).copy(queuedCount = counts[lease.chatId] ?: 0)
-                }
-                val externalBlocker = if (counts.isNotEmpty() && database.gatewayJobDao().queuedDispatches().isEmpty()) {
-                    try {
-                        gatewayStore.externalWorkBlocker()
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
-                        "An earlier Gateway job could not be reconciled. Restore its original connection and check saved jobs before starting new work."
-                    }
-                } else {
-                    null
-                }
-                prompts.groupBy { it.chatId }.forEach { (chatId, entries) ->
-                    val prompt = entries.first()
-                    try {
-                        val payload = prompt.details()
-                        val selected = payload.gateway
-                        if (selected != null) {
-                            val profile = profiles.singleOrNull { it.uid == selected.profileUid }
-                            val blocker = when {
-                                prompt.paused -> "This Gateway message is paused."
-                                profile == null -> "The original Gateway profile is unavailable."
-                                snapshot.features.conversationGateway[chatId] != selected -> "The Gateway chat selection changed. Restore its accepted profile and model or remove this queued message."
-                                else -> selected.validate(profile)
-                            }
-                            if (blocker != null) {
-                                states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.BLOCKED, counts[chatId] ?: 1, blocker))
-                                return@forEach
-                            }
-                            if (database.gatewayJobDao().queuedDispatches().isNotEmpty() || chatId in busyChats) {
-                                states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.QUEUED, counts[chatId] ?: 1, "Waiting for the current Gateway job to finish."))
-                                return@forEach
-                            }
-                            if (database.gatewayJobDao().queuedDeliveries(chatId).isNotEmpty()) {
-                                states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.RECONCILING, counts[chatId] ?: 1, "The previous job has ended. Waiting for its saved reply before continuing this chat."))
-                                return@forEach
-                            }
-                            if (externalBlocker != null) {
-                                states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.RECONCILING, counts[chatId] ?: 1, externalBlocker))
-                                return@forEach
-                            }
-                            val observation = ready[targetKey(selected)]
-                            if (observation?.isOnline != true || !observation.conversationSyncSupported || observation.freshnessRemainingMillis(android.os.SystemClock.elapsedRealtime()) == 0L) {
-                                states.putIfAbsent(chatId, waitingState(observation, counts[chatId] ?: 1))
-                                return@forEach
-                            }
-                        }
-                        if (chatId in busyChats || prompt.paused) return@forEach
-                        val pausedProfiles = preferences.getStringSet("paused_$chatId", emptySet()).orEmpty()
-                        if (payload.profileUids.any { it in pausedProfiles }) return@forEach
-                        if (!database.agentPersistenceDao().queuedTurnReady(chatId, pausedProfiles)) return@forEach
-                        val room = database.agentPersistenceDao().getChatRoom(chatId) ?: return@forEach
-                        if (payload.tools.combined == null && payload.profileUids.any { it !in room.activePlatform }) {
-                            // Preserve the requested model snapshot for explicit review; never silently reroute.
-                            dao.pause(prompt.id, true)
-                            return@forEach
-                        }
-                        val targets = payload.profileUids.mapNotNull { uid -> profiles.firstOrNull { it.uid == uid && it.enabled } }
-                        if (targets.isEmpty() || targets.size != payload.profileUids.size) {
-                            dao.pause(prompt.id, true)
-                            return@forEach
-                        }
-                        val remote = targets.any { it.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
-                        val features = settings.getFeatureSettings()
-                        val save = features.combinedSettingsJournal[chatId]
-                        if (save != null && !save.roomSettled && save.phase != dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED) return@forEach
-                        if ((payload.localOnly && remote) || (payload.requiresSpendAllowance && remote && (!features.spendBudget.enforced || features.tokenBudget.outputTokens <= 0))) {
-                            dao.pause(prompt.id, true)
-                            return@forEach
-                        }
-                        val before = chats.fetchMessagesV2(chatId)
-                        val resolved = targets.map {
-                            it.copy(
-                                model = payload.models[it.uid] ?: it.model,
-                                reasoning = payload.tools.reasoning ?: it.reasoning,
-                                temperature = if (payload.tools.combined == null) it.temperature else payload.tools.combined.requested.temperatureFor(it.uid, it.temperature)
-                            )
-                        }
-                        val accepted = payload.tools.combined
-                        val dispatchTools = if (accepted == null) {
-                            payload.tools
-                        } else {
-                            check(accepted.requested.userPrompt == prompt.text && accepted.requested.participantUids == payload.profileUids && accepted.requested.requestedModels == payload.models) {
-                                "Queued Combined intent no longer matches its accepted snapshot."
-                            }
-                            val users = before.filter { it.platformType == null } + MessageV2(chatId = chatId, content = prompt.text, platformType = null)
-                            val rows = users.map { user -> before.filter { it.platformType != null && it.linkedMessageId == user.id } }
-                            payload.tools.copy(combined = chats.prepareCombinedTurn(accepted.copy(chatId = chatId), users, rows, resolved, payload.tools))
-                        }
-                        val acceptedRecord = dispatchTools.combined?.let {
-                            dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn(context = it, tools = dispatchTools).encode()
-                        }
-                        val turn = PersistAgentTurnRequest(
-                            chatRoom = room,
-                            userMessage = MessageV2(chatId = chatId, content = prompt.text, attachments = payload.attachments, platformType = null),
-                            runs = resolved.map { AgentRunDraft(UUID.randomUUID().toString(), it.uid, it.compatibleType.name, it.model, synthesisSnapshot = acceptedRecord) },
-                            chatPlatformModels = chats.fetchChatPlatformModels(chatId),
-                            queuedPromptId = prompt.id,
-                            queuedPausedProfiles = pausedProfiles
-                        )
-                        val result = if (selected == null) chats.persistAgentTurn(turn) else gatewayStore.persist(prompt, before, turn) ?: return@forEach
-                        result.runs.forEach { run ->
-                            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Send", "QUEUED_SEND_ACCEPTED · requestId=${payload.requestId ?: prompt.id} · queueId=${prompt.id} · runId=${run.runId} · chatId=$chatId · dispatched=false")
-                        }
-                        val users = before.filter { it.platformType == null } + result.userMessage
-                        val assistants = users.map { user ->
-                            (before + result.assistantMessages).filter { it.platformType != null && it.linkedMessageId == user.id }
-                        }
-                        coordinator.start(
-                            result.runs.map { run ->
-                                AgentRunRequest(
-                                    run.runId,
-                                    chatId,
-                                    result.assistantMessages.first { it.id == run.assistantMessageId },
-                                    resolved.first { it.uid == run.profileUid },
-                                    users,
-                                    assistants,
-                                    dispatchTools.copy(
-                                        combined = dispatchTools.combined?.forRole(
-                                            dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR,
-                                            run.profileUid
-                                        )
-                                    )
-                                )
-                            }
-                        )
-                        if (selected != null) {
-                            submittedRuns += result.runs.single().runId
-                            states[chatId] = GatewayQueuedChatState(GatewayQueuedState.QUEUED, ((counts[chatId] ?: 1) - 1).coerceAtLeast(0), "Saved for execution. Waiting for app execution to start.", result.runs.single().runId)
-                        }
-                    } catch (cancellation: CancellationException) {
-                        throw cancellation
-                    } catch (_: Exception) {
-                        // Preserve failed submissions for user inspection and an explicit resume.
-                        dao.pause(prompt.id, true)
-                        if (runCatching { prompt.details().gateway != null }.getOrDefault(false)) states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.BLOCKED, counts[chatId] ?: 1, "The queued Gateway message could not start. Its input is saved; review the original profile and resume it."))
-                    }
-                }
-                _gatewayStates.value = states
+                dispatchSnapshot(snapshot, busyChats, ready)
             }
+        }
+    }
+
+    /** Keep flow collection small enough for ART to compile; each transition still runs serially. */
+    private suspend fun dispatchSnapshot(snapshot: QueueSource, busyChats: Set<Int>, ready: Map<String, GatewayAvailability>) {
+        val prompts = snapshot.prompts
+        val profiles = snapshot.profiles
+        val preparationOwners = snapshot.leases.mapNotNull { lease ->
+            val accepted = runCatching { gatewayStore.turn(lease) }.getOrNull() ?: return@mapNotNull null
+            val selected = accepted.accepted.gateway ?: return@mapNotNull null
+            val profile = profiles.singleOrNull { it.uid == selected.profileUid } ?: return@mapNotNull null
+            preparationOwner(lease).takeIf {
+                lease.receipt != GatewayQueueStore.MODEL_PREPARATION_BLOCKED &&
+                    dao.get(accepted.promptId)?.paused == false &&
+                    selected.profileUid !in pausedProfiles(lease.chatId) &&
+                    snapshot.features.conversationGateway[lease.chatId] == selected &&
+                    selected.validate(profile) == null
+            }
+        }.toSet()
+        modelPreparations.retain(preparationOwners)
+        val states = mutableMapOf<Int, GatewayQueuedChatState>()
+        val counts = prompts.filter { runCatching { it.details().gateway != null }.getOrDefault(false) }.groupingBy { it.chatId }.eachCount()
+        for (lease in snapshot.leases) {
+            states[lease.chatId] = reconcile(lease, profiles, ready).copy(queuedCount = counts[lease.chatId] ?: 0)
+        }
+        val externalBlocker = if (counts.isNotEmpty() && database.gatewayJobDao().queuedDispatches().isEmpty()) {
+            try {
+                gatewayStore.externalWorkBlocker()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                "An earlier Gateway job could not be reconciled. Restore its original connection and check saved jobs before starting new work."
+            }
+        } else {
+            null
+        }
+        prompts.groupBy { it.chatId }.forEach { (chatId, entries) ->
+            val prompt = entries.first()
+            try {
+                dispatchPrompt(prompt, snapshot, busyChats, ready, counts, states, externalBlocker)
+            } catch (cancellation: CancellationException) {
+                throw cancellation
+            } catch (_: Exception) {
+                // Preserve failed submissions for user inspection and an explicit resume.
+                dao.pause(prompt.id, true)
+                if (runCatching { prompt.details().gateway != null }.getOrDefault(false)) states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.BLOCKED, counts[chatId] ?: 1, "The queued Gateway message could not start. Its input is saved; review the original profile and resume it."))
+            }
+        }
+        _gatewayStates.value = states
+    }
+
+    private suspend fun dispatchPrompt(
+        prompt: PendingPrompt,
+        snapshot: QueueSource,
+        busyChats: Set<Int>,
+        ready: Map<String, GatewayAvailability>,
+        counts: Map<Int, Int>,
+        states: MutableMap<Int, GatewayQueuedChatState>,
+        externalBlocker: String?
+    ) {
+        val chatId = prompt.chatId
+        val profiles = snapshot.profiles
+        val payload = prompt.details()
+        val selected = payload.gateway
+        if (selected != null) {
+            val profile = profiles.singleOrNull { it.uid == selected.profileUid }
+            val blocker = when {
+                prompt.paused -> "This Gateway message is paused."
+                profile == null -> "The original Gateway profile is unavailable."
+                snapshot.features.conversationGateway[chatId] != selected -> "The Gateway chat selection changed. Restore its accepted profile and model or remove this queued message."
+                else -> selected.validate(profile)
+            }
+            if (blocker != null) {
+                states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.BLOCKED, counts[chatId] ?: 1, blocker))
+                return
+            }
+            if (database.gatewayJobDao().queuedDispatches().isNotEmpty() || chatId in busyChats) {
+                cancelPreparation(prompt)
+                states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.QUEUED, counts[chatId] ?: 1, "Waiting for the current Gateway job to finish."))
+                return
+            }
+            if (database.gatewayJobDao().queuedDeliveries(chatId).isNotEmpty()) {
+                cancelPreparation(prompt)
+                states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.RECONCILING, counts[chatId] ?: 1, "The previous job has ended. Waiting for its saved reply before continuing this chat."))
+                return
+            }
+            if (externalBlocker != null) {
+                cancelPreparation(prompt)
+                states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.RECONCILING, counts[chatId] ?: 1, externalBlocker))
+                return
+            }
+            val observation = ready[targetKey(selected)]
+            if (!GatewayQueueModelAdmission.mayPrepare(observation, android.os.SystemClock.elapsedRealtime())) {
+                states.putIfAbsent(chatId, waitingState(observation, counts[chatId] ?: 1))
+                return
+            }
+        }
+        if (chatId in busyChats || prompt.paused) return
+        val pausedProfiles = preferences.getStringSet("paused_$chatId", emptySet()).orEmpty()
+        if (payload.profileUids.any { it in pausedProfiles }) return
+        if (!database.agentPersistenceDao().queuedTurnReady(chatId, pausedProfiles)) return
+        val room = database.agentPersistenceDao().getChatRoom(chatId) ?: return
+        if (payload.tools.combined == null && payload.profileUids.any { it !in room.activePlatform }) {
+            // Preserve the requested model snapshot for explicit review; never silently reroute.
+            dao.pause(prompt.id, true)
+            return
+        }
+        val targets = payload.profileUids.mapNotNull { uid -> profiles.firstOrNull { it.uid == uid && it.enabled } }
+        if (targets.isEmpty() || targets.size != payload.profileUids.size) {
+            dao.pause(prompt.id, true)
+            return
+        }
+        val remote = targets.any { it.compatibleType != dev.chungjungsoo.gptmobile.data.model.ClientType.LITERT_LM }
+        val features = settings.getFeatureSettings()
+        val save = features.combinedSettingsJournal[chatId]
+        if (save != null && !save.roomSettled && save.phase != dev.chungjungsoo.gptmobile.data.model.CombinedSettingsSavePhase.COMMITTED) return
+        if ((payload.localOnly && remote) || (payload.requiresSpendAllowance && remote && (!features.spendBudget.enforced || features.tokenBudget.outputTokens <= 0))) {
+            dao.pause(prompt.id, true)
+            return
+        }
+        persistAndDispatchPrompt(prompt, payload, room, targets, pausedProfiles, ready, counts, states)
+    }
+
+    private suspend fun persistAndDispatchPrompt(
+        prompt: PendingPrompt,
+        payload: PendingPromptPayload,
+        room: dev.chungjungsoo.gptmobile.data.database.entity.ChatRoomV2,
+        targets: List<PlatformV2>,
+        pausedProfiles: Set<String>,
+        ready: Map<String, GatewayAvailability>,
+        counts: Map<Int, Int>,
+        states: MutableMap<Int, GatewayQueuedChatState>
+    ) {
+        val chatId = prompt.chatId
+        val selected = payload.gateway
+        val before = chats.fetchMessagesV2(chatId)
+        val resolved = targets.map {
+            it.copy(
+                model = payload.models[it.uid] ?: it.model,
+                reasoning = payload.tools.reasoning ?: it.reasoning,
+                temperature = if (payload.tools.combined == null) it.temperature else payload.tools.combined.requested.temperatureFor(it.uid, it.temperature)
+            )
+        }
+        val accepted = payload.tools.combined
+        val dispatchTools = if (accepted == null) {
+            payload.tools
+        } else {
+            check(accepted.requested.userPrompt == prompt.text && accepted.requested.participantUids == payload.profileUids && accepted.requested.requestedModels == payload.models) {
+                "Queued Combined intent no longer matches its accepted snapshot."
+            }
+            val users = before.filter { it.platformType == null } + MessageV2(chatId = chatId, content = prompt.text, platformType = null)
+            val rows = users.map { user -> before.filter { it.platformType != null && it.linkedMessageId == user.id } }
+            payload.tools.copy(combined = chats.prepareCombinedTurn(accepted.copy(chatId = chatId), users, rows, resolved, payload.tools))
+        }
+        val acceptedRecord = dispatchTools.combined?.let {
+            dev.chungjungsoo.gptmobile.data.agent.CombinedAcceptedTurn(context = it, tools = dispatchTools).encode()
+        }
+        val turn = PersistAgentTurnRequest(
+            chatRoom = room,
+            userMessage = MessageV2(chatId = chatId, content = prompt.text, attachments = payload.attachments, platformType = null),
+            runs = resolved.map { AgentRunDraft(UUID.randomUUID().toString(), it.uid, it.compatibleType.name, it.model, synthesisSnapshot = acceptedRecord) },
+            chatPlatformModels = chats.fetchChatPlatformModels(chatId),
+            queuedPromptId = prompt.id,
+            queuedPausedProfiles = pausedProfiles
+        )
+        val result = if (selected == null) chats.persistAgentTurn(turn) else gatewayStore.persist(prompt, before, turn) ?: return
+        result.runs.forEach { run ->
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Send", "QUEUED_SEND_ACCEPTED · requestId=${payload.requestId ?: prompt.id} · queueId=${prompt.id} · runId=${run.runId} · chatId=$chatId · dispatched=false")
+        }
+        val users = before.filter { it.platformType == null } + result.userMessage
+        val assistants = users.map { user ->
+            (before + result.assistantMessages).filter { it.platformType != null && it.linkedMessageId == user.id }
+        }
+        val requests = result.runs.map { run ->
+            AgentRunRequest(
+                run.runId,
+                chatId,
+                result.assistantMessages.first { it.id == run.assistantMessageId },
+                resolved.first { it.uid == run.profileUid },
+                users,
+                assistants,
+                dispatchTools.copy(
+                    combined = dispatchTools.combined?.forRole(
+                        dev.chungjungsoo.gptmobile.data.agent.CombinedRunRole.CONTRIBUTOR,
+                        run.profileUid
+                    )
+                )
+            )
+        }
+        if (selected == null) {
+            coordinator.start(requests)
+        } else {
+            val lease = requireNotNull(database.gatewayJobDao().queuedDispatches().singleOrNull { it.runId == requests.single().runId })
+            states[chatId] = startGatewayTurn(lease, requests.single(), ready[targetKey(selected)])
+                .copy(queuedCount = ((counts[chatId] ?: 1) - 1).coerceAtLeast(0))
         }
     }
 
@@ -265,26 +326,123 @@ class DurablePromptQueue @Inject constructor(
         )
     }
 
+    /** The local lease is acquired before preparation and retained until generation is reconciled. */
+    internal suspend fun startGatewayTurn(lease: GatewaySubmissionRecord, request: AgentRunRequest, observation: GatewayAvailability?): GatewayQueuedChatState {
+        val runId = requireNotNull(lease.runId)
+        if (lease.receipt == GatewayQueueStore.MODEL_PREPARATION_BLOCKED) return modelPreparationBlocked(runId)
+        if (runId in submittedRuns) return GatewayQueuedChatState(GatewayQueuedState.QUEUED, runId = runId, canCancelUnsubmitted = true)
+        return try {
+            val original = gatewayStore.turn(lease)
+            val selected = requireNotNull(original.accepted.gateway)
+            check(request.runId == runId && request.chatId == lease.chatId && request.platform.uid == selected.profileUid && request.platform.model == selected.model && request.platform.apiUrl.trimEnd('/') == selected.endpoint && request.platform.compatibleType.name == selected.providerType) {
+                "The queued Gateway execution destination changed."
+            }
+            val configured = ConfiguredDispatchAuthority.capture(settings, request.platform, request.chatId)
+            val features = settings.getFeatureSettings()
+            val credentialRevision = requireNotNull(gatewayScopes.configurationRevision(request.platform)) { "The original Gateway credentials are unavailable." }
+            val mode = ReasoningPolicy.preference(request.platform.reasoning, features.llamaReasoningModes[selected.profileUid], original.accepted.tools.reasoning)
+            suspend fun validate() {
+                currentCoroutineContext().ensureActive()
+                configured.validate()
+                check(gatewayScopes.configurationRevision(request.platform) == credentialRevision) { "The accepted Gateway credentials changed." }
+                check(modelPreparationIdle(lease.chatId, selected.profileUid, runId)) { "An earlier Gateway generation must be reconciled before preparing this model." }
+                check(gatewayStore.problem(lease) == null) { "The accepted Gateway selection changed or its chat was removed." }
+                check(selected.profileUid !in preferences.getStringSet("paused_${lease.chatId}", emptySet()).orEmpty()) { "This Gateway message is paused." }
+                val jobs = database.gatewayJobDao()
+                check(jobs.queuedDispatches().singleOrNull() == lease) { "This queued Gateway message no longer owns its saved dispatch." }
+                val run = requireNotNull(database.agentRunDao().getById(runId)) { "The queued Gateway run was removed." }
+                check(run.status == "QUEUED" && run.startedAt == null && run.gatewayJobId == null && jobs.submissionsForRun(runId).isEmpty()) {
+                    "An earlier Gateway generation must be reconciled before preparing this model."
+                }
+                check(run.chatId == lease.chatId && run.profileUid == selected.profileUid && run.modelSnapshot == selected.model && run.assistantMessageId == request.assistantMessage.id && run.userMessageId == lease.userMessageId) { "The accepted Gateway run changed." }
+                val assistant = jobs.localMessage(run.assistantMessageId)
+                check(assistant?.currentRunId == runId && assistant.ownershipFence == run.ownershipFence && request.assistantMessage.ownershipFence == run.ownershipFence) { "The queued Gateway reply changed ownership." }
+                val prompt = dao.get(original.promptId)
+                check(prompt != null && !prompt.paused && prompt.chatId == lease.chatId && prompt.userMessageId == run.userMessageId && prompt.details() == original.accepted) { "The accepted Gateway message was changed, paused or removed." }
+                check(jobs.unsettledSubmissions().isEmpty() && jobs.legacyUnsettledRuns().isEmpty() && jobs.cachedJobs().none { Json.decodeFromString<GatewayJobSummary>(it.snapshot).group != GatewayJobGroup.RECENT }) {
+                    "An existing Gateway job needs reconciliation before loading this model."
+                }
+                // Preparation runs in its own scope. Ownership reads may suspend,
+                // so recheck the captured authority before the load boundary.
+                configured.validate()
+            }
+            validate()
+            if (!GatewayQueueModelAdmission.mayPrepare(observation, android.os.SystemClock.elapsedRealtime()) || observation?.gatewayProfileUid != selected.profileUid) {
+                return waitingState(observation, runId = runId).copy(canCancelUnsubmitted = true)
+            }
+            val preparation = modelPreparations.admission(
+                GatewayQueuedModelPreparation.Request(preparationOwner(lease), request.platform, mode, credentialRevision, checkReadyModel = true),
+                observation,
+                onRejected = { check(gatewayStore.blockModelPreparation(lease)) { "The saved model preparation could not be paused." } }
+            ) {
+                validate()
+                true
+            }
+            if (preparation != null) return preparation.copy(runId = runId, canCancelUnsubmitted = true)
+            // The asynchronous preparation only qualifies this exact model. The
+            // owned lease and a fresh conversation admission still gate generation.
+            validate()
+            if (observation?.isOnline != true || observation.freshnessRemainingMillis(android.os.SystemClock.elapsedRealtime()) == 0L) {
+                return waitingState(observation, runId = runId).copy(canCancelUnsubmitted = true)
+            }
+            coordinator.start(listOf(request))
+            submittedRuns += runId
+            modelPreparations.cancel(preparationOwner(lease))
+            GatewayQueuedChatState(GatewayQueuedState.QUEUED, runId = runId, canCancelUnsubmitted = true)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            GatewayQueuedChatState(GatewayQueuedState.BLOCKED, message = "The saved Gateway message could not prepare its original model. Review its queue, profile and access settings, then resume it.", runId = runId, canCancelUnsubmitted = true)
+        }
+    }
+
+    private fun modelPreparationBlocked(runId: String) = GatewayQueuedChatState(
+        GatewayQueuedState.BLOCKED,
+        message = "The Gateway rejected loading this exact model. Repair its model or access settings, then retry model preparation; this saved message has not been sent.",
+        runId = runId,
+        canCancelUnsubmitted = true,
+        canRetryModelPreparation = true
+    )
+
+    private fun preparationOwner(lease: GatewaySubmissionRecord) = "lease:${lease.commandId}:${lease.fingerprint}"
+
+    private suspend fun cancelPreparation(prompt: PendingPrompt) {
+        database.gatewayJobDao().queuedDispatches().filter { lease ->
+            lease.chatId == prompt.chatId && runCatching { gatewayStore.turn(lease).promptId == prompt.id }.getOrDefault(false)
+        }.forEach { modelPreparations.cancel(preparationOwner(it)) }
+    }
+
+    private suspend fun modelPreparationIdle(chatId: Int, profileUid: String, ownedRunId: String): Boolean =
+        coordinator.activeRuns.value.none { (runId, run) -> runId != ownedRunId && (run.chatId == chatId || run.profileUid == profileUid) } &&
+            database.agentRunDao().rawObserveActive().first().none { it.runId != ownedRunId && (it.chatId == chatId || it.profileUid == profileUid) } &&
+            gatewayStore.externalWorkBlocker() == null
+
     private suspend fun reconcile(lease: GatewaySubmissionRecord, profiles: List<PlatformV2>, ready: Map<String, GatewayAvailability>): GatewayQueuedChatState {
         val runId = requireNotNull(lease.runId)
         if (lease.state == "LOCAL_QUEUE_DELIVERY_PENDING") return reconcileDelivery(lease)
-        if (runId in coordinator.activeRuns.value) return GatewayQueuedChatState(GatewayQueuedState.RUNNING, runId = runId)
+        if (runId in coordinator.activeRuns.value) {
+            modelPreparations.cancel(preparationOwner(lease))
+            return GatewayQueuedChatState(GatewayQueuedState.RUNNING, runId = runId)
+        }
         return try {
             val run = database.agentRunDao().getById(runId)
             if (lease.receipt == "BACKUP_RESTORED" || run?.terminalError == "BACKUP_RESTORED") return GatewayQueuedChatState(GatewayQueuedState.BLOCKED, message = "This Gateway job was restored from a backup. Review its original saved job before allowing new work.", runId = runId)
+            if (lease.receipt == GatewayQueueStore.MODEL_PREPARATION_BLOCKED) return modelPreparationBlocked(runId)
             val original = gatewayStore.turn(lease)
             val selected = requireNotNull(original.accepted.gateway)
             val remote = database.gatewayJobDao().submissionsForRun(runId)
             if (run != null && (run.status == "QUEUED" || run.status == "INTERRUPTED" && run.startedAt == null) && remote.isEmpty() && run.gatewayJobId == null) {
                 val blocker = gatewayStore.problem(lease)
-                if (blocker != null) return GatewayQueuedChatState(GatewayQueuedState.BLOCKED, message = blocker, runId = runId, canCancelUnsubmitted = true)
+                if (blocker != null) {
+                    modelPreparations.cancel(preparationOwner(lease))
+                    return GatewayQueuedChatState(GatewayQueuedState.BLOCKED, message = blocker, runId = runId, canCancelUnsubmitted = true)
+                }
                 val observation = ready[targetKey(selected)]
-                if (observation?.isOnline != true || !observation.conversationSyncSupported || observation.freshnessRemainingMillis(android.os.SystemClock.elapsedRealtime()) == 0L) return waitingState(observation, runId = runId).copy(canCancelUnsubmitted = true)
+                if (!GatewayQueueModelAdmission.mayPrepare(observation, android.os.SystemClock.elapsedRealtime())) return waitingState(observation, runId = runId).copy(canCancelUnsubmitted = true)
                 if (runId !in submittedRuns) {
                     val profile = profiles.singleOrNull { it.uid == selected.profileUid } ?: return GatewayQueuedChatState(GatewayQueuedState.BLOCKED, message = "The original Gateway profile is unavailable.", runId = runId)
                     gatewayStore.resumedRequest(lease, profile)?.let {
-                        coordinator.start(listOf(it))
-                        submittedRuns += runId
+                        return startGatewayTurn(lease, it, observation)
                     }
                 }
                 return GatewayQueuedChatState(GatewayQueuedState.QUEUED, message = "Saved for execution. Open the app if Android has paused background execution.", runId = runId, canCancelUnsubmitted = true)
@@ -402,7 +560,19 @@ class DurablePromptQueue @Inject constructor(
         return blocker
     }
 
+    /** Separate from saved-job checks: the user explicitly retries the exact blocked model load. */
+    suspend fun retryGatewayModelPreparation(chatId: Int, runId: String): Boolean {
+        val lease = database.gatewayJobDao().queuedDispatches().singleOrNull { it.chatId == chatId && it.runId == runId } ?: return false
+        val resumed = gatewayStore.resumeModelPreparation(lease)
+        if (resumed) {
+            modelPreparations.cancel(preparationOwner(lease))
+            wake()
+        }
+        return resumed
+    }
+
     suspend fun cancelUnsubmittedGateway(chatId: Int): Boolean {
+        database.gatewayJobDao().queuedDispatches().filter { it.chatId == chatId }.forEach { modelPreparations.cancel(preparationOwner(it)) }
         val canceled = gatewayStore.cancelUnsubmitted(chatId)
         if (canceled) wake()
         return canceled
@@ -410,7 +580,10 @@ class DurablePromptQueue @Inject constructor(
 
     fun observe(chatId: Int) = pending.map { entries -> entries.filter { it.chatId == chatId } }
     suspend fun remove(id: String) {
-        if (FollowUpProgressStore.canChange(id)) dao.delete(id)
+        if (FollowUpProgressStore.canChange(id)) {
+            dao.get(id)?.let { cancelPreparation(it) }
+            dao.delete(id)
+        }
     }
     suspend fun edit(id: String, text: String, hasAttachments: Boolean) {
         require(text.isNotBlank() || hasAttachments) { "Add a message or keep an attachment before saving." }
@@ -447,7 +620,13 @@ class DurablePromptQueue @Inject constructor(
         }
     }
     suspend fun pause(id: String, paused: Boolean) {
-        if (FollowUpProgressStore.canChange(id)) dao.pause(id, paused)
+        if (FollowUpProgressStore.canChange(id)) {
+            val prompt = if (paused) dao.get(id) else null
+            prompt?.let { cancelPreparation(it) }
+            dao.pause(id, paused)
+            // A rapid resume can hide the intermediate pause from StateFlow.
+            prompt?.let { cancelPreparation(it) }
+        }
     }
     suspend fun move(id: String, otherId: String) = dao.swap(id, otherId)
     fun pausedProfiles(chatId: Int): Set<String> = preferences.getStringSet("paused_$chatId", emptySet()).orEmpty().toSet()

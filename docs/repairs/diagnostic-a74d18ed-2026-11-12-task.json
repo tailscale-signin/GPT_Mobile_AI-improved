@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/session-reliability-reporting-2026-11-12",
+  "base_sha": "e1a754336d291ee1ad72878078d7f854d3d0735e",
+  "working_branch": "fix/session-reliability-reporting-2026-11-12",
+  "pull_request": 838,
+  "state": "IMPLEMENTED",
+  "intent": "Implement the validated a74d18ed diagnostic fixes: cooldown continuation, coherent recovery state and telemetry, shared gateway polling deadlines, integration budgets and prerequisites, bounded UI work and actionable diagnostics. Preserve concurrent changes and distinguish device/live acceptance.",
+  "diagnostic_session": "a74d18ed-d2eb-43d2-bde1-cc82a48cff83",
+  "diagnostic_app_sha": "956d50d320c9d2f4794a21eee6886b39eaa14ded",
+  "diagnostic_repository_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "publication_policy": {
+    "force": false,
+    "reconcile_changed_head": true
+  },
+  "validation": {
+    "fast_host_gate": {
+      "command": "bash scripts/validate-local.sh fast",
+      "result": "PASS",
+      "tests": 473,
+      "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/fast.log",
+      "scope": "Host script tests and source/resource/policy checks; simulated fixture output is not device evidence"
+    },
+    "classification_and_summary_jvm": {
+      "result": "PASS",
+      "tests": 20,
+      "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/classification-summary-jvm.log",
+      "scope": "Current production classifier/templates/summary and exact extracted collaborator declarations; no Android build"
+    },
+    "integration_evidence_jvm": {
+      "result": "PASS",
+      "tests": 71,
+      "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/integration-evidence-jvm.log",
+      "scope": "56 current pure production classes, with service dependencies and current DTO/enum boundaries; VerifiedSession call sites require Android compilation"
+    },
+    "gateway_polling_readiness_jvm": {
+      "result": "PASS",
+      "tests": 61,
+      "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/gateway-polling-readiness-jvm.log",
+      "scope": "Actual coordinator/API/client with Ktor MockEngine and isolated platform/storage boundaries; includes 23 selected-model preparation tests"
+    },
+    "recovery_policy_jvm": {
+      "result": "PASS",
+      "tests": 22,
+      "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/recovery-policy-jvm.log",
+      "scope": "Actual checkpoint binding, terminal projection, semantic/legacy policy, retry and throttle helper implementations; no Android stubs"
+    },
+    "gateway_diagnostic_contract": {
+      "result": "PASS",
+      "tests": 28,
+      "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/gateway-diagnostic-events.log",
+      "command": "python -m unittest discover -s gateway/tests -p test_gateway_v14_diagnostic_events.py",
+      "environment": "Isolated virtual environment installed from gateway/requirements.txt with --require-hashes"
+    },
+    "ktlint": {
+      "version": "1.3.1",
+      "result": "PASS",
+      "changed_kotlin_files": 56,
+      "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/ktlint.log"
+    },
+    "app_audit_source_digest": "a73cbb116d3ff4c1bb2e0987484bb3f89beb36255cefe609a8345711022732ef",
+    "full_android": {
+      "result": "NOT_RUN_LOCALLY",
+      "reason": "No local Gradle/Android SDK; final published head requires CI production compilation, Room/Robolectric and full application tests"
+    },
+    "device_and_live_service": {
+      "result": "NOT_MEASURED",
+      "scope": [
+        "physical microphone",
+        "frame times",
+        "allocation/GC",
+        "real provider cooldown wake-up",
+        "real selected-model readiness",
+        "live integration fixture cleanup"
+      ]
+    },
+    "gateway_package_source": {
+      "source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+      "files": 218,
+      "mismatches": [],
+      "result": "PASS",
+      "evidence": "evidence/diagnostic-a74d18ed-2026-11-12/gateway-source-binding.json"
+    }
+  },
+  "compatibility_limits": [
+    "Legacy provider checkpoints without a retained receipt-journal key remain blocked when exact restoration cannot be proven.",
+    "Legacy research recovery actions migrate only when the complete original policy still matches; changed or unprovable state requires a new reviewed action."
+  ],
+  "independent_review": {
+    "result": "ADDRESSED",
+    "resolved_findings": [
+      "legacy policy migration",
+      "terminal checkpoint failure isolation",
+      "polling invalidation metadata eviction",
+      "incidental guard text in failure summaries"
+    ]
+  },
+  "publication": {
+    "method": "GitHub Git Data API with expected-head compare",
+    "expected_previous_head": "6567b4d13aa24d7f8cb80207a62d9fe2964e16ca",
+    "force": false,
+    "initial_source_commit": "52eacb7fa189ae878e06277dfe9c4ef2847fbc61",
+    "initial_source_tree": "7c5187bd828ceca94c740ba919780af1c74ce57f",
+    "follow_up": "Require the same anchored guard-origin grammar in terminal checkpoint projection and compact failure summaries."
+  }
+}

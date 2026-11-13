@@ -1,0 +1,307 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+  "working_branch": "fix/session-reliability-reporting-2026-11-12",
+  "starting_head": "a08f99e2adbf5a20fd3fafbc7fa3e63ba8b0542b",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "report-diagnostic-followup-2026-11-12",
+  "checkpoint_storage": "repository_file",
+  "state": "LOCAL_VALIDATION_PASSED_PUBLICATION_AND_HOSTED_ANDROID_PENDING",
+  "intent": "Fix identifiable issue/log defects; for reports lacking original causal evidence, implement tested incident-owned diagnostic collection in the report function, then close with explicit diagnostic-follow-up disposition as requested. Preserve concurrent branch changes.",
+  "open_issues_at_start": [
+    848,
+    849,
+    850,
+    851,
+    853,
+    854,
+    855,
+    856,
+    857,
+    858,
+    859,
+    860,
+    861,
+    862,
+    863,
+    864,
+    865,
+    866,
+    867,
+    868,
+    869,
+    870,
+    871,
+    872,
+    873,
+    874,
+    875,
+    876,
+    877,
+    878,
+    879,
+    880,
+    882
+  ],
+  "closure_policy": {
+    "source_fix": "Close with source and matching behavioral evidence.",
+    "diagnostic_followup": "User explicitly authorizes closing an unproven original incident after needed capture is implemented and tested; do not claim the historical failure was reproduced or fixed.",
+    "unknown_remote_outcome": "No new write/model execution or resend is authorized by diagnostic collection."
+  },
+  "planned_features": [
+    "Bounded context-v5 incident diagnostic snapshot with strict app/service validation and approved legacy payload compatibility.",
+    "Owned provider/tool/acceptance receipt enrichment; retained safe snapshots for explicit manual problem-area selection.",
+    "Actual voice session/generation/capture/playback metrics and timing without text/audio content.",
+    "Report UI preview/refresh and explicit problem-area selection before approval; no post-approval data mutation."
+  ],
+  "validation": {
+    "hosted_android": "PENDING_NEW_SOURCE",
+    "physical_device": "NOT_MEASURED",
+    "source_inventory": {
+      "files": 2517,
+      "areas": 26,
+      "execution_coverage": false
+    },
+    "canonical_fast": {
+      "passed": 484,
+      "log_sha256": "71adf674f089e9ed5bca5ccd109455339942a7d8b93f62faa0d7c5c5e8235835",
+      "all_fast_checks_passed": true
+    },
+    "authentication_reporting": {
+      "passed": 66,
+      "log_sha256": "dd3843c880277b089a0fdabb37050da6f46186d99e6e9d6c1d3e1c8a0291e0c1"
+    },
+    "reporting_contract": {
+      "jvm_passed": 63,
+      "manual_cases_included": 8,
+      "approved_kotlin_to_python_payloads": 18,
+      "source_manifest_sha256": "84fc457995b46c082b03666a5c53f7cb1c69b8a5f3284c0bb8efd6eab151a49c",
+      "test_log_sha256": "b3e9aa82a350d05ac955e20f65308eb41dfc50647f2d02793132d840430fcb07"
+    },
+    "voice": {
+      "voice_methods_passed": 112,
+      "collector_methods_passed": 3,
+      "source_manifest_sha256": "f9b10e7d0fcaa975ec7bfc3e82e63001c7d1bffa76326a0d39f3c37ee3d1dd38",
+      "test_log_sha256": "25afb59f8f8a65b9dbcc4c20014a14ef0e736434380e391b9455bef89fd80826",
+      "collector_log_sha256": "3ecf3f3e816e2300ce748a2e8d3b68ea248eda62b8bb420b905545e8b2602144"
+    },
+    "producer_suites": {
+      "provider_cache_gateway_tools": {
+        "passed": 22,
+        "source_manifest_sha256": "a6f961b2d535737fb10249de7f5823116520c0e7db9fa7c24ebe43c7eba93853",
+        "test_log_sha256": "d0af46344be072cbb864bb4393ea6108c724449073bd38fa8eb4020498872157"
+      },
+      "acceptance": {
+        "passed": 45,
+        "source_manifest_sha256": "9b76e1f93726479d591d992b3adcf62c2289c710dbd9da3be025c8eedbabc790",
+        "test_log_sha256": "8e37ee323ffaf37959d47157d62231f1be6cfb1b90b9c2b1f01a442f83aced6d"
+      },
+      "recorder_privacy": {
+        "passed": 6,
+        "source_manifest_sha256": "3aab51341181c02d11b23476c3206fc5dfe938c386f8c90c9838b3c02168a947",
+        "test_log_sha256": "a7ae5d2c3a352768ff7e0fbe85f3ff6a18a2ab7812c3014e84bce86d33e66c7b"
+      }
+    },
+    "kotlin_style": {
+      "version": "1.3.1",
+      "changed_pr_files_checked": 304,
+      "result": "PASSED"
+    },
+    "exact_release_scope": "PASSED",
+    "component_limits": "Current production source with explicitly declared Android/environment boundaries; overlapping suite counts are not added; no Android lifecycle, JNI, OEM microphone or physical latency claim.",
+    "independent_review": {
+      "result": "PASSED_AFTER_CORRECTIONS",
+      "found_and_fixed": [
+        "Redact complete follow-up text before applying final length bound; preserve raw UI text and reserve prefix space with visible length validation.",
+        "Clear preview events as well as snapshots when diagnostic capture is unavailable, preventing repeated DiagnosticsChanged rejection with general logging enabled."
+      ],
+      "credential_fragment_negative_control": "Previous helper reproduced synthetic ghp_ABC fragment; current helper regression passes."
+    }
+  },
+  "publication": {
+    "mode": "GUARDED_FAST_FORWARD_ONLY",
+    "force": false,
+    "pull_request": 838
+  },
+  "reviewed_issue_dispositions": {
+    "source_repair_candidates": [
+      853,
+      854,
+      865
+    ],
+    "diagnostic_followup_candidates": [
+      848,
+      849,
+      850,
+      851,
+      855,
+      856,
+      857,
+      858,
+      859,
+      860,
+      861,
+      862,
+      863,
+      864,
+      866,
+      867,
+      868,
+      869,
+      870,
+      871,
+      872,
+      873,
+      874,
+      875,
+      876,
+      877,
+      878,
+      879,
+      880,
+      882
+    ],
+    "closure_status": "PENDING_CURRENT_SOURCE_VALIDATION_AND_PUBLICATION",
+    "earlier_reports_closed": [
+      839,
+      840,
+      841,
+      842,
+      843,
+      844,
+      845,
+      846,
+      847,
+      852
+    ],
+    "reports_reviewed": 43
+  },
+  "integrated_parent": "b0148a61a464345085b7aef8c9fc0c8e4cf85470",
+  "concurrent_changes_preserved": [
+    "Complete provider journal binding and exact checkpoint replay proof",
+    "Shared provider cooldown scheduling and current-row observation",
+    "Inline numbered voice link-label projection and legacy failure ownership"
+  ],
+  "checkpoint_kind": "PUBLICATION_CHECKPOINT_NOT_LIVE_ISSUE_OR_CI_STATUS",
+  "validated_source_checkpoint": "85d1d05babaa10a13968a7d23d17e9f1b502b40c",
+  "bounded_recovery_and_permission_followup": {
+    "published_parent": "e4ea9ca095fd14e98f34197cab2b013a0276ff78",
+    "state": "TARGETED_CHECKS_PASSED_PUBLICATION_AND_ANDROID_PENDING",
+    "gateway": {
+      "failed_run": 43324157513,
+      "failed_job": 131552289073,
+      "failure": "Windows Python 3.13 engineering module exceeded its 120-second watchdog; no assertion failure was reported.",
+      "unchanged_windows_repeat_seconds": [
+        51.197,
+        52.714
+      ],
+      "synthetic_transaction_delay_seconds": 0.05,
+      "synthetic_combined_result": "120-second watchdog failure",
+      "synthetic_split_pass_seconds": [
+        89.687,
+        37.863
+      ],
+      "actual_split_test_counts": {
+        "state": 34,
+        "evidence": 40,
+        "worker": 2
+      },
+      "original_unique_bodies_preserved": 42,
+      "identical_inherited_registrations_removed": 2,
+      "readiness_seconds": 45,
+      "join_seconds": 10,
+      "module_watchdog_seconds": 120,
+      "non_recovering_negative_control": "Expected failure after 45.013 seconds, worker stopped, one COMMIT and no repeated write.",
+      "production_worker_and_runner_unchanged": true,
+      "new_module": "gateway/tests/test_gateway_v14_engineering_worker.py",
+      "windows_after_isolation": "PENDING_PUBLISHED_SOURCE_CI"
+    },
+    "microphone": {
+      "capture_phase": "read after successful start and scheduling both deadlines",
+      "permission_source": "actual hasPermission result; never inferred from SecurityException",
+      "before": {
+        "methods": 20,
+        "failures": 1,
+        "reason": "revoked permission retained as true"
+      },
+      "after": {
+        "methods": 20,
+        "failures": 0
+      },
+      "preserved": [
+        "original exception",
+        "typed recovery",
+        "one attempt and no automatic retry",
+        "capture/model cleanup",
+        "retired generation fencing",
+        "private snapshot invalidation"
+      ],
+      "host_boundaries": "Actual injected recognizer state machine and public diagnostic projection; concrete Android/JNI adapters omitted.",
+      "android_factory_tests": "PENDING_ACTUAL_ANDROID_EXECUTION"
+    },
+    "live_status": "PR #838 comment 6832556187 and individual issue comments; this is a publication checkpoint, not live CI state.",
+    "windows_status_publication": {
+      "source_commit": "7e90e579c96686ca9a2b43a2523b8cdbbcc8dd0a",
+      "package_commit": "2debde02be8639ce0b664f7e90f5eeed6da0fd6b",
+      "failed_run": 43329441647,
+      "failed_job": 131570155391,
+      "observed_failure": "Windows os.replace(status temporary, status.json) raised WinError5 while publishing a healthy rollback runtime.",
+      "cause_boundary": "Transient reader contention is inferred from the failure location and same-source pass/fail; permanent denial remains possible and still raises.",
+      "retry_scope": "Explicit status publication only, Windows native errors5/32, same closed and fsynced payload.",
+      "max_attempts": 6,
+      "scheduled_backoff_millis": 310,
+      "preserved": [
+        "prior durable status on failure",
+        "prior in-memory status on failure",
+        "atomic replacement",
+        "startup and smoke deadlines",
+        "single-attempt non-status writes",
+        "immediate unrelated-error propagation"
+      ],
+      "published_source_windows_smoke": "PENDING_ACTUAL_CI",
+      "independent_focused_checks": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "boundary": "Actual repository atomic_json and Supervisor publication on Linux with Windows error/platform injection; packaged Windows execution remains separate."
+      }
+    },
+    "combined_prepublication_validation": {
+      "parent": "6f193a55b73696bbf1d6adfdef9681d397d798af",
+      "canonical_fast_tests": 495,
+      "canonical_fast_result": "PASS",
+      "pinned_ktlint_version": "1.3.1",
+      "changed_kotlin_and_kotlin_script_files": 306,
+      "ktlint_result": "PASS",
+      "app_inventory": {
+        "files": 2517,
+        "areas": 26,
+        "check": "PASS"
+      },
+      "architecture_inventory": "PASS",
+      "owner_recognizer_regression": {
+        "methods": 20,
+        "failures": 0,
+        "inputs": 49,
+        "repository_inputs": 35,
+        "all_input_hashes_match_after_gateway_integration": true
+      },
+      "gateway_canonical_suite": "PENDING_SOURCE_BOUND_MANIFEST",
+      "android_unit_and_packaged_windows": "PENDING_ACTUAL_CI",
+      "preserved_manual_validation_base_resolution": "6f193a55b73696bbf1d6adfdef9681d397d798af"
+    },
+    "preserved_windows_boundary_tests": "a01fabb23bd901a461d86fc61248e3e1e8f8e674",
+    "completed_prior_gateway_validation": {
+      "source_commit": "b6b84fac642041245f87354649b38805b054834f",
+      "cases": 912,
+      "passed": 910,
+      "skipped": 2,
+      "modules": 70,
+      "browser_bridge_passes": 7,
+      "boundary": "Completed before the concurrent Windows regression additions. Later source keeps the same runtime and adds four desktop tests, including one native Windows case."
+    }
+  }
+}

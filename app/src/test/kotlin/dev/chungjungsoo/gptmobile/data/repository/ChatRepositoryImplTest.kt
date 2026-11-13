@@ -30,6 +30,8 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionAuthType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage
 import dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
@@ -76,7 +78,9 @@ import dev.chungjungsoo.gptmobile.data.network.error.CircuitBreakerOpenException
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultRepository
 import dev.chungjungsoo.gptmobile.data.rag.FactVaultSnapshot
 import dev.chungjungsoo.gptmobile.data.research.currentReviewRecord
+import dev.chungjungsoo.gptmobile.data.research.researchHash
 import dev.chungjungsoo.gptmobile.data.security.SecretVault
+import dev.chungjungsoo.gptmobile.util.collectApiStateUpdates
 import io.ktor.client.engine.cio.CIO
 import io.mockk.coEvery
 import io.mockk.every
@@ -92,12 +96,16 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -107,6 +115,102 @@ import org.junit.Test
 
 class ChatRepositoryImplTest {
     @get:org.junit.Rule val testFiles = org.junit.rules.TemporaryFolder()
+
+    /** Invoked by the Robolectric wrapper so the real reporting collector owns Android storage. */
+    fun genericPreparationExceptionRetainsEvidenceThroughCollector() = runBlocking {
+        val incidents = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
+        incidents.initialize(androidx.test.core.app.ApplicationProvider.getApplicationContext())
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(false)
+        incidents.privacyChanged(false)
+        incidents.debugPreferenceChanged(false)
+        incidents.clearRecent()
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(true)
+        try {
+            val error = IllegalStateException("PRIVATE_FIXTURE_EXCEPTION https://private.invalid/token", IllegalArgumentException("PRIVATE_INNER"))
+            error.stackTrace = arrayOf(StackTraceElement("dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl", "preparedCompleteChat", "private-file", 1879))
+            val user = MessageV2(id = 1, chatId = 7, content = "Explain this PRIVATE_PROMPT synthetic fixture", platformType = null)
+            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            coEvery { persistence.getMessages(7) } returns listOf(user)
+            val runs = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao>(relaxed = true)
+            coEvery { runs.getByChatId(7) } throws error
+            val api = RecordingOpenAIAPI()
+            val states = mutableListOf<ApiState>()
+            val runId = "PRIVATE_OWNING_RUN"
+            val flow = createRepository(openAIAPI = api, persistenceOverride = persistence, runsOverride = runs).completeChat(
+                listOf(user),
+                emptyList(),
+                customPlatform().copy(enabled = true, disableAllTools = true, compatibleType = ClientType.OPENROUTER),
+                runId
+            ).onEach { states += it }
+            val outcome = flow.collectApiStateUpdates(onUpdate = { _, _, _ -> })
+            assertTrue(outcome is dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed)
+            val failure = states.filterIsInstance<ApiState.Error>().single()
+            assertEquals("UNKNOWN", failure.errorCode)
+            assertNull(failure.invocationId)
+            assertEquals(0, api.streamChatCompletionCalls)
+            io.mockk.coVerify(exactly = 1) { runs.getByChatId(7) }
+            val report = incidents.pending.value.single()
+            assertEquals("CHAT_FAILED", report.errorCode)
+            val context = requireNotNull(report.context)
+            assertEquals(IssueReportContext.identifierHash("run", runId), context.runIdHash)
+            assertEquals("OPENROUTER", context.provider)
+            assertTrue(requireNotNull(context.exceptionFingerprint).matches(Regex("[a-f0-9]{64}")))
+            assertEquals(context.exceptionFingerprint, failure.failureDetails?.get("exception_fingerprint")?.jsonPrimitive?.content)
+            assertNull(context.stage)
+            assertNull(context.invocationIdHash)
+            assertNull(context.callIdHash)
+            assertNull(context.jobIdHash)
+            assertNull(context.dispatched)
+            assertNull(context.remoteAcceptance)
+            assertNull(context.httpStatus)
+            assertNull(context.retryable)
+            val values = requireNotNull(context.diagnostics).values
+            assertEquals(JsonPrimitive("CHAT_REPOSITORY_TERMINAL_CATCH"), values["incident_capture_site"])
+            assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), values["incident_phase_provenance"])
+            assertEquals(JsonPrimitive("unknown"), values["incident_phase"])
+            assertEquals(JsonPrimitive("UNAVAILABLE"), values["causal_provenance"])
+            val causeHashes = requireNotNull(values["exception_type_hashes"]).jsonArray
+            assertTrue(causeHashes.size in 2..4)
+            for (type in listOf("java.lang.IllegalStateException", "java.lang.IllegalArgumentException")) {
+                assertTrue(causeHashes.contains(JsonPrimitive(requireNotNull(IssueReportContext.identifierHash("exception-type", type)))))
+            }
+            val approved = report.approvedPayload()
+            assertFalse(approved.contains("PRIVATE_"))
+            assertFalse(approved.contains("private.invalid"))
+            assertFalse(approved.contains("IllegalStateException"))
+            assertFalse(approved.contains("preparedCompleteChat"))
+            assertEquals(approved, report.approvedPayload())
+        } finally {
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(false)
+            incidents.privacyChanged(false)
+            incidents.debugPreferenceChanged(false)
+            incidents.clearRecent()
+        }
+    }
+
+    @Test fun preparationCancellationStillPropagatesWithoutAnApiFailure() = runBlocking {
+        val user = MessageV2(id = 1, chatId = 7, content = "Explain this synthetic fixture", platformType = null)
+        val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+        coEvery { persistence.getMessages(7) } returns listOf(user)
+        val runs = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao>(relaxed = true)
+        val cancelled = CancellationException("PRIVATE_CANCEL")
+        coEvery { runs.getByChatId(7) } throws cancelled
+        val api = RecordingOpenAIAPI()
+        val states = mutableListOf<ApiState>()
+        try {
+            createRepository(openAIAPI = api, persistenceOverride = persistence, runsOverride = runs)
+                .completeChat(listOf(user), emptyList(), customPlatform(), "cancelled-fixture")
+                .toList(states)
+            org.junit.Assert.fail("Cancellation must propagate")
+        } catch (error: CancellationException) {
+            assertEquals(cancelled.javaClass, error.javaClass)
+            assertEquals(cancelled.message, error.message)
+            // Coroutine recovery can copy a cancellation while preserving the original cause.
+            assertTrue(generateSequence<Throwable>(error) { it.cause?.takeUnless { cause -> cause === it } }.take(8).any { it === cancelled })
+        }
+        assertTrue(states.none { it is ApiState.Error })
+        assertEquals(0, api.streamChatCompletionCalls)
+    }
 
     @Test fun nativeToolProgressAfterGatewayTelemetryReplacesStalePreflightSummary() = runBlocking {
         val repository = createRepository()
@@ -284,7 +388,7 @@ class ChatRepositoryImplTest {
 
     @Test fun knownPrivacyRejectionStopsBeforePreparationOrRetrieval() = runBlocking {
         val privacy = mockk<dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight>()
-        coEvery { privacy.check(any(), any(), any(), any()) } throws IllegalStateException("POLICY_RESTRICTED: choose a compatible model")
+        coEvery { privacy.check(any(), any(), any(), any()) } throws dev.chungjungsoo.gptmobile.data.openrouter.PrivacyAdmissionException("POLICY_RESTRICTED: choose a compatible model")
         val resolver = mockk<AgentToolResolver>()
         val settings = mockk<SettingRepository>()
         val memory = mockk<FactVaultRepository>()
@@ -302,7 +406,17 @@ class ChatRepositoryImplTest {
             customPlatform().copy(compatibleType = ClientType.OPENROUTER, apiUrl = "https://openrouter.ai/api/v1", model = "vendor/model", token = "test-key"),
             "privacy-preflight-run"
         ).toList()
-        assertTrue(states.filterIsInstance<ApiState.Error>().single().message.startsWith("POLICY_RESTRICTED"))
+        val failure = states.filterIsInstance<ApiState.Error>().single()
+        assertTrue(failure.message.startsWith("POLICY_RESTRICTED"))
+        assertEquals("PRIVACY_CONFIGURATION", failure.errorCode)
+        assertNull(failure.invocationId)
+        val details = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("provider_admission"), details["failed_stage"])
+        assertEquals(JsonPrimitive("OPENROUTER"), details["provider"])
+        assertEquals(JsonPrimitive(false), details["dispatched"])
+        assertEquals(JsonPrimitive("NO"), details["remote_acceptance"])
+        assertEquals(JsonPrimitive(false), details["retryable"])
+        assertEquals(JsonPrimitive("privacy-preflight-run"), details["run_id"])
         assertEquals(ApiState.Done, states.last())
         assertEquals(0, api.streamChatCompletionCalls)
         io.mockk.coVerify(exactly = 1) { privacy.check(any(), "test-key", "vendor/model", any()) }
@@ -1432,6 +1546,7 @@ class ChatRepositoryImplTest {
     @Test
     fun `groq token limit reports failure instead of completing with only thinking`() = runBlocking {
         val runId = "run-groq-output-limit"
+        val platform = groqPlatform(reasoning = true, model = "qwen/qwen3.6-27b")
         val groqAPI = FakeGroqAPI(
             flowOf(
                 GroqChatCompletionChunk(
@@ -1450,10 +1565,27 @@ class ChatRepositoryImplTest {
         val states = repository.completeChat(
             userMessages = listOf(MessageV2(content = "Hi", platformType = null)),
             assistantMessages = emptyList(),
-            platform = groqPlatform(reasoning = true, model = "qwen/qwen3.6-27b"),
+            platform = platform,
             runId = runId
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
+        val expectedDetails = buildJsonObject {
+            put("diagnostic_area", "PROVIDER")
+            put("diagnostic_capture_mode", "INCIDENT")
+            put("run_id_hash", IssueReportContext.identifierHash("run", runId))
+            put("profile_hash", researchHash(platform.uid))
+            put("model_hash", researchHash(platform.model))
+            put("response_format", "TEXT")
+            put("provider_failure_stage", "GENERATION")
+            put("provider_failure_domain", "PROVIDER")
+            put("provider_failure_code", "OUTPUT_LIMIT")
+            put("finish_reason", "LENGTH")
+            put("usage_source", "provider_reported")
+            put("transport_complete", true)
+            put("original_error_code_hash", IssueReportContext.identifierHash("provider-error-code", "OUTPUT_LIMIT"))
+            put("run_id", runId)
+            put("provider_kind", "GROQ")
+        }
         assertEquals(
             listOf(
                 ApiState.Loading,
@@ -1461,16 +1593,19 @@ class ChatRepositoryImplTest {
                 ApiState.Error(
                     "Groq reached the model output limit before producing a final answer.",
                     errorCode = "OUTPUT_LIMIT",
-                    failureDetails = buildJsonObject {
-                        put("run_id", runId)
-                        put("provider_kind", "GROQ")
-                    }
+                    failureDetails = expectedDetails
                 ),
                 ApiState.Done
             ),
             states
         )
         assertEquals(1, groqAPI.streamCalls)
+        val failure = states.filterIsInstance<ApiState.Error>().single()
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", failure.failureDetails.orEmpty(), 1_000L))
+        assertTrue(report.isValid())
+        assertEquals("PROVIDER", report.area)
+        assertEquals("INCIDENT", report.captureMode)
+        assertEquals(expectedDetails - setOf("diagnostic_area", "diagnostic_capture_mode", "run_id", "provider_kind"), report.values)
     }
 
     @Test

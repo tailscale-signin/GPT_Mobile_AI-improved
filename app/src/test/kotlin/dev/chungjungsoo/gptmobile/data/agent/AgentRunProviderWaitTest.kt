@@ -34,6 +34,34 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(application = Application::class, sdk = [34])
 class AgentRunProviderWaitTest {
+    @Test fun localRecoveryRefusalPublishesTypedBlockedStateBeforeAnyRetainedCombinedFallback() = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        val chats = mockk<ChatRepository>()
+        val settings = mockk<SettingRepository>()
+        val platform = PlatformV2(uid = "p", name = "Primary", compatibleType = ClientType.CUSTOM, model = "model", apiUrl = "https://writer.example/v1")
+        val user = MessageV2(id = 1, chatId = 1, content = "Original task", platformType = null)
+        val answer = MessageV2(id = 2, chatId = 1, content = "", platformType = "p", currentRunId = "run", ownershipFence = 1)
+        val request = AgentRunRequest("run", 1, answer, platform, listOf(user), listOf(listOf(answer)))
+        val committed = CompletableDeferred<Pair<MessageV2, String>>()
+        coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(backgroundGeneration = false)
+        coEvery { chats.markAgentRunRunning("run", any()) } returns true
+        coEvery { chats.completeChat(any(), any(), any(), "run", any(), any()) } returns flow { throw ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED") }
+        coEvery { chats.commitAgentRun(any(), "run", any(), any(), any()) } coAnswers {
+            committed.complete(firstArg<MessageV2>() to thirdArg<String>())
+            true
+        }
+        val coordinator = AgentRunCoordinator(context, chats, mockk(), settings, mockk())
+        coordinator.resumeProviderRequests(listOf(request))
+        val (saved, status) = withTimeout(10_000) { committed.await() }
+        withTimeout(10_000) { coordinator.activeRuns.first { it.isEmpty() } }
+        assertEquals("BLOCKED", status)
+        val failure = requireNotNull(saved.timeline.last().profileFailure)
+        assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", failure.category)
+        assertEquals(false, failure.dispatched)
+        assertEquals("lifecycle", failure.phase)
+        coVerify(exactly = 0) { chats.publishCombinedRetainedFallback(any(), any()) }
+    }
+
     @Test fun resumedWaitCannotAdoptPermissionChangesAfterItsIndependentLaunch() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val chats = mockk<ChatRepository>()
@@ -95,6 +123,7 @@ class AgentRunProviderWaitTest {
             val decision = ProviderLimitDecision("TEST", "p", "model", 1000L, "scope", "PROVIDER_RATE_LIMITED", true)
             val deferred = ResearchProviderDeferred(ResearchDeferredStage("1:1", "EXTRACT", "prompt-digest", decision))
             val committed = CompletableDeferred<Triple<MessageV2, String, String?>>()
+            val reconciled = CompletableDeferred<Unit>()
             coEvery { settings.getFeatureSettings() } returns AppFeatureSettings(backgroundGeneration = false)
             coEvery { chats.markAgentRunRunning("run", any()) } returns true
             coEvery { chats.updateAgentMessage(any()) } returns Unit
@@ -103,6 +132,10 @@ class AgentRunProviderWaitTest {
                 throw deferred
             }
             coEvery { waits.deferRunning(any(), decision, deferred.checkpoint) } throws pauseFailure
+            coEvery { waits.reconcileTerminalCheckpointSafely("run") } coAnswers {
+                reconciled.complete(Unit)
+                false
+            }
             coEvery { chats.commitAgentRun(any(), "run", any(), any(), any()) } coAnswers {
                 committed.complete(Triple(firstArg(), thirdArg(), arg(4)))
                 true
@@ -110,12 +143,14 @@ class AgentRunProviderWaitTest {
             val coordinator = AgentRunCoordinator(context, chats, mockk(), settings, mockk(), providerWaits = waits)
             coordinator.resumeProviderRequests(listOf(request))
             val (saved, status, reason) = withTimeout(10_000) { committed.await() }
+            withTimeout(10_000) { reconciled.await() }
             withTimeout(10_000) { coordinator.activeRuns.first { it.isEmpty() } }
             assertEquals("FAILED", status)
             assertEquals(pauseFailure.message, reason)
             assertEquals("Previously completed research paragraph.", saved.content)
             assertTrue(saved.timeline.any { it.runError == pauseFailure.message })
             coVerify(exactly = 1) { waits.deferRunning(any(), decision, deferred.checkpoint) }
+            coVerify(exactly = 1) { waits.reconcileTerminalCheckpointSafely("run") }
             coVerify(exactly = 1) { chats.commitAgentRun(any(), "run", "FAILED", any(), pauseFailure.message) }
         }
     }

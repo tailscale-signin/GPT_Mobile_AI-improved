@@ -19,6 +19,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -68,6 +69,65 @@ class DiagnosticDatabaseSourceTest {
     @After fun close() {
         database.close()
         research.close()
+    }
+
+    @Test fun fencedWaitRecoveryExplainsTerminalStateWhenWorkspaceStillHasTheOriginalInterruption() = runBlocking {
+        val chat = createRun("wait-run", "PROVIDER_WAIT_CHECKPOINT_CHANGED")
+        val run = requireNotNull(database.agentPersistenceDao().recoveryRun("wait-run"))
+        val message = requireNotNull(database.agentPersistenceDao().recoveryMessage(run.assistantMessageId))
+        database.agentPersistenceDao().updateMessage(message.copy(currentRunId = run.runId, ownershipFence = run.ownershipFence))
+        val original = buildJsonObject {
+            put("code", "429")
+            put(
+                "details",
+                buildJsonObject {
+                    put("http_status", 429)
+                    put("invocation_id", "old-invocation")
+                }
+            )
+        }
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED", original)
+        val saved = buildJsonObject {
+            put("recoveryFailure", requireNotNull(failure.event().failureDetails))
+            put("lastResumedAtMillis", 20_000)
+            put("accumulatedProviderWaitMillis", 15_000)
+            put("private_policy", "must not enter the narrow wait projection")
+        }
+        database.agentPersistenceDao().saveProviderWait(dev.chungjungsoo.gptmobile.data.agent.ProviderWait(run.runId, run.ownershipFence, "scope", 1000, saved.toString()))
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-evidence:binding:verification_current_snapshot",
+            chat,
+            run.runId,
+            buildJsonObject {
+                put("completion_verified", false)
+                put("failure_code", "429")
+            }
+        )
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-output:binding",
+            chat,
+            run.runId,
+            buildJsonObject {
+                put("state", "WAITING_PROVIDER_LIMIT")
+                put("failure_code", "429")
+                put("resume_allowed", true)
+            }
+        )
+        val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("PROVIDER_WAIT_CHECKPOINT_CHANGED"), summary["failure_code"])
+        assertEquals(JsonPrimitive("lifecycle"), summary["failed_stage"])
+        assertEquals(JsonPrimitive("REVIEW_SAVED_RECOVERY"), summary["recovery_action"])
+        assertEquals(JsonNull, summary["invocation_id"])
+        assertEquals(original, summary["original_interruption"])
+        val latest = mutableListOf<JsonObject>()
+        source.capture(chat, "latest_state", 16_384, {}, { latest += it }, {})
+        val wait = latest.single { it["table"] == JsonPrimitive("provider_waits") }.getValue("fields").jsonObject
+        assertEquals(JsonPrimitive(15_000), wait.getValue("recovery").jsonObject["accumulatedProviderWaitMillis"])
+        assertFalse(wait.toString().contains("private_policy"))
+        database.agentRunDao().updateStatus(run.runId, "COMPLETED", run.startedAt, 25, null)
+        val completed = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertFalse(completed["failure_code"] == JsonPrimitive("PROVIDER_WAIT_CHECKPOINT_CHANGED"))
+        assertFalse(completed.toString().contains("provider_waits:"))
     }
 
     @Test fun byteBoundSkipsOversizedUnicodeWhileRetainingOtherRowsAndChatScope() = runBlocking {
@@ -213,6 +273,65 @@ class DiagnosticDatabaseSourceTest {
             DiagnosticCaptureStorage.deleteChat(context, chat)
             destination.deleteRecursively()
         }
+    }
+
+    @Test fun compactFailureSummaryRecoversOwnedAdmissionFailureWithoutWorkspaceOrInvocation() = runBlocking {
+        val runId = "owned-admission"
+        val chat = createRun(runId, "private unstructured failure")
+        val timeline = """[{"type":"NOTICE","modelAuthored":false,"profileFailure":{"category":"ENGINEERING_STATE_OR_INPUT_CHANGED","phase":"engineering_guard","retryAllowed":false,"requestReplayAllowed":false}}]"""
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE messages_v2 SET timeline = ?, current_run_id = ? WHERE message_id = (SELECT assistant_message_id FROM agent_runs WHERE run_id = ?)",
+            arrayOf<Any>(timeline, runId, runId)
+        )
+        val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("ENGINEERING_STATE_OR_INPUT_CHANGED"), summary["failure_code"])
+        assertEquals(JsonPrimitive("engineering_guard"), summary["failed_stage"])
+        assertEquals(JsonPrimitive(false), summary["request_replay_allowed"])
+        assertEquals(JsonPrimitive("MESSAGE_PROFILE_FAILURE"), summary.getValue("field_sources").jsonObject["failure_code"])
+        assertEquals(JsonNull, summary["tested_sha"])
+        assertEquals(JsonNull, summary["invocation_id"])
+        assertFalse(summary.containsKey("dispatched"))
+        assertFalse(summary.toString().contains("private unstructured"))
+    }
+
+    @Test fun compactFailureSummaryDoesNotBorrowMessageFromAnotherRunOrOwnershipFence() = runBlocking {
+        val runId = "owned-fence"
+        val chat = createRun(runId, null)
+        val timeline = """[{"type":"NOTICE","profileFailure":{"category":"REQUEST_REJECTED","phase":"provider_admission"}}]"""
+        for ((messageRun, fence) in listOf("another-run" to 0L, runId to 1L)) {
+            database.openHelper.writableDatabase.execSQL(
+                "UPDATE messages_v2 SET timeline = ?, current_run_id = ?, ownership_fence = ? WHERE message_id = (SELECT assistant_message_id FROM agent_runs WHERE run_id = ?)",
+                arrayOf<Any>(timeline, messageRun, fence, runId)
+            )
+            val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+            assertEquals(JsonNull, summary["failure_code"])
+            assertTrue(summary.getValue("source_record_ids").jsonArray.isEmpty())
+        }
+    }
+
+    @Test fun compactFailureSummaryBoundsOwnedTimelineWithoutClaimingFullCaptureOmission() = runBlocking {
+        val runId = "oversized-message"
+        val chat = createRun(runId, null)
+        val timeline = JsonArray(
+            listOf(
+                buildJsonObject {
+                    put("type", "NOTICE")
+                    put("text", "漢".repeat(100_000))
+                    put("profileFailure", buildJsonObject { put("category", "REQUEST_REJECTED") })
+                }
+            )
+        ).toString()
+        database.openHelper.writableDatabase.execSQL(
+            "UPDATE messages_v2 SET timeline = ?, current_run_id = ? WHERE message_id = (SELECT assistant_message_id FROM agent_runs WHERE run_id = ?)",
+            arrayOf<Any>(timeline, runId, runId)
+        )
+        val omissions = mutableListOf<String>()
+        val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, omissions::add)
+        assertEquals(JsonNull, summary["failure_code"])
+        assertEquals(JsonPrimitive("MESSAGE_TIMELINE_BYTE_LIMIT"), summary.getValue("projection_limitations").jsonArray.single().jsonObject["reason"])
+        assertTrue(omissions.isEmpty())
+        assertTrue(summary.toString().length < 4096)
+        assertFalse(summary.toString().contains("漢"))
     }
 
     @Test fun compactFailureSummaryLeadsWithBoundedCausalEvidenceAndExactBuildBinding() = runBlocking {
@@ -381,6 +500,121 @@ class DiagnosticDatabaseSourceTest {
         assertEquals("TERMINAL_ERROR", summary.getValue("field_sources").jsonObject.getValue("failure_code").jsonPrimitive.content)
         assertEquals("NOT_RETAINED", summary.getValue("tested_sha_status").jsonPrimitive.content)
         assertTrue(summary.getValue("source_record_ids").jsonArray.isEmpty())
+    }
+
+    @Test fun exactBoundActiveReviewFailureOverridesSuccessfulOutputWithoutBorrowingAnotherTask() = runBlocking {
+        val runId = "review-run"
+        val chat = createRun(runId, null)
+        val verificationId = "github-evidence:bound-task:verification_current_snapshot"
+        val reviewId = "github-review:bound-task:active"
+        workspace.saveProtectedSynthesisCheckpoint(
+            verificationId,
+            chat,
+            runId,
+            buildJsonObject {
+                put("completion_verified", false)
+                put("head_sha", "a".repeat(40))
+            }
+        )
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-output:bound-task",
+            chat,
+            runId,
+            buildJsonObject {
+                put("state", "COMPLETED")
+                put("invocation_id", "successful-primary")
+            }
+        )
+        workspace.saveProtectedSynthesisCheckpoint(reviewId, chat, runId, activeReviewFailure("review-attempt"))
+        workspace.saveProtectedSynthesisCheckpoint("github-review:another-task:active", chat, runId, activeReviewFailure("unrelated-review"))
+
+        val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("review-attempt"), summary["invocation_id"])
+        assertEquals(JsonPrimitive("provider_admission"), summary["failed_stage"])
+        assertEquals(JsonPrimitive("EXECUTION_SELECTION_INVALID"), summary["failure_code"])
+        assertEquals(JsonPrimitive("REVIEW_CHECKPOINT"), summary.getValue("field_sources").jsonObject["invocation_id"])
+        assertEquals(JsonPrimitive(reviewId), summary.getValue("source_record_ids").jsonArray.first())
+        assertEquals(JsonNull, summary["tested_sha"])
+        assertEquals(JsonPrimitive("a".repeat(40)), summary["observed_head_sha"])
+        assertFalse(summary.toString().contains("unrelated-review"))
+
+        workspace.saveProtectedSynthesisCheckpoint(reviewId, chat, runId, activeReviewFailure(null))
+        val withoutInvocation = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonNull, withoutInvocation["invocation_id"])
+        assertEquals(JsonPrimitive("EXECUTION_SELECTION_INVALID"), withoutInvocation["failure_code"])
+
+        workspace.saveProtectedSynthesisCheckpoint(
+            verificationId,
+            chat,
+            runId,
+            buildJsonObject {
+                put("completion_verified", true)
+                put("head_sha", "a".repeat(40))
+                put("tested_sha", "b".repeat(40))
+            }
+        )
+        val verified = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("VERIFIED"), verified["latest_verdict"])
+        assertEquals(JsonNull, verified["failure_code"])
+        assertEquals(JsonPrimitive("b".repeat(40)), verified["tested_sha"])
+        assertEquals(JsonPrimitive("a".repeat(40)), verified["observed_head_sha"])
+        assertEquals(listOf(JsonPrimitive(verificationId)), verified.getValue("source_record_ids").jsonArray.toList())
+    }
+
+    @Test fun resolvedReviewFailureFieldsAreHistoricalAndDoNotOverrideCurrentEvidence() = runBlocking {
+        val chat = createRun("resolved-review", null)
+        workspace.saveProtectedSynthesisCheckpoint("github-evidence:binding:verification_current_snapshot", chat, "resolved-review", buildJsonObject { put("completion_verified", false) })
+        workspace.saveProtectedSynthesisCheckpoint(
+            "github-output:binding",
+            chat,
+            "resolved-review",
+            buildJsonObject {
+                put("state", "COMPLETED")
+                put("invocation_id", "successful-primary")
+            }
+        )
+        for (state in listOf("REVIEWED", "COMPLETED")) {
+            workspace.saveProtectedSynthesisCheckpoint(
+                "github-review:binding:active",
+                chat,
+                "resolved-review",
+                JsonObject(activeReviewFailure("historical-review") + ("state" to JsonPrimitive(state)))
+            )
+            val summary = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+            assertEquals(JsonNull, summary["failure_code"])
+            assertEquals(JsonPrimitive("successful-primary"), summary["invocation_id"])
+            assertFalse(summary.getValue("source_record_ids").jsonArray.contains(JsonPrimitive("github-review:binding:active")))
+        }
+    }
+
+    @Test fun unboundOrEarlierRunReviewCannotSupplyFailureProvenance() = runBlocking {
+        val chat = createRun("earlier-review", null)
+        workspace.saveProtectedSynthesisCheckpoint("github-review:binding:active", chat, "earlier-review", activeReviewFailure("earlier-run-review"))
+        // Without a verification binding, even the same-run review is not joined by recency.
+        val unbound = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonNull, unbound["failure_code"])
+        assertEquals(JsonNull, unbound["invocation_id"])
+
+        val user = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "new request", platformType = null)).toInt()
+        val assistant = database.agentPersistenceDao().insertMessage(MessageV2(chatId = chat, content = "", platformType = null)).toInt()
+        database.agentPersistenceDao().insertRun(AgentRun("current-review", chat, user, assistant, "profile", "provider", "model", status = "FAILED"))
+        workspace.saveProtectedSynthesisCheckpoint("github-evidence:binding:verification_current_snapshot", chat, "current-review", buildJsonObject { put("completion_verified", false) })
+        val boundToAnotherRun = source.latestFailureSummary(chat, "test", 141, "build", {}, {})
+        assertEquals(JsonPrimitive("current-review"), boundToAnotherRun["run_id"])
+        assertEquals(JsonNull, boundToAnotherRun["failure_code"])
+        assertEquals(JsonNull, boundToAnotherRun["invocation_id"])
+        assertFalse(boundToAnotherRun.toString().contains("earlier-run-review"))
+    }
+
+    private fun activeReviewFailure(invocationId: String?) = buildJsonObject {
+        put("state", "BLOCKED")
+        put("generation_state", "COMPLETED")
+        put("review_state", "FAILED")
+        put("delivery_state", "WITHHELD")
+        put("failure_code", "EXECUTION_SELECTION_INVALID")
+        put("failed_stage", "provider_admission")
+        put("review_stage", "answer_review")
+        invocationId?.let { put("invocation_id", it) }
     }
 
     @Test fun plainCheckpointAndWorkspacePolicyRemainDiscoverableWithoutLegacyPolicyRows() = runBlocking {

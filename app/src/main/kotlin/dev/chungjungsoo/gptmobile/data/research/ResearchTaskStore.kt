@@ -102,7 +102,7 @@ internal class ResearchTaskStore(private val directory: File) {
         check(!isDeleted(value.chatId)) { "Conversation was deleted" }
         acceptUnlocked(value, persistent)
     }
-    suspend fun resume(value: ResearchResumeRequest, persistent: Boolean) = task(value.rootWorkId) { resumeUnlocked(value, persistent) }
+    suspend fun resume(value: ResearchResumeRequest, persistent: Boolean, currentLegacyPolicyRevision: String? = null) = task(value.rootWorkId) { resumeUnlocked(value, persistent, currentLegacyPolicyRevision) }
     suspend fun checkpoint(task: AcceptedResearchTask, runId: String, authority: String, generation: Long, snapshot: ResearchSnapshot, persistent: Boolean, expectedAttemptId: String? = null, expectedAttemptGeneration: Long? = null) = task(task.rootWorkId) {
         check(!isDeleted(task.chatId)) { "Conversation was deleted" }
         val current = executionUnlocked(task.rootWorkId, persistent)?.attempt
@@ -219,13 +219,19 @@ internal class ResearchTaskStore(private val directory: File) {
         return value
     }
 
-    private fun resumeUnlocked(value: ResearchResumeRequest, persistent: Boolean): ResearchResumeRequest {
+    private fun resumeUnlocked(value: ResearchResumeRequest, persistent: Boolean, currentLegacyPolicyRevision: String?): ResearchResumeRequest {
         val task = requireNotNull(acceptedUnlocked(value.rootWorkId, persistent)) { "Accepted research task is unavailable" }
         require(task.taskId == value.taskId && value.destinationProfileUid in task.participantUids)
         val key = "${value.rootWorkId}:${value.actionId}:${value.destinationProfileUid}"
         val old = read("resume", key, persistent)?.let { json.decodeFromString<ResearchResumeRequest>(it) }
         if (old != null) {
-            check(old.taskId == value.taskId && old.rootWorkId == value.rootWorkId && old.requestedStage == value.requestedStage && old.destinationProfileUid == value.destinationProfileUid && old.policyRevision == value.policyRevision) { "RESEARCH_RECOVERY_ACTION_CHANGED" }
+            val migrate = ResearchResumePolicy.mayMigrate(old.policyRevision, value.policyRevision, currentLegacyPolicyRevision)
+            if (!(old.taskId == value.taskId && old.rootWorkId == value.rootWorkId && old.actionId == value.actionId && old.requestedStage == value.requestedStage && old.destinationProfileUid == value.destinationProfileUid && (old.policyRevision == value.policyRevision || migrate))) throw dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure("RESEARCH_RECOVERY_ACTION_CHANGED")
+            if (migrate) {
+                // Only the digest representation changes. Evidence, action identity and
+                // original request time remain those accepted before the upgrade.
+                return old.copy(policyRevision = value.policyRevision).also { write("resume", key, json.encodeToString(it), persistent) }
+            }
             return old
         }
         write("resume", key, json.encodeToString(value), persistent)

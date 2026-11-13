@@ -299,18 +299,26 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         for empty in (' \t\n', '<think>private</think> \t\n'):
             with self.subTest(empty=empty):
                 prefix, tail = '    Repaired', ' answer\n'
-                release, _, received, errors = self.backend(first_text=prefix, final_text=tail, empty_attempt=empty)
+                release, backend_prefix, received, errors = self.backend(first_text=prefix, final_text=tail, empty_attempt=empty)
                 packets, first_visible = [], asyncio.Event()
                 job_id = 'repair-layout-' + str(len(self.runtime.job_registry))
                 worker = asyncio.create_task(self.observe(self.body(job_id), job_id, packets, first_visible))
                 try:
+                    # Repair readiness includes the empty attempt and durable progress
+                    # writes. Measure delivery only after the repair backend has emitted
+                    # its prefix; its terminal marker remains held until our finally.
+                    self.assertTrue(await asyncio.to_thread(backend_prefix.wait, 3),
+                                    f'Repair backend not ready: requests={len(received)}, worker_done={worker.done()}')
                     await asyncio.wait_for(first_visible.wait(), 3)
                     self.assertEqual(2, len(received))
                     self.assertEqual(prefix, content(packets))
                     self.assertFalse(worker.done())
                 finally:
                     release.set()
-                    await asyncio.wait_for(worker, 3)
+                    # First-visible delivery retains its three-second bound above.
+                    # Terminal transport and real durable writes need a separate
+                    # bounded cleanup allowance on slow Windows filesystems.
+                    await asyncio.wait_for(worker, 10)
                 self.assertFalse(errors)
                 self.assertEqual(2, len(received))
                 self.assertEqual(126, received[1]['max_tokens'])

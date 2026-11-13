@@ -63,7 +63,7 @@ class GatewayRecoveryContractTest {
         ).use { client ->
             val network = mockk<NetworkClient>()
             every { network.gatewayReadClient() } returns client
-            val saved = requireNotNull(GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("https://saved-job.example/v1", "selected-token")))
+            val saved = requireNotNull(GatewayAPIImpl(network, GatewayJobPollCoordinator()).getJobResult("job-1", ProviderRequestConfig("https://saved-job.example/v1", "selected-token")))
             assertEquals(true, saved.terminal)
             assertEquals(false, saved.resultAvailable)
             assertEquals(false, saved.continuationAllowed)
@@ -89,7 +89,7 @@ class GatewayRecoveryContractTest {
             val network = mockk<NetworkClient>()
             every { network() } returns client
             every { network.gatewayReadClient() } returns client
-            val saved = requireNotNull(GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("https://waiting-job.example/v1", "selected-token")))
+            val saved = requireNotNull(GatewayAPIImpl(network, GatewayJobPollCoordinator()).getJobResult("job-1", ProviderRequestConfig("https://waiting-job.example/v1", "selected-token")))
             assertEquals("waiting_for_client_tool", saved.status)
             assertEquals(GatewayResultDisposition.WAITING, saved.recoveryDisposition)
             assertEquals("call-1", saved.result?.choices?.single()?.effectiveDelta?.toolCalls?.single()?.id)
@@ -107,7 +107,7 @@ class GatewayRecoveryContractTest {
                 val network = mockk<NetworkClient>()
                 every { network() } returns client
                 every { network.gatewayReadClient() } returns client
-                val saved = GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("https://waiting-job.example/v1", "selected-token"))
+                val saved = GatewayAPIImpl(network, GatewayJobPollCoordinator()).getJobResult("job-1", ProviderRequestConfig("https://waiting-job.example/v1", "selected-token"))
                 if (index < 2) {
                     assertEquals(null, saved)
                 } else {
@@ -131,7 +131,7 @@ class GatewayRecoveryContractTest {
             every { network() } returns client
             every { network.gatewayReadClient() } returns client
             try {
-                val result = runCatching { GatewayAPIImpl(network).resumeEvents("job-1", 100, 10, ProviderRequestConfig("http://192.168.1.2", null), "old").toList() }
+                val result = runCatching { GatewayAPIImpl(network, GatewayJobPollCoordinator()).resumeEvents("job-1", 100, 10, ProviderRequestConfig("http://192.168.1.2", null), "old").toList() }
                 if (index == 0) assertEquals(listOf(1, 2), result.getOrThrow().map { it.sequence }) else assertTrue(result.exceptionOrNull() is GatewayEventReplayException)
             } finally {
                 client.close()
@@ -155,7 +155,7 @@ class GatewayRecoveryContractTest {
         val network = mockk<NetworkClient>()
         every { network() } returns client
         every { network.gatewayReadClient() } returns client
-        val events = GatewayAPIImpl(network).resumeEvents(
+        val events = GatewayAPIImpl(network, GatewayJobPollCoordinator()).resumeEvents(
             "job-1",
             2,
             10,
@@ -178,7 +178,7 @@ class GatewayRecoveryContractTest {
         val network = mockk<NetworkClient>()
         every { network() } returns client
         every { network.gatewayReadClient() } returns client
-        val api = GatewayAPIImpl(network)
+        val api = GatewayAPIImpl(network, GatewayJobPollCoordinator())
         assertEquals("RUNNING", api.getJobResult("job-1", ProviderRequestConfig("http://192.168.1.2", "rotated-token"))?.status)
         assertTrue(runCatching { api.getJobResult("../other", ProviderRequestConfig("https://example.com", null)) }.isFailure)
         client.close()
@@ -190,7 +190,7 @@ class GatewayRecoveryContractTest {
         every { network() } returns client
         every { network.gatewayReadClient() } returns client
         try {
-            GatewayAPIImpl(network).getJobResult("job-1", ProviderRequestConfig("http://192.168.1.2", null))
+            GatewayAPIImpl(network, GatewayJobPollCoordinator()).getJobResult("job-1", ProviderRequestConfig("http://192.168.1.2", null))
             fail("Cancellation must propagate")
         } catch (_: CancellationException) { } finally {
             client.close()

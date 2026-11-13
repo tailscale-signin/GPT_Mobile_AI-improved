@@ -130,7 +130,7 @@ internal object ToolExchangeCompactor {
         // Old call arguments must not consume every token before the newest
         // result is admitted. hardBound removes older complete pairs when needed.
         val metadataCost = exchanges.sumOf { exchange ->
-            exchange.calls.sumOf { ContextTokenEstimate.estimate(it.name + it.arguments.toString()).toLong() + 24 }
+            exchange.calls.sumOf { call -> ContextTokenEstimate.estimate((call.originalInvocation?.name ?: call.name) + (call.originalInvocation?.arguments ?: call.arguments).toString()).toLong() + 24 }
         }
         remaining = (remaining - minOf(metadataCost, hardBudget / 2L).toInt()).coerceAtLeast(0)
 
@@ -275,7 +275,7 @@ internal object ToolExchangeCompactor {
 
     fun estimateTokens(exchanges: List<AgentToolExchange>, renderCache: RenderCache? = null): Int =
         exchanges.sumOf { exchange ->
-            exchange.calls.sumOf { ContextTokenEstimate.estimate(it.name + it.arguments.toString()).toLong() + 24 } +
+            exchange.calls.sumOf { call -> ContextTokenEstimate.estimate((call.originalInvocation?.name ?: call.name) + (call.originalInvocation?.arguments ?: call.arguments).toString()).toLong() + 24 } +
                 exchange.results.sumOf { (renderCache?.measure(it.content)?.tokens ?: ContextTokenEstimate.estimate(render(it.content))).toLong() + 24 }
         }.coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 

@@ -35,6 +35,26 @@ class ResearchSessionStoreTest {
         directory.deleteRecursively()
     }
 
+    @Test fun automaticProviderResumeKeepsGenerationWhileExplicitActionChangesRemainRejected() = runBlocking {
+        val store = ResearchSessionStore(context)
+        store.acceptTask(1, "1:42", 42, "Accepted original request", listOf("p1"), "p1", "settings", "sources", true)
+        store.resumeAcceptedTask(1, "1:42", "retry-one", "RETRY_FAILED_STAGE", "p1", "settings", true, automaticProviderResume = false)
+        val journal = store.journal("same-run", 1, true, "1:42")
+        journal.save(ResearchSnapshot("Accepted original request"))
+        store.resumeAcceptedTask(1, "1:42", "retry-one", "ADVANCED_STAGE", "p1", "advanced-settings", true, automaticProviderResume = true)
+        journal.save(ResearchSnapshot("Accepted original request", complete = true))
+        assertFalse(journal.stopRequested())
+        assertTrue(ResearchSessionStore(context).journal("same-run", 1, true, "1:42").load()?.complete == true)
+        val changed = runCatching { store.resumeAcceptedTask(1, "1:42", "retry-one", "ADVANCED_STAGE", "p1", "advanced-settings", true, automaticProviderResume = false) }.exceptionOrNull()
+        assertEquals("RESEARCH_RECOVERY_ACTION_CHANGED", changed?.message)
+        store.resumeAcceptedTask(1, "1:42", "retry-two", "ADVANCED_STAGE", "p1", "advanced-settings", true, automaticProviderResume = false)
+        assertTrue(journal.stopRequested())
+        val next = store.journal("next-run", 1, true, "1:42")
+        next.save(ResearchSnapshot("Accepted original request", phase = "Current"))
+        journal.save(ResearchSnapshot("Accepted original request", phase = "Stale"))
+        assertEquals("Current", next.load("Accepted original request")?.phase)
+    }
+
     @Test fun concurrentSavesAndHistoryReadsPreserveEveryCommittedTask() = runBlocking {
         val store = ResearchSessionStore(context)
         kotlinx.coroutines.withTimeout(30_000) {

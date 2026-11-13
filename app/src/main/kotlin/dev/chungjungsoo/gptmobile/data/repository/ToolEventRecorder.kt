@@ -167,16 +167,31 @@ class ToolEventRecorder @Inject constructor(
                 (normalizedResult.executionReceipt?.let { " · executionReceipt=$it · causalIncidentId=${(it["incident_id"] as? JsonPrimitive)?.content.orEmpty()}" }.orEmpty()) +
                 if (normalizedResult.isError) " · diagnosticPayloadRef=toolEvent:$eventId · displayPreviewTruncated=${safeError.orEmpty().length > 240} · reasonPreview=${dev.chungjungsoo.gptmobile.data.security.DiagnosticRedactor.redact(safeError.orEmpty()).take(240)}" else "",
             if (normalizedResult.isError) "E" else "I",
-            reportCode = normalizedResult.errorCode.takeUnless { healthEvent },
+            reportCode = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.toolResult(normalizedResult.errorCode).takeUnless { healthEvent },
             reportFields = if (healthEvent) {
                 emptyMap()
             } else {
                 buildMap<String, Any?> {
-                    putAll(normalizedResult.executionReceipt.orEmpty().filterKeys { it !in setOf("run_id", "runId", "call_id", "callId", "toolCallId", "tool", "tool_name", "operation", "retryable", "requires_reconciliation") })
+                    // Local call diagnostics must remain unavailable when the persisted call cannot supply them.
+                    // The authoritative receipt above is preserved; only this report projection drops its replacements.
+                    putAll(
+                        normalizedResult.executionReceipt.orEmpty().filterKeys {
+                            it !in setOf(
+                                "run_id", "runId", "call_id", "callId", "toolCallId", "tool", "tool_name", "operation", "retryable", "requires_reconciliation",
+                                "diagnostic_area", "diagnostic_capture_mode", "run_id_hash", "call_id_hash", "tool_name_hash", "tool_action_hash",
+                                "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase",
+                                "argument_shape_hash", "original_error_code_hash", "original_reason_code_hash"
+                            )
+                        }
+                    )
+                    if ("reason_code" !in this && "reasonCode" !in this) {
+                        ToolPrecheckEvidence.reasonCode(result)?.let { put("reason_code", it) }
+                    }
                     // These identities belong to the recorded call, never a provider-supplied replacement.
                     put("run_id", startedEvent?.runId)
                     put("call_id", normalizedResult.callId)
                     put("tool", startedEvent?.modelToolName)
+                    putAll(dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(startedEvent, result, ToolPrecheckEvidence.reasonCode(result)))
                     put("dispatched", normalizedResult.dispatched)
                     result.executionReceipt?.get("retryable")?.let { put("retryable", it) }
                     if (normalizedResult.errorCode in dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes) {

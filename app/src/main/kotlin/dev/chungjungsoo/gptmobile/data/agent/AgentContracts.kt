@@ -20,7 +20,9 @@ sealed interface ProviderEvent {
         val name: String,
         val arguments: JsonObject,
         /** Runner-owned identity before authorized routing; never part of the model's arguments. */
-        val originalInvocationFingerprint: String? = null
+        val originalInvocationFingerprint: String? = null,
+        /** Original provider envelope; execution may resolve a trusted alias or default separately. */
+        val originalInvocation: ProviderToolInvocation? = null
     ) : ProviderEvent
     data class ToolResult(val call: ToolCall, val result: AgentToolResult) : ProviderEvent
     data class Failed(val message: String, val progressDeadline: ProgressDeadlineOutcome? = null, val errorCode: String? = null, val transportComplete: Boolean = false, val providerLimit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null, val taskOutcome: String? = null, val failureDetails: JsonObject? = null, val invocationId: String? = null) : ProviderEvent
@@ -47,7 +49,11 @@ sealed interface ProviderEvent {
         val reasoningControlReceipt: dev.chungjungsoo.gptmobile.data.network.ReasoningControlReceipt? = null,
         val gatewayProvenance: JsonObject? = null,
         val gatewayDeliveryTiming: dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayDeliveryTiming? = null,
-        val providerResponseTiming: dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming? = null
+        val providerResponseTiming: dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming? = null,
+        /** The physical invocation that owns this observation, independent of the delivery wrapper. */
+        val invocationId: String? = null,
+        /** Bounded backend attempt observations; their presence does not supply token usage. */
+        val gatewayRecovery: JsonObject? = null
     ) : ProviderEvent
 
     /** Effective provider request settings after profile preferences and hard request constraints are resolved. */

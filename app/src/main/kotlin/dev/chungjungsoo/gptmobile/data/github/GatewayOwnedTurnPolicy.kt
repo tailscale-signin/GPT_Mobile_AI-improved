@@ -5,6 +5,13 @@ import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 
 /** Admission still verifies host tools, grants and the exact execution binding. */
 internal object GatewayOwnedTurnPolicy {
+    enum class Intent(val scope: String) {
+        READ("read"),
+        PLAN("plan"),
+        IMPLEMENT("implement"),
+        INTEGRATION_TEST("integration_test")
+    }
+
     private val repositoryWork = Regex("""\b(?:repo(?:sitory)?|git(?:hub)?|code|files?|sources?|branch(?:es)?|commits?|pull requests?|prs?|ci|workflows?|builds?|tests?|bugs?|issues?|regressions?|features?|parser|app)\b""")
 
     fun configured(profile: PlatformV2?, context: GitHubConversationContext?, features: AppFeatureSettings): Boolean =
@@ -18,11 +25,18 @@ internal object GatewayOwnedTurnPolicy {
     /** Ordinary chat, reads and planning use the selected client profile. Jobs can be started explicitly in the Jobs UI. */
     fun startsNewJob(request: String): Boolean {
         val instruction = currentInstruction(request)
-        return repositoryWork.containsMatchIn(instruction) && classify(instruction) == "implement"
+        return repositoryWork.containsMatchIn(instruction) && intent(request) == Intent.IMPLEMENT
     }
 
     /** Only the new instruction can authorize implementation; quoted history is data. */
-    fun scope(request: String): String = classify(currentInstruction(request))
+    fun scope(request: String): String = intent(request).scope
+
+    fun intent(request: String): Intent = when (classify(currentInstruction(request))) {
+        "implement" -> Intent.IMPLEMENT
+        "plan" -> Intent.PLAN
+        "integration_test" -> Intent.INTEGRATION_TEST
+        else -> Intent.READ
+    }
 
     private fun currentInstruction(request: String): String {
         var fenced = false
@@ -55,10 +69,17 @@ internal object GatewayOwnedTurnPolicy {
             return "plan"
         }
         return if (Regex("(?:^|[.!?\\n]\\s*)(?:please\\s+)?(?:implement|fix|repair|add|build|create|update|change|remove|delete|refactor|apply|merge|commit)\\b").containsMatchIn(polite) ||
-            Regex("\\b(?:and|then)\\s+(?:implement|apply|fix|build|make|add)\\b").containsMatchIn(polite) ||
-            Regex("\\b(?:test|exercise|verify)\\b[^.!?\\n]{0,160}\\b(?:permitted|authorized|owned|disposable)\\b[^.!?\\n]{0,80}\\b(?:mutations|writes|fixture)\\b").containsMatchIn(polite)
+            Regex("\\b(?:and|then)\\s+(?:implement|apply|fix|build|make|add)\\b").containsMatchIn(polite)
         ) {
             "implement"
+        } else if (
+            "[github-workflow-preset:test_integration]" in instruction ||
+            Regex("\\b(?:test|exercise|verify)\\b[^.!?\\n]{0,160}\\b(?:permitted|authorized|owned|disposable)\\b[^.!?\\n]{0,80}\\b(?:mutations|writes|fixture)\\b").containsMatchIn(polite)
+        ) {
+            // Fixture tests are executed by the native integration harness, which
+            // checks exact approvals, ownership and cleanup for each operation.
+            // They do not authorize an implementation/commit job on the gateway.
+            "integration_test"
         } else {
             "read"
         }

@@ -19,11 +19,20 @@ See `docs/ci-cd/modernization.md` for remaining settings and evidence gates.
 
 APK-producing review, debug, acceptance and preview workflows pass the public
 repository Actions variable `ISSUE_REPORT_ORIGIN` to Gradle, as release builds do.
-Set it only after deploying the project-owned HTTPS issue reporter described in
-`authentication/README.md`. An unset value leaves native submission unavailable;
-debug builds do not invent a destination or fall back to a browser. Sending an
-approved report with structured context requires the reporter to advertise the
-supported context schema before the app posts its retained payload.
+Native GitHub reporting is enabled by default through `ISSUE_REPORT_GITHUB_ENABLED`
+and uses the account explicitly selected in the report dialog. The user can connect
+that account in Plugins & Tools; an unconfigured dialog offers Save for later.
+No service URL or private GitHub credential is invented or embedded in the APK.
+
+To offer the separate reporting service, set `ISSUE_REPORT_ORIGIN` only after
+deploying the project-owned HTTPS reporter in `authentication/README.md`.
+Release preflight checks its read-only readiness endpoint when configured. The app
+also verifies the service identity and supported context schema before dispatch.
+All debug/review and release packaging tasks require at least one reporting route.
+Disabling native reporting with no service fails packaging. The explicit local
+debug escape hatch, `-PallowUnconfiguredIssueReporting=true`, is forbidden in CI
+and cannot disable the release guard. These capability checks do not claim that
+a particular user's credentials or a live issue submission have been verified.
 
 | File | Purpose / workflow name | Triggers | Jobs |
 |---|---|---|---|

@@ -38,6 +38,12 @@ object GitHubOperationPlanner {
                 return@buildJsonArray
             }
             add(step("resolve_context", "Pin this task to repository, connection, ref, commit and tree; reuse the saved snapshot."))
+            if (GitHubStatusRequest.matches(goal)) {
+                add(step("repository_status", "Read the current branch and exact head, open issue/PR counts and latest workflow observation."))
+                add(step("head_checks", "Read checks for that exact head. Keep skipped, pending, failed and successful checks distinct; retain unknown required-check policy."))
+                add(step("recent_activity", "Read a bounded sample of recent commits and open pull requests, then report its coverage."))
+                return@buildJsonArray
+            }
             if (GitHubReviewComparison.matches(goal)) add(step("review_comparison", GitHubReviewComparison.INSTRUCTION))
             add(step("search_repository", "Use the persistent lexical index and explicit continuation until relevant paths are covered."))
             add(step("read_ranges", "Load a bounded multi-file bundle concurrently, inspect its revision-bound import graph and related tests, and retain evidence handles and immutable blob SHAs. Lexical hints do not establish compiler resolution."))

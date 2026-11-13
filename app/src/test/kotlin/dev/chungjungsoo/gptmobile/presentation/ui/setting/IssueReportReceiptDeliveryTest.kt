@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportOutbox
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportRoute
+import dev.chungjungsoo.gptmobile.presentation.common.Route
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
@@ -11,6 +14,62 @@ import org.junit.Test
 
 class IssueReportReceiptDeliveryTest {
     private val reportId = "75d84431-c695-4ff4-973b-3a80d63d5993"
+    private val github = IssueReportRoute(IssueReportRoute.Kind.GITHUB, connectionUid = "approved-account", accountId = "42", accountLogin = "approved-author")
+    private val service = IssueReportRoute(IssueReportRoute.Kind.SERVICE, origin = "https://approved-reports.example.invalid")
+
+    @Test fun reportsStaySuppressedThroughConnectionSetupChildrenAndNavigationRestoration() {
+        val navigation = listOf(
+            Route.TOOL_CONNECTIONS,
+            Route.ADD_TOOL_CONNECTION,
+            null,
+            Route.EDIT_TOOL_CONNECTION,
+            Route.AUDIT_CONNECTION_REPAIR,
+            Route.AUDIT_CONNECTION_EDIT,
+            Route.MCP_MARKETPLACE,
+            Route.TOOL_CONNECTIONS,
+            Route.ABOUT_PAGE
+        )
+        assertEquals(listOf(Route.ABOUT_PAGE), navigation.filter(::shouldCompleteIssueReportSetup))
+        assertFalse(shouldCompleteIssueReportSetup(""))
+    }
+
+    @Test fun leavingAccountSetupRestoresReportsWithoutSuppressingUnrelatedNavigation() {
+        for (destination in listOf(Route.CHAT_LIST, Route.SETTINGS, Route.CHAT_ROOM, Route.ABOUT_PAGE)) {
+            assertTrue(destination, shouldCompleteIssueReportSetup(destination))
+        }
+    }
+
+    @Test fun disabledGitHubCannotOfferConfirmationThroughAnotherSelectedRoute() {
+        val saved = saved(github, IssueReportOutbox.DeliveryEvidence.MAY_HAVE_BEEN_SUBMITTED)
+        assertFalse(issueReportRetryDestinationAvailable(saved, service, githubEnabled = false, serviceEnabled = true))
+        assertTrue(issueReportRetryDestinationAvailable(saved, service, githubEnabled = true, serviceEnabled = true))
+        assertEquals(github, saved.route)
+        assertTrue(saved.mayHaveBeenSubmitted)
+    }
+
+    @Test fun aSavedServiceReportNeedsItsRouteEnabledWithoutSubstitutingGitHub() {
+        val saved = saved(service, IssueReportOutbox.DeliveryEvidence.MAY_HAVE_BEEN_SUBMITTED)
+        assertFalse(issueReportRetryDestinationAvailable(saved, github, githubEnabled = true, serviceEnabled = false))
+        assertTrue(issueReportRetryDestinationAvailable(saved, github, githubEnabled = false, serviceEnabled = true))
+        assertEquals(service, saved.route)
+    }
+
+    @Test fun anUndispatchedReportCanUseAnExplicitlySelectedEnabledDestination() {
+        val saved = saved(github, IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+        assertTrue(issueReportRetryDestinationAvailable(saved, service, githubEnabled = false, serviceEnabled = true))
+        assertFalse(issueReportRetryDestinationAvailable(saved, github, githubEnabled = false, serviceEnabled = true))
+        assertFalse(issueReportRetryDestinationAvailable(saved, null, githubEnabled = true, serviceEnabled = true))
+    }
+
+    private fun saved(route: IssueReportRoute, evidence: IssueReportOutbox.DeliveryEvidence) = IssueReportOutbox.Entry(
+        reportId = reportId,
+        payload = "approved bytes",
+        state = IssueReportOutbox.State.FAILED,
+        storedAtMillis = 1,
+        updatedAtMillis = 2,
+        route = route,
+        deliveryEvidence = evidence
+    )
 
     @Test fun failedNativeQueueRetainsTheExactApprovedReportUntilRetrySucceeds() = runTest {
         val prompts = Channel<Boolean>(Channel.UNLIMITED)

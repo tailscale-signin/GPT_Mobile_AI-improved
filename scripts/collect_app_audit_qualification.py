@@ -290,14 +290,15 @@ def collect(root, reports, since, now, coverage_path=None):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--junit-dir', type=Path, default=ROOT / 'app/build/test-results/testDebugUnitTest')
+    parser.add_argument('--junit-dir', type=Path, action='append', help='Repeat for independent current-run JVM report directories.')
     parser.add_argument('--started-at-file', type=Path)
     parser.add_argument('--coverage', type=Path)
     parser.add_argument('--output', type=Path, default=Path('app-audit-source-qualification.json'))
     args = parser.parse_args()
     try:
         since = timestamp(args.started_at_file.read_text().strip()) if args.started_at_file and args.started_at_file.is_file() else None
-        reports = list(args.junit_dir.glob('TEST-*.xml'))
+        directories = args.junit_dir or [ROOT / 'app/build/test-results/testDebugUnitTest']
+        reports = [report for directory in directories for report in directory.glob('TEST-*.xml')]
         if len(reports) > 4096:
             raise ValueError('JUnit report count exceeds the collection bound')
         result = collect(ROOT, reports, since, datetime.now(timezone.utc), args.coverage)

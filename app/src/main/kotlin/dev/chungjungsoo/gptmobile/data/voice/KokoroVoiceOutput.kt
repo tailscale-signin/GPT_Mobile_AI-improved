@@ -47,6 +47,8 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
     private var attempted = false
     private var closed = false
     private var threads = 2
+    private var replyId: String? = null
+    private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
     private var delegate: KokoroOutput? = null
 
     private fun existing(): KokoroOutput? = synchronized(lock) { delegate }
@@ -55,13 +57,22 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
         if (closed) return@synchronized null
         if (!attempted) {
             attempted = true
-            delegate = factory()?.also { it.configureThreads(threads) }
+            delegate = factory()?.also { output ->
+                output.configureThreads(threads)
+                replyId?.let(output::bindReply)
+                output.bindDiagnostics(diagnosticProbe)
+            }
         }
         delegate
     }
 
     override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
         output()?.speak(text, voice, complete, error)
+            ?: error("Kokoro playback is unavailable. Using the installed Android voice instead.", true)
+    }
+
+    override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
+        output()?.speakProjected(text, voice, complete, error)
             ?: error("Kokoro playback is unavailable. Using the installed Android voice instead.", true)
     }
 
@@ -82,8 +93,26 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
         existing()?.releaseWarmModel()
     }
 
-    override fun stop() {
-        existing()?.stop()
+    override fun stop() = stop("audio_stop")
+
+    override fun stop(reason: String) {
+        existing()?.stop(reason)
+    }
+
+    override fun bindReply(id: String) {
+        synchronized(lock) {
+            if (closed) return
+            replyId = id
+            delegate?.bindReply(id)
+        }
+    }
+
+    override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        synchronized(lock) {
+            if (closed) return
+            diagnosticProbe = probe
+            delegate?.bindDiagnostics(probe)
+        }
     }
 
     override fun close() {
@@ -120,6 +149,16 @@ internal class KokoroVoiceOutput(
     @Volatile private var warmupRequest: ModelKey? = null
 
     private var threadCount = 2
+    private var replyId: String? = null
+    private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+
+    override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
+        diagnosticProbe = probe
+    }
+
+    override fun bindReply(id: String) {
+        replyId = id.takeIf { it.matches(Regex("[A-Za-z0-9:_-]{1,128}")) }
+    }
 
     override fun configureThreads(value: Int) {
         val bounded = value.coerceIn(2, 4)
@@ -134,12 +173,14 @@ internal class KokoroVoiceOutput(
     }
 
     private class Playback(
+        val runId: String?,
         val voice: KokoroVoice,
         val key: ModelKey,
         val focus: AudioFocusRequest,
         val watchdog: Runnable,
         val complete: () -> Unit,
-        val error: (String, Boolean) -> Unit
+        val error: (String, Boolean) -> Unit,
+        val diagnostics: VoiceDiagnosticTrace.Probe?
     ) {
         val id = UUID.randomUUID().toString()
         val startedAt = SystemClock.elapsedRealtime()
@@ -209,6 +250,13 @@ internal class KokoroVoiceOutput(
 
     override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
         openReply(voice, complete, error)?.let {
+            VoiceSpeechBuffer().append(text, final = true).orEmpty().forEach(it::enqueue)
+            it.finish()
+        }
+    }
+
+    override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
+        openReply(voice, complete, error)?.let {
             it.enqueue(text)
             it.finish()
         }
@@ -237,9 +285,18 @@ internal class KokoroVoiceOutput(
                 }
             }
         }
-        playback = Playback(voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error)
+        playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error, diagnosticProbe)
         active = playback
-        val focusGranted = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull() == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        playback.diagnostics?.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        val focusResult = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull()
+        playback.diagnostics?.focus(
+            when (focusResult) {
+                AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
+                null -> VoiceDiagnosticTrace.Focus.ERROR
+                else -> VoiceDiagnosticTrace.Focus.DENIED
+            }
+        )
+        val focusGranted = focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
         if (!focusGranted) {
             main.post { fail(playback, "audio_focus_denied", "Audio output is unavailable. Your answer remains in chat.", canFallback = false) }
         } else {
@@ -261,7 +318,10 @@ internal class KokoroVoiceOutput(
             }
 
             override fun finish() {
-                if (active === playback) playback.sealed = true
+                if (active === playback && !playback.sealed) {
+                    playback.sealed = true
+                    timing("input_complete", playback)
+                }
             }
         }
     }
@@ -270,8 +330,11 @@ internal class KokoroVoiceOutput(
         if (active !== playback) return
         val queueWait = SystemClock.elapsedRealtime() - playback.startedAt
         try {
+            val wasWarm = loaded?.key == playback.key
+            playback.diagnostics?.warmupStarted()
             val model = loadModel(playback.key)
             if (active !== playback) return
+            playback.diagnostics?.engineReady(wasWarm)
             playback.lastProgress = SystemClock.elapsedRealtime()
             timing("model_ready", playback, "warm=${model.readyAt <= playback.startedAt} · queueWaitMs=$queueWait")
             val sampleRate = model.engine.sampleRate().also { check(it in 8_000..48_000) }
@@ -284,7 +347,7 @@ internal class KokoroVoiceOutput(
                     continue
                 }
                 playback.synthesizing = true
-                val parts = requireNotNull(KokoroSpeechText.parts(segment, model.words::contains))
+                val parts = requireNotNull(KokoroSpeechText.projectedParts(segment, model.words::contains))
                 for (part in parts) {
                     if (active !== playback) return
                     var callbackFrames = 0L
@@ -303,6 +366,7 @@ internal class KokoroVoiceOutput(
 
                     // sherpa-onnx JNI resolves the boxed Function1 callback signature by name.
                     // A callable reference preserves invoke(FloatArray): Integer on every target ABI.
+                    playback.diagnostics?.synthesisStarted()
                     val generated = model.engine.generateWithCallback(
                         part,
                         playback.voice.speakerId,
@@ -468,6 +532,7 @@ internal class KokoroVoiceOutput(
         val frames = Integer.toUnsignedLong(track.playbackHeadPosition)
         if (frames > 0 && !playback.firstFrame) {
             playback.firstFrame = true
+            playback.diagnostics?.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
             timing("first_audio", playback)
         }
         return frames
@@ -477,7 +542,7 @@ internal class KokoroVoiceOutput(
         val fields = if (detail.isBlank()) "" else " · $detail"
         AppLogRecorder.record(
             "VoiceTiming",
-            "kokoro_$stage · playbackId=${playback.id} · voice=${playback.voice.name} · threads=${playback.key.threads} · durationMs=${SystemClock.elapsedRealtime() - playback.startedAt}$fields"
+            "kokoro_$stage · playbackId=${playback.id} · nativeOperationId=${playback.id} · runId=${playback.runId ?: "not_recorded"} · voice=${playback.voice.name} · threads=${playback.key.threads} · durationMs=${SystemClock.elapsedRealtime() - playback.startedAt}$fields"
         )
     }
 
@@ -503,7 +568,7 @@ internal class KokoroVoiceOutput(
         synthesis.execute(::releaseModel)
     }
 
-    private fun end(playback: Playback, reason: String) {
+    private fun end(playback: Playback, reason: String, cancellationOrigin: String? = null) {
         if (active !== playback) return
         active = null
         main.removeCallbacks(playback.watchdog)
@@ -517,7 +582,7 @@ internal class KokoroVoiceOutput(
             playback.underruns
         }
         runCatching { audioManager?.abandonAudioFocusRequest(playback.focus) }
-        timing("terminal", playback, "reason=$reason · textChars=${playback.inputChars} · underruns=${underruns ?: "unmeasured"}")
+        timing("terminal", playback, "reason=$reason · cancellationOrigin=${cancellationOrigin ?: "none"} · textChars=${playback.inputChars} · firstPcm=${playback.firstPcm} · firstOutputFrame=${playback.firstFrame} · inputComplete=${playback.sealed} · drainComplete=${reason == "complete"} · underruns=${underruns ?: "unmeasured"}")
     }
 
     private fun fail(playback: Playback, reason: String, message: String, canFallback: Boolean = !playback.queuedAudio) {
@@ -526,10 +591,13 @@ internal class KokoroVoiceOutput(
         playback.error(message, canFallback)
     }
 
-    override fun stop() {
+    override fun stop() = stop("audio_stop")
+
+    override fun stop(reason: String) {
         warmupGeneration++
         warmupRequest = null
-        active?.let { end(it, "interrupted") }
+        val origin = reason.takeIf { it.matches(Regex("[a-z_]{1,64}")) } ?: "unspecified"
+        active?.let { end(it, "interrupted", origin) }
     }
 
     override fun close() {

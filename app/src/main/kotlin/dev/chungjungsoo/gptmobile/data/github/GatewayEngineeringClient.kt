@@ -67,7 +67,7 @@ class GatewayEngineeringClient internal constructor(
                     method = if (body == null) HttpMethod.Get else HttpMethod.Post
                     config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
                     headers.forEach { (key, value) -> header(key, value) }
-                    if (body == null && LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
+                    if ((body == null || path in setOf("bindings", "preflight")) && LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     if (approval) header("X-Gateway-User-Action", "approve-and-merge")
                     if (body != null) {
                         contentType(ContentType.Application.Json)
@@ -89,6 +89,18 @@ class GatewayEngineeringClient internal constructor(
                         val detail = error?.get("error") as? JsonObject ?: error?.get("detail") as? JsonObject ?: error
                         val code = (detail?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
                         val executionRejection = code?.takeIf { it.matches(Regex("(?:EXECUTION|SELECTED_ONLY|INFERENCE)_[A-Z0-9_]{1,80}")) }
+                        dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.admission(
+                            profileUid = config.profileUid,
+                            modelId = config.lockedModel,
+                            stage = when {
+                                code == "engineering_state_or_input_changed" -> GatewayInputRejectionDetails.stage(GatewayInputRejectionDetails.from(detail))
+                                else -> listOf("failed_stage", "stage").firstNotNullOfOrNull { name -> (detail?.get(name) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull }
+                                    ?: "binding_admission".takeIf { path == "bindings" }
+                            },
+                            httpStatus = response.status.value,
+                            failureCode = executionRejection ?: safeEngineeringRejectionCode(code),
+                            reasonCode = if (code == "engineering_state_or_input_changed") (GatewayInputRejectionDetails.from(detail)["reasonCode"] as? JsonPrimitive)?.contentOrNull else null
+                        )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
                         if (bindingRead && (response.status.value in setOf(401, 403) || executionRejection == null)) {
                             throw gatewayAdmissionFailure(response.status.value, GatewayAdmissionSurface.CAPABILITIES, response.headers["X-Gateway-Admission-Error"], payload)
                         }
@@ -127,11 +139,18 @@ class GatewayEngineeringClient internal constructor(
                         if (body != null && (response.status.value in 400..499 && response.status.value !in setOf(408, 499) || confirmedRejection)) {
                             val message = when (response.status.value) {
                                 401, 403 -> "Gateway engineering access was rejected. Restore the original account and engineering permission before submitting a new command."
-                                409, 412 -> "The conversation or job changed. Refresh Jobs and review the original task before sending another command."
+                                409, 412 -> if (code == "engineering_state_or_input_changed") {
+                                    "The gateway rejected an input or state prerequisite. Review the saved draft and exact task; this response alone does not establish that the conversation changed."
+                                } else {
+                                    "The conversation or job prerequisite changed. Refresh Jobs and review the original task before sending another command."
+                                }
                                 429 -> "The gateway did not admit this command because its queue or request limit is full."
                                 else -> "The gateway rejected this command (HTTP ${response.status.value}). Review it before sending another command."
                             }
                             val safeCode = safeEngineeringRejectionCode(code)
+                            if (code == "engineering_state_or_input_changed") {
+                                throw GatewayEngineeringInputRejected(response.status.value, GatewayInputRejectionDetails.from(detail), detail?.get("command_outcome_unknown") == JsonPrimitive(true))
+                            }
                             throw GatewayEngineeringRequestRejected(response.status.value, message + safeCode?.let { " ($it; provider_admission)" }.orEmpty(), commandOutcomeUnknown = detail?.get("command_outcome_unknown") == JsonPrimitive(true), errorCode = safeCode, failedStage = "provider_admission")
                         }
                     }
@@ -151,7 +170,7 @@ class GatewayEngineeringClient internal constructor(
         // Bounded GETs may recover a stale idle socket once. A job POST or approval
         // keeps its original request identity and is never replayed by this layer.
         return try {
-            if (body == null) LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections, exchange) else exchange()
+            if (body == null || root == "gateway/engineering" && path == "preflight") LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections, exchange) else exchange()
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: GatewayEngineeringRequestRejected) {
@@ -162,7 +181,9 @@ class GatewayEngineeringClient internal constructor(
             // These POSTs only verify prerequisites; the durable job POST has
             // not happened. Keep its draft blocked at admission with a typed
             // transport cause, while an interrupted jobs POST stays unknown.
-            if (root == "gateway/engineering" && path in setOf("bindings", "preflight")) throw capabilityReadFailure(failure)
+            if (root == "gateway/engineering" && path in setOf("bindings", "preflight")) {
+                throw capabilityReadFailure(failure, preparationPost = body != null, operationId = GatewayClientDiagnostics.operationIdentity(diagnostic.extraHeaders))
+            }
             throw failure
         }
     }
@@ -208,6 +229,14 @@ class GatewayEngineeringClient internal constructor(
             val version = capability.gatewayVersion?.takeIf { it.matches(Regex("[0-9]{1,3}\\.[0-9]{1,3}\\.[0-9]{1,3}")) }
             val build = capability.serverBuild?.takeIf { it.matches(Regex("sha256:[a-f0-9]{64}")) }
             dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "ENGINEERING_HANDSHAKE · route=${capabilityKey(config)} · gatewayVersion=${version ?: "Not measured"} · serverBuild=${build ?: "Not measured"} · protocol=1")
+            dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.admission(
+                profileUid = config.profileUid,
+                modelId = config.lockedModel,
+                serverBuild = build,
+                gatewayVersion = version,
+                protocolVersion = capability.protocolVersion,
+                stage = "connection_preflight"
+            )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
             CapabilityAttempt(capability = capability)
         } ?: throw UnsupportedEngineeringGateway()
         attempt.failure?.let { throw it }
@@ -259,14 +288,28 @@ class GatewayEngineeringClient internal constructor(
         return admission
     }
 
-    private fun capabilityReadFailure(failure: Exception): GatewayAdmissionException {
+    private fun capabilityReadFailure(failure: Exception, preparationPost: Boolean = false, operationId: String? = null): GatewayAdmissionException {
         val causes = generateSequence<Throwable>(failure) { it.cause?.takeUnless { cause -> cause === it } }.take(8).toList()
         val reason = when {
             causes.any { it is javax.net.ssl.SSLException || it is java.security.cert.CertificateException } -> GatewayAdmissionReason.INVALID_CONNECTION
             causes.any { it is java.io.IOException || it is LocalServiceUnavailableException || it.javaClass.simpleName in setOf("HttpRequestTimeoutException", "ConnectTimeoutException", "SocketTimeoutException") } -> GatewayAdmissionReason.TRANSPORT_INTERRUPTED
             else -> GatewayAdmissionReason.INVALID_RESPONSE
         }
-        return GatewayAdmissionException(reason, null, null, GatewayAdmissionSurface.CAPABILITIES)
+        return GatewayAdmissionException(
+            reason,
+            null,
+            null,
+            GatewayAdmissionSurface.CAPABILITIES,
+            retryability = if (preparationPost) {
+                GatewayAdmissionRetryability.AFTER_REPAIR
+            } else if (reason == GatewayAdmissionReason.TRANSPORT_INTERRUPTED) {
+                GatewayAdmissionRetryability.SAFE_READ
+            } else {
+                GatewayAdmissionRetryability.AFTER_REPAIR
+            },
+            preparationPost = preparationPost,
+            operationId = operationId
+        ).also { it.initCause(failure) }
     }
 
     suspend fun requireGraphReady(config: ProviderRequestConfig): String = capabilities(config).requireGraphReadiness()

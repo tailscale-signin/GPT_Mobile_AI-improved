@@ -12,11 +12,13 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 
 enum class GatewayModelPreparationPhase { CHECKING, LOADING, READY, BLOCKED }
@@ -26,7 +28,12 @@ data class GatewayModelPreparationState(
     val model: String,
     val phase: GatewayModelPreparationPhase,
     val message: String,
-    val observation: ReasoningCapabilityObservation? = null
+    val observation: ReasoningCapabilityObservation? = null,
+    /** A definitive rejected load must not become a new operation on a background poll. */
+    val retryRequiresUserAction: Boolean = false,
+    val failureCode: String? = null,
+    val operationId: String? = null,
+    val transportCode: String? = null
 ) {
     val busy: Boolean get() = phase in setOf(GatewayModelPreparationPhase.CHECKING, GatewayModelPreparationPhase.LOADING)
 }
@@ -70,6 +77,17 @@ class GatewayModelPreparationRepository internal constructor(
         mode: ReasoningMode,
         forceRefresh: Boolean = false,
         onState: (GatewayModelPreparationState?) -> Unit = {}
+    ): GatewayModelPreparationState? = prepareSelectedWhile(profile, mode, forceRefresh, {}, onState = onState)
+
+    /** A durable Send can lose ownership while metadata or a load request is suspended. */
+    internal suspend fun prepareSelectedWhile(
+        profile: PlatformV2,
+        mode: ReasoningMode,
+        forceRefresh: Boolean,
+        validateSelection: suspend () -> Unit,
+        allowLoad: Boolean = true,
+        onRejected: suspend () -> Unit = {},
+        onState: (GatewayModelPreparationState?) -> Unit = {}
     ): GatewayModelPreparationState? {
         if (!profile.enabled || profile.compatibleType != ClientType.LLAMA || profile.model.isBlank()) return null.also(onState)
         val identity = ConfiguredDispatchAuthority.profileRevision(profile)
@@ -81,14 +99,33 @@ class GatewayModelPreparationRepository internal constructor(
                 }
                 )?.also { it.users++ }
         } ?: return GatewayModelPreparationState(profile.uid, profile.model, GatewayModelPreparationPhase.BLOCKED, "Too many unresolved model loads. Recheck an existing selection before starting another.").also(onState)
+        var retryRequiresUserAction = false
+        var failureCode: String? = null
+        var transportCode: String? = null
+        var observedOperationId: String? = null
         fun publish(phase: GatewayModelPreparationPhase, message: String, observed: ReasoningCapabilityObservation? = null): GatewayModelPreparationState =
-            GatewayModelPreparationState(profile.uid, profile.model, phase, message, observed).also {
+            GatewayModelPreparationState(
+                profile.uid, profile.model, phase, message, observed, retryRequiresUserAction,
+                failureCode = if (phase == GatewayModelPreparationPhase.BLOCKED) failureCode ?: "MODEL_PREPARATION_INCOMPLETE" else null,
+                operationId = entry.operationId ?: observedOperationId,
+                transportCode = transportCode.takeUnless { phase == GatewayModelPreparationPhase.READY }
+            ).also {
                 entry.state = it
                 entry.checkedAt = now()
                 onState(it)
             }
         try {
             return entry.mutex.withLock {
+                suspend fun validate() {
+                    currentCoroutineContext().ensureActive()
+                    currentCoroutineContext()[RequestAuthorizationGuard]?.validate?.invoke()
+                    validateSelection()
+                }
+                suspend fun observe(): ReasoningCapabilityObservation {
+                    validate()
+                    return check(profile, mode).also { validate() }
+                }
+                validate()
                 entry.state?.takeIf { !forceRefresh && !it.busy && it.observation?.requested == mode && now() - entry.checkedAt in 0 until 20_000L }?.let { return@withLock it.also(onState) }
                 publish(GatewayModelPreparationPhase.CHECKING, "Checking the selected model on the gateway…")
                 var observation: ReasoningCapabilityObservation? = null
@@ -96,6 +133,7 @@ class GatewayModelPreparationRepository internal constructor(
                     if (!entry.restored) {
                         val saved = operations?.read(identity, profile.model)
                         entry.operationId = saved?.operationId
+                        observedOperationId = saved?.operationId
                         entry.unresolved = saved != null
                         entry.restored = true
                     }
@@ -106,20 +144,31 @@ class GatewayModelPreparationRepository internal constructor(
                         entry.unresolved = false
                         entry.operationId = null
                     }
+                    suspend fun rejected() = withContext(NonCancellable) {
+                        // Persist the owner stop before clearing the load identity.
+                        // Cancellation at publication cannot authorize a new load.
+                        onRejected()
+                        resolved()
+                        retryRequiresUserAction = true
+                        failureCode = "MODEL_PREPARATION_REJECTED"
+                    }
                     suspend fun persist(receiptState: String? = null) {
                         operations?.write(SavedGatewayModelPreparation(configurationRevision = identity, model = profile.model, operationId = requireNotNull(entry.operationId), updatedAtMillis = now().coerceAtLeast(0), receiptState = receiptState))
                     }
                     withTimeoutOrNull(120_000L) {
+                        validate()
                         val capabilities = discover(profile) ?: return@withTimeoutOrNull null.also {
                             entry.state = null
                             onState(null)
                         }
+                        validate()
                         repeat(2) preparation@{ preparationPass ->
-                            observation = check(profile, mode)
+                            observation = observe()
                             if (observation?.routeVerified == true) {
                                 resolved()
                                 return@withTimeoutOrNull publishReady(profile, observation!!, ::publish)
                             }
+                            if (!allowLoad) return@withTimeoutOrNull publish(GatewayModelPreparationPhase.BLOCKED, observation?.detailMessage ?: "This exact model is not ready yet. The saved message and existing load identity are kept.", observation)
                             if (observation?.safeReasonCode !in setOf("SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_LOADING") && !entry.unresolved) {
                                 return@withTimeoutOrNull publish(GatewayModelPreparationPhase.BLOCKED, observation?.detailMessage ?: "The gateway could not verify this exact model. Check the profile and connection, then recheck.", observation)
                             }
@@ -132,30 +181,37 @@ class GatewayModelPreparationRepository internal constructor(
                                 publish(GatewayModelPreparationPhase.LOADING, if (reconcileOperation) "Rechecking the existing load for ${profile.model}…" else "Loading ${profile.model} on the gateway…", observation)
                                 currentCoroutineContext().ensureActive()
                                 if (!reconcileOperation) entry.operationId = UUID.randomUUID().toString()
+                                observedOperationId = entry.operationId
                                 persist()
                                 entry.unresolved = true
                                 currentCoroutineContext().ensureActive()
+                                validate()
                                 val receipt = try {
                                     load(profile, requireNotNull(entry.operationId))
                                 } catch (cancelled: CancellationException) {
                                     throw cancelled
                                 } catch (_: GatewayModelPreparationRejectedException) {
+                                    failureCode = "MODEL_PREPARATION_REJECTED"
                                     // A later rejected status request cannot erase the earlier dispatch.
-                                    if (!previouslyUnresolved) resolved()
+                                    if (!previouslyUnresolved) {
+                                        rejected()
+                                    }
                                     return@withTimeoutOrNull publish(
                                         GatewayModelPreparationPhase.BLOCKED,
                                         if (previouslyUnresolved) "The gateway could not recheck the existing load. Its earlier outcome is still unknown; check Gateway access, then recheck." else "The gateway rejected the model load before dispatch. Check this profile’s Gateway access and version, then recheck.",
                                         observation
                                     )
-                                } catch (_: Exception) {
+                                } catch (failure: Exception) {
                                     // Reconcile by GET below. A failed transport does not prove that the load failed.
+                                    // Retain its bounded cause and original identity if readiness remains unconfirmed.
+                                    transportCode = dev.chungjungsoo.gptmobile.data.network.networkFailureKind(failure).code
                                     null
                                 }
                                 if (receipt != null) persist(receipt.state)
-                                if (receipt?.loadAccepted == false) resolved()
-                                if (receipt?.modelState == "LOADED") {
+                                validate()
+                                if (receipt?.state == "METADATA_QUALIFIED" && receipt.modelState == "LOADED") {
                                     resolved()
-                                    observation = check(profile, mode)
+                                    observation = observe()
                                     // A retained completed receipt proves that the old load ended.
                                     // Only a fresh sleeping observation can authorize one new wake.
                                     if (previouslyUnresolved && preparationPass == 0 && observation?.safeReasonCode == "SELECTED_MODEL_NOT_LOADED") {
@@ -168,18 +224,19 @@ class GatewayModelPreparationRepository internal constructor(
                                     }
                                 }
                                 if (receipt?.modelState != "LOADING" && (receipt?.state in setOf("PRECHECK_REJECTED", "LOAD_REJECTED") || receipt?.loadAccepted == false)) {
-                                    resolved()
+                                    rejected()
                                     return@withTimeoutOrNull publish(
                                         GatewayModelPreparationPhase.BLOCKED,
-                                        if (receipt?.reasonCode == "MODEL_PREPARATION_UNSUPPORTED") "This gateway’s backend does not support loading models from the app. Load this exact model with the backend’s host controls, then recheck." else "The gateway could not start loading this exact model. Check the backend model and access settings, then recheck.",
+                                        receipt?.sanitized()?.rejectionMessage() ?: "The gateway could not start loading this exact model. Check the backend model and access settings, then recheck.",
                                         observation
                                     )
                                 }
+                                if (receipt?.loadAccepted == false) resolved()
                             }
                             publish(GatewayModelPreparationPhase.LOADING, "Waiting for ${profile.model} to finish loading on the gateway…", observation)
                             repeat(maxPolls) {
                                 pause()
-                                observation = check(profile, mode)
+                                observation = observe()
                                 if (observation?.routeVerified == true) {
                                     resolved()
                                     return@withTimeoutOrNull publishReady(profile, observation!!, ::publish)
@@ -195,8 +252,11 @@ class GatewayModelPreparationRepository internal constructor(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: GatewayModelPreparationStorageException) {
+                    failureCode = "MODEL_PREPARATION_STORAGE_UNAVAILABLE"
                     publish(GatewayModelPreparationPhase.BLOCKED, "The model load could not be saved or restored. Check device storage and recheck; your draft and any existing gateway operation are kept.", observation)
-                } catch (_: Exception) {
+                } catch (failure: Exception) {
+                    failureCode = "MODEL_PREPARATION_CONNECTION_FAILED"
+                    transportCode = dev.chungjungsoo.gptmobile.data.network.networkFailureKind(failure).code
                     publish(GatewayModelPreparationPhase.BLOCKED, "The gateway connection could not be checked. Reconnect and recheck this exact model; your draft is kept.", observation)
                 }
             }
@@ -222,6 +282,7 @@ class GatewayModelPreparationRepository internal constructor(
             profile.apiUrl,
             profile.token,
             profileUid = profile.uid,
+            profileRevision = ConfiguredDispatchAuthority.profileRevision(profile),
             providerType = profile.compatibleType.name,
             requestRole = "selected-model-preparation",
             lockedModel = profile.model,

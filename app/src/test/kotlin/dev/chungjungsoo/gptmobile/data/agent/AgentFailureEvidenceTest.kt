@@ -13,6 +13,40 @@ import org.junit.Assert.assertFalse
 import org.junit.Test
 
 class AgentFailureEvidenceTest {
+    @Test fun localRecoveryFailureKeepsTheEarlierInterruptionSeparateFromTheUnsentWake() {
+        val original = json("""{"code":"429","details":{"http_status":429,"dispatched":true,"invocation_id":"earlier-invocation","retry_after_ms":30156}}""")
+        val expected = dev.chungjungsoo.gptmobile.data.network.GitHubProviderCheckpoint("a".repeat(64), "b".repeat(64))
+        val error = ProviderRecoveryFailure("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", original, ProviderRecoveryFailure.correlation(expected, "claim", 3, "current-run"))
+        val event = requireNotNull(AgentFailureEvidence.exception(error))
+        val record = ProfileFailureRecord.fromProvider(event.message, event.errorCode, event.failureDetails)
+        val restored = Json.decodeFromString(ProfileFailureRecord.serializer(), Json.encodeToString(ProfileFailureRecord.serializer(), record))
+        assertEquals("PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", restored.category)
+        assertEquals("lifecycle", restored.phase)
+        assertEquals(false, restored.dispatched)
+        assertEquals(RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+        assertEquals(null, restored.invocationId)
+        assertFalse(restored.retryAllowed)
+        assertEquals(false, restored.requestReplayAllowed)
+        assertEquals(original, restored.recoveryDetails?.get("original_interruption"))
+        assertEquals(JsonPrimitive("claim"), restored.recoveryDetails?.get("resume_claim_id"))
+        assertEquals(JsonPrimitive(3), restored.recoveryDetails?.get("ownership_fence"))
+    }
+
+    @Test fun coordinatorDoesNotApplyAnEarlierProviderDispatchToTheCurrentRecoveryRefusal() {
+        val prior = ProfileFailureRecord("RATE_LIMIT", true, dispatched = true, remoteAcceptance = RemoteRequestAcceptance.NO, phase = "model_invocation", invocationId = "earlier")
+        val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(chatId = 1, content = "", platformType = "profile", timeline = listOf(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, profileFailure = prior)))
+        val failure = requireNotNull(coordinatorFailureRecord(message, ProviderRecoveryFailure("PROVIDER_WAIT_CHECKPOINT_CHANGED"), false))
+        assertEquals("PROVIDER_WAIT_CHECKPOINT_CHANGED", failure.category)
+        assertEquals(false, failure.dispatched)
+        assertEquals("lifecycle", failure.phase)
+        assertEquals(null, failure.invocationId)
+        val unknown = message.copy(timeline = listOf(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem(dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType.NOTICE, profileFailure = prior.copy(category = "TOOL_OUTCOME_UNKNOWN", remoteAcceptance = RemoteRequestAcceptance.UNKNOWN))))
+        val guarded = requireNotNull(coordinatorFailureRecord(unknown, ProviderRecoveryFailure("PROVIDER_WAIT_OUTCOME_UNKNOWN"), false))
+        assertEquals("TOOL_OUTCOME_UNKNOWN", guarded.category)
+        assertFalse(guarded.retryAllowed)
+        assertEquals(JsonPrimitive("PROVIDER_WAIT_OUTCOME_UNKNOWN"), guarded.recoveryDetails?.get("recovery_code"))
+    }
+
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject
     private val failure = ProfileFailureRecord("COMPLETION_REPAIR_BUDGET_EXHAUSTED", false, phase = "provider_generation", invocationId = "probe-17")
 

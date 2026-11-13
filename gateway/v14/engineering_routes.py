@@ -15,6 +15,7 @@ from v14.engineering import public_job, validate_request
 from v14.engineering_batch_policy import capability as batch_capability
 from v14.engineering_batch_plan import page as batch_plan_page
 from v14.engineering_preflight import EngineeringPreflightError
+from v14.engineering_rejection import state_or_input_rejection
 from v14.engineering_defaults import DEFAULT_DURATION_HOURS, DEFAULT_EXECUTION_BUDGET, EXECUTION_BUDGET_LIMITS
 from v14.engineering_diagnostics import diagnostic_job
 from v14.execution_binding import ExecutionBindingError
@@ -85,9 +86,8 @@ def install_engineering_routes(app, service):
                                            'retryable': True}}, status_code=429)
         except PermissionError:
             return JSONResponse({'error': {'code': 'engineering_scope_required'}}, status_code=403)
-        except (ValueError, KeyError, TypeError):
-            return JSONResponse({'error': {'code': 'engineering_state_or_input_changed',
-                                           'message': 'Refresh the job and verify its settings, connection and exact commit.'}}, status_code=409)
+        except (ValueError, KeyError, TypeError) as error:
+            return JSONResponse({'error': state_or_input_rejection(error, stage)}, status_code=409)
         except (requests.RequestException, TimeoutError):
             return JSONResponse({'error': {'code': 'engineering_connection_unavailable'}}, status_code=503)
 

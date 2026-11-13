@@ -16,6 +16,9 @@ import kotlinx.coroutines.flow.Flow
 
 interface ChatRepository {
 
+    /** Validate known privacy constraints before asking for or dispatching user input. */
+    suspend fun preflightAnswerPrivacy(platform: PlatformV2) = Unit
+
     /** Resolve live limits once; accepted preferences, roster and grants remain frozen. */
     suspend fun prepareCombinedTurn(
         execution: dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext,

@@ -15,7 +15,10 @@ internal class ProviderHttpFailure(
     val errorOrigin: String? = null,
     val errorType: String? = null,
     val beforeDispatch: Boolean = false,
-    val checkpointContinuationAllowed: Boolean = false
+    val checkpointContinuationAllowed: Boolean = false,
+    /** SSE error semantics can differ from the actual HTTP response status. */
+    val observedHttpStatus: Int? = null,
+    val serverRequestId: String? = null
 ) : java.io.IOException("HTTP $status: transient provider failure") {
     val retryAtMillis: Long? = retryAfterMs?.let { ProviderRetryPolicy.deadlineMillis(observedAtMillis, it) }
 }
@@ -23,6 +26,7 @@ internal class ProviderHttpFailure(
 /** A credential's cooldown is shared across profiles and benchmark requests; credentials are never logged. */
 internal object ProviderCooldown {
     private val registry = ProviderThrottleRegistry()
+    val revision = registry.revision
     private fun key(config: ProviderRequestConfig): String = MessageDigest.getInstance("SHA-256")
         .digest((config.apiUrl.trimEnd('/') + "\u0000" + config.token.orEmpty()).encodeToByteArray()).joinToString("") { "%02x".format(it) }
 
@@ -45,10 +49,18 @@ internal object ProviderCooldown {
         rateReset: String? = null,
         errorOrigin: String? = null,
         errorType: String? = null,
-        checkpointContinuationAllowed: Boolean = false
+        checkpointContinuationAllowed: Boolean = false,
+        observedHttpStatus: Int? = null,
+        serverRequestId: String? = null
     ): ProviderHttpFailure {
         if (status != 429 || !durableRateLimits()) {
-            return ProviderHttpFailure(status, defer(config, retryAfter), knownNotAccepted)
+            return ProviderHttpFailure(
+                status,
+                defer(config, retryAfter),
+                knownNotAccepted,
+                observedHttpStatus = observedHttpStatus,
+                serverRequestId = safeProviderRequestIdentity(serverRequestId)
+            )
         }
         val now = System.currentTimeMillis()
         val retryDelay = retryAfter?.let { ProviderRetryPolicy.retryAfterMillis(it, now) }
@@ -65,7 +77,9 @@ internal object ProviderCooldown {
             consecutiveRejections = count,
             errorOrigin = errorOrigin?.takeIf { it in setOf("provider", "openrouter", "gateway") },
             errorType = errorType?.takeIf { it.matches(Regex("[a-zA-Z0-9_]{1,64}")) },
-            checkpointContinuationAllowed = checkpointContinuationAllowed
+            checkpointContinuationAllowed = checkpointContinuationAllowed,
+            observedHttpStatus = observedHttpStatus,
+            serverRequestId = safeProviderRequestIdentity(serverRequestId)
         )
     }
 
@@ -88,6 +102,27 @@ internal object ProviderCooldown {
         if (!scope.startsWith("provider:")) return null
         val remaining = registry.blockedMillis(scope.removePrefix("provider:"))
         return remaining.takeIf { it > 0 }?.let { ProviderRetryPolicy.deadlineMillis(System.currentTimeMillis(), it) }
+    }
+
+    /** Read-only admission before prompt preparation. Never reserve or rotate a credential here. */
+    fun preflight(profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2): ProviderLimitDecision? {
+        if (profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE || dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl) != null) return null
+        val candidates = ApiCredentialRotator.parseKeys(profile.token).ifEmpty { listOf("") }
+        val now = System.currentTimeMillis()
+        val waiting = candidates.map { credential ->
+            val config = ProviderRequestConfig(profile.apiUrl, credential.takeIf(String::isNotBlank))
+            val identity = key(config)
+            val cooldown = registry.cooldown(identity) ?: return null
+            ProviderLimitDecision(
+                profile.compatibleType.name, profile.uid, profile.model,
+                ProviderRetryPolicy.deadlineMillis(now, cooldown.waitMillis), scope(config),
+                FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE.name, knownNotAccepted = true,
+                retrySource = if (cooldown.rejectionCount == 0 && cooldown.authoritativeReset) "RATE_LIMIT_RESET" else "SHARED_COOLDOWN",
+                consecutiveRejections = cooldown.rejectionCount
+            )
+        }
+        // A provider with multiple accepted credentials can proceed as soon as one is ready.
+        return waiting.minByOrNull { it.retryAt }
     }
 
     suspend fun <T> withPermit(config: ProviderRequestConfig, block: suspend () -> T): T {

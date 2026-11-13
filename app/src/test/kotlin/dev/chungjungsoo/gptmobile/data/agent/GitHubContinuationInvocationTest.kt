@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.provider.toChatMessages
 import dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
@@ -46,6 +47,10 @@ class GitHubContinuationInvocationTest {
                 assertEquals(read.definition.name, delivered.name)
                 assertEquals(call.arguments, delivered.arguments)
                 assertEquals(fingerprint(call), delivered.originalInvocationFingerprint)
+                assertEquals(ProviderToolInvocation(call.name, call.arguments), delivered.providerInvocation())
+                val wire = exchanges.single().toChatMessages().first().toolCalls!!.single()
+                assertEquals(call.name, wire.function.name)
+                assertEquals(call.arguments.toString(), wire.function.arguments)
                 val result = exchanges.single().results.single()
                 assertEquals(call.callId, result.callId)
                 val projected = (result.content as ToolResultContent.Text).text
@@ -94,7 +99,7 @@ class GitHubContinuationInvocationTest {
         assertEquals("BLOCKED", failure.taskOutcome)
         assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
         val retained = batch.recoverySnapshot().completedExchanges.single()
-        assertEquals(call.copy(name = read.definition.name, originalInvocationFingerprint = fingerprint(call)), retained.calls.single())
+        assertEquals(call.captureProviderInvocation().copy(name = read.definition.name), retained.calls.single())
         assertEquals(ToolResultContent.Text("Confirmed read receipt"), retained.results.single().content)
         assertEquals(JsonPrimitive("TOOL_RESULTS_READY"), saved?.get("state"))
         assertEquals(JsonArray(emptyList()), saved?.get("pending_calls"))
@@ -186,6 +191,10 @@ class GitHubContinuationInvocationTest {
                 assertEquals("github_search", delivered.name)
                 assertEquals(recipe["arguments"], delivered.arguments)
                 assertEquals(fingerprint(recover), delivered.originalInvocationFingerprint)
+                val wire = exchanges.single { exchange -> exchange.calls.any { it.callId == recover.callId } }.toChatMessages().first().toolCalls!!.single()
+                assertEquals(recover.callId, wire.id)
+                assertEquals(recover.name, wire.function.name)
+                assertEquals(recover.arguments.toString(), wire.function.arguments)
                 session(ProviderEvent.TextDelta(" Finished from the receipt."), ProviderEvent.Completed)
             }
         }

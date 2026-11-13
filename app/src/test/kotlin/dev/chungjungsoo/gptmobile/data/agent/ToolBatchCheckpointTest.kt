@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.provider.toChatMessages
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
@@ -27,6 +28,69 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(manifest = Config.NONE, sdk = [34])
 class ToolBatchCheckpointTest {
+    @Test fun normalizedInvocationRetainsOriginalProviderWireAcrossRestartWithoutReplayingCompletedAction() = runBlocking {
+        val file = File.createTempFile("normalized-invocation", ".json").apply { delete() }
+        try {
+            val providerCall = ProviderEvent.ToolCall("ci-call", "github_ci", JsonObject(emptyMap()))
+            val execution = providerCall.captureProviderInvocation().copy(
+                name = "github_ci__fixture",
+                arguments = buildJsonObject { put("action", "workflows") }
+            )
+            ToolBatchCheckpoint(file, "same-grant").enqueue(listOf(execution))
+            val restarted = ToolBatchCheckpoint(file, "same-grant")
+            assertEquals(execution, restarted.recoverySnapshot().pending.single())
+            var executions = 0
+            restarted.execute(execution) {
+                executions++
+                AgentToolResult(execution.callId, ToolResultContent.Text("Confirmed workflows"), false)
+            }
+            val completed = ToolBatchCheckpoint(file, "same-grant")
+            val exchange = completed.recoverySnapshot().completedExchanges.single()
+            assertEquals(execution, exchange.calls.single())
+            val messages = exchange.toChatMessages()
+            val wire = messages.first().toolCalls!!.single()
+            assertEquals(providerCall.callId, wire.id)
+            assertEquals(providerCall.name, wire.function.name)
+            assertEquals("{}", wire.function.arguments)
+            assertEquals(providerCall.callId, messages.last().toolCallId)
+            assertTrue(completed.execute(execution) { error("Completed action must not replay") }.sharedResult)
+            assertEquals(1, executions)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun tamperedOriginalProviderEnvelopeBlocksCheckpointRecoveryAndDispatch() = runBlocking {
+        val file = File.createTempFile("tampered-invocation", ".json").apply { delete() }
+        try {
+            val original = ProviderEvent.ToolCall("ci-call", "github_ci", JsonObject(emptyMap())).captureProviderInvocation()
+            val tampered = original.copy(originalInvocation = ProviderToolInvocation("github_write", original.arguments))
+            assertTrue(runCatching { ToolBatchCheckpoint(null, "same-grant").enqueue(listOf(tampered)) }.isFailure)
+            ToolBatchCheckpoint(file, "same-grant").enqueue(listOf(original))
+            file.writeText(file.readText().replace("\"name\":\"github_ci\",\"arguments\":{}", "\"name\":\"github_write\",\"arguments\":{}"))
+            assertTrue(runCatching { ToolBatchCheckpoint(file, "same-grant").recoverySnapshot() }.isFailure)
+        } finally {
+            file.delete()
+        }
+    }
+
+    @Test fun compactedResultRestoresItsOriginalHashEvenWithoutAnExecutionEnvelope() = runBlocking {
+        val file = File.createTempFile("source-identity", ".json").apply { delete() }
+        try {
+            val call = ProviderEvent.ToolCall("read", "github_read", JsonObject(emptyMap()))
+            val original = AgentToolResult(call.callId, ToolResultContent.Text("long source receipt ".repeat(2000)), false)
+            val journal = ToolBatchCheckpoint(file, "same-grant")
+            journal.enqueue(listOf(call))
+            journal.execute(call) { original }
+            val restored = ToolBatchCheckpoint(file, "same-grant").recoverySnapshot().completedExchanges.single().results.single()
+            assertEquals(ToolHandoffReceipt.sourceHash(original), ToolHandoffReceipt.sourceHash(restored, originalAvailable = false))
+            assertTrue(ToolHandoffReceipt.payload(restored.content).length < ToolHandoffReceipt.payload(original.content).length)
+            assertTrue(restored.sharedResult)
+        } finally {
+            file.delete()
+        }
+    }
+
     @Test fun measuredMutationTimeoutRemainsUnknownAcrossAProcessIndependentCheckpoint() = runBlocking {
         val file = File.createTempFile("measured-mutation", ".json").apply { delete() }
         try {
@@ -737,7 +801,7 @@ class ToolBatchCheckpointTest {
         try {
             file.writeText("""{"binding":"grant","pending":[],"entries":{}}""")
             assertTrue(ToolBatchCheckpoint(file, "grant").pending().isEmpty())
-            file.writeText("""{"binding":"grant","schemaVersion":2,"pending":[],"entries":{}}""")
+            file.writeText("""{"binding":"grant","schemaVersion":3,"pending":[],"entries":{}}""")
             assertTrue(runCatching { ToolBatchCheckpoint(file, "grant").pending() }.isFailure)
         } finally {
             directory.deleteRecursively()

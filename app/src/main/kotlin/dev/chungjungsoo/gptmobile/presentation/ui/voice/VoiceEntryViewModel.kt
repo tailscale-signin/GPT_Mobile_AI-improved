@@ -70,7 +70,7 @@ class VoiceEntryViewModel @Inject constructor(
     fun select(uid: String) {
         if (!mutable.value.creating && mutable.value.profiles.any { it.uid == uid }) {
             savedState["voice_selected_profile"] = uid
-            mutable.value = mutable.value.copy(selected = uid)
+            mutable.value = mutable.value.copy(selected = uid, error = null)
         }
     }
     fun recheckGatewayModel(uid: String) = gatewayModelSelection.recheck(uid)
@@ -89,6 +89,9 @@ class VoiceEntryViewModel @Inject constructor(
                 val profile = settings.fetchPlatformV2s().firstOrNull { it.uid == before.selected && it.enabled }
                     ?: error("Choose an enabled AI profile.")
                 dev.chungjungsoo.gptmobile.data.network.FreeProviderPreflight.check(profile)?.let { error(it.message) }
+                // Do not ask the user to speak into a profile already known to be
+                // incompatible with their retained account and privacy settings.
+                chats.preflightAnswerPrivacy(profile)
                 settings.mutateFeatureSettings { it.withToolPluginEnabled(ToolPluginId.VOICE_CHAT, true).copy(voiceProfileUid = profile.uid) }
                 val room = chats.createDraftChat(listOf(profile.uid), ConversationMode.STANDARD, "Voice chat", profile.uid)
                 val route = "voice_chat/${room.id}?enabled=${android.net.Uri.encode(profile.uid)}"
@@ -97,7 +100,7 @@ class VoiceEntryViewModel @Inject constructor(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                mutable.value = before.copy(error = error.message ?: "Could not open voice chat. Try again.")
+                mutable.value = before.copy(error = error.message?.removePrefix("POLICY_RESTRICTED:")?.trim() ?: "Could not open voice chat. Try again.")
             }
         }
     }

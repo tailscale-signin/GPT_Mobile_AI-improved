@@ -37,11 +37,11 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
     internal constructor(http: HttpClient, evictIdleConnections: suspend () -> Unit = {}) : this(http, evictIdleConnections, { System.nanoTime() / 1_000_000 })
 
     @Inject constructor(network: NetworkClient) : this(network.gatewayReadClient(), network::evictIdleConnections, SystemClock::elapsedRealtime)
-    private data class Attempt(val observation: GatewayDashboardObservation? = null, val failure: Exception? = null)
+    private data class Attempt(val runtimeIdentity: String, val observation: GatewayDashboardObservation? = null, val failure: Exception? = null)
     private data class ReadinessAttempt(val runtimeIdentity: String, val observation: GatewayReadinessObservation? = null, val failure: Exception? = null)
-    private val cache = RouteCapabilityCache<Attempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 4_000, negativeTtl = 60_000)
+    private val cache = RouteCapabilityCache<Attempt>(elapsedMillis, valueTtl = { if (it.observation == null && it.failure == null) 60_000L else 4_000L })
     private val readinessCache = RouteCapabilityCache<ReadinessAttempt>(
-        { System.nanoTime() / 1_000_000 },
+        elapsedMillis,
         valueTtl = { attempt ->
             when {
                 attempt.failure != null || attempt.observation?.ready == false -> 30_000
@@ -57,15 +57,17 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
     }
 
     override suspend fun read(config: ProviderRequestConfig): GatewayDashboardObservation? {
-        val attempt = cache.getOrLoad(gatewayDashboardIdentity(config) + ":" + LocalServiceHealth.networkEpoch) {
+        val attempt = cache.getOrLoad(gatewayDashboardIdentity(config) + ":" + LocalServiceHealth.networkEpoch, isCurrent = { it?.runtimeIdentity == GatewayClientDiagnostics.runtimeEpoch(config) }) {
+            val runtime = GatewayClientDiagnostics.runtimeEpoch(config)
             try {
-                readDashboard(config)?.let { Attempt(observation = it) }
+                val observation = readDashboard(config)
+                Attempt(observation?.snapshot?.instanceId ?: GatewayClientDiagnostics.runtimeEpoch(config), observation = observation)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
                 // Concurrent observers share a short failure observation as well
                 // as successes; a single offline refresh cannot fan out retries.
-                Attempt(failure = failure)
+                Attempt(runtime, failure = failure)
             }
         } ?: return null
         attempt.failure?.let { throw it }
@@ -164,4 +166,4 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
     }
 }
 
-internal fun gatewayDashboardIdentity(config: ProviderRequestConfig): String = researchHash("${config.profileUid}|${GatewayClientDiagnostics.routeIdentity(config)}")
+internal fun gatewayDashboardIdentity(config: ProviderRequestConfig): String = researchHash("${config.profileUid}|${GatewayClientDiagnostics.routeIdentity(config)}|${config.profileRevision.orEmpty()}")

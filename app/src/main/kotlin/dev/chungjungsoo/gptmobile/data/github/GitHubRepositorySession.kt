@@ -610,7 +610,13 @@ internal class GitHubRepositorySession(
         val changed = requestedSearchId.isNotBlank() && requestedSearchId != searchId
         val previous = if (changed) store.read(scope, "search-definition:$requestedSearchId") else null
         if (changed && previous == null) {
-            throw searchValidation("GITHUB_SEARCH_CURSOR_UNAVAILABLE", context, definition, "The search_id was not issued for a retained search in this task. Start with index_cursor=0 without search_id; no candidate files were scanned.")
+            throw searchValidation(
+                "GITHUB_SEARCH_CURSOR_UNAVAILABLE",
+                context,
+                definition,
+                "The search_id was not issued for a retained search in this task. Start with index_cursor=0 without search_id; no candidate files were scanned.",
+                cursorDiagnostics = GitHubSearchCursorDiagnostics.observation(GitHubSearchCursorDiagnostics.State.RETAINED_SEARCH_MISSING, requestedSearchId, cursorText)
+            )
         }
         if (requestedCursor > 0 && requestedSearchId.isBlank()) {
             val retainedDefinition = store.read(scope, "search-definition:$searchId")
@@ -648,7 +654,13 @@ internal class GitHubRepositorySession(
         if (cursor > all.size) throw searchValidation("GITHUB_SEARCH_CURSOR_INVALID", context, definition, "index_cursor exceeds the pinned candidate count. Use an issued continuation or restart from index_cursor=0 without search_id.")
         val priorCoverage = if (cursor == 0) buildJsonObject { put("from_start", true) } else store.read(scope, "search-coverage:$searchId:$cursor")
         if (cursor > 0 && priorCoverage == null) {
-            throw searchValidation("GITHUB_SEARCH_CURSOR_UNAVAILABLE", context, definition, "This cursor is not an observed page boundary in the retained search. Restart from index_cursor=0 without search_id; existing evidence remains retained.")
+            throw searchValidation(
+                "GITHUB_SEARCH_CURSOR_UNAVAILABLE",
+                context,
+                definition,
+                "This cursor is not an observed page boundary in the retained search. Restart from index_cursor=0 without search_id; existing evidence remains retained.",
+                cursorDiagnostics = GitHubSearchCursorDiagnostics.observation(GitHubSearchCursorDiagnostics.State.PAGE_BOUNDARY_UNOBSERVED, searchId, cursorText)
+            )
         }
         store.write(scope, "search-definition:$searchId", definition)
         val evicted = mutableListOf<String>()
@@ -661,7 +673,7 @@ internal class GitHubRepositorySession(
         return SearchRequest(query, mode, options, extension, pathPrefix, batchSize, maxNewBlobs, searchId, all, cursor, data["truncated"]?.jsonPrimitive?.booleanOrNull != true, priorCoverage, recovery)
     }
 
-    private fun searchValidation(code: String, context: GitHubTaskSnapshot, definition: JsonObject, message: String, correction: JsonObject? = null) = GitHubReadValidation(
+    private fun searchValidation(code: String, context: GitHubTaskSnapshot, definition: JsonObject, message: String, correction: JsonObject? = null, cursorDiagnostics: JsonObject = JsonObject(emptyMap())) = GitHubReadValidation(
         code,
         buildJsonObject {
             put("schema", "github.read_validation.v1")
@@ -675,6 +687,7 @@ internal class GitHubRepositorySession(
             put("ref", context.ref)
             put("commit_sha", context.commitSha)
             put("message", message)
+            cursorDiagnostics.forEach { (key, value) -> put(key, value) }
             correction?.let {
                 put(
                     "correction_call",

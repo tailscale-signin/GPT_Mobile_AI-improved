@@ -197,10 +197,16 @@ class InvocationLedgerTest {
         val events = InvocationLedger(database, settings).wrap(provider, "parent", "turn", "CUSTOM", "model", "primary", 100, 500, 1000, "profile")
             .streamRound(emptyList(), emptyList()).toList()
 
-        assertEquals(providerEvents, events)
-        assertEquals("FAILED", saved.single().status)
-        assertEquals(80L, saved.single().costMicros)
-        assertEquals(30, saved.single().outputTokens)
+        val invocation = saved.single()
+        assertTrue(invocation.id.isNotBlank())
+        val expectedEvents = providerEvents.map { event ->
+            if (event is ProviderEvent.Usage) event.copy(invocationId = invocation.id) else event
+        }
+        assertEquals(expectedEvents, events)
+        assertEquals(setOf(invocation.id), events.filterIsInstance<ProviderEvent.Usage>().map { it.invocationId }.toSet())
+        assertEquals("FAILED", invocation.status)
+        assertEquals(80L, invocation.costMicros)
+        assertEquals(30, invocation.outputTokens)
     }
 
     @Test fun localPollingEndPersistsRemoteWaitInsteadOfInventingAGenerationFailure() = runTest {

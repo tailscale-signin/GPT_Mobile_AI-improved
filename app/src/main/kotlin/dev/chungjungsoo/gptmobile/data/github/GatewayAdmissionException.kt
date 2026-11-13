@@ -11,6 +11,7 @@ enum class GatewayAdmissionReason {
     TRANSPORT_IDENTITY_REQUIRED,
     IDENTITY_MISMATCH,
     UNSUPPORTED_CONTRACT,
+    COMMAND_RECEIPT_UNAVAILABLE,
     INVALID_RESPONSE,
     INVALID_CONNECTION,
     STORAGE_UNAVAILABLE,
@@ -51,9 +52,16 @@ open class GatewayAdmissionException internal constructor(
     val dispatchState: GatewayAdmissionDispatchState = if (surface == GatewayAdmissionSurface.COMMAND) GatewayAdmissionDispatchState.UNKNOWN else GatewayAdmissionDispatchState.NOT_DISPATCHED,
     val repair: GatewayAdmissionRepair = repair(reason),
     val source: GatewayAdmissionSource? = null,
-    val phase: GatewayAdmissionPhase = if (surface == GatewayAdmissionSurface.COMMAND) GatewayAdmissionPhase.RECONCILIATION else GatewayAdmissionPhase.PRECHECK
-) : IllegalStateException(admissionMessage(reason, httpStatus, surface)) {
-    internal fun withSource(source: GatewayAdmissionSource): GatewayAdmissionException = GatewayAdmissionException(reason, httpStatus, wireCode, surface, retryability, dispatchState, repair, source, phase)
+    val phase: GatewayAdmissionPhase = if (surface == GatewayAdmissionSurface.COMMAND) GatewayAdmissionPhase.RECONCILIATION else GatewayAdmissionPhase.PRECHECK,
+    val preparationPost: Boolean = false,
+    val operationId: String? = null
+) : IllegalStateException(admissionMessage(reason, httpStatus, surface, preparationPost)) {
+    init {
+        require(operationId == null || operationId.matches(Regex("[a-f0-9]{32}")))
+    }
+
+    internal fun withSource(source: GatewayAdmissionSource): GatewayAdmissionException =
+        GatewayAdmissionException(reason, httpStatus, wireCode, surface, retryability, dispatchState, repair, source, phase, preparationPost, operationId)
 
     /** Safe terminal/export fields. Dispatch describes the dependent action, never the completed GET. */
     fun safeDetails(): Map<String, String> = buildMap {
@@ -63,6 +71,8 @@ open class GatewayAdmissionException internal constructor(
         put("dependent_dispatch_state", dispatchState.name)
         put("retryability", retryability.name)
         put("repair", repair.name)
+        if (preparationPost) put("preparation_exchange", "POST_OUTCOME_UNKNOWN")
+        operationId?.let { put("operation_id", it) }
         httpStatus?.takeIf { it in 100..599 }?.let { put("http_status", it.toString()) }
         safeGatewayAdmissionCode(wireCode)?.let { put("admission_code", it) }
         source?.gatewayVersion?.let { put("gateway_version", it) }
@@ -90,18 +100,23 @@ private fun repair(reason: GatewayAdmissionReason) = when (reason) {
     else -> GatewayAdmissionRepair.CHECK_CONNECTION
 }
 
-private fun admissionMessage(reason: GatewayAdmissionReason, status: Int?, surface: GatewayAdmissionSurface): String {
+private fun admissionMessage(reason: GatewayAdmissionReason, status: Int?, surface: GatewayAdmissionSurface, preparationPost: Boolean = false): String {
     val guidance = when (reason) {
         GatewayAdmissionReason.REMOTE_SURFACE_NOT_ADMITTED -> "This gateway build does not admit the saved-work route from this connection. Update the running PC gateway package, verify its source commit and saved-work routes, then retry. The version label alone does not verify compatibility."
         GatewayAdmissionReason.MISSING_SCOPE -> "The gateway identity is recognized but lacks permission for this saved-work route. Check the original account's jobs or engineering scope on the PC gateway."
         GatewayAdmissionReason.TRANSPORT_IDENTITY_REQUIRED -> "The gateway did not recognize this connection's transport identity. Check its configured access mode and original connection. Key-free LAN mode does not require adding an API token."
         GatewayAdmissionReason.IDENTITY_MISMATCH -> "The gateway installation or account changed. Restore the original connection and refresh its identity before sending the saved command."
         GatewayAdmissionReason.UNSUPPORTED_CONTRACT -> "The selected address does not expose the required gateway saved-work contract. A direct model server can answer model requests without providing gateway Jobs. Verify the configured gateway address and reverse-proxy routes; if this is the intended gateway, update its running package and verify its identity, conversation and Jobs routes."
+        GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE -> "The saved command receipt is not available from this connection. A missing receipt does not establish whether the command was accepted or whether this route is supported. Recheck the original gateway identity and command receipt."
         GatewayAdmissionReason.INVALID_RESPONSE -> "The gateway returned an incompatible saved-work document. Verify the selected address, installed source commit and saved-work contract."
         GatewayAdmissionReason.INVALID_CONNECTION -> "The gateway rejected this connection's host, origin or admission headers. Check the configured destination and access mode on the PC gateway."
         GatewayAdmissionReason.STORAGE_UNAVAILABLE -> "The gateway's saved-work storage is unavailable. Restore its durable journal on the PC, then reconnect to the original jobs."
         GatewayAdmissionReason.CURSOR_EXPIRED -> "The saved history cursor expired. Refresh the retained snapshot before continuing this read."
-        GatewayAdmissionReason.TRANSPORT_INTERRUPTED -> if (surface == GatewayAdmissionSurface.COMMAND) "Reading the saved command receipt was interrupted. Reconnect to check that original command." else "The saved-work check was interrupted before the dependent action was sent. Reconnect and retry the bounded read."
+        GatewayAdmissionReason.TRANSPORT_INTERRUPTED -> when {
+            preparationPost -> "The gateway preparation response was interrupted. Its preparation request may have been accepted, but the dependent engineering job was not submitted. Restore the original connection and recheck the retained selection before submitting it."
+            surface == GatewayAdmissionSurface.COMMAND -> "Reading the saved command receipt was interrupted. Reconnect to check that original command."
+            else -> "The saved-work check was interrupted before the dependent action was sent. Reconnect and retry the bounded read."
+        }
         GatewayAdmissionReason.SOURCE_MISMATCH -> "The running gateway source does not match the selected package source. Update or restart the intended PC installation, then verify its source commit and saved-work routes again."
         GatewayAdmissionReason.HTTP_REJECTED -> "The gateway rejected this saved-work check. Check the original connection and its admission diagnostics before retrying."
         GatewayAdmissionReason.ENGINEERING_STORAGE_DISABLED -> "Enable durable storage in the selected desktop gateway before starting engineering work. The draft is saved locally; no engineering job was submitted."
@@ -143,7 +158,8 @@ internal fun gatewayAdmissionFailure(status: Int, surface: GatewayAdmissionSurfa
         safeGatewayAdmissionCode((error?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull)
     }
     val reason = admissionReasons[code] ?: when (status) {
-        404, 405, 501 -> GatewayAdmissionReason.UNSUPPORTED_CONTRACT
+        404 -> if (surface == GatewayAdmissionSurface.COMMAND) GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE else GatewayAdmissionReason.UNSUPPORTED_CONTRACT
+        405, 501 -> GatewayAdmissionReason.UNSUPPORTED_CONTRACT
         410 -> GatewayAdmissionReason.CURSOR_EXPIRED
         else -> GatewayAdmissionReason.HTTP_REJECTED
     }

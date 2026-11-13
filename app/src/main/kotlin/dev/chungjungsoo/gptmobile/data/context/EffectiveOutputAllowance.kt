@@ -18,7 +18,17 @@ internal object EffectiveOutputAllowance {
         }
         contextCeiling?.takeIf { it > 0 }?.let {
             val prompt = Math.addExact(measurement.promptTokens, measurement.uncertaintyTokens)
-            check(prompt < it) { "CONTEXT_CAPACITY_EXCEEDED: no output headroom remains; input was retained" }
+            if (prompt >= it) {
+                throw RequestCapacityException(
+                    "CONTEXT_CAPACITY_EXCEEDED",
+                    "no output headroom remains; input was retained",
+                    measurement.promptTokens,
+                    measurement.uncertaintyTokens,
+                    tokens,
+                    it,
+                    measurement.kind
+                )
+            }
             val headroom = it - prompt
             if (headroom < tokens) {
                 tokens = headroom

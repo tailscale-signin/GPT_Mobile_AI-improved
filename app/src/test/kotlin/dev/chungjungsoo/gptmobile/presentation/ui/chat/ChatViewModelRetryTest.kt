@@ -29,6 +29,7 @@ import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -261,6 +262,26 @@ class ChatViewModelRetryTest {
         assertEquals("Other turn", updatedMessages.assistantMessages[1][0].content)
         assertEquals("", updatedMessages.assistantMessages[1][1].content)
         assertEquals("platform-2", updatedMessages.assistantMessages[1][1].platformType)
+        assertSame(groupedMessages.userMessages, updatedMessages.userMessages)
+        assertSame(groupedMessages.assistantMessages[0], updatedMessages.assistantMessages[0])
+        assertSame(groupedMessages.assistantMessages[1][0], updatedMessages.assistantMessages[1][0])
+    }
+
+    @Test
+    fun `unchanged progress preserves the whole transcript identity`() {
+        val timeline = (1..106).map { index ->
+            AssistantTimelineItem(type = AssistantTimelineItemType.TEXT, content = "Retained progress $index " + "x".repeat(2_048))
+        }
+        val assistant = MessageV2(chatId = 7, content = "Saved answer", platformType = "platform-1", timeline = timeline)
+        val grouped = ChatViewModel.GroupedMessages(
+            userMessages = listOf(MessageV2(chatId = 7, content = "Task", platformType = null)),
+            assistantMessages = listOf(listOf(assistant))
+        )
+        repeat(100) {
+            assertSame(grouped, updateAssistantSlot(grouped, 0, 0) { current -> current })
+            assertSame(grouped, updateAssistantSlot(grouped, 0, 0) { current -> current.copy() })
+        }
+        assertSame(grouped, updateAssistantSlot(grouped, 0, 1) { error("Missing slot must not transform") })
     }
 
     @Test

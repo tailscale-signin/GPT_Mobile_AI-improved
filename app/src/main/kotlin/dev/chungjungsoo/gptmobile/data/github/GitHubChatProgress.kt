@@ -238,7 +238,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         private fun focusClause(args: JsonObject?) = sourceFocus(args).let { if (it.isBlank()) "" else " for $it" }
 
         private fun operation(name: String, args: JsonObject?): Operation {
-            val action = (args?.get("action") as? JsonPrimitive)?.contentOrNull.orEmpty()
+            val action = (GitHubActionIdentity.canonicalArguments(name, args ?: JsonObject(emptyMap()))["action"] as? JsonPrimitive)?.contentOrNull.orEmpty()
             return when (name.substringBefore("__")) {
                 "github_read" -> Operation("Reading source", "source read", "compare the implementation with the reported behavior and identify the next relevant source")
                 "github_search" -> Operation("Searching repository", "repository search", "open the matching implementation and check how it connects to the requested behavior")
@@ -257,7 +257,8 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 "github_ci", "github_watch_checks" -> when (action) {
                     "logs" -> Operation("Reading job log", "job log read", "identify the relevant diagnostic in the recorded output and compare it with the affected source")
                     "jobs" -> Operation("Inspecting workflow jobs", "workflow job inventory", "distinguish failed, pending and skipped jobs before selecting the relevant log")
-                    "workflows" -> Operation("Finding validation workflows", "workflow inventory", "select a workflow that actually covers the changed behavior before requesting validation")
+                    "workflows" -> Operation("Listing workflow definitions", "workflow definition inventory", "follow unread pages when inventory is needed, then inspect actual runs and check results")
+                    "definitions" -> Operation("Reading workflow definitions", "workflow source inspection", "identify the workflow configuration without treating it as executed validation")
                     "runs" -> Operation("Locating workflow run", "workflow run lookup", "match the run to the selected revision before interpreting its jobs and results")
                     "dispatch", "rerun", "cancel" -> Operation("Checking workflow request", "workflow request", "verify whether the requested workflow action was accepted and observe its resulting state", true)
                     else -> Operation("Inspecting build and test results", "build and test inspection", "separate observed failures from pending or skipped checks and identify the next relevant diagnostic")

@@ -84,6 +84,7 @@ internal fun combinedProfileFailures(
         ?.takeUnless { demo || savedPolicyUnavailable || terminalClassification.category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE") } ?: dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(details, demoExcluded = demo)
     // Verification has its own task continuation. A provider answered successfully
     // even when the requested repository work still lacks acceptance evidence.
+    if (classified.isUserInputRequired) return@mapNotNull null
     if (!waitingForApproval && (classified.isTaskVerification || !waitingForLimit && message.timeline.lastOrNull { it.profileFailure != null || it.taskVerificationFailure != null }?.taskVerificationFailure != null)) return@mapNotNull null
     val appFailure = !waitingForLimit && !waitingForApproval && (classified.category in setOf("APP_EXECUTION", "SAVED_POLICY_UNAVAILABLE") || savedPolicyUnavailable)
     val permanentUnavailable = classified.category in setOf("ENDPOINT_RETIRED", "BILLING_UNAVAILABLE")
@@ -97,7 +98,7 @@ internal fun combinedProfileFailures(
             run.chatId == message.chatId &&
             it.retryAt > 0
     }
-    val retryAt = savedDeadline?.retryAt ?: classified.retryAfterMillis
+    val retryAt = savedDeadline?.effectiveRetryAt ?: classified.retryAfterMillis
     val reason = when {
         classified.category == "ENDPOINT_RETIRED" -> "The provider retired this endpoint. Update the endpoint or model before starting a new turn."
         classified.category == "BILLING_UNAVAILABLE" -> "The provider cannot generate with the current account balance. Restore credits before starting a new turn."

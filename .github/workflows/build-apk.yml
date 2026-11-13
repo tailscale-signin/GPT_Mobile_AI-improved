@@ -25,6 +25,7 @@ concurrency:
 
 env:
   ISSUE_REPORT_ORIGIN: ${{ vars.ISSUE_REPORT_ORIGIN }}
+  ISSUE_REPORT_GITHUB_ENABLED: ${{ vars.ISSUE_REPORT_GITHUB_ENABLED || 'true' }}
 
 jobs:
   build:

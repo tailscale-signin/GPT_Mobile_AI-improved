@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** Selects authorized schemas per run; GitHub mode keeps every visible GitHub schema attached. */
+/** Selects authorized schemas per run; engineering tasks retain the full GitHub catalogue. */
 class ProgressiveToolCatalog(
     definitions: List<AgentToolDefinition>,
     task: String,
@@ -23,7 +23,8 @@ class ProgressiveToolCatalog(
     override val coordinatesChildWork = true
     private var advanced = advancedTask(task)
     private val integrationPreset = task.lineSequence().any { it.trim() == "[github-workflow-preset:test_integration]" }
-    private val githubUpfront = githubMode || integrationPreset
+    internal val scopedGitHubStatus = githubMode && !integrationPreset && dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)
+    private val githubUpfront = githubMode && !scopedGitHubStatus || integrationPreset
     private val conversational = !githubUpfront && CurrentRequestContract.from(task).conversational
     private val toolAllowance get() = if (advanced) 16 else INITIAL_TOOLS
     private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
@@ -49,6 +50,11 @@ class ProgressiveToolCatalog(
     private val active = (
         if (conversational) {
             emptyList()
+        } else if (scopedGitHubStatus) {
+            // The native status workflow has four reads through two operation
+            // schemas. Retain the full authorized candidates for exact discovery;
+            // unrelated write/source/indexing schemas need not enter this prompt.
+            window(taskRequired)
         } else if (githubUpfront) {
             candidates.values.filter(::isGitHubTool) + window(taskRequired)
         } else {
@@ -490,7 +496,16 @@ class ProgressiveToolCatalog(
                             )
                         }
                         put("permissions_changed", false)
-                        put("mount_policy", if (githubUpfront) "AUTHORIZED_GITHUB_UPFRONT" else "PROGRESSIVE_WINDOW")
+                        put(
+                            "mount_policy",
+                            if (githubUpfront) {
+                                "AUTHORIZED_GITHUB_UPFRONT"
+                            } else if (scopedGitHubStatus) {
+                                "SCOPED_GITHUB_STATUS"
+                            } else {
+                                "PROGRESSIVE_WINDOW"
+                            }
+                        )
                         put("note", "Observations describe dispatched calls in this run, not a live probe or a guarantee of current health. Workflow links are optional evidence relationships and never grant access. Tools outside this authorized catalog are not executable.")
                     }
                 ),
@@ -531,7 +546,16 @@ class ProgressiveToolCatalog(
             put("schema_token_allowance", schemaAllowance)
             put("schema_allowance_scope", "OPTIONAL_SCHEMA_WINDOW")
             put("schema_allowance_is_wire_limit", false)
-            put("required_schema_policy", if (githubUpfront) "AUTHORIZED_GITHUB_AND_RECOVERY_SCHEMAS_UPFRONT" else "REQUEST_REQUIRED_SCHEMAS_FIRST")
+            put(
+                "required_schema_policy",
+                if (githubUpfront) {
+                    "AUTHORIZED_GITHUB_AND_RECOVERY_SCHEMAS_UPFRONT"
+                } else if (scopedGitHubStatus) {
+                    "SCOPED_GITHUB_STATUS_WITH_AUTHORIZED_DISCOVERY"
+                } else {
+                    "REQUEST_REQUIRED_SCHEMAS_FIRST"
+                }
+            )
             put("wire_schema_estimate_tokens", (active.mapNotNull(candidates::get) + definition).sumOf { schemaTokens(it).toLong() })
             put("wire_context_budget_enforced", true)
             put("selection_policy", "Explicitly requested capabilities receive priority; other authorized capabilities remain discoverable. Availability still requires the next request's context admission. Executable permissions are unchanged.")

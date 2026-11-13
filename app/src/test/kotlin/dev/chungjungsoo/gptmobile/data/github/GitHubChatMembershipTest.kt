@@ -29,6 +29,11 @@ class GitHubChatMembershipTest {
         assertTrue(GitHubStatusRequest.matches("Repository status"))
         assertFalse(GitHubStatusRequest.matches("Fix status generation and create a PR"))
         assertFalse(GitHubStatusRequest.matches("Audit all features"))
+        assertTrue(GitHubStatusRequest.matches("Please inspect the repository status and recent commits"))
+        assertFalse(GitHubStatusRequest.matches("Show repository open issues"))
+        assertFalse(GitHubStatusRequest.matches("Inspect repository status and delete old branches"))
+        assertFalse(GitHubStatusRequest.matches("Check repository CI and build an APK"))
+        assertFalse(GitHubStatusRequest.matches("Review repository status and update the dependencies"))
     }
 
     @Test fun gatewayRepositoryHistoryKeepsItsSerialQueueMarkerWhenWorkspaceMembershipRestores() {

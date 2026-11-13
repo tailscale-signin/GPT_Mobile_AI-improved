@@ -56,7 +56,14 @@ internal class GitHubEvidenceBook(
     /** Freeze the effective approval mode before an integration recipe may create a fixture. */
     suspend fun fixtureApprovalPreflight(): JsonObject = mutex.withLock {
         val saved = load(fixturePreflightId)
-        if (saved?.get("binding") == JsonPrimitive(binding)) return@withLock saved
+        if (saved?.get("binding") == JsonPrimitive(binding) &&
+            saved["repository"] == JsonPrimitive(repository) &&
+            saved["selected_branch"] == JsonPrimitive(branch)
+        ) {
+            // Older checkpoints used CONDITIONAL for an unobserved mode.
+            if (saved["decision_mode"] != JsonPrimitive("UNKNOWN") || saved["state"] == JsonPrimitive("UNKNOWN")) return@withLock saved
+            return@withLock GitHubTestChecklist.fixtureApprovalPreflight(null, binding, repository, branch, saved["runtime_identity"] as? JsonObject ?: runtimeIdentity())
+        }
         val preflight = GitHubTestChecklist.fixtureApprovalPreflight(fixtureDecisionMode, binding, repository, branch, runtimeIdentity())
         save(fixturePreflightId, preflight)
         preflight

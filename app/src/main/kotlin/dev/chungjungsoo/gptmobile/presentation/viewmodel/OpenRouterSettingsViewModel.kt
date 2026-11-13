@@ -348,6 +348,25 @@ class OpenRouterSettingsViewModel @Inject constructor(
             }
         }
     }
+
+    /** Query the same account-specific ZDR catalog used by generation, without issuing a model request. */
+    suspend fun privacyCompatibility(model: String, policy: dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting): Boolean? {
+        val before = _state.value
+        val connection = before.connection ?: return null
+        val key = activeKey
+        if (!before.unlocked || key.isBlank() || policy.zdr != true || !model.matches(Regex("[A-Za-z0-9_.:-]+/[A-Za-z0-9_.:-]+"))) return null
+        return try {
+            val response = account.objectResource(connection.apiUrl, key, "endpoints/zdr")
+            val current = _state.value
+            if (current.connection?.uid != connection.uid || current.revision != before.revision || !current.unlocked) return null
+            val rows = response["data"] as? kotlinx.serialization.json.JsonArray ?: return null
+            dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPrivacyPreflight.compatible(rows, model, policy)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+    }
     fun compareProviders(model: String) {
         val before = _state.value
         if (!before.unlocked || before.endpointLoading) return

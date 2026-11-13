@@ -14,7 +14,7 @@ internal class ToolArgumentRepairBudget {
     private val failures = linkedMapOf<String, Int>()
 
     @Synchronized
-    fun rejection(callId: String, definition: AgentToolDefinition, arguments: JsonObject, errors: List<String>): AgentToolResult {
+    fun rejection(callId: String, definition: AgentToolDefinition, arguments: JsonObject, errors: List<String>, readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet()): AgentToolResult {
         require(errors.isNotEmpty())
         val identity = buildJsonObject {
             put("schema", "tool.argument-repair.v1")
@@ -27,7 +27,7 @@ internal class ToolArgumentRepairBudget {
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         val attempt = ((failures[signature] ?: 0) + 1).coerceAtMost(2)
         if (failures.size < 128 || signature in failures) failures[signature] = attempt
-        val rejected = ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, errors)
+        val rejected = ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, errors, readRules)
         val exhausted = attempt >= 2
         val content = if (exhausted) {
             val payload = (rejected.content as ToolResultContent.Json).value as JsonObject

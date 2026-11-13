@@ -260,6 +260,7 @@ internal object IssueReportIncidents {
         }
         val specificCode = when {
             code == "BILLING_UNAVAILABLE" || rejection == "BILLING_UNAVAILABLE" && input.httpStatus in setOf(400, 402) -> "SOURCE_PAYMENT_REQUIRED"
+            code == "OUTPUT_CONTINUATION_PENDING_TOOLS" && input.stage == "tool_reconciliation" && input.dispatched == false -> "RECONCILIATION_REQUIRED"
             code == "RATE_LIMIT" && input.provider != null -> "PROVIDER_RATE_LIMITED"
             code == "tool_use_failed" && input.provider != null -> "PROVIDER_PAYLOAD_ERROR"
             else -> IssueReportCodes.known(code)?.takeUnless { it == "CHAT_FAILED" }
@@ -301,7 +302,15 @@ internal object IssueReportIncidents {
     /** Called by the existing uncaught exception handler before it delegates to Android. */
     fun crash(error: Throwable) {
         if (!LocalDiagnosticsPolicy.enabled || isPrivate) return
-        val evidence = IssueReportContext.fromFields("EXCEPTION", appDiagnosticFields("JVM_CRASH"))
+        val crashEvidence = buildMap<String, Any?> {
+            putAll(appDiagnosticFields("JVM_CRASH"))
+            FrameTimingRecorder.activeReportSurface()?.let { put("crash_surface", it) }
+            val frames = error.stackTrace.take(48)
+            if (frames.any { it.className == "android.view.ThreadedRenderer" || it.className == "android.view.View" && it.methodName == "draw" }) {
+                put("crash_boundary", "ANDROID_VIEW_DRAW")
+            }
+        }
+        val evidence = IssueReportContext.fromFields("EXCEPTION", crashEvidence)
         evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
         persist(IssueReport.debug(ReportFeature.APP, "JVM_CRASH", recentEvents(), error, evidence))
     }

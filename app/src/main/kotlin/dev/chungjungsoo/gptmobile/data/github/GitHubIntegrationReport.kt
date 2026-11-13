@@ -11,11 +11,12 @@ import kotlinx.serialization.json.put
 
 /** Measured acceptance and call observations remain separate from inventory traversal and device tests. */
 internal object GitHubIntegrationReport {
-    fun stopReason(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, remainingToolCalls: Int? = null): JsonObject {
-        val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
-        val capabilities = GitHubTestChecklist.rows(receipts, tools, task).filterIsInstance<JsonObject>()
-        val catalog = GitHubAuthorizedCatalog.snapshot(receipts, tools)
-        val fixtures = GitHubSelfTestFixtures.checkpoint(receipts).filterIsInstance<JsonObject>()
+    fun stopReason(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, remainingToolCalls: Int? = null, checklist: JsonObject = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls)): JsonObject {
+        val remaining = (checklist["stage_budget"] as? JsonObject)?.number("remaining_calls") ?: GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
+        val capabilities = checklist.array("capabilities")
+        val catalog = checklist.getValue("authorized_catalog") as JsonObject
+        val fixtures = checklist.array("fixtures")
+        val requirements = checklist.array("requirements")
         val openFixtures = fixtures.filter { it["final_state_verified"] != JsonPrimitive(true) }
         val cleanupStoppedBeforeDispatch = openFixtures.isNotEmpty() && openFixtures.all { it["cleanup_dispatched"] == JsonPrimitive(false) }
         val pending = GitHubTestChecklist.pendingPages(receipts)
@@ -23,7 +24,7 @@ internal object GitHubIntegrationReport {
         val unmet = capabilities.filter { it["required"] != JsonPrimitive(false) && it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }
         val blockers = unmet.groupingBy { it.text("blocker_code").ifBlank { "BLOCKER_DETAIL_NOT_RECORDED" } }.eachCount()
         val reason = when {
-            GitHubTestChecklist.apiComplete(task, receipts, tools) -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
+            GitHubTestChecklist.integration(task) && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
             remaining == 0 -> "TOOL_BUDGET_EXHAUSTED" to "The recorded authorized tool-call budget has no remaining calls. Resume requires a new authorized budget."
             remaining != null && remaining <= GitHubChecklistBudget.VERIFICATION_RESERVE -> "VERIFICATION_RESERVE_REACHED" to "The remaining $remaining calls are reserved for verification and cleanup; acquisition stopped before the hard ceiling."
@@ -34,6 +35,7 @@ internal object GitHubIntegrationReport {
             pending.isNotEmpty() && exhaustiveInventory -> "INVENTORY_CONTINUATION_BLOCKED" to "Requested inventory traversal has ${pending.size} unfinished exact recipes; no executable authorized continuation was selected."
             unmet.isNotEmpty() -> "CAPABILITY_PREREQUISITES_MISSING" to buildString {
                 append("Required capabilities remain unverified. ")
+                if ("FIXTURE_APPROVAL_STATE_UNKNOWN" in blockers) append("The effective fixture approval mode needs to be verified. ")
                 if ("FIXTURE_APPROVAL_MODE_REQUIRED" in blockers) append("${blockers.getValue("FIXTURE_APPROVAL_MODE_REQUIRED")} require the explicit fixture approval policy; no fixture mutation was started under the current policy. ")
                 if ("OWNED_FIXTURE_REQUIRED" in blockers) append("${blockers.getValue("OWNED_FIXTURE_REQUIRED")} require a separately authorized disposable resource and verified cleanup lifecycle. ")
                 if ("WORKFLOW_RUN_OR_JOB_REQUIRED" in blockers) append("${blockers.getValue("WORKFLOW_RUN_OR_JOB_REQUIRED")} need an observed workflow resource or executed job at the selected revision. ")
@@ -77,8 +79,7 @@ internal object GitHubIntegrationReport {
         }
     }
 
-    fun render(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null): String = buildString {
-        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, stageBudget = stageBudget, acceptedContract = acceptedContract)
+    fun render(task: String, receipts: Map<String, JsonObject>, tools: List<AgentToolDefinition>, remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, checkpoint: JsonObject = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, stageBudget = stageBudget, acceptedContract = acceptedContract)): String = buildString {
         val capabilities = checkpoint.array("capabilities")
         val criteria = checkpoint.array("requirements")
         val catalog = checkpoint["authorized_catalog"] as JsonObject
@@ -125,6 +126,11 @@ internal object GitHubIntegrationReport {
         append("\nThese categories separate remote responses, completed mutations, saved/cache results, suppressed duplicates and pending approval. A successful local tool response is not proof that a remote write occurred.\n")
         append("\n### Independent acceptance criteria\n\n| Criterion | Result | Evidence / remaining prerequisite |\n| --- | --- | --- |\n")
         criteria.forEach { row -> append("| ${safe(row.text("requirement"))} | ${row.text("acceptance_state")} | ${safe(row.text("acceptance"))} ${ids(row["evidence_receipt_ids"] as? JsonArray)} |\n") }
+        if (GitHubChecklistScope.supportedFixturePlan(task)) {
+            append("\nThis run uses the supported fixture test matrix. Operations outside the preset remain untested.\n")
+        } else if (requiredCapabilities.any { it.text("blocker_code") == "OWNED_FIXTURE_REQUIRED" }) {
+            append("\nUse the Test GitHub integration workflow preset to run the supported fixture matrix. Broader coverage requires additional authorized disposable resources and verified cleanup.\n")
+        }
         appendPrerequisites(checkpoint)
         append("\n### Issues and exact observations\n\n")
         val operations = GitHubTaskCoverage.rows(receipts)
@@ -176,7 +182,7 @@ internal object GitHubIntegrationReport {
         append("\n### Repository inventory and stop reason\n\n")
         checkpoint.array("inventory_coverage").forEach { row -> append("- ${safe(row.text("tool"))}/${safe(row.text("operation"))}: ${safe(GitHubTestChecklist.inventorySummary(row))}.\n") }
         val budget = checkpoint["stage_budget"] as JsonObject
-        val stop = stopReason(task, receipts, tools, budget.number("remaining_calls"))
+        val stop = stopReason(task, receipts, tools, budget.number("remaining_calls"), checkpoint)
         append("\n**${stop.text("code")}**: ${safe(stop.text("detail"))}\n")
         if ((stop.number("pending_continuations") ?: 0) > 0) {
             append("\nRetained continuation recipes: ${stop.text("pending_continuations")}. Further reads retain the task's scope, authorization and remaining budget.\n")

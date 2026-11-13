@@ -126,14 +126,38 @@ internal class GitHubOutputContinuationSession(
             it["state"] in GitHubToolHandoff.states
         }
         if (handoff != null && !handoffResolved(handoff)) {
+            val pending = GitHubToolHandoff.pending(handoff)
+            val pendingReceipts = (handoff["completed_results"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+                .filter { (it["invocation_fingerprint"] as? JsonPrimitive)?.contentOrNull in pending }
             emit(
                 ProviderEvent.Failed(
-                    "OUTPUT_CONTINUATION_PENDING_TOOLS: ${GitHubToolHandoff.pending(handoff).size} saved invocation(s) still require a matching terminal receipt or outcome reconciliation. Completed actions were retained and were not dispatched again.",
+                    "OUTPUT_CONTINUATION_PENDING_TOOLS: ${pending.size} saved invocation(s) still require a matching terminal receipt or outcome reconciliation. Completed actions were retained and were not dispatched again.",
                     errorCode = "OUTPUT_CONTINUATION_PENDING_TOOLS",
                     taskOutcome = "BLOCKED",
                     failureDetails = buildJsonObject {
                         put("failed_stage", "tool_reconciliation")
-                        put("pending_invocation_fingerprints", JsonArray(GitHubToolHandoff.pending(handoff).map(::JsonPrimitive)))
+                        put("diagnostic_area", "INCIDENT")
+                        put("pending_invocation_fingerprints", JsonArray(pending.map(::JsonPrimitive)))
+                        put("pending_tool_count", pending.size)
+                        put(
+                            "pending_tool_identity_hashes",
+                            JsonArray(
+                                pending.sorted().take(4).mapNotNull {
+                                    dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("pending-tool-invocation", it)?.let(::JsonPrimitive)
+                                }
+                            )
+                        )
+                        put(
+                            "pending_tool_receipt_state",
+                            when {
+                                pending.isEmpty() -> "CHECKPOINT_STATE_INCONSISTENT"
+                                pendingReceipts.isEmpty() -> "TERMINAL_RECEIPTS_MISSING"
+                                pendingReceipts.size < pending.size -> "SOME_TERMINAL_RECEIPTS_MISSING"
+                                else -> "OUTCOMES_UNRESOLVED"
+                            }
+                        )
+                        put("recovery_observation", "RECONCILIATION_REQUIRED")
+                        put("recovery_action", "RECONCILE_OUTCOME")
                         put("requires_reconciliation", true)
                         put("resume_allowed", false)
                         put("retryable_without_new_input", false)

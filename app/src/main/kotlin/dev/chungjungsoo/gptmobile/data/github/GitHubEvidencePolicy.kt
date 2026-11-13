@@ -145,7 +145,7 @@ internal object GitHubEvidencePolicy {
         return assertions.isNotEmpty() && assertions.all { it.string("status") in allowed }
     }
 
-    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null): Pair<String, JsonObject> {
+    fun render(answer: JsonObject, receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null): Pair<String, JsonObject> {
         val claims = answer["claims"] as? JsonArray ?: error("Missing claim-level evidence response")
         require(claims.size in 1..128) { "Claim count exceeds the verification bound" }
         val checked = mutableListOf<JsonObject>()
@@ -227,6 +227,11 @@ internal object GitHubEvidencePolicy {
         val supportedClaims = checked.filterNot(::explicitlyUnmeasured)
         val unmeasuredScopes = checked.filter(::explicitlyUnmeasured)
         val completion = GitHubRequestCompletion.evaluate(task, checked, answer, receipts, now)
+        val checklist = if (GitHubTaskCoverage.matches(task)) {
+            GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, fixturePreflight, stageBudget, acceptedContract)
+        } else {
+            null
+        }
         val report = buildJsonObject {
             put("schema", "github.verification.v1")
             put("verified_at_ms", now)
@@ -243,14 +248,14 @@ internal object GitHubEvidencePolicy {
             put("task_outcome", completion.getValue("task_outcome"))
             put("task", task)
             put("operation_coverage", JsonArray(GitHubTaskCoverage.rows(receipts)))
-            if (GitHubTaskCoverage.matches(task)) put("test_checklist", GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls, stageBudget = stageBudget, acceptedContract = acceptedContract))
+            checklist?.let { put("test_checklist", it) }
             completion.forEach { (key, value) -> put(key, value) }
         }
         val questions = (answer["questions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.take(4)
         val facts = lines.filter { it.startsWith("| ") }.distinct()
         val notes = lines.filter { it.isNotBlank() && !it.startsWith("| ") }.distinct()
         val text = if (GitHubTaskCoverage.matches(task)) {
-            "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task, tools, remainingToolCalls, stageBudget, acceptedContract) +
+            "# GitHub verification report\n\n" + GitHubTaskCoverage.render(receipts, task, tools, remainingToolCalls, stageBudget, acceptedContract, checklist) +
                 if (facts.isNotEmpty()) "\n## Verified observations\n\n| Detail | Result | As of (UTC) |\n| --- | --- | --- |\n" + facts.joinToString("\n") else ""
         } else {
             GitHubAnswerPresentation.render(task, facts, notes, excerpts, questions.map { safe(it.take(240)) })
@@ -268,8 +273,8 @@ internal object GitHubEvidencePolicy {
     }
 
     /** A formatter outage cannot turn a private draft into proof or erase retained observations. */
-    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null): Pair<String, JsonObject> {
-        if (GitHubTaskCoverage.matches(task)) return testing(receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract)
+    fun partial(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String = "", failureCode: String? = null, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null): Pair<String, JsonObject> {
+        if (GitHubTaskCoverage.matches(task)) return testing(receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract, fixturePreflight)
         val allowHistorical = historicalReview(task)
         val claims = mutableListOf<JsonObject>()
         for ((id, receipt) in receipts.entries.sortedByDescending { (_, row) -> (row["observed_at_ms"] as? JsonPrimitive)?.longOrNull ?: 0 }) {
@@ -419,7 +424,7 @@ internal object GitHubEvidencePolicy {
     }
 
     /** Deterministic test reporting does not need another model to rediscover execution receipts. */
-    fun testing(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null): Pair<String, JsonObject> {
+    fun testing(receipts: Map<String, JsonObject>, now: Long, epoch: Long, task: String, tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition> = emptyList(), remainingToolCalls: Int? = null, stageBudget: JsonObject? = null, acceptedContract: JsonObject? = null, fixturePreflight: JsonObject? = null): Pair<String, JsonObject> {
         val claims = mutableListOf<JsonObject>()
         val operations = mutableSetOf<String>()
         for ((id, receipt) in receipts.entries.reversed()) {
@@ -445,15 +450,22 @@ internal object GitHubEvidencePolicy {
             put("kind", "not_measured")
             put("subject", "Full requested test coverage requires execution evidence")
         }
-        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract)
-        val complete = GitHubTestChecklist.apiComplete(task, receipts, tools)
+        val (text, report) = render(buildJsonObject { put("claims", JsonArray(claims)) }, receipts, now, epoch, task, tools, remainingToolCalls, stageBudget, acceptedContract, fixturePreflight)
+        val checklist = report["test_checklist"] as? JsonObject
+        val requirements = if (GitHubTestChecklist.integration(task)) {
+            (checklist?.get("requirements") as? JsonArray) ?: JsonArray(emptyList())
+        } else {
+            GitHubIntegrationAcceptance.requirements(task, receipts, tools)
+        }
+        val complete = GitHubTestChecklist.integration(task) &&
+            requirements.isNotEmpty() &&
+            requirements.all { (it as JsonObject)["acceptance_state"] == JsonPrimitive("PASS") }
         return text to JsonObject(
             report + buildJsonObject {
                 put("completion_verified", complete)
                 put("partial", !complete)
                 put("task_outcome", if (complete) "COMPLETED" else "PARTIAL")
                 put("completion_scope", "Authorized API action coverage; device and overall application health are not inferred")
-                val requirements = GitHubIntegrationAcceptance.requirements(task, receipts, tools)
                 put("requirements", requirements)
                 put("remaining_requirements", JsonArray(requirements.filter { (it as JsonObject)["acceptance_state"] != JsonPrimitive("PASS") }))
                 if (receipts.values.none { it["trusted"] == JsonPrimitive(true) }) put("failure_code", "GITHUB_EVIDENCE_REQUIRED")

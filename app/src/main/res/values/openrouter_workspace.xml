@@ -221,4 +221,9 @@
     <string name="orw_delete_batch_help">Delete the selected terminal batch and its stored artifacts from OpenRouter. Upstream deletion depends on provider support; billing records remain.</string>
     <string name="orw_cache_entries">Cached queue entries for this connection</string>
     <string name="orw_clear_local_cache">Clear this connection’s local cache</string>
+    <string name="orw_privacy_checking">Checking endpoint compatibility…</string>
+    <string name="orw_privacy_compatible">An endpoint matches this profile’s zero data retention and provider rules.</string>
+    <string name="orw_privacy_incompatible">No endpoint matches this profile’s zero data retention and provider rules.</string>
+    <string name="orw_privacy_unknown">Endpoint compatibility could not be verified.</string>
+    <string name="orw_privacy_refresh">Refresh privacy compatibility</string>
 </resources>

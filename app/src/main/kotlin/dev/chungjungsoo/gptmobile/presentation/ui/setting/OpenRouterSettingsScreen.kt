@@ -47,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -313,6 +314,17 @@ private fun OpenRouterRouting(state: OpenRouterWorkspaceState, vm: OpenRouterSet
     var selectedUid by remember(state.connection?.uid) { mutableStateOf<String?>(null) }
     val selectedProfile = state.profiles.find { it.uid == selectedUid }
     val effective = remember(policy, selectedProfile) { runCatching { OpenRouterPolicy.resolve(policy, OpenRouterPolicy.decodeProfile(selectedProfile?.openRouterRouting).second) } }
+    val resolved = effective.getOrNull()
+    val privacyModel = selectedProfile?.model?.takeIf { resolved?.zdr == true }
+    var privacyRefresh by remember { mutableStateOf(0) }
+    var privacyLoading by remember(state.revision, privacyModel, resolved, privacyRefresh) { mutableStateOf(privacyModel != null) }
+    var privacyCompatible by remember(state.revision, privacyModel, resolved, privacyRefresh) { mutableStateOf<Boolean?>(null) }
+    LaunchedEffect(state.revision, privacyModel, resolved, privacyRefresh) {
+        if (privacyModel != null && resolved != null) {
+            privacyCompatible = vm.privacyCompatibility(privacyModel, resolved)
+            privacyLoading = false
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
         SettingsHero(stringResource(R.string.orw_routing), stringResource(R.string.orw_route_title), stringResource(R.string.orw_route_help))
         SettingsPanel(stringResource(R.string.orw_effective_route)) {
@@ -329,6 +341,20 @@ private fun OpenRouterRouting(state: OpenRouterWorkspaceState, vm: OpenRouterSet
                 if (resolved.only != null) Text(stringResource(R.string.orw_allowed) + ": " + resolved.only.joinToString())
                 if (resolved.zdr == true) Text(stringResource(R.string.orw_zdr))
                 if (resolved.dataCollection == "deny") Text(stringResource(R.string.orw_data_collection))
+            }
+            if (privacyModel != null) {
+                Text(
+                    stringResource(
+                        when {
+                            privacyLoading -> R.string.orw_privacy_checking
+                            privacyCompatible == true -> R.string.orw_privacy_compatible
+                            privacyCompatible == false -> R.string.orw_privacy_incompatible
+                            else -> R.string.orw_privacy_unknown
+                        }
+                    ),
+                    color = if (privacyCompatible == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                )
+                TextButton(onClick = { privacyRefresh++ }, enabled = !privacyLoading) { Text(stringResource(R.string.orw_privacy_refresh)) }
             }
             selectedProfile?.let { profile ->
                 val model = state.catalog.find { it.id == profile.model }

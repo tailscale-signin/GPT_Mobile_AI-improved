@@ -639,11 +639,12 @@ internal class GitHubVerifiedSession(
             } else {
                 null
             }
+            val fixturePreflight = if (GitHubTestChecklist.integration(task)) evidence.fixtureApprovalPreflight() else null
             val coverage = if (GitHubTaskCoverage.matches(task)) {
                 val reportingRemaining = remainingToolCalls()
                 val reportingBudget = evidence.stageBudget(receipts, reportingRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
                 withContext(computationDispatcher) {
-                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, reportingRemaining, reportingBudget)
+                    GitHubEvidencePolicy.testing(receipts, now(), epoch, task, authorizedTools, reportingRemaining, reportingBudget, evidence.acceptedPromptContract(), fixturePreflight)
                 }
             } else {
                 null
@@ -672,7 +673,7 @@ internal class GitHubVerifiedSession(
             val publicationReceipts = if (evidenceAdvanced) latest.first else receipts
             val publicationEpoch = if (evidenceAdvanced) latest.second else epoch
             val (renderedText, report) = if (evidenceAdvanced) {
-                val (updatedText, updatedReport) = partial(publicationReceipts, publicationEpoch, "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
+                val (updatedText, updatedReport) = partial(publicationReceipts, publicationEpoch, "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION", fixturePreflight)
                 updatedText to JsonObject(
                     updatedReport + buildJsonObject {
                         put("verification_failure", "GITHUB_EVIDENCE_ADVANCED_DURING_VERIFICATION")
@@ -689,14 +690,7 @@ internal class GitHubVerifiedSession(
                 rendered
             }
             val (checklist, progressDigest) = withContext(computationDispatcher) {
-                val fixturePreflight = if (coverage != null && GitHubTestChecklist.integration(task)) evidence.fixtureApprovalPreflight() else null
-                val checklist = if (coverage != null) {
-                    val publicationRemaining = remainingToolCalls()
-                    val budget = evidence.stageBudget(publicationReceipts, publicationRemaining, GitHubSelfTestFixtures.minimumCalls(authorizedTools))
-                    GitHubTestChecklist.checkpoint(task, publicationReceipts, authorizedTools, publicationRemaining, fixturePreflight, budget)
-                } else {
-                    null
-                }
+                val checklist = report["test_checklist"] as? JsonObject
                 checklist to checklist?.let { GitHubTestChecklist.progressDigest(task, publicationReceipts, authorizedTools, fixturePreflight) }
             }
             val previous = evidence.diagnostic()
@@ -735,7 +729,7 @@ internal class GitHubVerifiedSession(
                                 budgetRemaining?.let { put("remaining_tool_calls", it) }
                             }
                         } else {
-                            GitHubIntegrationReport.stopReason(task, publicationReceipts, authorizedTools, budgetRemaining)
+                            GitHubIntegrationReport.stopReason(task, publicationReceipts, authorizedTools, budgetRemaining, checklist)
                         }
                         put("stop_reason", stop)
                     }
@@ -1026,10 +1020,10 @@ internal class GitHubVerifiedSession(
 
     private data class ClaimExtraction(val rendered: Pair<String, JsonObject>, val failure: ProviderEvent.Failed? = null)
 
-    private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null): Pair<String, JsonObject> = withContext(computationDispatcher) {
+    private suspend fun partial(receipts: Map<String, JsonObject>, epoch: Long, failureCode: String? = null, fixturePreflight: JsonObject? = null): Pair<String, JsonObject> = withContext(computationDispatcher) {
         val budget = evidence.stageBudget(receipts, remainingToolCalls(), GitHubSelfTestFixtures.minimumCalls(authorizedTools))
         val remaining = (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull
-        GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode, authorizedTools, remaining, budget)
+        GitHubEvidencePolicy.partial(receipts, now(), epoch, task, failureCode, authorizedTools, remaining, budget, evidence.acceptedPromptContract(), fixturePreflight ?: if (GitHubTestChecklist.integration(task)) evidence.fixtureApprovalPreflight() else null)
     }
 
     private suspend fun claimExtractionContext(receipts: Map<String, JsonObject>, epoch: Long): String = withContext(computationDispatcher) {

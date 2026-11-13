@@ -21,5 +21,6 @@
   },
   "dependencies": [
     "654b13835c1a44de5fa0f7f3f5bdb48aa5961ad4"
-  ]
+  ],
+  "integration_review": "Retain closed model/backend readiness reasons in context6 and snapshot2; recognize model_preparation as unsent setup only with explicit non-dispatch and NO acceptance. Rechecked 71 report and75 receipt host cases plus21 cross-language payloads; root owns observed HTTP/stage and partial-output correlation fixes."
 }

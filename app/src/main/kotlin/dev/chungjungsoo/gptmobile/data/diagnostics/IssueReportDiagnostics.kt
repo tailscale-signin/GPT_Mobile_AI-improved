@@ -45,6 +45,21 @@ internal data class IssueReportDiagnostics(
         val areas = setOf("PROVIDER", "TOOL", "ACCEPTANCE", "VOICE", "GATEWAY", "APP")
         private val captureModes = setOf("INCIDENT", "SELECTED_CAPTURE", "NO_CAPTURE")
         private val hashPattern = Regex("[a-f0-9]{64}")
+
+        // Closed readiness vocabulary emitted by capability/model-preparation producers.
+        val modelPreparationReasonCodes = setOf(
+            "BACKEND_CONNECTION_REFUSED", "BACKEND_CONNECT_TIMEOUT", "BACKEND_READ_TIMEOUT", "BACKEND_DNS_FAILED",
+            "BACKEND_TLS_FAILED", "BACKEND_CONNECTION_CLOSED", "BACKEND_CONNECTION_FAILED", "BACKEND_HTTP_ERROR",
+            "BACKEND_METADATA_DENIED", "BACKEND_ROUTE_UNSUPPORTED", "BACKEND_INVALID_RESPONSE", "BACKEND_RESPONSE_TOO_LARGE",
+            "BACKEND_METADATA_DEADLINE", "BACKEND_CONFIGURATION_INVALID", "SELECTED_MODEL_NOT_AVAILABLE", "SELECTED_MODEL_NOT_LOADED",
+            "SELECTED_MODEL_LOADING", "SELECTED_MODEL_UNVERIFIED", "BACKEND_GENERATION_UNAVAILABLE", "BACKEND_GENERATION_UNVERIFIED",
+            "GATEWAY_DRAINING", "DURABLE_STORAGE_UNAVAILABLE", "DURABLE_STORAGE_WRITE_FAILED", "EXECUTION_METADATA_DEADLINE",
+            "EXECUTION_METADATA_DENIED", "EXECUTION_METADATA_OVERSIZE", "EXECUTION_CAPABILITY_UNSUPPORTED", "EXECUTION_CAPABILITY_INVALID",
+            "EXECUTION_BACKEND_UNAVAILABLE", "EXECUTION_MODEL_IDENTITY_INVALID", "EXECUTION_MODEL_UNAVAILABLE", "EXECUTION_MODEL_NOT_LOADED",
+            "EXECUTION_MODEL_LOADING", "EXECUTION_MODEL_MISMATCH", "EXECUTION_CONTEXT_UNAVAILABLE", "REASONING_CAPABILITY_TIMEOUT",
+            "REASONING_CAPABILITY_UNAVAILABLE", "REASONING_CAPABILITY_UNVERIFIED", "REASONING_ON_UNSUPPORTED", "REASONING_OFF_UNSUPPORTED",
+            "REASONING_AUTO_UNSUPPORTED", "GATEWAY_REMOTE_SURFACE_NOT_ADMITTED"
+        )
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
         private val hashFields = commonHashes + setOf(
             "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash",
@@ -86,7 +101,7 @@ internal data class IssueReportDiagnostics(
             "voice_phase" to setOf("PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "SPEAKING", "ERROR", "CLOSED"),
             "voice_focus_result" to setOf("GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"),
             "voice_first_audio_basis" to setOf("UTTERANCE_START", "PLAYBACK_HEAD"),
-            "gateway_reason_code" to GatewayInputRejectionDetails.reasonCodes,
+            "gateway_reason_code" to GatewayInputRejectionDetails.reasonCodes + modelPreparationReasonCodes,
             "gateway_failure_phase" to setOf("model_preparation", "connection_preflight", "provider_admission", "request_validation", "engineering_guard", "binding_admission", "message_admission", "conversation_admission", "execution_admission", "gateway_recovery", "transport"),
             "gateway_state" to setOf("QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED"),
             "app_exit_kind" to setOf("JVM_CRASH", "NATIVE_CRASH", "APP_NOT_RESPONDING", "STARTUP_FAILED")

@@ -23,6 +23,8 @@ class ProviderInterruptionReceiptTest {
                 failureDetails = buildJsonObject {
                     put("failed_stage", "model_preparation")
                     put("dispatched", false)
+                    put("dispatch_state", "NOT_DISPATCHED")
+                    put("remote_acceptance", "NO")
                     put("operation_id", "load-operation")
                 }
             )
@@ -39,6 +41,10 @@ class ProviderInterruptionReceiptTest {
             val classified = ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             assertEquals(code, classified.category)
             assertFalse(classified.retryAllowed)
+            assertTrue(classified.isUnsentSetup)
+            val unobserved = ProfileFailureRecord.fromProvider(failure.message, code, buildJsonObject { put("failed_stage", "model_preparation") })
+            assertFalse(unobserved.isUnsentSetup)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, unobserved.remoteAcceptance)
         }
     }
 

@@ -18,9 +18,10 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35], application = Application::class)
 class IssueReportContextTest {
     @Test fun modelPreparationStageRequiresSixAndKeepsHttpAndInvocationUnknown() {
-        val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "model_preparation", "dispatched" to false, "operation_id" to "private-load-operation"), 1_700_000_000_000)
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "model_preparation", "dispatched" to false, "operation_id" to "private-load-operation", "reason_code" to "SELECTED_MODEL_NOT_LOADED"), 1_700_000_000_000)
         assertEquals(6, context.schemaVersion)
         assertEquals("model_preparation", context.stage)
+        assertEquals("SELECTED_MODEL_NOT_LOADED", context.reasonCode)
         assertEquals(false, context.dispatched)
         assertNull(context.httpStatus)
         assertNull(context.invocationIdHash)
@@ -28,6 +29,8 @@ class IssueReportContextTest {
         val encoded = IssueReport.json.encodeToJsonElement(IssueReportContext.serializer(), context)
         assertTrue(IssueReportContext.validDiagnosticsIn(encoded))
         assertFalse(encoded.toString().contains("private-load-operation"))
+        val wrongPhase = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failed_stage" to "response_stream", "reason_code" to "SELECTED_MODEL_NOT_LOADED"))
+        assertNull(wrongPhase.reasonCode)
     }
 
     @Test fun engineeringReasonsAndRequestFieldsSelectSixWithoutChangingLegacyApprovals() {

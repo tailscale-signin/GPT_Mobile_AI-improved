@@ -140,10 +140,11 @@ internal data class IssueReportContext(
                 "remoteAcceptance" to setOf("YES", "NO", "UNKNOWN"),
                 "jobState" to jobStates,
                 "recoveryAction" to recoveryActions + acceptanceRecoveryActions + reviewRecoveryActions + lifecycleRecoveryActions,
-                "reasonCode" to reasonCodes + acceptanceReasonCodes + recoveryReasonCodes + toolPrecheckReasonCodes + if (version == 6) GatewayInputRejectionDetails.reasonCodes else emptySet(),
+                "reasonCode" to reasonCodes + acceptanceReasonCodes + recoveryReasonCodes + toolPrecheckReasonCodes + if (version == 6) GatewayInputRejectionDetails.reasonCodes + IssueReportDiagnostics.modelPreparationReasonCodes else emptySet(),
                 "originalFailureCode" to IssueReportCodes.allowed
             )
             if (enums.any { (key, choices) -> key in context && text(key) !in choices }) return false
+            if (text("reasonCode") in IssueReportDiagnostics.modelPreparationReasonCodes && text("stage") != "model_preparation") return false
             if (text("reasonCode") in toolPrecheckReasonCodes &&
                 (text("source") != "TOOL_RESULT" || text("stage") != "tool_precheck" || context["dispatched"] != JsonPrimitive(false) || context["requiresReconciliation"] == JsonPrimitive(true))
             ) {
@@ -239,7 +240,7 @@ internal data class IssueReportContext(
             val localRecovery = localRecoveryCode(fields)
             val toolPrecheck = source == "TOOL_RESULT" && stage == "tool_precheck" && dispatched == false && flag("requires_reconciliation", "requiresReconciliation") != true
             val reasonCode = localRecovery ?: text("reasonCode", "reason_code", "stop_reason")?.uppercase(Locale.ROOT)
-                ?.takeIf { it in reasonCodes || it in acceptanceReasonCodes || it in recoveryReasonCodes || it in GatewayInputRejectionDetails.reasonCodes || toolPrecheck && it in toolPrecheckReasonCodes }
+                ?.takeIf { it in reasonCodes || it in acceptanceReasonCodes || it in recoveryReasonCodes || it in GatewayInputRejectionDetails.reasonCodes || stage == "model_preparation" && it in IssueReportDiagnostics.modelPreparationReasonCodes || toolPrecheck && it in toolPrecheckReasonCodes }
             val engineering = reasonCode in GatewayInputRejectionDetails.reasonCodes
             val fieldNames = selectionFields + if (engineering) GatewayInputRejectionDetails.fieldNames else emptySet()
             val original = (value("original_interruption") as? Map<*, *>)?.takeIf { localRecovery != null }

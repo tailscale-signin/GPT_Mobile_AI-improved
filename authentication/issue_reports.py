@@ -19,7 +19,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from .github_broker import NoRedirect
-from .engineering_report_contract import ENGINEERING_FIELDS, ENGINEERING_REASONS
+from .engineering_report_contract import ENGINEERING_FIELDS, ENGINEERING_REASONS, MODEL_PREPARATION_REASONS
 from .issue_report_diagnostics import diagnostics_body, validate_diagnostics
 
 
@@ -315,7 +315,7 @@ CONTEXT_ENUMS_V4 = {
     "recoveryAction": CONTEXT_ENUMS_V3["recoveryAction"] | CONTEXT_RECOVERY_ACTIONS,
     "originalFailureCode": ERROR_CODES,
 }
-CONTEXT_ENUMS_V6 = {**CONTEXT_ENUMS_V4, "reasonCode": CONTEXT_ENUMS_V4["reasonCode"] | ENGINEERING_REASONS, "stage": CONTEXT_ENUMS_V4["stage"] | {"model_preparation"}}
+CONTEXT_ENUMS_V6 = {**CONTEXT_ENUMS_V4, "reasonCode": CONTEXT_ENUMS_V4["reasonCode"] | ENGINEERING_REASONS | MODEL_PREPARATION_REASONS, "stage": CONTEXT_ENUMS_V4["stage"] | {"model_preparation"}}
 CONTEXT_NUMBERS = {"occurredAtMillis": (1, 9_999_999_999_999), "httpStatus": (100, 599), "retryAfterMillis": (0, 86_400_000)}
 CONTEXT_ACCEPTANCE_NUMBERS = {"requiredCriteria": (0, 100_000), "verifiedCriteria": (0, 100_000), "remainingCriteria": (0, 100_000)}
 CONTEXT_RECOVERY_NUMBERS = {"originalHttpStatus": (100, 599), "ownershipFence": (0, 9_223_372_036_854_775_807)}
@@ -396,6 +396,8 @@ def _report_context(value):
     for key, choices in enums.items():
         if key in value and (not isinstance(value[key], str) or value[key] not in choices):
             raise ReportError(422, "INVALID_REPORT")
+    if value.get("reasonCode") in MODEL_PREPARATION_REASONS and value.get("stage") != "model_preparation":
+        raise ReportError(422, "INVALID_REPORT")
     if value.get("reasonCode") in CONTEXT_TOOL_PRECHECK_REASONS and not (
         version in (4, 5, 6) and value.get("source") == "TOOL_RESULT" and value.get("stage") == "tool_precheck" and value.get("dispatched") is False and value.get("requiresReconciliation") is not True
     ):

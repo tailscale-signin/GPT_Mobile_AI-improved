@@ -64,7 +64,9 @@ data class ProfileFailureRecord(
             phase == "connection_preflight" &&
                 category.startsWith("GATEWAY_ENGINEERING_") ||
                 phase == "provider_admission" &&
-                category.isSelectedModelBlocker()
+                category.isSelectedModelBlocker() ||
+                phase == "model_preparation" &&
+                category in modelPreparationCodes
             )
 
     companion object {

@@ -13,7 +13,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from fastapi.testclient import TestClient
 
-from authentication.engineering_report_contract import ENGINEERING_REASON_FIELDS, GATEWAY_ADMISSION_CORE
+from authentication.engineering_report_contract import ENGINEERING_REASON_FIELDS, GATEWAY_ADMISSION_CORE, MODEL_PREPARATION_REASONS
 from authentication.app import create_app
 from authentication.github_broker import Config, challenge_for
 from authentication.issue_report_app import create_app as create_report_app
@@ -155,11 +155,17 @@ class IssueReportHttpTest(unittest.TestCase):
             self.assertIn("| Failure stage | `model_preparation` |", issue["body"])
             self.assertNotIn("| HTTP status |", issue["body"])
             self.assertNotIn("| Invocation hash |", issue["body"])
+        for reason in MODEL_PREPARATION_REASONS:
+            context = self.context(schemaVersion=6, stage="model_preparation", reasonCode=reason, dispatched=False)
+            _, issue = issue_from_report({**self.manual(), "context": context})
+            self.assertIn(f"| Reason code | `{reason}` |", issue["body"])
+            with self.assertRaises(ReportError):
+                issue_from_report({**self.manual(), "context": self.context(schemaVersion=6, stage="response_stream", reasonCode=reason)})
 
     def test_gateway_admission_without_a_job_round_trips_over_http_and_keeps_approved_bytes(self):
         values = {"profile_hash": "a" * 64, "model_hash": "b" * 64, "gateway_manifest_hash": "c" * 64,
                   "gateway_version": "16.0.0", "gateway_protocol_version": 1, "gateway_admission_ready": False,
-                  "gateway_failure_phase": "request_validation", "gateway_http_status": 409, "gateway_reason_code": "ENGINEERING_TASK_SCOPE_REQUIRED"}
+                  "gateway_failure_phase": "model_preparation", "gateway_http_status": 409, "gateway_reason_code": "SELECTED_MODEL_NOT_LOADED"}
         capture = {**self.diagnostics("GATEWAY", values, "SELECTED_CAPTURE"), "schemaVersion": 2,
                    "unavailableFields": sorted((CORE_FIELDS["GATEWAY"] | GATEWAY_ADMISSION_CORE) - values.keys())}
         report = {**self.manual(), "context": self.context(schemaVersion=6, source="MANUAL_REPORT", diagnostics=capture)}

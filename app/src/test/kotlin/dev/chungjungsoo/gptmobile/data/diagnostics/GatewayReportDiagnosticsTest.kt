@@ -24,11 +24,13 @@ class GatewayReportDiagnosticsTest {
                 stage = "model_preparation",
                 ready = false,
                 failureCode = "MODEL_PREPARATION_INCOMPLETE",
+                reasonCode = "SELECTED_MODEL_NOT_LOADED",
                 operationId = "private-load-operation",
                 capturedAtMillis = 1_000_000
             )
         )
         assertEquals(JsonPrimitive("model_preparation"), snapshot.values["gateway_failure_phase"])
+        assertEquals(JsonPrimitive("SELECTED_MODEL_NOT_LOADED"), snapshot.values["gateway_reason_code"])
         assertEquals(JsonPrimitive(IssueReportContext.identifierHash("gateway-operation", "private-load-operation")), snapshot.values["gateway_operation_id_hash"])
         assertNull(snapshot.values["invocation_id_hash"])
         assertNull(snapshot.values["job_id_hash"])

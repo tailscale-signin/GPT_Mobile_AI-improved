@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 
-from .engineering_report_contract import ENGINEERING_REASONS, GATEWAY_ADMISSION_CORE, GATEWAY_ADMISSION_FIELDS, GATEWAY_ADMISSION_PHASES
+from .engineering_report_contract import ENGINEERING_REASONS, GATEWAY_ADMISSION_CORE, GATEWAY_ADMISSION_FIELDS, GATEWAY_ADMISSION_PHASES, MODEL_PREPARATION_REASONS
 
 
 MAX_DIAGNOSTIC_BYTES = 3072
@@ -46,7 +46,7 @@ ENUMS = {
     "voice_phase": {"PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "SPEAKING", "ERROR", "CLOSED"},
     "voice_focus_result": {"GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"},
     "voice_first_audio_basis": {"UTTERANCE_START", "PLAYBACK_HEAD"},
-    "gateway_reason_code": ENGINEERING_REASONS,
+    "gateway_reason_code": ENGINEERING_REASONS | MODEL_PREPARATION_REASONS,
     "gateway_failure_phase": GATEWAY_ADMISSION_PHASES,
     "gateway_state": {"QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED"},
     "app_exit_kind": {"JVM_CRASH", "NATIVE_CRASH", "APP_NOT_RESPONDING", "STARTUP_FAILED"},

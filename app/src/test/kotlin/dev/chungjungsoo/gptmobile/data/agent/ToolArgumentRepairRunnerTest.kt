@@ -69,4 +69,32 @@ class ToolArgumentRepairRunnerTest {
         assertTrue(!result.isError && result.dispatched)
         assertEquals(1, executed)
     }
+
+    @Test fun semanticPrecheckReusesAnUnchangedRejectionButAllowsCorrectedArguments() = runBlocking {
+        var executed = 0
+        val tool = ToolExecutionBudget(AgentRunLimits()).bind(object : AgentTool {
+            override val definition = this@ToolArgumentRepairRunnerTest.definition
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                executed++
+                return if (arguments["issue_number"] == JsonPrimitive(1)) {
+                    AgentToolResult(callId, ToolResultContent.Text("Select an issue admitted for this task."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+                } else {
+                    AgentToolResult(callId, ToolResultContent.Text("Confirmed issue"), false)
+                }
+            }
+        })
+        val arguments = buildJsonObject { put("issue_number", 1) }
+        val rejected = tool.execute("first", arguments)
+        val repeated = tool.execute("new-id", arguments)
+        assertTrue(rejected.isError && !rejected.dispatched && !rejected.sharedResult)
+        assertEquals("new-id", repeated.callId)
+        assertEquals(rejected.content, repeated.content)
+        assertEquals("INVALID_ARGUMENTS", repeated.errorCode)
+        assertTrue(repeated.isError && !repeated.dispatched && repeated.sharedResult)
+        assertEquals(1, executed)
+
+        val corrected = tool.execute("corrected", buildJsonObject { put("issue_number", 2) })
+        assertTrue(!corrected.isError && corrected.dispatched)
+        assertEquals(2, executed)
+    }
 }

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "29f6dcc28d0e7f2a28505eaf7608b029f022249014b08c18a94e37dd94c80d41",
+  "source_digest": "d73905575df585f900bb3473dcf7bdbaafdfaeb8a473554b0e648f83b195c26b",
   "file_count": 2534,
-  "indexed_line_count": 404556,
+  "indexed_line_count": 404562,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 225,
-      "indexed_line_count": 37572
+      "indexed_line_count": 37578
     },
     {
       "id": "agent_tools",
@@ -2054,8 +2054,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "618e58f1fb23654b8c0fb02e023b3593329f0e16d927908834a8af51bb713728",
-      "indexed_lines": 664
+      "sha256": "263717c89e7ff6e6945d94db34a6b4411c93b8553ab3cf971ba4a1729a9dd479",
+      "indexed_lines": 670
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolFailureMetadata.kt",

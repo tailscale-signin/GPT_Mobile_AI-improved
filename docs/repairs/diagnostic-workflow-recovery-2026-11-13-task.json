@@ -12,7 +12,7 @@
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "diagnostic-workflow-recovery-2026-11-13",
   "checkpoint_storage": "repository_file",
-  "state": "VALIDATING",
+  "state": "PUBLISHED_VALIDATING",
   "intent": "Repair the uploaded diagnostic failures and all currently open issues on the single new draft branch. Resolve proven defects; add bounded privacy-preserving reporting for incidents lacking enough evidence; publish exact validation evidence and close each issue with an accurate resolution.",
   "issue_snapshot": {
     "open_numbers": [
@@ -72,14 +72,32 @@
       "boundary_limit": "Host harnesses use disclosed Android/infrastructure boundary stubs; not full Android qualification."
     },
     "canonical_host": "PASSED_FINAL_495_TESTS",
-    "hosted_android": "PENDING_NEW_DRAFT",
+    "hosted_android": "RUNNING",
     "physical_phone_and_private_gateway": "NOT_RUN",
     "gateway": "PASSED_943_PYTHON_7_JAVASCRIPT",
     "authentication": "76_PASSED",
     "historic_approved_payloads": "ALL_37_VALID_UNCHANGED",
-    "local_android": "TWO_GENERATION_DAEMON_DISAPPEARANCES_NO_COMPILER_DIAGNOSTIC"
+    "local_android": "PUBLISHED_HEAD_KSP_AND_KAPT_PASS_PRODUCTION_COMPILE_PENDING",
+    "gateway_source_identity": {
+      "source_commit": "7fd99490171368aa3369cac7ed8b8c1d13c5debc",
+      "files": 220,
+      "bytes": 3934631,
+      "mismatches": 0
+    },
+    "hosted_followups": [
+      "Declare exact29 new paths in release scope without changing qualification",
+      "Include incident_report_contract in canonical CI authentication suite",
+      "Restore bounded semanticArgumentRejections cache after static validation; remove two stale rejectedArguments references; add no-reexecution regression"
+    ]
   },
   "authorization": "User explicitly requested implementation, a single latest draft branch (or creation if absent), and issue closure after fix or additional diagnostic reporting.",
   "package_source_commit": "7fd99490171368aa3369cac7ed8b8c1d13c5debc",
-  "issue_closure": "NOT_STARTED"
+  "issue_closure": "37_RESOLUTION_COMMENTS_POSTED_CLOSURE_PENDING",
+  "publication": {
+    "pull_request": 928,
+    "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/928",
+    "draft": true,
+    "tree_sha": "518a9ffe0db388bc97e87d5e83058d317cfeb163",
+    "initial_head_sha": "630031e486c4ffcc074d4292f371e7c8a3f9c5a9"
+  }
 }

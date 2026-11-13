@@ -6,7 +6,7 @@ The owner requested a review of all open GitHub issues and the supplied applicat
 
 - Repository: `tailscale-signin/GPT_Mobile_AI-improved`.
 - Working branch: `fix/diagnostic-workflow-recovery-2026-11-13`.
-- Starting candidate: `b3eb5e1ec71cd38d78acfa9462c174f3e06a0f8e`, shared by existing ready-for-review PRs #838 and #881. Neither PR was a draft when this task began, so a new branch was created. All repairs remain on that branch.
+- Starting candidate: `b3eb5e1ec71cd38d78acfa9462c174f3e06a0f8e`, shared by existing ready-for-review PRs #838 and #881. Neither PR was a draft when this task began, so a new branch was created. All repairs remain on that branch. [Draft PR #928](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/928) publishes the implementation at `630031e486c4ffcc074d4292f371e7c8a3f9c5a9`; its uploaded Git tree was verified identical to the local staged tree.
 - Base: `main` at `97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf`.
 - Uploaded application source: `36ac21b6…`; its Git tree matches the starting candidate. This establishes applicability of the uploaded log without equating different commit identities.
 - Issue inventory: initially #891–#921 (31); refreshed to #891–#927 (37) during implementation. Pull requests are excluded from the issue count.
@@ -84,11 +84,13 @@ This ledger is updated as checks finish. Passing host subsets are not substitute
 | Report host harness | 34 tests passed against real report/capsule/manual/privacy/projection code, including the original JVM report failure. Android scheduling/database/network boundaries are not simulated as proof. |
 | Root policy/diagnostic host harness | 25 tests passed: integration intent, privacy endpoint observation, frame context and bounded queue. Android layout, persistence and transport integration remain for Gradle. |
 | Kotlin formatting | Owned changed files pass pinned ktlint 1.3.1; final full changed-file check is required. |
-| Android Gradle | JDK 21, verified Gradle 9.8.0, SDK 37 and NDK 29 provisioned. Two source-generation attempts lost the Gradle daemon during KAPT stub generation without a compiler diagnostic. Full Android compilation/tests are not yet qualified; hosted checks remain necessary. |
-| Hosted checks | Pending publication of the new draft PR. The old candidate's 10,022-test run (six failures, five skipped) is historical evidence, not new-branch validation. |
+| Android Gradle | JDK 21, verified Gradle 9.8.0, SDK 37 and NDK 29 provisioned. Two combined KSP/KAPT attempts lost the daemon. Separate published-head KSP and KAPT processes passed (1m12s and 3m13s); production compile and full Android tests remain pending. |
+| Hosted checks | Draft PR #928 is published. Kotlin lint, repository/gateway contracts, diagnostic preflight and the Windows installer/smoke passed. The scope check identified 29 undeclared new repair paths; a precise manifest correction is prepared. The first Android compile caught two stale rejection-cache references. They were replaced by a separate bounded semantic-rejection cache, preserving exact-argument reuse after static validation, with a new budget-wrapper regression. A fresh compile and tests are pending. The old candidate's 10,022-test run is historical evidence, not new-branch validation. |
 | Physical phone / private gateway / QNN or GPU execution | Not run. No device qualification or private-service deployment is claimed. |
 
-The gateway package manifest binds its regenerated `v14/diagnostic_schema.py` to source commit `7fd99490171368aa3369cac7ed8b8c1d13c5debc`. This is a parent of the repair publication and avoids claiming a package came from an unrelated source tree. Other package files retain their verified hashes.
+The gateway package manifest binds its regenerated `v14/diagnostic_schema.py` to source commit `7fd99490171368aa3369cac7ed8b8c1d13c5debc`. This is a parent of the repair publication and avoids claiming a package came from an unrelated source tree. Independent Git-object verification confirmed all 220 package files (3,934,631 bytes) match this source commit and the published repair commit byte-for-byte and by SHA-256, with zero mismatches. Only the manifest changed after the package source commit.
+
+All 37 issues have received individual resolution comments linking to the draft. Closure remains pending the final implementation/validation review. The scope-manifest follow-up adds exactly the new repair paths without weakening its validator or promoting incomplete Unified Reliability v2 qualification. The new Python incident-contract suite is also included explicitly in the canonical local and hosted authentication checks.
 
 ## Operational follow-up
 

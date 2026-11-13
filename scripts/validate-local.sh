@@ -15,6 +15,6 @@ git diff --check
 if [[ "$mode" == full ]]; then
     python3 -m pip install --require-hashes -r gateway/requirements.txt
     python3 gateway/check_gateway.py
-    python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker
+    python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract
     bash scripts/validate.sh all
 fi

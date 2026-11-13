@@ -33,4 +33,4 @@ jobs:
       - run: python -m pip install --require-hashes -r gateway/requirements.txt
       - run: python gateway/gateway.py validate-config
       - run: python gateway/check_gateway.py
-      - run: python -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker
+      - run: python -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract

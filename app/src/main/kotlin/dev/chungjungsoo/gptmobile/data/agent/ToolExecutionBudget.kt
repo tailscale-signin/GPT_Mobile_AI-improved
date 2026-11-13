@@ -34,6 +34,7 @@ class ToolExecutionBudget(
     private val invocationIds = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val failures = java.util.concurrent.ConcurrentHashMap<String, AtomicInteger>()
     private val argumentRepairs = ToolArgumentRepairBudget()
+    private val semanticArgumentRejections = java.util.concurrent.ConcurrentHashMap<String, AgentToolResult>()
     private val completed = AtomicInteger()
     private val outputAdmissionLock = Any()
     private var outputAdmissionClosed = false
@@ -120,6 +121,9 @@ class ToolExecutionBudget(
             if (invalid.isNotEmpty()) {
                 val rejected = argumentRepairs.rejection(callId, tool.definition, arguments, invalid)
                 return { withBudgetState(rejected) }
+            }
+            semanticArgumentRejections[signature]?.let { previous ->
+                return { withBudgetState(previous.copy(callId = callId, sharedResult = true)) }
             }
             if (!separateResultAllowance && remainingBytes.get() <= 0) {
                 val message = outputBudgetMessage()
@@ -314,8 +318,10 @@ class ToolExecutionBudget(
                             terminalToolFailures[tool.definition.name] = "AUTH_FAILED"
                         }
                     }
-                    if (normalizedResult.isError && !normalizedResult.dispatched && normalizedResult.errorCode == "INVALID_ARGUMENTS" && rejectedArguments.size < 128) {
-                        rejectedArguments.putIfAbsent(signature, normalizedResult)
+                    if (normalizedResult.isError && !normalizedResult.dispatched && normalizedResult.errorCode == "INVALID_ARGUMENTS") {
+                        synchronized(semanticArgumentRejections) {
+                            if (semanticArgumentRejections.size < 128) semanticArgumentRejections.putIfAbsent(signature, normalizedResult)
+                        }
                     }
                     if (normalizedResult.errorCode in ToolResultEnvelope.unknownOutcomeCodes && !replayableRead) unknownOutcomes += signature
                     if (normalizedResult.isError && normalizedResult.dispatched && normalizedResult.errorCode !in setOf("AUTH_REQUIRED", "BUDGET_EXHAUSTED")) failures.computeIfAbsent(signature) { AtomicInteger() }.incrementAndGet()

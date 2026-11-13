@@ -4,6 +4,18 @@ Android build 141. Scoped reliability release covering the changes since [0.9.66
 
 This release brings together persistent gateway conversations and jobs, more reliable GitHub task recovery and acceptance evidence, application audits, safer diagnostics, and the November 7–9 integration repairs. The latest repair also addresses the Gateway conversations crash and the Android method-size and regression failures found while reviewing PR #815.
 
+## PR 881 open-issue follow-up
+
+The [PR 881 repair register](docs/repairs/pr881-open-issues-2026-11-12.md) covers repository issues #884–#890. Exact sleeping gateway models use a non-generation wake request with durable uncertainty handling. Reports retain safe preparation causes and backend status. GitHub tool/issue reviews no longer trigger an unrelated branch-comparison requirement; explicit commit, tag and branch baselines resolve to immutable revisions. Integration checks continue through already-observed workflow runs when a successful jobs query contains no usable jobs, and exact-revision failure queries preserve truthful empty results.
+
+New gateway preparation diagnostics require a hosted reporter advertising GATEWAY_MODEL_PREPARATION_V1; new review error codes require REVIEW_COMPARISON_V1. An older reporter leaves the approved report saved with an update-required status before submission. Native GitHub submission retains its separately selected account and approval. Private gateway configuration, installed-device behavior and full hosted Android validation remain separate qualification steps.
+
+## Diagnostic capture 62a4cb28 follow-up
+
+The [diagnostic repair register](docs/repairs/diagnostic-62a4cb28-pr881.md) records explicit engineering scope, preserved historical request identity, early setup receipts, correlated preparation operations, versioned report evidence, accepted status criteria, target-repository isolation, exact-revision pagination, and the complete integration prerequisite ledger. The durable queue collector is split into serial stages while retaining its ownership and permission checks. The new admission report context uses version 6 and gateway diagnostic snapshot version 2; the matching hosted service is required before new extended reports can be sent.
+
+Diagnostic capture 62a4cb28 repairs require matching gateway and hosted reporting rollout, complete hosted Android validation and separate private-service/device qualification; host regressions and source inventory do not establish those outcomes or promote Unified Reliability v2 acceptance.
+
 ## November 12 candidate repairs
 
 These unreleased repairs preserve the selected gateway request contract and the original pending tool batch through local result reads, images, compaction and app restart. Completed calls retain their receipts without new execution events. Conflict and selection failures carry bounded recovery details, and explicit continuation prohibitions remain effective after a new run starts.

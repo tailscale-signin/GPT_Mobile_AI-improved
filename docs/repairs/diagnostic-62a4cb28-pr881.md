@@ -73,12 +73,18 @@ Integration reports render every unresolved capability in grouped prerequisites 
 
 1. **Use a matched app and gateway package.** Deploy the complete reviewed package using [the upgrade guide](../../gateway/V14_UPGRADE.md), preserve the original configuration and job database, restart the intended gateway launcher, and compare the observed manifest identity with the package manifest. A shared `16.0.0` label is not source equivalence. Do not regenerate a downloaded package's manifest merely to bypass an integrity failure.
 2. **Qualify the exact selected model.** Observe its readiness and existing preparation operation on the original gateway/profile. A successful catalogue read does not prove generation readiness. After readiness is qualified, perform one intended request and confirm its retained job/output. A lost preparation response alone does not authorize an unrelated load or inference replay.
-3. **Deploy the matching report service.** The hosted reporter must advertise context versions `[1, 2, 3, 4, 5, 6]` before a new version-6 approval can be sent. Keep existing approved IDs and payloads unchanged. Old reports remain compatible with their original contracts. The code change does not itself deploy the hosted service.
+3. **Deploy the matching report service.** The hosted reporter must advertise context versions `[1, 2, 3, 4, 5, 6]` before a new version-6 approval can be sent, plus `GATEWAY_MODEL_PREPARATION_V1` and `REVIEW_COMPARISON_V1` when the corresponding preparation fields or review codes require them. Keep existing approved IDs and payloads unchanged. Old reports remain compatible with their original contracts. The code change does not itself deploy the hosted service.
 4. **Supply integration prerequisites under the existing consent.** Read the complete grouped ledger. Use the owned fixture and exact run/job specified by the accepted test scope; grant only a missing requested authority. A report with 48 or 204 calls remaining is not evidence of budget exhaustion. An unchanged blocker should remain blocked until evidence or authority changes.
 5. **Repair the actual MCP listener/configuration.** On the configured host, verify the process, bound interface and configured port for the endpoint that refused connections. Restore the exact saved connection or credential through its normal configuration flow, then explicitly recheck and discover one bounded tool. Preserve existing backoff and configuration pauses. This patch neither changes the private service nor bypasses its access controls.
 6. **Repeat device performance qualification.** On the same phone and workload, check for the queue compiler warning, compare frame samples and UI/text measurement spans, and profile allocations/GC with actual main-thread pause attribution. The capture does not establish a memory leak, OOM or crash. General capability poll volume remains an optimization candidate, not a proven repeated-load bug.
 
 No voice, microphone, TTS, ANR, OOM, HTTP 429 or gateway HTTP 403 failure was established by this capture. Earlier branch work in those areas is preserved.
+
+## Concurrent branch integration
+
+Before publication, the target branch advanced from the starting revision to `ce7af48f8b974a0392e6b3a9995c8122cc258a89`. Its six incoming commits were merged with their ancestry preserved. The complementary [open-issue repair register](pr881-open-issues-2026-11-12.md) covers explicit review-baseline resolution, exact sleeping-model wakeup, durable preparation uncertainty and observed workflow-job prerequisites.
+
+The overlapping reporting changes preserve both admission and detailed model-preparation captures, all required hosted feature negotiation and immutable approved bytes. A valid baseline-selection prerequisite remains an input action rather than a new automatic incident. A newly reproduced self-test scope defect was also corrected: authorized source-repository status and job receipts cannot replace the selected workspace's dependency observations. Both regressions failed before this correction.
 
 ## Verification
 
@@ -87,17 +93,18 @@ Focused results are tied to current source files and recorded in the session's s
 | Check | Result |
 | --- | --- |
 | Gateway scope, durable replay, HTTP and rejection regressions | 62 passed; old normalizer fails the new replay regression |
-| Integration prerequisite report/planner/acceptance regressions | 34 host JUnit tests passed |
-| Report context, submission, outbox and admission snapshots | 71 host JUnit tests passed |
-| Durable failure, receipt and compact summary behavior | 75 host JUnit tests passed |
-| Kotlin-approved payloads through the Python service | 21 exact payloads accepted unchanged |
-| Hosted report HTTP/configuration/contract tests | 56 passed |
-| Gateway transport, model preparation, readiness and recovery | 74 host JUnit tests passed |
+| Merged integration, baseline, prerequisite report/planner and self-test regressions | 87 host JUnit tests passed; both new source-scope regressions fail before the correction |
+| Report context, submission, outbox and admission snapshots | 78 host JUnit tests passed on merged source |
+| Durable failure, receipt and compact summary behavior | 76 host JUnit tests passed on merged source |
+| Kotlin-approved payloads through the Python service | 22 exact payloads accepted; 21 pre-merge approvals re-emitted byte-for-byte unchanged |
+| Hosted report HTTP/configuration/contract tests | 58 passed on merged source |
+| Gateway transport, model preparation, readiness and recovery | 76 host JUnit tests passed on merged source |
+| Gateway model preparation and HTTP/SQLite behavior | 56 Python tests passed on merged source |
 | Status acceptance/pagination/projection | 25 host JUnit tests passed, including 17 new correctness regressions |
 | Coordinator setup receipt boundaries | 3 host JUnit tests passed |
 | Current engineering client and provider-exception integration | 44 host JUnit tests passed |
 | Canonical `bash scripts/validate-local.sh fast` | Passed: 495 script tests, dependency/schema/secret checks, regex/resource/icon checks and diff whitespace |
-| Generated architecture and app-audit inventories | Regenerated; 2,521 files indexed (source inventory, not executed-line coverage) |
-| Changed Kotlin formatting and gateway source manifest | ktlint 1.3.1 passed all 52 changed Kotlin files; all 220 gateway package hashes match their recorded immutable source |
-| Full Android/CI/device qualification | Requires hosted CI; local Gradle download/Android SDK unavailable |
+| Generated architecture and app-audit inventories | Regenerated after merge (source inventory, not executed-line coverage) |
+| Changed Kotlin formatting and gateway source manifest | Pinned ktlint and all gateway package hashes rechecked against the final merged source |
+| Full Android/CI and device qualification | Full Android build pending hosted CI; physical device/private services not exercised. Local Gradle download/Android SDK unavailable |
 

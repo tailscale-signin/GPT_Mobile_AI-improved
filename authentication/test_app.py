@@ -233,6 +233,31 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertEqual(200, self.submit(report).status_code)
         self.assertEqual(len(cases), len(self.issued))
 
+    def test_model_preparation_capture_reaches_report_with_exact_approved_typed_fields(self):
+        values = {"profile_hash": "a" * 64, "model_hash": "b" * 64, "operation_id_hash": "c" * 64,
+                  "model_preparation_state": "LOAD_REJECTED", "model_preparation_action": "WAKE", "model_preparation_dispatch": "DISPATCHED",
+                  "model_preparation_load_accepted": False, "model_preparation_load_requests": 1, "gateway_model_state": "SLEEPING",
+                  "gateway_failure_category": "denied", "gateway_dependency": "selected_model", "gateway_upstream_status": 403,
+                  "gateway_upstream_message_code": "INVALID_API_KEY", "gateway_reconciliation_status": 503}
+        capture = self.diagnostics("GATEWAY", values, "SELECTED_CAPTURE")
+        report = {**self.manual(), "context": self.context(schemaVersion=5, source="MANUAL_REPORT", diagnostics=capture)}
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(1, len(self.issued))
+        for key, value in values.items():
+            rendered = str(value).lower() if type(value) is bool else str(value)
+            self.assertIn(f"| {key} | `{rendered}` |", self.issued[0]["body"])
+
+    def test_model_preparation_capture_rejects_private_unknown_and_out_of_range_values(self):
+        for field, value in (("operation_id_hash", "private-operation"), ("model_preparation_action", "private-action"),
+                             ("model_preparation_load_accepted", "false"), ("model_preparation_load_requests", 2),
+                             ("gateway_upstream_status", 999), ("gateway_dependency", "private-path"),
+                             ("gateway_upstream_message_code", "private-text")):
+            with self.subTest(field=field):
+                report = {**self.manual(), "context": self.context(schemaVersion=5, diagnostics=self.diagnostics("GATEWAY", {field: value}))}
+                self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual([], self.issued)
+
     def test_selected_observation_and_absent_capture_do_not_claim_a_failure_timestamp(self):
         for mode, values in (("SELECTED_CAPTURE", {"voice_engine": "SYSTEM", "voice_phase": "SPEAKING"}), ("NO_CAPTURE", {})):
             capture = self.diagnostics("VOICE", values, mode)
@@ -335,6 +360,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
                          {key: response.json()[key] for key in ("service", "version")})
         self.assertEqual([1, 2, 3, 4, 5, 6], response.json()["reportContextVersions"])
+        self.assertEqual(["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1"], response.json()["reportDiagnosticFeatures"])
         self.assertEqual("no-store", response.headers["cache-control"])
         self.assertFalse(self.issued)
         # Old clients may continue posting their original reports without a

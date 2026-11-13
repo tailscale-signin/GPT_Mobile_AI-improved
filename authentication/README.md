@@ -159,6 +159,25 @@ previously submitted payload. Deploy the updated reporter before shipping a
 hosted reporting route; the distribution readiness check requires all six versions
 so current reports and retained legacy reports remain supported.
 
+Exact-model preparation captures extend the closed schema-5 diagnostics with
+bounded load/wake states, typed backend failures and hashed operation/profile/model
+identities. The updated ready response advertises
+`reportDiagnosticFeatures: ["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1"]`. The app requires the first
+feature only when the approved capture contains these extension fields (including
+their omission declarations). A reporter advertising schema 5 without this feature
+does not establish support: the app returns `REPORT_SERVICE_UPDATE_REQUIRED`
+before POST, keeps the approved bytes and disables automatic retries. Deploy this
+reporter update before distributing these captures through the hosted route.
+Native GitHub reporting remains a separately selected route and does not depend
+on this service feature; the app never changes destinations or strips fields to
+work around an older reporter.
+
+`REVIEW_COMPARISON_V1` declares support for the public report codes
+`REVIEW_INPUT_REQUIRED` and `GITHUB_REVIEW_COMPARISON_REQUIRED`. The app checks this
+feature when either code appears as the report error, a retained original failure,
+or an exact code token in a bounded event, including reports without context.
+Older reporters stay blocked before POST with the same service-update requirement.
+
 The optional top-level `context` object has a schema version, a bounded client
 occurrence timestamp, a fixed capture-source enum, and `unavailableFields`.
 Optional observations use only fixed stage/provider/operation/recovery enums,

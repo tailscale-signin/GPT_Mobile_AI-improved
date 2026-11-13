@@ -14,12 +14,12 @@ DIAGNOSTIC_CAPTURE_MODES = {"INCIDENT", "SELECTED_CAPTURE", "NO_CAPTURE"}
 COMMON_HASHES = {"run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash"}
 HASH_FIELDS = COMMON_HASHES | {
     "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash",
-    "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash",
+    "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash", "operation_id_hash",
 }
 HASH_LISTS = {"unmet_criterion_id_hashes", "unmet_criterion_reason_hashes"}
 FLAGS = {
     "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "privacy_zdr_required", "privacy_fallbacks_allowed",
-    "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "gateway_admission_ready",
+    "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "gateway_admission_ready", "model_preparation_load_accepted",
 }
 ATTEMPTS = {"backend_attempts", "backend_completed_attempts", "backend_failed_attempt", "repair_attempts", "repair_attempt_limit"}
 DURATIONS = {"voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms"}
@@ -49,6 +49,13 @@ ENUMS = {
     "gateway_reason_code": ENGINEERING_REASONS | MODEL_PREPARATION_REASONS,
     "gateway_failure_phase": GATEWAY_ADMISSION_PHASES,
     "gateway_state": {"QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED"},
+    "model_preparation_state": {"PREPARING", "PRECHECK_REJECTED", "LOAD_REJECTED", "LOAD_ACCEPTED", "LOAD_OUTCOME_UNKNOWN", "WAITING_FOR_MODEL", "METADATA_QUALIFIED", "QUALIFICATION_BLOCKED"},
+    "model_preparation_action": {"NONE", "LOAD", "WAKE"},
+    "model_preparation_dispatch": {"NOT_DISPATCHED", "DISPATCHED"},
+    "gateway_model_state": {"UNKNOWN", "UNAVAILABLE", "UNLOADED", "LOADING", "LOADED", "SLEEPING"},
+    "gateway_failure_category": {"connection_refused", "connect_timeout", "read_timeout", "dns", "tls", "connection_closed", "connection", "http", "denied", "unsupported", "invalid_response", "oversize", "deadline", "configuration", "model_unavailable", "model_not_loaded", "model_loading", "generation_unavailable", "unverified", "storage", "draining"},
+    "gateway_dependency": {"model_backend", "backend_health", "backend_models", "backend_properties", "backend_template", "selected_model", "durable_storage", "process"},
+    "gateway_upstream_message_code": {"MODEL_NOT_LOADED", "MODEL_LOADING", "MODEL_NOT_FOUND", "MODEL_LOAD_FAILED", "MODEL_SELECTOR_REQUIRED", "INVALID_API_KEY", "ENDPOINT_DISABLED"},
     "app_exit_kind": {"JVM_CRASH", "NATIVE_CRASH", "APP_NOT_RESPONDING", "STARTUP_FAILED"},
 }
 ENUM_LISTS = {
@@ -75,7 +82,11 @@ FIELDS_BY_AREA = {
     "TOOL": COMMON_HASHES | {"tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"},
     "ACCEPTANCE": COMMON_HASHES | CRITERION_FIELDS | {"effective_call_limit", "used_calls", "remaining_calls", "verification_reserve", "pending_continuations", "unresolved_outcomes", "unmet_criterion_count", "unmet_criterion_omitted_count", "checkpoint_hash", "acceptance_evidence_scope"},
     "VOICE": {"voice_session_id_hash", "profile_hash", "model_hash", "voice_generation", "voice_engine", "voice_phase", "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_focus_result", "voice_input_silenced", "voice_first_audio_basis"},
-    "GATEWAY": COMMON_HASHES | {"checkpoint_hash", "original_error_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed"},
+    "GATEWAY": COMMON_HASHES | {
+        "checkpoint_hash", "original_error_code_hash", "original_reason_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed",
+        "operation_id_hash", "model_preparation_state", "model_preparation_action", "model_preparation_dispatch", "model_preparation_load_accepted", "model_preparation_load_requests",
+        "gateway_model_state", "gateway_failure_category", "gateway_dependency", "gateway_upstream_status", "gateway_upstream_message_code", "gateway_reconciliation_status",
+    },
     "APP": {"original_error_code_hash", "app_exit_kind"},
 }
 CORE_FIELDS = {
@@ -111,8 +122,10 @@ def _valid_value(key, value):
         return 0 <= value <= 9_223_372_036_854_775_807
     if key == "gateway_protocol_version":
         return 1 <= value <= 1000
-    if key in {"backend_terminal_status", "gateway_http_status"}:
+    if key in {"backend_terminal_status", "gateway_http_status", "gateway_upstream_status", "gateway_reconciliation_status"}:
         return 100 <= value <= 599
+    if key == "model_preparation_load_requests":
+        return 0 <= value <= 1
     if key in ATTEMPTS:
         return 0 <= value <= 10_000
     if key in DURATIONS:

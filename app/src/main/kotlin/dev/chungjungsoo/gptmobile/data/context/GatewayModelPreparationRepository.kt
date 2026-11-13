@@ -209,7 +209,7 @@ class GatewayModelPreparationRepository internal constructor(
                                 }
                                 if (receipt != null) persist(receipt.state)
                                 validate()
-                                if (receipt?.modelState == "LOADED") {
+                                if (receipt?.state == "METADATA_QUALIFIED" && receipt.modelState == "LOADED") {
                                     resolved()
                                     observation = observe()
                                     // A retained completed receipt proves that the old load ended.
@@ -227,7 +227,7 @@ class GatewayModelPreparationRepository internal constructor(
                                     rejected()
                                     return@withTimeoutOrNull publish(
                                         GatewayModelPreparationPhase.BLOCKED,
-                                        if (receipt?.reasonCode == "MODEL_PREPARATION_UNSUPPORTED") "This gateway’s backend does not support loading models from the app. Load this exact model with the backend’s host controls, then recheck." else "The gateway could not start loading this exact model. Check the backend model and access settings, then recheck.",
+                                        receipt?.sanitized()?.rejectionMessage() ?: "The gateway could not start loading this exact model. Check the backend model and access settings, then recheck.",
                                         observation
                                     )
                                 }

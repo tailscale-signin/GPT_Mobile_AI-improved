@@ -59,8 +59,12 @@ class ModelPreparationHttpTests(unittest.TestCase):
 
     def post(self, url, **kwargs):
         self.calls.append(('POST', url, kwargs))
-        self.assertEqual('http://127.0.0.1:8080/models/load', url)
+        self.assertIn(url, ('http://127.0.0.1:8080/models/load', 'http://127.0.0.1:8080/tokenize'))
         model = kwargs['json']['model']
+        waking = url.endswith('/tokenize')
+        if waking:
+            self.assertEqual({'model': model, 'content': '', 'add_special': False}, kwargs['json'])
+            self.assertEqual({'autoload': 'false'}, kwargs['params'])
         # Check the real committed SQLite fence at the external dispatch boundary.
         # sqlite3's context manager commits/rolls back but does not close the
         # handle. Windows keeps jobs.db locked until it is explicitly closed.
@@ -71,7 +75,7 @@ class ModelPreparationHttpTests(unittest.TestCase):
         if self.post_hook:
             return self.post_hook(url, kwargs)
         self.states[model] = 'loaded'
-        return Response({'success': True})
+        return Response({'tokens': []} if waking else {'success': True})
 
     def app(self, config=None, service=None, lifecycle=False):
         active = service or self.service
@@ -122,6 +126,105 @@ class ModelPreparationHttpTests(unittest.TestCase):
                 self.assertEqual('NOT_DISPATCHED', response.json()['dispatchState'])
                 self.assertEqual(0, response.json()['loadRequests'])
         self.assertEqual([], self.mutations())
+
+    def test_sleep_wake_is_durable_and_duplicate_operation_keeps_its_exact_model(self):
+        self.states['selected'] = 'sleeping'
+        first = self.request()
+        self.assertEqual(200, first.status_code)
+        self.assertEqual('METADATA_QUALIFIED', first.json()['state'])
+        self.assertEqual('WAKE', first.json()['preparationAction'])
+        self.assertEqual(first.json(), self.request().json())
+        self.assertEqual(409, self.request(model='other').status_code)
+        self.assertEqual('unloaded', self.states['other'])
+        self.assertEqual(['http://127.0.0.1:8080/tokenize'], [call[1] for call in self.mutations()])
+
+    def test_uncertain_wake_survives_restart_and_new_selection_without_replay(self):
+        self.states['selected'] = 'sleeping'
+        def lost(*args):
+            raise requests.ReadTimeout('private wake response')
+        self.post_hook = lost
+        first = self.request()
+        self.assertEqual('LOAD_OUTCOME_UNKNOWN', first.json()['state'])
+        self.assertIsNone(first.json()['loadAccepted'])
+        restarted = self.client(service=ModelPreparationService(InferenceCapabilities(self.runtime)))
+        for operation in ('selection-1', 'selection-2'):
+            replay = self.request(restarted, operation=operation)
+            self.assertEqual('SLEEPING', replay.json()['modelState'])
+            self.assertEqual('WAKE', replay.json()['preparationAction'])
+            self.assertIsNone(replay.json()['loadAccepted'])
+        self.assertEqual(1, len(self.mutations()))
+        self.states['selected'] = 'loaded'
+        self.assertEqual('METADATA_QUALIFIED', self.request(restarted, operation='selection-2').json()['state'])
+        self.assertEqual(1, len(self.mutations()))
+
+    def test_wake_auth_rejection_keeps_safe_evidence_and_never_unloads(self):
+        self.states['selected'] = 'sleeping'
+        self.post_hook = lambda *args: Response({'error': {'message': 'private token', 'code': 'private-code'}}, status=403)
+        response = self.request()
+        self.assertEqual('LOAD_REJECTED', response.json()['state'])
+        self.assertEqual('WAKE', response.json()['preparationAction'])
+        self.assertFalse(response.json()['loadAccepted'])
+        self.assertEqual(403, response.json()['failure']['upstreamStatus'])
+        self.assertNotIn('private', response.text)
+        self.assertEqual(response.json(), self.request().json())
+        self.assertEqual(1, len(self.mutations()))
+
+    def test_cancelling_dispatched_wake_cannot_repeat_it(self):
+        self.states['selected'] = 'sleeping'
+        entered, release = threading.Event(), threading.Event()
+        def blocked(url, kwargs):
+            entered.set()
+            self.assertTrue(release.wait(3))
+            self.states['selected'] = 'loaded'
+            return Response({'tokens': []})
+        self.post_hook = blocked
+        asyncio.run(self.cancel_request(entered, release))
+        receipt = self.request().json()
+        self.assertEqual('METADATA_QUALIFIED', receipt['state'])
+        self.assertEqual('WAKE', receipt['preparationAction'])
+        self.assertEqual(1, len(self.mutations()))
+
+    def test_invalid_wake_receipt_retains_unknown_acceptance_without_replay(self):
+        self.states['selected'] = 'sleeping'
+        self.post_hook = lambda *args: Response({'tokens': 'private-invalid-reply'})
+        first = self.request()
+        self.assertEqual('LOAD_OUTCOME_UNKNOWN', first.json()['state'])
+        self.assertIsNone(first.json()['loadAccepted'])
+        self.assertEqual('invalid_response', first.json()['failure']['failureCategory'])
+        self.assertNotIn('private', first.text)
+        self.assertEqual('LOAD_OUTCOME_UNKNOWN', self.request(operation='new-selection').json()['state'])
+        self.assertEqual(1, len(self.mutations()))
+
+    def test_legacy_loaded_catalogue_cannot_retire_uncertain_wake_after_failed_readiness(self):
+        for failure_kind, accepted in ((kind, accepted) for kind in ('sleeping', 'denied', 'unavailable') for accepted in (False, True)):
+            with self.subTest(failure_kind=failure_kind, accepted=accepted):
+                model = 'legacy-' + failure_kind + str(accepted)
+                self.states[model] = 'loaded'
+                dispatches = []
+                def legacy_get(url, **kwargs):
+                    self.calls.append(('GET', url, kwargs))
+                    self.assertEqual('false', kwargs['params']['autoload'])
+                    if url.endswith('/models'):
+                        return Response({'data': [{'id': name, 'status': {'value': state}} for name, state in self.states.items()]})
+                    if dispatches and failure_kind != 'sleeping':
+                        return Response({'error': {'code': 'model_not_found' if failure_kind == 'unavailable' else 'private', 'message': 'private'}}, 404 if failure_kind == 'unavailable' else 403)
+                    return Response({'model_alias': model, 'is_sleeping': True, 'default_generation_settings': {'n_ctx': 8192}})
+                def lost(url, kwargs):
+                    dispatches.append(url)
+                    if accepted:
+                        return Response({'tokens': []})
+                    raise requests.ReadTimeout('private wake response')
+                self.runtime.http_get, self.post_hook = legacy_get, lost
+                first = self.request(model=model, operation=model).json()
+                self.assertEqual('LOAD_OUTCOME_UNKNOWN', first['state'])
+                self.assertEqual(True if accepted else None, first['loadAccepted'])
+                self.assertIn('failureCode', first['reconciliationFailure'])
+                restarted = self.client(service=ModelPreparationService(InferenceCapabilities(self.runtime)))
+                second = self.request(restarted, model=model, operation=model + '-new').json()
+                self.assertEqual('LOAD_OUTCOME_UNKNOWN', second['state'])
+                self.assertEqual(True if accepted else None, second['loadAccepted'])
+                self.assertEqual(1, len(dispatches))
+                self.assertNotIn('private', json.dumps(second))
 
     def test_unadvertised_unknown_and_unsupported_backends_never_load(self):
         for model in ('absent', 'selected'):

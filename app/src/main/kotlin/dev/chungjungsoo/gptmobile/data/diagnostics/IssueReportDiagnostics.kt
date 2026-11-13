@@ -39,9 +39,13 @@ internal data class IssueReportDiagnostics(
         return snapshot.takeIf { IssueReport.json.encodeToString(serializer(), it).encodeToByteArray().size <= MAX_BYTES }
     }
 
+    internal fun requiredServiceFeatures(): Set<String> =
+        if (area == "GATEWAY" && (values.keys + omittedFields).any { it in modelPreparationFields }) setOf(MODEL_PREPARATION_FEATURE) else emptySet()
+
     companion object {
         const val MAX_BYTES = 3072
         const val MAX_CRITERIA = 8
+        const val MODEL_PREPARATION_FEATURE = "GATEWAY_MODEL_PREPARATION_V1"
         val areas = setOf("PROVIDER", "TOOL", "ACCEPTANCE", "VOICE", "GATEWAY", "APP")
         private val captureModes = setOf("INCIDENT", "SELECTED_CAPTURE", "NO_CAPTURE")
         private val hashPattern = Regex("[a-f0-9]{64}")
@@ -63,12 +67,12 @@ internal data class IssueReportDiagnostics(
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
         private val hashFields = commonHashes + setOf(
             "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash",
-            "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash"
+            "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash", "operation_id_hash"
         )
         private val hashLists = setOf("unmet_criterion_id_hashes", "unmet_criterion_reason_hashes")
         private val flags = setOf(
             "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "privacy_zdr_required", "privacy_fallbacks_allowed",
-            "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "gateway_admission_ready"
+            "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "gateway_admission_ready", "model_preparation_load_accepted"
         )
         private val attempts = setOf("backend_attempts", "backend_completed_attempts", "backend_failed_attempt", "repair_attempts", "repair_attempt_limit")
         private val durations = setOf(
@@ -104,6 +108,13 @@ internal data class IssueReportDiagnostics(
             "gateway_reason_code" to GatewayInputRejectionDetails.reasonCodes + modelPreparationReasonCodes,
             "gateway_failure_phase" to setOf("model_preparation", "connection_preflight", "provider_admission", "request_validation", "engineering_guard", "binding_admission", "message_admission", "conversation_admission", "execution_admission", "gateway_recovery", "transport"),
             "gateway_state" to setOf("QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED"),
+            "model_preparation_state" to setOf("PREPARING", "PRECHECK_REJECTED", "LOAD_REJECTED", "LOAD_ACCEPTED", "LOAD_OUTCOME_UNKNOWN", "WAITING_FOR_MODEL", "METADATA_QUALIFIED", "QUALIFICATION_BLOCKED"),
+            "model_preparation_action" to setOf("NONE", "LOAD", "WAKE"),
+            "model_preparation_dispatch" to setOf("NOT_DISPATCHED", "DISPATCHED"),
+            "gateway_model_state" to setOf("UNKNOWN", "UNAVAILABLE", "UNLOADED", "LOADING", "LOADED", "SLEEPING"),
+            "gateway_failure_category" to setOf("connection_refused", "connect_timeout", "read_timeout", "dns", "tls", "connection_closed", "connection", "http", "denied", "unsupported", "invalid_response", "oversize", "deadline", "configuration", "model_unavailable", "model_not_loaded", "model_loading", "generation_unavailable", "unverified", "storage", "draining"),
+            "gateway_dependency" to setOf("model_backend", "backend_health", "backend_models", "backend_properties", "backend_template", "selected_model", "durable_storage", "process"),
+            "gateway_upstream_message_code" to setOf("MODEL_NOT_LOADED", "MODEL_LOADING", "MODEL_NOT_FOUND", "MODEL_LOAD_FAILED", "MODEL_SELECTOR_REQUIRED", "INVALID_API_KEY", "ENDPOINT_DISABLED"),
             "app_exit_kind" to setOf("JVM_CRASH", "NATIVE_CRASH", "APP_NOT_RESPONDING", "STARTUP_FAILED")
         )
         private val enumLists = mapOf(
@@ -121,6 +132,10 @@ internal data class IssueReportDiagnostics(
         private val criterionFields = hashLists + setOf("unmet_criterion_categories", "unmet_criterion_states", "unmet_criterion_blockers")
         private val gatewayAdmissionFields = setOf("gateway_operation_id_hash", "gateway_manifest_hash", "gateway_version", "gateway_protocol_version", "gateway_admission_ready", "gateway_failure_phase", "gateway_http_status", "gateway_reason_code")
         private val gatewayAdmissionCore = listOf("gateway_manifest_hash", "gateway_protocol_version", "gateway_admission_ready")
+        private val modelPreparationFields = setOf(
+            "original_reason_code_hash", "operation_id_hash", "model_preparation_state", "model_preparation_action", "model_preparation_dispatch", "model_preparation_load_accepted", "model_preparation_load_requests",
+            "gateway_model_state", "gateway_failure_category", "gateway_dependency", "gateway_upstream_status", "gateway_upstream_message_code", "gateway_reconciliation_status"
+        )
         private val fieldsByArea = mapOf(
             "PROVIDER" to commonHashes + setOf(
                 "original_error_code_hash", "server_request_id_hash", "generation_id_hash", "response_format", "finish_reason", "configured_output_limit", "effective_output_limit", "backend_output_limit",
@@ -132,7 +147,7 @@ internal data class IssueReportDiagnostics(
             "TOOL" to commonHashes + setOf("tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"),
             "ACCEPTANCE" to commonHashes + criterionFields + setOf("effective_call_limit", "used_calls", "remaining_calls", "verification_reserve", "pending_continuations", "unresolved_outcomes", "unmet_criterion_count", "unmet_criterion_omitted_count", "checkpoint_hash", "acceptance_evidence_scope"),
             "VOICE" to setOf("voice_session_id_hash", "profile_hash", "model_hash", "voice_generation", "voice_engine", "voice_phase", "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_focus_result", "voice_input_silenced", "voice_first_audio_basis"),
-            "GATEWAY" to commonHashes + setOf("checkpoint_hash", "original_error_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed"),
+            "GATEWAY" to commonHashes + modelPreparationFields + setOf("checkpoint_hash", "original_error_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed"),
             "APP" to setOf("original_error_code_hash", "app_exit_kind")
         )
         private val coreFields = mapOf(
@@ -221,8 +236,9 @@ internal data class IssueReportDiagnostics(
             val number = primitive.takeUnless { it.isString }?.longOrNull ?: return null
             val range = when (key) {
                 "voice_generation" -> 0..Long.MAX_VALUE
-                "backend_terminal_status", "gateway_http_status" -> 100L..599L
+                "backend_terminal_status", "gateway_http_status", "gateway_upstream_status", "gateway_reconciliation_status" -> 100L..599L
                 "gateway_protocol_version" -> 1L..1000L
+                "model_preparation_load_requests" -> 0L..1L
                 in attempts -> 0L..10_000L
                 in durations -> 0L..86_400_000L
                 in counts -> 0L..16_000_000L

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayModelPreparationReceipt
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import java.util.Locale
 
@@ -38,6 +39,33 @@ internal object GatewayReportDiagnostics {
             IssueReportContext.identifierHash("error_code", failureCode)?.let { put("original_error_code_hash", it) }
         }
         return IssueReportDiagnostics.fromFields("STRUCTURED_EVENT", fields, capturedAtMillis)?.takeIf { it.values.isNotEmpty() }
+    }
+
+    fun modelPreparation(profileUid: String?, model: String, receipt: GatewayModelPreparationReceipt, capturedAtMillis: Long = System.currentTimeMillis()): IssueReportDiagnostics? {
+        if (receipt.requestedModel != model || receipt.operationId.isBlank()) return null
+        val safe = receipt.sanitized()
+        val failure = safe.failure ?: safe.reconciliationFailure
+        val fields = buildMap<String, Any?> {
+            put("diagnostic_area", "GATEWAY")
+            put("diagnostic_capture_mode", "INCIDENT")
+            profileUid?.takeIf(String::isNotBlank)?.let { put("profile_hash", researchHash(it)) }
+            put("model_hash", researchHash(model))
+            put("operation_id_hash", IssueReportContext.identifierHash("model-preparation", safe.operationId))
+            put("model_preparation_state", safe.state)
+            put("model_preparation_action", safe.preparationAction)
+            put("model_preparation_dispatch", safe.dispatchState)
+            put("model_preparation_load_accepted", safe.loadAccepted)
+            put("model_preparation_load_requests", safe.loadRequests)
+            put("gateway_model_state", safe.modelState)
+            put("gateway_failure_category", failure?.failureCategory)
+            put("gateway_dependency", failure?.dependency)
+            put("gateway_upstream_status", failure?.upstreamStatus)
+            put("gateway_upstream_message_code", failure?.upstreamMessageCode)
+            put("gateway_reconciliation_status", safe.reconciliationFailure?.upstreamStatus)
+            failure?.failureCode?.let { put("original_error_code_hash", researchHash(it)) }
+            (failure?.reasonCode ?: safe.reasonCode)?.let { put("original_reason_code_hash", researchHash(it)) }
+        }
+        return IssueReportDiagnostics.fromFields("STRUCTURED_EVENT", fields, capturedAtMillis)
     }
 
     fun recovery(run: AgentRun, observedJobId: String, remoteStatus: String?, capturedAtMillis: Long = System.currentTimeMillis()): IssueReportDiagnostics? {

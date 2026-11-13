@@ -88,6 +88,129 @@ class IssueReportSubmissionTest {
         assertEquals(1, dispatched)
     }
 
+    @Test fun admissionAndModelPreparationRequireBothVersionAndFeatureWithoutRewritingApproval() {
+        val context = IssueReportContext.fromFields(
+            "STRUCTURED_EVENT",
+            mapOf(
+                "diagnostic_area" to "GATEWAY",
+                "gateway_manifest_hash" to "a".repeat(64),
+                "gateway_admission_ready" to false,
+                "model_preparation_state" to "LOAD_REJECTED",
+                "gateway_upstream_status" to 403
+            ),
+            1_000L
+        )
+        assertEquals(6, context.schemaVersion)
+        assertEquals(2, context.diagnostics?.schemaVersion)
+        val enriched = report.copy(context = context)
+        val payload = enriched.approvedPayload()
+        var versions = "[1,2,3,4,5]"
+        var features = "[\"GATEWAY_MODEL_PREPARATION_V1\"]"
+        val posted = mutableListOf<String>()
+        var dispatched = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":$versions,"reportDiagnosticFeatures":$features}""")
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${report.reportId}","number":886}""")
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        for ((supportedVersions, supportedFeatures) in listOf(versions to features, "[1,2,3,4,5,6]" to "[]")) {
+            versions = supportedVersions
+            features = supportedFeatures
+            val failure = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", failure.code)
+            assertFalse(failure.automaticRetry)
+            assertEquals(0, dispatched)
+            assertTrue(posted.isEmpty())
+            assertEquals(payload, enriched.approvedPayload())
+        }
+        versions = "[1,2,3,4,5,6]"
+        features = "[\"GATEWAY_MODEL_PREPARATION_V1\"]"
+        assertEquals(IssueReportSubmission.Confirmed(886), submission.send(report.reportId, payload) { dispatched++ })
+        assertEquals(listOf(payload), posted)
+        assertEquals(1, dispatched)
+    }
+
+    @Test fun modelPreparationRequiresAdvertisedFeatureBeforePostingTheOriginalApprovedPayload() {
+        val context = IssueReportContext.fromFields("STRUCTURED_EVENT", mapOf("diagnostic_area" to "GATEWAY", "model_preparation_state" to "LOAD_REJECTED", "gateway_upstream_status" to 403), 1_000L)
+        val enriched = report.copy(context = context)
+        val payload = enriched.approvedPayload()
+        var features = "null"
+        val posted = mutableListOf<String>()
+        var dispatched = 0
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5],"reportDiagnosticFeatures":$features}""")
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${report.reportId}","number":884}""")
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        for (unsupported in listOf("null", "[]", "[true]", "[\"UNRELATED_FEATURE\"]", "\"GATEWAY_MODEL_PREPARATION_V1\"")) {
+            features = unsupported
+            val failure = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", failure.code)
+            assertTrue(failure.retryable)
+            assertFalse(failure.automaticRetry)
+            assertEquals(payload, enriched.approvedPayload())
+            assertTrue(posted.isEmpty())
+            assertEquals(0, dispatched)
+        }
+        features = "[\"GATEWAY_MODEL_PREPARATION_V1\"]"
+        assertEquals(IssueReportSubmission.Confirmed(884), submission.send(report.reportId, payload) { dispatched++ })
+        assertEquals(listOf(payload), posted)
+        assertEquals(1, dispatched)
+    }
+
+    @Test fun reviewCodesRequireTheirFeatureInErrorOriginalFailureAndExactEventsIncludingWithoutContext() {
+        for (code in listOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")) {
+            val retained = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("failure_origin" to "local_recovery", "recovery_code" to "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "original_interruption" to mapOf("code" to code)), 1_000L)
+            assertEquals(code, retained.originalFailureCode)
+            for (enriched in listOf(report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = code), report.copy(context = retained), report.copy(events = listOf("-1ms E tools $code")))) {
+                val payload = enriched.approvedPayload()
+                var supported = false
+                val posted = mutableListOf<String>()
+                var dispatched = 0
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    if (request.method == "GET") {
+                        val feature = if (supported) "REVIEW_COMPARISON_V1" else "GATEWAY_MODEL_PREPARATION_V1"
+                        response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5],"reportDiagnosticFeatures":["$feature"]}""")
+                    } else {
+                        posted += body(request)
+                        response(request, 200, """{"reportId":"${report.reportId}","number":885}""")
+                    }
+                }.build()
+                val submission = IssueReportSubmission(origin, client)
+                val failure = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", failure.code)
+                assertFalse(failure.automaticRetry)
+                assertEquals(0, dispatched)
+                assertTrue(posted.isEmpty())
+                supported = true
+                assertEquals(IssueReportSubmission.Confirmed(885), submission.send(report.reportId, payload) { dispatched++ })
+                assertEquals(listOf(payload), posted)
+                assertEquals(1, dispatched)
+                assertEquals(payload, enriched.approvedPayload())
+            }
+        }
+    }
+
+    @Test fun reviewCodeInUserDescriptionDoesNotInventARequiredFeature() {
+        val payload = report.copy(description = "REVIEW_INPUT_REQUIRED appeared previously", events = listOf("-1ms E tools CHAT_FAILED")).approvedPayload()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            assertEquals("POST", chain.request().method)
+            response(chain.request(), 200, """{"reportId":"${report.reportId}","number":885}""")
+        }.build()
+        assertEquals(IssueReportSubmission.Confirmed(885), IssueReportSubmission(origin, client).send(report.reportId, payload))
+    }
+
     @Test fun privateFieldsInjectedIntoSavedDiagnosticJsonAreRejectedBeforeAnyNetworkCall() {
         val enriched = report.copy(context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_engine" to "SYSTEM"), 1_000L))
         val raw = IssueReport.json.parseToJsonElement(enriched.approvedPayload()).jsonObject

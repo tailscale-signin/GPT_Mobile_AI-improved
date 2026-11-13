@@ -391,3 +391,70 @@ Hosted rollout now requires readiness support for context versions `[1, 2, 3, 4,
 The full repair register and its acceptance column remain applicable. Outstanding work is a signing-compatible update that preserves saved reports; approved live delivery and uncertain-response reconciliation; each private MCP listener/protocol/credential repair and actual saved-target tool execution; selected-model generation, identity, timing and review recovery; authorized fixture creation/use/cleanup/final absence; physical microphone, playback and interruption journeys; release/profileable frame and memory measurements on the intended device; applicable external source-area suites; and deployed service/artifact attestation.
 
 Disabled or absent optional integrations remain user configuration choices. The historical 67 untested app-audit checks are not retroactively promoted by these unit, emulator or native fixture results. The pasted later audit/diagnostic analyses remain inputs whose raw files were not supplied, as described at the start of this record.
+
+## November 13 consolidated PR repairs
+
+The combined source is
+[`c90e2fe2fefcffd1a37f11ff3a757cd9362786ae`](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/commit/c90e2fe2fefcffd1a37f11ff3a757cd9362786ae).
+Its parents preserve PR #838 at `5448b7bdb27c777aa060ec76f3423bc676e8ce41`
+and PR #881 at `848349415baa31f901fba3b6c5170d876ebd3a81`, including the
+concurrent open-issue and diagnostic-capture repairs. The published source tree
+matches the reviewed local tree. The following metadata commit binds every
+gateway package file to that immutable source and retains this validation record.
+
+### Additional defects found during integration
+
+- **Gateway HTTP fixture readiness.** The [Windows Python 3.13 job](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43350767985/job/131641012176)
+  failed its two-second first-load entry assertion before testing capacity.
+  A controlled 2.1-second delay in real admission reproduced that assertion in
+  the capacity and coalescing cases and both cancellation helpers. The fixture
+  now observes completion of real admission or durable dispatch before starting
+  its existing two-second backend-entry check. It still exercises real HTTP,
+  SQLite, committed dispatch fences, single-flight capacity and no-replay behavior.
+  Early responses and exceptions are surfaced; cancellation precedes release;
+  cleanup remains bounded. The three-second blocked-hook limit and 120-second
+  module watchdog are unchanged. These controls establish the misplaced setup
+  budget, not the exact host-specific cause of the original Windows delay.
+- **Review baseline identity and failure evidence.** A valid explicit tag such
+  as `v1.0+build.2` could be ignored in favor of an observed PR base. Unsupported
+  punctuation could also shorten an unlabelled selector. The complete literal is
+  now retained or rejected before fallback. Explicit and automatic baseline
+  lookups preserve actual transport, dispatch and recovery facts. New lookups use
+  the existing read-only commit-detail action, avoiding a change to the task's
+  selected repository revision. Historical successes remain observations;
+  historical failures cannot authorize a retry through the new action. Receipt
+  matching follows the actual commit/ref/branch precedence and excludes saved views.
+- **Retained dispatch and later setup rejection.** An ordinary earlier dispatched
+  failure could retain unknown acceptance alongside a later `NOT_DISPATCHED`
+  field. Receipt projection then incorrectly changed unknown acceptance to `NO`.
+  Reconciliation and receipt construction now keep logical dispatch, acceptance
+  and replay restrictions consistent, while retaining the later attempt's
+  rejection separately. Unmeasured dispatch remains `UNKNOWN`; no earlier
+  invocation identity is reassigned.
+- **Reporter readiness regression coverage.** Two schema-6 payload cases had been
+  placed in a native-configuration flag test. They now exercise the actual
+  readiness validator. Both reject an older or incorrectly typed capability
+  advertisement, and both fail against the earlier schema-5 checker.
+
+### Host evidence and pending hosted qualification
+
+| Check | Retained result and scope |
+| --- | --- |
+| Final canonical host gate | `bash scripts/validate-local.sh fast`: 495 tests passed in 14.118 seconds, plus schema, dependency, secret, regex and resource checks. Changed Kotlin formatting and staged diff whitespace were checked separately. |
+| Updated authentication service | 72 tests passed. The client/server review matched closed reason, field and enum vocabularies, schema-6 negotiation, diagnostic version 2, privacy gates and original approved payload submission. |
+| Gateway engineering integration | 37 engineering, 21 HTTP and four rejection cases passed through the unchanged per-module watchdog. |
+| Gateway preparation fixture | 42 HTTP cases passed, with separate delayed-admission, delayed-dispatch, stalled-worker and early-failure controls. These controls were executed before the later engineering integration; the reviewed fixture and preparation implementation bytes were preserved. The earlier 21 direct preparation and 32 journal-module results remain separately scoped component evidence. |
+| GitHub status and workflow evidence | 25 status/evidence cases and 11 workflow-selector cases passed on the incoming source; the reviewed production files remained byte-identical in the combined tree. |
+| Combined review-baseline behavior | 25 focused host cases passed with the updated actual semantic-summary dependency. Two original-source controls reproduced the wrong-base and lost-failure defects. |
+| Coordinator receipt projection | Four focused methods passed, including both later rejection types against prior unknown/accepted outcomes. Original-source controls reproduced the inconsistent dispatch and unknown-to-no projection. |
+| Reporter readiness | Seven configuration methods passed; the two corrected schema-6 cases failed against the earlier implementation. |
+| Inventories and package | Architecture and application inventories regenerated; 2,522 application source files are indexed. All 220 gateway package hashes match the working files; final metadata binds them to the published source. Inventory is not executed-line coverage. |
+
+The focused Kotlin harnesses retain explicit platform, DTO or unrelated collaborator
+boundaries. The new real-client `baselineCommitDetailPreservesSelectedRevisionAndConversationContext`
+regression was independently reviewed but requires the hosted Android unit suite;
+it was not run locally without the Android SDK. Current-head Windows, Android,
+emulator, lint, security and release-validation workflows remain the merge gate.
+Earlier successful runs and canceled superseded runs do not qualify this combined
+candidate. Existing private-service, installed-device and operational acceptance
+limits above remain applicable.

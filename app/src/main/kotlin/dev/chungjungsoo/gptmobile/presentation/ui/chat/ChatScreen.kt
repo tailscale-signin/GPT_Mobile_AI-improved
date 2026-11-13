@@ -57,6 +57,7 @@ import androidx.compose.material.icons.rounded.ArrowUpward
 import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Stop
@@ -241,6 +242,27 @@ private fun ChatScreenContent(
     val chatToolConfig by chatViewModel.chatToolConfig.collectAsStateWithLifecycle()
     val sendPreparation by chatViewModel.sendPreparation.collectAsStateWithLifecycle()
     val gatewayModelPreparation by chatViewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
+    var gatewayReadinessOpen by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
+    val gatewayReadiness = gatewayModelPreparation.values.toList()
+    if (showTopBar && gatewayReadinessOpen && gatewayReadiness.isNotEmpty()) {
+        AlertDialog(
+            onDismissRequest = { gatewayReadinessOpen = false },
+            title = { Text("Gateway model readiness") },
+            text = {
+                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                    gatewayReadiness.forEach { state ->
+                        key(state.profileUid) {
+                            dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent(
+                                state,
+                                onRecheck = { chatViewModel.recheckGatewayModel(state.profileUid) }
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { gatewayReadinessOpen = false }) { Text("Done") } }
+        )
+    }
     val githubContextForLinks = chatToolConfig.github
     var githubLinkOrigin by remember(githubContextForLinks) { mutableStateOf<String?>(null) }
     LaunchedEffect(githubContextForLinks) {
@@ -907,7 +929,14 @@ private fun ChatScreenContent(
                     onDisablePlatformClick = {
                         showProfileManagement = true
                     },
-                    onOutlineClick = { showOutline = true }
+                    onOutlineClick = { showOutline = true },
+                    gatewayStatus = when {
+                        gatewayReadiness.any { it.phase == dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationPhase.BLOCKED } -> "Needs attention"
+                        gatewayReadiness.any { it.busy } -> "Preparing"
+                        gatewayReadiness.isNotEmpty() -> "Model ready"
+                        else -> null
+                    },
+                    onGatewayStatus = { gatewayReadinessOpen = true }
                 )
             }
         }
@@ -2335,7 +2364,9 @@ private fun ChatTopBar(
     onChatModelItemClick: () -> Unit,
     onExportChatItemClick: () -> Unit,
     onDisablePlatformClick: () -> Unit = {},
-    onOutlineClick: () -> Unit = {}
+    onOutlineClick: () -> Unit = {},
+    gatewayStatus: String? = null,
+    onGatewayStatus: () -> Unit = {}
 ) {
     var isDropDownMenuExpanded by remember { mutableStateOf(false) }
 
@@ -2366,6 +2397,11 @@ private fun ChatTopBar(
             }
         },
         actions = {
+            if (gatewayStatus != null) {
+                IconButton(onClick = onGatewayStatus) {
+                    Icon(Icons.Rounded.Info, "Gateway model status: $gatewayStatus", tint = MaterialTheme.colorScheme.primary)
+                }
+            }
             IconButton(
                 enabled = isModelItemEnabled,
                 onClick = onChatModelItemClick

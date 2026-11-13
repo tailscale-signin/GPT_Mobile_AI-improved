@@ -887,8 +887,7 @@ private fun VoiceConversationHeader(state: VoiceConversationUiState, actions: Vo
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = actions.end) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats") }
         Column(Modifier.weight(1f)) {
-            Text("Voice chat", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface)
-            Text(state.profileName, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(state.profileName, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         IconButton(onClick = actions.openTranscript) {
             Icon(Icons.Rounded.Subtitles, "Open transcript", tint = if (state.captions) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)

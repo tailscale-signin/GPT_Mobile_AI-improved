@@ -9,13 +9,13 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "b5a94139d9783a5ab4eb8c0b8aac4be1f7ba18f4dd8a7637b8ba7c958d3ce427"
+    val sourceDigest: String = "fcf6559a5941e618875067158b941db891265a101074b472cee34b9e8f4548dc"
     val fileCount: Int = 2535
-    val lineCount: Int = 406036
+    val lineCount: Int = 406156
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 73, 8445),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 526, 93527),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 526, 93562),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 197, 9224),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 225, 37852),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 21980),
@@ -31,9 +31,9 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4932),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 109, 14602),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 93, 12395),
-        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 110, 16465),
+        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 110, 16482),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1941),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 23, 4699),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 23, 4767),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
         AppAuditSourceArea("gateway_software", "Companion gateway software", 118, 64328),

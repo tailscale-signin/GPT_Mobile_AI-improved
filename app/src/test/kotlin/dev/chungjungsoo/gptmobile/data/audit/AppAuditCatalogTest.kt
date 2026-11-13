@@ -23,6 +23,22 @@ class AppAuditCatalogTest {
     }
 
     @Test
+    fun stressFreezesRepeatedLocalFixturesWithoutEnablingNetworkReads() = runBlocking {
+        val source = AppAuditAppearanceProbeSource()
+        val run = AppAuditCatalog(setOf(source)).create(
+            AppAuditOptions(allowNetworkReads = true, selectedProfileIds = listOf("profile"), mode = AppAuditMode.STRESS)
+        )
+        val iterations = run.plan.filter { it.iteration != null }
+        assertTrue(iterations.isNotEmpty())
+        assertTrue(iterations.all { it.safetyClass == AppAuditSafetyClass.LOCAL_READ && it.fixtureHash != null })
+        assertEquals(iterations.size, iterations.map { it.id }.distinct().size)
+        assertEquals(900_000L, run.limits.totalTimeoutMs)
+        assertEquals(0, run.limits.maxNetworkProbes)
+        assertFalse(run.options.allowNetworkReads)
+        assertTrue(run.options.selectedProfileIds.isEmpty())
+    }
+
+    @Test
     fun narrowLocalFixturesDoNotRemoveRenderingDatabaseOrDeviceQualification() = runBlocking {
         val source = object : AppAuditProbeSource {
             override val sourceId = "fixture"

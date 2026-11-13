@@ -105,7 +105,8 @@
     "Recover transient Windows status-file replacement sharing errors within a bounded status-only allowance, preserve the last durable and in-memory state on failure, and retain regression coverage for permanent and unrelated errors.",
     "Resolve a pinned comparison base for manual CI validation while preserving event-supplied PR, push and merge-queue comparisons and rejecting unavailable or invalid references.",
     "Isolate real-worker engineering recovery tests under the unchanged per-module watchdog, preserving every unique assertion and the existing readiness and shutdown limits while removing identical inherited executions.",
-    "Refresh microphone permission evidence from the actual owner permission check after capture read security failures, retaining typed recovery, resource cleanup, generation ownership and privacy invalidation."
+    "Refresh microphone permission evidence from the actual owner permission check after capture read security failures, retaining typed recovery, resource cleanup, generation ownership and privacy invalidation.",
+    "Repair PR 881 open issues #884\u2013#890: exact-model sleep preparation and durable uncertainty, typed model/report diagnostics with negotiated reporter features, explicit immutable review baselines and review intent, and revision-bound self-test workflow dependency discovery."
   ],
   "limitations": [
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -161,7 +162,8 @@
     "Hosted issue-report delivery requires a real project-owned HTTPS reporter advertising the supported context schema and ISSUE_REPORT_ORIGIN in the APK; enabled native GitHub delivery requires a verified account and explicit approval of the report and route. Host regressions do not qualify live delivery, and no live service, repository variable or credential was changed by the November 12 session repair.",
     "The November 12 session repair requires installed-APK reporting reconciliation, exact-model generation, affected MCP listener/protocol/credential repair, owned integration fixtures and physical-device voice/lifecycle/frame/memory acceptance. Source and host checks do not establish those external results.",
     "The later 141-check audit and diagnostic capture were supplied as analyses, not original files; their capture-specific rows and measurements were not independently revalidated. The audit's 67 untested checks remain untested until matching execution evidence is retained.",
-    "The supplemental repairs require exact-head Android regression results and an updated hosted reporter advertising context schema 5. Physical frame/allocation measurements, ASUS microphone behavior and the user's private gateway/model remain unqualified by host fixtures. Reports without a proven historical cause may be closed under the requested diagnostic-follow-up policy after specific capture is implemented and tested; this does not establish that the original failure was reproduced or fixed."
+    "The supplemental repairs require exact-head Android regression results and an updated hosted reporter advertising context schema 5. Physical frame/allocation measurements, ASUS microphone behavior and the user's private gateway/model remain unqualified by host fixtures. Reports without a proven historical cause may be closed under the requested diagnostic-follow-up policy after specific capture is implemented and tested; this does not establish that the original failure was reproduced or fixed.",
+    "New gateway preparation diagnostics require a hosted reporter advertising GATEWAY_MODEL_PREPARATION_V1; new review error codes require REVIEW_COMPARISON_V1. An older reporter leaves the approved report saved with an update-required status before submission. Native GitHub submission retains its separately selected account and approval. Private gateway configuration, installed-device behavior and full hosted Android validation remain separate qualification steps."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -2411,6 +2413,11 @@
     "scripts/tests/test_validation_base.py",
     "docs/repairs/manual-validation-base-2026-11-12-task.json",
     "gateway/tests/test_gateway_v14_engineering_worker.py",
-    "docs/repairs/groq-output-limit-test-2026-11-13-task.json"
+    "docs/repairs/groq-output-limit-test-2026-11-13-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestWorkflowJobs.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewBaselineTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestWorkflowJobsTest.kt",
+    "docs/repairs/pr881-open-issues-2026-11-12-task.json",
+    "docs/repairs/pr881-open-issues-2026-11-12.md"
   ]
 }

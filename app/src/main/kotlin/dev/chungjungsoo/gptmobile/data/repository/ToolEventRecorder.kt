@@ -179,7 +179,7 @@ class ToolEventRecorder @Inject constructor(
                 } else {
                     dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.toolResult(normalizedResult.errorCode)
                 }
-            ).takeUnless { healthEvent },
+                ).takeUnless { healthEvent },
             reportFields = if (healthEvent || !normalizedResult.isError && !withheldRead) {
                 emptyMap()
             } else {

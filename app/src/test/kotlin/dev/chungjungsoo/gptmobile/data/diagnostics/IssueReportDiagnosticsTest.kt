@@ -17,6 +17,25 @@ class IssueReportDiagnosticsTest {
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 
+    @Test fun toolBudgetEvidenceCanBeCapturedAndNegotiated() {
+        val context = IssueReportContext.fromFields(
+            "TOOL_RESULT",
+            mapOf(
+                "diagnostic_area" to "TOOL",
+                "tool_budget_kind" to "RESULT_BYTES",
+                "tool_budget_phase" to "AFTER_DISPATCH",
+                "tool_result_bytes_used" to 24576,
+                "tool_result_bytes_limit" to 24576
+            ),
+            time
+        )
+        val diagnostics = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("RESULT_BYTES"), diagnostics.values["tool_budget_kind"])
+        assertEquals(JsonPrimitive(24576), diagnostics.values["tool_result_bytes_used"])
+        assertEquals(setOf("EXECUTION_OUTCOME_DIAGNOSTICS_V1"), diagnostics.requiredServiceFeatures())
+        assertTrue(diagnostics.isValid())
+    }
+
     @Test fun failureDetailsAreReadableBoundedAndNegotiated() {
         val input = mapOf("diagnostic_area" to "TOOL", "tool_action" to "headers", "tool_error_code" to "INVALID_ARGUMENTS", "tool_reason_code" to "TOOL_ARGUMENT_SCHEMA_REJECTED", "tool_dispatch_phase" to "PREFLIGHT_REJECTED", "unknown_field_count" to 1, "private_argument" to "secret")
         val diagnostics = requireNotNull(IssueReportContext.fromFields("TOOL_RESULT", input, time).diagnostics)

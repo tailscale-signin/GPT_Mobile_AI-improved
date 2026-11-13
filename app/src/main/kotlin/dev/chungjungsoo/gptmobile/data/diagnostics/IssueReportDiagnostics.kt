@@ -52,7 +52,15 @@ internal data class IssueReportDiagnostics(
     }
 
     companion object {
-        private val executionFields = IssueReportIncidentCapsule.toolFailureFields + IssueReportIncidentCapsule.gatewayDeliveryFields + IssueReportIncidentCapsule.providerExecutionFields + IssueReportIncidentCapsule.combinedDeliveryFields + IssueReportIncidentCapsule.acceptanceBlockerFields
+        // The capsule reads IssueReportContext during initialization. Resolve this union
+        // only when checking service capabilities, after the diagnostics types initialize.
+        private val executionFields by lazy {
+            IssueReportIncidentCapsule.toolFailureFields +
+                IssueReportIncidentCapsule.gatewayDeliveryFields +
+                IssueReportIncidentCapsule.providerExecutionFields +
+                IssueReportIncidentCapsule.combinedDeliveryFields +
+                IssueReportIncidentCapsule.acceptanceBlockerFields
+        }
         val failureDetailFields = setOf("provider_failure_stage", "provider_failure_domain", "provider_failure_code", "voice_reply_state", "voice_reply_characters", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "chat_failure_code_state", "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections", "unmet_requirement_count", "unmet_capability_count")
         const val MAX_BYTES = 3072
         const val MAX_CRITERIA = 8

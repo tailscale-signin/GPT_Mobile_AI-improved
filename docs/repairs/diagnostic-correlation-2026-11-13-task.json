@@ -43,5 +43,17 @@
     "jsonl_rows": 8513,
     "logical_records_reassembled": 3
   },
-  "repair_register": "docs/repairs/diagnostic-correlation-2026-11-13.md"
+  "repair_register": "docs/repairs/diagnostic-correlation-2026-11-13.md",
+  "verification_followup": {
+    "pull_request": 970,
+    "reviewed_head": "5ff092471a9d5d2b341ce8fd37f687f1b0fe4257",
+    "failed_run": 43416891108,
+    "failed_job": 131857036927,
+    "findings": [
+      "Eager execution-outcome capability fields created a circular class initializer through the incident capsule and report context.",
+      "The selector-free schema regression still expected the old missing pull-number error."
+    ],
+    "repair": "Resolve capability fields lazily, test bounded budget evidence and negotiation, and keep explicit PR context validation covered.",
+    "verification_state": "REQUIRES_FRESH_CANDIDATE_CI"
+  }
 }

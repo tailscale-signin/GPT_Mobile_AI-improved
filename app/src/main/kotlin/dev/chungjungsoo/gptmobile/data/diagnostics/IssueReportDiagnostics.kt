@@ -50,6 +50,12 @@ internal data class IssueReportDiagnostics(
         ) {
             add("RUN_FAILURE_EVIDENCE_V1")
         }
+        if ((values.keys + omittedFields).any { it in recoveryObservationFields } ||
+            (values["saved_view_restore_state"] as? JsonPrimitive)?.contentOrNull in setOf("BODY_MISSING", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID") ||
+            "saved_view_restore_state" in omittedFields
+        ) {
+            add("RECOVERY_OBSERVATIONS_V1")
+        }
         if (area == "GATEWAY" && (values.keys + omittedFields).any { it in modelPreparationFields }) add(MODEL_PREPARATION_FEATURE)
         if ((values.keys + omittedFields).any { it in failureDetailFields }) add("INCIDENT_FAILURE_DETAILS_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.dispatchPolicyFields }) add("DISPATCH_POLICY_DIAGNOSTICS_V1")
@@ -62,6 +68,14 @@ internal data class IssueReportDiagnostics(
     }
 
     companion object {
+        private val recoveryObservationFields = setOf(
+            "url_reader_dns_state",
+            "fixture_decision_mode",
+            "voice_speech_end_to_transcript_ms",
+            "voice_transcript_to_request_ms",
+            "voice_request_to_response_ms"
+        )
+
         // The capsule reads IssueReportContext during initialization. Resolve this union
         // only when checking service capabilities, after the diagnostics types initialize.
         private val executionFields by lazy {

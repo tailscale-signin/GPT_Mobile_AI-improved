@@ -478,7 +478,7 @@
   },
   "repair_register": "docs/repairs/session-reliability-reporting-2026-11-12.md",
   "checkpoint_storage": "repository_file",
-  "checkpoint_updated_at": "2026-11-12T23:28:06.166753+00:00",
+  "checkpoint_updated_at": "2026-11-13T02:12:48.692919+00:00",
   "draft_pr_merge_followup": {
     "state": "IMPLEMENTED_PENDING_INTEGRATED_VALIDATION",
     "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
@@ -607,7 +607,7 @@
   },
   "gateway_fixture_admission_followup": {
     "repair_id": "R39",
-    "state": "LOCAL_GATES_PASSED_PENDING_PUBLISHED_WINDOWS_AND_CURRENT_ANDROID_CI",
+    "state": "PUBLISHED_FOUR_PLATFORM_AND_PRIMARY_CANONICAL_EXECUTION_PASSED",
     "application_source_parent": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
     "gateway_source_commit": "c39fa7f98cb281062a037a1ef7255d4d0ce0542c",
     "gateway_source_tree": "72f92705e497ab0fd679411319172096727637ce",
@@ -671,7 +671,7 @@
       "checked_at": "2026-11-13T00:57:24.164932+00:00"
     },
     "publication_scope": "Primary PR838 only; preserve mirror641 Android execution. Application production and Android test bytes are unchanged; no whole-tree equivalence claim.",
-    "remaining": "Actual Windows execution on this source/package and current Android aggregate. External operational acceptance remains open."
+    "remaining": "External operational acceptance remains open as listed in latest_validation_checkpoint.external_acceptance."
   },
   "gateway_four_platform_execution_7e": {
     "source": "7e854982b2df9479a5b0aba49bdcc9193ce7459a",
@@ -689,5 +689,388 @@
     "authentication_passed_each": 66,
     "browser_passed_each": 7,
     "scope": "Historical full matrix; later3e readiness failure retained and corrected separately. Repeated-platform totals are not unique tests."
+  },
+  "latest_validation_checkpoint": {
+    "observed_at": "2026-11-13T02:12:48.692919+00:00",
+    "state": "PRIMARY_CANONICAL_PASSED_EXTERNAL_ACCEPTANCE_OPEN",
+    "history_notice": "Earlier checkpoints retain their original source identity, result and observation time. This section identifies the latest verified evidence; no historical failure or untested acceptance is rewritten.",
+    "documentation_publication": {
+      "kind": "DOCUMENTATION_ONLY",
+      "parent_code_commit": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "runtime_test_workflow_inputs_changed": false,
+      "merge_or_deployment_authorized_by_this_receipt": false
+    },
+    "sources": {
+      "primary": {
+        "sourceCommit": "9568c8915de6d11726af860fc8ca8d21649220bd",
+        "sourceTree": "b9b7150fb0611a8636d3dd4f2eca0adf2746fc63",
+        "sourceParents": [
+          "c39fa7f98cb281062a037a1ef7255d4d0ce0542c"
+        ],
+        "checkoutMergeCommit": "342b48d9e9559fb89e06dbd0b2a3f835eae802ec",
+        "checkoutTree": "b9b7150fb0611a8636d3dd4f2eca0adf2746fc63",
+        "checkoutParents": [
+          "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+          "9568c8915de6d11726af860fc8ca8d21649220bd"
+        ]
+      },
+      "gateway_package": {
+        "source": "c39fa7f98cb281062a037a1ef7255d4d0ce0542c",
+        "files_verified": 219,
+        "manifest_sha256": "98112cfb6a0a8665dc9d278c64b17dc8df30374657a5cf47e0e91fa65cb1b8c2"
+      },
+      "android_verification": {
+        "head": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+        "checkout": "a53e049ebf495e591ef9488cf4fc9c48de71370a",
+        "tree": "041e4999afccaa2b94f714de9e67805733021df3",
+        "android_production_tests_native_and_applicable_ci_inputs_unchanged_at_primary": true,
+        "whole_tree_equal": false
+      }
+    },
+    "main_jvm": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "checkout": "342b48d9e9559fb89e06dbd0b2a3f835eae802ec",
+      "tree": "b9b7150fb0611a8636d3dd4f2eca0adf2746fc63",
+      "run": 43341850280,
+      "job": 131617269760,
+      "artifact": 14001549922,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43341850280/artifacts/14001549922",
+      "archive_sha256": "b34856c6964593c4d4a82f70815628a9559724e7f5b4719a9873d403fcff31c1",
+      "modules": {
+        "android_app": {
+          "passed": 9924,
+          "tests": 9929,
+          "reports": 1471,
+          "skipped": 5
+        },
+        "portable_domain": {
+          "passed": 4,
+          "tests": 4,
+          "reports": 1
+        }
+      },
+      "totals": {
+        "passed": 9928,
+        "tests": 9933,
+        "reports": 1472,
+        "skipped": 5
+      },
+      "unique_cases": 9933,
+      "duplicates": 0,
+      "critical_current_methods_passed": 69,
+      "qualification_checkout_independently_verified": true,
+      "actual_completed_job_log_checkout_verified": true,
+      "strict_reconciliation": "PASS_EXACT_SOURCE_RUN_ATTEMPT_CASE_SET_DIGEST_AND_FRESHNESS",
+      "formal_promotions": 0
+    },
+    "dedicated_heaps": {
+      "artifact_id": 14003855625,
+      "archive_sha256": "2886819c091e63170556852fe740901d6e3a5bdf19e43e2d6f32d379390ef8bc",
+      "passed": 11,
+      "passed_256_mib": 10,
+      "passed_64_mib": 1,
+      "failures": 0,
+      "skips": 0,
+      "all_five_main_deferred_cases_passed": true,
+      "unique_case_identities": true,
+      "log_sha256": "1cd946864a0b188754b1fe482f706d6e51641f193c1140c95cc09560f4fa6228",
+      "heap_bound_proof": "Workflow invokes heap-stress.init.gradle; actual two heap task runs succeeded; all five large-data methods assert Runtime.maxMemory <=256/64MiB and passed in fresh XML.",
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850280
+    },
+    "coverage": {
+      "artifact_id": 14003621583,
+      "archive_sha256": "f5601c6f85a9466e6c87c7470433a45893066094017aab08a3504373e0d5d647",
+      "xml_sha256": "6221fb3c4732098124cf0d8dae37b6272dd2e4d180378a7ebc8b9e88af3ab12d",
+      "counters": {
+        "LINE": {
+          "covered": 112759,
+          "missed": 133657,
+          "percent": 45.759609765599635
+        },
+        "BRANCH": {
+          "covered": 109217,
+          "missed": 138180,
+          "percent": 44.14645286725385
+        }
+      },
+      "application_source_files": 2401,
+      "outside_application_prefix_source_files": 46,
+      "matches_qualification_receipt": true,
+      "all_23_sessions_in_current_run_window": true,
+      "scope": "Application-prefix sourcefile counters in this JVM JaCoCo run, not top-level totals, native/scripts/resources or physical-device coverage.",
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850280
+    },
+    "mirror_canonical_aggregate": {
+      "run": 43339363893,
+      "job": 131633300792,
+      "conclusion": "success",
+      "all_five_required_prerequisites_success": true,
+      "log_sha256": "2c4687095d479295f7b0168087d2113f7a824863a5d4bfa98ccc0ee0e9b9f532"
+    },
+    "primary_canonical_aggregate": {
+      "run": 43341850280,
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "checkout": "342b48d9e9559fb89e06dbd0b2a3f835eae802ec",
+      "job": 131639080509,
+      "conclusion": "success",
+      "all_five_required_prerequisites_success": true,
+      "needs": {
+        "reliability_v2_completion": {
+          "result": "success",
+          "outputs": {}
+        },
+        "validate": {
+          "result": "success",
+          "outputs": {}
+        },
+        "android_lint": {
+          "result": "success",
+          "outputs": {}
+        },
+        "contracts": {
+          "result": "success",
+          "outputs": {}
+        },
+        "format": {
+          "result": "success",
+          "outputs": {}
+        }
+      },
+      "log_sha256": "cf7b15e11159ff55f1a9a122865b2d64d2b2fa6c8a71cca575556bc3b22ae96c",
+      "state": "COMPLETED",
+      "completed_at": "2026-11-13T02:10:06Z"
+    },
+    "gateway_matrix": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850316,
+      "conclusion": "success",
+      "modules_each": 70,
+      "cases_each": 919,
+      "windows_each": {
+        "passed": 919,
+        "skipped": 0
+      },
+      "ubuntu_each": {
+        "passed": 917,
+        "skipped": 2,
+        "skip_reason": "Windows Credential Manager and actual Windows sharing semantics"
+      },
+      "authentication_each_passed": 66,
+      "browser_each_passed": 7,
+      "corrected_journal_module_passed_each": 32,
+      "counts_are_repeated_platform_runs": true
+    },
+    "windows_installer": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850351,
+      "job": 131611798729,
+      "conclusion": "success",
+      "desktop_passed": 49,
+      "network_passed": 15,
+      "dashboard_passed": 12,
+      "smoke_passed": 11,
+      "user_machine_installation": false
+    },
+    "android_lint": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "checkout": "342b48d9e9559fb89e06dbd0b2a3f835eae802ec",
+      "run": 43341850280,
+      "job": 131617269763,
+      "conclusion": "success",
+      "actual_app_lint_analysis_report_and_lintDebug_executed": true,
+      "supporting_gradle_tasks_include_cache_and_up_to_date_reuse": true,
+      "log_sha256": "5b3302fe69968736e2fd779003c5490291d44cb599459c8d7b54d935b0afded1"
+    },
+    "emulators": {
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363957,
+      "api34_passed": 66,
+      "api36_passed": 66,
+      "failures": 0,
+      "skips": 0,
+      "archives_hash_verified": true,
+      "integration_transport": "KTOR_MOCK_ENGINE",
+      "physical_device_acceptance": false
+    },
+    "native": {
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43338588695,
+      "passed": 3,
+      "skipped": 2,
+      "failures": 0,
+      "skip_reason": "No compatible OpenCL/Vulkan GPU or IGPU on emulator",
+      "archive_hash_verified": true,
+      "physical_device_acceptance": false
+    },
+    "codeql": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850210,
+      "analysis_succeeded": true,
+      "artifact": {
+        "id": 13999529897,
+        "bytes": 168777,
+        "sha256": "dbdff4050c8e2bd4005077b04cbdbfe344b05d5ebe2ee888747fab15396d6c64",
+        "downloaded_hash_verified": true,
+        "zip_crc_path_safety_checked": true,
+        "members": 8,
+        "expanded_bytes": 2351856
+      },
+      "sarif_sha256": "4576081c0d0e87c906d6c65ab2eb163938a67636100a9975178d466bf76c73ed",
+      "retained_alerts": 1,
+      "rules": [
+        "java/zipslip"
+      ],
+      "security_severity": 7.5,
+      "scanner_baseline_state": null,
+      "normalized_finding_matches_prior_scan": true,
+      "involved_source_unchanged_from_main": true,
+      "dismissed": false,
+      "security_clean_claim": false,
+      "review": "Existing pre-resolution path and exact app-private linked-asset authority constraints reviewed; no concrete archive-controlled bypass identified. Not exhaustive filesystem/race validation or a proof that the scanner is wrong."
+    },
+    "apk_delivery": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "default_run": 43341850499,
+      "review_run": 43341850473,
+      "default_artifact": 14000977407,
+      "review_artifact": 14001731052,
+      "native_reporting_enabled_observed_in_ci": true,
+      "hosted_origin_observed_in_ci": "",
+      "configuration_gate_executed": true,
+      "size_report_artifact": 14001405689,
+      "size_report_archive_sha256": "119d81a87574b1c2312e107bacbb3764d795b2e7bfbce0f98cc34727538789b0",
+      "size_report_independently_verified": true,
+      "apk_archives_downloaded": false,
+      "individual_apk_digests_independently_verified": false,
+      "signing_certificate_verified": false,
+      "embedded_build_config_independently_verified": false,
+      "installed_update_verified": false,
+      "live_report_delivery_verified": false
+    },
+    "historical_ledger": {
+      "formal_promotions": 0,
+      "pass": 11,
+      "not_run": 99,
+      "distinct_from_historical_app_audit": true
+    },
+    "external_acceptance": {
+      "historical_app_audit_untested": 67,
+      "automatic_promotions": 0,
+      "open": [
+        "compatible_signed_device_update_and_saved_report_preservation",
+        "approved_report_delivery_and_uncertain_response_reconciliation",
+        "private_mcp_listener_protocol_repair_and_reauthorization",
+        "actual_saved_target_plugin_and_tool_execution",
+        "selected_model_generation_identity_timing_and_review_recovery",
+        "authorized_owned_fixture_creation_use_cleanup_and_final_absence",
+        "physical_microphone_playback_lifecycle_and_audio_drain",
+        "release_device_frame_and_memory_measurements",
+        "applicable_external_source_area_qualification",
+        "deployed_service_artifact_attestation"
+      ]
+    },
+    "main_jvm_mirror": {
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363893,
+      "job": 131603716067,
+      "artifact": 14001383672,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/actions/runs/43339363893/artifacts/14001383672",
+      "archive_sha256": "320a8c83669bc2d11eaac8afa0975750b8fc281c44a355b45682e73d333221c5",
+      "modules": {
+        "android_app": {
+          "passed": 9924,
+          "tests": 9929,
+          "reports": 1471,
+          "skipped": 5
+        },
+        "portable_domain": {
+          "passed": 4,
+          "tests": 4,
+          "reports": 1
+        }
+      },
+      "totals": {
+        "passed": 9928,
+        "tests": 9933,
+        "reports": 1472,
+        "skipped": 5
+      },
+      "unique_cases": 9933,
+      "duplicates": 0,
+      "critical_current_methods_passed": 69,
+      "actual_job_checkout_and_test_execution_verified": true,
+      "strict_reconciliation": "PASS_EXACT_SOURCE_RUN_ATTEMPT_CASE_SET_DIGEST_AND_FRESHNESS",
+      "formal_promotions": 0
+    },
+    "primary_reported_coverage": {
+      "source": "9568c8915de6d11726af860fc8ca8d21649220bd",
+      "run": 43341850280,
+      "raw_xml_independently_verified": true,
+      "available": true,
+      "report_sha256": "6221fb3c4732098124cf0d8dae37b6272dd2e4d180378a7ebc8b9e88af3ab12d",
+      "source_files": 2401,
+      "counters": {
+        "LINE": {
+          "covered": 112759,
+          "missed": 133657,
+          "percent": 45.759609765599635
+        },
+        "BRANCH": {
+          "covered": 109217,
+          "missed": 138180,
+          "percent": 44.14645286725385
+        }
+      },
+      "current_run_sessions": 23,
+      "scope": "Application source files present in this JaCoCo report; excludes native, script and resource inventory."
+    },
+    "android_lint_mirror": {
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363893,
+      "job": 131603715399,
+      "conclusion": "success",
+      "actual_lint_task_executed": true
+    },
+    "dedicated_heaps_mirror": {
+      "artifact_id": 14001504660,
+      "archive_sha256": "d9d9c70f74e614c06a065fa61dd260dd629a5e0aeb45e8ae422ce9b963c767f9",
+      "passed": 11,
+      "passed_256_mib": 10,
+      "passed_64_mib": 1,
+      "failures": 0,
+      "skips": 0,
+      "all_five_main_deferred_cases_passed": true,
+      "unique_case_identities": true,
+      "log_sha256": "ec393d0eae727e47569b7b3cd4e8c8bb4f3cae3975edc61d99b1fdb628795d05",
+      "heap_bound_proof": "Workflow invokes heap-stress.init.gradle; actual two heap task runs succeeded; all five large-data methods assert Runtime.maxMemory <=256/64MiB and passed in fresh XML.",
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363893
+    },
+    "coverage_mirror": {
+      "artifact_id": 14003045459,
+      "archive_sha256": "eaf1c6c90ced74c275f1298ab32a0710805f6f09f78a065e249195b4ddd58668",
+      "xml_sha256": "f6da0745df97269b0bd54f86d449cfff3309493841d2e436c30de6c1efa0942e",
+      "counters": {
+        "LINE": {
+          "covered": 112759,
+          "missed": 133657,
+          "percent": 45.759609765599635
+        },
+        "BRANCH": {
+          "covered": 109221,
+          "missed": 138176,
+          "percent": 44.14806970173446
+        }
+      },
+      "application_source_files": 2401,
+      "outside_application_prefix_source_files": 46,
+      "matches_qualification_receipt": true,
+      "all_23_sessions_in_current_run_window": true,
+      "scope": "Application-prefix sourcefile counters in this JVM JaCoCo run, not top-level totals, native/scripts/resources or physical-device coverage.",
+      "source": "641a5750544a45935ce7fdeb0c1037fdc50955f9",
+      "run": 43339363893
+    }
   }
 }

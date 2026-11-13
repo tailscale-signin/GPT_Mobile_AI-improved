@@ -5,6 +5,8 @@ internal object IssueReportCodes {
     val allowed = setOf(
         "APP_ERROR",
         "CHAT_FAILED",
+        "REVIEW_INPUT_REQUIRED",
+        "GITHUB_REVIEW_COMPARISON_REQUIRED",
         "PRIVACY_CONFIGURATION",
         "VOICE_MICROPHONE_FOCUS_DENIED",
         "VOICE_MICROPHONE_FOCUS_LOST",

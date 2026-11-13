@@ -104,6 +104,7 @@ class IssueReportCollectorsTest {
             ).collectApiStateUpdates(onUpdate = { _, _, timeline -> retainedStage = timeline.lastOrNull { it.profileFailure != null }?.profileFailure?.phase })
             val report = IssueReportIncidents.pending.value.last()
             val context = requireNotNull(report.context)
+            assertEquals(if (code == "WAITING_FOR_APPROVAL") "CHAT_FAILED" else code, report.errorCode)
             assertEquals(3, context.schemaVersion)
             assertEquals(stage, context.stage)
             assertEquals(stage, retainedStage)

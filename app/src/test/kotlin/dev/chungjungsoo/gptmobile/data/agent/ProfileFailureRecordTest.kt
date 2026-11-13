@@ -6,6 +6,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProfileFailureRecordTest {
+    @Test fun typedReviewPrerequisitesKeepTheirCategoryWithoutDependingOnErrorProse() {
+        val details = kotlinx.serialization.json.Json.parseToJsonElement("""{"failed_stage":"review_comparison","dispatched":false,"dispatch_state":"NOT_DISPATCHED","remote_acceptance":"NO","retryable":false,"request_replay_allowed":false,"next_action":"SELECT_REVIEW_BASELINE"}""") as kotlinx.serialization.json.JsonObject
+        for (code in listOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")) {
+            for (message in listOf("", "Which commit or tag should be the review baseline?")) {
+                val failure = ProfileFailureRecord.fromProvider(message, code, details)
+                val restored = kotlinx.serialization.json.Json.decodeFromString<ProfileFailureRecord>(kotlinx.serialization.json.Json.encodeToString(ProfileFailureRecord.serializer(), failure))
+                assertEquals("REVIEW_INPUT_REQUIRED", restored.category)
+                assertEquals("review_comparison", restored.phase)
+                assertEquals(false, restored.dispatched)
+                assertEquals(RemoteRequestAcceptance.NO, restored.remoteAcceptance)
+                assertFalse(restored.retryAllowed)
+                assertEquals(false, restored.requestReplayAllowed)
+                assertEquals(listOf("SELECT_REVIEW_BASELINE"), restored.recoveryActions)
+            }
+        }
+        assertTrue(ProfileFailureRecord.reviewRetryBlock("REVIEW_INPUT_REQUIRED review_comparison")!!.contains("Baseline:"))
+        assertFalse(ProfileFailureRecord.reviewRetryBlock("REVIEW_INPUT_REQUIRED")!!.contains("Baseline:"))
+    }
+
     @Test fun typedProviderCooldownKeepsTheSameDeadlineAsTheIncidentAndLocalRejection() {
         val retryAt = 1_800_000_030_156L
         for (dispatched in listOf(true, false)) {

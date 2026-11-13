@@ -386,8 +386,11 @@ internal class GitHubVerifiedSession(
                                 comparison.checkpoint + buildJsonObject {
                                     put("failed_stage", "review_comparison")
                                     put("dispatched", false)
+                                    put("dispatch_state", "NOT_DISPATCHED")
+                                    put("remote_acceptance", "NO")
                                     put("retryable", false)
                                     put("resume_allowed", false)
+                                    put("request_replay_allowed", false)
                                     put("next_action", if (needsInput) "SELECT_REVIEW_BASELINE" else "RESTORE_REVIEW_COMPARISON_EVIDENCE")
                                 }
                             )

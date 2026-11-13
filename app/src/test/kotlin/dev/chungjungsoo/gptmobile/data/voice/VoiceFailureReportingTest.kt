@@ -292,17 +292,22 @@ class VoiceFailureReportingTest {
         }
         val session = VoiceSession(audio, { false }, {})
         session.restore("recognized words", "", review = false, pending = true)
-        session.reply("legacy-run", "HTTP 429: rate limit", failed = true)
+        val untypedReply = "HTTP 429: rate limit"
+        session.reply("legacy-run", untypedReply, failed = true)
         val report = IssueReportIncidents.pending.value.single()
         assertEquals("VOICE_SESSION_FAILED", report.errorCode)
         assertEquals("voice_reply", report.context?.stage)
         assertEquals(JsonPrimitive("FAILED_WITHOUT_DETAILS"), report.context?.diagnostics?.values?.get("voice_reply_state"))
-        assertEquals(JsonPrimitive(0), report.context?.diagnostics?.values?.get("voice_reply_characters"))
+        assertEquals(JsonPrimitive(untypedReply.length), report.context?.diagnostics?.values?.get("voice_reply_characters"))
         org.junit.Assert.assertNull(report.context?.dispatched)
         org.junit.Assert.assertNull(report.context?.remoteAcceptance)
         org.junit.Assert.assertNull(report.context?.httpStatus)
         org.junit.Assert.assertNull(report.context?.retryable)
         assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("run", "legacy-run"), report.context?.runIdHash)
+        val approved = report.approvedPayload()
+        assertFalse(approved.contains(untypedReply))
+        assertFalse(approved.contains("recognized words"))
+        assertFalse(approved.contains("legacy-run"))
         session.close()
     }
 

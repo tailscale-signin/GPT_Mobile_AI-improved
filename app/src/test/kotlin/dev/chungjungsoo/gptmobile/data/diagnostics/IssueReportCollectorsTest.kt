@@ -357,14 +357,18 @@ class IssueReportCollectorsTest {
             assertEquals(JsonPrimitive(IssueReportContext.identifierHash("tool-error-code", localCode)), diagnostics.values["original_error_code_hash"])
             assertEquals(false, context.dispatched)
             assertEquals(IssueReportContext.identifierHash("call", event.callId), context.callIdHash)
-            // This existing v4 public reason is allowed only in its typed context field.
+            // This closed public reason is retained in its typed context and diagnostic fields.
             val publicReason = localCode.takeIf { it == "SAVED_VIEW_WRONG_OPERATION" }
             assertEquals(publicReason, context.reasonCode)
             val approved = IssueReport.json.parseToJsonElement(report.approvedPayload()).jsonObject
             val approvedContext = approved.getValue("context").jsonObject
             assertEquals(publicReason?.let(::JsonPrimitive), approvedContext["reasonCode"])
-            val outsideReason = JsonObject(approved + ("context" to JsonObject(approvedContext - "reasonCode")))
-            assertFalse(outsideReason.toString().contains(localCode))
+            val approvedDiagnostics = approvedContext.getValue("diagnostics").jsonObject
+            val approvedValues = approvedDiagnostics.getValue("values").jsonObject
+            assertEquals(publicReason?.let(::JsonPrimitive), approvedValues["tool_reason_code"])
+            val withoutDiagnosticReason = JsonObject(approvedDiagnostics + ("values" to JsonObject(approvedValues - "tool_reason_code")))
+            val outsideReasons = JsonObject(approved + ("context" to JsonObject(approvedContext - "reasonCode" + ("diagnostics" to withoutDiagnosticReason))))
+            assertFalse(outsideReasons.toString().contains(localCode))
             assertFalse(report.approvedPayload().contains("private"))
         }
     }

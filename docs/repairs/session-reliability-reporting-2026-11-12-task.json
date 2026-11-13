@@ -1268,6 +1268,112 @@
         "review": "Independent scoped review of provider replay, durable continuation, repair budgets, gateway routing and reporting found no additional concrete blocker. Fourteen other new unit-test classes had no concrete missing Android runner defect.",
         "status": "APPLIED_AWAITING_FRESH_HOSTED_CI"
       }
+    },
+    "consolidated_test_contract_followup": {
+      "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+      "base_branch": "main",
+      "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+      "working_branch": "fix/open-reports-and-protected-merge-2026-11-13",
+      "starting_head": "cd1e59ae2432d0af1e34f1dee57a09cc2d2bd1fe",
+      "intent": "Reconcile four current-head test expectations with the deliberately retained bounded repair and typed diagnostic contracts, preserving behavior and privacy assertions.",
+      "observed_evidence": {
+        "run_id": 43383063344,
+        "job_id": 131745206552,
+        "artifact_id": 14018469545,
+        "artifact_sha256": "b08ffe914320c119deb2f1168ab9b5941aae5300a223e0166f7a23c7a2e1c7fe",
+        "test_failures": 4
+      },
+      "state": "APPLIED_AWAITING_FRESH_HOSTED_CI",
+      "findings": {
+        "GitHubSchemaRepairTest.failedReadReportsTheMatchingActionBranchAndOffersAnExactDiscoveryCall": "The repeated rejection deliberately changes only message/reason to ARGUMENT_REPAIR_EXHAUSTED. The stable selector, correction call, validation errors and pre-dispatch state are unchanged. Assert bounded attempt progression and retain zero dispatch/spend before the valid correction.",
+        "IssueReportCollectorsTest.nativePrecheckReasonsSurviveTheActualRecorderThroughExistingPublicCategories": "The closed public reason is intentionally retained in both context.reasonCode and context.diagnostics.values.tool_reason_code. Assert both exact approved locations while scanning all other payload fields and private fixture text.",
+        "ChatRepositoryImplTest.groq token limit reports failure instead of completing with only thinking": "The actual full state list differs only by the intentionally added typed GENERATION/PROVIDER/OUTPUT_LIMIT diagnostics. Preserve exact state and report equality and one provider stream.",
+        "VoiceFailureReportingTest.untypedReplyProseAddsOnlyRunCorrelationAndDoesNotPromoteDispatchEvidence": "VoiceSession deliberately records the observed character count even for an untyped failed reply. Assert the count and retain absent dispatch, remote acceptance, HTTP status and retryability; exclude reply, transcript and raw run identifier from the approved payload."
+      },
+      "production_changes": "None; five test files and this checkpoint only. Expected diagnostic contracts and rendered-frame capture are aligned while preserving validation, privacy, dispatch, pixel and merge gates.",
+      "local_schema_validation": {
+        "current_source_repair_budget_tests": 2,
+        "result": "passed",
+        "hosted_failure_payload": "Stable payload equality and exact correction call verified against the downloaded actual XML.",
+        "boundary": "AgentContracts/platform collaborators use the existing host boundary; full bound GitHub/Android execution awaits fresh CI.",
+        "ktlint": "1.3.1 passed"
+      },
+      "independent_review": {
+        "schema_repair": "Approved: exact bounded repair transition and stable payload/correction checks; no production change indicated.",
+        "reporting_fixtures": "Approved: only the two exact permitted public reason leaves are excluded from the privacy scan; all unknown voice transport fields and raw-text exclusions remain asserted.",
+        "groq_fixture": "Approved: only the three typed provider fields differ in actual hosted state; full sequence, stream count and projected values remain exact."
+      },
+      "prior_head_execution": {
+        "head": "cd1e59ae2432d0af1e34f1dee57a09cc2d2bd1fe",
+        "synthetic_checkout": "f36a45fc112f8a19b3b3944ea3b188ca1fa2b7e2",
+        "identical_tree": "c9a507ab12e1e9bd3f1c4c67878e6bb7901db93e",
+        "xml_suites": 1491,
+        "unique_cases": 10121,
+        "passed": 10112,
+        "failed": 4,
+        "deferred_heap_cases": 5,
+        "duplicate_cases": 0,
+        "original_regressions_passed": 7,
+        "original_tool_checkpoint_regressions_passed": 5,
+        "tool_failure_capsule_submission_cases_passed": 48,
+        "qualification": "Failed prior-head audit execution only; not new-head canonical or heap approval."
+      },
+      "groq_local_probe": {
+        "result": "passed",
+        "negative_control": "Prior expectation fails against exact hosted diagnostic map.",
+        "qualification": "Actual source-matched report validators and copied expected builder; no local ChatRepositoryImpl or Android execution."
+      },
+      "reporting_local_probe": {
+        "passed": 2,
+        "failed": 0,
+        "subjects": "Exact repaired Voice test body with actual VoiceSession/trace/projection/serialization and current finite tool-reason approved-payload projection.",
+        "boundary": "Platform incident retention substituted; reused report jar source hashes verified; no full local Android run.",
+        "privacy_negative_control": "The obsolete single-reason-field scan reproduces the failure; arbitrary unknown local code remains absent.",
+        "ktlint": "1.3.1 passed"
+      },
+      "android_glass_followup": {
+        "source_head": "cd1e59ae2432d0af1e34f1dee57a09cc2d2bd1fe",
+        "run_id": 43383063346,
+        "job_id": 131745107004,
+        "platform": "API 36 / pixel_c",
+        "artifact_id": 14020353169,
+        "artifact_sha256": "eaecc6b85242d54d967e0286a4fd8b98419280e75bb10898bd77c54d30f15596",
+        "test": "ConversationGlassInstrumentedTest.conversationGlassFiltersDetailInBothControls",
+        "observed_failure": "chat_input_glass dark=false sharp and blur sample variances both 0.02220562503922585; compilation, packaging and the three other glass cases passed.",
+        "evidence": "The separately saved sharp-light and blur-light PNGs show correct production blur. Independent fixed ROI variance is 0.0222068435 versus 0.0000024174. Sampling and evidence captured different compositor frames.",
+        "constraint": "Synchronize a bounded capture to actual frame completion, sample both controls and save evidence from the same bitmap. Preserve all opacity/blur/pressure/recovery assertions; no sleeps, blind retries or selection of passing frames.",
+        "state": "APPLIED_AWAITING_FRESH_HOSTED_CI",
+        "repair": "After Compose idle, register a one-shot hardware frame-commit callback and invalidate the decor; await up to five seconds off the UI thread, then use equal-size Window PixelCopy and require SUCCESS within five seconds. Both controls and named PNG evidence use that single bitmap. Window coordinates replace display-offset coordinates.",
+        "resource_lifecycle": "Remove the frame callback in finally. Recycle a timed-out PixelCopy bitmap only after its completion callback, preserving native ownership. No retained screenshot state.",
+        "primary_api_references": [
+          "https://developer.android.com/reference/android/view/ViewTreeObserver#registerFrameCommitCallback(java.lang.Runnable)",
+          "https://developer.android.com/reference/android/view/PixelCopy",
+          "https://android.googlesource.com/platform/frameworks/base/+/HEAD/graphics/java/android/view/PixelCopy.java"
+        ],
+        "review": "Root verified callback semantics and AOSP Window surface-inset handling; pixel thresholds and relative sampling areas are preserved.",
+        "validation": {
+          "exact_helper_sdk37_compilation": "passed",
+          "ktlint_version": "1.3.1",
+          "ktlint": "passed",
+          "whitespace": "passed",
+          "existing_assertions_byte_identical": 9,
+          "original_test_cases_preserved": 4,
+          "local_instrumentation": "Not run; fresh API34/API36 hosted execution required."
+        }
+      },
+      "integrated_validation": {
+        "source_candidate": "e38596b2c7e018ab13aa931abffbc7ccb434d61e",
+        "canonical_fast": "passed",
+        "script_tests": 495,
+        "exact_release_scope": "scoped",
+        "strict_ledger_mode": "SCOPE_ONLY_NOT_ACCEPTANCE",
+        "ledger_counts": [
+          48,
+          110
+        ],
+        "whitespace": "passed",
+        "android_current_head": "Awaiting new hosted run; local probes and prior failed-head results are not merge approval."
+      }
     }
   }
 }

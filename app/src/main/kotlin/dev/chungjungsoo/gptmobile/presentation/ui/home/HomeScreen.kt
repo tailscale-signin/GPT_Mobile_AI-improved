@@ -393,6 +393,7 @@ fun HomeScreen(
                                     item.chatId to ((room?.title ?: "Conversation ${item.visibleChatId}") + if (room?.isArchived == true) " · Archived" else "")
                                 },
                                 onOpen = { item ->
+                                    homeViewModel.consumeCompletedGeneration(item.runId)
                                     homeViewModel.getChatRoom(item.chatId) { room ->
                                         if (room != null) openExistingChat(room, item.assistantMessageId)
                                     }

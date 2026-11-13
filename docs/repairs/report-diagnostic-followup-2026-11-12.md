@@ -129,3 +129,78 @@ do not establish Android lifecycle, device durability, OEM microphone behavior o
 physical audio latency. Hosted Android compilation, unit tests and required CI
 remain separate gates bound to the published source revision. Physical-device and
 private gateway/provider qualification are not inferred from host fixtures.
+
+## Bounded recovery validation and current microphone permission
+
+The later integration preserves `a78ffb85` and `1caf6016`: queued provider
+authority is rechecked after suspended ownership reads, the deferred microphone
+factory checks permission immediately before recorder creation, and CodeQL
+generation and compilation use separate bounded traced processes. Those changes
+retain their own Android execution gates.
+
+A Windows/Python 3.13 gateway run on `7ad3ae53` exceeded the engineering module's
+120-second watchdog while its real worker was still progressing. Two unchanged
+Windows repeats later passed that module in 51.197 and 52.714 seconds. A controlled
+reproduction added a synthetic 50 ms delay after each actual store transaction:
+the original 36-case module reached the same watchdog and stack locations, while
+the separated 34-case state module and two-case worker module passed in 89.687
+and 37.863 seconds. The synthetic delay is not a measurement of Windows storage.
+
+The two worker methods and their helper move verbatim into
+`test_gateway_v14_engineering_worker.py`. They reuse the original fixture and
+retain real SQLite, normal worker scheduling, the 45-second readiness wait,
+10-second join, and every recovery/no-replay assertion. The canonical 120-second
+module watchdog is unchanged. The related evidence class had inherited the same
+two worker methods with identical fixture configuration; removing those duplicate
+registrations changes the affected collection from 78 to 76 cases while retaining
+all 42 unique test bodies. Actual final-file checks passed 34 state, 40 evidence
+and two worker cases. A deliberately non-recovering worker still failed the
+unchanged readiness assertion after 45.013 seconds, stopped its thread, and did
+not repeat its committed operation. Windows validation of the separated modules
+remains a published-source CI check.
+
+The recognizer owner also refreshes permission from its actual `hasPermission()`
+check when capture raises `SecurityException`. This complements the adapter's
+creation/start checks by covering a read failure after successful startup. It
+does not infer revocation from the exception. The new read-path regression first
+starts capture and schedules both deadlines, then revokes permission during the
+read. Before the correction, one of 20 focused recognizer methods failed because
+the report retained `true`; afterward all 20 passed. A still-granted exception,
+no automatic retry, original error/recovery data, resource cleanup, retired
+generations and private snapshots remain covered. This state-machine harness
+omits concrete Android/JNI adapters; their permission-factory tests still require
+actual Android execution.
+
+The Windows installer smoke also exposed an independent status-publication
+failure on `1caf6016`. Its intentionally incompatible candidate timed out, as
+the rollback scenario requires; the previous runtime then became healthy, but
+`os.replace` of `status.json` raised native Windows error 5. Another run on the
+same source passed. Reader contention is a plausible explanation for the
+intermittent replacement failure, not an established cause of every access
+denial.
+
+The preserved `7e90e579` correction, packaged in `2debde02`, allows only status
+publication to retry Windows errors 5/32. It reuses the same closed, fsynced
+temporary file for at most six replacement attempts and 310 ms of scheduled
+backoff. Unrelated errors and non-status writes retain a single attempt.
+Persistent denial still raises; the last valid file and in-memory status remain
+unchanged. Startup, rollback and smoke deadlines are unchanged. Actual packaged
+Windows smoke execution remains a separate source-bound CI check.
+
+The final source integration also preserves `6f193a55`, which pins manual CI
+validation to its requested base. Combined canonical fast checks pass 495
+tests, and all 306 changed Kotlin/Kotlin-script files pass ktlint 1.3.1.
+All 49 inputs to the 20-method recognizer check, including 35 repository
+sources, retain the exact tested hashes after these Gateway/CI integrations.
+
+The later `e4ea9ca0` integration preserves four additional Windows status
+regressions: a non-retryable error after contention, failure before rename,
+the actual Windows file-sharing boundary, and healthy rollback publication.
+The native Windows case is explicitly skipped on Linux. Before that test-only
+addition, the canonical Gateway suite completed 912 cases: 910 passed and
+two host-dependent cases were skipped; all seven browser-bridge cases passed.
+The combined manifest and subsequent CI keep their own source identities.
+
+Live published revisions, CI outcomes and issue closures continue to be recorded
+on PR #838 and individual issues. These source checkpoints do not turn queued,
+canceled or historical runs into current validation passes.

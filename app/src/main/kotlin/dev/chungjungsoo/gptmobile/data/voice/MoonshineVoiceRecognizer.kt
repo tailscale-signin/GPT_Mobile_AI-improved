@@ -361,6 +361,7 @@ internal class MoonshineVoiceRecognizer internal constructor(
                 }
                 return
             } catch (failure: SecurityException) {
+                run.diagnostics?.permission(hasPermission())
                 recordFailure(run, "MICROPHONE_PERMISSION_CHANGED", "Microphone permission changed. Allow microphone access and try again.", failure)
                 requestEnd(run)
                 return

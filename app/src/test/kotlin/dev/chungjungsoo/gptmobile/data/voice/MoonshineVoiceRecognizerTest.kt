@@ -1,12 +1,16 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
 import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -14,6 +18,68 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MoonshineVoiceRecognizerTest {
+    @Test fun securityFailureReportsCurrentPermissionWithoutRetryOrInferredRevocation() {
+        assertCapturePermissionFailure(grantedAtFailure = false, expected = false, duringRead = true)
+        assertCapturePermissionFailure(grantedAtFailure = true, expected = true)
+    }
+
+    @Test fun retiredPermissionFailureCannotChangeANewGenerationOrPrivateSnapshot() {
+        assertCapturePermissionFailure(grantedAtFailure = false, expected = true, duringRead = true) { trace ->
+            trace.advance(2, reset = true).permission(true)
+        }
+        assertCapturePermissionFailure(grantedAtFailure = false, expected = null, duringRead = true) {
+            VoiceDiagnosticTrace.clearAll()
+        }
+    }
+
+    private fun assertCapturePermissionFailure(grantedAtFailure: Boolean, expected: Boolean?, duringRead: Boolean = false, retire: (VoiceDiagnosticTrace) -> Unit = {}) {
+        val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})
+        val permission = AtomicBoolean(true)
+        val initialObservation = AtomicReference<Any?>()
+        val failure = SecurityException("Private platform detail")
+        val observeFailure = {
+            initialObservation.set(trace.incidentFields()["voice_permission_granted"])
+            permission.set(grantedAtFailure)
+            retire(trace)
+        }
+        val capture = if (duringRead) {
+            FakeCapture(readFailure = failure, beforeRead = observeFailure)
+        } else {
+            FakeCapture(startFailure = failure, beforeStart = observeFailure)
+        }
+        val attempts = AtomicInteger()
+        val decoder = FakeDecoder()
+        val fixture = Fixture(decoder, capture = capture, captureFactory = {
+            attempts.incrementAndGet()
+            capture
+        }, permissionCheck = permission::get)
+        try {
+            fixture.audio.bindDiagnostics(trace.advance(1, reset = true))
+            fixture.audio.listen(fixture.listener)
+            if (duringRead) assertTrue(fixture.timersReady.await(3, TimeUnit.SECONDS))
+            assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
+            fixture.worker.shutdown()
+            assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
+            fixture.drain()
+            assertEquals(true, initialObservation.get())
+            val fields = trace.incidentFields()
+            val report = IssueReportDiagnostics.fromFields("VOICE_STATE", fields, 1000)
+            assertEquals(expected, fields["voice_permission_granted"])
+            assertEquals(expected?.let(::JsonPrimitive), report?.values?.get("voice_permission_granted"))
+            assertEquals(listOf("VOICE_MICROPHONE_PERMISSION_REQUIRED"), fixture.codes)
+            assertEquals(listOf(VoiceRecoveryAction.MICROPHONE_PERMISSION), fixture.repairs)
+            assertSame(failure, fixture.causes.single())
+            assertTrue(fixture.retryableErrors.isEmpty())
+            assertTrue(fixture.finals.isEmpty())
+            assertEquals(1, attempts.get())
+            assertEquals(1, capture.closeCount.get())
+            assertEquals(1, fixture.releases.get())
+        } finally {
+            fixture.close()
+            trace.close()
+        }
+    }
+
     @Test fun systemSilencedCapturePreservesItsCauseWithoutAutomaticRetryOrSpeech() {
         val failure = LocalVoiceCaptureException(
             "Android is silencing microphone input",
@@ -488,7 +554,8 @@ class MoonshineVoiceRecognizerTest {
         permission: Boolean = true,
         val capture: FakeCapture = FakeCapture(),
         decoderFactoryFailure: Throwable? = null,
-        captureFactory: (() -> LocalVoiceCapture)? = null
+        captureFactory: (() -> LocalVoiceCapture)? = null,
+        permissionCheck: () -> Boolean = { permission }
     ) {
         val callbacks = ConcurrentLinkedQueue<() -> Unit>()
         val worker = Executors.newSingleThreadExecutor()
@@ -508,7 +575,7 @@ class MoonshineVoiceRecognizerTest {
             releaseModel = {
                 releases.incrementAndGet()
             },
-            hasPermission = { permission },
+            hasPermission = permissionCheck,
             post = {
                 callbacks.add(it)
             },
@@ -580,7 +647,7 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
-    private class FakeCapture(private val startFailure: Throwable? = null, private val readFailure: Throwable? = null) : LocalVoiceCapture {
+    private class FakeCapture(private val startFailure: Throwable? = null, private val readFailure: Throwable? = null, private val beforeStart: () -> Unit = {}, private val beforeRead: () -> Unit = {}) : LocalVoiceCapture {
         val chunks = LinkedBlockingQueue<FloatArray>()
         val started = CountDownLatch(1)
         val released = CountDownLatch(1)
@@ -589,9 +656,11 @@ class MoonshineVoiceRecognizerTest {
         @Volatile var closed = false
         override fun start() {
             started.countDown()
+            beforeStart()
             startFailure?.let { throw it }
         }
         override fun read(): FloatArray = chunks.poll(20, TimeUnit.MILLISECONDS) ?: run {
+            beforeRead()
             readFailure?.let { throw it }
             FloatArray(0)
         }

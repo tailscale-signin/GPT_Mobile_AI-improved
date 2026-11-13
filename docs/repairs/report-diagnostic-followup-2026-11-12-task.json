@@ -185,5 +185,123 @@
     "Inline numbered voice link-label projection and legacy failure ownership"
   ],
   "checkpoint_kind": "PUBLICATION_CHECKPOINT_NOT_LIVE_ISSUE_OR_CI_STATUS",
-  "validated_source_checkpoint": "85d1d05babaa10a13968a7d23d17e9f1b502b40c"
+  "validated_source_checkpoint": "85d1d05babaa10a13968a7d23d17e9f1b502b40c",
+  "bounded_recovery_and_permission_followup": {
+    "published_parent": "e4ea9ca095fd14e98f34197cab2b013a0276ff78",
+    "state": "TARGETED_CHECKS_PASSED_PUBLICATION_AND_ANDROID_PENDING",
+    "gateway": {
+      "failed_run": 43324157513,
+      "failed_job": 131552289073,
+      "failure": "Windows Python 3.13 engineering module exceeded its 120-second watchdog; no assertion failure was reported.",
+      "unchanged_windows_repeat_seconds": [
+        51.197,
+        52.714
+      ],
+      "synthetic_transaction_delay_seconds": 0.05,
+      "synthetic_combined_result": "120-second watchdog failure",
+      "synthetic_split_pass_seconds": [
+        89.687,
+        37.863
+      ],
+      "actual_split_test_counts": {
+        "state": 34,
+        "evidence": 40,
+        "worker": 2
+      },
+      "original_unique_bodies_preserved": 42,
+      "identical_inherited_registrations_removed": 2,
+      "readiness_seconds": 45,
+      "join_seconds": 10,
+      "module_watchdog_seconds": 120,
+      "non_recovering_negative_control": "Expected failure after 45.013 seconds, worker stopped, one COMMIT and no repeated write.",
+      "production_worker_and_runner_unchanged": true,
+      "new_module": "gateway/tests/test_gateway_v14_engineering_worker.py",
+      "windows_after_isolation": "PENDING_PUBLISHED_SOURCE_CI"
+    },
+    "microphone": {
+      "capture_phase": "read after successful start and scheduling both deadlines",
+      "permission_source": "actual hasPermission result; never inferred from SecurityException",
+      "before": {
+        "methods": 20,
+        "failures": 1,
+        "reason": "revoked permission retained as true"
+      },
+      "after": {
+        "methods": 20,
+        "failures": 0
+      },
+      "preserved": [
+        "original exception",
+        "typed recovery",
+        "one attempt and no automatic retry",
+        "capture/model cleanup",
+        "retired generation fencing",
+        "private snapshot invalidation"
+      ],
+      "host_boundaries": "Actual injected recognizer state machine and public diagnostic projection; concrete Android/JNI adapters omitted.",
+      "android_factory_tests": "PENDING_ACTUAL_ANDROID_EXECUTION"
+    },
+    "live_status": "PR #838 comment 6832556187 and individual issue comments; this is a publication checkpoint, not live CI state.",
+    "windows_status_publication": {
+      "source_commit": "7e90e579c96686ca9a2b43a2523b8cdbbcc8dd0a",
+      "package_commit": "2debde02be8639ce0b664f7e90f5eeed6da0fd6b",
+      "failed_run": 43329441647,
+      "failed_job": 131570155391,
+      "observed_failure": "Windows os.replace(status temporary, status.json) raised WinError5 while publishing a healthy rollback runtime.",
+      "cause_boundary": "Transient reader contention is inferred from the failure location and same-source pass/fail; permanent denial remains possible and still raises.",
+      "retry_scope": "Explicit status publication only, Windows native errors5/32, same closed and fsynced payload.",
+      "max_attempts": 6,
+      "scheduled_backoff_millis": 310,
+      "preserved": [
+        "prior durable status on failure",
+        "prior in-memory status on failure",
+        "atomic replacement",
+        "startup and smoke deadlines",
+        "single-attempt non-status writes",
+        "immediate unrelated-error propagation"
+      ],
+      "published_source_windows_smoke": "PENDING_ACTUAL_CI",
+      "independent_focused_checks": {
+        "tests": 7,
+        "failures": 0,
+        "errors": 0,
+        "skips": 0,
+        "boundary": "Actual repository atomic_json and Supervisor publication on Linux with Windows error/platform injection; packaged Windows execution remains separate."
+      }
+    },
+    "combined_prepublication_validation": {
+      "parent": "6f193a55b73696bbf1d6adfdef9681d397d798af",
+      "canonical_fast_tests": 495,
+      "canonical_fast_result": "PASS",
+      "pinned_ktlint_version": "1.3.1",
+      "changed_kotlin_and_kotlin_script_files": 306,
+      "ktlint_result": "PASS",
+      "app_inventory": {
+        "files": 2517,
+        "areas": 26,
+        "check": "PASS"
+      },
+      "architecture_inventory": "PASS",
+      "owner_recognizer_regression": {
+        "methods": 20,
+        "failures": 0,
+        "inputs": 49,
+        "repository_inputs": 35,
+        "all_input_hashes_match_after_gateway_integration": true
+      },
+      "gateway_canonical_suite": "PENDING_SOURCE_BOUND_MANIFEST",
+      "android_unit_and_packaged_windows": "PENDING_ACTUAL_CI",
+      "preserved_manual_validation_base_resolution": "6f193a55b73696bbf1d6adfdef9681d397d798af"
+    },
+    "preserved_windows_boundary_tests": "a01fabb23bd901a461d86fc61248e3e1e8f8e674",
+    "completed_prior_gateway_validation": {
+      "source_commit": "b6b84fac642041245f87354649b38805b054834f",
+      "cases": 912,
+      "passed": 910,
+      "skipped": 2,
+      "modules": 70,
+      "browser_bridge_passes": 7,
+      "boundary": "Completed before the concurrent Windows regression additions. Later source keeps the same runtime and adds four desktop tests, including one native Windows case."
+    }
+  }
 }

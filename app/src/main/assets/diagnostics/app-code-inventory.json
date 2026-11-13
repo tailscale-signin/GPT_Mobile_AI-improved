@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2747ab9a6b8e592b6bf32a81c24b233f9528ce728006c3d9bba8bc124d2e3aaa",
+  "source_digest": "8d9557023eb96b526812d1456ec815d51fe7f04f8ad549b366f7e3666bdb15cb",
   "file_count": 2534,
-  "indexed_line_count": 404604,
+  "indexed_line_count": 404771,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 12029
+      "indexed_line_count": 12112
     },
     {
       "id": "benchmark",
@@ -172,7 +172,7 @@
       "id": "authentication_service",
       "label": "Authentication broker software",
       "file_count": 9,
-      "indexed_line_count": 2005
+      "indexed_line_count": 2089
     },
     {
       "id": "external_integrations",
@@ -5533,8 +5533,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "f1dc80b005e8253b0df4f73b7d012740aada6bb04f4e097d75aebc1d135ca40c",
-      "indexed_lines": 224
+      "sha256": "82f1dbd0473e4607300d4a18c77b6a5e7e51fa5d985fefc3f31ca2e5c14237d1",
+      "indexed_lines": 307
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
@@ -16831,8 +16831,8 @@
       "path": "authentication/incident_report_contract.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "e362a226cefae052a2a9b7f780d3469258d6b790ba86671a2f0b12eef70fc91b",
-      "indexed_lines": 465
+      "sha256": "1dacf2a5250f4632069118ebe6d02c9c4e6df7c6b27d4df4094515589aa1014c",
+      "indexed_lines": 549
     },
     {
       "path": "authentication/issue_report_app.py",

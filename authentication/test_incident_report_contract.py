@@ -105,6 +105,66 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertNotIn("request_replay_allowed", capture["values"])
         self.assertNotIn("logical_continuation_allowed", capture["values"])
 
+    def test_policy_change_evidence_validates_tool_and_chat_without_rewriting_or_granting_replay(self):
+        observed = {"changed_policy_fields": ["budget", "profile.enabled", "tool_inventory"], "changed_policy_field_count": 4,
+                    "changed_policy_unknown_count": 0, "changed_policy_malformed_count": 0, "changed_policy_omitted_count": 0,
+                    "changed_policy_observation": "OBSERVED"}
+        variants = [observed,
+                    {**observed, "changed_policy_field_count": 6, "changed_policy_unknown_count": 1, "changed_policy_malformed_count": 1,
+                     "changed_policy_observation": "PARTIAL"},
+                    {"changed_policy_observation": "MALFORMED"},
+                    {"changed_policy_observation": "MALFORMED", "changed_policy_field_count": 257},
+                    {key: value for key, value in {**observed, "changed_policy_field_count": 0}.items() if key != "changed_policy_fields"}]
+        for area in ("TOOL", "INCIDENT"):
+            for fields in variants:
+                with self.subTest(area=area, fields=fields):
+                    capture = self.capture(area, fields)
+                    report = self.report(capture)
+                    if area == "INCIDENT":
+                        report.update(feature="chat", errorCode="RECONCILIATION_REQUIRED")
+                        report["context"].update(source="CHAT_FAILURE", requiresReconciliation=True)
+                        report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                    approved = json.dumps(report, separators=(",", ":"))
+                    issue_from_report(report)
+                    self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                    self.assertNotIn("request_replay_allowed", capture["values"])
+                    self.assertNotIn("dispatched", report["context"])
+                    self.assertNotIn("remoteAcceptance", report["context"])
+
+    def test_policy_names_and_count_alignment_reject_private_or_incoherent_public_payloads(self):
+        fields = {"changed_policy_fields": ["budget", "profile.enabled", "tool_inventory"], "changed_policy_field_count": 3,
+                  "changed_policy_unknown_count": 0, "changed_policy_malformed_count": 0, "changed_policy_omitted_count": 0,
+                  "changed_policy_observation": "OBSERVED"}
+        bad = [{**fields, "changed_policy_fields": ["profile.PRIVATE_SCOPE"]},
+               {**fields, "changed_policy_fields": ["budget"] * 3},
+               {**fields, "changed_policy_fields": sorted(capsule.POLICY_FIELD_NAMES)[:9], "changed_policy_field_count": 9},
+               {**fields, "changed_policy_unknown_count": True}, {**fields, "changed_policy_unknown_count": 1},
+               {**fields, "changed_policy_field_count": 1}, {**fields, "changed_policy_observation": "PARTIAL"},
+               {**fields, "changed_policy_field_count": 4, "changed_policy_omitted_count": 1, "changed_policy_observation": "PARTIAL"},
+               {**fields, "changed_policy_observation": "MALFORMED"},
+               {key: value for key, value in fields.items() if key != "changed_policy_observation"},
+               {key: value for key, value in fields.items() if key != "changed_policy_unknown_count"}]
+        for values in bad:
+            with self.subTest(values=values):
+                with self.assertRaises(ReportError):
+                    issue_from_report(self.report(self.capture(values=values)))
+
+    def test_policy_field_vocabulary_matches_native_and_actual_production_producers(self):
+        root = Path(__file__).resolve().parents[1]
+        base = root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile"
+        source = (base / "data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        names = re.search(r"val policyFieldNames = setOf\((.*?)\n    \)", source, re.DOTALL)
+        self.assertIsNotNone(names)
+        self.assertEqual(set(re.findall(r'"([^"\n]+)"', names.group(1))), capsule.POLICY_FIELD_NAMES)
+        authority = (base / "data/context/ConfiguredDispatchAuthority.kt").read_text().split("internal fun policyFields", 1)[1].split("\n}", 1)[0]
+        policy_keys = set(re.findall(r'put\("([^"\n]+)"', authority))
+        profile = (base / "data/database/entity/PlatformV2.kt").read_text().split("data class PlatformV2(", 1)[1].split(") : Parcelable", 1)[0]
+        profile_keys = {"profile." + name for name in re.findall(r"\bval (\w+):", profile)}
+        resolver = (base / "data/agent/tool/AgentToolResolver.kt").read_text()
+        self.assertIn('"tool_inventory"', resolver)
+        self.assertEqual(policy_keys | profile_keys | {"profile.removed", "tool_inventory"}, capsule.POLICY_FIELD_NAMES)
+        self.assertEqual(55, len(capsule.POLICY_FIELD_NAMES))
+
     def test_exception_capture_survives_validation_without_claiming_provider_dispatch(self):
         for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH"):
             with self.subTest(site=site):

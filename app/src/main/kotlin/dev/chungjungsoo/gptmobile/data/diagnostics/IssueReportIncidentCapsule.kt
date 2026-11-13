@@ -31,7 +31,26 @@ internal object IssueReportIncidentCapsule {
         "cursor", "view_cursor", "index_cursor", "search_id", "view_id", "operation", "operation_id", "model", "schema", "schema_version",
         "url", "download_url", "accept", "since", "until", "filter", "status", "conclusion", "inputs", "files", "encoding", "recursive"
     )
-    private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "provider_wait_state", "provider_wait_persisted", "recovery_authority")
+
+    /** Serialized production policy/profile keys only; never scope IDs or settings values. */
+    val policyFieldNames = setOf(
+        "assist", "assistPolicy", "budget", "conversationDelegation", "conversationGateway",
+        "conversationResearch", "delegation", "engineering", "githubProfileOverride", "githubProfileSelection",
+        "llamaReasoning", "location", "plugins", "profile", "profile.accelerator",
+        "profile.apiUrl", "profile.batchApiUrl", "profile.batchMode", "profile.compatibleType", "profile.dangerousContentSafetyThreshold",
+        "profile.disableAllTools", "profile.disableLocalTools", "profile.disableRemoteTools", "profile.enabled", "profile.harassmentSafetyThreshold",
+        "profile.hateSpeechSafetyThreshold", "profile.id", "profile.isFavorite", "profile.labels", "profile.maxTokens",
+        "profile.maxToolCalls", "profile.model", "profile.name", "profile.ollamaOptions", "profile.openRouterRouting",
+        "profile.providerConnectionUid", "profile.reasoning", "profile.removed", "profile.secretRef", "profile.sexuallyExplicitSafetyThreshold",
+        "profile.stream", "profile.systemPrompt", "profile.temperature", "profile.timeout", "profile.token",
+        "profile.topK", "profile.topP", "profile.uid", "reasoning", "remoteMcp",
+        "researchEnabled", "researchReviewer", "spend", "tool_inventory", "tools"
+    )
+    private const val MAX_POLICY_ENTRIES = 256
+    private const val MAX_POLICY_NAMES = 8
+    private val policyCounts = setOf("changed_policy_field_count", "changed_policy_unknown_count", "changed_policy_malformed_count", "changed_policy_omitted_count")
+    private val policyDiagnostics = policyCounts + setOf("changed_policy_fields", "changed_policy_observation")
+    private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + policyDiagnostics
     private val toolFields = setOf(
         "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count",
         "argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types", "resolved_argument_shape_hash",
@@ -54,10 +73,11 @@ internal object IssueReportIncidentCapsule {
     private val hashes = setOf("causal_id_hash", "action_schema_generation_hash", "resolved_argument_shape_hash", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_restore_error_hash", "server_request_id_hash", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash", "argument_repair_signature_hash", "provider_error_type_hash", "provider_parameter_path_hash", "voice_chat_failure_code_hash", "mcp_connection_hash", "search_id_hash", "search_cursor_hash")
     private val hashLists = setOf("validation_path_hashes", "unknown_field_hashes", "evidence_ref_hashes", "exception_type_hashes", "dependency_call_id_hashes")
     private val flags = setOf("saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed")
-    private val counts = setOf("recovery_attempt_count", "unknown_field_count", "eligible_receipt_count", "excluded_receipt_count", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count", "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count", "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "dependency_count", "dependency_failed_count")
+    private val counts = setOf("recovery_attempt_count", "unknown_field_count", "eligible_receipt_count", "excluded_receipt_count", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count", "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count", "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "dependency_count", "dependency_failed_count") + policyCounts
     private val types = setOf("STRING", "NUMBER", "BOOLEAN", "OBJECT", "ARRAY", "NULL")
     private val mcpHealth = setOf("DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "TLS_FAILED", "CONNECT_TIMEOUT", "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT", "HEALTHY", "UNKNOWN")
     private val enums = mapOf(
+        "changed_policy_observation" to setOf("OBSERVED", "PARTIAL", "MALFORMED"),
         "incident_phase" to phases,
         "incident_capture_site" to ExceptionCaptureSite.entries.mapTo(mutableSetOf()) { it.name },
         "incident_phase_provenance" to setOf("CAPTURE_BOUNDARY_ONLY"),
@@ -96,6 +116,7 @@ internal object IssueReportIncidentCapsule {
         "command_receipt_observation" to setOf("PRESENT", "UNAVAILABLE_404", "CONTRACT_UNSUPPORTED", "READ_INTERRUPTED", "UNOBSERVED")
     )
     private val enumLists = mapOf(
+        "changed_policy_fields" to policyFieldNames,
         "validation_field_names" to fieldNames,
         "argument_field_names" to fieldNames,
         "resolved_argument_field_names" to fieldNames,
@@ -108,7 +129,7 @@ internal object IssueReportIncidentCapsule {
         "receipt_exclusion_reasons" to setOf("WRONG_OPERATION", "WRONG_ACTION", "WRONG_REVISION", "WRONG_SCOPE", "PRECHECK_ONLY", "NOT_SUCCESSFUL", "UNKNOWN_OUTCOME", "STALE", "MISSING_IDENTITY", "UNVERIFIED")
     )
     val coreFields = listOf("incident_phase", "causal_id_hash", "causal_provenance", "incident_evidence_status")
-    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes")
+    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes") + policyDiagnostics
 
     enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, OPENAI_ADAPTER_STREAM_CATCH }
 
@@ -155,11 +176,73 @@ internal object IssueReportIncidentCapsule {
         val names = values["${prefix}_field_names"] as? JsonArray
         val types = values["${prefix}_field_types"] as? JsonArray
         names == null && types == null || names != null && types != null && names.size == types.size
+    } &&
+        policyAligned(values)
+
+    private fun policyAligned(values: Map<String, JsonElement>): Boolean {
+        if (policyDiagnostics.none { it in values }) return true
+        fun count(key: String) = (values[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull
+        val status = text(values["changed_policy_observation"])
+        val total = count("changed_policy_field_count")
+        if (status == "MALFORMED") {
+            return (total == null || total > MAX_POLICY_ENTRIES) &&
+                (policyDiagnostics - setOf("changed_policy_observation", "changed_policy_field_count")).none { it in values }
+        }
+        if (status !in setOf("OBSERVED", "PARTIAL") || total == null || total !in 0L..MAX_POLICY_ENTRIES.toLong()) return false
+        val unknown = count("changed_policy_unknown_count") ?: return false
+        val malformed = count("changed_policy_malformed_count") ?: return false
+        val omitted = count("changed_policy_omitted_count") ?: return false
+        val names = (values["changed_policy_fields"] as? JsonArray).orEmpty()
+        if (names.distinct().size != names.size || total < names.size + unknown + malformed + omitted) return false
+        if (names.isEmpty() && total > unknown + malformed || omitted > 0 && names.size != MAX_POLICY_NAMES || names.size + omitted > policyFieldNames.size) return false
+        return if (status == "OBSERVED") unknown == 0L && malformed == 0L && omitted == 0L else unknown + malformed + omitted > 0L
+    }
+
+    /** Counts describe supplied entries; omitted counts only distinct known names beyond the retained sample. */
+    private fun policyFields(raw: Any?): Map<String, Any?> = buildMap {
+        val entries: List<*> = when (raw) {
+            is JsonArray -> raw
+            is List<*> -> raw
+            else -> {
+                put("changed_policy_observation", "MALFORMED")
+                return@buildMap
+            }
+        }
+        if (entries.size > MAX_POLICY_ENTRIES) {
+            put("changed_policy_observation", "MALFORMED")
+            entries.size.takeIf { it <= 16_000_000 }?.let { put("changed_policy_field_count", it) }
+            return@buildMap
+        }
+        val known = mutableSetOf<String>()
+        var unknown = 0
+        var malformed = 0
+        for (entry in entries) {
+            val name = when (entry) {
+                is String -> entry
+                is JsonPrimitive -> entry.takeIf { it.isString }?.contentOrNull
+                else -> null
+            }
+            when {
+                name == null -> malformed++
+                name.length <= 128 && name in policyFieldNames -> known.add(name)
+                else -> unknown++
+            }
+        }
+        val omitted = (known.size - MAX_POLICY_NAMES).coerceAtLeast(0)
+        if (known.isNotEmpty()) put("changed_policy_fields", known.sorted().take(MAX_POLICY_NAMES))
+        put("changed_policy_field_count", entries.size)
+        put("changed_policy_unknown_count", unknown)
+        put("changed_policy_malformed_count", malformed)
+        put("changed_policy_omitted_count", omitted)
+        put("changed_policy_observation", if (unknown + malformed + omitted == 0) "OBSERVED" else "PARTIAL")
     }
 
     /** No latest-run lookup: this projection uses only the failure's own typed fields. */
     fun fields(feature: ReportFeature, source: String, code: String, fields: Map<String, Any?>): Map<String, Any?> = buildMap {
         putAll(fields)
+        // Only the original structured list supplies policy-change evidence. Never publish arbitrary names.
+        policyDiagnostics.forEach(::remove)
+        if (fields.containsKey("changed_policy_fields")) putAll(policyFields(fields["changed_policy_fields"]))
         val area = text(fields["diagnostic_area"])?.takeIf { it in IssueReportDiagnostics.areas } ?: when (feature) {
             ReportFeature.TOOLS -> "TOOL"
             ReportFeature.GATEWAY -> "GATEWAY"

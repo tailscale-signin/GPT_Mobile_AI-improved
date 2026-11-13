@@ -62,6 +62,27 @@ internal object GitHubResultProjection {
             )
         }
         if (request["response_detail"] == JsonPrimitive("full") || (request["action"] as? JsonPrimitive)?.content !in actions[operation].orEmpty()) return source
+        if (operation == "github_context" && request["action"] == JsonPrimitive("checks") && request["response_detail"] == JsonPrimitive("compact")) {
+            val data = GitHubSemanticSummary.data(source)
+            val summary = GitHubSemanticSummary.from(operation, request, source)
+            val compact = JsonObject(
+                data.filterKeys { it !in setOf("check_details", "status_details") } + buildJsonObject {
+                    summary["observed_checks"]?.let { put("observed_checks", it) }
+                    summary["observed_statuses"]?.let { put("observed_statuses", it) }
+                    summary["check_counts"]?.let { put("captured_check_counts", it) }
+                    summary["check_inventory_complete"]?.let { put("check_inventory_complete", it) }
+                    put(
+                        "projection",
+                        buildJsonObject {
+                            put("kind", "CAPTURED_STATUS_COUNTS")
+                            put("source_result_sha256", GitHubEvidenceBook.digest(source.toString()))
+                            put("detail", "Counts describe this captured remote page. Exact check rows remain in the immutable source receipt; follow remote pagination for complete inventory or request response_detail=full for row detail.")
+                        }
+                    )
+                }
+            )
+            return if (data === source) compact else JsonObject(source + ("data" to compact))
+        }
         var omitted = 0
         fun check(value: JsonObject): JsonObject = buildJsonObject {
             // Check-run REST objects repeat the producer, repository and owner for

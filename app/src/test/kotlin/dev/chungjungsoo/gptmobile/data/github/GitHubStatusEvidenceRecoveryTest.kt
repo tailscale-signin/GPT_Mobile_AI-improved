@@ -38,7 +38,7 @@ class GitHubStatusEvidenceRecoveryTest {
 
     @Test fun normalizedRepositoryPreservesLargeChecksBeforeReplayAndCompletesStatus() = runTest {
         for (count in listOf(21, 22)) {
-            for (explicitUrl in listOf(false, true)) {
+            for ((explicitUrl, compact) in listOf(false to false, false to true, true to false, true to true)) {
                 val saved = linkedMapOf<String, JsonObject>()
                 val book = GitHubEvidenceBook("task", "owner/repo", "main", tools.map { it.name }.toSet(), now = { now }, save = { id, value -> saved[id] = value })
                 for ((id, receipt) in baseReceipts()) {
@@ -67,7 +67,7 @@ class GitHubStatusEvidenceRecoveryTest {
                 }
                 val limits = AgentRunLimits(githubTask = true, maxRounds = 2, maxToolCalls = 4)
                 val bound = GitHubBoundRepositoryTool(
-                    ToolExecutionBudget(limits).bind(GitHubOperationTool("github_context", backend, "status-$count-$explicitUrl")),
+                    ToolExecutionBudget(limits).bind(GitHubOperationTool("github_context", backend, "status-$count-$explicitUrl-$compact")),
                     GitHubRepositoryContext("owner", "repo", "main")
                 )
                 val callable = if (explicitUrl) {
@@ -83,6 +83,7 @@ class GitHubStatusEvidenceRecoveryTest {
                     put("action", "checks")
                     put("commit_sha", sha)
                     if (explicitUrl) put("repo", "https://github.com/owner/repo")
+                    if (compact) put("response_detail", "compact")
                 }
                 var rounds = 0
                 val provider = object : AgentProviderSession {

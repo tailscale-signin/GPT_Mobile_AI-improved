@@ -101,7 +101,7 @@ internal object GitHubEvidenceProjection {
                         rows.map { raw ->
                             val row = raw as? JsonObject ?: return@map raw
                             buildJsonObject {
-                                row.filterKeys { it in setOf("id", "name", "head_sha", "status", "conclusion", "started_at", "completed_at", "html_url", "details_url", "required", "required_verified") }.forEach { (key, value) -> put(key, value) }
+                                row.filterKeys { it in setOf("id", "name", "head_sha", "status", "conclusion", "required", "required_verified") }.forEach { (key, value) -> put(key, value) }
                                 (row["app"] as? JsonObject)?.get("id")?.let { put("app", buildJsonObject { put("id", it) }) }
                             }
                         }

@@ -23,6 +23,49 @@ class IssueReportSubmissionTest {
         .apply { retryAfter?.let { header("Retry-After", it) } }.body(body.toResponseBody("application/json".toMediaType())).build()
     private fun body(request: Request) = Buffer().also { request.body?.writeTo(it) }.readUtf8()
 
+    @Test fun changedPolicyFieldsRequireTheirOwnCapabilityAndKeepApprovedBytes() {
+        for (code in listOf("CHAT_FAILED", "DISPATCH_POLICY_CHANGED")) {
+            val context = IssueReportContext.fromFields(
+                "CHAT_FAILURE",
+                IssueReportIncidentCapsule.fields(
+                    ReportFeature.CHAT,
+                    "CHAT_FAILURE",
+                    code,
+                    mapOf("changed_policy_fields" to listOf("profile.token", "providerPermissions"), "failed_stage" to "tool_dispatch", "resume_required" to true)
+                ),
+                1_000L
+            )
+            val enriched = report.copy(context = context)
+            val payload = enriched.approvedPayload()
+            var features = "[\"DISPATCH_POLICY_DIAGNOSTICS_V1\"]"
+            val posted = mutableListOf<String>()
+            var dispatched = 0
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                if (request.method == "GET") {
+                    response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(report.reportId, payload) { dispatched++ }
+            assertTrue(blocked is IssueReportSubmission.Failure)
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", (blocked as IssueReportSubmission.Failure).code)
+            assertTrue(blocked.retryable)
+            assertFalse(blocked.automaticRetry)
+            assertTrue(posted.isEmpty())
+            assertEquals(0, dispatched)
+            assertEquals(payload, enriched.approvedPayload())
+            features = "[\"DISPATCH_POLICY_DIAGNOSTICS_V1\",\"CHANGED_POLICY_FIELDS_V1\"]"
+            assertEquals(IssueReportSubmission.Confirmed(941), submission.send(report.reportId, payload) { dispatched++ })
+            assertEquals(listOf(payload), posted)
+            assertEquals(1, dispatched)
+            assertEquals(payload, enriched.approvedPayload())
+        }
+    }
+
     @Test fun incidentCapsuleRequiresSevenAndNeverDowngradesTheApprovedPayloadForAnOlderService() {
         val context = IssueReportContext.fromFields(
             "CHAT_FAILURE",
@@ -127,6 +170,7 @@ class IssueReportSubmissionTest {
 
     @Test fun newIncidentFieldsWaitForReporterSupportBeforePostingApprovedBytes() {
         val context = IssueReportContext.fromFields("TOOL_RESULT", mapOf("diagnostic_area" to "TOOL", "tool_action" to "headers", "unknown_field_count" to 1), 1_000L)
+        assertEquals(7, context.schemaVersion)
         val payload = report.copy(context = context).approvedPayload()
         var supported = false
         val posted = mutableListOf<String>()
@@ -134,7 +178,7 @@ class IssueReportSubmissionTest {
             val request = chain.request()
             if (request.method == "GET") {
                 val features = if (supported) "[\"INCIDENT_FAILURE_DETAILS_V1\"]" else "[]"
-                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6],"reportDiagnosticFeatures":$features}""")
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
             } else {
                 posted += body(request)
                 response(request, 200, """{"reportId":"${report.reportId}","number":922}""")

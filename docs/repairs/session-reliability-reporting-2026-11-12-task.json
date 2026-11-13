@@ -1137,6 +1137,86 @@
       "malformed_head_negative_executed_and_passed": true,
       "actual_execution_log_and_fresh_xml_verified": true,
       "scope": "GenieX debug JVM execution; canonical verification, dedicated heaps and remaining workflows are separate gates. Results retain the original source/run identity after this documentation-only relocation."
+    },
+    "concurrent_pr_reconciliation": {
+      "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+      "base_branch": "main",
+      "base_sha": "97f10ff7a1f3789fb82d958b2dc6b22c8074dfdf",
+      "working_branch": "fix/open-reports-and-protected-merge-2026-11-13",
+      "parent_pr": 941,
+      "starting_head": "45a7da68dd2d7ee6462c76d16379e990f404fa69",
+      "concurrent_pr": 928,
+      "concurrent_head": "63c175208dfd965e44dd5f593158fce0d1ceebc4",
+      "intent": "Reconcile the latest PR 928 diagnostic policy fields with PR 941 while preserving both histories, dispatch observations, privacy bounds and all regressions.",
+      "status": "LOCALLY_VALIDATED_AWAITING_FINAL_SOURCE_PACKAGE_BINDING_AND_HOSTED_CI",
+      "checkpoint_store": "Existing approved repository checkpoint; Android Room engineering task store is unavailable on the host.",
+      "merge_policy": "No merge to main until all applicable current-head CI and repository rules pass; no force pushes.",
+      "reconciliation_decisions": [
+        "Preserve all PR 941 dispatch section, stage, resume and authorization observations together with the later PR 928 closed changed-policy-name projection and coherent counts.",
+        "Retain the known providerPermissions producer name in the mirrored native and hosted allowlists; retain only names, never settings values or arbitrary private names.",
+        "Require CHANGED_POLICY_FIELDS_V1 independently of DISPATCH_POLICY_DIAGNOSTICS_V1, including omitted-field declarations. Older reporters block before POST and retain exact approved bytes.",
+        "Regenerate source inventories from the reconciled production sources; preserve all correctness, scope and protected-main verification gates."
+      ],
+      "gateway_completion_failure": {
+        "source_head": "8e8e1aa70703bb2ed4ea6158ecb3d80afb19377a",
+        "run_id": 43378936991,
+        "job_id": 131731918483,
+        "job_platform": "Windows / Python 3.12",
+        "test": "test_whitespace_and_hidden_only_attempts_remain_repairable_before_publication",
+        "observed_failure": "Both subcases timed out at line 318 waiting for worker completion after release.set(); no preceding prefix assertion failed. Logs reported 5937 ms model work and slow event-loop callbacks.",
+        "candidate_source_relation": "Test and runtime are byte-identical between the failed head and PR 941 starting head.",
+        "repair_constraint": "Change only the bounded post-release completion allowance. Preserve the 3-second backend readiness and first-visible waits and every content, repair, persistence and replay assertion.",
+        "repair": "Post-release completion allowance is 10 seconds; three-second readiness and first-visible deadlines and all correctness assertions remain unchanged.",
+        "regression_evidence": {
+          "normal_incremental_delivery_suite": {
+            "passed": 9,
+            "failed": 0
+          },
+          "controlled_terminal_delay_seconds": 4,
+          "original_fixture": "Both whitespace and hidden-only subcases reproduce cleanup TimeoutError.",
+          "repaired_fixture": "Both subcases pass every original assertion using real HTTP, ASGI and SQLite boundaries.",
+          "timing_limit": "Hosted log does not establish exact post-release completion duration."
+        }
+      },
+      "validation": {
+        "canonical_fast": {
+          "command": "bash scripts/validate-local.sh fast",
+          "result": "passed",
+          "script_tests": 495,
+          "android_integration": false
+        },
+        "hosted_report_contracts": {
+          "command": "python3 -m unittest authentication.test_incident_report_contract authentication.test_app authentication.test_failure_details",
+          "result": "passed",
+          "tests": 64
+        },
+        "changed_kotlin_formatting": {
+          "version": "1.3.1",
+          "result": "passed"
+        },
+        "hosted_current_head": "NOT_RUN_FOR_LOCAL_RECONCILIATION",
+        "merge_approval": false,
+        "focused_native": {
+          "checked_in_tests": 44,
+          "owned_boundary_probes": 2,
+          "passed": 46,
+          "failed": 0,
+          "tests_jar_sha256": "9339e479392a7e1005d3a5e2478fc739356989db144557157300b923795142e4",
+          "subjects": "Actual reporting capsule/context/serializers/validators/submission/outbox/route implementations; real OkHttp interceptors.",
+          "boundaries": "Android/build/Room/platform collaborators are host fixtures or compile-time types. No device persistence, live reporting delivery or full Gradle qualification.",
+          "negative_control": "Removing only the new capability check causes the unchanged new regression to fail; the actual candidate passes.",
+          "combined_pressure": {
+            "diagnostic_bytes": 2931,
+            "aligned_criteria_retained": 7,
+            "policy_names_retained": 8,
+            "policy_names_omitted": 48
+          },
+          "full_omission": "A valid payload omitting the entire detailed policy group still blocks before POST until its capability is advertised."
+        },
+        "additional_fixture_repair": "The existing incident feature-negotiation fixture now advertises and asserts context schema 7 selected by its retained unknown_field_count, preserving its original missing-feature rejection and approved-byte success checks."
+      },
+      "concurrent_code_head": "c52741d92f26556188289cbae7d6267fe09ed6bb",
+      "concurrent_followup": "Preserve the later PR 928 documentation-only ledger update exactly; production and tests match c52741d92."
     }
   }
 }

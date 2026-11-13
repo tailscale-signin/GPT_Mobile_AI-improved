@@ -178,6 +178,17 @@ feature when either code appears as the report error, a retained original failur
 or an exact code token in a bounded event, including reports without context.
 Older reporters stay blocked before POST with the same service-update requirement.
 
+`DISPATCH_POLICY_DIAGNOSTICS_V1` declares support for the closed policy-section,
+failure-stage and resume observations. `CHANGED_POLICY_FIELDS_V1` separately
+declares support for the bounded changed-setting names and their observed,
+unknown, malformed and omitted counts. These names come from the native policy
+contract, including `providerPermissions`; setting values, private names, tokens
+and URLs are excluded. Reports containing either extension, including omission
+declarations, require its advertised feature before POST. Context version 7 or
+dispatch-section support alone does not establish support for changed-setting
+details. Update the reporter before delivering these captures; approved bytes
+remain unchanged while an older service is blocked.
+
 The optional top-level `context` object has a schema version, a bounded client
 occurrence timestamp, a fixed capture-source enum, and `unavailableFields`.
 Optional observations use only fixed stage/provider/operation/recovery enums,

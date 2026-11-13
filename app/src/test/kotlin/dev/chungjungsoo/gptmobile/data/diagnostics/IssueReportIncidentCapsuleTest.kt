@@ -23,6 +23,8 @@ class IssueReportIncidentCapsuleTest {
                 "authority_invalidation_code" to "DISPATCH_POLICY_CHANGED",
                 "blocked_stage" to "delivery",
                 "changed_policy_fields" to listOf("profile.secretRef", "providerPermissions", "tools", "profile.apiUrl", "private-section"),
+                "profile.secretRef" to "PRIVATE_SECRET_VALUE",
+                "profile.apiUrl" to "https://PRIVATE_HOST.example/token",
                 "resume_required" to true
             )
         )
@@ -30,11 +32,77 @@ class IssueReportIncidentCapsuleTest {
         assertEquals(JsonArray(listOf("PROFILE", "PERMISSIONS", "TOOLS").map(::JsonPrimitive)), diagnostics.values["dispatch_policy_sections"])
         assertEquals(JsonPrimitive("delivery"), diagnostics.values["dispatch_policy_stage"])
         assertEquals(JsonPrimitive(true), diagnostics.values["dispatch_policy_resume_required"])
-        assertEquals(setOf("DISPATCH_POLICY_DIAGNOSTICS_V1"), diagnostics.requiredServiceFeatures())
+        assertEquals(JsonArray(listOf("profile.apiUrl", "profile.secretRef", "providerPermissions", "tools").map(::JsonPrimitive)), diagnostics.values["changed_policy_fields"])
+        assertEquals(JsonPrimitive(5), diagnostics.values["changed_policy_field_count"])
+        assertEquals(JsonPrimitive(1), diagnostics.values["changed_policy_unknown_count"])
+        assertEquals(JsonPrimitive("PARTIAL"), diagnostics.values["changed_policy_observation"])
+        assertEquals(setOf("DISPATCH_POLICY_DIAGNOSTICS_V1", "CHANGED_POLICY_FIELDS_V1"), diagnostics.requiredServiceFeatures())
         val payload = report(context).approvedPayload()
-        assertFalse(payload.contains("secretRef"))
-        assertFalse(payload.contains("apiUrl"))
+        assertFalse(payload.contains("PRIVATE_"))
         assertFalse(payload.contains("private-section"))
+    }
+
+    @Test fun changedPolicyProjectionKeepsOnlyClosedNamesAndPreciseBoundedCounts() {
+        val known = IssueReportIncidentCapsule.policyFieldNames.sorted().take(12)
+        val raw = JsonArray(known.map(::JsonPrimitive) + listOf(JsonPrimitive(known.first()), JsonPrimitive("profile.PRIVATE_SCOPE"), JsonPrimitive(7), JsonObject(mapOf("PRIVATE_NAME" to JsonPrimitive("PRIVATE_VALUE")))))
+        val context = capture(ReportFeature.TOOLS, "TOOL_RESULT", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to raw, "changed_policy_unknown_count" to 999))
+        val diagnostics = requireNotNull(context.diagnostics)
+        val values = diagnostics.values
+        assertEquals(JsonArray(known.take(8).map(::JsonPrimitive)), values["changed_policy_fields"])
+        assertEquals(JsonPrimitive(16), values["changed_policy_field_count"])
+        assertEquals(JsonPrimitive(1), values["changed_policy_unknown_count"])
+        assertEquals(JsonPrimitive(2), values["changed_policy_malformed_count"])
+        assertEquals(JsonPrimitive(4), values["changed_policy_omitted_count"])
+        assertEquals(JsonPrimitive("PARTIAL"), values["changed_policy_observation"])
+        val approved = report(context).approvedPayload()
+        assertFalse(approved.contains("PRIVATE_"))
+        assertEquals(approved, report(context).approvedPayload())
+        assertNull(diagnostics.copy(values = values + ("changed_policy_fields" to JsonArray(listOf(JsonPrimitive("profile.PRIVATE_SCOPE"))))).validated())
+        assertNull(diagnostics.copy(values = values + ("changed_policy_observation" to JsonPrimitive("OBSERVED"))).validated())
+        assertNull(diagnostics.copy(values = values - "changed_policy_unknown_count").validated())
+    }
+
+    @Test fun missingMalformedAndOversizedPolicyEvidenceStayDistinctFromObservedEmptyLists() {
+        val missing = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", emptyMap()).diagnostics).values
+        assertTrue(missing.keys.none { it.startsWith("changed_policy_") })
+        for (raw in listOf(null, "PRIVATE_VALUE", true, JsonPrimitive(7), JsonObject(mapOf("PRIVATE_NAME" to JsonPrimitive("PRIVATE_VALUE"))))) {
+            val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to raw))
+            val values = requireNotNull(context.diagnostics).values
+            assertEquals(JsonPrimitive("MALFORMED"), values["changed_policy_observation"])
+            assertNull(values["changed_policy_fields"])
+            assertNull(values["changed_policy_field_count"])
+            assertFalse(report(context).approvedPayload().contains("PRIVATE_"))
+        }
+        val empty = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to emptyList<String>())).diagnostics).values
+        assertEquals(JsonPrimitive("OBSERVED"), empty["changed_policy_observation"])
+        assertEquals(JsonPrimitive(0), empty["changed_policy_field_count"])
+        assertNull(empty["changed_policy_fields"])
+        val oversized = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to List(257) { "PRIVATE_VALUE" })).diagnostics).values
+        assertEquals(JsonPrimitive("MALFORMED"), oversized["changed_policy_observation"])
+        assertEquals(JsonPrimitive(257), oversized["changed_policy_field_count"])
+        assertNull(oversized["changed_policy_fields"])
+        assertNull(oversized["changed_policy_unknown_count"])
+    }
+
+    @Test fun everyKnownPolicyNameSurvivesWithoutChangingAuthorityOrUnknownOutcomeEvidence() {
+        assertEquals(56, IssueReportIncidentCapsule.policyFieldNames.size)
+        for (field in IssueReportIncidentCapsule.policyFieldNames) {
+            val context = capture(
+                ReportFeature.CHAT,
+                "CHAT_FAILURE",
+                "RECONCILIATION_REQUIRED",
+                mapOf("changed_policy_fields" to listOf(field), "requires_reconciliation" to true, "failed_stage" to "tool_dispatch")
+            )
+            val values = requireNotNull(context.diagnostics).values
+            assertEquals(JsonArray(listOf(JsonPrimitive(field))), values["changed_policy_fields"])
+            assertEquals(JsonPrimitive("OBSERVED"), values["changed_policy_observation"])
+            assertEquals(true, context.requiresReconciliation)
+            assertNull(context.dispatched)
+            assertNull(context.retryable)
+            assertNull(context.remoteAcceptance)
+            assertNull(values["request_replay_allowed"])
+            assertNull(IssueReportIncidentCapsule.identity(context, "RECONCILIATION_REQUIRED"))
+        }
     }
 
     @Test fun caughtExceptionRetainsBoundedOriginEvidenceWithoutInventingFailurePhase() {
@@ -170,7 +238,8 @@ class IssueReportIncidentCapsuleTest {
                 "unmet_criterion_categories" to List(8) { "BUILD_REVISION_BINDING" }, "unmet_criterion_states" to List(8) { "NOT_TESTED" },
                 "unmet_criterion_blockers" to List(8) { "WORKFLOW_RUN_OR_JOB_REQUIRED" }, "unmet_criterion_count" to 11, "unmet_criterion_omitted_count" to 3,
                 "effective_call_limit" to 256, "used_calls" to 82, "remaining_calls" to 174, "pending_continuations" to 16,
-                "required_capability_count" to 53, "verified_capability_count" to 44, "blocked_capability_count" to 2, "untested_capability_count" to 7
+                "required_capability_count" to 53, "verified_capability_count" to 44, "blocked_capability_count" to 2, "untested_capability_count" to 7,
+                "changed_policy_fields" to IssueReportIncidentCapsule.policyFieldNames.toList()
             )
         )
         val snapshot = requireNotNull(context.diagnostics)
@@ -178,6 +247,9 @@ class IssueReportIncidentCapsuleTest {
         assertTrue(retained in 1..8)
         assertEquals(retained, (snapshot.values.getValue("unmet_criterion_states") as JsonArray).size)
         assertEquals(JsonPrimitive(11 - retained), snapshot.values["unmet_criterion_omitted_count"])
+        assertEquals(8, (snapshot.values["changed_policy_fields"] as JsonArray).size)
+        assertEquals(JsonPrimitive(56), snapshot.values["changed_policy_field_count"])
+        assertEquals(JsonPrimitive(48), snapshot.values["changed_policy_omitted_count"])
         assertTrue(IssueReport.json.encodeToString(IssueReportDiagnostics.serializer(), snapshot).encodeToByteArray().size <= IssueReportDiagnostics.MAX_BYTES)
         assertTrue(report(context).approvedPayload().encodeToByteArray().size <= IssueReport.MAX_PAYLOAD_BYTES)
     }

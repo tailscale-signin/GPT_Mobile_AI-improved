@@ -315,7 +315,10 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     self.assertFalse(worker.done())
                 finally:
                     release.set()
-                    await asyncio.wait_for(worker, 3)
+                    # First-visible delivery retains its three-second bound above.
+                    # Terminal transport and real durable writes need a separate
+                    # bounded cleanup allowance on slow Windows filesystems.
+                    await asyncio.wait_for(worker, 10)
                 self.assertFalse(errors)
                 self.assertEqual(2, len(received))
                 self.assertEqual(126, received[1]['max_tokens'])

@@ -154,6 +154,68 @@ FIELD_NAMES = {
     'workflow_id',
 }
 
+# Counts cover supplied array entries; omitted counts distinct known names beyond the retained eight.
+POLICY_FIELD_NAMES = {
+    'assist',
+    'assistPolicy',
+    'budget',
+    'conversationDelegation',
+    'conversationGateway',
+    'conversationResearch',
+    'delegation',
+    'engineering',
+    'githubProfileOverride',
+    'githubProfileSelection',
+    'llamaReasoning',
+    'location',
+    'plugins',
+    'profile',
+    'profile.accelerator',
+    'profile.apiUrl',
+    'profile.batchApiUrl',
+    'profile.batchMode',
+    'profile.compatibleType',
+    'profile.dangerousContentSafetyThreshold',
+    'profile.disableAllTools',
+    'profile.disableLocalTools',
+    'profile.disableRemoteTools',
+    'profile.enabled',
+    'profile.harassmentSafetyThreshold',
+    'profile.hateSpeechSafetyThreshold',
+    'profile.id',
+    'profile.isFavorite',
+    'profile.labels',
+    'profile.maxTokens',
+    'profile.maxToolCalls',
+    'profile.model',
+    'profile.name',
+    'profile.ollamaOptions',
+    'profile.openRouterRouting',
+    'profile.providerConnectionUid',
+    'profile.reasoning',
+    'profile.removed',
+    'profile.secretRef',
+    'profile.sexuallyExplicitSafetyThreshold',
+    'profile.stream',
+    'profile.systemPrompt',
+    'profile.temperature',
+    'profile.timeout',
+    'profile.token',
+    'profile.topK',
+    'profile.topP',
+    'profile.uid',
+    'providerPermissions',
+    'reasoning',
+    'remoteMcp',
+    'researchEnabled',
+    'researchReviewer',
+    'spend',
+    'tool_inventory',
+    'tools',
+}
+POLICY_COUNTS = {'changed_policy_field_count', 'changed_policy_unknown_count', 'changed_policy_malformed_count', 'changed_policy_omitted_count'}
+POLICY_DIAGNOSTICS = POLICY_COUNTS | {'changed_policy_fields', 'changed_policy_observation'}
+
 COMMON = {
     'dispatch_policy_sections',
     'dispatch_policy_stage',
@@ -173,7 +235,7 @@ COMMON = {
     'recovery_attempt_count',
     'recovery_observation',
     'retry_delay_ms',
-}
+} | POLICY_DIAGNOSTICS
 
 TOOL_FIELDS = {
     'native_dependency_state', 'dependency_call_id_hashes', 'dependency_count', 'dependency_failed_count', 'search_cursor_state', 'search_id_hash', 'search_cursor_hash',
@@ -279,7 +341,7 @@ COUNTS = {
     'unknown_field_count',
     'untested_capability_count',
     'verified_capability_count',
-}
+} | POLICY_COUNTS
 
 TYPES = {
     'ARRAY',
@@ -382,6 +444,7 @@ OPERATIONS = {
 MCP_HEALTH = {'DNS_FAILED', 'DNS_RECOVERY', 'ROUTE_UNAVAILABLE', 'CONNECTION_REFUSED', 'AUTHENTICATION_FAILED', 'TLS_FAILED', 'CONNECT_TIMEOUT', 'HTTP_ERROR', 'MCP_HANDSHAKE_FAILED', 'STREAM_INTERRUPTED', 'STREAM_IDLE_TIMEOUT', 'REQUEST_TIMEOUT', 'HEALTHY', 'UNKNOWN'}
 
 ENUMS = {
+    'changed_policy_observation': {'OBSERVED', 'PARTIAL', 'MALFORMED'},
     'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'OPENAI_ADAPTER_STREAM_CATCH'},
     'incident_phase_provenance': {'CAPTURE_BOUNDARY_ONLY'},
     'native_dependency_state': {'DEFERRED', 'FAILED'},
@@ -421,6 +484,7 @@ ENUMS = {
 
 ENUM_LISTS = {
     'dispatch_policy_sections': {'PROFILE', 'BUDGET', 'SPEND', 'TOOLS', 'MCP', 'PERMISSIONS', 'ASSIST', 'DELEGATION', 'RESEARCH', 'GATEWAY', 'GITHUB', 'REASONING', 'ENGINEERING'},
+    'changed_policy_fields': POLICY_FIELD_NAMES,
     'privacy_blockers': {'MODEL_NOT_IN_ZDR_CATALOG', 'PROVIDER_ALLOWLIST', 'PROVIDER_DENYLIST', 'FALLBACK_ORDER'},
     'github_error_resources': {'PullRequest', 'Repository', 'Milestone', 'Label', 'Reference', 'Search', 'Release', 'Issue', 'Review', 'Commit'},
     'github_error_codes': {'missing_field', 'invalid', 'unprocessable', 'custom', 'already_exists', 'missing'},
@@ -468,4 +532,25 @@ def aligned(values):
         names, types = values.get(prefix + '_field_names'), values.get(prefix + '_field_types')
         if (names is None) != (types is None) or names is not None and len(names) != len(types):
             return False
-    return True
+    return policy_aligned(values)
+
+
+def policy_aligned(values):
+    if not POLICY_DIAGNOSTICS & values.keys():
+        return True
+    status = values.get('changed_policy_observation')
+    total = values.get('changed_policy_field_count')
+    if status == 'MALFORMED':
+        return (total is None or total > 256) and not (POLICY_DIAGNOSTICS - {'changed_policy_observation', 'changed_policy_field_count'}) & values.keys()
+    if status not in {'OBSERVED', 'PARTIAL'} or type(total) is not int or not 0 <= total <= 256:
+        return False
+    counts = [values.get(key) for key in ('changed_policy_unknown_count', 'changed_policy_malformed_count', 'changed_policy_omitted_count')]
+    if any(type(count) is not int for count in counts):
+        return False
+    names = values.get('changed_policy_fields', [])
+    if len(set(names)) != len(names) or total < len(names) + sum(counts):
+        return False
+    unknown, malformed, omitted = counts
+    if not names and total > unknown + malformed or omitted > 0 and len(names) != 8 or len(names) + omitted > len(POLICY_FIELD_NAMES):
+        return False
+    return sum(counts) == 0 if status == 'OBSERVED' else sum(counts) > 0

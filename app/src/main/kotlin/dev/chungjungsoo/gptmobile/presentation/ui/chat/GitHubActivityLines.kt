@@ -120,6 +120,9 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
         }
     }
     val summary = coalesced.indexOfFirst { it.statusSummary }
+    val activeSourceIndex = coalesced.indexOfLast { !it.statusSummary && it.progressId == lastPreviewId }
+    val newerSummaryEndsPreview = activeSourceIndex >= 0 &&
+        coalesced.drop(activeSourceIndex + 1).any { it.statusSummary }
     val ordered = when {
         summary == 0 -> coalesced
         summary > 0 -> listOf(coalesced[summary]) + coalesced.take(summary) + coalesced.drop(summary + 1)
@@ -142,7 +145,7 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             progressId = "github-search-preview"
         )
     }
-    if (!active || lastPreviewId == null) return ordered
+    if (!active || lastPreviewId == null || newerSummaryEndsPreview) return ordered
     val activeIndex = ordered.indexOfLast { !it.statusSummary && it.progressId == lastPreviewId }
     if (activeIndex < 0 || activeIndex == ordered.lastIndex) return ordered
     return ordered.take(activeIndex) + ordered.drop(activeIndex + 1) + ordered[activeIndex]

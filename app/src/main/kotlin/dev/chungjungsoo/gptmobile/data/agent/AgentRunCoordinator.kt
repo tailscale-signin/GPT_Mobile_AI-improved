@@ -987,7 +987,15 @@ class AgentRunCoordinator @Inject constructor(
             // Gateway admission can fail before the chat pipeline registers this run.
             // Resolve privacy first so those failures retain the same minimal journal.
             RunDiagnostics.journal?.let { journal ->
-                journal.setRunPrivacy(request.runId, isTemporary = !chatRepository.researchPersistenceAllowed(request.chatId))
+                val persistenceAllowed = try {
+                    chatRepository.researchPersistenceAllowed(request.chatId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Unknown privacy remains unregistered until the ordinary pipeline resolves it.
+                    null
+                }
+                persistenceAllowed?.let { journal.setRunPrivacy(request.runId, isTemporary = !it) }
             }
             currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
             request.providerWaitAuthority?.validate(settingRepository)

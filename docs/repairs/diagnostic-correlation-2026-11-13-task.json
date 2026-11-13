@@ -100,5 +100,16 @@
     "finding": "BUDGET_EXHAUSTED from a rejected tool precheck was incorrectly projected as the provider-style BUDGET_RESTRICTED category.",
     "repair": "Keep rejected tool-budget prechecks under TOOL_FAILURE with their exact typed reason, and reserve BUDGET_RESTRICTED for a completed read withheld only by the result-delivery budget.",
     "verification_state": "REQUIRES_FRESH_CANDIDATE_CI"
+  },
+  "formatting_followup": {
+    "pull_request": 970,
+    "starting_head": "306820ab7bb79551462cc015b17bba7ba4e0c59c",
+    "base_sha": "79c58260de528068ee07e03e9d2ec0c5ab9e74b8",
+    "failed_run": 43434863865,
+    "failed_job": 131917462919,
+    "diagnostic_preflight_job": 131917404287,
+    "finding": "The multiline report-code expression required ktlint's parenthesized-expression wrapping.",
+    "repair": "Apply the pinned ktlint 1.3.1 wrapping shape without changing behavior.",
+    "verification_state": "REQUIRES_FRESH_CANDIDATE_CI"
   }
 }

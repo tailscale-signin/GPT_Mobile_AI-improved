@@ -55,5 +55,16 @@ class ToolReportIncidentProjectionTest {
         assertTrue(ToolReportDiagnostics.fields(event, result.copy(callId = "other-call")).isEmpty())
     }
 
+    @Test fun dnsCooldownProjectsWithoutTheRequestedUrl() {
+        val event = event("""{"url":"https://example.com/private-source"}""").copy(modelToolName = "read_url")
+        val receipt = buildJsonObject { put("schema", "gptmobile.search-operation.v1") }
+        val result = AgentToolResult(event.callId, ToolResultContent.Text("private-source"), true, errorCode = "DNS_RECOVERY", executionReceipt = receipt, dispatched = false)
+        val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(event, result), 1_800_000_000_000))
+        assertEquals(JsonPrimitive("RECOVERY_COOLDOWN"), snapshot.values["url_reader_dns_state"])
+        assertEquals(JsonPrimitive("DNS_RESOLUTION_FAILED"), snapshot.values["tool_error_code"])
+        assertFalse(snapshot.toString().contains("private-source"))
+        assertTrue("RECOVERY_OBSERVATIONS_V1" in snapshot.requiredServiceFeatures())
+    }
+
     private fun event(arguments: String) = ToolEvent("private-event", "private-run", 1, "private-call", null, null, "github_issue", "github_issue", arguments, null, null, "FAILED")
 }

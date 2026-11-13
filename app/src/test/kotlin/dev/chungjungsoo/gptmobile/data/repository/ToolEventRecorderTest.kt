@@ -21,6 +21,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import io.mockk.every
 import io.mockk.mockkObject
@@ -42,6 +43,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolEventRecorderTest {
+    @Test fun reportInitializerFailurePreservesTheFailedToolReceipt() = runBlocking {
+        val event = recorder.startTool("run", 0, "call", "github_context", "github_context", buildJsonObject { put("action", "checks") }, startedAt = 10)
+        val result = AgentToolResult(event.callId, ToolResultContent.Text("Read rejected"), isError = true, errorCode = "HTTP_ERROR")
+        mockkObject(ToolReportDiagnostics)
+        try {
+            every { ToolReportDiagnostics.fields(any(), any(), any()) } throws ExceptionInInitializerError()
+            val saved = requireNotNull(recorder.finishTool(event.eventId, result, 20))
+            assertEquals(ToolEventStatus.FAILED, saved.status)
+            assertEquals("Read rejected", saved.recoveryResult())
+            assertEquals(saved, recorder.getEvents("run").single())
+        } finally {
+            unmockkObject(ToolReportDiagnostics)
+        }
+    }
+
     @Test fun actualRejectedCallPublishesOwnedContractAndShapeWithoutArgumentValues() = runBlocking {
         val reports = mutableListOf<Map<String, Any?>>()
         mockkObject(AppLogRecorder)

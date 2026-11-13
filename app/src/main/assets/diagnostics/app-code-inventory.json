@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "46d46b12bcb240fcb640809647ae70faafa45597137bb77dfbf90290a6ef4931",
+  "source_digest": "2724f9d55b9dbd394329ba8044403d940dc73b50875593f8694f7fcb1bd635df",
   "file_count": 2534,
-  "indexed_line_count": 405216,
+  "indexed_line_count": 405255,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -34,7 +34,7 @@
       "id": "android_shell",
       "label": "Android application and lifecycle",
       "file_count": 73,
-      "indexed_line_count": 8438
+      "indexed_line_count": 8441
     },
     {
       "id": "chat_ui",
@@ -124,13 +124,13 @@
       "id": "persistence",
       "label": "Databases, backup and storage",
       "file_count": 109,
-      "indexed_line_count": 14593
+      "indexed_line_count": 14597
     },
     {
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 12304
+      "indexed_line_count": 12336
     },
     {
       "id": "benchmark",
@@ -5183,8 +5183,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppLogRecorder.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "3221dbd63dd50d8cdb5d61e44773f5f9b48c7ef1f3a9dfd692835da71e0e7dd0",
-      "indexed_lines": 676
+      "sha256": "ae52365aafe024a46c52c5733db17314fbb7249612ea10fb24812f871d767662",
+      "indexed_lines": 682
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/BoundedDiagnosticIdentityWindow.kt",
@@ -5351,8 +5351,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticFailureSummary.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "9eb11202057f9419b01734ffe9eb5076c9dfd8578580a01d1d45ac9454254f3d",
-      "indexed_lines": 244
+      "sha256": "6b8df58b0d588e7f976d37a6486321be1188a38035b2718c7da8a8a338de9e88",
+      "indexed_lines": 259
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticIncidentTracker.kt",
@@ -5540,8 +5540,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "c58c32dc8a3ae74e047356d0e393a897b34adfffe496d6cfce6492faa1bab630",
-      "indexed_lines": 395
+      "sha256": "15ae2910d29ce0e9c6feb145280182ac0f5a31fd97bbd3eea23322c47c227c5b",
+      "indexed_lines": 406
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportManualCapture.kt",
@@ -10657,8 +10657,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "895772ea47709fc03bce05b470255a245c38658844a1181551953dc75b83fa71",
-      "indexed_lines": 267
+      "sha256": "5908db103da160e83bfed3b5e57db6f3db098772fe161f2fe37db5fd4adf7466",
+      "indexed_lines": 271
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolPrecheckEvidence.kt",
@@ -15354,8 +15354,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensions.kt",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "1f0117617ee04e4c77620871abbf851369a031f1dad247eb268d8045842c6477",
-      "indexed_lines": 873
+      "sha256": "375bb938d11b9602ee7d75b8664eaa3d52da712bb2cf8f9eecb728b5f0929f1d",
+      "indexed_lines": 876
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/AssistantMessageUtils.kt",

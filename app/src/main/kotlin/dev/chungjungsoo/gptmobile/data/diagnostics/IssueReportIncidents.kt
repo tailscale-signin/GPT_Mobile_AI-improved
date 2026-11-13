@@ -22,6 +22,17 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
+/** Reporting may lose evidence, but must never replace an operation's outcome. */
+internal inline fun <T> captureIssueReport(capture: () -> T): T? = try {
+    capture()
+} catch (failure: Throwable) {
+    if (failure is CancellationException || failure !is Exception && failure !is LinkageError) throw failure
+    AppLogRecorder.operationCaptureEpoch()?.let { epoch ->
+        AppLogRecorder.recordCaptured(epoch, "Diagnostics", "ISSUE_REPORT_CAPTURE_UNAVAILABLE", "W")
+    }
+    null
+}
+
 /** Local projection for public reports. Raw messages, identifiers and OS logcat never enter it. */
 internal object IssueReportIncidents {
     private const val RECENT_MILLIS = 60_000L

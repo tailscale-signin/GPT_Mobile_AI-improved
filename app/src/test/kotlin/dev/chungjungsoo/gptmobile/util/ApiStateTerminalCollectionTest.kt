@@ -1,17 +1,46 @@
 package dev.chungjungsoo.gptmobile.util
 
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
+import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateTerminalCollectionTest {
+    @Test fun reportingLinkageFailureCannotReplaceTheProviderRejection() = runBlocking {
+        val details = buildJsonObject {
+            put("http_status", 429)
+            put("failed_stage", "model_invocation")
+            put("remote_acceptance", "NO")
+            put("invocation_id", "attempt")
+        }
+        var saved = emptyList<AssistantTimelineItem>()
+        mockkObject(IssueReportIncidents)
+        try {
+            every { IssueReportIncidents.chatFailure("RATE_LIMIT", false, null, any(), "attempt") } throws NoClassDefFoundError()
+            val outcome = flowOf(ApiState.Error("Provider returned HTTP 429", errorCode = "RATE_LIMIT", failureDetails = details, invocationId = "attempt"))
+                .collectApiStateUpdates(onUpdate = { _, _, timeline -> saved = timeline })
+            assertEquals(ApiStateFlowOutcome.Failed("Provider returned HTTP 429", errorCode = "RATE_LIMIT"), outcome)
+            val failure = saved.single { it.profileFailure != null }.profileFailure
+            assertEquals("RATE_LIMIT", failure?.category)
+            assertEquals("attempt", failure?.invocationId)
+        } finally {
+            unmockkObject(IssueReportIncidents)
+        }
+    }
+
     @Test
     fun doneClosesAnOtherwiseOpenProviderAndFlushesAllCharacters() = runBlocking {
         var closed = false

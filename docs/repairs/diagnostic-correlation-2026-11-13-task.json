@@ -55,5 +55,29 @@
     ],
     "repair": "Resolve capability fields lazily, test bounded budget evidence and negotiation, and keep explicit PR context validation covered.",
     "verification_state": "REQUIRES_FRESH_CANDIDATE_CI"
+  },
+  "attached_capture_followup": {
+    "source_app_commit": "d943b2268b41492aa51295534be559382c7ed366",
+    "base_sha": "79c58260de528068ee07e03e9d2ec0c5ab9e74b8",
+    "starting_head": "a36dca5c51dbe5b28392617f0f21a97b7e15323a",
+    "pull_request": 970,
+    "state": "IMPLEMENTED",
+    "intent": "Keep tool and provider outcomes independent of issue-report capture errors, and reconcile stale in-progress task evidence with terminal run state in the export.",
+    "stage_digests_verified": 20,
+    "jsonl_rows": 1475,
+    "selected_chat_terminal_failures": 5,
+    "fixes": [
+      "Isolate optional report capture from persisted tool results, provider rejections, and primary application logs.",
+      "Project the terminal run instead of stale planned/running verification progress and keep the earlier checkpoint traceable."
+    ],
+    "external_observations": [
+      "OpenRouter returned HTTP 429. The next send was durably scheduled and started after the cooldown.",
+      "The private MCP endpoint refused two TCP connections. Discovery backoff and the hosted connector continued independently.",
+      "A gateway model readiness probe reported that its selected model was not loaded. Gateway metadata remained available.",
+      "Frame samples recorded UI stalls with no established cause. Device profiling is required to verify a performance fix."
+    ],
+    "logical_records_reassembled": 3,
+    "host_validation": "495 tests passed. Changed Kotlin formatting and source inventory passed.",
+    "android_validation": "Local Gradle daemon exited during annotation processing. Exact-head hosted Android checks still required."
   }
 }

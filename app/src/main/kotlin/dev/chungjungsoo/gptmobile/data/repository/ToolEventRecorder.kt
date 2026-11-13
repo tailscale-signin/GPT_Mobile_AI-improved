@@ -9,6 +9,8 @@ import dev.chungjungsoo.gptmobile.data.database.dao.AgentRunDao
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventResultType
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEventStatus
+import dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics
+import dev.chungjungsoo.gptmobile.data.diagnostics.captureIssueReport
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import dev.chungjungsoo.gptmobile.data.health.HealthConnectTools
 import java.util.UUID
@@ -173,7 +175,7 @@ class ToolEventRecorder @Inject constructor(
             if (normalizedResult.isError || withheldRead) "E" else "I",
             reportCode = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes
                 .toolResult(if (withheldRead) "BUDGET_EXHAUSTED" else normalizedResult.errorCode).takeUnless { healthEvent },
-            reportFields = if (healthEvent) {
+            reportFields = if (healthEvent || !normalizedResult.isError && !withheldRead) {
                 emptyMap()
             } else {
                 buildMap<String, Any?> {
@@ -196,7 +198,9 @@ class ToolEventRecorder @Inject constructor(
                     put("run_id", startedEvent?.runId)
                     put("call_id", normalizedResult.callId)
                     put("tool", startedEvent?.modelToolName)
-                    putAll(dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(startedEvent, result, ToolPrecheckEvidence.reasonCode(result)))
+                    captureIssueReport {
+                        ToolReportDiagnostics.fields(startedEvent, result, ToolPrecheckEvidence.reasonCode(result))
+                    }?.let { putAll(it) }
                     put("dispatched", normalizedResult.dispatched)
                     if (withheldRead) put("failed_stage", "delivery")
                     result.executionReceipt?.get("retryable")?.let { put("retryable", it) }

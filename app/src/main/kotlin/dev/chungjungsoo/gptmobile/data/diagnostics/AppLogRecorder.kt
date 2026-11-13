@@ -274,8 +274,12 @@ object AppLogRecorder {
 
     fun record(tag: String, message: String, level: String, reportCode: String?, reportError: Throwable? = null, reportFields: Map<String, Any?> = emptyMap(), reportSource: String? = null) {
         val epoch = captureEpoch.get()
-        if (!privateSessionActive) IssueReportIncidents.log(tag, level, mutableEnabled.value, reportCode, reportError, reportFields, reportSource)
         recordCaptured(epoch, tag, message, level)
+        if (!privateSessionActive) {
+            captureIssueReport {
+                IssueReportIncidents.log(tag, level, mutableEnabled.value, reportCode, reportError, reportFields, reportSource)
+            }
+        }
     }
 
     /** A long-running producer cannot publish old capture data after clear or a privacy transition. */
@@ -293,8 +297,10 @@ object AppLogRecorder {
     fun recordEvent(tag: String, eventName: String, fields: Map<String, Any?>, level: String = "I") {
         val epoch = captureEpoch.get()
         if (privateSessionActive) return
-        IssueReportIncidents.log(tag, level, mutableEnabled.value, IssueReportCodes.fromFields(fields), fields = fields)
         if (operationCaptureCurrent(epoch)) recordCaptured(epoch, tag, structuredDiagnosticEventMessage(eventName, fields), level)
+        captureIssueReport {
+            IssueReportIncidents.log(tag, level, mutableEnabled.value, IssueReportCodes.fromFields(fields), fields = fields)
+        }
     }
 
     /** IO-thread startup markers survive an abort before the async log queue drains. */

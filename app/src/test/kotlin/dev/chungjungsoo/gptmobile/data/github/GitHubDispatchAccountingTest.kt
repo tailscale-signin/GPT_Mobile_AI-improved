@@ -9,6 +9,30 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubDispatchAccountingTest {
+    @Test fun transportDiagnosticsSurviveAccountingWithoutChangingDispatchTruth() = runTest {
+        val accounting = GitHubDispatchAccounting(record = {})
+        withContext(accounting) { GitHubDispatchAccounting.started(false) }
+        val result = accounting.finish(
+            AgentToolResult(
+                "read",
+                ToolResultContent.Text("Connection failed"),
+                true,
+                errorCode = "GITHUB_TRANSIENT_NETWORK",
+                dispatched = false,
+                executionReceipt = kotlinx.serialization.json.buildJsonObject {
+                    put("github_transport_kind", JsonPrimitive("DNS"))
+                    put("github_transport_wait_ms", JsonPrimitive(30000))
+                }
+            ),
+            false
+        )
+        assertEquals(true, result.dispatched)
+        assertEquals(JsonPrimitive("READ_FAILED"), result.executionReceipt?.get("phase"))
+        assertEquals(JsonPrimitive("DNS"), result.executionReceipt?.get("github_transport_kind"))
+        assertEquals(JsonPrimitive(30000), result.executionReceipt?.get("github_transport_wait_ms"))
+        assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+    }
+
     @Test fun optionalFailedReadKeepsItsEndpointAndStatusWhenParentSucceeds() = runTest {
         val accounting = GitHubDispatchAccounting(record = {})
         withContext(accounting) {

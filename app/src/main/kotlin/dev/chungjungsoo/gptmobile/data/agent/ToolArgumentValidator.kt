@@ -28,6 +28,12 @@ internal object ToolArgumentValidator {
             } else {
                 ""
             }
+            "github_read" ->
+                "Use one to eight ranges with a repository-relative path and start_line>=1. " +
+                    "Choose either max_lines (1..2000) or end_line, never both; end_line=-1 means bounded EOF. "
+            "github_context" ->
+                "For saved content use only the exact view_cursor from continuation_call. " +
+                    "For a fresh page use per_page=1..100. Do not copy an action from a different request. "
             "github_search" ->
                 "Use the search schema for a new query. For another page, use the last result's exact continuation_call. "
             else -> ""
@@ -86,6 +92,14 @@ internal object ToolArgumentValidator {
             dispatched = false,
             executionReceipt = JsonObject(
                 rejectionReceipt(arguments, schema, validationErrors, selector) + buildJsonObject {
+                    if (toolName.substringBefore("__") == "github_read") {
+                        (arguments["ranges"] as? JsonArray)?.let { ranges ->
+                            put("read_range_count", ranges.size)
+                            val failures = ranges.filterIsInstance<JsonObject>().flatMap { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.readWindowFailures(it) }.distinct()
+                            if (failures.isNotEmpty()) put("read_window_rejections", JsonArray(failures.map(::JsonPrimitive)))
+                        }
+                        put("read_invalid_window_count", validationErrors.count { "needs start_line>=1" in it })
+                    }
                     if (readRules.isNotEmpty()) {
                         put("semantic_read_rules", JsonArray(readRules.map { JsonPrimitive(it.name) }))
                         put("validation_field_names", JsonArray(readRules.flatMap { it.fields.asList() }.distinct().sorted().map(::JsonPrimitive)))

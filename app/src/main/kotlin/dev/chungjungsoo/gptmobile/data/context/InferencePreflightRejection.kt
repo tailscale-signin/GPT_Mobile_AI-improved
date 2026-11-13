@@ -36,6 +36,10 @@ class ReasoningAdmissionException(val requested: ReasoningMode) :
     IllegalStateException(
         "REASONING_${requested}_UNSUPPORTED: this route has no verified template control. Choose Auto or a qualified model; no inference was sent."
     ) {
+    internal var gatewayObservation: GatewayModelCapabilityObservation? = null
+    internal var templateRevision: String? = null
+    internal var gatewayRoute: Boolean? = null
+
     init {
         require(requested != ReasoningMode.AUTO)
     }

@@ -17,6 +17,12 @@ internal object GitHubAcceptanceReportDiagnostics {
         put("diagnostic_area", "ACCEPTANCE")
         put("diagnostic_capture_mode", "INCIDENT")
         put("acceptance_evidence_scope", if (retainedReport) "RETAINED_VERDICT" else "CURRENT_VERDICT")
+        (verdict["unresolved_claims"] as? JsonArray)?.let { claims ->
+            put("acceptance_unresolved_claim_count", claims.size)
+            val reasons = claims.filterIsInstance<JsonObject>().map { it.text("reason") }
+                .filter { it in setOf("RECEIPT_NOT_FOUND", "UNTRUSTED_RECEIPT", "AUTHORIZATION_REVALIDATION_REQUIRED", "OPERATION_FAILED", "CLAIM_VALUE_MISSING", "POINTER_NOT_IN_EVIDENCE", "FIELD_SEMANTICS_MISMATCH", "OBSERVATION_TIME_UNKNOWN", "HISTORICAL_OBSERVATION", "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "VALUE_MISMATCH", "EXACT_RECEIPT_MATCH") }.distinct().take(8)
+            if (reasons.isNotEmpty()) put("acceptance_claim_failure_reasons", JsonArray(reasons.map(::JsonPrimitive)))
+        }
         val requirements = (ledger["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
         val unmetRequirements = requirements.filter { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") }
         val capabilities = (ledger["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["required"] == JsonPrimitive(true) }
@@ -25,6 +31,7 @@ internal object GitHubAcceptanceReportDiagnostics {
             put("verified_capability_count", capabilities.count { it["state"] == JsonPrimitive("PASS") })
             put("blocked_capability_count", capabilities.count { it["state"] == JsonPrimitive("BLOCKED") })
             put("untested_capability_count", capabilities.count { it["state"] == JsonPrimitive("NOT_TESTED") })
+            put("acceptance_failed_operation_count", capabilities.count { it["state"] == JsonPrimitive("FAIL") })
         }
         for (key in listOf("task_kind", "acceptance_evaluator_branch", "acceptance_mismatch", "expected_operation", "expected_action", "eligible_receipt_count", "excluded_receipt_count", "receipt_count_scope")) {
             val observed = unmetRequirements.map { it[key] }
@@ -89,6 +96,9 @@ internal object GitHubAcceptanceReportDiagnostics {
             (stop["required_capability_blocker_counts"] as? JsonObject)?.let { counts ->
                 counts.number("FIXTURE_APPROVAL_MODE_REQUIRED")?.let { put("fixture_approval_blocked_count", it) }
                 counts.number("OWNED_FIXTURE_REQUIRED")?.let { put("owned_fixture_blocked_count", it) }
+                counts.number("REPOSITORY_INPUT_REQUIRED")?.let { put("repository_input_blocked_count", it) }
+                counts.number("WORKFLOW_RUN_OR_JOB_REQUIRED")?.let { put("workflow_input_blocked_count", it) }
+                counts.number("LIVE_EVIDENCE_REQUIRED")?.let { put("live_evidence_blocked_count", it) }
             }
         }
         (verdict["execution_ledger"] as? JsonObject)?.number("unresolved_remote_outcomes")?.let { put("unresolved_outcomes", it) }

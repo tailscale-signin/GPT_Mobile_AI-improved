@@ -307,7 +307,12 @@ internal class GitHubResultViews(
                 true,
                 errorCode = "INVALID_ARGUMENTS",
                 dispatched = false,
-                executionReceipt = savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256)
+                executionReceipt = JsonObject(
+                    savedViewDiagnostics(scope, cursor, entry.operation, true, false, entry.sourceSha256) + buildJsonObject {
+                        put("reason_code", "SAVED_VIEW_CONTEXT_MISMATCH")
+                        put("validation_field_names", JsonArray(conflictingFields.keys.sorted().map(::JsonPrimitive)))
+                    }
+                )
             )
         }
         // Active readers can take longer than ten minutes to consume a large result.

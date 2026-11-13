@@ -92,9 +92,7 @@ internal class VoicePreferencesViewModel @Inject constructor(@ApplicationContext
         viewModelScope.launch { _modelStores.value?.kokoro?.remove() }
     }
 
-    override fun onCleared() {
-        _modelStores.value?.moonshine?.cancelInstall()
-        _modelStores.value?.kokoro?.cancelInstall()
-        super.onCleared()
-    }
+    // ViewModel-owned install coroutines cancel with viewModelScope. The shared
+    // model store may instead belong to the durable installer; leaving this screen
+    // must not cancel that worker's download.
 }

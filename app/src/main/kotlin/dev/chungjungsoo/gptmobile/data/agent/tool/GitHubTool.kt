@@ -1930,7 +1930,7 @@ class GitHubTool(
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "GITHUB_WAITING_CAPACITY", dispatched = false)
         }
         if (throwable is GitHubRequestCircuit.Open) {
-            return transportFailure(callId, "GITHUB_CIRCUIT_OPEN", detail, throwable.retryAfterMs)
+            return transportFailure(callId, "GITHUB_CIRCUIT_OPEN", detail, throwable.retryAfterMs, "CIRCUIT_OPEN")
         }
         if (detail.startsWith("EVIDENCE_UNAVAILABLE:")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = "EVIDENCE_UNAVAILABLE", dispatched = false)
@@ -1977,7 +1977,7 @@ class GitHubTool(
                 action in MUTATING_ACTIONS -> "GitHub connection interrupted during the checks before this change. No write was sent."
                 else -> "GitHub connection interrupted after bounded read retries. Resume this read when the connection recovers."
             }
-            return transportFailure(callId, if (httpFailure != null) "GITHUB_TRANSIENT_SERVER" else "GITHUB_TRANSIENT_NETWORK", message, cooldown)
+            return transportFailure(callId, if (httpFailure != null) "GITHUB_TRANSIENT_SERVER" else "GITHUB_TRANSIENT_NETWORK", message, cooldown, if (httpFailure != null) "HTTP" else networkFailureKind(throwable).name)
         }
         val normalized = detail.substringBefore(" · ").substringBefore(": ")
         if (normalized in dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.codes || normalized in setOf("GITHUB_AUTHENTICATION_REQUIRED", "GITHUB_NOT_FOUND")) {
@@ -2035,7 +2035,7 @@ class GitHubTool(
         return AgentToolResult(callId, ToolResultContent.Text("GitHub operation $action failed: $detail. Inspect the retained resource and request receipt before retrying."), true, errorCode = "GITHUB_OPERATION_FAILED")
     }
 
-    private fun transportFailure(callId: String, code: String, message: String, retryAfterMillis: Long): AgentToolResult {
+    private fun transportFailure(callId: String, code: String, message: String, retryAfterMillis: Long, kind: String): AgentToolResult {
         val now = System.currentTimeMillis()
         return AgentToolResult(
             callId,
@@ -2044,6 +2044,8 @@ class GitHubTool(
             errorCode = code,
             dispatched = false,
             executionReceipt = buildJsonObject {
+                put("github_transport_kind", kind)
+                put("github_transport_wait_ms", retryAfterMillis.coerceIn(0, 86_400_000L))
                 // An open circuit rejects before any GitHub request is dispatched,
                 // so the exact call is safe to replay after its durable cooldown.
                 if (code == "GITHUB_CIRCUIT_OPEN") put("replay_safe", true)

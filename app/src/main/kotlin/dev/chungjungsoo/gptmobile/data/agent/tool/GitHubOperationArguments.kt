@@ -73,6 +73,18 @@ internal object GitHubOperationArguments {
         LINE_WINDOW("ranges", "start_line", "end_line", "max_lines")
     }
 
+    /** Fixed constraint names only; source paths and requested text never enter reports. */
+    fun readWindowFailures(range: JsonObject): Set<String> = buildSet {
+        fun number(key: String) = (range[key] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+        val start = number("start_line") ?: 1.takeIf { "start_line" !in range }
+        val end = number("end_line")
+        val maximum = number("max_lines")
+        if (start == null || start < 1) add("BAD_START")
+        if ("end_line" in range && "max_lines" in range) add("CONFLICTING_LIMITS")
+        if ("max_lines" in range && (maximum == null || maximum !in 1..2000)) add("BAD_MAX_LINES")
+        if ("end_line" in range && (end == null || end != -1 && start != null && (end < start || end.toLong() - start >= 2000))) add("BAD_END")
+    }
+
     fun errors(operation: String, args: JsonObject, readRules: MutableSet<ReadRule>? = null): List<String> {
         fun text(key: String) = (args[key] as? JsonPrimitive)?.content.orEmpty()
         val errors = mutableListOf<String>()
@@ -155,20 +167,9 @@ internal object GitHubOperationArguments {
                     val path = (range["path"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()
                     if (runCatching { GitHubWorkspaceClient.filePath(path) }.isFailure) readError(ReadRule.REPOSITORY_FILE_PATH, "ranges[$index].path must be a relative repository file path")
                     fun number(key: String) = (range[key] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
-                    val start = number("start_line") ?: 1.takeIf { "start_line" !in range }
-                    val end = number("end_line")
-                    val maximum = number("max_lines")
                     val offset = number("start_offset")
                     if ("start_offset" in range && (offset == null || offset < 0)) readError(ReadRule.RANGE_OFFSET, "ranges[$index].start_offset must be an integer from 0 through ${Int.MAX_VALUE}")
-                    if (start == null ||
-                        start < 1 ||
-                        "end_line" in range &&
-                        "max_lines" in range ||
-                        "max_lines" in range &&
-                        (maximum == null || maximum !in 1..2000) ||
-                        "end_line" in range &&
-                        (end == null || end != -1 && (end < start || end.toLong() - start >= 2000))
-                    ) {
+                    if (readWindowFailures(range).isNotEmpty()) {
                         readError(ReadRule.LINE_WINDOW, "ranges[$index] needs start_line>=1 and either max_lines=1..2000 or an ordered end_line spanning at most 2000 lines; end_line=-1 means bounded EOF. Do not combine end_line with max_lines. Split larger explicit reads into ranges such as 1..2000, 2001..4000")
                     }
                 }

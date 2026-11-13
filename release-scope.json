@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Repair durable voice download lifecycle and queued UI feedback; preserve bounded transport, read-window, saved-cursor, acceptance-claim and strict reasoning admission evidence in approved issue reports.",
     "Keep logical gateway operation identities stable and retain bounded model preparation, gateway capture retrieval, MCP rejection, tool provenance, GitHub verdict provenance, and frame timing evidence. Defer eligible pre-dispatch provider connectivity failures with bounded backoff.",
     "Improve GitHub chat scrolling and progress, Gateway conversation navigation, background voice plugin installation, and bounded app audit modes. Add safe observations for URL-reader DNS cooldowns, saved-view recovery, and fixture approval.",
     "Preserve task-bound GitHub fixture decisions and expose bounded run, tool, provider recovery, branch-policy and crash evidence in approved reports.",
@@ -109,10 +110,10 @@
     "Resolve a pinned comparison base for manual CI validation while preserving event-supplied PR, push and merge-queue comparisons and rejecting unavailable or invalid references.",
     "Isolate real-worker engineering recovery tests under the unchanged per-module watchdog, preserving every unique assertion and the existing readiness and shutdown limits while removing identical inherited executions.",
     "Refresh microphone permission evidence from the actual owner permission check after capture read security failures, retaining typed recovery, resource cleanup, generation ownership and privacy invalidation.",
-    "Repair PR 881 open issues #884\u2013#890: exact-model sleep preparation and durable uncertainty, typed model/report diagnostics with negotiated reporter features, explicit immutable review baselines and review intent, and revision-bound self-test workflow dependency discovery.",
+    "Repair PR 881 open issues #884–#890: exact-model sleep preparation and durable uncertainty, typed model/report diagnostics with negotiated reporter features, explicit immutable review baselines and review intent, and revision-bound self-test workflow dependency discovery.",
     "Repair diagnostic capture 62a4cb28 engineering scope serialization and retained replay identity, preserve pre-job and model-preparation failure evidence across versioned approved reports, and split serial durable queue dispatch.",
     "Preserve accepted status criteria and immutable receipt provenance, bind target-repository and exact-SHA pagination evidence, reject mixed page sizes, and render complete integration prerequisites within existing authority and call ceilings.",
-    "Repair built-in head/base review parsing, preserve original provider tool identities through routing and durable continuation, align issue presentation arguments and add negotiated bounded incident-failure diagnostics for issues #891\u2013#921.",
+    "Repair built-in head/base review parsing, preserve original provider tool identities through routing and durable continuation, align issue presentation arguments and add negotiated bounded incident-failure diagnostics for issues #891–#921.",
     "Repair the November 13 diagnostic workflow failures with exact provider-tool replay, bounded argument correction, review baseline parsing, task-aware status budgets, separate ordinary and engineering conversation bindings, native integration routing, and immutable context-v7 incident evidence; retain unconfirmed historical causes as diagnostic follow-up."
   ],
   "limitations": [
@@ -2488,6 +2489,8 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceButtonFeedback.kt",
     "app/src/main/res/raw/voice_button_click.wav",
     "app/src/main/res/raw/voice_mic_start.wav",
-    "app/src/main/res/raw/voice_mic_stop.wav"
+    "app/src/main/res/raw/voice_mic_stop.wav",
+    "docs/repairs/open-issue-recovery-2026-11-13.md",
+    "docs/repairs/open-issue-recovery-2026-11-13-task.json"
   ]
 }

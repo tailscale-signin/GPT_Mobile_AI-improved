@@ -673,9 +673,9 @@ class OpenAICompatibleAdapter @Inject constructor(
                     val connectionFailed = chunkFailure == null &&
                         (
                             effectiveThrowable is java.net.ConnectException ||
-                            rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
-                            rawError.orEmpty().contains("failed to connect", ignoreCase = true)
-                        )
+                                rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
+                                rawError.orEmpty().contains("failed to connect", ignoreCase = true)
+                            )
                     if (!constraints.lockSelectedRoute && !emulatorFallbackTried && connectionFailed && isLocalLoopbackUrl(currentConfig.apiUrl)) {
                         val fallbackUrl = rewriteLoopbackForEmulator(currentConfig.apiUrl)
                         if (fallbackUrl != currentConfig.apiUrl) {

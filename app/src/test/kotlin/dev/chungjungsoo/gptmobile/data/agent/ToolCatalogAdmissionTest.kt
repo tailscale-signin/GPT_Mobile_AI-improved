@@ -105,18 +105,32 @@ class ToolCatalogAdmissionTest {
         val task = "Inspect GitHub issues, repair failures and verify PR checks"
         val catalog = ProgressiveToolCatalog(operations.map { it.definition }, task, githubMode = true)
         val resolved = (operations + catalog).map { tool ->
-            ResolvedAgentTool(tool, null, "GitHub", tool.definition.name, tool.definition.name,
-                progressiveCatalog = catalog.takeIf { tool === catalog })
+            ResolvedAgentTool(
+                tool,
+                null,
+                "GitHub",
+                tool.definition.name,
+                tool.definition.name,
+                progressiveCatalog = catalog.takeIf { tool === catalog },
+            )
         }
         val turn = ConversationTurn(MessageV2(content = task, platformType = null), null, true)
-        val plan = planAuthorizedToolContext(listOf(turn), "Use GitHub tools.", resolved,
-            TokenBudgetSettings(contextTokens = 5632, outputTokens = 1024), true,
-            githubMode = true, requestedTask = task)
+        val plan = planAuthorizedToolContext(
+            listOf(turn),
+            "Use GitHub tools.",
+            resolved,
+            TokenBudgetSettings(contextTokens = 5632, outputTokens = 1024),
+            true,
+            githubMode = true,
+            requestedTask = task,
+        )
         assertTrue(plan.tools.any { it.name == "github_context" })
         assertTrue(plan.tools.any { it.name == ProgressiveToolCatalog.NAME })
         assertTrue(plan.tools.count { ProgressiveToolCatalog.isGitHubTool(it) } < operations.size)
-        assertEquals(operations.map { it.definition.name }.toSet(),
-            plan.authorizedTools.map { it.name }.toSet() - ProgressiveToolCatalog.NAME)
+        assertEquals(
+            operations.map { it.definition.name }.toSet(),
+            plan.authorizedTools.map { it.name }.toSet() - ProgressiveToolCatalog.NAME,
+        )
     }
 
     @Test fun providerRoundDefersLargeOptionalGithubSchema() {
@@ -124,8 +138,12 @@ class ToolCatalogAdmissionTest {
         val context = AgentToolDefinition("github_context", "Inspect repository", buildJsonObject {})
         val large = AgentToolDefinition("github_write", "Write staged changes ".repeat(500), buildJsonObject {})
         val discovery = ProgressiveToolCatalog(emptyList(), "discover").definition
-        val limits = AgentRunLimits(githubMode = true, contextTokens = 4096, initialContextTokens = 2000,
-            finalResponseReserveTokens = 1024)
+        val limits = AgentRunLimits(
+            githubMode = true,
+            contextTokens = 4096,
+            initialContextTokens = 2000,
+            finalResponseReserveTokens = 1024,
+        )
         val selected = fitProviderToolSchemas(listOf(context, large, recovery, discovery), limits, 0, 0)
         assertTrue(selected.contains(context))
         assertTrue(selected.contains(recovery))

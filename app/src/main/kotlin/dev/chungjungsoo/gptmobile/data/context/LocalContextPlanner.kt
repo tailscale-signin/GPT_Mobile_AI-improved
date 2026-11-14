@@ -222,7 +222,9 @@ internal object LocalContextPlanner {
                     it !in setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit", "github_write", "github_watch_checks")
                 }
                 (listOf("github_context") + listOfNotNull(specific)).toSet()
-            } else requestedGitHubOperations
+            } else {
+                requestedGitHubOperations
+            }
             tools.forEach { tool ->
                 val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
                 if (operation in immediate) required += tool.name
@@ -262,11 +264,13 @@ internal object LocalContextPlanner {
         return (selected + fallback + if (toolIntent && discovery != null) listOf(discovery) else emptyList()).distinctBy { it.name }
     }
 
-    private fun githubToolNames(tools: List<AgentToolDefinition>, githubMode: Boolean): Set<String> =
-        if (githubMode) tools.filter {
-            it.modelVisible && (it.name == "read_recovery_context" ||
-                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_context")
-        }.mapTo(linkedSetOf()) { it.name } else emptySet()
+    private fun githubToolNames(tools: List<AgentToolDefinition>, githubMode: Boolean): Set<String> {
+        if (!githubMode) return emptySet()
+        return tools.filter { tool ->
+            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
+            tool.modelVisible && (tool.name == "read_recovery_context" || operation == "github_context")
+        }.mapTo(linkedSetOf()) { it.name }
+    }
 
     internal fun isToolFollowUp(prompt: String): Boolean = prompt.trim().lowercase().let { text ->
         text.length <= 160 &&

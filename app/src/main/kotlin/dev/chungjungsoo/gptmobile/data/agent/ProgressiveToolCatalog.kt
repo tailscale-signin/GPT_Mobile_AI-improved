@@ -56,10 +56,12 @@ class ProgressiveToolCatalog(
             // unrelated write/source/indexing schemas need not enter this prompt.
             window(taskRequired)
         } else if (githubUpfront) {
-            window(taskRequired + ranked(task).filter {
-                (initialNames == null || it.name in initialNames) &&
-                    dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
-            })
+            window(
+                taskRequired + ranked(task).filter {
+                    (initialNames == null || it.name in initialNames) &&
+                        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
+                },
+            )
         } else {
             window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering })
         }

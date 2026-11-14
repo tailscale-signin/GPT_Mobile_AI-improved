@@ -97,9 +97,12 @@ class ProgressiveToolCatalogTest {
         assertTrue("Initial GitHub context missing: $initial", "github_context" in initial)
         assertFalse("Write schemas should be deferred: $initial", "github_write" in initial)
         assertTrue(initial.size < operations.size + 1)
-        val discovery = catalog.execute("need-write", buildJsonObject {
-            put("names", JsonArray(listOf(JsonPrimitive("github_write"))))
-        })
+        val discovery = catalog.execute(
+            "need-write",
+            buildJsonObject {
+                put("names", JsonArray(listOf(JsonPrimitive("github_write"))))
+            },
+        )
         assertFalse(discovery.isError)
         assertTrue(catalog.selected(operations + catalog.definition).any { it.name == "github_write" })
     }

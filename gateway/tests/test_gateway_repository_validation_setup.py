@@ -97,7 +97,11 @@ class ManagedValidationTests(unittest.TestCase):
         self.assertEqual('PREREQUISITES_READY', result['state'])
         self.assertFalse(result['tests_executed'])
         path = Path(selected_policy_path(self.root))
-        self.assertTrue(path.is_relative_to(self.root / 'data' / 'repository-validation'))
+        # ``setup`` canonicalizes the state root before publishing its immutable
+        # snapshot. Windows runner temp directories can be junction-backed, so
+        # compare canonical paths instead of their different lexical aliases.
+        self.assertTrue(path.resolve().is_relative_to(
+            (self.root / 'data' / 'repository-validation').resolve()))
         with patch.dict(os.environ, {}, clear=True):
             first = environment(self.root, validate({}))
         with patch.dict(os.environ, first, clear=True):

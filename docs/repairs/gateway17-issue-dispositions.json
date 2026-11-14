@@ -436,11 +436,11 @@
     {
       "issue": 1114,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1114",
-      "disposition": "code_fix_with_device_qualification",
+      "disposition": "partial_caption_repair_and_timing_diagnostics",
       "observed_problem": "Live voice captions could show the wrong text or lose the reader position while following speech.",
       "resolution": "The themed caption surface keeps the complete text and validates observed speech ranges. Automatic movement does not detach following; explicit manual reading does, and returning to the bottom resumes it. Invalid/stale ranges cannot highlight another utterance, and text timing is not fabricated.",
-      "remaining_qualification": "Pure caption and session regressions cover text, Unicode ranges and follow behavior. Exact-head Compose/device visual verification remains a release gate; no physical speech timing comparison was performed here.",
-      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "remaining_qualification": "Exact spoken-word highlighting requires engine-provided ranges that map to the displayed text. Kokoro currently supplies no range callback, so exact-word synchronization is unavailable on that route; other routes may report NO_TIMING or TEXT_UNMAPPED. Bounded voice_engine, voice_phase and voice_caption_alignment observations identify the active route and observed alignment state for recurrence. Caption regressions cover text, Unicode ranges and following; exact-head Compose verification remains required, and no physical audio alignment is claimed.",
+      "closure_basis": "Partial caption repair plus timing diagnostics under the requested fallback policy; exact-word Kokoro synchronization and the historical physical-device outcome are not claimed fixed.",
       "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
       "historical_incident_reproduced": false,
       "sources": [

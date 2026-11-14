@@ -1086,6 +1086,116 @@ class ProviderAdaptersTest {
     }
 
     @Test
+    fun `Ollama typed transport replay authority preserves bounded pre-output recovery`() = kotlinx.coroutines.test.runTest {
+        val transport = replayableOllamaTimeout()
+        assertEquals(JsonPrimitive("UNKNOWN"), transport.failureDetails?.get("remote_acceptance"))
+        assertNull(transport.failureDetails?.get("requires_reconciliation"))
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flowOf(ChatCompletionChunk(error = transport)),
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop"))))
+                )
+            )
+        )
+        val profile = platform(ClientType.OLLAMA)
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = true))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, api.chatRequests.size)
+        assertTrue(api.chatRequests.all { it.model == profile.model })
+        assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
+        assertEquals(2_000L, testScheduler.currentTime)
+        assertEquals("Recovered", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+    }
+
+    @Test
+    fun `Ollama typed failures without transport replay authority stay authoritative after disconnect`() = runBlocking {
+        val transport = replayableOllamaTimeout()
+        val details = requireNotNull(transport.failureDetails)
+        val failures = listOf(
+            transport.copy(retryable = false),
+            transport.copy(retryable = null),
+            transport.copy(failureDetails = null),
+            transport.copy(failureDetails = JsonObject(details + ("retryable" to JsonPrimitive(false)))),
+            transport.copy(failureDetails = JsonObject(details + ("request_replay_allowed" to JsonPrimitive(false)))),
+            transport.copy(failureDetails = JsonObject(details - "request_replay_allowed")),
+            transport.copy(failureDetails = JsonObject(details + ("requires_reconciliation" to JsonPrimitive(true)))),
+            transport.copy(failureDetails = JsonObject(details + ("outcome" to JsonPrimitive("unknown")))),
+            transport.copy(code = "GATEWAY_OUTCOME_UNKNOWN"),
+            transport.copy(message = "GATEWAY_OUTCOME_UNKNOWN: endpoint timed out"),
+            transport.copy(code = "BACKEND_TEMPLATE_INVALID"),
+            transport.copy(providerLimit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OLLAMA", "profile", "model", 1_000L, "route", "PROVIDER_RATE_LIMITED", true))
+        )
+        for (rejection in failures) {
+            val api = FakeOpenAIAPI(
+                chatRounds = ArrayDeque(
+                    listOf(
+                        flow {
+                            emit(ChatCompletionChunk(error = rejection))
+                            throw java.net.ConnectException("PRIVATE_TRAILING_DISCONNECT")
+                        }
+                    )
+                )
+            )
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA))
+                .streamRound(emptyList(), emptyList()).toList()
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(1, api.chatRequests.size)
+            assertEquals(rejection.message, failure.message)
+            assertEquals(rejection.code, failure.errorCode)
+            assertEquals(rejection.failureDetails, failure.failureDetails)
+            assertEquals(rejection.providerLimit, failure.providerLimit)
+            assertFalse(events.any { it == ProviderEvent.Completed })
+        }
+    }
+
+    @Test
+    fun `Ollama typed replay permission cannot replay delivered output`() = runBlocking {
+        val transport = replayableOllamaTimeout()
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flowOf(
+                        ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "partial")))),
+                        ChatCompletionChunk(error = transport)
+                    )
+                )
+            )
+        )
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, api.chatRequests.size)
+        assertEquals("partial", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(transport.code, failure.errorCode)
+        assertEquals(transport.failureDetails, failure.failureDetails)
+        assertFalse(events.any { it == ProviderEvent.Completed })
+    }
+
+    private fun replayableOllamaTimeout() = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(
+        message = "The configured endpoint timed out.",
+        code = "NETWORK_TIMEOUT",
+        retryable = true,
+        failureDetails = dev.chungjungsoo.gptmobile.data.network.providerTransportFailureDetails(
+            details = buildJsonObject {
+                put("failed_stage", "transport")
+                put("retryable", true)
+            },
+            error = java.net.SocketTimeoutException("PRIVATE_TRANSPORT_FAILURE"),
+            timing = null,
+            dispatched = true,
+            receivedPayload = false,
+            receivedVisibleText = false,
+            generationCompleted = false,
+            replayAllowed = true,
+            requiresReconciliation = false
+        )
+    )
+
+    @Test
     fun `adapter exception capture preserves upstream cancellation without emitting failure`() = runBlocking {
         val cancelled = CancellationException("PRIVATE_CANCELLED")
         val ollama = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow<ChatCompletionChunk> { throw cancelled })))

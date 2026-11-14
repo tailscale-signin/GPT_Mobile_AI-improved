@@ -544,6 +544,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             while ((System.nanoTime() - startTime) / 1_000_000 < maxRetryDurationMs) {
                 var chunkError: String? = null
                 var chunkFailure: ProviderEvent.Failed? = null
+                var chunkTransportReplayAllowed = false
                 var caughtThrowable: Throwable? = null
                 caughtEvidence = null
 
@@ -614,6 +615,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 chunk.error?.let { err ->
                                     chunkError = err.message
                                     chunkFailure = ProviderEvent.Failed(err.message, errorCode = err.code, providerLimit = err.providerLimit, failureDetails = err.failureDetails)
+                                    chunkTransportReplayAllowed = allowsOllamaTransportReplay(err)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     val delta = choice.effectiveDelta
                                     if (!delta.content.isNullOrEmpty() || !delta.effectiveReasoning.isNullOrEmpty() || !delta.toolCalls.isNullOrEmpty()) {
@@ -641,9 +643,11 @@ class OpenAICompatibleAdapter @Inject constructor(
                     caughtThrowable = java.net.SocketTimeoutException("Ollama recovery deadline exceeded")
                 }
 
-                // A structured rejection owns this attempt even when the stream
-                // then disconnects. A later transport error cannot authorize replay.
-                val authoritativeFailure = chunkFailure?.takeIf { !it.errorCode.isNullOrBlank() || !it.failureDetails.isNullOrEmpty() || it.providerLimit != null }
+                val rawError = chunkError ?: caughtThrowable?.message
+                val isTimeoutOrConnection = isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
+                // A later exception cannot override a rejection. Only explicit
+                // transport replay authority may enter the existing recovery loop.
+                val authoritativeFailure = chunkFailure?.takeUnless { chunkTransportReplayAllowed && isTimeoutOrConnection && !hasReceivedTokens }
                 if (authoritativeFailure != null) {
                     emit(authoritativeFailure)
                     return null
@@ -653,9 +657,6 @@ class OpenAICompatibleAdapter @Inject constructor(
                     emit(ProviderEvent.Failed("Ollama recovery deadline exceeded after 2 minutes."))
                     return null
                 }
-                val rawError = chunkError ?: caughtThrowable?.message
-                val isTimeoutOrConnection = isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
-
                 if (chunkError == null && caughtThrowable == null) {
                     ollamaSucceeded = true
                     break
@@ -1290,6 +1291,18 @@ class OpenAICompatibleAdapter @Inject constructor(
     private fun rewriteLoopbackForEmulator(url: String): String =
         url.replace("://localhost", "://10.0.2.2")
             .replace("://127.0.0.1", "://10.0.2.2")
+
+    private fun allowsOllamaTransportReplay(error: dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail): Boolean {
+        val details = error.failureDetails ?: return false
+        return error.retryable == true &&
+            (details["retryable"] == null || details["retryable"] == JsonPrimitive(true)) &&
+            details["request_replay_allowed"] == JsonPrimitive(true) &&
+            (details["requires_reconciliation"] == null || details["requires_reconciliation"] == JsonPrimitive(false)) &&
+            !(details["outcome"] as? JsonPrimitive)?.content.equals("unknown", ignoreCase = true) &&
+            error.providerLimit == null &&
+            !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) &&
+            dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.entries.any { it.retryable && it.code == error.code }
+    }
 
     private fun isOllamaTimeoutOrNetworkGlitch(errorMsg: String?, throwable: Throwable?): Boolean {
         if (throwable != null) {

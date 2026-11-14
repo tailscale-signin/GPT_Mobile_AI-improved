@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Restore bounded Ollama typed transport recovery only under explicit producer retry and replay authority, retain terminal rejection and uncertain-outcome evidence, and disclose the remaining Kokoro word-timing limitation for #1114.",
     "Address late reports #1129 and #1130 with safe provider-catch and repository error-value boundary evidence, separately negotiated hosted reporter compatibility, and explicit capability-test prerequisites. Preserve known failure details and cancellation without inventing dispatch or causal proof.",
     "Correct one-line and multiline GitHub follow timing, reattach deliberate bottom-edge input, redesign theme-aware voice presentation with stable observed-range captions, and include gateway-backed chat modes before a successful submission. Preserve bounded sanitized application frames and exception type across terminal Flow failure reporting.",
     "Keep the composer focused during background run changes and report bounded keyboard transitions, invalid tool frames, result-budget exhaustion and reasoning-only completion attempts.",

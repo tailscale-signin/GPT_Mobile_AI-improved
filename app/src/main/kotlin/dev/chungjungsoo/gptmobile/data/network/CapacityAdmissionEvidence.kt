@@ -6,7 +6,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Numeric observations only; runtime identities and prompt contents never enter this projection. */
-internal fun capacityAdmissionEvidence(error: RequestCapacityException, nowMillis: Long): JsonObject = buildJsonObject {
+internal fun capacityAdmissionEvidence(error: RequestCapacityException, monotonicMillis: Long): JsonObject = buildJsonObject {
     fun observedCount(key: String, value: Long?) {
         value?.takeIf { it in 0..16_000_000L }?.let { put(key, it) }
     }
@@ -17,8 +17,8 @@ internal fun capacityAdmissionEvidence(error: RequestCapacityException, nowMilli
         observedCount("admission_catalog_context_tokens", observation.catalogContextTokens)
         observedCount("admission_input_ceiling_tokens", observation.capacity.inputTokens)
         observedCount("admission_output_ceiling_tokens", observation.capacity.outputTokens)
-        observation.capacity.observedAtMillis.takeIf { it > 0 && it <= nowMillis }?.let {
-            observedCount("admission_capacity_age_ms", nowMillis - it)
+        observation.capacity.observedAtMillis.takeIf { it > 0 && it <= monotonicMillis }?.let {
+            observedCount("admission_capacity_age_ms", monotonicMillis - it)
         }
     }
     error.budget?.let { budget ->

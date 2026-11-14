@@ -60,6 +60,10 @@ class ProgressiveToolCatalog(
                 taskRequired + ranked(task).filter {
                     (initialNames == null || it.name in initialNames) &&
                         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
+                } + if (taskRequired.none(::isGitHubTool)) {
+                    candidates.values.filter { isGitHubTool(it) && (initialNames == null || it.name in initialNames) }
+                } else {
+                    emptyList()
                 }
             )
         } else {
@@ -593,12 +597,14 @@ class ProgressiveToolCatalog(
         val selected = mutableListOf<AgentToolDefinition>()
         omissions.clear()
         for (tool in (listOfNotNull(candidates["read_recovery_context"]) + ordered).distinctBy { it.name }) {
-            // GitHub and other schemas obey the same bounded selection window.
+            // An individual authorized GitHub schema may exceed the soft discovery
+            // window. Hard provider context admission still precedes all dispatch.
             val cost = schemaTokens(tool)
+            val singleGitHubContract = githubUpfront && isGitHubTool(tool) && selected.all { it.name == "read_recovery_context" }
             val reason = when {
-                cost + 256 > schemaAllowance -> "SCHEMA_TOO_LARGE"
+                cost + 256 > schemaAllowance && !singleGitHubContract -> "SCHEMA_TOO_LARGE"
                 selected.size >= toolAllowance -> "TOOL_COUNT_WINDOW"
-                tokens + cost > schemaAllowance -> "SCHEMA_WINDOW_BUDGET"
+                tokens + cost > schemaAllowance && !singleGitHubContract -> "SCHEMA_WINDOW_BUDGET"
                 else -> null
             }
             if (reason == null) {

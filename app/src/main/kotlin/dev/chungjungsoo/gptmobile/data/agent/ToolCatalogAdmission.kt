@@ -82,6 +82,11 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
         }
     }
     ToolCatalogDiagnostics.recordOmissions("provider_round", omitted)
+    if (limits.githubMode && !discoveryFits && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
+        val needed = visible.filter { ProgressiveToolCatalog.isGitHubTool(it) || it.name in requiredNames }
+            .sumOf { providerSchemaTokens(it, limits.githubMode) }
+        throw GitHubToolContextBudgetException(needed, budget.available, budget)
+    }
     return selected
 }
 

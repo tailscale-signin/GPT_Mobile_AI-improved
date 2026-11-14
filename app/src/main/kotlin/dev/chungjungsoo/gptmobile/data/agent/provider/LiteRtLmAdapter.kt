@@ -111,9 +111,9 @@ class LiteRtLmAdapter(
         val task = turns.lastOrNull()?.userMessage?.effectiveContent().orEmpty()
         val directory = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.create(tools.map { it.definition }, task, githubMode = githubMode)
         val boundTools = dev.chungjungsoo.gptmobile.data.agent.appendBudgetedCatalog(tools, directory)
-        // Ordinary sessions honor an upstream inventory. Explicit GitHub mode
-        // restores every authorized visible GitHub schema before local admission;
-        // capacity may reject that inventory but cannot silently narrow it.
+        // Authorization and advertised schemas are distinct. Honor the upstream
+        // subset in every mode; preserve its selected GitHub contracts and reject
+        // a subset that cannot fit the local engine context.
         val advertisedNames = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.advertisedToolNames(
             boundTools.map { it.definition },
             advertisedTools,

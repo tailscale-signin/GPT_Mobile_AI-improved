@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b220fcb63e52d0daf313552cd2d85247f5c4a10b246fa6e37eb975191b68a77c",
+  "source_digest": "d920477941120ab8b46c3f9a3c6f4e1bdcf8e786e310b055058bc717db3ee56c",
   "file_count": 2567,
-  "indexed_line_count": 410960,
+  "indexed_line_count": 410972,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 545,
-      "indexed_line_count": 94980
+      "indexed_line_count": 94981
     },
     {
       "id": "accessibility_and_localization",
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 225,
-      "indexed_line_count": 38017
+      "indexed_line_count": 38028
     },
     {
       "id": "agent_tools",
@@ -1739,8 +1739,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "5340ad14d883dda0dfc7b18a47a73f6d1abbe6d674937fcf6995893790e61c70",
-      "indexed_lines": 665
+      "sha256": "6b603286528ff3ee07ab4c3185c1ab73cd8b9064109c01a511b3617920a153e9",
+      "indexed_lines": 671
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderLimitResumeWorker.kt",
@@ -2005,8 +2005,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "cb8cb14ba0d0986e5a4a90cbf26068d1491d5caa851bf90ca13739bc79847c64",
-      "indexed_lines": 201
+      "sha256": "78f3abb4f58cc221cae0497b8de0c63b657e11764d15cbf341b4c00b19f1834e",
+      "indexed_lines": 206
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogDiagnostics.kt",
@@ -2159,7 +2159,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapter.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "988d42fa7257b29d785fe626be694704ff63ba1f25ca755a1463e621012d6c11",
+      "sha256": "96ac45b00f63c11166db110caa1f8f6f26d33cc83f0e5e8e14839579832bfdb5",
       "indexed_lines": 1469
     },
     {
@@ -4462,8 +4462,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlanner.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "de65587329f3eee12d5311dddc05503bcacab3ddf57e0a8aa1048f475eefb2b2",
-      "indexed_lines": 293
+      "sha256": "074b58c3dabb32401c08f739795472622a170839042c506da58eaf297d5b5053",
+      "indexed_lines": 294
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalFailedStageContext.kt",

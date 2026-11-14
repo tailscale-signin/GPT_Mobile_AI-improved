@@ -79,7 +79,7 @@ class GitHubFullToolVisibilityTest {
                 emit(ProviderEvent.Completed)
             }
         }
-        val events = AgentRunner(AgentRunLimits(githubMode = true, maxRounds = 3)).run(session, listOf(github), selectDefinitions = { emptyList() }).toList()
+        val events = AgentRunner(AgentRunLimits(githubMode = true, maxRounds = 3)).run(session, listOf(github)).toList()
         assertEquals(2, rounds)
         assertTrue(events.toString(), events.providerFailures().isEmpty())
         val tiny = AgentRunLimits(githubMode = true, contextTokens = 512, initialContextTokens = 500, finalResponseReserveTokens = 128)

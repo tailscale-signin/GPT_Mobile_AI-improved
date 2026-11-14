@@ -266,9 +266,10 @@ internal object LocalContextPlanner {
 
     private fun githubToolNames(tools: List<AgentToolDefinition>, githubMode: Boolean): Set<String> {
         if (!githubMode) return emptySet()
+        // The upstream-selected subset is not the full executable inventory.
+        // Preserve its GitHub contracts, including opaque authorized MCP aliases.
         return tools.filter { tool ->
-            val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
-            tool.modelVisible && (tool.name == "read_recovery_context" || operation == "github_context")
+            tool.modelVisible && (tool.name == "read_recovery_context" || ProgressiveToolCatalog.isGitHubTool(tool))
         }.mapTo(linkedSetOf()) { it.name }
     }
 

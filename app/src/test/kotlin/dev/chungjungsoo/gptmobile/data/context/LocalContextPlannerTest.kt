@@ -26,7 +26,8 @@ class LocalContextPlannerTest {
         assertThrows(IllegalArgumentException::class.java) {
             LocalContextPlanner.advertisedToolNames(definitions, listOf(other.copy(name = "unauthorized")), githubMode = true)
         }
-        assertTrue(LocalContextPlanner.requiredToolNames("Hi", definitions, githubMode = true).isEmpty())
+        val admitted = definitions.filter { it.name in selected }
+        assertEquals(setOf(github.first().name), LocalContextPlanner.requiredToolNames("Hi", admitted, githubMode = true))
         val plan = LocalContextPlanner.plan(emptyList(), "Inspect GitHub tools", "", definitions.filter { it.name in selected }, 8192, 1024, githubMode = true)
         assertTrue(plan.tools.any { it.name == discovery.name })
         assertFalse(plan.tools.any { it.name == "github_read" })
@@ -36,7 +37,8 @@ class LocalContextPlannerTest {
         val tools = (1..12).map { AgentToolDefinition("opaque_$it", "Action", buildJsonObject {}, capabilities = setOf(AgentToolCapability.GITHUB)) }
         for (renderer in listOf<((List<AgentToolDefinition>) -> String)?>(null, { selected -> "complete schema ".repeat(selected.size * 150) })) {
             val oversized = if (renderer == null) tools.map { it.copy(description = "Complete schema ".repeat(150)) } else tools
-            val plan = LocalContextPlanner.plan(emptyList(), "Hi", "", oversized, 4096, 1024, renderToolPrompt = renderer, githubMode = true)
+            val selected = LocalContextPlanner.advertisedToolNames(oversized, emptyList(), githubMode = true)
+            val plan = LocalContextPlanner.plan(emptyList(), "Hi", "", oversized.filter { it.name in selected }, 4096, 1024, renderToolPrompt = renderer, githubMode = true)
             assertTrue("Optional GitHub schemas were forced into a greeting", plan.tools.isEmpty())
         }
         val required = AgentToolDefinition("github_context", "Complete schema ".repeat(500), buildJsonObject {})

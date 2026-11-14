@@ -47,18 +47,21 @@ class DesktopValidationPolicyTests(unittest.TestCase):
 
     def test_unreadable_saved_selection_does_not_stop_gateway_or_reinherit_policy(self):
         with tempfile.TemporaryDirectory() as temp:
-            root = Path(temp)
+            alias = Path(temp) / 'root-alias'
+            alias.mkdir()
+            root = alias / '..'
             approved = self.policy(root)
             settings = root / 'data' / 'validation-settings.json'
             atomic_json(settings, {'schema': 1, 'policy_path': str(approved)})
+            resolved_settings = settings.resolve()
             original_open = Path.open
+            denied_reads = []
 
             def restricted_open(path, *args, **kwargs):
-                # Windows may expand the temporary directory's short-name
-                # spelling when environment() resolves the desktop root.
-                # Compare the resolved file identity so the mock still
-                # exercises the unreadable-selection recovery path.
-                if path.resolve() == settings.resolve():
+                # environment() resolves the root, including Windows 8.3 aliases.
+                # Deny the same file through both original and canonical paths.
+                if path.resolve() == resolved_settings:
+                    denied_reads.append(path)
                     raise PermissionError('Saved policy selection cannot be read')
                 return original_open(path, *args, **kwargs)
 
@@ -66,6 +69,7 @@ class DesktopValidationPolicyTests(unittest.TestCase):
                 with self.assertRaises(PermissionError):
                     selected_policy_path(root)
                 self.assertNotIn(SETTING, environment(root, validate({})))
+            self.assertEqual([settings, resolved_settings], denied_reads)
 
     def test_invalid_inherited_selection_blocks_only_implementation_until_repaired(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {SETTING: 'relative.json'}, clear=True):

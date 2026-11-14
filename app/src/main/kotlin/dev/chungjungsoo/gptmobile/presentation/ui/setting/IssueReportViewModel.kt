@@ -91,6 +91,23 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         }
     }
 
+    /** The user selects current download observations; the usual preview and approval remain required. */
+    internal fun openVoiceDownloadReport() {
+        if (mutableSaving.value) return
+        setupInProgress.value = false
+        selectedReportId.value = null
+        mutableError.value = null
+        mutableManualPreview.value = IssueReport.manual("", "", emptyList())
+        mutableDraft.value = ManualDraft(
+            title = "Voice Chat plugin download problem",
+            includeDiagnostics = true,
+            diagnosticArea = "VOICE"
+        )
+        mutableManual.value = true
+        previewManualDiagnostics(true)
+        refreshAvailability()
+    }
+
     internal fun selectReport(reportId: String) {
         mutableManual.value = false
         mutableError.value = null

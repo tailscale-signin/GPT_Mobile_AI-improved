@@ -67,6 +67,55 @@ class IssueReportDiagnosticsTest {
         assertEquals(payload, report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(restored)).approvedPayload())
     }
 
+    @Test fun voiceInstallationEvidenceKeepsObservedQueueAndTransferValuesWithoutInventingTheCause() {
+        val snapshot = capture(
+            "VOICE",
+            mapOf(
+                "voice_install_state" to "QUEUED",
+                "voice_install_scheduler" to "JOB_SCHEDULER",
+                "voice_install_pending_reason" to "CONNECTIVITY",
+                "voice_install_elapsed_ms" to 120_000,
+                "voice_install_pack" to "MOONSHINE",
+                "voice_install_transfer_stage" to "CONNECTING",
+                "voice_install_downloaded_bytes" to 0L
+            )
+        )
+        assertEquals(JsonPrimitive(0), snapshot.values["voice_install_downloaded_bytes"])
+        assertFalse("voice_install_total_bytes" in snapshot.values)
+        assertFalse("voice_install_http_status" in snapshot.values)
+        assertFalse("voice_install_failure_kind" in snapshot.values)
+        assertTrue("VOICE_INSTALL_EVIDENCE_V1" in snapshot.requiredServiceFeatures())
+        val approved = report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(snapshot)).approvedPayload()
+        assertEquals(approved, IssueReport.json.decodeFromString(IssueReport.serializer(), approved).approvedPayload())
+        for ((key, value) in listOf(
+            "voice_install_elapsed_ms" to JsonPrimitive(16_000_001),
+            "voice_install_downloaded_bytes" to JsonPrimitive(-1),
+            "voice_install_total_bytes" to JsonPrimitive(1_000_000_001),
+            "voice_install_http_status" to JsonPrimitive(600),
+            "voice_install_downloaded_bytes" to JsonPrimitive("123"),
+            "voice_install_pending_reason" to JsonPrimitive("private network"),
+            "voice_install_transfer_stage" to JsonPrimitive("private path"),
+            "voice_install_failure_kind" to JsonPrimitive("raw exception"),
+            "voice_install_pack" to JsonPrimitive("private model URL")
+        )) {
+            assertNull(snapshot.copy(values = snapshot.values + (key to value)).validated())
+        }
+        val boundary = capture("VOICE", mapOf("voice_install_total_bytes" to 1_000_000_000, "voice_install_http_status" to 599, "voice_install_failure_kind" to "HTTP"))
+        assertTrue(boundary.isValid())
+        val otherArea = capture("PROVIDER", emptyMap()).copy(values = mapOf("voice_install_pending_reason" to JsonPrimitive("CONNECTIVITY")))
+        assertNull(otherArea.validated())
+    }
+
+    @Test fun omittedVoiceInstallEvidenceAndMissingWorkRequireMatchingReporterSupport() {
+        val omitted = capture("VOICE", emptyMap()).copy(omittedFields = listOf("voice_install_pending_reason"))
+        assertTrue(omitted.isValid())
+        assertEquals(setOf("VOICE_INSTALL_EVIDENCE_V1"), omitted.requiredServiceFeatures())
+        val missing = capture("VOICE", mapOf("voice_install_failure" to "WORK_NOT_FOUND"))
+        assertTrue(missing.isValid())
+        assertTrue("VOICE_INSTALL_EVIDENCE_V1" in missing.requiredServiceFeatures())
+        assertTrue("ISSUE_RECOVERY_DETAILS_V1" in missing.requiredServiceFeatures())
+    }
+
     @Test fun githubSubfieldPolicyEvidenceRequiresTheUpdatedService() {
         val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to listOf("githubProfileOverride", "githubProfileOverride.sampling"))), time).diagnostics)
         assertTrue(diagnostic.requiredServiceFeatures().contains("ISSUE_RECOVERY_DETAILS_V1"))

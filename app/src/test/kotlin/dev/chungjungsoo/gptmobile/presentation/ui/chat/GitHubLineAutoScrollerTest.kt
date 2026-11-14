@@ -41,6 +41,7 @@ class GitHubLineAutoScrollerTest {
     @get:Rule val compose = createComposeRule(effectContext = durationScale)
 
     @Test fun paragraphInsertedBelowTheViewportIsMeasuredAndGetsItsCompleteReadingBudget() {
+        var showList by mutableStateOf(false)
         var added by mutableStateOf(false)
         lateinit var state: LazyListState
         lateinit var lines: GitHubRenderedLines
@@ -50,20 +51,30 @@ class GitHubLineAutoScrollerTest {
                 state = rememberLazyListState()
                 lines = remember { GitHubRenderedLines() }
                 GitHubLineAutoScroller(state, lines, enabled = true, revision = 0, animate = true)
-                LazyColumn(Modifier.width(240.dp).height(160.dp), state = state) {
-                    item {
-                        GitHubLineScope(lines, "turn") {
-                            Column {
-                                Spacer(Modifier.height(300.dp))
-                                Text("Existing text", onTextLayout = rememberGitHubTextLayout("existing"))
-                                if (added) Text("First new line\nSecond new line\nThird new line", onTextLayout = rememberGitHubTextLayout("new"))
+                if (showList) {
+                    LazyColumn(Modifier.width(240.dp).height(160.dp), state = state) {
+                        item {
+                            GitHubLineScope(lines, "turn") {
+                                Column {
+                                    Spacer(Modifier.height(300.dp))
+                                    Text("Existing text", onTextLayout = rememberGitHubTextLayout("existing"))
+                                    if (added) Text("First new line\nSecond new line\nThird new line", onTextLayout = rememberGitHubTextLayout("new"))
+                                }
                             }
                         }
+                        item(key = "chat-bottom-anchor") { Spacer(Modifier.size(1.dp)) }
                     }
-                    item(key = "chat-bottom-anchor") { Spacer(Modifier.size(1.dp)) }
                 }
             }
         }
+        compose.mainClock.advanceTimeByFrame()
+        compose.runOnIdle {
+            assertEquals(0, state.layoutInfo.totalItemsCount)
+            assertFalse(lines.ledger.armed)
+            showList = true
+        }
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
         compose.mainClock.advanceTimeUntil(2000) { lines.ledger.armed }
         compose.runOnIdle { assertTrue(state.isAtGitHubBottom()) }
         compose.runOnIdle { added = true }

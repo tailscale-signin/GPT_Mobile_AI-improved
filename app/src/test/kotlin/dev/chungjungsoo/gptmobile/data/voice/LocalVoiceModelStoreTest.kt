@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.voice
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
+import java.net.UnknownHostException
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -170,6 +171,45 @@ class LocalVoiceModelStoreTest {
         assertFalse(LocalVoiceModelStore.supportsLanguage("ar"))
         assertFalse(LocalVoiceModelStore.supportsLanguage(""))
         assertEquals(LocalVoiceModelStore.TOTAL_BYTES, LocalVoiceModelStore.MODEL_ASSETS.sumOf { it.bytes })
+    }
+
+    @Test fun dnsFailureRetainsTheConnectingStageWithoutAnInventedHttpResponse() = runBlocking {
+        val store = store { throw UnknownHostException("private-host.example") }
+        store.install()
+        val observation = store.state.value
+        assertEquals(LocalVoiceModelStatus.FAILED, observation.status)
+        assertEquals(VoiceTransferStage.CONNECTING, observation.transferStage)
+        assertEquals(VoiceAssetFailureKind.DNS, observation.failureKind)
+        assertEquals(null, observation.httpStatus)
+        assertEquals(0L, observation.downloadedBytes)
+        assertFalse(observation.message.orEmpty().contains("private-host"))
+    }
+
+    @Test fun earlyTransferEndRetainsObservedBytesAndDoesNotPublishTheModel() = runBlocking {
+        val store = store { ByteArrayInputStream(contents.copyOfRange(0, 5)) }
+        store.install()
+        assertEquals(LocalVoiceModelStatus.FAILED, store.state.value.status)
+        assertEquals(5L, store.state.value.downloadedBytes)
+        assertEquals(VoiceTransferStage.TRANSFERRING, store.state.value.transferStage)
+        assertEquals(VoiceAssetFailureKind.NETWORK_IO, store.state.value.failureKind)
+        assertFalse(store.isInstalled())
+    }
+
+    @Test fun unusableStorageDoesNotBecomeANetworkFailure() = runBlocking {
+        val calls = AtomicInteger()
+        val store = LocalVoiceModelStore(files.newFile(), listOf(asset)) {
+            object : LocalVoiceAssetSource {
+                override fun open(url: String): LocalVoiceAssetStream {
+                    calls.incrementAndGet()
+                    return LocalVoiceAssetStream(ByteArrayInputStream(contents), asset.bytes)
+                }
+                override fun cancel() = Unit
+            }
+        }
+        store.install()
+        assertEquals(VoiceAssetFailureKind.STORAGE, store.state.value.failureKind)
+        assertEquals(null, store.state.value.httpStatus)
+        assertEquals(0, calls.get())
     }
 
     private fun store(stream: () -> InputStream): LocalVoiceModelStore = LocalVoiceModelStore(files.newFolder(), listOf(asset)) {

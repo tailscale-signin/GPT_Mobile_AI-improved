@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import java.io.IOException
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
@@ -27,10 +28,18 @@ class IssueReportSubmissionTest {
         for ((feature, evidence) in listOf(
             "CAPACITY_ADMISSION_EVIDENCE_V1" to mapOf("admission_capacity_provenance" to "VERIFIED_ROUTE"),
             "CONVERSATION_CONFLICT_EVIDENCE_V1" to mapOf("conflict_pending_tool_state" to "NOT_REPORTED"),
-            "ACCEPTANCE_SCOPE_EVIDENCE_V1" to mapOf("acceptance_capability_scope" to "FULL_CATALOG", "acceptance_pagination_mode" to "BOUNDED_SMOKE_SAMPLE")
+            "ACCEPTANCE_SCOPE_EVIDENCE_V1" to mapOf("acceptance_capability_scope" to "FULL_CATALOG", "acceptance_pagination_mode" to "BOUNDED_SMOKE_SAMPLE"),
+            "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_pending_reason" to "CONNECTIVITY"),
+            "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND")
         )) {
-            val area = if (feature == "ACCEPTANCE_SCOPE_EVIDENCE_V1") "ACCEPTANCE" else "PROVIDER"
-            val context = IssueReportContext.fromFields("CHAT_FAILURE", evidence + ("diagnostic_area" to area), 1_000L)
+            val area = when (feature) {
+                "ACCEPTANCE_SCOPE_EVIDENCE_V1" -> "ACCEPTANCE"
+                "VOICE_INSTALL_EVIDENCE_V1" -> "VOICE"
+                else -> "PROVIDER"
+            }
+            val context = IssueReportContext.fromFields(if (area == "VOICE") "VOICE_STATE" else "CHAT_FAILURE", evidence + ("diagnostic_area" to area), 1_000L)
+            val requiredFeatures = requireNotNull(context.diagnostics).requiredServiceFeatures()
+            assertTrue(feature in requiredFeatures)
             val enriched = report.copy(context = context)
             val payload = enriched.approvedPayload()
             var supported = false
@@ -39,7 +48,7 @@ class IssueReportSubmissionTest {
             val client = OkHttpClient.Builder().addInterceptor { chain ->
                 val request = chain.request()
                 if (request.method == "GET") {
-                    val features = if (supported) "[\"$feature\"]" else "[]"
+                    val features = JsonArray(requiredFeatures.filter { supported || it != feature }.map(::JsonPrimitive)).toString()
                     response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
                 } else {
                     posted += body(request)

@@ -15,8 +15,13 @@ import kotlinx.serialization.json.put
 internal class GitHubDispatchAccounting(
     val forceLiveReads: Boolean = false,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
-    private val record: (String) -> Unit = { AppLogRecorder.record("GitHub", it) }
+    private val record: (String) -> Unit = { AppLogRecorder.record("GitHub", it) },
+    private val maxReadRequests: Int? = null,
+    val requireReadInventory: Boolean = false
 ) : AbstractCoroutineContextElement(Key) {
+    init {
+        require(maxReadRequests == null || maxReadRequests in 1..128)
+    }
     companion object Key : CoroutineContext.Key<GitHubDispatchAccounting> {
         suspend fun started(mutation: Boolean, path: String? = null): String? {
             val context = currentCoroutineContext()
@@ -76,6 +81,7 @@ internal class GitHubDispatchAccounting(
     }
 
     @Synchronized private fun start(mutation: Boolean, path: String?, readRetry: GitHubReadRetry.Scope?): String {
+        if (!mutation && maxReadRequests != null && reads >= maxReadRequests) throw GitHubReadRequestBudgetExceeded()
         val requestId = "$invocationId:${++sequence}"
         val route = path?.substringBefore('?').orEmpty()
         val endpoint = when {
@@ -295,3 +301,6 @@ internal class GitHubDispatchAccounting(
         )
     }
 }
+
+/** Local admission failure, deliberately outside the retryable I/O hierarchy. */
+internal class GitHubReadRequestBudgetExceeded : IllegalStateException("GitHub read request budget exhausted before dispatch")

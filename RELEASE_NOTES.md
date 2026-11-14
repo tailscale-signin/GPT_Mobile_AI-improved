@@ -20,6 +20,10 @@ The November 14 capacity/conflict follow-up requires matching gateway and hosted
 
 Acceptance-scope reports require a hosted reporter advertising ACCEPTANCE_SCOPE_EVIDENCE_V1. Older approved reports remain unchanged and cannot reveal scope that was never captured; the historical task is not established as completed by the diagnostic enhancement.
 
+For reports #1093–#1096, allow voice downloads over internet-capable VPNs, reconcile real scheduler state and bind progress/cancellation to each install attempt. Add a report action with bounded scheduler and transfer observations. Keep the expanded GitHub header inset live through retained navigation and share the anchored generation indicator across chat modes. Add eight GitHub audit categories with separate local/live scores, sixteen production contracts and explicitly enabled bounded read-only probes.
+
+Voice-install evidence requires a hosted reporter advertising VOICE_INSTALL_EVIDENCE_V1. The GitHub audit separates local contracts from explicitly enabled bounded live reads; write/approval cleanup, protected merge/workflow execution, artifact installation/device checks and interruption recovery remain untested without their own execution evidence. Historical device download causality and physical gesture, audio and frame-time outcomes are not established by host or emulator tests.
+
 ## November 13 interface, voice, and audit updates
 
 Improve GitHub chat scrolling and progress, Gateway conversation navigation, background voice plugin installation, and bounded app audit modes. Add safe observations for URL-reader DNS cooldowns, saved-view recovery, and fixture approval.

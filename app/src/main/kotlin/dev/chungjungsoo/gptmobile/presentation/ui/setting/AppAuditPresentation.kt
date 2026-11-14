@@ -62,7 +62,7 @@ internal fun appAuditPresentation(run: AppAuditRun, currentTargetNames: Map<Stri
     val results = run.results.distinctBy { it.entryId }.associateBy { it.entryId }
     val entries = run.plan.distinctBy { it.id }
     val targets = appAuditTargetAliases(run.plan)
-    val components = entries.groupBy { it.componentId }.map { (id, plan) ->
+    val components = entries.groupBy { dev.chungjungsoo.gptmobile.data.audit.AppAuditGitHubCatalog.category(it)?.id ?: it.componentId }.map { (id, plan) ->
         AppAuditComponentPresentation(
             id,
             plan.sortedBy { entry ->
@@ -207,6 +207,18 @@ internal fun appAuditReason(item: AppAuditEntryPresentation): String {
 }
 
 internal fun appAuditReasonCodeMessage(code: String?): String? = when (code) {
+    "GITHUB_AUDIT_READ_VERIFIED" -> "A fresh GitHub response passed this bounded read check. List checks cover one page; this does not verify all repository data, workflow success or a write operation."
+    "GITHUB_AUDIT_CONNECTION_REQUIRED" -> "No configured GitHub connection is available. Connect the intended account before starting a new audit with service reads enabled."
+    "GITHUB_AUDIT_REPOSITORY_REQUIRED" -> "Choose the intended repository and ref in this connection's GitHub workspace, then start a new audit. No repository was selected automatically."
+    "GITHUB_AUDIT_AUTHORIZATION_REQUIRED", "GITHUB_AUDIT_ACCESS_DENIED" -> "Verify this saved GitHub connection and its repository access. The audit does not refresh authorization or substitute another account."
+    "GITHUB_AUDIT_DISABLED" -> "This GitHub integration was disabled for the accepted plan. Enable the intended connection before running a new audit."
+    "GITHUB_AUDIT_SCOPE_INVALID" -> "The saved GitHub endpoint or repository/ref is invalid. Correct the workspace selection before running a new audit."
+    "GITHUB_AUDIT_RATE_LIMITED", "GITHUB_AUDIT_READ_BLOCKED" -> "GitHub request admission or a recorded rate/authorization limit blocked this read. Existing cooldowns remain in effect."
+    "GITHUB_AUDIT_REQUEST_LIMIT", "GITHUB_AUDIT_TARGET_LIMIT" -> "The explicit GitHub connection or physical request limit was reached. Additional work remains untested; the audit does not expand its accepted budget."
+    "GITHUB_AUDIT_RESOURCE_UNAVAILABLE" -> "The selected GitHub resource returned unavailable. This does not establish deletion or identify the missing permission."
+    "GITHUB_AUDIT_TRANSPORT_UNAVAILABLE" -> "A GitHub read could not complete because transport or the remote service was unavailable. Review the recorded dispatch and HTTP evidence."
+    "GITHUB_AUDIT_LIVE_RESPONSE_REQUIRED" -> "No complete fresh GitHub response was established. Cached information cannot pass a live integration check."
+    "GITHUB_AUDIT_RESPONSE_INVALID" -> "GitHub responded, but the named response did not satisfy this check's contract. Review the bounded status evidence."
     "MCP_NETWORK_IO_FAILED" -> "Discovery failed during network I/O before a more specific transport receipt was available. Review this exact connection's host, port and service, then retry after its bounded recovery delay. Receipt of the request by the server is unknown."
     "MCP_RESPONSE_ID_MISMATCH" -> MCP_RESPONSE_CORRELATION_GUIDANCE
     "NETWORK_READS_DISABLED", "NETWORK_READS_NOT_SELECTED" -> "Service reads were disabled for this plan. Enable them and start a new audit to measure this connection."

@@ -21,12 +21,13 @@ import org.junit.Test
 
 class GitHubAcceptanceReportDiagnosticsTest {
     @Test fun retainedCheckpointsPreserveRecordedCoverageAndPaginationWithoutChangingAcceptance() = runTest {
+        data class Case(val task: String, val scope: String, val pagination: String, val completionVerified: Boolean)
         val cases = listOf(
-            Triple("Review the selected branch against its base.", "OBSERVED_CAPABILITIES", "BOUNDED_SMOKE_SAMPLE"),
-            Triple("Test all authorized GitHub integration tools", "FULL_CATALOG", "BOUNDED_SMOKE_SAMPLE"),
-            Triple("Test all authorized GitHub integration tools and complete pending pagination", "FULL_CATALOG", "COMPLETE_INVENTORY_REQUESTED")
+            Case("Review the selected branch against its base.", "OBSERVED_CAPABILITIES", "BOUNDED_SMOKE_SAMPLE", false),
+            Case("Test all authorized GitHub integration tools", "FULL_CATALOG", "BOUNDED_SMOKE_SAMPLE", true),
+            Case("Test all authorized GitHub integration tools and complete pending pagination", "FULL_CATALOG", "COMPLETE_INVENTORY_REQUESTED", false)
         )
-        for ((task, scope, pagination) in cases) {
+        for ((task, scope, pagination, completionVerified) in cases) {
             val saved = linkedMapOf<String, JsonObject>()
             val schema = Json.parseToJsonElement("""{"properties":{"action":{"const":"branches"},"page":{"type":"integer"}}}""") as JsonObject
             val tools = listOf(AgentToolDefinition("github_context", "Branches", schema))
@@ -44,7 +45,9 @@ class GitHubAcceptanceReportDiagnosticsTest {
                 put("test_checklist", checkpoint)
                 put("stop_reason", GitHubIntegrationReport.stopReason(task, receipts, tools, checklist = checkpoint))
             }
-            assertEquals(JsonPrimitive(false), verdict["completion_verified"])
+            // The single authorized action satisfies bounded integration coverage;
+            // a review or explicitly exhaustive traversal still needs its own proof.
+            assertEquals(task, JsonPrimitive(completionVerified), verdict["completion_verified"])
             assertTrue(book.retainAnswerIfCurrent("Saved private task report", verdict, epoch, receipts.keys))
             val restored = GitHubEvidenceBook("binding", "private-owner/private-repo", "main", setOf("github_context"), load = { saved[it] }, retainedIds = { saved.keys.filter { it.startsWith("ev_") } })
             restored.restore()

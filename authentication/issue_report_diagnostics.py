@@ -180,6 +180,18 @@ ENUMS["acceptance_capability_scope"] = {"FULL_CATALOG", "OBSERVED_CAPABILITIES"}
 ENUMS["acceptance_pagination_mode"] = {"COMPLETE_INVENTORY_REQUESTED", "BOUNDED_SMOKE_SAMPLE"}
 FIELDS_BY_AREA["ACCEPTANCE"].update({"acceptance_capability_scope", "acceptance_pagination_mode"})
 
+VOICE_INSTALL_EVIDENCE_FIELDS = {
+    "voice_install_pending_reason", "voice_install_elapsed_ms", "voice_install_pack", "voice_install_transfer_stage",
+    "voice_install_failure_kind", "voice_install_http_status", "voice_install_downloaded_bytes", "voice_install_total_bytes",
+}
+ENUMS["voice_install_failure"].add("WORK_NOT_FOUND")
+ENUMS["voice_install_pending_reason"] = {"UNDEFINED", "APP_STATE", "APP_STANDBY", "BACKGROUND_RESTRICTION", "CONNECTIVITY", "DEVICE_STATE", "SCHEDULER_OPTIMIZATION", "QUOTA", "USER", "OTHER_CONSTRAINT", "EXECUTING", "MISSING", "UNAVAILABLE"}
+ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO"}
+ENUMS["voice_install_transfer_stage"] = {"CHECKING", "CONNECTING", "TRANSFERRING", "VERIFYING", "EXTRACTING", "READY", "FAILED"}
+ENUMS["voice_install_failure_kind"] = {"DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK_IO", "INTEGRITY", "STORAGE", "MODEL_IN_USE", "UNKNOWN"}
+COUNTS.add("voice_install_elapsed_ms")
+FIELDS_BY_AREA["VOICE"].update(VOICE_INSTALL_EVIDENCE_FIELDS)
+
 CORE_FIELDS = {
     "PROVIDER": {"profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"},
     "TOOL": {"tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "missing_field_count", "invalid_field_count"},
@@ -232,6 +244,10 @@ def _valid_value(key, value):
         return 0 <= value <= 86_400_000
     if key == "voice_install_progress_percent":
         return 0 <= value <= 100
+    if key in {"voice_install_downloaded_bytes", "voice_install_total_bytes"}:
+        return 0 <= value <= 1_000_000_000
+    if key == "voice_install_http_status":
+        return 100 <= value <= 599
     return key in COUNTS and 0 <= value <= 16_000_000
 
 

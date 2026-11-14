@@ -1282,15 +1282,17 @@ class ProviderAdaptersTest {
         )
         val adapter = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
         val session = adapter.openSession(turns(), platform(ClientType.CUSTOM))
+        val configured = ProviderEvent.RequestConfigured(effectiveOutputTokens = 4096)
 
         assertEquals(
-            listOf(ProviderEvent.Usage(finishReason = "tool_calls"), call, ProviderEvent.Completed),
+            listOf(configured, ProviderEvent.Usage(finishReason = "tool_calls"), call, ProviderEvent.Completed),
             session.streamRound(listOf(definition), emptyList()).toList()
         )
         assertEquals(
-            listOf(ProviderEvent.TextDelta("done", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Usage(finishReason = "stop"), ProviderEvent.Completed),
+            listOf(configured, ProviderEvent.TextDelta("done", OutputLineage(OutputOrigin.MODEL_TEXT)), ProviderEvent.Usage(finishReason = "stop"), ProviderEvent.Completed),
             session.streamRound(listOf(definition), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
         )
+        assertEquals(listOf(4096, 4096), api.chatRequests.map { it.maxTokens })
         val continuation = api.chatRequests.last().messages.takeLast(2)
         assertEquals("call_exact", continuation[0].toolCalls!!.single().id)
         assertEquals("call_exact", continuation[1].toolCallId)

@@ -8,12 +8,6 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -56,7 +50,6 @@ import androidx.compose.material.icons.rounded.AttachFile
 import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.Info
-import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.MoreVert
 import androidx.compose.material.icons.rounded.Stop
 import androidx.compose.material3.CircularProgressIndicator
@@ -98,7 +91,6 @@ import androidx.compose.ui.focus.focusTarget
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.key
@@ -1113,21 +1105,19 @@ private fun ChatScreenContent(
                 }
             }
 
-            if (githubPromptMode) {
-                val following = githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM && !isModelTabPositionLocked
-                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
-                    GitHubBottomIndicator(
-                        listState = listState,
-                        following = following,
-                        generating = entryPositioned && awaitingGitHubTurn && !pendingGitHubInput && (activeGitHubResponse || githubResponseStarting),
-                        animate = featureSettings.responseAnimation,
-                        onFollow = ::followChatBottom
-                    )
-                }
-            } else if (!isFollowingBottom && listState.canScrollForward) {
-                Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
-                    ScrollToBottomButton(isGenerating = !isIdle, onClick = ::followChatBottom)
-                }
+            Box(Modifier.align(Alignment.BottomCenter).padding(bottom = composerHeight + 12.dp)) {
+                ChatBottomIndicator(
+                    listState = listState,
+                    following = !isModelTabPositionLocked && if (githubPromptMode) githubScrollMode == GitHubScrollMode.FOLLOW_BOTTOM else isFollowingBottom,
+                    generating = entryPositioned &&
+                        if (githubPromptMode && chatRoom.conversationMode != ConversationMode.COMBINED) {
+                            awaitingGitHubTurn && !pendingGitHubInput && (activeGitHubResponse || githubResponseStarting)
+                        } else {
+                            !isIdle
+                        },
+                    animate = featureSettings.responseAnimation,
+                    onFollow = ::followChatBottom
+                )
             }
 
             CombinedChatComposer(
@@ -3006,78 +2996,3 @@ private fun isImageFile(extension: String?): Boolean {
 }
 
 internal const val CHAT_INPUT_OPACITY = 0.85f
-internal const val CHAT_LATEST_OPACITY = 0.50f
-
-@Composable
-private fun GitHubBottomIndicator(
-    listState: LazyListState,
-    following: Boolean,
-    generating: Boolean,
-    animate: Boolean,
-    onFollow: () -> Unit
-) {
-    if (!following) {
-        IconButton(onClick = onFollow, modifier = Modifier.testTag("chat_jump_to_bottom")) {
-            Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon), tint = MaterialTheme.colorScheme.primary)
-        }
-        return
-    }
-    var reachedBottom by remember(listState) { mutableStateOf(false) }
-    LaunchedEffect(listState) {
-        snapshotFlow { listState.isAtGitHubBottom() }.first { it }
-        reachedBottom = true
-    }
-    if (!reachedBottom || !generating) return
-    val pulse = if (animate) rememberInfiniteTransition(label = "GitHub generation") else null
-    val color = MaterialTheme.colorScheme.primary
-    Row(
-        Modifier.size(width = 48.dp, height = 48.dp)
-            .semantics { contentDescription = "Generating response" }
-            .testTag("github_bottom_generation"),
-        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.CenterHorizontally),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        repeat(3) { index ->
-            val opacity = pulse?.animateFloat(
-                initialValue = 0f,
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1000, easing = LinearEasing),
-                    repeatMode = RepeatMode.Reverse,
-                    initialStartOffset = androidx.compose.animation.core.StartOffset(index * 120)
-                ),
-                label = "Dot ${index + 1}"
-            )
-            Spacer(
-                Modifier.size(5.dp).graphicsLayer { alpha = opacity?.value ?: 1f }
-                    .background(color, androidx.compose.foundation.shape.CircleShape)
-            )
-        }
-    }
-}
-
-@Composable
-fun ScrollToBottomButton(isGenerating: Boolean = false, onClick: () -> Unit) {
-    val tokens = appOverlayTokens(opacity = CHAT_LATEST_OPACITY)
-    val shape = androidx.compose.foundation.shape.CircleShape
-    // Keep the glass at exactly 50%; animate neither the backdrop nor the icon's alpha.
-    // Generation remains distinguishable through the themed outline.
-    Box(Modifier.size(48.dp).testTag("chat_jump_to_bottom").clickable(onClick = onClick), contentAlignment = Alignment.Center) {
-        Surface(
-            modifier = Modifier.size(26.dp).glassBackdrop(shape, opacity = CHAT_LATEST_OPACITY, force = true).testTag("chat_latest_glass"),
-            shape = shape,
-            color = if (hasGlassBackdrop(force = true)) Color.Transparent else tokens.background,
-            contentColor = tokens.foreground,
-            border = androidx.compose.foundation.BorderStroke(
-                if (isGenerating) 2.dp else 1.dp,
-                MaterialTheme.colorScheme.primary.copy(alpha = if (isGenerating) 0.8f else 0.3f)
-            ),
-            // A shadow inside this translucent plate would darken its 50% tint.
-            shadowElevation = 0.dp
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(Icons.Rounded.KeyboardArrowDown, stringResource(R.string.scroll_to_bottom_icon), modifier = Modifier.size(18.dp))
-            }
-        }
-    }
-}

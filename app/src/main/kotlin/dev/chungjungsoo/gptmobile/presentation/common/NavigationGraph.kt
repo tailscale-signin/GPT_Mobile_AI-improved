@@ -75,7 +75,8 @@ fun SetupNavGraph(
     navController: NavHostController,
     toolConnectionsViewModel: ToolConnectionsViewModel,
     onLaunchOAuth: (String) -> Unit = {},
-    onReportIssue: () -> Unit
+    onReportIssue: () -> Unit,
+    onReportVoiceDownload: () -> Unit = onReportIssue
 ) {
     val currentEntry by navController.currentBackStackEntryAsState()
     SettingsGlassBackdropHost(isSettingsDestination(currentEntry?.destination?.route)) {
@@ -83,7 +84,7 @@ fun SetupNavGraph(
             Column(Modifier.fillMaxSize()) {
                 Box(Modifier.weight(1f)) {
                     SettingsTypographyScope(enabled = isSettingsDestination(currentEntry?.destination?.route)) {
-                        AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth, onReportIssue)
+                        AppNavHost(navController, toolConnectionsViewModel, onLaunchOAuth, onReportIssue, onReportVoiceDownload)
                     }
                 }
                 BenchmarkExecutionBanner(
@@ -102,7 +103,8 @@ private fun AppNavHost(
     navController: NavHostController,
     toolConnectionsViewModel: ToolConnectionsViewModel,
     onLaunchOAuth: (String) -> Unit,
-    onReportIssue: () -> Unit
+    onReportIssue: () -> Unit,
+    onReportVoiceDownload: () -> Unit
 ) {
     var newChatOrigin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Unspecified) }
     val conversationRouter: dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationRoutingViewModel = hiltViewModel()
@@ -123,7 +125,7 @@ private fun AppNavHost(
     ) {
         homeScreenNavigation(navController) { newChatOrigin = it }
         newChatNavigation(navController) { newChatOrigin }
-        voiceNavigation(navController) { newChatOrigin }
+        voiceNavigation(navController, onReportDownload = onReportVoiceDownload) { newChatOrigin }
         migrationScreenNavigation(navController)
         startScreenNavigation(navController)
         setupNavigation(navController)

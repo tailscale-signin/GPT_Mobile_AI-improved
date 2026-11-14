@@ -7,6 +7,7 @@
     "Implement measured GitHub fade and rendered-line pacing, stable preview activation order, shared user-bottom follow, themed voice captions with observed playback phases, and schema-preserving benchmark request and execution-evidence repairs.",
     "Reduce chat composable method size and enforce ART code-unit bounds on packaged chat/voice definitions, retain APK-bound CI reports, and restore benchmark backup evidence without endpoint substitution or private parser errors.",
     "Handle issues #1090 and #1091 with early capacity provenance and numeric component evidence, accurate resolved-output reporting and guidance, explicit conflict acceptance and bounded handoff correlation, while retaining pre-dispatch rejection and original-job recovery fences.",
+    "Fix issues #1093\u2013#1096 with VPN-compatible voice scheduling, attempt-owned progress and cancellation, bounded approved download diagnostics, live GitHub header geometry, shared chat generation indicators, and separately scored GitHub contract/live audits with bounded read-only probes.",
     "Repair durable voice download lifecycle and queued UI feedback; preserve bounded transport, read-window, saved-cursor, acceptance-claim and strict reasoning admission evidence in approved issue reports.",
     "Keep logical gateway operation identities stable and retain bounded model preparation, gateway capture retrieval, MCP rejection, tool provenance, GitHub verdict provenance, and frame timing evidence. Defer eligible pre-dispatch provider connectivity failures with bounded backoff.",
     "Improve GitHub chat scrolling and progress, Gateway conversation navigation, background voice plugin installation, and bounded app audit modes. Add safe observations for URL-reader DNS cooldowns, saved-view recovery, and fixture approval.",
@@ -181,7 +182,8 @@
     "New gateway preparation diagnostics require a hosted reporter advertising GATEWAY_MODEL_PREPARATION_V1; new review error codes require REVIEW_COMPARISON_V1. An older reporter leaves the approved report saved with an update-required status before submission. Native GitHub submission retains its separately selected account and approval. Private gateway configuration, installed-device behavior and full hosted Android validation remain separate qualification steps.",
     "Diagnostic capture 62a4cb28 repairs require matching gateway and hosted reporting rollout, complete hosted Android validation and separate private-service/device qualification; host regressions and source inventory do not establish those outcomes or promote Unified Reliability v2 acceptance.",
     "The November 14 chat and voice follow-up requires physical-device gesture, layout, audio and frame-time acceptance. Preparing-voice reports require a hosted reporter advertising VOICE_PLAYBACK_PHASE_V1. Private gateway/model availability and historical incidents with missing receipts remain dependent on live evidence; host and CI checks do not establish those outcomes.",
-    "Acceptance-scope reports require a hosted reporter advertising ACCEPTANCE_SCOPE_EVIDENCE_V1. Older approved reports remain unchanged and cannot reveal scope that was never captured; the historical task is not established as completed by the diagnostic enhancement."
+    "Acceptance-scope reports require a hosted reporter advertising ACCEPTANCE_SCOPE_EVIDENCE_V1. Older approved reports remain unchanged and cannot reveal scope that was never captured; the historical task is not established as completed by the diagnostic enhancement.",
+    "Voice-install evidence requires a hosted reporter advertising VOICE_INSTALL_EVIDENCE_V1. The GitHub audit separates local contracts from explicitly enabled bounded live reads; write/approval cleanup, protected merge/workflow execution, artifact installation/device checks and interruption recovery remain untested without their own execution evidence. Historical device download causality and physical gesture, audio and frame-time outcomes are not established by host or emulator tests."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -2565,6 +2567,28 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteRejected.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacityTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubCatalog.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubContractSource.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubProbeSource.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubRead.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubServices.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubSummary.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBottomIndicator.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditGitHubContent.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatNavigation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTransferProgress.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubContractSourceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubProbeSourceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubReadTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubServicesTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubSummaryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReadRequestBudgetTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBottomIndicatorTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditGitHubContentTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatNavigationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePluginSetupTest.kt"
   ]
 }

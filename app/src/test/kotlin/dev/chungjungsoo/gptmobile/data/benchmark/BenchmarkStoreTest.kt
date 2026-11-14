@@ -298,8 +298,19 @@ class BenchmarkStoreTest {
                 val failures = listOf(runCatching { store.validateBackupJson(payload) }.exceptionOrNull(), runCatching { store.importBackupJson(payload) }.exceptionOrNull())
                 for (failure in failures) {
                     assertTrue(failure is IllegalArgumentException)
-                    assertEquals("Invalid benchmark backup data. The JSON structure does not match a supported benchmark backup.", failure?.message)
-                    assertEquals(null, failure?.cause)
+                    // Coroutine stack-trace recovery can retain the already-sanitized
+                    // exception as a cause when import crosses withContext(IO).
+                    // Every reachable error must still be sanitized, including that cause.
+                    val visited = mutableSetOf<Throwable>()
+                    var current = failure
+                    while (current != null) {
+                        assertTrue("Backup errors must not contain causal cycles", visited.add(current))
+                        assertEquals(IllegalArgumentException::class.java, current.javaClass)
+                        assertEquals("Invalid benchmark backup data. The JSON structure does not match a supported benchmark backup.", current.message)
+                        assertTrue("Backup errors must not attach suppressed failures", current.suppressed.isEmpty())
+                        current = current.cause
+                    }
+                    assertTrue(!checkNotNull(failure).stackTraceToString().contains("private-diagnostic-marker"))
                 }
                 assertEquals(listOf(run), store.history.value)
                 assertEquals(batch, store.batch(batch.id))

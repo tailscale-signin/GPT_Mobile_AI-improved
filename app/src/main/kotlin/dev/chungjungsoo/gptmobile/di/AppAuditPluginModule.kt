@@ -5,6 +5,8 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditGitHubProbeSource
+import dev.chungjungsoo.gptmobile.data.audit.AppAuditGitHubServices
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginProbeSource
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditPluginServices
 import dev.chungjungsoo.gptmobile.data.audit.AppAuditProbeSource
@@ -15,6 +17,11 @@ import javax.inject.Singleton
 @Module
 @InstallIn(SingletonComponent::class)
 internal object AppAuditPluginModule {
+    @Provides
+    @Singleton
+    @IntoSet
+    fun provideGitHubAuditSource(services: AppAuditGitHubServices): AppAuditProbeSource = AppAuditGitHubProbeSource(services::inventory, services::target)
+
     @Provides
     @Singleton
     @IntoSet

@@ -31,7 +31,10 @@ data class LocalVoiceModelState(
     val status: LocalVoiceModelStatus = LocalVoiceModelStatus.CHECKING,
     val downloadedBytes: Long = 0,
     val totalBytes: Long = LocalVoiceModelStore.TOTAL_BYTES,
-    val message: String? = null
+    val message: String? = null,
+    val transferStage: VoiceTransferStage? = if (status == LocalVoiceModelStatus.CHECKING) VoiceTransferStage.CHECKING else null,
+    val failureKind: VoiceAssetFailureKind? = null,
+    val httpStatus: Int? = null
 )
 
 /** Downloads happen only after an explicit install action; recognition never calls install. */
@@ -93,11 +96,13 @@ class LocalVoiceModelStore internal constructor(
 
     suspend fun refresh() = withContext(Dispatchers.IO) {
         shared.mutex.withLock {
+            shared.state.value = LocalVoiceModelState(totalBytes = totalBytes)
             val ready = verifyInstalledFiles()
             shared.state.value = LocalVoiceModelState(
                 status = if (ready) LocalVoiceModelStatus.READY else LocalVoiceModelStatus.NOT_INSTALLED,
                 downloadedBytes = if (ready) totalBytes else 0,
-                totalBytes = totalBytes
+                totalBytes = totalBytes,
+                transferStage = if (ready) VoiceTransferStage.READY else null
             )
         }
     }
@@ -121,16 +126,17 @@ class LocalVoiceModelStore internal constructor(
         // Multiple screens share one installer and its progress. A second tap never queues a download.
         if (!shared.mutex.tryLock()) return@withContext
         try {
+            shared.state.value = LocalVoiceModelState(totalBytes = totalBytes)
             if (verifyInstalledFiles()) {
-                shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY, totalBytes, totalBytes)
+                shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY, totalBytes, totalBytes, transferStage = VoiceTransferStage.READY)
                 return@withContext
             }
             synchronized(shared) {
-                check(shared.users == 0) { "Local speech is still releasing its model. Try again shortly." }
+                if (shared.users != 0) throw VoiceAssetException(VoiceAssetFailureKind.MODEL_IN_USE, "Local speech is still releasing its model. Try again shortly.")
             }
             shared.installJob = currentCoroutineContext().job
-            shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, totalBytes = totalBytes)
-            check(root.isDirectory || root.mkdirs()) { "Could not create local speech storage." }
+            shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, totalBytes = totalBytes, transferStage = VoiceTransferStage.VERIFYING)
+            if (!root.isDirectory && !root.mkdirs()) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Could not create local speech storage.")
             val verifiedDownloads = assets.filter { asset -> verifyAsset(File(staging, asset.name), asset) }.toSet()
             assets.filterNot { it in verifiedDownloads }.forEach { asset ->
                 File(staging, asset.name).delete()
@@ -141,8 +147,8 @@ class LocalVoiceModelStore internal constructor(
             }
             val spaceNeeded = (assets - verifiedDownloads).sumOf { it.bytes } - partialBytes +
                 (if (expandArchive != null) expandedAssets.sumOf { it.bytes } else 0) + 16L * 1024 * 1024
-            check(root.usableSpace >= spaceNeeded) { "Free at least ${(spaceNeeded + 1_048_575) / 1_048_576} MiB to install local speech." }
-            check(staging.isDirectory || staging.mkdirs()) { "Could not prepare local speech storage." }
+            if (root.usableSpace < spaceNeeded) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Free at least ${(spaceNeeded + 1_048_575) / 1_048_576} MiB to install local speech.")
+            if (!staging.isDirectory && !staging.mkdirs()) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Could not prepare local speech storage.")
             val source = sourceFactory().also { shared.source = it }
             var complete = 0L
             for (asset in assets) {
@@ -150,7 +156,7 @@ class LocalVoiceModelStore internal constructor(
                 val destination = File(staging, asset.name)
                 if (asset in verifiedDownloads) {
                     complete += asset.bytes
-                    shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, complete, totalBytes)
+                    shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, complete, totalBytes, transferStage = VoiceTransferStage.VERIFYING)
                     continue
                 }
                 val partial = File(staging, "${asset.name}.part")
@@ -159,10 +165,12 @@ class LocalVoiceModelStore internal constructor(
                 for (url in asset.urls) {
                     currentCoroutineContext().ensureActive()
                     try {
-                        copyVerified(asset, source, url, partial) { bytes ->
-                            shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, complete + bytes, totalBytes)
+                        copyVerified(asset, source, url, partial, { stage ->
+                            shared.state.value = shared.state.value.copy(transferStage = stage)
+                        }) { bytes ->
+                            shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.DOWNLOADING, complete + bytes, totalBytes, transferStage = VoiceTransferStage.TRANSFERRING)
                         }
-                        if (!partial.renameTo(destination)) throw IOException("Could not checkpoint the verified speech asset.")
+                        if (!partial.renameTo(destination)) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Could not checkpoint the verified speech asset.")
                         validatorFile(partial).delete()
                         downloaded = true
                         break
@@ -177,28 +185,31 @@ class LocalVoiceModelStore internal constructor(
             }
             currentCoroutineContext().ensureActive()
             if (expandArchive != null) {
+                shared.state.value = shared.state.value.copy(transferStage = VoiceTransferStage.EXTRACTING)
                 expandedAssets.forEach { File(staging, it.name).delete() }
                 expandArchive.invoke(staging)
-                check(verifyFiles(staging)) { "The extracted speech files could not be verified." }
+                shared.state.value = shared.state.value.copy(transferStage = VoiceTransferStage.VERIFYING)
+                if (!verifyFiles(staging)) throw VoiceAssetException(VoiceAssetFailureKind.INTEGRITY, "The extracted speech files could not be verified.")
                 assets.forEach { File(staging, it.name).delete() }
             }
             currentCoroutineContext().ensureActive()
             File(staging, "verified").writeText(revision)
             // Only a fully validated directory is published. A partial model can never look ready.
             synchronized(shared) {
-                check(shared.users == 0) { "Local speech is still releasing its model. Try again shortly." }
-                if (installed.exists() && !installed.deleteRecursively()) throw IOException("Could not replace incomplete speech files.")
-                check(staging.renameTo(installed)) { "Could not finish installing local speech." }
+                if (shared.users != 0) throw VoiceAssetException(VoiceAssetFailureKind.MODEL_IN_USE, "Local speech is still releasing its model. Try again shortly.")
+                if (installed.exists() && !installed.deleteRecursively()) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Could not replace incomplete speech files.")
+                if (!staging.renameTo(installed)) throw VoiceAssetException(VoiceAssetFailureKind.STORAGE, "Could not finish installing local speech.")
             }
-            shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY, totalBytes, totalBytes)
+            shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.READY, totalBytes, totalBytes, transferStage = VoiceTransferStage.READY)
         } catch (cancelled: CancellationException) {
             shared.state.value = LocalVoiceModelState(LocalVoiceModelStatus.NOT_INSTALLED, totalBytes = totalBytes, message = "Download cancelled.")
             throw cancelled
         } catch (failure: Exception) {
-            shared.state.value = LocalVoiceModelState(
-                LocalVoiceModelStatus.FAILED,
-                totalBytes = totalBytes,
-                message = failure.message?.take(180) ?: "Could not install local speech. Try again when connected."
+            shared.state.value = shared.state.value.copy(
+                status = LocalVoiceModelStatus.FAILED,
+                message = failure.message?.take(180) ?: "Could not install local speech. Try again when connected.",
+                failureKind = voiceAssetFailureKind(failure),
+                httpStatus = (failure as? VoiceAssetException)?.httpStatus
             )
         } finally {
             shared.source?.cancel()
@@ -239,7 +250,7 @@ class LocalVoiceModelStore internal constructor(
 
     private fun validatorFile(part: File) = File(part.parentFile, "${part.name}.etag")
 
-    private suspend fun copyVerified(asset: LocalVoiceAsset, source: LocalVoiceAssetSource, url: String, destination: File, progress: (Long) -> Unit) {
+    private suspend fun copyVerified(asset: LocalVoiceAsset, source: LocalVoiceAssetSource, url: String, destination: File, phase: (VoiceTransferStage) -> Unit, progress: (Long) -> Unit) {
         val checkpoint = validatorFile(destination)
         val prefix = destination.length().takeIf { it in 1 until asset.bytes } ?: 0
         val validator = checkpoint.takeIf { prefix > 0 && it.isFile && it.length() in 1..1024 }?.readLines()
@@ -249,15 +260,20 @@ class LocalVoiceModelStore internal constructor(
         var count = 0L
         var lastProgressAt = 0L
         val deadline = System.nanoTime() + 5L * 60 * 1_000_000_000
+        phase(VoiceTransferStage.CONNECTING)
         val transfer = try {
-            source.open(url, requestOffset, validator)
-        } catch (_: VoiceRangeRejected) {
-            checkpoint.delete()
-            source.open(url)
+            try {
+                source.open(url, requestOffset, validator)
+            } catch (_: VoiceRangeRejected) {
+                checkpoint.delete()
+                source.open(url)
+            }
+        } catch (failure: IOException) {
+            throw voiceDownloadException(failure)
         }
         transfer.use { download ->
             check(download.offset == 0L || download.offset == requestOffset && download.validator == validator)
-            if (download.bytes >= 0 && download.bytes != asset.bytes - download.offset) throw IOException("Speech model size does not match the verified release.")
+            if (download.bytes >= 0 && download.bytes != asset.bytes - download.offset) throw VoiceAssetException(VoiceAssetFailureKind.INTEGRITY, "Speech model size does not match the verified release.")
             if (download.offset > 0) {
                 destination.inputStream().buffered().use { saved ->
                     val buffer = ByteArray(64 * 1024)
@@ -271,19 +287,24 @@ class LocalVoiceModelStore internal constructor(
                 }
             }
             checkpoint.delete()
+            phase(VoiceTransferStage.TRANSFERRING)
             FileOutputStream(destination, count > 0).use { output ->
                 download.validator?.takeIf(::strongVoiceAssetValidator)?.let { checkpoint.writeText("$url\n$it") }
                 val buffer = ByteArray(64 * 1024)
                 while (true) {
                     currentCoroutineContext().ensureActive()
-                    if (System.nanoTime() > deadline) throw IOException("Speech download timed out. Check your connection and try again.")
-                    val read = download.input.read(buffer)
+                    if (System.nanoTime() > deadline) throw VoiceAssetException(VoiceAssetFailureKind.TIMEOUT, "Speech download timed out. Check your connection and try again.")
+                    val read = try {
+                        download.input.read(buffer)
+                    } catch (failure: IOException) {
+                        throw voiceDownloadException(failure)
+                    }
                     if (read < 0) break
                     if (read == 0) continue
                     count += read
                     if (count > asset.bytes) {
                         checkpoint.delete()
-                        throw IOException("Speech model exceeds its verified size.")
+                        throw VoiceAssetException(VoiceAssetFailureKind.INTEGRITY, "Speech model exceeds its verified size.")
                     }
                     output.write(buffer, 0, read)
                     hash.update(buffer, 0, read)
@@ -296,10 +317,11 @@ class LocalVoiceModelStore internal constructor(
                 output.fd.sync()
             }
         }
-        if (count != asset.bytes) throw IOException("Speech model download ended early. Resume to continue.")
+        if (count != asset.bytes) throw VoiceAssetException(VoiceAssetFailureKind.NETWORK_IO, "Speech model download ended early. Resume to continue.")
+        phase(VoiceTransferStage.VERIFYING)
         if (hash.digest().hex() != asset.sha256) {
             checkpoint.delete()
-            throw IOException("Speech model verification failed. The incomplete download was discarded.")
+            throw VoiceAssetException(VoiceAssetFailureKind.INTEGRITY, "Speech model verification failed. The incomplete download was discarded.")
         }
     }
 
@@ -399,6 +421,7 @@ internal class HttpsVoiceAssetSource : LocalVoiceAssetSource {
             try {
                 if (cancelled) throw IOException("Download cancelled.")
                 val code = active.responseCode
+                if (code !in 100..599) throw VoiceAssetException(VoiceAssetFailureKind.NETWORK_IO, "The voice download server did not return a valid HTTP response.")
                 if (code in setOf(301, 302, 303, 307, 308)) {
                     val location = active.getHeaderField("Location") ?: throw IOException("Speech download redirect was incomplete.")
                     current = current.resolve(location)
@@ -413,7 +436,7 @@ internal class HttpsVoiceAssetSource : LocalVoiceAssetSource {
                         offset
                     } else {
                         if (code == 416 && offset > 0) throw VoiceRangeRejected()
-                        if (code != HttpURLConnection.HTTP_OK) throw IOException("Speech model server returned HTTP $code. Try again when connected.")
+                        if (code != HttpURLConnection.HTTP_OK) throw VoiceAssetException(VoiceAssetFailureKind.HTTP, "Speech model server returned HTTP $code. Try again when connected.", code)
                         0L
                     }
                     return LocalVoiceAssetStream(active.inputStream, active.contentLengthLong, start, etag) {

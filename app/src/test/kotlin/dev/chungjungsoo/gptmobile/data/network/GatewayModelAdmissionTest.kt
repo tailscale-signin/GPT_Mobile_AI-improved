@@ -22,6 +22,7 @@ class GatewayModelAdmissionTest {
         withContext(Dispatchers.Default) {
             val selected = ProviderRequestConfig("http://127.0.0.1:29875/v1", null, profileUid = "rejected-gateway-capacity", providerType = "LLAMA", contextCeiling = 32768)
             GatewayClientDiagnostics.observeInstance(selected, "d".repeat(32))
+            val capacityObservedAt = 1_793_960_000_000L
             var metadataReads = 0
             HttpClient(
                 MockEngine { request ->
@@ -32,7 +33,7 @@ class GatewayModelAdmissionTest {
                         """{"contractVersion":1,"instanceId":"${"d".repeat(32)}","selectedModel":{
                         "schema":"gptmobile.gateway.selected-model.v1","schemaVersion":1,"requestedModel":"selected-model","reportedModel":"selected-model",
                         "contextTokens":5632,"limitsVerified":true,"outputLimitSource":"context_capacity","capabilityRevision":"${"e".repeat(64)}",
-                        "observedAtMillis":1793960000000,"evidenceOrigin":"GATEWAY_OBSERVED_PROVIDER_METADATA"}}"""
+                        "observedAtMillis":$capacityObservedAt,"evidenceOrigin":"GATEWAY_OBSERVED_PROVIDER_METADATA"}}"""
                     )
                 }
             ).use { http ->
@@ -43,7 +44,7 @@ class GatewayModelAdmissionTest {
                 val original = """{"model":"selected-model","messages":[{"role":"user","content":"$privateInput"}],"max_tokens":4096}"""
                 val error = runCatching { ModelRequestPreparation(network).prepare(original, selected, "selected-model", 4096) }.exceptionOrNull()
                 org.junit.Assert.assertTrue(error is dev.chungjungsoo.gptmobile.data.context.RequestCapacityException)
-                val failure = requireNotNull(providerExceptionDetails(requireNotNull(error) as Exception, partialOutput = false))
+                val failure = requireNotNull(providerExceptionDetails(requireNotNull(error) as Exception, partialOutput = false, nowMillis = capacityObservedAt + 250))
                 assertEquals("CONTEXT_CAPACITY_EXCEEDED", failure.code)
                 assertEquals(JsonPrimitive(5632), failure.failureDetails?.get("admission_capacity_tokens"))
                 assertEquals(JsonPrimitive(5632), failure.failureDetails?.get("admission_route_context_tokens"))
@@ -52,7 +53,7 @@ class GatewayModelAdmissionTest {
                 assertEquals(JsonPrimitive("UTF8_ESTIMATE"), failure.failureDetails?.get("admission_measurement"))
                 assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))
                 org.junit.Assert.assertTrue(failure.failureDetails?.containsKey("admission_current_request_tokens") == true)
-                org.junit.Assert.assertTrue(failure.failureDetails?.containsKey("admission_capacity_age_ms") == true)
+                assertEquals(JsonPrimitive(250), failure.failureDetails?.get("admission_capacity_age_ms"))
                 assertFalse(failure.failureDetails.toString().contains("private complete input"))
                 assertEquals(1, metadataReads)
                 assertEquals(32768, selected.contextCeiling)

@@ -323,3 +323,65 @@ absence, retaining every count, path, failure and next-action check. This is a
 fixture alignment with the tested public policy; production behavior is unchanged.
 The separate 62-case integration/report harness also passed again on `2b5bfe47`
 after the concurrent retained-acceptance-scope diagnostic addition.
+
+## Issues #1093–#1096 received during verification
+
+All four reports identify tested merge `e4d256dc56e2f90453a330f883cd795a6d1b46b1`, whose parents are main `61083c2468a118eaa15f0f855ff8118e95b21d22` and PR head `000c0c0fd1a694431f5bf0a47ac037c18c2d8f0f`. That build already contained the initial five interaction changes. The following are additional fixes and evidence improvements, not claims that the earlier work was absent.
+
+| Issue | Approved payload SHA-256 | Reported behavior |
+| --- | --- | --- |
+| [#1093](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1093) | `3918e1ba764f5cbdafd97de791f8976d68d8f9bedc06f1b222037b50dc87e988` | Voice plugin installation displays a loading bar without progress. |
+| [#1094](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1094) | `8d5662f4d8643b65a616a54ce7dcbf6a82bf489e43247b06bbb180e24cb38f84` | Expand and restore the GitHub header fade with the top bar. |
+| [#1095](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1095) | `2b494e8d1cbb7bf17e6b99baeb55a5ae2db7d68e7ad6be9d41f4464b2565da1b` | Expand GitHub integration audits with their own score and categories. |
+| [#1096](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1096) | `f9722da86737ba75ca8cbcb817b678a6f4748db8b2f6c9adafac6b2e43bff21d` | Manual bottom arrival must match the follow button, replacing it with generation dots; upward scrolling detaches. |
+
+### Voice installation: actual scheduling, progress and report capture
+
+The API 34 user-initiated JobScheduler request inherited `NetworkRequest.Builder`'s default non-VPN restriction. Removing only `NET_CAPABILITY_NOT_VPN` allows an internet-capable VPN to satisfy the job; it does not bypass the user's network route. The old refresh path also returned immediately for a pending in-memory label, so missing scheduled work or a different Android pending reason could remain invisible. Refresh now reconciles the actual job/work while the voice entry screen is started, with a five-second interval and an enqueue-in-flight guard. Missing work produces a specific recoverable `WORK_NOT_FOUND` state rather than an indefinite spinner or a duplicate automatic download.
+
+An opaque attempt owner binds scheduled work, progress and terminal callbacks. Current-owner transfer leases are reference counted, so an older coroutine unwinding cannot mark a replacement as running or suppress missing-work detection. Notification cancellation is bound to its originating attempt with immutable PendingIntent identity and atomic owner checking. The ordinary UI cancel action continues to target the current attempt.
+
+The setup cards distinguish checking, connecting, transfer, verification and extraction. A report action is available for queued, running and failed installation. It refreshes the observation and opens the existing Voice report preview, preserving the user's diagnostic-capture preference and the existing approval step. It does not send a report automatically or enable disabled capture.
+
+The approved diagnostic contract gains eight bounded fields: pending reason, elapsed milliseconds, pack, transfer stage, typed failure kind, HTTP status, downloaded bytes and total bytes. Unknown or out-of-range values are omitted. Only closed enums and numeric observations are retained; download URLs, filesystem paths, exception messages and attempt owners are excluded. Android and hosted Python validation agree. `VOICE_INSTALL_EVIDENCE_V1` is required for the new fields, omitted-field evidence and `WORK_NOT_FOUND`; unsupported reporters preserve the originally approved bytes with update-required status.
+
+The historical report did not contain scheduler or transfer evidence. These source defects are corrected and the missing evidence is now collectable, but the available report does not prove that a VPN caused the original incident or that the affected device downloaded both model packs successfully.
+
+### Live header geometry and shared chat generation indicator
+
+The existing fade formula remains measured header height plus three percent of the stable app-window height. A small `GitHubChatNavigation` wrapper now supplies the latest header height and content binding to the remembered NavHost destination via `rememberUpdatedState`. It preserves the route, arguments, `key(chatId)`, back-stack entry and view-model owner. The regression changes a real Scaffold header through 48, 96 and 144 dp and back, checking live fade input, content position, stable destination identity and current content binding. This closes a stale graph-capture path; it is not a physical-device reproduction of the reported capture.
+
+`ChatBottomIndicator` is shared by ordinary, Combined, gateway and GitHub chat. A deliberate arrival at the bottom uses the existing shared follow transition; while a response is pending, the arrow is replaced by three theme-colored dots after the measured bottom is reached. Upward scrolling restores the detached arrow. Idle following shows no loading indicator. Geometry changes do not restore follow intent. The dots use the existing app/system motion, lifecycle and frame-pressure guard. This fixes the missing ordinary/Combined/gateway indicator without changing the 1,500 ms rendered-line queue or charging history/reflow again.
+
+### GitHub audit coverage, scoring and evidence
+
+The audit adds eight categories covering authorization, repository/ref identity, content and pagination, changes and approval, CI and merge, releases and artifacts, recovery and request limits, and evidence/provenance. Sixteen local contract fixtures exercise production policies. With configured network reads explicitly enabled, six read-only probes check the selected account, repository, ref commit, first page of open PRs, check inventory and first page of releases for at most two enabled saved connections. The GitHub card presents separate local and live measured scores plus category coverage; blocked, unavailable and untested checks do not become passes.
+
+Each live probe retains a frozen credential/account/configuration/repository/ref scope and verifies it before and after reading. Current prerequisites are checked again after a request, retaining the actual transport receipt if authorization or readiness changes. No credential refresh, mutation, workflow dispatch, merge, artifact installation or device test is performed by these probes. Explicit workspace reads use the repository's existing user-driven read authorization; agent-only tool allowlists and mutation policy remain frozen invalidation inputs, not invented prerequisites for ordinary workspace GETs.
+
+The existing physical-request accounting applies a three-GET cap per probe before dispatch, including retry and conditional-read paths: at most 36 physical GETs across the complete two-connection audit, in addition to logical budgets and deadlines. Audit-only strict metadata checks reject malformed successful commit/check inventories while accepting explicitly empty inventories. Ordinary client callers keep their previous behavior. Results retain allowlisted counts, statuses and receipt observations, not private response bodies or account/repository names. The four external execution gaps remain explicitly untested. Incomplete export evidence has no promoted score.
+
+### Validation boundaries and packaged method measurement
+
+The new report contract passed all 94 authentication/report tests. Focused production-source Kotlin tests and independent review cover owner fencing, audit scope, request budgeting, scoring and real HTTP client behavior; their final counts are recorded in the task checkpoint. New native-graphics Compose, scheduler, report-view-model and DI integration tests require the next exact-head hosted Android run.
+
+The preceding integrated head `c711545d829c24b2a9f5471ba1d7ca6c8497381f` produced method-size artifact `14100804036` in UI Review run `43561380125`, tested merge `e9aff20f12745f15aa7da8d187003c8abe6e2083`. Its 5,416-byte ZIP SHA-256 is `df9fb7454a8fbee8ea301604adc5050c117c45ce13b9d0d47894b8fb6b53fb6d`, verified after download. Arm64, x86_64 and universal APK reports all pass: `ChatScreen` is 1,178 code units and `ChatScreenContent` is 13,941, leaving 2,442 code units before the 16,383-unit warning boundary. No oversized chat/voice method or parser error is reported. Each report binds its own APK SHA-256 and tested merge. The next head must pass this gate again; method size does not establish physical frame times.
+
+The final combined follow-up passed 507 canonical host tests, all 94 authentication/report tests and formatting for 45 changed Kotlin files. The GitHub audit passed 24 distinct focused methods (including all 16 production contract fixtures); voice observation and owner fencing passed ten actual-source methods. Architecture and source inventories were regenerated. All 56 changed paths are explicitly within release scope and all limitations are disclosed verbatim. New Android/DI/Compose/receiver integration and the next packaged APK remain pending the published revision.
+
+
+### Exact-head unit findings before publication
+
+The complete `c711545d` Android graph executed 10,292 tests: 10,282 passed, five failed, five skipped and zero errors. PR unit job `132345743999` and diagnostic audit run `43561380224` report the same failures. The downloaded audit artifact `14100763587` matches its published SHA-256 `25b62c821a7e0cbc7c2b59fd985279691e0663df7f4a504cb7f266b5f5ee666b`. Both API 34/API 36 acceptance jobs, CodeQL, gateway matrix and Windows installer passed at that head. Publication was held to address all five unit findings in the same next commit.
+
+| Failing regression | Correction and preserved requirement |
+| --- | --- |
+| Exact tool-call continuation event sequence | Include the new configured-output observation before usage/text in both rounds. Exact call IDs, event order and completion remain asserted; both serialized requests must retain the 4,096-token output allowance. |
+| Malformed backup error cause | Coroutine stack-trace recovery may retain an already-sanitized exception as its cause. Check every causal node for the fixed safe type/message, reject suppressed errors and cycles, and reject private content in the complete stack trace. Exact history and batch preservation remain asserted; production parsing is unchanged. |
+| Retained bounded integration acceptance | Assert the actual three contracts: ordinary review incomplete, single-action bounded integration complete, explicitly exhaustive traversal incomplete. Scope, pending-page counts and restored verdict equality remain asserted. |
+| Capacity evidence age | Use the existing explicit clock seam and assert an exact 250 ms observation age. An old wall-clock fixture correctly exceeded the unchanged 16,000,000 ms diagnostic bound. No inference POST, exact capacity/provenance and original input remain asserted. |
+| Initial rendered-line catch-up | Wait for a nonempty measured viewport before initial catch-up and arming. Previously an empty LazyListState could return without scrolling and then arm before reaching the bottom. The regression now deliberately delays list attachment, verifies it remains unarmed, and retains the exact 4,500 ms new-text budget, intermediate scroll and final empty-queue/bottom assertions. |
+
+The backup error-graph assertions passed three pinned-runtime cases with coroutine recovery enabled and the same three with recovery disabled, including negative leak/cycle checks. This narrow reproduction is not a full Android/Room pass. All corrected Android cases remain subject to the next hosted graph; no assertion was replaced by a blanket success or removed coverage requirement.
+
+After the five corrections, canonical fast validation passed again: 507 tests, 1,653 literal patterns, zero regex errors and 34 resource XML files. Formatting passes cover all 51 changed Kotlin files. The combined publication has 62 explicitly scoped paths; hosted Android execution of those corrections remains required.

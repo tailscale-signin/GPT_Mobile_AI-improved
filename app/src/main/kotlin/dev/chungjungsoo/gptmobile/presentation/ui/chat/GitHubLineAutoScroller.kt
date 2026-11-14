@@ -12,6 +12,7 @@ import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
 /** A single scroll mutation drains a FIFO budget; a new line appends a full 1,500 ms. */
@@ -23,6 +24,12 @@ internal fun GitHubLineAutoScroller(listState: LazyListState, lines: GitHubRende
         if (!enabled) return@LaunchedEffect
         // Entry/arrow positioning consumes the old backlog. New measured output
         // starts its own budget after that explicit return has completed.
+        // Before the first lazy measurement, canScrollForward is false even
+        // when the retained turn will overflow. Do not arm that empty layout.
+        snapshotFlow {
+            val info = listState.layoutInfo
+            info.totalItemsCount > 0 && info.viewportSize.height > 0
+        }.first { it }
         listState.animateToGitHubBottom(animate)
         withFrameNanos { }
         lines.ledger.arm()

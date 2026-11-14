@@ -194,6 +194,50 @@ class IncidentReportContractTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_diagnostics(self.capture(area, {"acceptance_capability_scope": "FULL_CATALOG"}))
 
+    def test_voice_install_queue_transfer_and_failure_evidence_survives_approved_submission(self):
+        values = {
+            "voice_install_state": "RUNNING", "voice_install_scheduler": "JOB_SCHEDULER",
+            "voice_install_pending_reason": "EXECUTING", "voice_install_elapsed_ms": 120_000,
+            "voice_install_pack": "MOONSHINE", "voice_install_transfer_stage": "FAILED",
+            "voice_install_failure_kind": "HTTP", "voice_install_http_status": 503,
+            "voice_install_downloaded_bytes": 2_000_000, "voice_install_total_bytes": 177_000_000,
+        }
+        capture = {"schemaVersion": 1, "area": "VOICE", "capturedAtMillis": 1_800_000_000_000,
+                   "captureMode": "INCIDENT", "values": values,
+                   "unavailableFields": sorted(CORE_FIELDS["VOICE"] - values.keys())}
+        report = self.report(capture)
+        report.update(feature="voice", errorCode="VOICE_MODEL_REQUIRED")
+        report["context"]["source"] = "VOICE_STATE"
+        report["context"]["schemaVersion"] = 5
+        approved = json.dumps(report, separators=(",", ":"))
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        _, issue = issue_from_report(report)
+        for key in values:
+            self.assertIn(key, issue["body"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+        missing = self.capture("VOICE", {"voice_install_failure": "WORK_NOT_FOUND"})
+        self.assertEqual(missing, validate_diagnostics(copy.deepcopy(missing)))
+        unknown = self.capture("VOICE", {"voice_install_pending_reason": "UNAVAILABLE"})
+        validate_diagnostics(unknown)
+        self.assertNotIn("voice_install_total_bytes", unknown["values"])
+        self.assertNotIn("voice_install_http_status", unknown["values"])
+
+    def test_voice_install_evidence_rejects_private_values_bad_types_and_excessive_bounds(self):
+        for key, value in (
+            ("voice_install_elapsed_ms", 16_000_001), ("voice_install_downloaded_bytes", -1),
+            ("voice_install_total_bytes", 1_000_000_001), ("voice_install_total_bytes", "177000000"),
+            ("voice_install_http_status", 600), ("voice_install_http_status", True),
+            ("voice_install_pack", "private model URL"), ("voice_install_transfer_stage", "private path"),
+            ("voice_install_failure_kind", "raw exception"), ("voice_install_pending_reason", "private network"),
+        ):
+            with self.subTest(key=key, value=value):
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("VOICE", {key: value}))
+        validate_diagnostics(self.capture("VOICE", {"voice_install_total_bytes": 1_000_000_000, "voice_install_http_status": 599}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"voice_install_pack": "KOKORO"}))
+
     def test_typed_capsule_validates_without_rewriting_approved_input(self):
         capture = self.capture(values={
             "native_tool_action": "create", "validation_field_names": ["issue_number"], "validation_path_hashes": ["b" * 64],

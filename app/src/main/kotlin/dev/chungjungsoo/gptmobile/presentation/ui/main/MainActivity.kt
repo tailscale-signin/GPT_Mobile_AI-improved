@@ -100,7 +100,8 @@ class MainActivity : dev.chungjungsoo.gptmobile.presentation.ui.main.ProtectedAc
                                     navController = navController,
                                     toolConnectionsViewModel = toolConnectionsViewModel,
                                     onLaunchOAuth = ::launchOAuth,
-                                    onReportIssue = openReport
+                                    onReportIssue = openReport,
+                                    onReportVoiceDownload = issueReportViewModel::openVoiceDownloadReport
                                 )
                             }
                             LaunchedEffect(navController) {

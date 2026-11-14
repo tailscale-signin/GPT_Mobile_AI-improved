@@ -111,7 +111,7 @@ class ToolCatalogAdmissionTest {
                 "GitHub",
                 tool.definition.name,
                 tool.definition.name,
-                progressiveCatalog = catalog.takeIf { tool === catalog },
+                progressiveCatalog = catalog.takeIf { tool === catalog }
             )
         }
         val turn = ConversationTurn(MessageV2(content = task, platformType = null), null, true)
@@ -122,14 +122,14 @@ class ToolCatalogAdmissionTest {
             TokenBudgetSettings(contextTokens = 5632, outputTokens = 1024),
             true,
             githubMode = true,
-            requestedTask = task,
+            requestedTask = task
         )
         assertTrue(plan.tools.any { it.name == "github_context" })
         assertTrue(plan.tools.any { it.name == ProgressiveToolCatalog.NAME })
         assertTrue(plan.tools.count { ProgressiveToolCatalog.isGitHubTool(it) } < operations.size)
         assertEquals(
             operations.map { it.definition.name }.toSet(),
-            plan.authorizedTools.map { it.name }.toSet() - ProgressiveToolCatalog.NAME,
+            plan.authorizedTools.map { it.name }.toSet() - ProgressiveToolCatalog.NAME
         )
     }
 
@@ -142,7 +142,7 @@ class ToolCatalogAdmissionTest {
             githubMode = true,
             contextTokens = 4096,
             initialContextTokens = 2000,
-            finalResponseReserveTokens = 1024,
+            finalResponseReserveTokens = 1024
         )
         val selected = fitProviderToolSchemas(listOf(context, large, recovery, discovery), limits, 0, 0)
         assertTrue(selected.contains(context))

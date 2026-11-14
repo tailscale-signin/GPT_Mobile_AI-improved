@@ -101,7 +101,7 @@ class ProgressiveToolCatalogTest {
             "need-write",
             buildJsonObject {
                 put("names", JsonArray(listOf(JsonPrimitive("github_write"))))
-            },
+            }
         )
         assertFalse(discovery.isError)
         assertTrue(catalog.selected(operations + catalog.definition).any { it.name == "github_write" })

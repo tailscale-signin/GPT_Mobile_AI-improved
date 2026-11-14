@@ -13,6 +13,10 @@ Their scoped-admission regression changes are preserved with the complete
 authorized discovery checks. The final update retires its temporary source-capture
 workflow and removes two invalid UTF-8 files at incorrect package paths; the
 canonical test files remain under `data/agent/provider` and `data/agent/tool`.
+Further context-admission corrections at
+`652cfd824c7d045d645d4655adc567a1d8e66876` preserve the supplied local-tool
+subset and reject an unavailable selected GitHub contract when no discovery
+route fits. The intervening preparation-only workflows have been removed.
 
 The remote inventory contains 748 branch refs. Of those, 384 tips are ancestors
 of `main`, one is the current repair PR, and 363 retain other historical or
@@ -80,6 +84,24 @@ validate their saved participant boundary. Membership projection runs off the UI
 thread and ignores unrelated feature-setting changes.
 
 ## Open report dispositions
+
+### Context admission boundaries
+
+The context follow-up preserves upstream-advertised GitHub schemas, including
+authorized opaque MCP aliases, through local planning. Generic greetings retain
+the existing deferred engineering operations. Explicit discovery can expose one
+individually large authorized GitHub schema in ordinary, status and integration
+catalogs; the provider's hard context admission still determines whether it can
+actually be attached to the next request. When the request cannot carry both
+its required schemas and the necessary discovery route, planning can reduce only
+a default output allowance or return a typed failure before dispatch. It does
+not silently remove the route to the remaining authorized operations.
+
+Behavior regressions cover deferred writes, scoped warm discovery, authorization
+exclusion, soft versus hard budgets, and the boundary where an immediate context
+read fits but its discovery route does not.
+
+### Report evidence
 
 The latest previously supplied archive, `diagnostics-a199704a-2fe7-4afd-9832-24d1035b97c6-part-1-e6fa218d-8b59-4aaa-8a91-7ce5bfdcab6e.zip`,
 was available locally; no additional attachment accompanied this request. All 20

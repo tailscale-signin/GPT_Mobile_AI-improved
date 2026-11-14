@@ -168,6 +168,70 @@ class ToolCatalogAdmissionTest {
         assertTrue(recovered.tools.containsAll(github.map { it.definition }))
     }
 
+    @Test fun initialGithubDiscoverySurvivesByBorrowingOnlyADefaultReplyAllowance() = runTest {
+        val task = "Repair repository issues"
+        val context = AgentToolDefinition("github_context", "Inspect the repository", buildJsonObject {})
+        val deferred = AgentToolDefinition("github_write", "Stage an authorized change", buildJsonObject {})
+        val catalog = ProgressiveToolCatalog(listOf(context, deferred), task, githubMode = true)
+        val resolved = (
+            listOf(context, deferred).map { definition ->
+                object : AgentTool {
+                    override val definition = definition
+                    override suspend fun execute(callId: String, arguments: JsonObject) = error("Planning must not dispatch a tool")
+                }
+            } + catalog
+            ).map { tool ->
+            ResolvedAgentTool(tool, null, "GitHub", tool.definition.name, tool.definition.name, progressiveCatalog = catalog.takeIf { tool === catalog })
+        }
+        val turns = listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true))
+        val input = ContextBudgetService.breakdown(turns, "", emptyList()).total
+        val contextCost = providerSchemaTokens(context, true).toInt()
+        val output = 4096 - input - contextCost - 256 - 512
+        val limits = TokenBudgetSettings(contextTokens = 4096, outputTokens = output)
+        // The boundary genuinely admits the immediate read while dropping discovery.
+        assertEquals(listOf(context), ContextBudgetService.plan(turns, "", listOf(context, catalog.definition), limits).tools)
+        val blocked = assertThrows(GitHubToolContextBudgetException::class.java) {
+            planAuthorizedToolContext(turns, "", resolved, limits, true, githubMode = true)
+        }
+        assertEquals(JsonPrimitive(false), blocked.providerFailure().failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive(output), blocked.providerFailure().failureDetails?.get("admission_output_tokens"))
+        val recovered = planAuthorizedToolContext(turns, "", resolved, limits, true, githubMode = true, allowOutputReduction = true)
+        assertEquals(setOf(context.name, catalog.definition.name), recovered.tools.map { it.name }.toSet())
+        assertTrue(requireNotNull(recovered.outputTokens) in 512 until output)
+        assertEquals(resolved.map { it.modelToolName }.toSet(), recovered.authorizedTools.map { it.name }.toSet())
+        assertTrue(recovered.promptTokens + requireNotNull(recovered.outputTokens) + 256 + 512 <= limits.contextTokens)
+        catalog.execute("discover-later", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(deferred.name)))) })
+        assertTrue(catalog.selected(recovered.authorizedTools).contains(deferred))
+        assertTrue(catalog.selected(emptyList()).isEmpty())
+    }
+
+    @Test fun initialGithubDiscoveryRejectsWhenEvenTheMinimumReplyCannotPreserveIt() {
+        val task = "Repair repository issues"
+        val context = AgentToolDefinition("github_context", "Inspect the repository", buildJsonObject {})
+        val deferred = AgentToolDefinition("github_write", "Stage an authorized change", buildJsonObject {})
+        val catalog = ProgressiveToolCatalog(listOf(context, deferred), task, githubMode = true)
+        val resolved = (
+            listOf(context, deferred).map { definition ->
+                object : AgentTool {
+                    override val definition = definition
+                    override suspend fun execute(callId: String, arguments: JsonObject) = error("Planning must not dispatch a tool")
+                }
+            } + catalog
+            ).map { tool ->
+            ResolvedAgentTool(tool, null, "GitHub", tool.definition.name, tool.definition.name, progressiveCatalog = catalog.takeIf { tool === catalog })
+        }
+        val turns = listOf(ConversationTurn(MessageV2(content = task, platformType = null), null, true))
+        val limits = TokenBudgetSettings(contextTokens = 768, outputTokens = 512)
+        assertEquals(listOf(context), ContextBudgetService.plan(turns, "", listOf(context, catalog.definition), limits).tools)
+        val blocked = assertThrows(GitHubToolContextBudgetException::class.java) {
+            planAuthorizedToolContext(turns, "", resolved, limits, true, githubMode = true, allowOutputReduction = true)
+        }
+        assertTrue(blocked.requiredSchemaTokens > blocked.availableSchemaTokens)
+        assertEquals(JsonPrimitive(512), blocked.providerFailure().failureDetails?.get("admission_output_tokens"))
+        assertEquals(JsonPrimitive(false), blocked.providerFailure().failureDetails?.get("dispatched"))
+        assertTrue(planAuthorizedToolContext(turns, "", emptyList(), limits, true, githubMode = true).tools.isEmpty())
+    }
+
     @Test fun coldGithubDiscoveryReachesTheNextProviderRequestAndExecutesOnce() = runTest {
         exerciseColdDiscovery(context = 16384, expectAvailable = true)
     }

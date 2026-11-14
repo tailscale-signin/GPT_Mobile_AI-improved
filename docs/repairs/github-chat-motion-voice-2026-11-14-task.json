@@ -3,11 +3,11 @@
   "base_branch": "main",
   "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
   "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
-  "source_sha": "4d89a6847feec2d513f9af472f42a7cebbbb7c7f",
+  "source_sha": "652cfd824c7d045d645d4655adc567a1d8e66876",
   "pull_request": 1122,
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "github-chat-motion-voice-2026-11-14",
-  "state": "PUBLISHING_COMBINED_REPAIR",
+  "state": "QUALIFYING_CONTEXT_DISCOVERY_BOUNDARIES",
   "intent": [
     "Review all open issues and branch work",
     "Verify expanding top fade and +3% screen-height baseline",
@@ -39,7 +39,7 @@
       "failed": 0
     },
     "kotlin_formatting": "PASS",
-    "android_ci": "PENDING",
+    "android_ci": "PENDING_LATEST_HEAD",
     "physical_device": "NOT_RUN"
   },
   "intake": {
@@ -93,6 +93,18 @@
     "a4581f94e40f106ace5f18bc37bdd6763f7dad4d",
     "0189cb747b5ca256597ee58f326fbd81162c7efd",
     "7872874d975858e9cff4232270e873448b18c77f",
-    "4d89a6847feec2d513f9af472f42a7cebbbb7c7f"
+    "4d89a6847feec2d513f9af472f42a7cebbbb7c7f",
+    "2a52fe8ef34f3f0144053a46d45b49828fd0d1a1",
+    "8cf56009c0159dae54e22d3b580fc7f12bf5680c",
+    "94af00d05734819f41c0a49a2e7ff7f0c4d95081",
+    "f0f6895e16c0d628f9a5f0ed37535fae4e5a31f1",
+    "d85fce1b207eb3fe0919fd17696718e11d28e285",
+    "652cfd824c7d045d645d4655adc567a1d8e66876"
+  ],
+  "context_followup": [
+    "Preserve advertised GitHub subsets across local admission",
+    "Retain deferred mutations in generic catalog fallback",
+    "Permit one explicitly selected large GitHub schema through the soft window, followed by hard admission",
+    "Reserve the necessary discovery route before initial authorization narrowing"
   ]
 }

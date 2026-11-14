@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.context
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException
+import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import kotlinx.serialization.json.buildJsonObject
 import org.junit.Assert.assertEquals
@@ -27,10 +28,28 @@ class LocalContextPlannerTest {
             LocalContextPlanner.advertisedToolNames(definitions, listOf(other.copy(name = "unauthorized")), githubMode = true)
         }
         val admitted = definitions.filter { it.name in selected }
-        assertEquals(setOf(github.first().name), LocalContextPlanner.requiredToolNames("Hi", admitted, githubMode = true))
+        assertEquals(setOf(github.first().name, discovery.name), LocalContextPlanner.requiredToolNames("Hi", admitted, githubMode = true))
         val plan = LocalContextPlanner.plan(emptyList(), "Inspect GitHub tools", "", definitions.filter { it.name in selected }, 8192, 1024, githubMode = true)
         assertTrue(plan.tools.any { it.name == discovery.name })
         assertFalse(plan.tools.any { it.name == "github_read" })
+    }
+
+    @Test fun smallerPhysicalContextCannotDropTheSuppliedGithubDiscoveryPath() {
+        val context = AgentToolDefinition("github_context", "Inspect the repository", buildJsonObject {})
+        val deferred = AgentToolDefinition("github_write", "Stage an authorized change", buildJsonObject {})
+        val discovery = ProgressiveToolCatalog(listOf(context, deferred), "Repair repository issues", githubMode = true).definition
+        val authorized = listOf(context, deferred, discovery)
+        val names = LocalContextPlanner.advertisedToolNames(authorized, listOf(context, discovery), githubMode = true)
+        val supplied = authorized.filter { it.name in names }
+        val fitting = LocalContextPlanner.plan(emptyList(), "Repair repository issues", "", supplied, 4096, 512, githubMode = true)
+        assertEquals(setOf(context.name, discovery.name), fitting.tools.map { it.name }.toSet())
+        assertFalse(fitting.tools.contains(deferred))
+        val blocked = assertThrows(GitHubToolContextBudgetException::class.java) {
+            LocalContextPlanner.plan(emptyList(), "Repair repository issues", "", supplied, 1024, 128, githubMode = true)
+        }
+        assertTrue(blocked.requiredSchemaTokens > blocked.availableSchemaTokens)
+        val disabledNames = LocalContextPlanner.advertisedToolNames(authorized, emptyList(), githubMode = true)
+        assertTrue(LocalContextPlanner.plan(emptyList(), "Repair repository issues", "", authorized.filter { it.name in disabledNames }, 1024, 128, githubMode = true).tools.isEmpty())
     }
 
     @Test fun optionalGithubSchemasAreDeferredWhileOversizedRequiredContextFails() {

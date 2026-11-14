@@ -325,7 +325,9 @@ jobs:
         run: bash scripts/install_android_native_dependencies.sh
 
       # Run 43551332536 exhausted 3 GiB after KSP and KAPT shared one process.
-      # Release each generation graph separately and retain the bounded defaults.
+      # Run 43627862538 then exhausted the default heap while KAPT rendered the
+      # generated annotation stubs. Release each graph separately and give only
+      # the annotation phase the same bounded heap as the validated unit path.
       - name: Generate Room sources before lint in a separate process
         timeout-minutes: 10
         shell: bash
@@ -338,7 +340,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/build_metrics.py --label lint-kapt --output build/reports/profile/lint-kapt-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-kapt.log
+          python3 scripts/build_metrics.py --label lint-kapt --output build/reports/profile/lint-kapt-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee lint-kapt.log
 
       - name: Compile production sources before lint in a separate process
         timeout-minutes: 20

@@ -91,6 +91,35 @@ class VoiceConversationInstrumentedTest {
         assertEquals(range().maxValue(), range().value(), 1f)
     }
 
+    @Test fun accessibilityCaptionScrollingPausesObservedRangeFollowingUntilTheReaderReturnsToTheBottom() {
+        val reply = (1..40).joinToString("\n") { "Caption line $it" }
+        val session = mutableStateOf(VoiceState(phase = VoicePhase.SPEAKING, reply = reply, spokenRange = reply.indices.last - 10..reply.indices.last))
+        compose.setContent {
+            MaterialTheme { VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp)) }
+        }
+        val caption = compose.onNodeWithTag("voice_caption_text")
+        fun range() = caption.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]
+        compose.waitForIdle()
+        assertEquals(range().maxValue(), range().value(), 1f)
+        caption.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -400f) }
+        compose.waitForIdle()
+        val readingPosition = range().value()
+        assertTrue(readingPosition < range().maxValue())
+        compose.runOnIdle {
+            session.value = session.value.copy(spokenRange = reply.indices.last - 20..reply.indices.last - 11)
+        }
+        compose.waitForIdle()
+        assertEquals(readingPosition, range().value(), 1f)
+        caption.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, 100_000f) }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            val middle = reply.indexOf("Caption line 20")
+            session.value = session.value.copy(spokenRange = middle until middle + "Caption line 20".length)
+        }
+        compose.waitForIdle()
+        assertTrue(range().value() < range().maxValue())
+    }
+
     private fun state(session: VoiceState) = VoiceConversationUiState(
         profileName = "Selected AI",
         profiles = listOf(PlatformV2(uid = "current", name = "Selected AI"), PlatformV2(uid = "other", name = "Other AI")),

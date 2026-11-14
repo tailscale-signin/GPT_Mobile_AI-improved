@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "33098c8aff56fc48c6719b9aae7a363cdab11e0527a3ad9f4d1c4698f24993aa",
+  "source_digest": "89fa15a30a9d2dab5315e0503e45777e132ff471510ee338e9f3c8f76a7bd65e",
   "file_count": 2566,
-  "indexed_line_count": 410612,
+  "indexed_line_count": 410610,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 544,
-      "indexed_line_count": 94678
+      "indexed_line_count": 94676
     },
     {
       "id": "accessibility_and_localization",
@@ -15368,8 +15368,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLiveCaptions.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "34c0b60f223b5cebeef77e3167ad976a8fdce1d543606cb196673debe6db3fba",
-      "indexed_lines": 130
+      "sha256": "82fda7afb13dcbf012c4a542035feb58df0fc3b74f296491ba795de95a9f6a1e",
+      "indexed_lines": 128
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceNavigation.kt",

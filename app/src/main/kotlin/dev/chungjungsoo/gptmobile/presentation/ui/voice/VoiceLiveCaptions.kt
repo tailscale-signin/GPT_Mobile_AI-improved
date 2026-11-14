@@ -13,7 +13,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
@@ -48,7 +47,6 @@ internal fun VoiceLiveCaptions(state: VoiceState, compact: Boolean, modifier: Mo
 private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, compact: Boolean, modifier: Modifier) {
     val scroll = rememberScrollState()
     val lineHeight = with(LocalDensity.current) { MaterialTheme.typography.bodyLarge.lineHeight.toDp() }
-    val aligned by rememberUpdatedState(spokenRange != null)
     var following by remember(caption.speaker) { mutableStateOf(true) }
     var previousText by remember(caption.speaker) { mutableStateOf("") }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
@@ -82,7 +80,7 @@ private fun VoiceCaptionText(caption: VoiceCaption, spokenRange: IntRange?, comp
         var previousPosition = scroll.value
         snapshotFlow { scroll.value to scroll.maxValue }.collect { (position, maximum) ->
             // Accessibility scroll actions can change ScrollState without a drag callback.
-            if (position < previousPosition && !aligned) following = false
+            if (position < previousPosition) following = false
             if (position >= maximum - 1) following = true
             previousPosition = position
         }

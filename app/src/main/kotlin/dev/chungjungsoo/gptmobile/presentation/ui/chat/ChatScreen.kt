@@ -515,7 +515,7 @@ private fun ChatScreenContent(
     var githubScrollMode by rememberSaveable(chatRoom.id) { mutableStateOf(if (hasTargetMessage) GitHubScrollMode.USER_HISTORY else GitHubScrollMode.FOLLOW_BOTTOM) }
     var promptAnchorRevision by remember(chatRoom.id) { mutableIntStateOf(0) }
     val promptDensity = LocalDensity.current
-    val stableWindowHeight = rememberChatWindowHeight()
+    val stableWindowHeight = if (githubPromptMode) rememberChatWindowHeight() else 0.dp
     val renderedLines = remember(chatRoom.id, newestPromptKey) { GitHubRenderedLines() }
     val touchSlop = androidx.compose.ui.platform.LocalViewConfiguration.current.touchSlop
     val promptAnchor = remember(chatRoom.id, touchSlop) { GitHubPromptAnchor(touchSlop, githubScrollMode) }
@@ -868,7 +868,11 @@ private fun ChatScreenContent(
                         topFade = when {
                             !featureSettings.edgeFades -> 0.dp
                             embeddedHeaderHeight > 0.dp -> gitHubTopFadeHeight(embeddedHeaderHeight.value, stableWindowHeight.value, true).dp
-                            else -> (innerPadding.calculateTopPadding() + 48.dp - viewportHeight * 0.05f + stableWindowHeight * 0.03f).coerceAtLeast(0.dp)
+                            else -> gitHubTopFadeHeight(
+                                (innerPadding.calculateTopPadding() + 48.dp - viewportHeight * 0.05f).value,
+                                stableWindowHeight.value,
+                                true
+                            ).dp
                         },
                         // Content continues behind the composer. Fade it from the top edge
                         // of the input surface to transparent halfway through the bar.

@@ -22,12 +22,12 @@ import com.mikepenz.markdown.annotator.buildMarkdownAnnotatedString
 import com.mikepenz.markdown.compose.LocalMarkdownDimens
 import com.mikepenz.markdown.compose.elements.MarkdownText
 import org.intellij.markdown.ast.ASTNode
-import org.intellij.markdown.flavours.gfm.GFMElementTypes
+import org.intellij.markdown.flavours.gfm.GFMTokenTypes
 
 /** A table's visual line count is its tallest cell, rather than the sum of columns. */
 @Composable
 internal fun MeasuredMarkdownTableRow(content: String, node: ASTNode, width: Dp, style: TextStyle, settings: AnnotatorSettings, header: Boolean = false, firstAppearanceAddsLines: Boolean = true) {
-    val cells = remember(node) { node.children.filter { it.type == GFMElementTypes.TABLE_CELL } }
+    val cells = remember(node) { node.children.filter { it.type == GFMTokenTypes.CELL } }
     val layouts = remember(node.startOffset, width, LocalDensity.current, style.fontSize, style.lineHeight, style.fontFamily, style.fontWeight, style.fontStyle, style.letterSpacing) { mutableMapOf<Int, TextLayoutResult>() }
     val source = content.substring(node.startOffset, node.endOffset)
     val reportLayout = rememberGitHubTableLayout("source:${node.startOffset}:0", node.startOffset, source, firstAppearanceAddsLines)

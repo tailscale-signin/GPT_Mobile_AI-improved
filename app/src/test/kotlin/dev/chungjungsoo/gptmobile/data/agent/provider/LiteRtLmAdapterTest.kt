@@ -75,7 +75,7 @@ class LiteRtLmAdapterTest {
                 scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Ready."), LocalRuntimeEvent.Done))
             }
             val events = adapter(runtime).openSession(
-                turns("Hi"),
+                turns("Use opaque_1 to inspect the repository"),
                 localPlatform(),
                 github + hidden + lookupTool("unrelated_calendar"),
                 advertisedTools = listOf(github.first().definition),
@@ -84,11 +84,11 @@ class LiteRtLmAdapterTest {
             assertEquals(ProviderEvent.Completed, events.last())
             val configured = runtime.createConversationCalls.single()
             if (nativeSupport) {
-                assertEquals(setOf(github.first().definition.name), configured.tools.map { it.name }.toSet())
+                assertEquals(listOf(github.first().definition.name), configured.tools.map { it.name })
             } else {
                 assertTrue(configured.systemPrompt.orEmpty().contains("\"name\":\"${github.first().definition.name}\""))
                 github.drop(1).forEach { tool ->
-                    assertFalse(configured.systemPrompt.orEmpty().contains("\"name\":\"${tool.definition.name}\""))
+                    assertFalse(tool.definition.name, configured.systemPrompt.orEmpty().contains("\"name\":\"${tool.definition.name}\""))
                 }
                 assertTrue(configured.systemPrompt.orEmpty().contains("\"parameters\""))
             }
@@ -121,7 +121,11 @@ class LiteRtLmAdapterTest {
         ).streamRound(emptyList(), emptyList()).toList()
         assertEquals(ProviderEvent.Completed, deferredEvents.last())
         assertTrue(runtime.createConversationCalls.single().tools.isEmpty())
-        assertTrue(runtime.createConversationCalls.single().systemPrompt.orEmpty().contains("Short optional context"))
+        val deferredPrompt = runtime.createConversationCalls.single().systemPrompt.orEmpty()
+        assertTrue(deferredPrompt.contains("Be concise"))
+        github.forEach { tool ->
+            assertFalse(tool.definition.name, deferredPrompt.contains("\"name\":\"${tool.definition.name}\""))
+        }
 
         val blockedRuntime = FakeLocalRuntime().apply {
             capabilities = LocalModelCapabilities(contextTokens = 2048, backends = setOf("gpu"), tools = false)

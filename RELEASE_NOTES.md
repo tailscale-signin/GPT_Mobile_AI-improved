@@ -6,6 +6,8 @@ This release brings together persistent gateway conversations and jobs, more rel
 
 ## November 14 chat, voice, and benchmark follow-up
 
+GitHub motion and voice design follow-up: retain the 3%-of-window header fade and its expanded/collapsed geometry; let deliberate downward input at the bottom reattach chat following even when no more pixels can scroll. A one-line arrival takes 1.5 seconds, while a multiline block takes one second per rendered line. Voice chat gains a themed orbital stage, stable controls and captions, and reliable following of observed speech ranges without font reflow. Gateway conversations include eligible chats before their first successful submission and show their chat mode inside Gateway-tab bubbles. Generic terminal chat reports retain bounded application stack frames and exception type through the existing approved report fields. See the [current repair notes](docs/repairs/github-chat-motion-voice-2026-11-14.md).
+
 GitHub context follow-up: retain the full authorized GitHub inventory for on-demand discovery but admit only the task-sized tool schemas needed for each request, including small local contexts. Prevent initial planning and later tool rounds from reintroducing the full catalog. Regression tests cover the observed 5,632-token route and optional-schema deferral. Exact provider tokenization and physical-device behavior remain to be verified.
 
 Keep the composer focused during background run changes and report bounded keyboard transitions, invalid tool frames, result-budget exhaustion and reasoning-only completion attempts.
@@ -16,7 +18,7 @@ Preserve typed GitHub schema admission and its token budget, retry transient voi
 
 Voice capture and playback report fields require a hosted reporter advertising VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1. Exact caption highlighting requires speech-engine timing for the displayed utterance. The affected phone and private gateway validation policy require live verification.
 
-Increase the GitHub header fade, retain preview activation order, reattach chat follow at the user-reached bottom, and pace new rendered GitHub text at 1.5 seconds per line. Refresh voice presentation with theme-aware captions and observed playback-start feedback. Preserve schema constraints in benchmark requests, select reasoning modes from frozen cases, and distinguish request dispatch, admission and model execution. The [repair audit](docs/repairs/chat-voice-and-report-audit-2026-11-14.md) accounts for the complete supplied diagnostic and benchmark exports.
+Increase the GitHub header fade, retain preview activation order, reattach chat follow at the user-reached bottom, and pace new rendered GitHub text using the single-line/multiline timing above. Refresh voice presentation with theme-aware captions and observed playback-start feedback. Preserve schema constraints in benchmark requests, select reasoning modes from frozen cases, and distinguish request dispatch, admission and model execution. The [earlier repair audit](docs/repairs/chat-voice-and-report-audit-2026-11-14.md) accounts for the complete supplied diagnostic and benchmark exports and records the preceding timing policy.
 
 Move turn-presentation scans out of the large chat composable and enforce the Android compiler's method-size boundary against actual packaged chat and voice methods. Retain a small APK-bound measurement report in CI. Restore redacted benchmark history without recovering credentials or substituting an endpoint, and keep malformed-backup errors free of private payloads.
 

@@ -18,6 +18,9 @@ interface ChatRoomV2Dao : RunPolicySnapshotAccess {
     @Query("SELECT * FROM chats_v2 WHERE is_archived = 0 ORDER BY is_favorite DESC, updated_at DESC LIMIT 200")
     fun observeNavigationChats(): kotlinx.coroutines.flow.Flow<List<ChatRoomV2>>
 
+    @Query("SELECT * FROM chats_v2 WHERE is_archived = 0 ORDER BY is_favorite DESC, updated_at DESC")
+    fun observeUnarchivedChats(): kotlinx.coroutines.flow.Flow<List<ChatRoomV2>>
+
     @Query(
         """SELECT * FROM chats_v2 WHERE is_archived = 0 AND (
             conversation_mode = 'GATEWAY'

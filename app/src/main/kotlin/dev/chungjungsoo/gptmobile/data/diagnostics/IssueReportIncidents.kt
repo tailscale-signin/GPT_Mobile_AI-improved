@@ -237,7 +237,8 @@ internal object IssueReportIncidents {
                 if (lastCauses.size >= 128) lastCauses.remove(lastCauses.minBy { it.value }.key)
                 lastCauses[cause] = now
             }
-            addPending(IssueReport.debug(feature, publicCode, recentEvents(), error, evidence))
+            val report = IssueReport.debug(feature, publicCode, recentEvents(), error, evidence)
+            addPending(if (error == null) report.withCapturedException(fields) else report)
         }
     }
 

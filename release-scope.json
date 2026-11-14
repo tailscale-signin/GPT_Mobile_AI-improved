@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Correct one-line and multiline GitHub follow timing, reattach deliberate bottom-edge input, redesign theme-aware voice presentation with stable observed-range captions, and include gateway-backed chat modes before a successful submission. Preserve bounded sanitized application frames and exception type across terminal Flow failure reporting.",
     "Keep the composer focused during background run changes and report bounded keyboard transitions, invalid tool frames, result-budget exhaustion and reasoning-only completion attempts.",
     "Preserve typed GitHub schema admission and its token budget, retry transient voice audio handoffs once, and add per-pack, capture, playback and caption evidence to approved reports.",
     "Preserve the GitHub tool-schema admission error and its required and available token counts in approved issue reports.",
@@ -2596,6 +2597,10 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBottomIndicatorTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditGitHubContentTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatNavigationTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePluginSetupTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePluginSetupTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayChatNavigation.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayChatNavigationTest.kt",
+    "docs/repairs/github-chat-motion-voice-2026-11-14-task.json",
+    "docs/repairs/github-chat-motion-voice-2026-11-14.md"
   ]
 }

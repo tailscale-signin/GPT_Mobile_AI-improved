@@ -8,6 +8,7 @@ import dev.chungjungsoo.gptmobile.data.network.error.ErrorCategory
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure
 import java.io.File
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -93,6 +94,49 @@ class IssueReportIncidentsTest {
         val raw = IssueReport.json.encodeToString(IssueReport.serializer(), report)
         assertFalse(raw.contains("private microphone request details"))
         assertFalse(raw.contains("PrivateClass"))
+    }
+
+    @Test fun genericTerminalFailurePreservesSanitizedApplicationFramesAcrossTheFlowBoundary() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val error = IllegalArgumentException("PRIVATE_PROMPT https://private.example/token")
+        error.stackTrace = arrayOf(
+            StackTraceElement("dev.chungjungsoo.gptmobile.data.agent.ToolCatalogAdmissionKt", "planAuthorizedToolContext", "PRIVATE_FILE", 77),
+            StackTraceElement("outside.PRIVATE_CLASS", "secret", "PRIVATE_FILE", 1)
+        )
+        val captured = IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_TERMINAL_CATCH)
+        IssueReportIncidents.chatFailure("UNKNOWN", false, null, captured + ("run_id" to "private-run"))
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("CHAT_FAILED", report.errorCode)
+        assertEquals("IllegalArgumentException", report.errorType)
+        assertEquals(listOf("dev.chungjungsoo.gptmobile.data.agent.ToolCatalogAdmissionKt.planAuthorizedToolContext:77"), report.frames)
+        assertEquals(IssueReportContext.exceptionFingerprint(error), report.context?.exceptionFingerprint)
+        assertNull(report.context?.stage)
+        assertNull(report.context?.dispatched)
+        assertNull(report.context?.retryable)
+        val approved = report.approvedPayload()
+        assertFalse(approved.contains("PRIVATE_"))
+        assertFalse(approved.contains("private.example"))
+        assertFalse(approved.contains("exception_application_frames"))
+        assertFalse(approved.contains("exception_report_type"))
+    }
+
+    @Test fun transportedExceptionMetadataCannotPublishArbitraryFrameTextOrUnobservedCaptureSites() {
+        val report = IssueReport.debug(ReportFeature.CHAT, "CHAT_FAILED", emptyList())
+        val fields = mapOf(
+            "incident_capture_site" to "CHAT_REPOSITORY_TERMINAL_CATCH",
+            "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY",
+            "exception_report_type" to "private exception text",
+            "exception_application_frames" to JsonArray(
+                listOf("outside.private.Class.method:1", "https://private.example/token", "dev.melo.gptmobile.Invalid method:3", "dev.melo.gptmobile.Valid.method:42").map(::JsonPrimitive)
+            )
+        )
+        val projected = report.withCapturedException(fields)
+        assertNull(projected.errorType)
+        assertEquals(listOf("dev.melo.gptmobile.Valid.method:42"), projected.frames)
+        assertEquals(report, report.withCapturedException(fields + ("incident_capture_site" to "private-site")))
+        assertEquals(report, report.withCapturedException(fields - "incident_phase_provenance"))
+        val bounded = fields + ("exception_application_frames" to JsonArray((1..40).map { JsonPrimitive("dev.melo.gptmobile.Valid.method:$it") }))
+        assertEquals(8, report.withCapturedException(bounded).frames.size)
     }
 
     @Test

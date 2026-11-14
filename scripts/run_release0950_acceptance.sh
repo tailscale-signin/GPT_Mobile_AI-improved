@@ -131,6 +131,8 @@ set -e
 timeout 10s adb logcat -d > "$acceptance_output/logcat.txt"
 settings_home_artifact_status=0
 timeout 30s adb exec-out run-as dev.melo.gptmobile.improved tar -cf - -C files/ui-review settings-home > "$acceptance_output/settings-home.tar" || settings_home_artifact_status=$?
+voice_artifact_status=0
+timeout 30s adb exec-out run-as dev.melo.gptmobile.improved tar -cf - -C files/ui-review voice-chat > "$acceptance_output/voice-chat.tar" || voice_artifact_status=$?
 adb exec-out run-as dev.melo.gptmobile.improved cat files/acceptance-0950-performance.json > "$acceptance_output/performance.json" || true
 for github_fixture_case in bound-read owned-deletion; do
   adb exec-out run-as dev.melo.gptmobile.improved cat "files/github-$github_fixture_case-evidence.json" > "$acceptance_output/github-$github_fixture_case-evidence.json"
@@ -152,6 +154,7 @@ done
 if [ "$secret_vault_status" -ne 0 ]; then exit "$secret_vault_status"; fi
 if [ "$local_voice_status" -ne 0 ]; then exit "$local_voice_status"; fi
 if [ "$voice_conversation_status" -ne 0 ]; then exit "$voice_conversation_status"; fi
+if [ "$voice_artifact_status" -ne 0 ]; then exit "$voice_artifact_status"; fi
 if [ "$model_source_status" -ne 0 ]; then exit "$model_source_status"; fi
 if [ "$swipe_status" -ne 0 ]; then exit "$swipe_status"; fi
 if [ "$audit_status" -ne 0 ]; then exit "$audit_status"; fi
@@ -193,6 +196,9 @@ for test in (
     'longCaptionsAndLargeTextKeepTheMicrophoneVisibleAndFixed',
     'theProfilePickerChangesProfileOnlyBetweenTurns',
     'accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing',
+    'accessibilityCaptionScrollingPausesObservedRangeFollowingUntilTheReaderReturnsToTheBottom',
+    'correctedCaptionTextKeepsTheReadersPositionAndControlsStable',
+    'themedVoiceStagesRetainRenderedEvidence',
 ):
     check_instrumentation(folder / 'voice-conversation-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest', test)
 for test in (
@@ -267,6 +273,13 @@ with tarfile.open(folder / 'settings-home.tar') as captures:
                 assert member.isfile(), name
                 with captures.extractfile(member) as image:
                     assert image.read(8) == b'\x89PNG\r\n\x1a\n', name
+with tarfile.open(folder / 'voice-chat.tar') as captures:
+    for state in ('listening-dark', 'speaking-light'):
+        name = f'voice-chat/{state}.png'
+        member = captures.getmember(name)
+        assert member.isfile(), name
+        with captures.extractfile(member) as image:
+            assert image.read(8) == b'\x89PNG\r\n\x1a\n', name
 data = json.loads((folder / 'performance.json').read_text())
 assert data['samples'] == 100 and data['representativeDevice'] is False
 assert data['qualification'] == 'measurement_only'

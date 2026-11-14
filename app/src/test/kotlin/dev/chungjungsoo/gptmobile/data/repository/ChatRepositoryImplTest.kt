@@ -152,6 +152,14 @@ class ChatRepositoryImplTest {
             io.mockk.coVerify(exactly = 1) { runs.getByChatId(7) }
             val report = incidents.pending.value.single()
             assertEquals("CHAT_FAILED", report.errorCode)
+            assertEquals("IllegalStateException", report.errorType)
+            assertTrue(report.frames.size in 1..8)
+            assertTrue(report.frames.contains("dev.chungjungsoo.gptmobile.data.repository.ChatRepositoryImpl.preparedCompleteChat:1879"))
+            assertTrue(
+                report.frames.all { frame ->
+                    frame.matches(Regex("(?:dev\\.(?:chungjungsoo|melo)\\.gptmobile)\\.[A-Za-z0-9_.$<>]{1,145}:[0-9]{1,6}"))
+                }
+            )
             val context = requireNotNull(report.context)
             assertEquals(IssueReportContext.identifierHash("run", runId), context.runIdHash)
             assertEquals("OPENROUTER", context.provider)
@@ -178,8 +186,11 @@ class ChatRepositoryImplTest {
             val approved = report.approvedPayload()
             assertFalse(approved.contains("PRIVATE_"))
             assertFalse(approved.contains("private.invalid"))
-            assertFalse(approved.contains("IllegalStateException"))
-            assertFalse(approved.contains("preparedCompleteChat"))
+            assertFalse(approved.contains("private-file"))
+            assertFalse(approved.contains("exception_report_type"))
+            assertFalse(approved.contains("exception_application_frames"))
+            assertTrue(approved.contains("IllegalStateException"))
+            assertTrue(approved.contains("preparedCompleteChat:1879"))
             assertEquals(approved, report.approvedPayload())
         } finally {
             dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(false)

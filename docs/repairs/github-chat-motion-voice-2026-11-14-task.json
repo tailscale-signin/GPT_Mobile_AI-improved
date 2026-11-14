@@ -1,0 +1,98 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
+  "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
+  "source_sha": "4d89a6847feec2d513f9af472f42a7cebbbb7c7f",
+  "pull_request": 1122,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "github-chat-motion-voice-2026-11-14",
+  "state": "PUBLISHING_COMBINED_REPAIR",
+  "intent": [
+    "Review all open issues and branch work",
+    "Verify expanding top fade and +3% screen-height baseline",
+    "Enable bottom-reaching to anchor all chats",
+    "Pace GitHub follow at 1.5 s for one line, 1 s per line for multiline",
+    "Redesign theme-aware voice UI and seamless live captions",
+    "Repair reports or add specific diagnostic evidence, validate, merge, close addressed issues"
+  ],
+  "validation": {
+    "canonical_host_tests": {
+      "passed": 507,
+      "failed": 0
+    },
+    "reporter_contract_tests": {
+      "passed": 97,
+      "failed": 0
+    },
+    "scroll_host_tests": {
+      "passed": 28,
+      "failed": 0,
+      "skipped": 0
+    },
+    "voice_host_tests": {
+      "passed": 13,
+      "failed": 0
+    },
+    "emulator_runner_host_tests": {
+      "passed": 46,
+      "failed": 0
+    },
+    "kotlin_formatting": "PASS",
+    "android_ci": "PENDING",
+    "physical_device": "NOT_RUN"
+  },
+  "intake": {
+    "remote_branches": 748,
+    "branch_heads_reachable_from_main": 384,
+    "active_unmerged_prs": [
+      1122
+    ],
+    "open_issues": 25,
+    "issues": [
+      1101,
+      1102,
+      1103,
+      1104,
+      1105,
+      1106,
+      1107,
+      1108,
+      1109,
+      1110,
+      1111,
+      1112,
+      1113,
+      1114,
+      1115,
+      1116,
+      1117,
+      1118,
+      1119,
+      1120,
+      1121,
+      1123,
+      1124,
+      1125,
+      1126
+    ],
+    "historical_branches": "Retained; no force pushes or deletion. Current repair work is consolidated on PR 1122."
+  },
+  "merge_rules": {
+    "source": "GET /repos/tailscale-signin/GPT_Mobile_AI-improved/rules/branches/main",
+    "ruleset": 27005122,
+    "required_checks": [
+      "Required verification",
+      "Analyze (java-kotlin)"
+    ],
+    "strict": true,
+    "required_approvals": 0,
+    "bypass_actors": []
+  },
+  "reconciled_heads": [
+    "a4581f94e40f106ace5f18bc37bdd6763f7dad4d",
+    "0189cb747b5ca256597ee58f326fbd81162c7efd",
+    "7872874d975858e9cff4232270e873448b18c77f",
+    "4d89a6847feec2d513f9af472f42a7cebbbb7c7f"
+  ]
+}

@@ -179,6 +179,10 @@ internal object IssueReportIncidentCapsule {
         put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
         put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).map(::JsonPrimitive)))
         IssueReportContext.exceptionFingerprint(error)?.let { put("exception_fingerprint", it) }
+        val (type, frames) = IssueReport.exceptionMetadata(error)
+        type?.let { put("exception_report_type", it) }
+        val applicationFrames = frames.filter { it.startsWith("dev.chungjungsoo.gptmobile.") || it.startsWith("dev.melo.gptmobile.") }
+        if (applicationFrames.isNotEmpty()) put("exception_application_frames", JsonArray(applicationFrames.map(::JsonPrimitive)))
     }
 
     fun fieldsFor(area: String): Set<String> = common + when (area) {

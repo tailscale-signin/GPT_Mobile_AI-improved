@@ -1204,7 +1204,8 @@ internal fun ChatListItem(
     rowActions: Map<String, () -> Unit> = emptyMap(),
     compact: Boolean = false,
     animateStatus: Boolean = true,
-    workProgress: ConversationWorkProgress? = null
+    workProgress: ConversationWorkProgress? = null,
+    showGatewayMode: Boolean = false
 ) {
     var menuOpen by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     val interaction = remember { MutableInteractionSource() }
@@ -1294,7 +1295,12 @@ internal fun ChatListItem(
                             }
                         }
                         if (isGateway) {
-                            GatewayConversationIcon(isGenerating, hasUnreadResponse, animate = motionEnabled)
+                            GatewayConversationIcon(
+                                isGenerating,
+                                hasUnreadResponse,
+                                animate = motionEnabled,
+                                conversationType = conversationType(chatRoom, isResearch, isGitHub).takeIf { showGatewayMode }
+                            )
                         } else {
                             ConversationModeSymbol(chatRoom, isResearch, hasUnreadResponse, isGitHub)
                         }

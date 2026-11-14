@@ -198,7 +198,7 @@ class DiagnosticIncidentClassificationTest {
 
     @Test fun commandReceipt404RemainsUnknownAndDistinguishesAnObservedGatewayResponse() {
         val missing = "ADMISSION_READ · surface=COMMAND · httpStatus=404 · code=COMMAND_RECEIPT_UNAVAILABLE"
-        val knownRoute = classifyDiagnostic("W", "Gateway", "$missing · codeSource=GATEWAY · dependentDispatch=UNKNOWN")
+        val knownRoute = classifyDiagnostic("W", "Gateway", "ADMISSION_READ · surface=COMMAND · httpStatus=404 · code=command_receipt_unavailable · codeSource=GATEWAY · dependentDispatch=UNKNOWN")
         assertEquals("gateway_command_reconciliation", knownRoute.category)
         assertFalse(knownRoute.actionable)
         assertTrue(classifyDiagnostic("W", "Gateway", "$missing · codeSource=HTTP_STATUS · dependentDispatch=UNKNOWN").actionable)

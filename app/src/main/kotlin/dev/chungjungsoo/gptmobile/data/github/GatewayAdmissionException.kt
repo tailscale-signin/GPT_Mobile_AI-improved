@@ -151,16 +151,19 @@ private val admissionReasons = mapOf(
 
 internal fun safeGatewayAdmissionCode(value: String?): String? = value?.takeIf { it.length <= 80 && it in admissionReasons }
 
+internal fun gatewayAdmissionWireCode(value: String?, status: Int, surface: GatewayAdmissionSurface, directModelServer: Boolean): String? =
+    safeGatewayAdmissionCode(value)?.takeUnless {
+        it == "command_receipt_unavailable" && (status != 404 || surface != GatewayAdmissionSurface.COMMAND || directModelServer)
+    }
+
 /** The header is authoritative when admitted; no arbitrary server message or raw cause is retained. */
 internal fun gatewayAdmissionFailure(status: Int, surface: GatewayAdmissionSurface, headerCode: String?, boundedBody: String? = null, directModelServer: Boolean = false): GatewayAdmissionException {
-    val code = safeGatewayAdmissionCode(headerCode) ?: boundedBody?.takeIf { it.toByteArray(Charsets.UTF_8).size <= 16 * 1024 }?.let { body ->
+    val code = gatewayAdmissionWireCode(headerCode, status, surface, directModelServer) ?: boundedBody?.takeIf { it.toByteArray(Charsets.UTF_8).size <= 16 * 1024 }?.let { body ->
         val root = runCatching { Json.parseToJsonElement(body) as? JsonObject }.getOrNull()
         val error = root?.get("error") as? JsonObject ?: root?.get("detail") as? JsonObject ?: root
-        safeGatewayAdmissionCode((error?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull)
+        gatewayAdmissionWireCode((error?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull, status, surface, directModelServer)
     }
-    val reason = admissionReasons[code]?.takeUnless {
-        it == GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE && (status != 404 || surface != GatewayAdmissionSurface.COMMAND)
-    } ?: when (status) {
+    val reason = admissionReasons[code] ?: when (status) {
         404 -> if (surface == GatewayAdmissionSurface.COMMAND) GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE else GatewayAdmissionReason.UNSUPPORTED_CONTRACT
         405, 501 -> GatewayAdmissionReason.UNSUPPORTED_CONTRACT
         410 -> GatewayAdmissionReason.CURSOR_EXPIRED

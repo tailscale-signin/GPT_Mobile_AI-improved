@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "8b6d8f7e0bc428ec484cc17c9a629064809da7bd1d3e2d5ab3e47434d92b9478",
+  "source_digest": "ac84454b30bf0aacb767e7a171eca35482b48b2b4e681fdffa715890c3fba91b",
   "file_count": 2535,
-  "indexed_line_count": 406994,
+  "indexed_line_count": 406997,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 222,
-      "indexed_line_count": 36941
+      "indexed_line_count": 36944
     },
     {
       "id": "research",
@@ -6205,8 +6205,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayAdmissionException.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "7fe248b51b378d1ff901faef0772791a37142e169d84a4bcd5c53a2e005e6c79",
-      "indexed_lines": 178
+      "sha256": "a950ea8355816f913a19a7f15a22afb1933d859fdf3c8da67f4c66b69bc2609a",
+      "indexed_lines": 181
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayChatCreator.kt",
@@ -6359,7 +6359,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayJobClient.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "a1aeaac058f79208ca8f43a78e0c5197b8c3873a06f8738710e5bbd28f769d24",
+      "sha256": "a72fd076c4c289c62763c0210703d811dc48d19b20ecae9818908cd69d66c16d",
       "indexed_lines": 366
     },
     {

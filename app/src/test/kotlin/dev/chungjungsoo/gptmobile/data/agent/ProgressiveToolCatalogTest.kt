@@ -90,6 +90,20 @@ class ProgressiveToolCatalogTest {
         }
     }
 
+    @Test fun githubModeRetainsAuthorizedInventoryWithoutMountingEveryOperation() = runTest {
+        val operations = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) }
+        val catalog = ProgressiveToolCatalog(operations, "List GitHub issues and inspect PR checks", githubMode = true)
+        val initial = catalog.selected(operations + catalog.definition).map { it.name }
+        assertTrue("Initial GitHub context missing: $initial", "github_context" in initial)
+        assertFalse("Write schemas should be deferred: $initial", "github_write" in initial)
+        assertTrue(initial.size < operations.size + 1)
+        val discovery = catalog.execute("need-write", buildJsonObject {
+            put("names", JsonArray(listOf(JsonPrimitive("github_write"))))
+        })
+        assertFalse(discovery.isError)
+        assertTrue(catalog.selected(operations + catalog.definition).any { it.name == "github_write" })
+    }
+
     private val tools = (1..80).map { AgentToolDefinition("task_$it", "Task $it", JsonObject(emptyMap())) }
 
     @Test fun healthSeparatesUnknownFromFailureAndExpiresObservationsWhenContractChanges() = runTest {

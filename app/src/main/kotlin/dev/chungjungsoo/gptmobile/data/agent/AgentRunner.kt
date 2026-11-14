@@ -54,7 +54,7 @@ data class AgentRunLimits(
     val detectRepetition: Boolean = false,
     val researchAcquisition: Boolean = false,
     val githubTask: Boolean = false,
-    /** GitHub workspace execution always exposes the complete authorized GitHub catalog. */
+    /** GitHub retains its full authorized inventory but advertises fitting schemas per round. */
     val githubMode: Boolean = false,
     /** Optional objective for reading a saved batch; this is not an end-to-end recovery target. */
     val checkpointRestoreObjective: CheckpointRestoreObjective? = null,
@@ -1180,7 +1180,7 @@ class AgentRunner(
         val selected = selectDefinitions(definitions)
         if (!limits.githubMode) return selected
         val authorized = definitions.filter { it.modelVisible }.associateBy { it.name }
-        return (authorized.values.filter { ProgressiveToolCatalog.isGitHubTool(it) } + selected.mapNotNull { authorized[it.name] }).distinctBy { it.name }
+        return selected.mapNotNull { authorized[it.name] }.distinctBy { it.name }
     }
 
     /** Dynamic discovery has an independent coroutine to stay below ART's method-size ceiling. */

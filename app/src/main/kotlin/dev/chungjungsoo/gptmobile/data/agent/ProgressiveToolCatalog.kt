@@ -9,7 +9,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-/** Selects authorized schemas per run; engineering tasks retain the full GitHub catalogue. */
+/** Selects fitting GitHub schemas per round while preserving the authorized discovery inventory. */
 class ProgressiveToolCatalog(
     definitions: List<AgentToolDefinition>,
     task: String,
@@ -56,7 +56,10 @@ class ProgressiveToolCatalog(
             // unrelated write/source/indexing schemas need not enter this prompt.
             window(taskRequired)
         } else if (githubUpfront) {
-            candidates.values.filter(::isGitHubTool) + window(taskRequired)
+            window(taskRequired + ranked(task).filter {
+                (initialNames == null || it.name in initialNames) &&
+                    dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
+            })
         } else {
             window(taskRequired + ranked(task).filter { (initialNames == null || it.name in initialNames) && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering })
         }
@@ -180,8 +183,7 @@ class ProgressiveToolCatalog(
     fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> {
         val definitions = allowed.filter { it.modelVisible }.associateBy { it.name }
         // Preserve task/discovery priority when the outer context planner has less room.
-        val githubNames = if (githubUpfront) definitions.values.filter(::isGitHubTool).map { it.name } else emptyList()
-        return (githubNames + active + NAME).distinct().mapNotNull(definitions::get)
+        return (active + NAME).distinct().mapNotNull(definitions::get)
     }
 
     /** Reflect trusted execution wrappers without adding names or changing discovery selection. */
@@ -220,10 +222,8 @@ class ProgressiveToolCatalog(
         if (existing != null && existing != definition) return false
         candidates[definition.name] = definition
         val explicitRequired = explicitlyRequiredToolNames(taskText, candidates.keys).mapNotNull { candidates[resolveName(it)] }
-        val selected = (
-            (if (githubUpfront) candidates.values.filter(::isGitHubTool) else emptyList()) +
-                window(explicitRequired + taskRequired + definition + active.mapNotNull(candidates::get))
-            ).distinctBy { it.name }
+        val selected = window(explicitRequired + definition + taskRequired + active.mapNotNull(candidates::get))
+            .distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })
         if (definition.name in active) discovered.add(definition.name)
@@ -499,7 +499,7 @@ class ProgressiveToolCatalog(
                         put(
                             "mount_policy",
                             if (githubUpfront) {
-                                "AUTHORIZED_GITHUB_UPFRONT"
+                                "AUTHORIZED_GITHUB_ON_DEMAND"
                             } else if (scopedGitHubStatus) {
                                 "SCOPED_GITHUB_STATUS"
                             } else {
@@ -525,7 +525,8 @@ class ProgressiveToolCatalog(
         }
         val explicit = names.mapNotNull(candidates::get) + listOfNotNull(exact)
         val retained = ranked(taskText).filter { it.name in active }
-        val selected = ((if (githubUpfront) candidates.values.filter(::isGitHubTool) else emptyList()) + window(explicit + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))).distinctBy { it.name }
+        val selected = window(explicit + pinned + found + taskRequired + retained + active.mapNotNull(candidates::get))
+            .distinctBy { it.name }
         active.clear()
         active.addAll(selected.map { it.name })
         val admitted = found.filter { it.name in active }
@@ -549,7 +550,7 @@ class ProgressiveToolCatalog(
             put(
                 "required_schema_policy",
                 if (githubUpfront) {
-                    "AUTHORIZED_GITHUB_AND_RECOVERY_SCHEMAS_UPFRONT"
+                    "GITHUB_OPERATION_SCHEMAS_ON_DEMAND"
                 } else if (scopedGitHubStatus) {
                     "SCOPED_GITHUB_STATUS_WITH_AUTHORIZED_DISCOVERY"
                 } else {
@@ -590,9 +591,7 @@ class ProgressiveToolCatalog(
         val selected = mutableListOf<AgentToolDefinition>()
         omissions.clear()
         for (tool in (listOfNotNull(candidates["read_recovery_context"]) + ordered).distinctBy { it.name }) {
-            // Mandatory GitHub schemas are admitted against the actual provider context,
-            // never the optional progressive count/token window.
-            if (githubUpfront && isGitHubTool(tool)) continue
+            // GitHub and other schemas obey the same bounded selection window.
             val cost = schemaTokens(tool)
             val reason = when {
                 cost + 256 > schemaAllowance -> "SCHEMA_TOO_LARGE"

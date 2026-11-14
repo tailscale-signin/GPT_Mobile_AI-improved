@@ -57,16 +57,13 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
     val budget = GitHubSchemaBudget(limits.contextTokens, base + replayTokens, limits.finalResponseReserveTokens, minOf(256, limits.contextTokens / 16))
     var remaining = budget.available
-    val github = visible.filter {
-        limits.githubMode &&
-            ProgressiveToolCatalog.isGitHubTool(it) ||
-            (limits.githubMode || limits.githubTask) &&
-            it.name == "read_recovery_context"
-    }
-    val requiredSchemaTokens = github.sumOf { providerSchemaTokens(it, limits.githubMode) }
+    // Only the recovery reader is mandatory every round. The full GitHub
+    // inventory remains authorized, but optional operations are staged on demand.
+    val required = visible.filter { (limits.githubMode || limits.githubTask) && it.name == "read_recovery_context" }
+    val requiredSchemaTokens = required.sumOf { providerSchemaTokens(it, limits.githubMode) }
     if (requiredSchemaTokens > remaining) throw GitHubToolContextBudgetException(requiredSchemaTokens, remaining, budget)
     remaining -= requiredSchemaTokens
-    val requiredNames = github.mapTo(hashSetOf()) { it.name }
+    val requiredNames = required.mapTo(hashSetOf()) { it.name }
     // Preserve a path to the rest of the authorized catalog when a large optional
     // schema consumes the remaining round budget. The returned order stays stable.
     val discovery = visible.firstOrNull { it.name == ProgressiveToolCatalog.NAME }
@@ -121,15 +118,18 @@ internal fun planAuthorizedToolContext(
         } + recovery
         ).distinctBy { it.name }
     val catalog = if (externalTools) existingCatalog ?: if (limits.adaptiveToolCatalog || scopedGitHubStatus) ProgressiveToolCatalog.create(definitions, task, githubMode = effectiveGitHubMode) else null else null
-    val githubSchemas = if (fullGitHubCatalog) definitions.filter { it.modelVisible && ProgressiveToolCatalog.isGitHubTool(it) } else emptyList()
-    val advertised = (githubSchemas + required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
-    val requestedGitHubOperations = if (requireToolExecution) dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) else emptySet()
-    val requiredGitHubSchemas = if (fullGitHubCatalog) {
-        githubSchemas
-    } else {
-        advertised.filter { definition ->
-            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
+    val advertised = (required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
+    // Pin the immediate status/context read, not every operation mentioned in
+    // a multi-step engineering task. Remaining schemas are discoverable later.
+    val requiredGitHubSchemas = when {
+        !requireToolExecution -> emptyList()
+        scopedGitHubStatus -> advertised.filter {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in setOf("github_context", "github_pr")
         }
+        fullGitHubCatalog -> advertised.filter {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_context"
+        }.take(1)
+        else -> emptyList()
     }
     val pinnedSchemas = (requiredGitHubSchemas + required).distinctBy { it.name }
     val normalized = limits.normalized()

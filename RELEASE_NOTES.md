@@ -6,6 +6,8 @@ This release brings together persistent gateway conversations and jobs, more rel
 
 ## November 14 chat, voice, and benchmark follow-up
 
+GitHub context follow-up: retain the full authorized GitHub inventory for on-demand discovery but admit only the task-sized tool schemas needed for each request, including small local contexts. Prevent initial planning and later tool rounds from reintroducing the full catalog. Regression tests cover the observed 5,632-token route and optional-schema deferral. Exact provider tokenization and physical-device behavior remain to be verified.
+
 Keep the composer focused during background run changes and report bounded keyboard transitions, invalid tool frames, result-budget exhaustion and reasoning-only completion attempts.
 
 The new keyboard and completion diagnostics require a hosted reporter advertising COMPOSER_IME_EVIDENCE_V1 and COMPLETION_EVIDENCE_V1. Confirm keyboard behavior on the affected Android device and empty model responses on the original route.

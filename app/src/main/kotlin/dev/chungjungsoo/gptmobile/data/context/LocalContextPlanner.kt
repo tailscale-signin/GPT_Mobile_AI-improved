@@ -24,12 +24,12 @@ internal data class LocalContextPlan(
  * Estimates are deliberately conservative; only the native tokenizer is authoritative.
  */
 internal object LocalContextPlanner {
-    /** Ordinary chats honor discovery; GitHub mode retains every authorized visible GitHub schema. */
+    /** Respect the advertised subset even for GitHub chats on local models. */
     fun advertisedToolNames(authorized: List<AgentToolDefinition>, advertised: List<AgentToolDefinition>?, discovered: List<AgentToolDefinition>? = null, githubMode: Boolean = false): Set<String> {
         val allowed = authorized.mapTo(hashSetOf()) { it.name }
         val selected = advertised ?: discovered ?: authorized.filter { it.modelVisible }
         require(selected.all { it.name in allowed }) { "Local advertised catalog contains an unauthorized tool" }
-        return selected.mapTo(linkedSetOf()) { it.name } + githubToolNames(authorized, githubMode)
+        return selected.mapTo(linkedSetOf()) { it.name }
     }
 
     fun plan(
@@ -215,9 +215,17 @@ internal object LocalContextPlanner {
         }
         val requestedGitHubOperations = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(prompt)
         if (requestedGitHubOperations.isNotEmpty()) {
+            // Multi-step task descriptions are not a demand to pre-admit every
+            // later write, CI, search and read schema on this initial turn.
+            val immediate = if (githubMode) {
+                val specific = requestedGitHubOperations.firstOrNull {
+                    it !in setOf("github_context", "github_search", "github_read", "github_stage_patch", "github_commit", "github_write", "github_watch_checks")
+                }
+                (listOf("github_context") + listOfNotNull(specific)).toSet()
+            } else requestedGitHubOperations
             tools.forEach { tool ->
                 val operation = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool.name)
-                if (operation in requestedGitHubOperations) required += tool.name
+                if (operation in immediate) required += tool.name
             }
         }
         if (Regex("nearby|nearest|closest|my location|current location").containsMatchIn(lower)) select("device_location")
@@ -255,7 +263,10 @@ internal object LocalContextPlanner {
     }
 
     private fun githubToolNames(tools: List<AgentToolDefinition>, githubMode: Boolean): Set<String> =
-        if (githubMode) tools.filter { it.modelVisible && ProgressiveToolCatalog.isGitHubTool(it) }.mapTo(linkedSetOf()) { it.name } else emptySet()
+        if (githubMode) tools.filter {
+            it.modelVisible && (it.name == "read_recovery_context" ||
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_context")
+        }.mapTo(linkedSetOf()) { it.name } else emptySet()
 
     internal fun isToolFollowUp(prompt: String): Boolean = prompt.trim().lowercase().let { text ->
         text.length <= 160 &&

@@ -12,43 +12,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalContextPlannerTest {
-    @Test fun githubModeRestoresEveryVisibleAuthorizedSchemaFromAnUpstreamDiscoverySubset() {
+    @Test fun githubModeHonorsUpstreamSubsetRatherThanRestoringEveryTool() {
         val github = (1..10).map { AgentToolDefinition("opaque_alias_$it", "Repository action", buildJsonObject {}, capabilities = setOf(AgentToolCapability.GITHUB)) } +
             AgentToolDefinition("github_read", "Native read", buildJsonObject {}) +
             AgentToolDefinition("repository_graph__local", "Graph", buildJsonObject {})
         val hidden = github.first().copy(name = "hidden_legacy", modelVisible = false)
         val other = AgentToolDefinition("unrelated_calendar", "Calendar", buildJsonObject {})
-        val definitions = github + hidden + other
-        val selected = LocalContextPlanner.advertisedToolNames(definitions, emptyList(), githubMode = true)
-        assertEquals(github.map { it.name }.toSet(), selected)
+        val discovery = AgentToolDefinition("discover_available_tools", "Discover authorized capabilities", buildJsonObject {})
+        val definitions = github + hidden + other + discovery
+        val selected = LocalContextPlanner.advertisedToolNames(definitions, listOf(github.first(), discovery), githubMode = true)
+        assertEquals(setOf(github.first().name, discovery.name), selected)
         assertTrue(LocalContextPlanner.advertisedToolNames(definitions, emptyList()).isEmpty())
         assertThrows(IllegalArgumentException::class.java) {
             LocalContextPlanner.advertisedToolNames(definitions, listOf(other.copy(name = "unauthorized")), githubMode = true)
         }
-        val required = LocalContextPlanner.requiredToolNames("Hi", definitions, githubMode = true)
-        assertEquals(selected, required)
-        assertEquals(selected, LocalContextPlanner.relevantTools("Hi", definitions, githubMode = true).map { it.name }.toSet())
-        val plan = LocalContextPlanner.plan(emptyList(), "Hi", "", definitions.filter { it.name in selected }, 8192, 1024, githubMode = true)
-        assertEquals(selected, plan.tools.map { it.name }.toSet())
-        assertTrue(plan.toolSelectionReasons.values.all { it == "required_github_mode" })
+        assertTrue(LocalContextPlanner.requiredToolNames("Hi", definitions, githubMode = true).isEmpty())
+        val plan = LocalContextPlanner.plan(emptyList(), "Inspect GitHub tools", "", definitions.filter { it.name in selected }, 8192, 1024, githubMode = true)
+        assertTrue(plan.tools.any { it.name == discovery.name })
+        assertFalse(plan.tools.any { it.name == "github_read" })
     }
 
-    @Test fun githubModeReservesTheCompleteRenderedCatalogAndRejectsInsufficientContext() {
+    @Test fun optionalGithubSchemasAreDeferredWhileOversizedRequiredContextFails() {
         val tools = (1..12).map { AgentToolDefinition("opaque_$it", "Action", buildJsonObject {}, capabilities = setOf(AgentToolCapability.GITHUB)) }
         for (renderer in listOf<((List<AgentToolDefinition>) -> String)?>(null, { selected -> "complete schema ".repeat(selected.size * 150) })) {
             val oversized = if (renderer == null) tools.map { it.copy(description = "Complete schema ".repeat(150)) } else tools
-            val error = assertThrows(GitHubToolContextBudgetException::class.java) {
-                LocalContextPlanner.plan(emptyList(), "Hi", "", oversized, 4096, 1024, renderToolPrompt = renderer, githubMode = true)
-            }
-            assertTrue(error.requiredSchemaTokens > error.availableSchemaTokens)
-            assertTrue(error.availableSchemaTokens >= 0)
+            val plan = LocalContextPlanner.plan(emptyList(), "Hi", "", oversized, 4096, 1024, renderToolPrompt = renderer, githubMode = true)
+            assertTrue("Optional GitHub schemas were forced into a greeting", plan.tools.isEmpty())
         }
+        val required = AgentToolDefinition("github_context", "Complete schema ".repeat(500), buildJsonObject {})
+        val error = assertThrows(GitHubToolContextBudgetException::class.java) {
+            LocalContextPlanner.plan(emptyList(), "Inspect GitHub context", "", listOf(required), 4096, 1024, githubMode = true)
+        }
+        assertTrue(error.requiredSchemaTokens > error.availableSchemaTokens)
+        assertTrue(error.availableSchemaTokens >= 0)
         val ordinary = LocalContextPlanner.plan(emptyList(), "Hi", "", tools, 4096, 1024)
         assertTrue(ordinary.tools.isEmpty())
     }
 
     @Test fun mandatoryGithubSchemasDoNotHideTheTaskNeededForAContinuation() {
-        val tool = AgentToolDefinition("opaque", "Action", buildJsonObject {}, capabilities = setOf(AgentToolCapability.GITHUB))
+        val tool = AgentToolDefinition("github_context", "Action", buildJsonObject {}, capabilities = setOf(AgentToolCapability.GITHUB))
         val unrelated = turn("irrelevant ".repeat(32))
         val goal = turn("Review deployment ".repeat(12))
         val plan = LocalContextPlanner.plan(

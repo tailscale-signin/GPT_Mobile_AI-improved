@@ -8,7 +8,13 @@ This release brings together persistent gateway conversations and jobs, more rel
 
 Increase the GitHub header fade, retain preview activation order, reattach chat follow at the user-reached bottom, and pace new rendered GitHub text at 1.5 seconds per line. Refresh voice presentation with theme-aware captions and observed playback-start feedback. Preserve schema constraints in benchmark requests, select reasoning modes from frozen cases, and distinguish request dispatch, admission and model execution. The [repair audit](docs/repairs/chat-voice-and-report-audit-2026-11-14.md) accounts for the complete supplied diagnostic and benchmark exports.
 
+Move turn-presentation scans out of the large chat composable and enforce the Android compiler's method-size boundary against actual packaged chat and voice methods. Retain a small APK-bound measurement report in CI. Restore redacted benchmark history without recovering credentials or substituting an endpoint, and keep malformed-backup errors free of private payloads.
+
+For reports #1090 and #1091, retain capacity provenance and numeric input components before admission rejects, preserve the resolved output allowance, and show guidance based on remaining context headroom. Preserve explicit conversation rejection evidence and add bounded pending-tool state, identity hash and handoff sequence without granting ownership or replay authority.
+
 The November 14 chat and voice follow-up requires physical-device gesture, layout, audio and frame-time acceptance. Preparing-voice reports require a hosted reporter advertising VOICE_PLAYBACK_PHASE_V1. Private gateway/model availability and historical incidents with missing receipts remain dependent on live evidence; host and CI checks do not establish those outcomes.
+
+The November 14 capacity/conflict follow-up requires matching gateway and hosted reporter capabilities CAPACITY_ADMISSION_EVIDENCE_V1 and CONVERSATION_CONFLICT_EVIDENCE_V1. The original private requests and affected-device performance are not qualified by diagnostic or host regressions.
 
 ## November 13 interface, voice, and audit updates
 

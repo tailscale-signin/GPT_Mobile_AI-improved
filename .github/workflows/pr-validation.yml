@@ -219,8 +219,18 @@ jobs:
           python3 scripts/check_no_telemetry.py app/build/outputs/apk/debug/*.apk
           python3 scripts/check_apk_size.py app/build/outputs/apk/debug --build-type debug --report apk-size-report.json
           for apk in app/build/outputs/apk/debug/*.apk; do
+            python3 scripts/check_chat_method_size.py "$apk" --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
             python3 scripts/check_research_dispatch_size.py "$apk"
           done
+
+      - name: Retain packaged chat and voice method sizes
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          retention-days: 14
+          name: chat-method-sizes-validation-${{ github.sha }}
+          path: build/reports/chat-method-size/*.json
+          if-no-files-found: warn
 
       - name: Upload review APK
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

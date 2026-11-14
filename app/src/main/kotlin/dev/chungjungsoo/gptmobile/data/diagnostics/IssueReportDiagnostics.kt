@@ -40,6 +40,8 @@ internal data class IssueReportDiagnostics(
     }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values.keys + omittedFields).any { it in capacityEvidenceFields }) add("CAPACITY_ADMISSION_EVIDENCE_V1")
+        if ((values.keys + omittedFields).any { it in conflictEvidenceFields } || values["conflict_pending_tool_count"] == JsonPrimitive(0)) add("CONVERSATION_CONFLICT_EVIDENCE_V1")
         if (values["voice_phase"] == JsonPrimitive("PREPARING")) add("VOICE_PLAYBACK_PHASE_V1")
         if ((values.keys + omittedFields).any { it in admissionFields }) add("ADMISSION_DIAGNOSTICS_V1")
         if ((values.keys + omittedFields).any { it in reconciliationFields } || (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in reconciliationCodes) {
@@ -76,6 +78,30 @@ internal data class IssueReportDiagnostics(
     }
 
     companion object {
+        private val capacityCeilingFields = setOf(
+            "admission_route_context_tokens",
+            "admission_configured_context_tokens",
+            "admission_catalog_context_tokens",
+            "admission_input_ceiling_tokens",
+            "admission_output_ceiling_tokens"
+        )
+        private val capacityEvidenceCounts = capacityCeilingFields + setOf(
+            "admission_system_tokens",
+            "admission_history_tokens",
+            "admission_current_request_tokens",
+            "admission_tool_result_tokens",
+            "admission_response_schema_tokens",
+            "admission_envelope_tokens",
+            "admission_capacity_age_ms"
+        )
+        internal val capacityEvidenceFields = capacityEvidenceCounts + "admission_capacity_provenance"
+        private val conflictEvidenceFields = setOf(
+            "conflict_active_job_provenance",
+            "conflict_pending_tool_state",
+            "conflict_pending_tool_ids_hash",
+            "conflict_handoff_sequence",
+            "conflict_stream_job_relation"
+        )
         private val conflictFields = setOf("conflict_active_job_kind", "conflict_conversation_revision", "conflict_pending_tool_count", "conflict_conversation_hash", "github_cooldown_stop")
         private val transportFields = setOf("github_transport_read_attempts", "github_transport_unanswered_reads", "github_transport_http_responses")
         private val capacityDetailFields = setOf("admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens")
@@ -126,7 +152,7 @@ internal data class IssueReportDiagnostics(
         )
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
         private val hashFields = commonHashes + setOf(
-            "reasoning_template_hash", "conflict_conversation_hash",
+            "reasoning_template_hash", "conflict_conversation_hash", "conflict_pending_tool_ids_hash",
             "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash",
             "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash", "operation_id_hash"
         )
@@ -148,7 +174,7 @@ internal data class IssueReportDiagnostics(
             "voice_response_to_first_audio_ms",
             "voice_warmup_ms"
         )
-        private val counts = setOf(
+        private val counts = capacityEvidenceCounts + setOf(
             "reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total",
             "acceptance_unresolved_claim_count", "acceptance_pending_remote_continuations", "conflict_conversation_revision",
             "github_transport_read_attempts", "github_transport_unanswered_reads", "github_transport_http_responses",
@@ -164,6 +190,10 @@ internal data class IssueReportDiagnostics(
         )
         private val finishReasons = setOf("STOP", "TOOL_CALLS", "LENGTH", "CONTENT_FILTER", "OTHER", "UNKNOWN")
         private val enums = mapOf(
+            "admission_capacity_provenance" to setOf("VERIFIED_ROUTE", "DECLARED", "CONSERVATIVE_POLICY", "UNKNOWN"),
+            "conflict_active_job_provenance" to setOf("CONVERSATION_ACTIVE_JOB", "UNREPORTED"),
+            "conflict_pending_tool_state" to setOf("IDENTIFIED", "MISSING", "EMPTY", "INVALID", "UNAVAILABLE", "NOT_REPORTED"),
+            "conflict_stream_job_relation" to setOf("MATCHES_VERIFIED_STREAM_JOB", "DIFFERS_VERIFIED_STREAM_JOB", "NO_VERIFIED_STREAM_JOB", "ACTIVE_JOB_NOT_REPORTED"),
             "gateway_validation_policy_state" to setOf("NOT_CONFIGURED", "MISSING_OR_OVERSIZED", "REPOSITORY_UNCONFIGURED", "INVALID_DOCUMENT", "INVALID_ENTRY", "UNREADABLE", "VALIDATED"),
             "admission_measurement" to setOf("SERVING_TOKENIZER", "UTF8_ESTIMATE"),
             "admission_dominant_component" to setOf("tool_schemas", "system_instructions", "retained_history", "tool_results", "current_request", "response_schema", "serialization_and_template_estimate", "attachments"),
@@ -243,7 +273,7 @@ internal data class IssueReportDiagnostics(
             "gateway_model_state", "gateway_failure_category", "gateway_dependency", "gateway_upstream_status", "gateway_upstream_message_code", "gateway_reconciliation_status"
         )
         private val fieldsByArea = mapOf(
-            "PROVIDER" to conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
+            "PROVIDER" to capacityEvidenceFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
                 "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash",
                 "provider_failure_stage", "provider_failure_domain", "provider_failure_code",
                 "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections",
@@ -386,7 +416,9 @@ internal data class IssueReportDiagnostics(
                 "backend_terminal_status", "gateway_http_status", "gateway_upstream_status", "gateway_reconciliation_status" -> 100L..599L
                 "gateway_protocol_version" -> 1L..1000L
                 "model_preparation_load_requests" -> 0L..1L
-                "conflict_pending_tool_count" -> 1L..128L
+                "conflict_pending_tool_count" -> 0L..128L
+                "conflict_handoff_sequence" -> 1L..16_000_000L
+                in capacityCeilingFields -> 1L..16_000_000L
                 in attempts -> 0L..10_000L
                 in durations -> 0L..86_400_000L
                 in counts -> 0L..16_000_000L

@@ -82,7 +82,9 @@ data class BenchmarkBatch(
     val executionPolicy: BenchmarkExecutionPolicy? = null,
     val fixtureRotationSeed: Long? = null,
     val caseManifest: List<BenchmarkCase>? = null,
-    val audit: AppAuditRun? = null
+    val audit: AppAuditRun? = null,
+    /** Imported route identity is unknown; starting a new batch accepts current settings. */
+    val redactedEndpointProfileUids: Set<String> = emptySet()
 ) {
     val pending: List<BenchmarkQueueItem> get() = items.filter { it.state == BenchmarkQueueState.QUEUED }
     val handled: Int get() = items.count { it.terminal }

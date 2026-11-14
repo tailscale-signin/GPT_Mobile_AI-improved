@@ -117,6 +117,109 @@
         "failure": "KAPT stub generation exhausted the Java heap after KSP in the same default 3 GiB process",
         "repair": "Run KSP and KAPT in separate sequential processes; preserve repository memory defaults, one worker, deadlines and required checks; retain separate logs"
       }
+    },
+    "hosted_iteration_2": {
+      "sha": "000c0c0fd1a694431f5bf0a47ac037c18c2d8f0f",
+      "audit_run": 43552301288,
+      "audit_test_artifact": 14098320163,
+      "audit_artifact_sha256": "ab4d9bf1ae2fb8012bfb60232bef79f6767bb4b9701344ed37262e30b2566f4e",
+      "tests": 10219,
+      "failures": 6,
+      "errors": 0,
+      "skipped": 5,
+      "source_generation_and_production_compilation": "PASSED",
+      "lint_isolated_generation": "PASSED with unchanged repository heap defaults",
+      "codeql": "PASSED",
+      "emulators": {
+        "api34": "PASSED; three new voice cases executed",
+        "api36": "PASSED; three new voice cases executed"
+      },
+      "failed_cases": [
+        "BenchmarkLlamaReasoningTest.deterministicQuickDoesNotRequireTheUnusedSavedOnMode",
+        "BenchmarkStoreTest.completeBackupRestoresQueueOrderAndDoesNotResumeDispatchedAttempts",
+        "GitHubLineAutoScrollerTest.paragraphInsertedBelowTheViewportIsMeasuredAndGetsItsCompleteReadingBudget",
+        "GitHubLiveProgressTest.updatedCounterBecomesActiveBelowItsImmediatePredecessor",
+        "GitHubRenderedLinesLayoutTest.wrappingAndSimultaneousWiderWindowUseActualTextLayoutResults",
+        "BenchmarkResultCardTest.requestedGpuNameDoesNotOverrideAnActualCpuExecutionReceipt"
+      ],
+      "repair_status": "Integrated canonical 4e4f9959 corrections for all six cases. Native graphics, explicit duration scale and first queued budget assert exactly 4500 ms; captured preview position, actual Quick manifest modes, redacted backup restoration and execution-accounting text retained. Added mandatory compiled chat/voice method-size gate and extracted pure turn-presentation scans; new combined hosted verification pending.",
+      "lint_outcome": "Generation and production compile passed; lint job canceled when canonical 4e4f9959 superseded this head. No lint success claimed."
+    },
+    "chat_method_size_gate": {
+      "command": "python3 -m unittest scripts.tests.test_chat_method_size scripts.tests.test_combined_dispatch_size scripts.tests.test_mediapipe_jni -v",
+      "tests": 23,
+      "passed": 23,
+      "new_behavior_tests": 10,
+      "art_warning_boundary_code_units": 16383,
+      "apk_measurement": "PENDING_NEW_HOSTED_APK",
+      "limitation": "Static packaged size does not establish device compilation or frame-time performance."
+    },
+    "turn_presentation_extraction": {
+      "tests_added": 7,
+      "runtime": "PENDING_HOSTED_VERIFICATION",
+      "scope": "Identical collection-scan predicates extracted to ordinary Kotlin functions; Compose state ownership unchanged."
+    },
+    "benchmark_restore_host": {
+      "tests": 6,
+      "passed": 6,
+      "method": "Verbatim production normalization methods with actual kotlinx.serialization JSON; no replacement helper",
+      "android_store_and_runner": "PENDING_HOSTED_VERIFICATION"
+    },
+    "capacity_admission_host": {
+      "tests": 12,
+      "passed": 12,
+      "method": "Actual production capacity identity, guidance, bounded evidence, output allowance and rejection wrapper",
+      "mock_engine_and_adapter_integration": "PENDING_HOSTED_VERIFICATION"
+    },
+    "conversation_conflict_host": {
+      "kotlin_tests": 4,
+      "kotlin_passed": 4,
+      "gateway_tests": 6,
+      "gateway_passed": 6,
+      "http_behavior": "Extra turn remains409 with no new provider call, command receipt or transcript insertion; original waiting job retained",
+      "full_android_parser_integration": "PENDING_HOSTED_VERIFICATION"
+    },
+    "new_report_contracts_initial": {
+      "command": "python3 -m unittest authentication.test_incident_report_contract authentication.test_app",
+      "tests": 69,
+      "passed": 69,
+      "diagnostic_byte_cap": 3072
+    },
+    "combined_follow_up": {
+      "base_sha": "4e4f9959d1aacb4ceca2964270f9471b05c5a650",
+      "canonical_fast": {
+        "command": "bash scripts/validate-local.sh fast",
+        "exit_code": 0,
+        "python_tests": 506,
+        "regex_literals": 1649,
+        "regex_dynamic_skipped": 82,
+        "resource_xml_files": 34
+      },
+      "gateway": {
+        "command": "python3 gateway/check_gateway.py",
+        "exit_code": 0,
+        "python_suites": 70,
+        "python_tests": 947,
+        "python_skipped": 3,
+        "browser_tests": 7,
+        "skip_reasons": [
+          "Windows Credential Manager",
+          "Windows file-sharing semantics",
+          "No bindable LAN IPv4 interface"
+        ]
+      },
+      "authentication_report_contracts": {
+        "command": "python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract",
+        "exit_code": 0,
+        "tests": 90
+      },
+      "changed_kotlin_format": {
+        "files": 31,
+        "ktlint": "1.3.1",
+        "exit_code": 0
+      },
+      "scoped_release_contract": "PASSED; new files listed individually and all limitations disclosed",
+      "full_android_and_compiled_apk_size": "PENDING_PUBLISHED_HEAD"
     }
   },
   "merge_gate": "Current head/base, complete required verification, applicable branch rules, and mergeable state.",
@@ -125,7 +228,8 @@
     "4bd7f737a6efd6f2ae9957555e05ec982519e2ae",
     "29eeba43c286ffde4fed26e64be092749503638e",
     "335c25e311239bb38bb731b4ac5cd858d8e1be98",
-    "858579f8a7ed078366828d5bae9b5d6415efbb00"
+    "858579f8a7ed078366828d5bae9b5d6415efbb00",
+    "4e4f9959d1aacb4ceca2964270f9471b05c5a650"
   ],
   "branch_inventory": {
     "branches": 747,
@@ -147,6 +251,44 @@
   "independent_reviews": {
     "benchmark": "Provider envelopes, frozen-plan readiness, request delivery/admission/execution, quota rejection and verified job affinity; concrete findings repaired.",
     "voice": "Playback cancellation/fallback ownership, cold start, complete captions and motion guards; no remaining source-level blocker observed.",
-    "chat": "Table reflow, hidden-history reveal, mixed legacy activation ordering and paragraph-to-table promotion line-accounting findings repaired; focused host suite passes."
+    "chat": "Table reflow, hidden-history reveal, mixed legacy activation ordering and paragraph-to-table promotion line-accounting findings repaired; focused host suite passes.",
+    "chat_follow_up": "Canonical native-layout fixture retains explicit MotionDurationScale=1, exact 4500ms first budget, intermediate-not-bottom and final-empty-queue assertions. Actual model/API review found no helper signature mismatch.",
+    "ci_method_size_gate": "Actual defined methods required, fixed >=16383 boundary, bounded APK/DEX input, malformed inputs fail closed, mandatory shell checks and always-retained measurement reports; existing gates preserved.",
+    "new_diagnostic_contracts": "No blocking findings: closed bounded Kotlin/Python contracts agree; actual constructor signatures reviewed; verified-stream comparison never claims local-run ownership; unchanged3072byte cap; new/omitted fields and zero pendingcount negotiate matching service support before posting unchanged approved bytes."
+  },
+  "issue_numbers_received_during_validation": [
+    1090,
+    1091
+  ],
+  "new_issue_review": {
+    "1090": {
+      "code": "CONTEXT_CAPACITY_EXCEEDED",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "753b1a4e6cc5b4e6cfeef897c50d4499faa99591c202ec7aa045f8cbded45f80",
+      "observed_prompt_tokens": 10461,
+      "observed_safety_tokens": 2615,
+      "observed_output_tokens": 4096,
+      "observed_capacity_tokens": 5632,
+      "measurement": "UTF8_ESTIMATE",
+      "generation_dispatched": false,
+      "state": "LOCAL_REGRESSIONS_PASSED_PENDING_HOSTED_VERIFICATION",
+      "disposition": "Correct pre-dispatch rejection for observed estimate; repair missing early capacity/component evidence, ordinary-chat configured output observation, resolved allowance reporting and headroom guidance.",
+      "service_feature": "CAPACITY_ADMISSION_EVIDENCE_V1",
+      "historical_private_request": "NOT_REPLAYED_OR_QUALIFIED"
+    },
+    "1091": {
+      "code": "CONVERSATION_CONFLICT",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "eb407ebb384a9196b1b066aff4753b834389dbbeffb0743174c5de2ce95b14a4",
+      "http_status": 409,
+      "observed_job_state": "WAITING_FOR_CLIENT_TOOL",
+      "observed_recovery_action": "RETURN_CLIENT_TOOL_RESULTS",
+      "observed_job_kind": "generation",
+      "observed_conversation_revision": 8,
+      "state": "LOCAL_REGRESSIONS_PASSED_PENDING_HOSTED_VERIFICATION",
+      "disposition": "Preserve explicit gateway rejection evidence and add bounded pending-tool state, count, identity hash, handoff sequence and verified-stream relationship; original-job recovery fences unchanged.",
+      "service_feature": "CONVERSATION_CONFLICT_EVIDENCE_V1",
+      "historical_private_job": "NOT_REPRODUCED_OR_REPAIRED"
+    }
   }
 }

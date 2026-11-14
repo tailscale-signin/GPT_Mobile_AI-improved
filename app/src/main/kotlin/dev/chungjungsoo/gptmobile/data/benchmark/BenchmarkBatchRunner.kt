@@ -183,18 +183,13 @@ class BenchmarkBatchRunner @Inject constructor(
         check(item.auditModelBinding == null || batch.mode !in setOf(BenchmarkMode.DELEGATION, BenchmarkMode.APP_AUDIT)) { "An audit model benchmark requires an independent selected-profile suite." }
         val savedProfiles = settings.fetchPlatformV2s()
         fun authenticate(frozen: PlatformV2): PlatformV2 {
-            val current = savedProfiles.firstOrNull { it.uid == frozen.uid } ?: error("PROFILE_UNAVAILABLE: ${frozen.name} was deleted.")
-            if (frozen.apiUrl.isBlank() &&
-                current.apiUrl.isNotBlank() ||
-                frozen.batchMode &&
-                frozen.batchApiUrl.isNullOrBlank() &&
-                !current.batchApiUrl.isNullOrBlank()
-            ) {
+            if (frozen.compatibleType != ClientType.LITERT_LM && frozen.uid in batch.redactedEndpointProfileUids) {
                 throw BenchmarkProviderFailureException(
                     "Start a new benchmark for ${frozen.name} to use its current endpoint.",
                     "BENCHMARK_ENDPOINT_REDACTED"
                 )
             }
+            val current = savedProfiles.firstOrNull { it.uid == frozen.uid } ?: error("PROFILE_UNAVAILABLE: ${frozen.name} was deleted.")
             return frozen.copy(token = current.token, secretRef = frozen.secretRef ?: current.secretRef)
         }
         val target = authenticate(item.profile)

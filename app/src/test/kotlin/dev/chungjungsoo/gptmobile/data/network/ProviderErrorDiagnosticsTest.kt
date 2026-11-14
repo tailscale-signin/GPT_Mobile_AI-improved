@@ -35,12 +35,38 @@ class ProviderErrorDiagnosticsTest {
     }
 
     @Test fun conflictingCommandWithAnUnknownOutcomeCannotBeClassifiedAsUnsent() {
-        val details = requireNotNull(structuredProviderFailure("""{"error":{"code":"conversation_conflict","command_outcome_unknown":true,"retryable":false,"dispatch_state":"not_dispatched","dispatched":false}}""", 409))
+        val details = requireNotNull(structuredProviderFailure("""{"error":{"code":"conversation_conflict","command_outcome_unknown":true,"retryable":false,"dispatch_state":"not_dispatched","dispatched":false,"remote_acceptance":"NO","resume_allowed":true,"requires_reconciliation":false}}""", 409))
         org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("GATEWAY_OUTCOME_UNKNOWN"), details["code"])
         org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details["requires_reconciliation"])
         org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("UNKNOWN"), details["remote_acceptance"])
+        assertFalse(details.containsKey("resume_allowed"))
         assertFalse(details.containsKey("dispatched"))
         assertFalse(details.containsKey("dispatch_state"))
+    }
+
+    @Test fun conflictingCommandKeepsPositiveAcceptanceWithoutGrantingReplay() {
+        val details = requireNotNull(structuredProviderFailure("""{"error":{"code":"conversation_conflict","command_outcome_unknown":true,"remote_acceptance":"YES","resume_allowed":false}}""", 409))
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("YES"), details["remote_acceptance"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["resume_allowed"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details["request_replay_allowed"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(true), details["requires_reconciliation"])
+    }
+
+    @Test fun rejectedTurnRetainsReportedHandoffBoundaryWithoutAcquiringTheEarlierJob() {
+        val fingerprint = "b".repeat(64)
+        val details = requireNotNull(structuredProviderFailure("""{"error":{"code":"conversation_conflict","dispatch_state":"not_dispatched","remote_acceptance":"NO","resume_allowed":false,"requires_reconciliation":true,"active_job_id":"earlier-job","active_job_provenance":"CONVERSATION_ACTIVE_JOB","pending_client_tool_state":"IDENTIFIED","pending_client_tool_count":2,"pending_client_tool_ids_hash":"$fingerprint","client_tool_handoff_sequence":4}}""", 409))
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("NO"), details["remote_acceptance"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("CONVERSATION_ACTIVE_JOB"), details["active_job_provenance"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive("IDENTIFIED"), details["pending_client_tool_state"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(2), details["pending_client_tool_count"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(fingerprint), details["pending_client_tool_ids_hash"])
+        org.junit.Assert.assertEquals(kotlinx.serialization.json.JsonPrimitive(4), details["client_tool_handoff_sequence"])
+        assertFalse(details.containsKey("job_id"))
+        assertFalse(details.containsKey("pending_client_tool_call_ids"))
+        val failure = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider("HTTP 409", "CONVERSATION_CONFLICT", details)
+        assertFalse(failure.retryAllowed)
+        org.junit.Assert.assertEquals(false, failure.dispatched)
     }
 
     @Test fun conversationConflictRetainsActiveJobGuidanceWithoutClaimingItsOwnership() {

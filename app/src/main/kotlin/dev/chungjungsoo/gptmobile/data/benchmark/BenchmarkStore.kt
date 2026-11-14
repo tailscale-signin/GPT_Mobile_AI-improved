@@ -27,6 +27,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -34,6 +35,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.intOrNull
 
@@ -715,14 +717,15 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         decodeBackup(payload)
     }
 
-    private fun decodeBackup(payload: String): BenchmarkBackupPayload {
+    private fun decodeBackup(payload: String): BenchmarkBackupPayload = try {
         val decoded = json.parseToJsonElement(payload)
         val bundle = if (decoded is JsonObject) {
             // Shareable exports represent a redacted endpoint as null. The frozen
             // profile has a non-null URL and its default represents an absent URL.
             val batches = decoded["batches"]
             val normalized = if (batches is JsonArray) {
-                JsonObject(decoded + ("batches" to JsonArray(batches.map(::restoreRedactedBatch))))
+                val diagnosticExport = decoded["format"] == JsonPrimitive("gptmobile.benchmarks.v2")
+                JsonObject(decoded + ("batches" to JsonArray(batches.map { restoreRedactedBatch(it, diagnosticExport) })))
             } else {
                 decoded
             }
@@ -741,14 +744,18 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
         require(bundle.batches.all { batch -> batch.id.isNotBlank() && batch.items.map { it.ordinal }.distinct().size == batch.items.size && batch.items.all { it.runId.isNotBlank() && it.profile.uid.isNotBlank() } }) { "Invalid benchmark queue" }
         require(bundle.runtimeTrials.size <= MAX_BACKUP_RUNS && bundle.runtimeQualifications.size <= MAX_BACKUP_RUNS) { "Runtime evidence backup is too large" }
         require(bundle.runtimeTrials.all { it.id.isNotBlank() && it.durationMs >= 0 }) { "Invalid runtime trial" }
-        return bundle
+        bundle
+    } catch (_: SerializationException) {
+        // Serializer exceptions can contain profile/backup JSON. Do not attach them.
+        throw IllegalArgumentException("Invalid benchmark backup data. The JSON structure does not match a supported benchmark backup.")
     }
 
-    private fun restoreRedactedBatch(element: JsonElement): JsonElement {
+    private fun restoreRedactedBatch(element: JsonElement, diagnosticExport: Boolean): JsonElement {
         val batch = element as? JsonObject ?: return element
         val restored = batch.toMutableMap()
+        val redactedUids = mutableSetOf<String>()
         for (key in listOf("delegationPrimary", "delegationReviewer")) {
-            batch[key]?.let { restored[key] = restoreRedactedProfile(it) }
+            batch[key]?.let { restored[key] = restoreRedactedProfile(it, diagnosticExport, redactedUids) }
         }
         val items = batch["items"] as? JsonArray
         if (items != null) {
@@ -756,15 +763,25 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                 items.map { item ->
                     val entry = item as? JsonObject
                     val profile = entry?.get("profile")
-                    if (entry != null && profile != null) JsonObject(entry + ("profile" to restoreRedactedProfile(profile))) else item
+                    if (entry != null && profile != null) JsonObject(entry + ("profile" to restoreRedactedProfile(profile, diagnosticExport, redactedUids))) else item
                 }
             )
+        }
+        val existing = batch["redactedEndpointProfileUids"]
+        if (redactedUids.isNotEmpty() && (existing == null || existing is JsonArray)) {
+            restored["redactedEndpointProfileUids"] = JsonArray(existing.orEmpty() + redactedUids.map(::JsonPrimitive))
         }
         return JsonObject(restored)
     }
 
-    private fun restoreRedactedProfile(element: JsonElement): JsonElement {
+    private fun restoreRedactedProfile(element: JsonElement, diagnosticExport: Boolean, redactedUids: MutableSet<String>): JsonElement {
         val profile = element as? JsonObject ?: return element
+        // A nullable batch URL is also a legitimate default in complete backups.
+        // Only diagnostic exports make its absence evidence of redaction.
+        val batchEndpointRedacted = diagnosticExport && (profile["batchMode"] as? JsonPrimitive)?.booleanOrNull == true && profile["batchApiUrl"] == JsonNull
+        if (profile["apiUrl"] == JsonNull || batchEndpointRedacted) {
+            (profile["uid"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }?.let(redactedUids::add)
+        }
         return if (profile["apiUrl"] == JsonNull) JsonObject(profile - "apiUrl") else profile
     }
 

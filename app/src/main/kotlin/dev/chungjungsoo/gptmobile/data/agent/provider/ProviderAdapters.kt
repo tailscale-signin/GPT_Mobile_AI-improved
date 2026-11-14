@@ -808,16 +808,16 @@ class OpenAICompatibleAdapter @Inject constructor(
                         effectiveOutputTokens = minOf(effectiveOutputTokens ?: 4_096, 4_096)
                     }
                     var ceilingRetryUsed = false
-                    if (constraints.maxOutputTokens != null) {
-                        emit(
-                            ProviderEvent.RequestConfigured(
-                                configuredProfileOutputTokens = effectiveMaxTokens,
-                                requestedOutputTokens = constraints.maxOutputTokens,
-                                effectiveOutputTokens = effectiveOutputTokens,
-                                providerOutputCeiling = ProviderRouteCapacity.ceiling(platform)
-                            )
+                    // Ordinary chat can reject during admission too. Retain its actual
+                    // profile setting even when no per-request restriction was supplied.
+                    emit(
+                        ProviderEvent.RequestConfigured(
+                            configuredProfileOutputTokens = effectiveMaxTokens,
+                            requestedOutputTokens = constraints.maxOutputTokens,
+                            effectiveOutputTokens = effectiveOutputTokens,
+                            providerOutputCeiling = ProviderRouteCapacity.ceiling(platform)
                         )
-                    }
+                    )
                     // The desktop gateway has its own intermediate-generation ceiling.
                     // Keep it aligned with the delegated provider cap so a 128/256-token
                     // worker cannot silently expand to the gateway default (for example 1024).

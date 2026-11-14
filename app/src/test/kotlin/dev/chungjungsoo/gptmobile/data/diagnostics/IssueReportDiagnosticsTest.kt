@@ -17,6 +17,44 @@ class IssueReportDiagnosticsTest {
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 
+    @Test fun admissionEvidenceKeepsMeasuredZerosDistinctFromUnknownCeilingsAndRejectsPrivateExtensions() {
+        val snapshot = capture(
+            "PROVIDER",
+            mapOf("admission_history_tokens" to 0, "admission_capacity_age_ms" to 0, "admission_route_context_tokens" to 5632, "admission_capacity_provenance" to "VERIFIED_ROUTE")
+        )
+        assertEquals(JsonPrimitive(0), snapshot.values["admission_history_tokens"])
+        assertFalse("admission_configured_context_tokens" in snapshot.values)
+        assertEquals(setOf("CAPACITY_ADMISSION_EVIDENCE_V1"), snapshot.requiredServiceFeatures())
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", occurredAtMillis = time).withDiagnostics(snapshot)
+        val approved = report(context).approvedPayload()
+        assertEquals(approved, IssueReport.json.decodeFromString(IssueReport.serializer(), approved).approvedPayload())
+        for ((key, value) in listOf(
+            "admission_route_context_tokens" to JsonPrimitive(0),
+            "admission_input_ceiling_tokens" to JsonPrimitive(-1),
+            "admission_capacity_age_ms" to JsonPrimitive(16_000_001),
+            "admission_history_tokens" to JsonPrimitive("3"),
+            "admission_capacity_provenance" to JsonPrimitive("private endpoint"),
+            "admission_raw_prompt" to JsonPrimitive("private prompt")
+        )) {
+            assertNull(snapshot.copy(values = snapshot.values + (key to value)).validated())
+        }
+    }
+
+    @Test fun emptyPendingSetIsAnObservationAndRequiresTheNewConflictContractEvenWithoutOtherFields() {
+        val snapshot = capture("PROVIDER", mapOf("conflict_pending_tool_count" to 0))
+        assertEquals(JsonPrimitive(0), snapshot.values["conflict_pending_tool_count"])
+        assertTrue("CONVERSATION_CONFLICT_EVIDENCE_V1" in snapshot.requiredServiceFeatures())
+        for ((key, value) in listOf(
+            "conflict_pending_tool_count" to JsonPrimitive(129),
+            "conflict_handoff_sequence" to JsonPrimitive(0),
+            "conflict_pending_tool_ids_hash" to JsonPrimitive("private-call-id"),
+            "conflict_active_job_provenance" to JsonPrimitive("OWNED_BY_THIS_ANDROID_RUN"),
+            "conflict_stream_job_relation" to JsonPrimitive("MATCHES_UNVERIFIED_BODY")
+        )) {
+            assertNull(snapshot.copy(values = snapshot.values + (key to value)).validated())
+        }
+    }
+
     @Test fun preparingVoicePreservesThePhaseWithoutInventingPlaybackEvidence() {
         val snapshot = capture("VOICE", mapOf("voice_engine" to "KOKORO", "voice_phase" to "PREPARING"))
         val payload = report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(snapshot)).approvedPayload()

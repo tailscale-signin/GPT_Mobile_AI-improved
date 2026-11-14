@@ -83,6 +83,71 @@ class IncidentReportContractTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             validate_diagnostics(bad)
 
+    def test_capacity_components_and_route_provenance_survive_without_private_payloads(self):
+        values = {
+            "admission_prompt_tokens": 10461, "admission_safety_tokens": 2615,
+            "admission_output_tokens": 4096, "admission_capacity_tokens": 5632,
+            "admission_measurement": "UTF8_ESTIMATE", "configured_output_limit": 0,
+            "admission_system_tokens": 2000, "admission_history_tokens": 2500,
+            "admission_current_request_tokens": 500, "admission_tool_schema_tokens": 4414,
+            "admission_tool_result_tokens": 400, "admission_response_schema_tokens": 100,
+            "admission_envelope_tokens": 547, "admission_route_context_tokens": 5632,
+            "admission_configured_context_tokens": 8192, "admission_catalog_context_tokens": 32768,
+            "admission_input_ceiling_tokens": 5632, "admission_output_ceiling_tokens": 4096,
+            "admission_capacity_age_ms": 1000, "admission_capacity_provenance": "VERIFIED_ROUTE",
+        }
+        capture = self.capture("PROVIDER", values)
+        original = copy.deepcopy(capture)
+        report = self.report(capture)
+        report.update(feature="chat", errorCode="CONTEXT_CAPACITY_EXCEEDED")
+        report["context"]["source"] = "CHAT_FAILURE"
+        self.assertEqual(original, validate_diagnostics(capture))
+        _, issue = issue_from_report(report)
+        for key in values:
+            self.assertIn(key, issue["body"])
+        self.assertEqual(original, capture)
+        self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+        for key, value in (
+            ("admission_route_context_tokens", 0), ("admission_capacity_age_ms", 16_000_001),
+            ("admission_history_tokens", True), ("admission_history_tokens", "3"),
+            ("admission_capacity_provenance", "private endpoint"), ("admission_raw_prompt", "private prompt"),
+        ):
+            with self.subTest(key=key, value=value):
+                invalid = copy.deepcopy(capture)
+                invalid["values"][key] = value
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(invalid)
+
+    def test_conflict_handoff_evidence_does_not_claim_local_run_ownership(self):
+        values = {
+            "conflict_active_job_provenance": "CONVERSATION_ACTIVE_JOB",
+            "conflict_pending_tool_state": "IDENTIFIED", "conflict_pending_tool_count": 2,
+            "conflict_pending_tool_ids_hash": "a" * 64, "conflict_handoff_sequence": 3,
+            "conflict_stream_job_relation": "DIFFERS_VERIFIED_STREAM_JOB",
+        }
+        capture = self.capture("PROVIDER", values)
+        original = copy.deepcopy(capture)
+        self.assertEqual(original, validate_diagnostics(capture))
+        report = self.report(capture)
+        report.update(feature="chat", errorCode="CONVERSATION_CONFLICT")
+        report["context"]["source"] = "CHAT_FAILURE"
+        _, issue = issue_from_report(report)
+        for key in values:
+            self.assertIn(key, issue["body"])
+        self.assertEqual(original, capture)
+        validate_diagnostics(self.capture("PROVIDER", {"conflict_pending_tool_state": "EMPTY", "conflict_pending_tool_count": 0}))
+        for key, value in (
+            ("conflict_pending_tool_count", 129), ("conflict_handoff_sequence", 0),
+            ("conflict_pending_tool_ids_hash", "private-call-id"),
+            ("conflict_active_job_provenance", "OWNED_BY_THIS_ANDROID_RUN"),
+            ("conflict_stream_job_relation", "MATCHES_UNVERIFIED_BODY"),
+        ):
+            with self.subTest(key=key, value=value):
+                invalid = copy.deepcopy(capture)
+                invalid["values"][key] = value
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(invalid)
+
     def test_typed_capsule_validates_without_rewriting_approved_input(self):
         capture = self.capture(values={
             "native_tool_action": "create", "validation_field_names": ["issue_number"], "validation_path_hashes": ["b" * 64],

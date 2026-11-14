@@ -152,6 +152,30 @@ FIELDS_BY_AREA["PROVIDER"].update(CAPACITY_DETAIL_FIELDS)
 FIELDS_BY_AREA["TOOL"].update(TRANSPORT_FIELDS)
 FIELDS_BY_AREA["ACCEPTANCE"].add("acceptance_pending_remote_continuations")
 
+# Numeric request components and actual capacity provenance. No raw prompt,
+# endpoint, model name or provider payload is part of this contract.
+CAPACITY_CEILING_FIELDS = {
+    "admission_route_context_tokens", "admission_configured_context_tokens", "admission_catalog_context_tokens",
+    "admission_input_ceiling_tokens", "admission_output_ceiling_tokens",
+}
+CAPACITY_EVIDENCE_COUNTS = CAPACITY_CEILING_FIELDS | {
+    "admission_system_tokens", "admission_history_tokens", "admission_current_request_tokens",
+    "admission_tool_result_tokens", "admission_response_schema_tokens", "admission_envelope_tokens", "admission_capacity_age_ms",
+}
+COUNTS.update(CAPACITY_EVIDENCE_COUNTS)
+ENUMS["admission_capacity_provenance"] = {"VERIFIED_ROUTE", "DECLARED", "CONSERVATIVE_POLICY", "UNKNOWN"}
+FIELDS_BY_AREA["PROVIDER"].update(CAPACITY_EVIDENCE_COUNTS | {"admission_capacity_provenance"})
+
+CONFLICT_EVIDENCE_FIELDS = {
+    "conflict_active_job_provenance", "conflict_pending_tool_state", "conflict_pending_tool_ids_hash",
+    "conflict_handoff_sequence", "conflict_stream_job_relation",
+}
+ENUMS["conflict_active_job_provenance"] = {"CONVERSATION_ACTIVE_JOB", "UNREPORTED"}
+ENUMS["conflict_pending_tool_state"] = {"IDENTIFIED", "MISSING", "EMPTY", "INVALID", "UNAVAILABLE", "NOT_REPORTED"}
+ENUMS["conflict_stream_job_relation"] = {"MATCHES_VERIFIED_STREAM_JOB", "DIFFERS_VERIFIED_STREAM_JOB", "NO_VERIFIED_STREAM_JOB", "ACTIVE_JOB_NOT_REPORTED"}
+HASH_FIELDS.add("conflict_pending_tool_ids_hash")
+FIELDS_BY_AREA["PROVIDER"].update(CONFLICT_EVIDENCE_FIELDS)
+
 CORE_FIELDS = {
     "PROVIDER": {"profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"},
     "TOOL": {"tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "missing_field_count", "invalid_field_count"},
@@ -193,7 +217,11 @@ def _valid_value(key, value):
     if key == "model_preparation_load_requests":
         return 0 <= value <= 1
     if key == "conflict_pending_tool_count":
-        return 1 <= value <= 128
+        return 0 <= value <= 128
+    if key == "conflict_handoff_sequence":
+        return 1 <= value <= 16_000_000
+    if key in CAPACITY_CEILING_FIELDS:
+        return 1 <= value <= 16_000_000
     if key in ATTEMPTS:
         return 0 <= value <= 10_000
     if key in DURATIONS:

@@ -102,17 +102,19 @@ object RequestAdmission {
         reasoning: ReasoningDecision? = null,
         messageValidatorRevision: String = "unvalidated",
         promptBudget: PromptBudgetReceipt? = null,
-        requestDeadline: RequestDeadlineReceipt? = null
+        requestDeadline: RequestDeadlineReceipt? = null,
+        capacityObservation: CapacityAdmissionObservation? = null
     ): PreparedModelRequest {
         require(role.isNotBlank() && permissionRevision.isNotBlank())
         require(outputTokens == null || outputTokens > 0)
+        require(capacityObservation == null || capacityObservation.capacity == capacity) { "CAPACITY_OBSERVATION_IDENTITY_CHANGED" }
         require(promptBudget == null || promptBudget.promptTokens == measurement.promptTokens && promptBudget.safetyTokens == measurement.uncertaintyTokens && promptBudget.outputAllowanceTokens == outputTokens && promptBudget.contextTokens == capacity.contextTokens) { "PROMPT_BUDGET_IDENTITY_CHANGED" }
         val reservedInput = promptBudget?.toolResultReserveTokens ?: 0
         val safety = Math.addExact(measurement.uncertaintyTokens, reservedInput)
         val promptWithSafety = Math.addExact(measurement.promptTokens, safety)
         val total = outputTokens?.let { Math.addExact(promptWithSafety, it) }
         fun reject(code: String, message: String, ceiling: Long? = capacity.contextTokens): Nothing =
-            throw RequestCapacityException(code, message, measurement.promptTokens, safety, outputTokens, ceiling, measurement.kind, promptBudget)
+            throw RequestCapacityException(code, message, measurement.promptTokens, safety, outputTokens, ceiling, measurement.kind, promptBudget, capacityObservation ?: CapacityAdmissionObservation(capacity))
         if (requireKnownCapacity && (capacity.contextTokens == null || outputTokens == null)) reject("CAPACITY_UNVERIFIED", "configure a route capacity or verify the serving model before budget-sensitive inference")
         capacity.inputTokens?.let { if (promptWithSafety > it) reject("INPUT_CAPACITY_EXCEEDED", "the complete input is retained; no inference was sent.", it) }
         capacity.outputTokens?.let { if (outputTokens == null || outputTokens > it) reject("OUTPUT_CAPACITY_EXCEEDED", "re-plan the writing stage without discarding its goal.", it) }

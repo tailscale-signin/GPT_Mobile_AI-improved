@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntime
+import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.repository.ChatRepository
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import io.mockk.coEvery
@@ -44,24 +45,105 @@ class BenchmarkBatchRunnerTest {
 
     private fun batch(id: String) = BenchmarkBatch(id, BenchmarkMode.QUICK, 1, profiles.mapIndexed { index, profile -> BenchmarkQueueItem(index, profile.benchmarkSnapshot(), "$id-${profile.uid}", benchmarkConfigKey(profile)) })
 
-    private fun runner(store: BenchmarkStore, validate: suspend (PlatformV2) -> Unit): BenchmarkBatchRunner {
+    private fun runner(
+        store: BenchmarkStore,
+        savedProfiles: List<PlatformV2> = profiles.reversed().map { it.copy(model = "edited-model") },
+        onExecution: () -> Unit = {},
+        validate: suspend (PlatformV2) -> Unit
+    ): BenchmarkBatchRunner {
         val settings = mockk<SettingRepository>()
         // Saved edits never replace the accepted snapshot's model or order.
-        coEvery { settings.fetchPlatformV2s() } returns profiles.reversed().map { it.copy(model = "edited-model") }
+        coEvery { settings.fetchPlatformV2s() } returns savedProfiles
         val chat = mockk<ChatRepository>()
         coEvery { chat.validateBenchmarkProfile(any()) } coAnswers { validate(firstArg()) }
         coEvery { chat.benchmarkContextTokens(any()) } returns null
         coEvery { chat.supportsBenchmarkTools(any()) } returns false
-        coEvery { chat.openBenchmarkSession(any(), any(), any(), any(), any(), any(), any()) } returns object : AgentProviderSession {
-            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta("A deliberately wrong but complete answer."), ProviderEvent.Completed)
+        coEvery { chat.openBenchmarkSession(any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+            onExecution()
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(ProviderEvent.TextDelta("A deliberately wrong but complete answer."), ProviderEvent.Completed)
+            }
         }
         coEvery { chat.runDelegationBenchmark(any(), any(), any(), any(), any()) } answers {
+            onExecution()
             val test = secondArg<BenchmarkCase>()
             BenchmarkSample(test.id, test.label, test.category, BenchmarkOutcome.FAILED, preview = "Wrong", outputCharacters = 5, requestDispatched = true, workload = test.workload)
         }
         val runtime = mockk<LocalRuntime>(relaxed = true)
         every { runtime.loadedEngineSpec() } returns null
         return BenchmarkBatchRunner(store, chat, settings, runtime, context)
+    }
+
+    @Test fun freshBlankProviderDefaultsStillReachTheAcceptedRoute() = runBlocking {
+        val defaults = listOf(ClientType.GROQ, ClientType.NVIDIA).map { PlatformV2(uid = it.name, name = it.name, compatibleType = it, model = "frozen-model") }
+        val accepted = BenchmarkBatch("default-routes", BenchmarkMode.QUICK, 1, defaults.mapIndexed { index, profile -> BenchmarkQueueItem(index, profile, "default-${profile.uid}", "key") })
+        val store = BenchmarkStore(context)
+        try {
+            store.checkpoint(accepted)
+            val validated = mutableSetOf<String>()
+            var executions = 0
+            runner(store, savedProfiles = defaults.map { it.copy(apiUrl = "https://changed.example/v1") }, onExecution = { executions++ }) {
+                assertTrue(it.apiUrl.isEmpty())
+                validated += it.uid
+            }.run(accepted.id) {}
+            assertEquals(defaults.map { it.uid }.toSet(), validated)
+            assertTrue(executions > 0)
+            assertTrue(store.history.value.filter { it.batchId == accepted.id }.none { it.samples.any { sample -> sample.failureCategory == "BENCHMARK_ENDPOINT_REDACTED" } })
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test fun restoredRemoteRoutesBlockBeforePreflightWithBlankOrChangedCurrentEndpoints() = runBlocking {
+        val store = BenchmarkStore(context)
+        try {
+            for (type in listOf(ClientType.GROQ, ClientType.NVIDIA)) {
+                for ((index, currentUrl) in listOf("", "https://changed.example/v1").withIndex()) {
+                    val profile = PlatformV2(uid = type.name, name = type.name, compatibleType = type, model = "model")
+                    val accepted = BenchmarkBatch("redacted-${type.name}-$index", BenchmarkMode.QUICK, 1, listOf(BenchmarkQueueItem(0, profile, "run-${type.name}-$index", "key")), redactedEndpointProfileUids = setOf(profile.uid))
+                    store.checkpoint(accepted)
+                    var preflights = 0
+                    var executions = 0
+                    runner(store, savedProfiles = listOf(profile.copy(apiUrl = currentUrl)), onExecution = { executions++ }) { preflights++ }.run(accepted.id) {}
+                    assertEquals(0, preflights)
+                    assertEquals(0, executions)
+                    val restored = checkNotNull(store.batch(accepted.id))
+                    assertEquals(BenchmarkQueueState.BLOCKED, restored.items.single().state)
+                    val run = store.history.value.single { it.batchId == accepted.id }
+                    val failure = checkNotNull(run.samples.first().failure)
+                    assertEquals("BENCHMARK_ENDPOINT_REDACTED", failure.code)
+                    assertFalse(failure.retryable)
+                    assertTrue(run.samples.all { it.requestDispatched == false })
+                    assertEquals(0, benchmarkCoverage(run).executed)
+                }
+            }
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test fun redactedDelegationPrimaryOrReviewerBlocksEveryExecution() = runBlocking {
+        val store = BenchmarkStore(context)
+        try {
+            val target = profiles[0]
+            val primary = profiles[1]
+            val reviewer = profiles[2]
+            for (redacted in listOf(primary, reviewer)) {
+                val accepted = BenchmarkBatch("delegation-redacted-${redacted.uid}", BenchmarkMode.DELEGATION, 1, listOf(BenchmarkQueueItem(0, target, "run-${redacted.uid}", "key")), delegationPrimary = primary, delegationReviewer = reviewer, delegationSettings = dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings(enabled = true), delegationPlan = BenchmarkMode.QUICK, redactedEndpointProfileUids = setOf(redacted.uid))
+                store.checkpoint(accepted)
+                var preflights = 0
+                var executions = 0
+                runner(store, onExecution = { executions++ }) { preflights++ }.run(accepted.id) {}
+                assertEquals(0, preflights)
+                assertEquals(0, executions)
+                assertEquals(BenchmarkQueueState.BLOCKED, checkNotNull(store.batch(accepted.id)).items.single().state)
+                val run = store.history.value.single { it.batchId == accepted.id }
+                assertEquals("BENCHMARK_ENDPOINT_REDACTED", run.samples.first().failureCategory)
+                assertTrue(run.samples.all { it.requestDispatched == false })
+            }
+        } finally {
+            store.close()
+        }
     }
 
     @Test fun durableDeadlinesMatchOrdinaryDelegationAndPairedExecutionLimits() = runBlocking {

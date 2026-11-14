@@ -44,6 +44,7 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 error.outputTokens?.let { put("admission_output_tokens", it) }
                 error.capacityTokens?.let { put("admission_capacity_tokens", it) }
                 put("admission_measurement", error.measurement.name)
+                capacityAdmissionEvidence(error, nowMillis).forEach { (key, value) -> put(key, value) }
                 error.budget?.let { budget ->
                     put("admission_tool_result_reserve_tokens", budget.toolResultReserveTokens)
                     put("admission_attachment_reserve_tokens", budget.attachmentReserveTokens)

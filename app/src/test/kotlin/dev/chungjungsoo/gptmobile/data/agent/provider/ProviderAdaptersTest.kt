@@ -84,6 +84,33 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun ordinaryCompatibleChatRetainsTheActualProfileOutputSettingBeforeAdmissionFailure() = runBlocking {
+        for (configuredLimit in listOf(null, 0, 8192)) {
+            val failure = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(
+                message = "The complete input exceeds the observed context; no inference was sent.",
+                code = "CONTEXT_CAPACITY_EXCEEDED",
+                retryable = false,
+                failureDetails = buildJsonObject {
+                    put("failed_stage", "provider_admission")
+                    put("attempt_dispatch_state", "NOT_DISPATCHED")
+                    put("dispatched", false)
+                    put("request_replay_allowed", false)
+                }
+            )
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(error = failure)))))
+            val profile = platform(ClientType.LLAMA).copy(uid = "ordinary-capacity-$configuredLimit", maxTokens = configuredLimit)
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), profile).streamRound(emptyList(), emptyList()).toList()
+            val configured = events.filterIsInstance<ProviderEvent.RequestConfigured>().single()
+            assertEquals(configuredLimit, configured.configuredProfileOutputTokens)
+            assertNull(configured.requestedOutputTokens)
+            assertNull(configured.serializedOutputTokens)
+            assertEquals("CONTEXT_CAPACITY_EXCEEDED", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+            assertTrue(events.indexOf(configured) < events.indexOfFirst { it is ProviderEvent.Failed })
+            assertFalse(events.contains(ProviderEvent.Completed))
+        }
+    }
+
     @Test fun benchmarkProgressCannotReplaceVerifiedJobAffinity() = runBlocking {
         for (role in listOf("benchmark", "benchmark-readiness")) {
             for (verified in listOf(null, false, true)) {

@@ -255,6 +255,7 @@ class Conversations:
             message = 'A generation job is active in this conversation. Keep this instruction queued locally and reconnect to the existing job before sending it.'
         details = {
             'active_job_id': conversation['active_job'], 'active_job_kind': kind,
+            'active_job_provenance': 'CONVERSATION_ACTIVE_JOB',
             'active_job_state': state, 'conversation_id': conversation['id'],
             'conversation_revision': conversation['revision'],
             'failed_stage': 'conversation_admission', 'remote_acceptance': 'NO',
@@ -264,10 +265,34 @@ class Conversations:
         if action == 'return_client_tool_results':
             row = db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (conversation['active_job'],)).fetchone()
             public = json.loads(row['public_json']) if row else {}
-            pending = public.get('pending_client_tool_call_ids') if public.get('principal_id') == conversation['principal'] else None
-            if isinstance(pending, list) and 0 < len(pending) <= 128 and all(isinstance(item, str) and 0 < len(item) <= 256 for item in pending):
-                details['pending_client_tool_count'] = len(pending)
+            owned = public if public.get('principal_id') == conversation['principal'] else None
+            details.update(cls._client_tool_conflict_evidence(owned))
         return ConversationConflict(message, details=details)
+
+    @staticmethod
+    def _client_tool_conflict_evidence(owned_job):
+        """Describe a retained handoff; no call identity authorizes the rejected turn."""
+        if owned_job is None:
+            return {'pending_client_tool_state': 'UNAVAILABLE'}
+        details = {}
+        sequence = owned_job.get('client_tool_handoff_sequence')
+        if type(sequence) is int and 1 <= sequence <= 16_000_000:
+            details['client_tool_handoff_sequence'] = sequence
+        if 'pending_client_tool_call_ids' not in owned_job:
+            return dict(details, pending_client_tool_state='MISSING')
+        pending = owned_job['pending_client_tool_call_ids']
+        if not isinstance(pending, list) or len(pending) > 128 or not all(
+            isinstance(item, str) and 0 < len(item) <= 256 and bool(item.strip()) and
+            not any(ord(char) < 32 or 127 <= ord(char) <= 159 for char in item)
+            for item in pending
+        ) or len(set(pending)) != len(pending):
+            return dict(details, pending_client_tool_state='INVALID')
+        details['pending_client_tool_count'] = len(pending)
+        if not pending:
+            return dict(details, pending_client_tool_state='EMPTY')
+        canonical_ids = json.dumps(sorted(pending), ensure_ascii=True, separators=(',', ':')).encode('utf-8')
+        details['pending_client_tool_ids_hash'] = hashlib.sha256(b'gateway-client-tool-set-v1\0' + canonical_ids).hexdigest()
+        return dict(details, pending_client_tool_state='IDENTIFIED')
 
     @staticmethod
     def bounded_id(value, name):

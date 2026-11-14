@@ -80,9 +80,7 @@ internal fun structuredProviderFailure(body: String, httpStatus: Int? = null): J
             value is JsonPrimitive &&
             value.content.length <= 256
     }.toMutableMap()
-    (error?.get("pending_client_tool_count") as? JsonPrimitive)
-        ?.takeIf { !it.isString && it.intOrNull?.let { count -> count in 1..128 } == true }
-        ?.let { fields["pending_client_tool_count"] = it }
+    fields.putAll(providerConflictEvidence(error))
     val pending = error?.get("pending_client_tool_call_ids") as? kotlinx.serialization.json.JsonArray
     if (pending != null && pending.size <= 128 && pending.all { it is JsonPrimitive && it.isString && it.content.isNotBlank() && it.content.length <= 256 && it.content.none(Char::isISOControl) }) {
         fields["pending_client_tool_call_ids"] = pending
@@ -128,6 +126,8 @@ internal fun structuredProviderFailure(body: String, httpStatus: Int? = null): J
         fields["retryable"] = JsonPrimitive(false)
         fields["requires_reconciliation"] = JsonPrimitive(true)
         fields["request_replay_allowed"] = JsonPrimitive(false)
+        if (fields["remote_acceptance"] != JsonPrimitive("YES")) fields["remote_acceptance"] = JsonPrimitive("UNKNOWN")
+        if (fields["resume_allowed"] != JsonPrimitive(false)) fields.remove("resume_allowed")
         fields.remove("dispatched")
         fields.remove("dispatch_state")
     }

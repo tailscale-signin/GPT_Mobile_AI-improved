@@ -331,7 +331,7 @@ private fun ChatScreenContent(
     val academicGateways by chatViewModel.academicGateways.collectAsStateWithLifecycle()
     val invocationDiagnostics by chatViewModel.invocationDiagnostics.collectAsStateWithLifecycle()
     val hasTargetMessage = chatViewModel.targetMessageId > 0
-    val hasTargetAssistant = hasTargetMessage && groupedMessages.assistantMessages.any { responses -> responses.any { it.id == chatViewModel.targetMessageId } }
+    val hasTargetAssistant = hasTargetAssistantMessage(groupedMessages.assistantMessages, chatViewModel.targetMessageId)
     var revealedArchivedTurns by rememberSaveable(chatRoom.id) { mutableIntStateOf(0) }
     val shouldCollapseHistory = featureSettings.archiveOlderAssistantReplies &&
         !hasTargetMessage &&
@@ -492,23 +492,19 @@ private fun ChatScreenContent(
     val lastMessageIndex = groupedMessages.userMessages.lastIndex
     val newestPromptKey = groupedMessages.userMessages.lastOrNull()?.let { chatMessagePairKey(it, lastMessageIndex) }
     val githubPromptMode = chatToolConfig.github != null
-    val latestUser = groupedMessages.userMessages.lastOrNull()
-    val latestResponses = groupedMessages.assistantMessages.getOrNull(lastMessageIndex).orEmpty()
-    val activeGitHubResponse = latestResponses.any { response ->
-        val runId = response.currentRunId ?: return@any false
-        val status = agentRunsById[runId]?.status
-        status?.let { it !in AgentRunStatus.terminal } ?: (runId in activeAgentRuns)
-    }
-    val githubResponseStarting = !isIdle &&
-        latestResponses.none { response -> response.currentRunId?.let(agentRunsById::get)?.status in AgentRunStatus.terminal }
-    val pendingGitHubInput = LocalGitHubApprovalPending.current ||
-        approvals.any { agentRunsById[it.runId]?.userMessageId == latestUser?.id } ||
-        inputRequests.any { it.runId?.let(agentRunsById::get)?.userMessageId == latestUser?.id }
-    val waitingForGitHubInput = pendingGitHubInput || visibleGitHubDecisions.any { it.sourceMessageId == latestUser?.id }
-    val awaitingGitHubTurn = latestUser != null &&
-        githubPromptMode &&
-        chatRoom.conversationMode != ConversationMode.COMBINED &&
-        (waitingForGitHubInput || activeGitHubResponse || githubResponseStarting)
+    val (activeGitHubResponse, githubResponseStarting, pendingGitHubInput, awaitingGitHubTurn) = gitHubTurnPresentation(
+        userMessages = groupedMessages.userMessages,
+        assistantMessages = groupedMessages.assistantMessages,
+        agentRunsById = agentRunsById,
+        activeRunIds = activeAgentRuns.keys,
+        isIdle = isIdle,
+        approvalPending = LocalGitHubApprovalPending.current,
+        approvals = approvals,
+        inputRequests = inputRequests,
+        visibleDecisions = visibleGitHubDecisions,
+        githubPromptMode = githubPromptMode,
+        conversationMode = chatRoom.conversationMode
+    )
     var observedPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }
     var promptTrackingReady by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
     var anchoredPromptKey by rememberSaveable(chatRoom.id) { mutableStateOf<String?>(null) }

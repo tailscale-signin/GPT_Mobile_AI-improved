@@ -34,12 +34,33 @@ internal object ProviderFailureReport {
             (details["conversation_revision"] as? JsonPrimitive)?.takeUnless { it.isString }
                 ?.longOrNull?.takeIf { it in 0..16_000_000L }?.let { put("conflict_conversation_revision", it) }
             (details["pending_client_tool_count"] as? JsonPrimitive)?.takeUnless { it.isString }
-                ?.intOrNull?.takeIf { it in 1..128 }?.let { put("conflict_pending_tool_count", it) }
+                ?.intOrNull?.takeIf { it in 0..128 }?.let { put("conflict_pending_tool_count", it) }
             val conversationId = (details["conversation_id"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             IssueReportContext.identifierHash("conversation", conversationId)?.let { put("conflict_conversation_hash", it) }
+            val provenance = (details["active_job_provenance"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            put("conflict_active_job_provenance", provenance?.takeIf { it == "CONVERSATION_ACTIVE_JOB" } ?: "UNREPORTED")
+            val pendingState = (details["pending_client_tool_state"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            put("conflict_pending_tool_state", pendingState?.takeIf { it in setOf("IDENTIFIED", "MISSING", "EMPTY", "INVALID", "UNAVAILABLE") } ?: "NOT_REPORTED")
+            (details["pending_client_tool_ids_hash"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                ?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { put("conflict_pending_tool_ids_hash", it) }
+            (details["client_tool_handoff_sequence"] as? JsonPrimitive)?.takeUnless { it.isString }
+                ?.longOrNull?.takeIf { it in 1..16_000_000L }?.let { put("conflict_handoff_sequence", it) }
+            val activeJobId = (details["active_job_id"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotBlank() }
+            val streamJobId = metadata?.takeIf { it.transportVerified }?.jobId?.takeIf { it.isNotBlank() }
+            // Server conversation ownership does not establish ownership by this
+            // Android run. Only verified stream metadata can establish a match.
+            put(
+                "conflict_stream_job_relation",
+                when {
+                    activeJobId == null -> "ACTIVE_JOB_NOT_REPORTED"
+                    streamJobId == null -> "NO_VERIFIED_STREAM_JOB"
+                    activeJobId == streamJobId -> "MATCHES_VERIFIED_STREAM_JOB"
+                    else -> "DIFFERS_VERIFIED_STREAM_JOB"
+                }
+            )
         }
         if (receipt.errorCode in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES) {
-            for (key in listOf("admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens")) {
+            for (key in IssueReportDiagnostics.capacityEvidenceFields + listOf("admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens")) {
                 failure.failureDetails?.get(key)?.let { put(key, it) }
             }
         }

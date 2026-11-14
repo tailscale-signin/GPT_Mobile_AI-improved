@@ -5,6 +5,8 @@ on:
     paths:
       - 'scripts/gradle_retry.py'
       - 'scripts/tests/test_gradle_retry.py'
+      - 'scripts/check_chat_method_size.py'
+      - 'scripts/tests/test_chat_method_size.py'
       - 'app/**'
       - '.github/workflows/ui-review-apk.yml'
       - 'macrobenchmark/**'
@@ -52,6 +54,21 @@ jobs:
         run: >-
           python3 scripts/gradle_retry.py -- :app:assembleDebug --no-daemon --stacktrace --console=plain --max-workers=1
           '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -Djava.util.concurrent.ForkJoinPool.common.parallelism=2 -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8'
+      - name: Verify packaged chat and voice method sizes
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          for apk in app/build/outputs/apk/debug/*.apk; do
+            python3 scripts/check_chat_method_size.py "$apk" --source-commit "$GITHUB_SHA" --report "build/reports/chat-method-size/${apk##*/}.json"
+          done
+      - name: Retain packaged chat and voice method sizes
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: chat-method-sizes-review-${{ github.sha }}
+          path: build/reports/chat-method-size/*.json
+          if-no-files-found: warn
+          retention-days: 14
       - name: Compile device regressions
         timeout-minutes: 25
         run: python3 scripts/gradle_retry.py -- :app:compileDebugAndroidTestKotlin --no-daemon --stacktrace --console=plain

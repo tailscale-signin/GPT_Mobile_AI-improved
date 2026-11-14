@@ -5,6 +5,8 @@
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
     "Implement measured GitHub fade and rendered-line pacing, stable preview activation order, shared user-bottom follow, themed voice captions with observed playback phases, and schema-preserving benchmark request and execution-evidence repairs.",
+    "Reduce chat composable method size and enforce ART code-unit bounds on packaged chat/voice definitions, retain APK-bound CI reports, and restore benchmark backup evidence without endpoint substitution or private parser errors.",
+    "Handle issues #1090 and #1091 with early capacity provenance and numeric component evidence, accurate resolved-output reporting and guidance, explicit conflict acceptance and bounded handoff correlation, while retaining pre-dispatch rejection and original-job recovery fences.",
     "Repair durable voice download lifecycle and queued UI feedback; preserve bounded transport, read-window, saved-cursor, acceptance-claim and strict reasoning admission evidence in approved issue reports.",
     "Keep logical gateway operation identities stable and retain bounded model preparation, gateway capture retrieval, MCP rejection, tool provenance, GitHub verdict provenance, and frame timing evidence. Defer eligible pre-dispatch provider connectivity failures with bounded backoff.",
     "Improve GitHub chat scrolling and progress, Gateway conversation navigation, background voice plugin installation, and bounded app audit modes. Add safe observations for URL-reader DNS cooldowns, saved-view recovery, and fixture approval.",
@@ -118,6 +120,7 @@
     "Repair the November 13 diagnostic workflow failures with exact provider-tool replay, bounded argument correction, review baseline parsing, task-aware status budgets, separate ordinary and engineering conversation bindings, native integration routing, and immutable context-v7 incident evidence; retain unconfirmed historical causes as diagnostic follow-up."
   ],
   "limitations": [
+    "The November 14 capacity/conflict follow-up requires matching gateway and hosted reporter capabilities CAPACITY_ADMISSION_EVIDENCE_V1 and CONVERSATION_CONFLICT_EVIDENCE_V1. The original private requests and affected-device performance are not qualified by diagnostic or host regressions.",
     "The November 13 gateway session repairs still require paired phone and gateway validation. Automatic connectivity recovery covers eligible initial runs; broader GitHub fixtures, durable gateway supplements, and device performance qualification remain pending.",
     "The November 13 interface and voice changes still require physical-device gesture, audio, and background installation checks. Measured voice latency improvements, the full stress workload suite, and Macrobenchmark evidence import remain pending. New diagnostic fields require a hosted reporter advertising RECOVERY_OBSERVATIONS_V1.",
     "Android GPU qualification requires compatible-device receipts for actual offload, prefill, decode, repeated requests and cancel/recovery; host tests do not establish those results.",
@@ -2544,6 +2547,18 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionTest.kt",
     "docs/repairs/chat-voice-and-report-audit-2026-11-14.md",
     "docs/repairs/chat-voice-design-and-remaining-reports-2026-11-13-task.json",
-    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTableLineObserver.kt"
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTableLineObserver.kt",
+    "scripts/check_chat_method_size.py",
+    "scripts/tests/test_chat_method_size.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTurnPresentation.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTurnPresentationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunnerTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OutputAllowanceSerializationTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CapacityAdmissionObservation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderConflictEvidence.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/CapacityAdmissionObservationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderConflictEvidenceTest.kt"
   ]
 }

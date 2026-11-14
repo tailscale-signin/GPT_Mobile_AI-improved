@@ -139,6 +139,64 @@
       "reason": "The existing native progress repository regression still required an unfocused branch-comparison label. The new factual-summary contract deliberately keeps that completed operation in counts and surfaces the focused source-read failure.",
       "change": "Assert absence of the generic comparison label while retaining all pending/completed/failed counts, source path, failure and concrete recovery-next-step assertions. Production code is unchanged.",
       "validation": "One additional actual-source emitted-event reproduction passed; the 62 integration/report tests also passed on 2b5bfe47 after the concurrent retained-scope change. Full repository/Android execution remains a hosted gate."
+    },
+    "schema_budget_report_feature_followup": {
+      "parent_sha": "cb444428d248f09cb39c21392ac76ff60ea8b9a0",
+      "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+      "state": "IMPLEMENTED_PENDING_HOSTED_VALIDATION",
+      "updated_at": "2026-11-14T06:32:59.407920+00:00",
+      "finding": "The new GITHUB_TOOL_CONTEXT_BUDGET enum is valid in provider, causal and voice diagnostic code fields. Feature negotiation initially recognized only the provider field and new numeric counts, so valid diagnostic-only reports could POST to an older service before rejection.",
+      "change": "Require GITHUB_SCHEMA_BUDGET_EVIDENCE_V1 for the exact enum in all three validated code fields. Preserve existing count/omitted-count detection, schema/area restrictions, bounded numbers, all other codes and original approved payload bytes.",
+      "independent_review": "Accepted; validation precedes feature negotiation, which precedes beforeDispatch and POST. Omitted legacy code names alone do not assert a new enum.",
+      "validation": {
+        "before_fix_reproduction": {
+          "cases": 2,
+          "result": "Both fail as expected; missing causal/voice feature"
+        },
+        "same_reproduction_after_fix": {
+          "cases": 2,
+          "result": "PASS"
+        },
+        "diagnostics_and_submission": {
+          "tests": 44,
+          "result": "PASS; actual current serialization, diagnostics and native submission; Android metadata and unrelated delivery worker are host boundaries"
+        },
+        "acceptance_report_pagination": {
+          "tests": 52,
+          "result": "PASS"
+        },
+        "capacity_provider_diagnostics": {
+          "tests": 25,
+          "result": "PASS"
+        },
+        "canonical_host": {
+          "tests": 507,
+          "literal_regexes": 1653,
+          "dynamic_regexes_skipped": 82,
+          "resource_xml_files": 34,
+          "result": "PASS"
+        },
+        "formatting": {
+          "tool": "ktlint1.3.1",
+          "changed_kotlin_files": 4,
+          "result": "PASS"
+        },
+        "source_manifests": "Zero source changes after focused compilation; actual-source extraction origins retained.",
+        "generated_inventory": {
+          "files": 2566,
+          "areas": 26,
+          "result": "PASS"
+        },
+        "hosted": "PENDING_NEW_PUBLISHED_HEAD"
+      },
+      "preserved_concurrent_changes": [
+        "Monotonic capacity-age clock with separate epoch retry deadlines.",
+        "Cancellable measured-layout wait before scroll catch-up and reading-ledger arming.",
+        "Voice scheduler/network assignment and bounded install diagnostics.",
+        "Shared authenticated-job transport backoff with retained server Retry-After.",
+        "Retained acceptance scope, original preview improvements and prerequisite repair."
+      ],
+      "remaining_limits": "Requires matching deployed report service support; old approved bytes are retained. Full Android and required application workflows must qualify the published revision. Historical private-service requests and physical-device performance are not claimed recovered."
     }
   },
   "audit_source_generation_heap_followup": {

@@ -379,7 +379,7 @@ The complete `c711545d` Android graph executed 10,292 tests: 10,282 passed, five
 | Exact tool-call continuation event sequence | Include the new configured-output observation before usage/text in both rounds. Exact call IDs, event order and completion remain asserted; both serialized requests must retain the 4,096-token output allowance. |
 | Malformed backup error cause | Coroutine stack-trace recovery may retain an already-sanitized exception as its cause. Check every causal node for the fixed safe type/message, reject suppressed errors and cycles, and reject private content in the complete stack trace. Exact history and batch preservation remain asserted; production parsing is unchanged. |
 | Retained bounded integration acceptance | Assert the actual three contracts: ordinary review incomplete, single-action bounded integration complete, explicitly exhaustive traversal incomplete. Scope, pending-page counts and restored verdict equality remain asserted. |
-| Capacity evidence age | Use the existing explicit clock seam and assert an exact 250 ms observation age. An old wall-clock fixture correctly exceeded the unchanged 16,000,000 ms diagnostic bound. No inference POST, exact capacity/provenance and original input remain asserted. |
+| Capacity evidence age | The original failure exposed a mixed-clock diagnostic calculation: capacity snapshots use local monotonic time, while the projection used epoch time. Commit `2bee7500` separates those clocks and checks the default-clock age against the actual elapsed metadata/read interval. Deterministic age, future/unknown/oversized omission, no inference POST, exact capacity/provenance and original input remain asserted. |
 | Initial rendered-line catch-up | Wait for a nonempty measured viewport before initial catch-up and arming. Previously an empty LazyListState could return without scrolling and then arm before reaching the bottom. The regression now deliberately delays list attachment, verifies it remains unarmed, and retains the exact 4,500 ms new-text budget, intermediate scroll and final empty-queue/bottom assertions. |
 
 The backup error-graph assertions passed three pinned-runtime cases with coroutine recovery enabled and the same three with recovery disabled, including negative leak/cycle checks. This narrow reproduction is not a full Android/Room pass. All corrected Android cases remain subject to the next hosted graph; no assertion was replaced by a blanket success or removed coverage requirement.
@@ -405,3 +405,38 @@ The saved-result host harness exercised nine coordinator tests with Android/netw
 Four build 141 reports posted between 1:11 and 1:15 a.m. Toronto time identify tested merge `e9aff20f12745f15aa7da8d187003c8abe6e2083` and distinct run identities. Each records pre-dispatch Llama admission with remote acceptance `NO`. The shared reported error fingerprint matches the application-owned `GITHUB_TOOL_CONTEXT_BUDGET` code using the existing domain-separated report hash. That code was missing from the public report and provider receipt allowlists, which converted the incidents to `CHAT_FAILED` and discarded the numeric schema demand and headroom.
 
 The report now preserves the typed admission code, application origin and bounded required/available schema token counts, including zero headroom. These values describe the budget for required schemas. They provide no replay authority and do not relax schema or model admission. The historical reports do not contain the actual counts. The hosted reporter negotiates `GITHUB_SCHEMA_BUDGET_EVIDENCE_V1` before accepting the exact approved payload.
+
+
+### Schema-budget report compatibility follow-up
+
+The report improvement in `cb444428d248f09cb39c21392ac76ff60ea8b9a0`
+allows `GITHUB_TOOL_CONTEXT_BUDGET` in the public code vocabulary and retains
+bounded schema-budget counts. Review found that the new code is also valid in
+`causal_failure_code` and `voice_chat_failure_code`, while the diagnostic feature
+check initially recognized only `provider_failure_code` and the new count fields.
+Two actual-source regressions reproduced the missing feature requirement for
+valid INCIDENT and VOICE capsules with a general report code. An older reporter
+could therefore receive a new enum value and reject it after submission.
+
+The compatibility check now requires `GITHUB_SCHEMA_BUDGET_EVIDENCE_V1` for the
+new enum in all three diagnostic code fields. Existing area validation and numeric
+bounds remain unchanged. New count fields still require the feature when omitted
+by bounding; an omitted legacy code field alone does not assert a new enum value.
+Unsupported services stop before the dispatch callback and POST. Once support is
+available, the exact originally approved payload is submitted; no field is stripped
+and no approval is reused for a rewritten report.
+
+The concurrent monotonic-clock, first-layout scrolling, voice network assignment
+and gateway transport-backoff repairs are preserved in the same existing PR.
+Earlier CI cancellations followed head updates; they do not count as new source
+failures or qualify the next revision. Full Android and required verification
+remain gates on the latest published head.
+
+Validation passed all 44 tests in the complete diagnostic and submission classes,
+52 acceptance/report/pagination tests, and 25 capacity/provider-diagnostic tests.
+The same two incident/voice reproductions failed before the fix and passed after
+it. Source manifests matched after compilation. Canonical validation passed 507
+tests, 1,653 literal patterns and 34 resource XML files; formatting, generated
+inventory (2,566 files, 26 areas) and whitespace checks passed. Host fixtures
+isolate Android metadata and the unrelated durable report-delivery worker; full
+Android and current-head hosted checks remain required.

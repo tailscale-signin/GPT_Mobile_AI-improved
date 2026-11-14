@@ -17,6 +17,19 @@ class IssueReportDiagnosticsTest {
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 
+    @Test fun schemaBudgetCodeRequiresItsFeatureAcrossValidDiagnosticAreas() {
+        for ((area, field) in listOf("PROVIDER" to "provider_failure_code", "INCIDENT" to "causal_failure_code", "VOICE" to "voice_chat_failure_code")) {
+            val snapshot = capture(area, mapOf(field to "GITHUB_TOOL_CONTEXT_BUDGET"))
+            assertTrue(snapshot.isValid())
+            assertEquals(JsonPrimitive("GITHUB_TOOL_CONTEXT_BUDGET"), snapshot.values[field])
+            assertTrue("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1" in snapshot.requiredServiceFeatures())
+            val legacy = capture(area, mapOf(field to "CONTEXT_CAPACITY_EXCEEDED"))
+            assertTrue(legacy.isValid())
+            assertEquals(JsonPrimitive("CONTEXT_CAPACITY_EXCEEDED"), legacy.values[field])
+            assertFalse("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1" in legacy.requiredServiceFeatures())
+        }
+    }
+
     @Test fun admissionEvidenceKeepsMeasuredZerosDistinctFromUnknownCeilingsAndRejectsPrivateExtensions() {
         val snapshot = capture(
             "PROVIDER",

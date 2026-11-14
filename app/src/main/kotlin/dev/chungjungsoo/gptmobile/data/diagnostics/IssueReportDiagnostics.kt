@@ -40,7 +40,11 @@ internal data class IssueReportDiagnostics(
     }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
-        if ((values.keys + omittedFields).any { it in githubSchemaBudgetFields } || values["provider_failure_code"] == JsonPrimitive("GITHUB_TOOL_CONTEXT_BUDGET")) add("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1")
+        if ((values.keys + omittedFields).any { it in githubSchemaBudgetFields } ||
+            listOf("provider_failure_code", "causal_failure_code", "voice_chat_failure_code").any { values[it] == JsonPrimitive("GITHUB_TOOL_CONTEXT_BUDGET") }
+        ) {
+            add("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1")
+        }
         if ((values.keys + omittedFields).any { it in capacityEvidenceFields }) add("CAPACITY_ADMISSION_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in conflictEvidenceFields } || values["conflict_pending_tool_count"] == JsonPrimitive(0)) add("CONVERSATION_CONFLICT_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in acceptanceScopeFields }) add("ACCEPTANCE_SCOPE_EVIDENCE_V1")

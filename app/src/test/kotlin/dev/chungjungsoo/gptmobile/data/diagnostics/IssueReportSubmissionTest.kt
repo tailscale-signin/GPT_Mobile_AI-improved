@@ -83,6 +83,50 @@ class IssueReportSubmissionTest {
         assertEquals(listOf("GET"), methods)
     }
 
+    @Test fun schemaBudgetDiagnosticCodesWaitForServiceSupportWithoutChangingApprovedBytes() {
+        val feature = "GITHUB_SCHEMA_BUDGET_EVIDENCE_V1"
+        for ((area, field) in listOf("PROVIDER" to "provider_failure_code", "INCIDENT" to "causal_failure_code", "VOICE" to "voice_chat_failure_code")) {
+            val context = IssueReportContext.fromFields(
+                if (area == "VOICE") "VOICE_STATE" else "CHAT_FAILURE",
+                mapOf("diagnostic_area" to area, field to "GITHUB_TOOL_CONTEXT_BUDGET"),
+                1_000L
+            )
+            val diagnostic = requireNotNull(context.diagnostics)
+            assertEquals(JsonPrimitive("GITHUB_TOOL_CONTEXT_BUDGET"), diagnostic.values[field])
+            val approved = report.copy(context = context)
+            val payload = approved.approvedPayload()
+            var supported = false
+            var dispatched = 0
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                if (request.method == "GET") {
+                    val features = JsonArray(diagnostic.requiredServiceFeatures().filter { supported || it != feature }.map(::JsonPrimitive))
+                    response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                } else {
+                    posted += body(request)
+                    response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                }
+            }.build()
+            val submission = IssueReportSubmission(origin, client)
+            val blocked = submission.send(report.reportId, payload) { dispatched++ }
+            assertTrue("$area/$field must wait before posting: $methods", blocked is IssueReportSubmission.Failure)
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", (blocked as IssueReportSubmission.Failure).code)
+            assertFalse(blocked.automaticRetry)
+            assertEquals(listOf("GET"), methods)
+            assertEquals(0, dispatched)
+            assertTrue(posted.isEmpty())
+            assertEquals(payload, approved.approvedPayload())
+            supported = true
+            assertEquals(IssueReportSubmission.Confirmed(941), submission.send(report.reportId, payload) { dispatched++ })
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+            assertEquals(1, dispatched)
+            assertEquals(listOf(payload), posted)
+        }
+    }
+
     @Test fun preparingVoiceRequiresServiceSupportBeforePostingApprovedBytes() {
         val context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_engine" to "KOKORO", "voice_phase" to "PREPARING"), 1_000L)
         val enriched = report.copy(context = context)

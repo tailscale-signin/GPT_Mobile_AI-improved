@@ -6,6 +6,8 @@ This release brings together persistent gateway conversations and jobs, more rel
 
 ## November 14 chat, voice, and benchmark follow-up
 
+Voice integration review fixes stale speech during regeneration, retains intentional historical playback, and prevents late admission or screen recreation from re-offering an accepted voice prompt. Transcript controls now inherit the theme content color and have required dark, light and 200% text render coverage.
+
 Repository maps now use revision-bound result pages and backend symbol search, retain larger source files and configuration metadata, improve supported cross-file relationships, and reuse authorized unchanged fragments. Saved indexing continues when its screen closes, with explicit generation-bound cancellation, failure retries, and truthful partial-coverage counts. Stage-specific graph context has its own bounded allocation and records actual model admission. See the [repository-map repair](docs/repairs/repository-map-reliability-2026-11-14.md).
 
 The repository-map follow-up requires matching app and gateway deployment. Structural parsing still has partial and unresolved relationships; model-answer accuracy, token savings, and affected-device behavior remain unmeasured. New graph and policy diagnostic fields require a hosted reporter advertising GITHUB_GRAPH_POLICY_EVIDENCE_V1; older services keep the approved report saved until a compatible route is available.

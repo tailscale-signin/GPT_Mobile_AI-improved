@@ -127,7 +127,9 @@
     "Preserve retained acceptance capability scope and pagination mode in bounded approved reports for issue #1092, negotiate matching reporter support, and retain CI source-generation phase metrics without changing completion policy or build limits.",
     "Repair bounded GitHub review output recovery, terminal failure publication, workflow and repository-graph preparation, desktop validation-policy persistence, diagnostic export memory recovery, and targeted report evidence from the supplemental November 14 archive.",
     "Keep voice rooms in a shared voice transcript/session with themed per-response playback, sequential automatic reading for typed and spoken replies, lifecycle-safe silent captions, normalized Kokoro pronunciation, and bounded PCM delivery.",
-    "Repair repository-map paging, structural coverage and source reuse, durable indexing, stage-specific context admission, model-consumption evidence, and negotiated graph/policy report diagnostics."
+    "Repair repository-map paging, structural coverage and source reuse, durable indexing, stage-specific context admission, model-consumption evidence, and negotiated graph/policy report diagnostics.",
+    "Retire superseded automatic and latest-revision manual speech without interrupting explicitly selected historical replay, leaking stale callbacks, or restarting capture.",
+    "Preserve request-owned voice draft admission across playback, pause and recreation; verify themed transcript controls with required dark, light and large-text render evidence."
   ],
   "limitations": [
     "The new keyboard and completion diagnostics require a hosted reporter advertising COMPOSER_IME_EVIDENCE_V1 and COMPLETION_EVIDENCE_V1. Confirm keyboard behavior on the affected Android device and empty model responses on the original route.",
@@ -2639,6 +2641,9 @@
     "gateway/v14/code_graph/extract.py",
     "gateway/v14/code_graph/index_jobs.py",
     "gateway/v14/code_graph/paging.py",
-    "gateway/v14/graph_context.py"
+    "gateway/v14/graph_context.py",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTranscriptInstrumentedTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionPlaybackTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceGenerationSupersessionTest.kt"
   ]
 }

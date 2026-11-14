@@ -29,6 +29,8 @@ class VoiceMessagePlayback {
         private set
     val hasPending: Boolean get() = pending.isNotEmpty()
     private var delivered: VoiceMessageReply? = null
+    private var supersededActive: VoiceMessageIdentity? = null
+    private var manualOwner: VoiceMessageIdentity? = null
 
     fun observe(replies: List<VoiceMessageReply>, autoplay: Boolean) {
         if (!initialized) {
@@ -53,8 +55,13 @@ class VoiceMessagePlayback {
                     consumed += it.identity.key
                 }
                 active?.takeIf { it.identity.messageId == identity.messageId && it.identity.runId != identity.runId }?.let {
-                    active = it.copy(complete = true, failed = true)
+                    supersededActive = it.identity
                 }
+            }
+            // Latest-revision replay follows that generation. An explicitly selected historical
+            // revision remains its own read even when the message's current run changes.
+            manualOwner?.takeIf { it.revision == -1 && it.messageId == identity.messageId && it.runId != identity.runId }?.let {
+                supersededActive = it
             }
             active?.takeIf { it.identity == identity }?.let { active = reply.copy(readAloud = it.readAloud) }
             pending[identity.key]?.let { pending[identity.key] = reply.copy(readAloud = it.readAloud) }
@@ -66,7 +73,7 @@ class VoiceMessagePlayback {
     }
 
     fun next(): VoiceMessageReply? {
-        if (active != null) return null
+        if (active != null || manualOwner != null) return null
         val next = pending.values.firstOrNull { it.text.isNotBlank() || it.complete } ?: return null
         pending.remove(next.identity.key)
         consumed += next.identity.key
@@ -78,9 +85,18 @@ class VoiceMessagePlayback {
     /** Only changed text/terminal state is delivered to the audio stream. */
     fun update(): VoiceMessageReply? = active?.takeUnless { it == delivered }?.also { delivered = it }
 
+    /** Replacement is an intentional cancellation, including after the old model response completed. */
+    fun retireSuperseded(): VoiceMessageIdentity? {
+        val identity = supersededActive ?: return null
+        finish()
+        return identity
+    }
+
     fun finish() {
         active = null
         delivered = null
+        supersededActive = null
+        manualOwner = null
     }
 
     /** Explicit replay supersedes the active generation, including its later stream/final events. */
@@ -89,6 +105,8 @@ class VoiceMessagePlayback {
         consumed += identity.key
         pending.remove(identity.key)
         finish()
+        manualOwner = identity
+        if (identity.revision == -1) known.putIfAbsent(identity.messageId, identity.runId)
     }
 
     fun discardPending() {

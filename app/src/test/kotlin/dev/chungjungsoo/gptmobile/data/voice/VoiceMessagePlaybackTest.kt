@@ -79,9 +79,10 @@ class VoiceMessagePlaybackTest {
         playback.update()
         val replacement = reply(1, run = "replacement")
         playback.observe(listOf(replacement), true)
-        assertTrue(requireNotNull(playback.update()).failed)
+        assertNull(playback.update())
         assertNull(playback.next())
-        playback.finish()
+        assertEquals(VoiceMessageIdentity(1, "run-1"), playback.retireSuperseded())
+        assertNull(playback.retireSuperseded())
         assertEquals(replacement, playback.next())
     }
 

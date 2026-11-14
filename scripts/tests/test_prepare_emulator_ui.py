@@ -672,6 +672,11 @@ if [ "$EMULATOR_TEST_FAILURE" = voice-message-controls ]; then
     *VoiceMessageControlsInstrumentedTest*) exit 57 ;;
   esac
 fi
+if [ "$EMULATOR_TEST_FAILURE" = voice-transcript ]; then
+  case "$*" in
+    *VoiceTranscriptInstrumentedTest*) exit 58 ;;
+  esac
+fi
 ''')
         python = binaries / 'python3'
         python.write_text('''#!/bin/sh
@@ -743,6 +748,15 @@ esac
             invocations = [command for command in commands if 'am instrument' in command and 'VoiceMessageControlsInstrumentedTest' in command]
             self.assertEqual(1, len(invocations))
             for name in ('voice-message-controls-instrumentation.txt', 'logcat.txt', 'exit-logcat.txt', 'window-state.txt', 'process-state.txt', 'last-anr.txt'):
+                self.assertIn('retained emulator evidence', (artifacts / name).read_text())
+
+    def test_voice_transcript_failure_remains_fatal_and_retains_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result, commands, artifacts = self.run_fixture(directory, 'voice-transcript')
+            self.assertEqual(58, result.returncode, result.stderr)
+            invocations = [command for command in commands if 'am instrument' in command and 'VoiceTranscriptInstrumentedTest' in command]
+            self.assertEqual(1, len(invocations))
+            for name in ('voice-transcript-instrumentation.txt', 'logcat.txt', 'exit-logcat.txt', 'window-state.txt', 'process-state.txt', 'last-anr.txt'):
                 self.assertIn('retained emulator evidence', (artifacts / name).read_text())
 
 

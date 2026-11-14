@@ -89,6 +89,7 @@ import dev.chungjungsoo.gptmobile.data.voice.VoiceRecoveryAction
 import dev.chungjungsoo.gptmobile.data.voice.VoiceSession
 import dev.chungjungsoo.gptmobile.data.voice.VoiceState
 import dev.chungjungsoo.gptmobile.data.voice.createKokoroVoiceOutput
+import dev.chungjungsoo.gptmobile.data.voice.shouldCheckpointDraft
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatRevealPanel
@@ -259,6 +260,7 @@ private fun VoiceChatSessionScreen(
     var retainedTranscript by rememberSaveable { mutableStateOf("") }
     var retainedReply by rememberSaveable { mutableStateOf("") }
     var retainedReview by rememberSaveable { mutableStateOf(false) }
+    var retainedSubmittedRequestId by rememberSaveable { mutableStateOf<String?>(null) }
     var retainedMuted by rememberSaveable { mutableStateOf(false) }
     val systemAudio = remember(model) { AndroidVoiceAudio(context.applicationContext) }
     val localRecognition = remember(model, stores) { MoonshineVoiceRecognizer(context.applicationContext, stores.moonshine) }
@@ -271,20 +273,22 @@ private fun VoiceChatSessionScreen(
     val localModel by stores.moonshine.state.collectAsStateWithLifecycle()
     val kokoroModel by stores.kokoro.state.collectAsStateWithLifecycle()
     val session = remember(model, audio) {
-        VoiceSession(audio, submit = model::submitVoiceTranscript, awaitsAdmission = true, changed = {
-            if (it.hasDraft) model.checkpointVoiceDraft(it.transcript)
+        VoiceSession(audio, submit = model::submitVoiceTranscript, awaitsAdmission = true, submittedRequestId = { model.voiceAdmission.value?.requestId }, changed = {
+            val currentAdmission = model.voiceAdmission.value
+            if (it.shouldCheckpointDraft(currentAdmission?.requestId, currentAdmission?.stage)) model.checkpointVoiceDraft(it.transcript)
             // Disposal closes audio; preserve the paused draft for rotation and text handoff.
             if (it.phase != VoicePhase.CLOSED) {
                 retainedTranscript = it.transcript
                 retainedReply = it.reply
                 retainedReview = it.hasDraft
+                retainedSubmittedRequestId = it.submittedDraftRequestId
                 retainedMuted = it.muted
             }
         }).also {
             val wasMuted = retainedMuted
             // A recreated surface primes retained messages as history. Explicit replay remains
             // available; restoration must never speak already consumed audio a second time.
-            it.restore(retainedTranscript, retainedReply, retainedReview, pending = false)
+            it.restore(retainedTranscript, retainedReply, retainedReview, pending = false, pendingRequestId = retainedSubmittedRequestId)
             if (wasMuted) it.mute()
         }
     }
@@ -516,7 +520,7 @@ private fun VoiceChatSessionScreen(
     }
     LaunchedEffect(admission) {
         val accepted = admission ?: return@LaunchedEffect
-        session.admission(accepted.stage, accepted.reason)
+        session.admission(accepted.stage, accepted.reason, accepted.requestId)
     }
     LaunchedEffect(loaded, roomReady, messages, runs, spokenReplies, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick) {
         if (!loaded || !roomReady) return@LaunchedEffect
@@ -539,11 +543,17 @@ private fun VoiceChatSessionScreen(
         playbackPrimed = playback.initialized
         if (!foregroundOutput) return@LaunchedEffect
         refreshMutedBaseline = false
+        playback.retireSuperseded()?.let { identity ->
+            session.supersedeMessage(identity.key)
+            activeMessage = null
+            manualMessage = false
+        }
         val currentSession = session.states.value
         if (manualMessage) {
             if (currentSession.awaitingReply || currentSession.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) return@LaunchedEffect
             manualMessage = false
             activeMessage = null
+            playback.finish()
         }
         if (playback.active != null && !currentSession.awaitingReply && currentSession.phase !in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) {
             playback.finish()
@@ -624,9 +634,9 @@ private fun VoiceChatSessionScreen(
     fun readResponse(identity: VoiceMessageIdentity, text: String) {
         if (text.isBlank()) return
         pauseCapture()
-        playback.manual(identity)
         session.access(enabled && preferencesApplied && loaded && roomReady, permission, lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
         if (session.beginMessage(identity.key, manual = true, diagnosticRunId = identity.runId.ifBlank { identity.key })) {
+            playback.manual(identity)
             manualMessage = true
             activeMessage = identity
             retainMessage(identity)
@@ -786,7 +796,9 @@ private fun VoiceChatSessionScreen(
                 },
                 openTranscript = ::openChat,
                 openSettings = {
-                    if (state.hasDraft) model.checkpointVoiceDraft(draft)
+                    val currentState = session.states.value
+                    val currentAdmission = model.voiceAdmission.value
+                    if (currentState.shouldCheckpointDraft(currentAdmission?.requestId, currentAdmission?.stage)) model.checkpointVoiceDraft(currentState.transcript)
                     session.pause()
                     settingsOpen = true
                 },

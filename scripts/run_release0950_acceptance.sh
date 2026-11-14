@@ -129,6 +129,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.p
 voice_conversation_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMessageControlsInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-message-controls-instrumentation.txt"
 voice_message_controls_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTranscriptInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-transcript-instrumentation.txt"
+voice_transcript_status=${PIPESTATUS[0]}
 set -e
 timeout 10s adb logcat -d > "$acceptance_output/logcat.txt"
 settings_home_artifact_status=0
@@ -157,6 +159,7 @@ if [ "$secret_vault_status" -ne 0 ]; then exit "$secret_vault_status"; fi
 if [ "$local_voice_status" -ne 0 ]; then exit "$local_voice_status"; fi
 if [ "$voice_conversation_status" -ne 0 ]; then exit "$voice_conversation_status"; fi
 if [ "$voice_message_controls_status" -ne 0 ]; then exit "$voice_message_controls_status"; fi
+if [ "$voice_transcript_status" -ne 0 ]; then exit "$voice_transcript_status"; fi
 if [ "$voice_artifact_status" -ne 0 ]; then exit "$voice_artifact_status"; fi
 if [ "$model_source_status" -ne 0 ]; then exit "$model_source_status"; fi
 if [ "$swipe_status" -ne 0 ]; then exit "$swipe_status"; fi
@@ -209,6 +212,11 @@ for test in (
     'autoplayStopBelongsToTheLatestRunAndHistoricalReplayKeepsItsOwnRevision',
 ):
     check_instrumentation(folder / 'voice-message-controls-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMessageControlsInstrumentedTest', test)
+for test in (
+    'themedTranscriptControlsRetainRenderedEvidence',
+    'largeTextTranscriptActionsRemainReachableAndKeepMessageOwnership',
+):
+    check_instrumentation(folder / 'voice-transcript-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTranscriptInstrumentedTest', test)
 for test in (
     'packagedNativeSpeechRuntimeMatchesItsJavaApi',
     'kokoroPlaybackClassVerifiesBeforeAnyModelIsInstalled',
@@ -282,7 +290,7 @@ with tarfile.open(folder / 'settings-home.tar') as captures:
                 with captures.extractfile(member) as image:
                     assert image.read(8) == b'\x89PNG\r\n\x1a\n', name
 with tarfile.open(folder / 'voice-chat.tar') as captures:
-    for state in ('listening-dark', 'speaking-light'):
+    for state in ('listening-dark', 'speaking-light', 'transcript-controls-dark', 'transcript-controls-light', 'transcript-controls-large-dark'):
         name = f'voice-chat/{state}.png'
         member = captures.getmember(name)
         assert member.isfile(), name

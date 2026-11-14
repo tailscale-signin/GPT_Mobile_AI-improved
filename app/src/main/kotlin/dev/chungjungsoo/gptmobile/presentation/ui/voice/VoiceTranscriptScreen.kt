@@ -1,6 +1,5 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +21,7 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -46,7 +46,6 @@ internal data class VoiceChatDestinations(
 )
 
 /** The full existing transcript and composer, retaining the same voice owner and room. */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun VoiceTranscriptScreen(
     model: ChatViewModel,
@@ -63,23 +62,71 @@ internal fun VoiceTranscriptScreen(
     destinations: VoiceChatDestinations,
     bottomInteractionContent: (@Composable () -> Unit)?
 ) {
-    Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding().testTag("voice_chat_transcript")) {
+    VoiceTranscriptFrame(profileName, spokenReplies, changeSpokenReplies, showVoice, settings, end) {
+        CompositionLocalProvider(LocalVoiceMessageControls provides controls) {
+            ChatScreen(
+                chatViewModel = model,
+                onBackAction = end,
+                showTopBar = false,
+                onNavigateToLocalModels = destinations.localModels,
+                onReviewEvidenceAccess = destinations.evidenceAccess,
+                onProfileSettings = destinations.profileSettings,
+                onOpenConversation = destinations.conversation,
+                bottomInteractionContent = {
+                    VoiceTranscriptOutputControls(status, controls.phase, microphone, audioRoute)
+                    bottomInteractionContent?.invoke()
+                }
+            )
+        }
+    }
+}
+
+/** The production transcript shell also supplies content colors when navigation has no Surface. */
+@Composable
+internal fun VoiceTranscriptFrame(
+    profileName: String,
+    spokenReplies: Boolean,
+    changeSpokenReplies: (Boolean) -> Unit,
+    showVoice: () -> Unit,
+    settings: () -> Unit,
+    end: () -> Unit,
+    content: @Composable () -> Unit
+) {
+    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background, contentColor = MaterialTheme.colorScheme.onSurface) {
+        Column(Modifier.safeDrawingPadding().testTag("voice_chat_transcript")) {
+            VoiceTranscriptToolbar(profileName, spokenReplies, changeSpokenReplies, showVoice, settings, end)
+            Box(Modifier.weight(1f)) { content() }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun VoiceTranscriptToolbar(
+    profileName: String,
+    spokenReplies: Boolean,
+    changeSpokenReplies: (Boolean) -> Unit,
+    showVoice: () -> Unit,
+    settings: () -> Unit,
+    end: () -> Unit
+) {
+    Column {
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = end) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats") }
+            IconButton(onClick = end, modifier = Modifier.testTag("voice_transcript_back")) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats") }
             Column(Modifier.weight(1f)) {
                 Text("VOICE CHAT", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                Text(profileName, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(profileName, modifier = Modifier.testTag("voice_transcript_profile"), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            IconButton(onClick = settings) { Icon(Icons.Rounded.Settings, "Voice settings") }
+            IconButton(onClick = settings, modifier = Modifier.testTag("voice_transcript_settings")) { Icon(Icons.Rounded.Settings, "Voice settings") }
         }
         FlowRow(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            TextButton(onClick = showVoice) {
+            TextButton(onClick = showVoice, modifier = Modifier.testTag("voice_transcript_show_voice")) {
                 Icon(Icons.Rounded.GraphicEq, null)
                 Text("Voice")
             }
-            Text("Chat", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
+            Text("Chat", modifier = Modifier.align(Alignment.CenterVertically).testTag("voice_transcript_chat"), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleSmall)
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("Auto read", style = MaterialTheme.typography.labelMedium)
+                Text("Auto read", modifier = Modifier.testTag("voice_transcript_auto_read_label"), style = MaterialTheme.typography.labelMedium)
                 Switch(
                     spokenReplies,
                     changeSpokenReplies,
@@ -89,29 +136,17 @@ internal fun VoiceTranscriptScreen(
                 )
             }
         }
-        Box(Modifier.weight(1f)) {
-            CompositionLocalProvider(LocalVoiceMessageControls provides controls) {
-                ChatScreen(
-                    chatViewModel = model,
-                    onBackAction = end,
-                    showTopBar = false,
-                    onNavigateToLocalModels = destinations.localModels,
-                    onReviewEvidenceAccess = destinations.evidenceAccess,
-                    onProfileSettings = destinations.profileSettings,
-                    onOpenConversation = destinations.conversation,
-                    bottomInteractionContent = {
-                        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            FilledTonalButton(onClick = microphone, modifier = Modifier.testTag("voice_transcript_microphone")) {
-                                val playing = controls.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)
-                                Icon(if (playing) Icons.Rounded.Stop else Icons.Rounded.Mic, if (playing) "Stop reply" else "Microphone")
-                            }
-                            IconButton(onClick = audioRoute) { Icon(Icons.Rounded.VolumeUp, "Audio output") }
-                        }
-                        bottomInteractionContent?.invoke()
-                    }
-                )
-            }
+    }
+}
+
+@Composable
+internal fun VoiceTranscriptOutputControls(status: String, phase: VoicePhase, microphone: () -> Unit, audioRoute: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(status, Modifier.weight(1f), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        FilledTonalButton(onClick = microphone, modifier = Modifier.testTag("voice_transcript_microphone")) {
+            val playing = phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)
+            Icon(if (playing) Icons.Rounded.Stop else Icons.Rounded.Mic, if (playing) "Stop reply" else "Microphone")
         }
+        IconButton(onClick = audioRoute, modifier = Modifier.testTag("voice_transcript_audio_output")) { Icon(Icons.Rounded.VolumeUp, "Audio output") }
     }
 }

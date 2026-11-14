@@ -74,8 +74,13 @@ data class VoiceState(
     val awaitingReply: Boolean = false,
     val hasDraft: Boolean = false,
     val recoveryAction: VoiceRecoveryAction? = null,
-    val spokenRange: IntRange? = null
+    val spokenRange: IntRange? = null,
+    val submittedDraftRequestId: String? = null
 )
+
+/** A state callback may run before Compose delivers the dispatcher's latest admission event. */
+internal fun VoiceState.shouldCheckpointDraft(requestId: String?, stage: VoiceAdmissionStage?): Boolean =
+    hasDraft && !(submittedDraftRequestId != null && submittedDraftRequestId == requestId && stage in setOf(VoiceAdmissionStage.QUEUED, VoiceAdmissionStage.ACCEPTED))
 
 /** Main-thread, half-duplex session. Generation fencing rejects callbacks from cancelled capture/playback. */
 class VoiceSession(
@@ -84,7 +89,8 @@ class VoiceSession(
     private val changed: (VoiceState) -> Unit,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
     private val awaitsAdmission: Boolean = false,
-    private val diagnosticTrace: VoiceDiagnosticTrace = VoiceDiagnosticTrace(now)
+    private val diagnosticTrace: VoiceDiagnosticTrace = VoiceDiagnosticTrace(now),
+    private val submittedRequestId: () -> String? = { null }
 ) {
     companion object {
         const val API_VERSION = 2
@@ -103,6 +109,14 @@ class VoiceSession(
     }
     private var waiting = false
     private var draftPending = false
+    private var draftGeneration = 0L
+    private data class SubmittedDraft(
+        val requestId: String?,
+        val draftGeneration: Long,
+        val probe: VoiceDiagnosticTrace.Probe?,
+        var queued: Boolean = false
+    )
+    private var submittedDraft: SubmittedDraft? = null
     private var engaged = false
     private var automaticRetry = false
     private var recognitionFailures = 0
@@ -133,8 +147,13 @@ class VoiceSession(
     }
     var editBeforeSend = false
     var autoContinue = false
+    private fun replaceDraft() {
+        draftGeneration++
+        submittedDraft = null
+    }
     fun editDraft(text: String) {
         if (state.phase != VoicePhase.REVIEWING || waiting) return
+        replaceDraft()
         draftPending = true
         update(state.copy(transcript = text.take(8000)))
     }
@@ -153,13 +172,15 @@ class VoiceSession(
     }
     fun discardDraft() {
         if (state.phase == VoicePhase.CLOSED || waiting) return
+        replaceDraft()
         draftPending = false
         update(state.copy(phase = VoicePhase.PAUSED, notice = null))
     }
     fun sendDraft(text: String = state.transcript) {
-        if (state.phase != VoicePhase.REVIEWING || !accessAllowed()) return
+        if (state.phase != VoicePhase.REVIEWING || !accessAllowed() || submittedDraft != null) return
         val prompt = text.trim().take(8000)
         if (prompt.isEmpty()) return
+        submittedDraft = null
         resetStream()
         diagnosticProbe = diagnosticTrace.beginReply(generation)
         audio.bindDiagnostics(diagnosticProbe)
@@ -167,27 +188,56 @@ class VoiceSession(
         draftPending = awaitsAdmission
         update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, level = 0f))
         if (submit(prompt)) {
-            if (!awaitsAdmission) diagnosticProbe.requestAccepted()
+            if (awaitsAdmission) {
+                // The dispatcher publishes its request identity synchronously before returning.
+                // This ownership survives a manual replay, which has a separate audio generation.
+                submittedDraft = SubmittedDraft(submittedRequestId(), draftGeneration, diagnosticProbe)
+                update(state)
+            } else {
+                diagnosticProbe.requestAccepted()
+            }
         } else {
             draftPending = true
             fail("Could not send this turn. Open chat to review your profile and connection.")
         }
     }
-    fun admission(stage: VoiceAdmissionStage, reason: String? = null) {
-        if (!waiting || streamId != null || state.phase == VoicePhase.CLOSED) return
+    fun admission(stage: VoiceAdmissionStage, reason: String? = null, requestId: String? = null) {
+        val submitted = submittedDraft ?: return
+        if (state.phase == VoicePhase.CLOSED || requestId != submitted.requestId || draftGeneration != submitted.draftGeneration) return
         when (stage) {
-            VoiceAdmissionStage.CHECKING -> draftPending = true
+            VoiceAdmissionStage.CHECKING -> {
+                if (submitted.queued) return
+                draftPending = true
+            }
             VoiceAdmissionStage.QUEUED, VoiceAdmissionStage.ACCEPTED -> {
                 draftPending = false
-                if (stage == VoiceAdmissionStage.ACCEPTED) diagnosticProbe.requestAccepted()
+                if (stage == VoiceAdmissionStage.ACCEPTED) {
+                    submittedDraft = null
+                    // A replay invalidates this old probe; never borrow its diagnostic scope.
+                    submitted.probe?.requestAccepted()
+                } else {
+                    submitted.queued = true
+                }
             }
             VoiceAdmissionStage.FAILED -> {
+                submittedDraft = null
                 draftPending = true
-                fail("This message was not accepted. Your words are kept; open chat to review the connection or retry. ${reason.orEmpty()}")
+                val message = "This message was not accepted. Your words are kept; open chat to review the connection or retry. ${reason.orEmpty()}"
+                val ownsCaptureWait = waiting && streamId == null
+                if (submitted.probe === diagnosticProbe && ownsCaptureWait) {
+                    fail(message)
+                } else {
+                    // The owning chat request already retains the rejection. Preserve its draft
+                    // without cancelling unrelated audio or attributing a failure to that replay.
+                    if (ownsCaptureWait) waiting = false
+                    val phase = if (!waiting && state.phase in setOf(VoicePhase.THINKING, VoicePhase.PAUSED)) VoicePhase.REVIEWING else state.phase
+                    update(state.copy(phase = phase, notice = message))
+                }
                 return
             }
         }
-        update(state)
+        val settled = !draftPending && (state.phase == VoicePhase.REVIEWING || submittedDraft == null && !waiting && state.phase == VoicePhase.THINKING)
+        update(state.copy(phase = if (settled) VoicePhase.PAUSED else state.phase))
     }
 
     fun permissionDenied() {
@@ -196,11 +246,20 @@ class VoiceSession(
         update(state.copy(recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION))
     }
 
-    fun restore(transcript: String, reply: String, review: Boolean, pending: Boolean) {
+    fun restore(transcript: String, reply: String, review: Boolean, pending: Boolean, pendingRequestId: String? = null) {
         if (state.phase != VoicePhase.PAUSED || engaged) return
+        replaceDraft()
+        // Only an identity retained with this exact submitted draft can own a late admission.
+        // Restored requests have no live diagnostic probe and never resume old output.
+        submittedDraft = pendingRequestId?.let { SubmittedDraft(it, draftGeneration, probe = null, queued = !review) }
         waiting = pending
         draftPending = review
-        update(state.copy(transcript = transcript, reply = reply, phase = if (review) VoicePhase.REVIEWING else VoicePhase.PAUSED))
+        val phase = when {
+            pendingRequestId != null -> VoicePhase.THINKING
+            review -> VoicePhase.REVIEWING
+            else -> VoicePhase.PAUSED
+        }
+        update(state.copy(transcript = transcript, reply = reply, phase = phase))
     }
     fun replay() {
         val text = state.reply
@@ -249,6 +308,7 @@ class VoiceSession(
         state = next.copy(
             awaitingReply = waiting,
             hasDraft = draftPending,
+            submittedDraftRequestId = submittedDraft?.requestId,
             spokenRange = next.spokenRange?.takeIf { next.phase == VoicePhase.SPEAKING && next.reply.startsWith(state.reply) }
         )
         diagnosticProbe.phase(state.phase)
@@ -297,6 +357,10 @@ class VoiceSession(
             update(state.copy(phase = VoicePhase.THINKING, level = 0f))
             return
         }
+        if (submittedDraft != null) {
+            update(state.copy(phase = VoicePhase.THINKING, level = 0f))
+            return
+        }
         // Reviewing preserved text never touches the recognizer and must stay usable
         // during its cooldown, including after an error or session recreation.
         if (draftPending) {
@@ -336,6 +400,7 @@ class VoiceSession(
         diagnosticProbe = diagnosticTrace.advance(generation, reset = true)
         diagnosticProbe.access(permission, foreground, state.muted)
         audio.bindDiagnostics(diagnosticProbe)
+        replaceDraft()
         update(state.copy(phase = VoicePhase.STARTING, transcript = "", level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null))
         fun valid() = ticket == generation && captureAllowed() && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)
         fun recognitionFailed(
@@ -568,6 +633,17 @@ class VoiceSession(
         }
     }
 
+    /** Retire an old generation before its replacement, without resuming capture or reporting failure. */
+    fun supersedeMessage(id: String) {
+        if (state.phase == VoicePhase.CLOSED || streamId != id) return
+        engaged = false
+        automaticRetry = false
+        waiting = false
+        stopAudio("message_superseded")
+        resetStream()
+        update(state.copy(phase = VoicePhase.PAUSED, level = 0f, spokenRange = null))
+    }
+
     fun interrupt() {
         if (state.phase == VoicePhase.CLOSED) return
         waiting = false
@@ -694,6 +770,7 @@ class VoiceSession(
     }
     fun close() {
         if (state.phase == VoicePhase.CLOSED) return
+        submittedDraft = null
         stopAudio("session_closed")
         waiting = false
         draftPending = false

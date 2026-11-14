@@ -317,3 +317,60 @@ The pinned full gateway checker also passed: 955 Python cases, three platform/
 environment skips and seven browser cases, with no failures. The final preserved
 Windows alias-path policy regression was separately rerun (11 passed). Package
 digests match reviewed source; dependency lock hashes were not changed.
+
+## Independent integration review and voice follow-up
+
+This review preserves the combined voice/report implementation at `0a340a91`,
+the diagnostic and CI follow-up at `90c2f835`, and the repository-map repair at
+`b279eddfe41edd23602aacd811c881defa3b1aea` on PR #1122. The current review
+adds the following concrete repairs; final hosted qualification is still required.
+
+- Workflow discovery inspects cancelled, neutral and unknown-conclusion runs
+  because they can contain completed jobs with usable logs. Only confirmed
+  completed/skipped runs are excluded after the first jobs probe. The exact
+  repository/revision and bounded continuation rules remain in force.
+- Gateway diagnostic timing tests verify monotonic duration independently of
+  coarse or backward wall-clock observations. Controlled regressions also
+  ensure work after response-body completion does not inflate its latency.
+- Marketplace source generation uses separate KSP and KAPT processes with the
+  established bounded 4 GiB annotation heap, one worker, retained deadlines
+  and logs. All 16 focused Android contract selectors remain enabled.
+- Regenerating a response explicitly retires its old audio generation, even
+  after model output completed while audio was still draining. Both automatic
+  playback and manual playback of the latest revision are covered. Deliberate
+  historical-revision replay retains ownership until its real finish. Retired
+  callbacks cannot stop, fail or complete replacement playback.
+- Submitted voice drafts retain their actual request identity and draft
+  generation independently of replay. Late queued/accepted/rejected events
+  settle only their owning draft; pause and recreation do not re-offer an
+  accepted prompt or strand a rejected one. Both composer checkpoint paths
+  guard against the dispatcher's already-observed acceptance. Restored audio
+  remains silent, and unrelated historical playback is not interrupted.
+- The transcript frame supplies theme content color through a Material
+  surface. Its navigation icons and labels remain visible in dark mode, and
+  the selected Chat label aligns with the Voice control. Required render
+  evidence covers light, dark and 200% text at a narrow phone width.
+
+Focused validation passed 81 controller tests using the real session, playback
+ledger, speech projection/buffer and diagnostic trace sources. Only platform
+and report boundaries are substituted in that host. The supersession failure
+was reproduced before correction for ordinary and streaming output; the manual
+latest/history distinction had two failing-before cases. Two actual Compose
+render/interactions methods also passed in the native-graphics SDK 34 host,
+with model/ChatScreen boundaries substituted. These are not full-app or physical
+audio execution results. The acceptance runner now requires all ten named
+voice methods and five retained PNGs; its 48 contract tests passed.
+
+The integrated workflow selector/prerequisite host passed 18 tests, Gateway
+diagnostic evidence passed 14, and the existing CI/model-provisioning policy
+checks passed 19. Independent repository-map review passed 50 backend cases
+covering graph context, paging, indexing and selected-execution integration.
+These suites overlap other validation and must not be added as unique coverage.
+Canonical checks, exact scope, generated inventories and full-PR formatting
+are rerun before publication. Final Android/unit/lint, CodeQL, Gateway and
+emulator results must qualify the final shared head after all active work lands.
+
+The publication candidate based on `b279eddfe` passed 509 canonical host checks
+and 99 tests in the four authentication/reporter modules used by PR Validation.
+The source inventory and exact staged scope are checked again at publication;
+these local receipts do not replace the final combined-head hosted gates.

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "3532e7f532f7a310267e3a5299da25ef6e52f6eb3a90bb82988a4ef437ddfe69",
+  "source_digest": "4a971bdd528391d5254feaa0b30e9815549930798767855cb30fba235b2ec959",
   "file_count": 2550,
-  "indexed_line_count": 408168,
+  "indexed_line_count": 408213,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -136,7 +136,7 @@
       "id": "benchmark",
       "label": "Benchmarks and app audit",
       "file_count": 111,
-      "indexed_line_count": 16743
+      "indexed_line_count": 16788
     },
     {
       "id": "auth_and_security",
@@ -3783,8 +3783,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "87210f10c17e235cba666f2bdc939f48707c279b5935c049161017061cdddc04",
-      "indexed_lines": 744
+      "sha256": "13c57cbd1bf756baf1e56182f58ce2d8c0eba5056f45214346963dc173eb67c9",
+      "indexed_lines": 755
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCapabilitySuite.kt",
@@ -3874,7 +3874,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkFailurePolicy.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "d96f86c9f90ebc873fc1ef1bd5f7d84e034a5e11ab810ebf13fcdf4e06d00a21",
+      "sha256": "2e2c0ab108d6212e628076344c9d0a48ce49ae0103dba8f4a5395c1f1a693ba7",
       "indexed_lines": 133
     },
     {
@@ -4000,8 +4000,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "47ef8110c8b904eea2274fceff2feb81ba68a965addabe543d501357eeeb5bb5",
-      "indexed_lines": 821
+      "sha256": "8276128d69227e97ddb66738448bce345ad69ec95f7d5ef4ea5eac908528a88e",
+      "indexed_lines": 855
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStreamingExport.kt",

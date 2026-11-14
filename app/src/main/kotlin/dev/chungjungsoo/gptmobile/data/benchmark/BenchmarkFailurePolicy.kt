@@ -84,7 +84,7 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
         else -> "EXECUTION_FAILED"
     }
     val next = limit?.retryAt ?: causes.filterIsInstance<FreeAiRateLimitException>().firstOrNull()?.retryAt ?: retryTimestampFromLegacyMessage(message)
-    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("AUDIT_MODEL_") && !code.startsWith("UNSUPPORTED_") && code !in unsupportedReasoning && code !in modelLoadBlockers && code !in reasoningChecks && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED", "HTTP_400", "INVALID_REQUEST", "PROVIDER_PAYLOAD_ERROR"), nextEligibleAt = next)
+    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("AUDIT_MODEL_") && !code.startsWith("UNSUPPORTED_") && code !in unsupportedReasoning && code !in modelLoadBlockers && code !in reasoningChecks && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED", "HTTP_400", "INVALID_REQUEST", "PROVIDER_PAYLOAD_ERROR", "BENCHMARK_ENDPOINT_REDACTED"), nextEligibleAt = next)
 }
 
 /** Compatibility for older persisted failures; punctuation is never part of an ISO instant. */

@@ -15,6 +15,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.MotionDurationScale
+import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertEquals
@@ -25,11 +27,18 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = android.app.Application::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@OptIn(ExperimentalTestApi::class)
 class GitHubLineAutoScrollerTest {
-    @get:Rule val compose = createComposeRule()
+    private val durationScale = object : MotionDurationScale {
+        override val scaleFactor = 1f
+    }
+
+    @get:Rule val compose = createComposeRule(effectContext = durationScale)
 
     @Test fun paragraphInsertedBelowTheViewportIsMeasuredAndGetsItsCompleteReadingBudget() {
         var added by mutableStateOf(false)
@@ -55,12 +64,15 @@ class GitHubLineAutoScrollerTest {
                 }
             }
         }
-        compose.mainClock.advanceTimeBy(1700)
+        compose.mainClock.advanceTimeUntil(2000) { lines.ledger.armed }
         compose.runOnIdle { assertTrue(state.isAtGitHubBottom()) }
         compose.runOnIdle { added = true }
-        compose.mainClock.advanceTimeBy(96)
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeByFrame()
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeUntil(250) { !lines.queue.isEmpty }
         compose.runOnIdle {
-            assertTrue(lines.queue.remainingMillis in 4400L..4500L)
+            assertEquals(4500L, lines.queue.remainingMillis)
             assertFalse(state.isAtGitHubBottom())
         }
         compose.mainClock.advanceTimeBy(3000)

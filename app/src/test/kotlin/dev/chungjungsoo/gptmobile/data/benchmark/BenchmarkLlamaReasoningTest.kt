@@ -6,11 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class BenchmarkLlamaReasoningTest {
-    @Test fun deterministicQuickDoesNotRequireTheUnusedSavedOnMode() {
+    @Test fun deterministicQuickRequiresOnOnlyForItsIntelligenceFixture() {
         val plan = BenchmarkSuiteRegistry.cases(BenchmarkMode.QUICK, 0)
         val modes = BenchmarkLlamaReasoning.forPlan(BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1, ReasoningMode.ON, plan.map { it.requestCategory })
-        assertEquals(listOf(ReasoningMode.OFF), modes)
-        assertTrue(plan.all { BenchmarkLlamaReasoning.forRequest(BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1, ReasoningMode.ON, it.requestCategory) in modes })
+        assertEquals(listOf(ReasoningMode.OFF, ReasoningMode.ON), modes)
+        val intelligence = plan.single { it.category == IntelligenceBenchmark.CATEGORY }
+        assertEquals(ReasoningMode.ON, BenchmarkLlamaReasoning.forRequest(BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1, ReasoningMode.ON, intelligence.requestCategory))
+        val ordinaryCategories = plan.filterNot { it == intelligence }.map { it.requestCategory }
+        assertTrue(ordinaryCategories.isNotEmpty())
+        assertEquals(listOf(ReasoningMode.OFF), BenchmarkLlamaReasoning.forPlan(BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1, ReasoningMode.ON, ordinaryCategories))
     }
 
     @Test fun deterministicFullChecksTheSavedModeUsedByIntelligenceFixturesToo() {

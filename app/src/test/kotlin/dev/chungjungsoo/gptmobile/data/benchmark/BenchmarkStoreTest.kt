@@ -78,7 +78,7 @@ class BenchmarkStoreTest {
         try {
             store.load()
             rejectSnapshotWrites(context)
-            val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Name", model = "model")
+            val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Name", model = "model", apiUrl = "https://example.org/private", token = "private-credential")
             val batch = BenchmarkBatch("batch", BenchmarkMode.QUICK, 1, listOf(BenchmarkQueueItem(0, profile, "run", "key", BenchmarkQueueState.COMPLETED)), state = BenchmarkBatchState.COMPLETED)
             val sample = BenchmarkSample("instruction", "Instruction", "task", BenchmarkOutcome.PASSED, preview = "READY", canonicalAnswer = "READY", outputCharacters = 5, requestDispatched = true)
             val run = BenchmarkRun("run", profile.uid, profile.name, "OPENAI", "model", "key", false, BenchmarkMode.QUICK, System.currentTimeMillis(), listOf(sample), suiteVersion = 8, measurementVersion = 3, batchId = batch.id)
@@ -225,6 +225,8 @@ class BenchmarkStoreTest {
             val restored = checkNotNull(store.batch(batch.id))
             assertEquals(BenchmarkBatchState.INTERRUPTED, restored.state)
             assertEquals(listOf("profile", "next"), restored.items.map { it.profile.uid })
+            assertTrue(restored.items.all { it.profile.apiUrl.isEmpty() && it.profile.token == null })
+            assertEquals(BenchmarkQueueState.INTERRUPTED, restored.items.first().state)
             assertEquals(listOf("next"), restored.pending.map { it.profile.uid })
             assertTrue(restored.canResume)
         } finally {

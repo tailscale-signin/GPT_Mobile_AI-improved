@@ -188,11 +188,12 @@ class GitHubLiveProgressTest {
         var timeline by mutableStateOf(listOf(checks, files))
         compose.setContent { MaterialTheme { GitHubLiveProgressCard(timeline) } }
         val original = compose.onNodeWithText(checks.content).fetchSemanticsNode()
+        val originalTop = original.boundsInRoot.top
         compose.onNodeWithTag("github_latest_preview").assertTextEquals(files.content)
         compose.runOnIdle { timeline = listOf(checks.copy(content = "Checks: 2/103 complete", progressSequence = 3), files) }
         val updated = compose.onNodeWithTag("github_latest_preview").assertTextEquals("Checks: 2/103 complete").fetchSemanticsNode()
         assertEquals(original.id, updated.id)
-        assertTrue(updated.boundsInRoot.top > original.boundsInRoot.top)
+        assertTrue(updated.boundsInRoot.top > originalTop)
         val predecessor = compose.onNodeWithTag("github_previous_preview").fetchSemanticsNode()
         assertTrue(predecessor.boundsInRoot.bottom <= updated.boundsInRoot.top)
         compose.onAllNodesWithTag("github_preview_row").assertCountEquals(2)

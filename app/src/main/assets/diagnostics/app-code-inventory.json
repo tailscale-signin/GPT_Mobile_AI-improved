@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "f3cc842e17fae4b8207e99c28dd2bcc4791ab52186d7d53433ae57821494e177",
-  "file_count": 2602,
-  "indexed_line_count": 418904,
+  "source_digest": "c393283d2b41299ca90b057ed20aed1b3a0843c2ed800b3bbf8a890a0924c72b",
+  "file_count": 2605,
+  "indexed_line_count": 419530,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -165,8 +165,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 138,
-      "indexed_line_count": 69726
+      "file_count": 141,
+      "indexed_line_count": 70352
     },
     {
       "id": "authentication_service",
@@ -17458,6 +17458,20 @@
       "indexed_lines": 163
     },
     {
+      "path": "gateway/desktop/repository_validation.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "b37490da3119ef0c9f4bf8ff9c94544b9e68a51427cb8d612a1633cc49911f18",
+      "indexed_lines": 379
+    },
+    {
+      "path": "gateway/desktop/repository_validation_panel.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "757f27f45a428d9540c1ff8e65065a6d4ee2512f5c71bc31972754d55d30f121",
+      "indexed_lines": 280
+    },
+    {
       "path": "gateway/desktop/smoke_windows.py",
       "area_id": "gateway_software",
       "kind": "source",
@@ -17489,15 +17503,15 @@
       "path": "gateway/desktop/ui.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "aad569e87633f883def7930f74616616db52b8e07bbfe5dfc701dbec3256e8ff",
-      "indexed_lines": 466
+      "sha256": "408a2887827e955ebe03dc1a3e652862e72c719c5ebf7b8b300e12e820a9a911",
+      "indexed_lines": 373
     },
     {
       "path": "gateway/desktop/validation_policy.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "24e2371ec28fa173025575c27793751a37002d95e3dfc5e6bae7a942b45baf10",
-      "indexed_lines": 182
+      "sha256": "687730f431eff0a8488ed51856ec8dfd38074b977cd0ab5814777e3cd46f1b77",
+      "indexed_lines": 189
     },
     {
       "path": "gateway/desktop/window_lifecycle.py",
@@ -17937,8 +17951,8 @@
       "path": "gateway/v14/engineering_validation.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "5b82ec9e37f8f4f68bcaf37d9390c03cc68faa20b71816efe3670b818736f475",
-      "indexed_lines": 343
+      "sha256": "1fff6857ff904b9c60cab32c3c0ee8a567defa09a6b868bf7402830195841f12",
+      "indexed_lines": 352
     },
     {
       "path": "gateway/v14/errors.py",
@@ -18105,8 +18119,8 @@
       "path": "gateway/v14/package.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "0a4f8392115c7ef3e4c7d9380add1b0b53a7da373a9d8b7dd51dcef7602741fd",
-      "indexed_lines": 30
+      "sha256": "218fd9d360da70d8d7c6478fb456ddfae94c2b552da249039905a5c984f55950",
+      "indexed_lines": 32
     },
     {
       "path": "gateway/v14/profile_metadata.py",
@@ -18177,6 +18191,13 @@
       "kind": "source",
       "sha256": "78ed6358fe1ea50c045d41438aeb57d40ea1e6c2f84fd0f66d01b1204ae316c7",
       "indexed_lines": 115
+    },
+    {
+      "path": "gateway/v14/validation_host.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "a06b03dcb7e5b31aa50a40de8ede44ef446c3922c33ca46033deccda4296632e",
+      "indexed_lines": 42
     },
     {
       "path": "local-gguf-runtime/src/main/AndroidManifest.xml",

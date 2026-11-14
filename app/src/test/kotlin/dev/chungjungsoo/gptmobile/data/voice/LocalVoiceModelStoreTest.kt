@@ -1,8 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
+import io.mockk.every
+import io.mockk.mockk
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
+import java.net.HttpURLConnection
 import java.net.UnknownHostException
 import java.security.MessageDigest
 import java.util.concurrent.CountDownLatch
@@ -23,6 +26,25 @@ class LocalVoiceModelStoreTest {
     @get:Rule val files = TemporaryFolder()
     private val contents = "Verified test model".toByteArray()
     private val asset = LocalVoiceAsset("model.ort", contents.size.toLong(), hash(contents), listOf("https://models.example/model"))
+
+    @Test fun httpsSourceUsesTheSuppliedConnectionForTheAssetAndItsRedirect() {
+        val redirect = mockk<HttpURLConnection>(relaxed = true)
+        every { redirect.responseCode } returns 302
+        every { redirect.getHeaderField("Location") } returns "https://cdn.example/model"
+        val assetConnection = mockk<HttpURLConnection>(relaxed = true)
+        every { assetConnection.responseCode } returns 200
+        every { assetConnection.inputStream } returns ByteArrayInputStream(contents)
+        val hosts = mutableListOf<String>()
+        val source = HttpsVoiceAssetSource { url ->
+            hosts.add(url.host)
+            if (hosts.size == 1) redirect else assetConnection
+        }
+
+        source.open("https://models.example/model").use { stream ->
+            assertEquals("Verified test model", stream.input.readBytes().decodeToString())
+        }
+        assertEquals(listOf("models.example", "cdn.example"), hosts)
+    }
 
     @Test fun installPublishesOnlyVerifiedCompleteFilesAndReusesTheInstallation() = runBlocking {
         val downloads = AtomicInteger()

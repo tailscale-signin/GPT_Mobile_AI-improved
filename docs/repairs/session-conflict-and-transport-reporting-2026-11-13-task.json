@@ -197,5 +197,14 @@
     "intent": "Use local monotonic time for verified capacity observation age and retain wall time for retry diagnostics.",
     "regression": "The mock gateway supplies its own timestamp. Production error projection must report an age between zero and the measured local elapsed time without a manual wall-clock override or an inference POST.",
     "local_validation": "Canonical fast checks, generated inventory, architecture index, ktlint 1.3.1 and whitespace passed. Exact-head Android CI still required."
+  },
+  "voice_scheduler_network_followup": {
+    "base_branch": "main",
+    "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+    "reviewed_head_sha": "2bee75009427d1b0ec425604f5c63f5a7c57c741",
+    "state": "IMPLEMENTED_PENDING_HOSTED_VALIDATION",
+    "intent": "Open both scheduled voice model downloads and their redirects on the job network selected by Android.",
+    "regression": "The HTTPS source uses the injected connection for the original request and each redirect. An Android network-change callback updates subsequent connections for that job owner.",
+    "local_validation": "Canonical fast checks, generated inventory, architecture index, ktlint 1.3.1 and whitespace passed. Android scheduler and physical-device network changes are unverified."
   }
 }

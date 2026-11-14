@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "5bf3df4e623a768080c25d6185689aad5fff34ad8e7f7b2d8b7fccabdb5a9579",
+  "source_digest": "f03a363aa2fbcfdfe8cba7054e5d419839e379495b0c299314f54afdeec7b932",
   "file_count": 2566,
-  "indexed_line_count": 410322,
+  "indexed_line_count": 410347,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -148,7 +148,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 24,
-      "indexed_line_count": 5324
+      "indexed_line_count": 5349
     },
     {
       "id": "portable_domain",
@@ -11658,7 +11658,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "f20ba03e620989181b599b9848f5dab372869e284eac169c2b1d0cdb0c7f1ff9",
+      "sha256": "2446d4c8de10cf0a92bf20f1220f642d935a0b4e76f7511a0ed64acff5455e9c",
       "indexed_lines": 80
     },
     {
@@ -11679,8 +11679,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "a25e0da2f1953794761841e8090acbdcafe2fbd88c030a7eb920c8d031c24b19",
-      "indexed_lines": 460
+      "sha256": "461dd33140c5beb0e905e29bdab01087589fe40965c989865891758cf5cee538",
+      "indexed_lines": 462
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
@@ -11749,8 +11749,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginInstall.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "2b8d014c49d10ee8f27d2eb76caf892ea37293aea687bc906ce6ff1670ef96de",
-      "indexed_lines": 493
+      "sha256": "c6c5b76a37f2c58295126ce143605df78e43bc0a5531bf7d281f816b0cc80056",
+      "indexed_lines": 516
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePreferenceWriter.kt",

@@ -34,13 +34,13 @@ internal object KokoroModelPack {
         file("LICENSE", 11_358, "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30")
     )
 
-    fun store(voiceModelsDirectory: File) = LocalVoiceModelStore(
+    fun store(voiceModelsDirectory: File, sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() }) = LocalVoiceModelStore(
         File(voiceModelsDirectory, REVISION),
         listOf(archive),
         expandedAssets = files,
         expandArchive = ::unpack,
         revision = archive.sha256,
-        sourceFactory = ::HttpsVoiceAssetSource
+        sourceFactory = sourceFactory
     )
 
     /** Called only after the archive length and SHA-256 have been checked. */

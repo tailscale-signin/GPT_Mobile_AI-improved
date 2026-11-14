@@ -13,6 +13,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.Uri
@@ -34,6 +35,7 @@ import androidx.work.workDataOf
 import dev.chungjungsoo.gptmobile.R
 import java.io.File
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -316,12 +318,17 @@ internal object VoicePluginInstall {
             .build()
     }
 
-    suspend fun install(context: Context, owner: String, progress: (Long, Long) -> Unit): Boolean = coroutineScope {
+    suspend fun install(
+        context: Context,
+        owner: String,
+        sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() },
+        progress: (Long, Long) -> Unit
+    ): Boolean = coroutineScope {
         if (!attempt.owns(owner)) return@coroutineScope false
         observe("RUNNING", owner = owner)
         val directory = File(context.noBackupFilesDir, "voice-models")
-        val moonshine = LocalVoiceModelStore(directory)
-        val kokoro = KokoroModelPack.store(directory)
+        val moonshine = LocalVoiceModelStore(directory, sourceFactory)
+        val kokoro = KokoroModelPack.store(directory, sourceFactory)
         if (!attempt.acquireTransfer(owner)) return@coroutineScope false
         val observer = launch {
             combine(moonshine.state, kokoro.state) { recognition, playback ->
@@ -414,10 +421,15 @@ class VoicePluginTransferService : JobService() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var transfer: Job? = null
     private var transferOwner: String? = null
+    private var transferNetwork: AtomicReference<Network>? = null
 
     override fun onStartJob(params: JobParameters): Boolean {
         val owner = params.extras.getString(VoicePluginInstall.ATTEMPT) ?: "legacy-job-${VoicePluginInstall.JOB_ID}"
         if (!VoicePluginInstall.claimAttempt(owner)) return false
+        val network = params.network ?: run {
+            VoicePluginInstall.observe("FAILED", "WORKER_EXCEPTION", pendingReason = "CONNECTIVITY", owner = owner)
+            return false
+        }
         val cancel = VoicePluginInstall.notificationCancelAction(this, owner)
         val notification = VoicePluginInstall.notification(this, cancel = cancel)
         try {
@@ -429,9 +441,14 @@ class VoicePluginTransferService : JobService() {
         val notifications = getSystemService(NotificationManager::class.java)
         transfer?.cancel()
         transferOwner = owner
+        val assignedNetwork = AtomicReference(network)
+        transferNetwork = assignedNetwork
         transfer = scope.launch {
             try {
-                VoicePluginInstall.install(this@VoicePluginTransferService, owner) { bytes, total ->
+                val sourceFactory = {
+                    HttpsVoiceAssetSource { url -> assignedNetwork.get().openConnection(url) }
+                }
+                VoicePluginInstall.install(this@VoicePluginTransferService, owner, sourceFactory) { bytes, total ->
                     notifications.notify(VoicePluginInstall.JOB_ID, VoicePluginInstall.notification(this@VoicePluginTransferService, bytes, total, cancel))
                 }
                 if (VoicePluginInstall.ownsAttempt(owner)) jobFinished(params, false)
@@ -445,12 +462,18 @@ class VoicePluginTransferService : JobService() {
         return true
     }
 
+    override fun onNetworkChanged(params: JobParameters) {
+        val owner = params.extras.getString(VoicePluginInstall.ATTEMPT) ?: "legacy-job-${VoicePluginInstall.JOB_ID}"
+        if (transferOwner == owner) params.network?.let { transferNetwork?.set(it) }
+    }
+
     override fun onStopJob(params: JobParameters): Boolean {
         val owner = params.extras.getString(VoicePluginInstall.ATTEMPT) ?: "legacy-job-${VoicePluginInstall.JOB_ID}"
         if (transferOwner == owner) {
             transfer?.cancel()
             transfer = null
             transferOwner = null
+            transferNetwork = null
         }
         val retry = params.stopReason in setOf(JobParameters.STOP_REASON_CONSTRAINT_CONNECTIVITY, JobParameters.STOP_REASON_DEVICE_STATE)
         VoicePluginInstall.observe(

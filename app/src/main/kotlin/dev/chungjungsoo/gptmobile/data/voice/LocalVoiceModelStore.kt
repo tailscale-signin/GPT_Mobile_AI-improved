@@ -8,6 +8,8 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URI
+import java.net.URL
+import java.net.URLConnection
 import java.security.MessageDigest
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
@@ -50,10 +52,10 @@ class LocalVoiceModelStore internal constructor(
         File(context.applicationContext.noBackupFilesDir, "voice-models")
     )
 
-    internal constructor(voiceModelsDirectory: File) : this(
+    internal constructor(voiceModelsDirectory: File, sourceFactory: () -> LocalVoiceAssetSource = { HttpsVoiceAssetSource() }) : this(
         File(voiceModelsDirectory, "moonshine-tiny-en-20260821"),
         MODEL_ASSETS,
-        sourceFactory = ::HttpsVoiceAssetSource
+        sourceFactory = sourceFactory
     )
 
     private class Shared(val state: MutableStateFlow<LocalVoiceModelState>) {
@@ -395,7 +397,7 @@ internal class LocalVoiceAssetStream(
     }
 }
 
-internal class HttpsVoiceAssetSource : LocalVoiceAssetSource {
+internal class HttpsVoiceAssetSource(private val openConnection: (URL) -> URLConnection = { it.openConnection() }) : LocalVoiceAssetSource {
     @Volatile private var connection: HttpURLConnection? = null
 
     @Volatile private var cancelled = false
@@ -407,7 +409,7 @@ internal class HttpsVoiceAssetSource : LocalVoiceAssetSource {
         repeat(6) {
             if (cancelled) throw IOException("Download cancelled.")
             if (current.scheme != "https" || current.userInfo != null) throw IOException("Invalid speech model download address.")
-            val active = (current.toURL().openConnection() as HttpURLConnection).apply {
+            val active = (openConnection(current.toURL()) as HttpURLConnection).apply {
                 connectTimeout = 15_000
                 readTimeout = 15_000
                 instanceFollowRedirects = false

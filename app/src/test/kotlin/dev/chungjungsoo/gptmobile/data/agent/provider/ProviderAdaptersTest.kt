@@ -128,6 +128,16 @@ class ProviderAdaptersTest {
         }
     }
 
+    @Test fun llamaBenchmarkSerializesJsonObjectFormatInsteadOfTheFixtureSchema() = runBlocking {
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        val schema = """{"type":"object","properties":{"status":{"type":"string"}},"required":["status"]}"""
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.LLAMA), RequestConstraints(finalResponseSchemaJson = schema, requestRole = "benchmark"))
+            .streamRound(emptyList(), emptyList()).toList()
+        val wire = NetworkClient.json.parseToJsonElement(NetworkClient.json.encodeToString(ChatCompletionRequest.serializer(), api.chatRequests.single())).jsonObject
+        assertEquals(NetworkClient.json.parseToJsonElement("""{"type":"json_object"}"""), wire["response_format"])
+    }
+
     @Test fun githubClaimExtractionSendsStrictSchemaAndUsesLowAdvertisedReasoning() = runBlocking {
         OpenRouterCatalogLimits.remember(listOf(OpenRouterModelItem("audit/claim-extraction", supportedParameters = listOf("reasoning"))))
         val schema = """{"type":"json_schema","json_schema":{"name":"github_evidence_claims","strict":true,"schema":{"type":"object","properties":{"claims":{"type":"array","items":{"type":"string"}}},"required":["claims"],"additionalProperties":false}}}"""

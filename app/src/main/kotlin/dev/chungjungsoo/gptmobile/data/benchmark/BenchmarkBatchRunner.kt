@@ -134,15 +134,17 @@ class BenchmarkBatchRunner @Inject constructor(
                 )
                 val latest = checkNotNull(store.batch(id))
                 val skipped = requestedStop == BenchmarkStopOrigin.USER_SKIP
-                val failure = result.samples.firstOrNull { it.outcome in setOf(BenchmarkOutcome.FAILED, BenchmarkOutcome.PARTIAL) || it.executionFailure() || it.cleanupReceipt == "cleanup_unconfirmed_local_blocked" }?.let { it.failure ?: BenchmarkFailure(it.failureCategory ?: "MODEL_QUALITY", it.runtimeStage ?: "validation", it.error ?: "A case did not meet its fixture requirements.", scope = "request", failureScope = BenchmarkFailureScope.REQUEST) }
+                val failure = result.samples.firstOrNull { it.outcome in setOf(BenchmarkOutcome.FAILED, BenchmarkOutcome.PARTIAL) || it.outcome == BenchmarkOutcome.UNSUPPORTED && it.failure != null || it.executionFailure() || it.cleanupReceipt == "cleanup_unconfirmed_local_blocked" }?.let { it.failure ?: BenchmarkFailure(it.failureCategory ?: "MODEL_QUALITY", it.runtimeStage ?: "validation", it.error ?: "A case did not meet its fixture requirements.", scope = "request", failureScope = BenchmarkFailureScope.REQUEST) }
                     ?: result.readiness?.takeIf { !it.ready }?.let { readiness -> readiness.probes.firstNotNullOfOrNull { it.sample?.failure } ?: BenchmarkFailure("READINESS_NOT_VERIFIED", "readiness", result.stoppedReason ?: "Readiness did not complete.") }
                 val state = when {
                     skipped -> BenchmarkQueueState.SKIPPED
-                    result.stoppedReason != null && result.samples.none { it.requestDispatched == true || it.chunks > 0 } && result.readiness?.probes.orEmpty().none { it.sample?.knownExecuted() == true } -> BenchmarkQueueState.BLOCKED
+                    result.stoppedReason != null &&
+                        result.samples.none { it.knownExecuted() || it.providerHttpStatus != null } &&
+                        result.readiness?.probes.orEmpty().none { it.sample?.let { sample -> sample.knownExecuted() || sample.providerHttpStatus != null } == true } -> BenchmarkQueueState.BLOCKED
                     result.stoppedReason != null -> BenchmarkQueueState.FAILED
                     else -> BenchmarkQueueState.COMPLETED
                 }
-                val terminal = running.copy(state = state, endedAt = System.currentTimeMillis(), completedCases = result.samples.size, activeCaseId = null, failure = failure)
+                val terminal = running.copy(state = state, endedAt = System.currentTimeMillis(), completedCases = benchmarkCoverage(result).executed, activeCaseId = null, failure = failure)
                 batch = latest.copy(activeOrdinal = null, stopOrigin = if (skipped) null else latest.stopOrigin, items = latest.items.map { if (it.ordinal == item.ordinal) terminal else it })
                 val runState = if (state == BenchmarkQueueState.COMPLETED && failure != null) "COMPLETED_WITH_FAILURES" else state.name
                 checkpoint(batch, result.copy(finished = true, endedAt = terminal.endedAt, state = runState, thermalAfter = thermal(), batteryAfter = battery()), event = "PROFILE_$runState")
@@ -212,8 +214,8 @@ class BenchmarkBatchRunner @Inject constructor(
                         }
                         check(!usesLocal || !localCleanupBlocked) { "NATIVE_QUARANTINED: Previous native cleanup was not acknowledged." }
                         withContext(BenchmarkRequestContext(policy)) { chats.validateBenchmarkProfile(primary) }
-                        if (batch.mode == BenchmarkMode.DELEGATION) chats.validateBenchmarkProfile(target)
-                        reviewer?.let { chats.validateBenchmarkProfile(it) }
+                        if (batch.mode == BenchmarkMode.DELEGATION) withContext(BenchmarkRequestContext(policy)) { chats.validateBenchmarkProfile(target) }
+                        reviewer?.let { withContext(BenchmarkRequestContext(policy)) { chats.validateBenchmarkProfile(it) } }
                         if (batch.mode == BenchmarkMode.DELEGATION) null else withContext(BenchmarkRequestContext(policy)) { chats.benchmarkContextTokens(primary) }
                     }
                 } finally {
@@ -271,7 +273,7 @@ class BenchmarkBatchRunner @Inject constructor(
                         val attemptStartedElapsed = android.os.SystemClock.elapsedRealtime()
                         val attempt = BenchmarkAttempt(attemptId, batch.id, item.ordinal, run.id, test.id, index, attemptStartedAt, attemptStartedAt + benchmarkCaseDeadlineMs(batch.mode, test, batch.suiteVersion), logicalRequestId = requestId, queuedAt = queuedAt)
                         val currentBatch = checkNotNull(store.batch(batch.id))
-                        val caseCheckpoint = currentBatch.copy(items = currentBatch.items.map { if (it.ordinal == item.ordinal) it.copy(activeCaseId = test.id, completedCases = run.samples.size) else it })
+                        val caseCheckpoint = currentBatch.copy(items = currentBatch.items.map { if (it.ordinal == item.ordinal) it.copy(activeCaseId = test.id, completedCases = benchmarkCoverage(run).executed) else it })
                         checkpoint(caseCheckpoint, run, listOf(attempt), "CASE_STARTED")
                         var cleanup = "not_required"
                         var cleanupDurationMs: Long? = null
@@ -362,7 +364,7 @@ class BenchmarkBatchRunner @Inject constructor(
                                 runtimeExecutions = executions,
                                 auditModelConfiguration = auditSession?.receipt,
                                 requestDispatched = if (executions.any { it.knownDispatched }) true else sample.requestDispatched,
-                                requestAdmitted = if (physicalRequests.isNotEmpty() || sample.knownExecuted()) true else sample.requestAdmitted,
+                                requestAdmitted = if (sample.knownExecuted()) true else sample.requestAdmitted,
                                 loadRegime = resident?.regime ?: "remote_unknown", residentMatch = resident, cacheConfigured = after?.loaded?.cacheEnabled,
                                 endToEndDurationMs = (android.os.SystemClock.elapsedRealtime() - admissionStarted).coerceAtLeast(0),
                                 generationDurationMs = benchmarkNativeGenerationDuration(executions),
@@ -380,7 +382,7 @@ class BenchmarkBatchRunner @Inject constructor(
                                 cacheRegime = observedTimingCache.singleOrNull() ?: if (observedTimingCache.isEmpty()) "unknown" else "mixed_observed_reuse",
                                 peakExecutionWorkerPssBytes = listOfNotNull(run.peakExecutionWorkerPssBytes, resources.peakExecutionWorkerPssBytes).maxOrNull(), peakExecutionClientPssKb = listOfNotNull(run.peakExecutionClientPssKb, resources.peakExecutionClientPssKb).maxOrNull()
                             )
-                            checkpoint(caseCheckpoint.copy(items = caseCheckpoint.items.map { if (it.ordinal == item.ordinal) it.copy(completedCases = run.samples.size, activeCaseId = null) else it }), run, listOf(attempt.copy(state = "TERMINAL", requestDispatched = retained.requestDispatched, dispatchUncertain = retained.requestDispatched == null, sample = retained, physicalRequestIds = retained.physicalRequestIds, logicalRequestId = requestId, invocationIds = retained.invocationIds)), "CASE_FINISHED")
+                            checkpoint(caseCheckpoint.copy(items = caseCheckpoint.items.map { if (it.ordinal == item.ordinal) it.copy(completedCases = benchmarkCoverage(run).executed, activeCaseId = null) else it }), run, listOf(attempt.copy(state = "TERMINAL", requestDispatched = retained.requestDispatched, dispatchUncertain = retained.requestDispatched == null, sample = retained, physicalRequestIds = retained.physicalRequestIds, logicalRequestId = requestId, invocationIds = retained.invocationIds)), "CASE_FINISHED")
                         } catch (failure: Exception) {
                             if (failure is BenchmarkStorageFailure) throw failure
                             val reason = when (requestedStop) {
@@ -441,6 +443,19 @@ class BenchmarkBatchRunner @Inject constructor(
         } catch (error: Exception) {
             if (error is BenchmarkStorageFailure) throw error
             val failure = benchmarkFailure(error, if (stage == "preflight") "preflight_admission" else stage)
+            if (stage == "preflight" && failure.stage == "admission" && primary.compatibleType == ClientType.LLAMA) {
+                val checkId = if (failure.code.startsWith("SELECTED_MODEL_")) "initialization" else "reasoning_control"
+                val finishedAt = System.currentTimeMillis()
+                run = run.copy(
+                    readiness = BenchmarkReadinessReceipt(
+                        run.startedAt,
+                        finishedAt,
+                        listOf(BenchmarkReadinessCheck(checkId, BenchmarkReadinessStatus.FAILED, failure.message)),
+                        setOf(checkId),
+                        executionPolicy = policy
+                    )
+                )
+            }
             val failed = if (stage == "readiness" || run.samples.lastOrNull()?.executionFailure() == true) appendDependentSkips(run.copy(stoppedReason = failure.message), benchmarkSuiteForRun(run), failure) else appendFailure(run, benchmarkSuiteForRun(run), failure)
             val retained = if (stage == "preflight" && run.samples.isEmpty()) {
                 val elapsed = (android.os.SystemClock.elapsedRealtime() - preflightStarted).coerceAtLeast(0)

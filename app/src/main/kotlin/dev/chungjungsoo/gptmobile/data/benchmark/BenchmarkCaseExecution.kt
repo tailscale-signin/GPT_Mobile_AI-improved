@@ -53,6 +53,12 @@ internal class BenchmarkCaseExecution(
     private var roundAccounted = true
     private var providerFailure: ProviderEvent.Failed? = null
     private var providerFailureStage: String? = null
+    private var providerHttpStatus: Int? = null
+    private var gatewayJobIdHash: String? = null
+    private var providerRequestIdHash: String? = null
+    private var providerDecodeTokensPerSecond: Double? = null
+    private var gatewayBackendTimingMs: Map<String, Double> = emptyMap()
+    private var reportedCachedPromptTokens: Int? = null
     private var finishReason: String? = null
     private var effectiveSettingsConfirmed = false
     private var terminalReceived = false
@@ -157,6 +163,12 @@ internal class BenchmarkCaseExecution(
             reasoningTokenSource = benchmarkCombinedTokenSource(rounds.map { it.reasoningTokenSource } + if (roundAccounted) emptyList() else listOf(if (roundReasoningUsage.value == null) "unknown" else roundReasoningUsage.source)),
             reasoningTokenConfidence = benchmarkCombinedConfidence(rounds.map { it.reasoningTokenConfidence } + if (roundAccounted) emptyList() else listOf(benchmarkUsageConfidence(roundReasoningUsage))),
             validation = validation,
+            providerHttpStatus = providerHttpStatus,
+            gatewayJobIdHash = gatewayJobIdHash,
+            providerRequestIdHash = providerRequestIdHash,
+            providerDecodeTokensPerSecond = providerDecodeTokensPerSecond,
+            gatewayBackendTimingMs = gatewayBackendTimingMs,
+            reportedCachedPromptTokens = reportedCachedPromptTokens,
             runtimeExecutions = executionReceipts.values.toList(),
             outputParts = output.parts,
             finalAnswer = output.finalAnswer,
@@ -208,18 +220,33 @@ internal class BenchmarkCaseExecution(
             }
             val raw = text.toString()
             val output = benchmarkOutputView(raw)
-            validation = benchmarkValidation(test, raw, if (test.outputPolicy == "TYPED_PROGRESS_V1" && output.protocolComplete) output.finalAnswer else raw.trim(), if (test.category == "tools") code else test.expected, false, if (test.category == "tools") scenario.passed(calls.values.toList(), successful, expectedErrors) else null, listOf(failure.code))
+            val answer = if (test.outputPolicy == "TYPED_PROGRESS_V1" && output.protocolComplete) output.finalAnswer else raw.trim()
+            if (answer.isNotBlank()) {
+                validation = benchmarkValidation(test, raw, answer, if (test.category == "tools") code else test.expected, false, if (test.category == "tools") scenario.passed(calls.values.toList(), successful, expectedErrors) else null, listOf(failure.code))
+            }
             return sample(outcome, failure.message).copy(
                 failureCategory = failure.code,
                 failure = failure,
                 runtimeStage = failure.stage,
+                providerHttpStatus = (providerFailure?.failureDetails?.get("http_status") as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it in 100..599 }
+                    ?: providerFailure?.errorCode?.toIntOrNull()?.takeIf { it in 100..599 } ?: providerHttpStatus,
                 requestDispatched = when {
                     nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
                     providerFailure?.failureDetails?.get("dispatched") == JsonPrimitive(false) -> false
+                    failure.stage == "admission" && failure.code.startsWith("REASONING_") -> false
                     providerFailure?.providerLimit?.category == "PROVIDER_RATE_LIMITED" -> true
                     providerFailure?.providerLimit?.let { it.knownNotAccepted && it.category in setOf("LOCAL_COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_EXHAUSTED") } == true -> false
                     failure.code.startsWith("AUDIT_MODEL_") && failure.stage == "admission" -> false
                     failure.code in setOf("RESOURCE_ADMISSION", "NATIVE_QUARANTINED", "COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_BLOCKED", "UNSUPPORTED_OUTPUT_CONTRACT", "POLICY_BLOCKED", "STRUCTURED_OUTPUT_MODE_UNSUPPORTED", "STRUCTURED_OUTPUT_COMPATIBILITY_CHANGED") -> false
+                    else -> null
+                },
+                requestAdmitted = when {
+                    nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
+                    providerFailure?.failureDetails?.get("dispatched") == JsonPrimitive(false) ||
+                        providerHttpStatus == 400 ||
+                        providerFailure?.errorCode == "400" ||
+                        failure.stage == "admission" &&
+                        failure.code.startsWith("REASONING_") -> false
                     else -> null
                 },
                 timingEligible = false,
@@ -338,7 +365,17 @@ internal class BenchmarkCaseExecution(
                 effectiveRequestOutputTokens = event.effectiveOutputTokens
                 requestedReasoningEffort = event.reasoningEffort
             }
+            is ProviderEvent.GatewayMetadataCaptured -> {
+                event.metadata.takeIf { it.transportVerified }?.jobId?.let { gatewayJobIdHash = benchmarkHash(it) }
+            }
             is ProviderEvent.Usage -> {
+                event.providerResponseTiming?.let { timing ->
+                    timing.httpStatus?.takeIf { it in 100..599 }?.let { providerHttpStatus = it }
+                    timing.serverRequestId?.let { providerRequestIdHash = benchmarkHash(it) }
+                }
+                event.decodeTokensPerSecond?.takeIf { it.isFinite() && it > 0 }?.let { providerDecodeTokensPerSecond = it }
+                event.gatewayTiming?.observedFields()?.takeIf { it.isNotEmpty() }?.let { gatewayBackendTimingMs = it }
+                event.cachedPromptTokens?.takeIf { it >= 0 }?.let { reportedCachedPromptTokens = it }
                 event.retryDurationMs?.let { retryDurationMs = maxOf(retryDurationMs, it) }
                 event.retryAttempts?.let { reconnectAttempts = maxOf(reconnectAttempts, it) }
                 if (event.finishReason != null) finishReason = event.finishReason
@@ -397,7 +434,10 @@ internal class BenchmarkCaseExecution(
             IntelligenceBenchmark.CATEGORY -> if (test.id.startsWith("intelligence-batch-")) intelligenceGrade!!.answers.values.all { it } && (test.validatorVersion != "benchmark-validator-v5" || intelligenceGrade.formatCompliant) else IntelligenceBenchmark.matches(answer, checkNotNull(test.expected))
             "performance" -> calls.isEmpty() && answer.isNotBlank() && benchmarkPerformanceAnswerValid(test, answer) && segments.sumOf { it.native?.decodeTokens?.coerceAtLeast(0) ?: 0 } >= (test.performanceTrial?.minimumNativeOutputTokens ?: 0)
             "speed" -> validBenchmarkSpeedAnswer(test, answer) && calls.isEmpty() && (!test.id.startsWith("speed-short-") && !test.id.startsWith("speed-medium-") && !test.id.startsWith("speed-long-") || !insufficientTiming)
-            "json" -> runCatching { Json.parseToJsonElement(answer) == Json.parseToJsonElement(test.expected ?: "{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}") }.getOrDefault(false)
+            "json" -> benchmarkJsonMatchesSchema(answer, test.responseSchemaJson) &&
+                runCatching {
+                    Json.parseToJsonElement(answer) == Json.parseToJsonElement(test.expected ?: "{\"status\":\"ready\",\"count\":3,\"items\":[\"red\",\"green\",\"blue\"]}")
+                }.getOrDefault(false)
             "tools" -> scenario.passed(calls.values.toList(), successful, expectedErrors) && answer == code
             else -> answer == (
                 test.expected ?: when (test.id) {

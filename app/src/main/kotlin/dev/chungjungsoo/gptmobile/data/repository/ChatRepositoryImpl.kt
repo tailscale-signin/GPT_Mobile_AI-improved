@@ -599,6 +599,12 @@ class ChatRepositoryImpl(
         if (platform.compatibleType in setOf(ClientType.OPENAI, ClientType.GOOGLE, ClientType.ANTHROPIC, ClientType.GROQ, ClientType.OPENROUTER, ClientType.NVIDIA)) {
             check(!platform.token.isNullOrBlank()) { "${platform.name} needs an API key. Add one to its provider connection before benchmarking." }
         }
+        if (platform.compatibleType == ClientType.LLAMA) {
+            kotlinx.coroutines.currentCoroutineContext()[BenchmarkRequestContext]?.let {
+                checkBenchmarkLlamaReadiness(platform, it.executionPolicy)
+            }
+            return
+        }
         if (platform.compatibleType != ClientType.LITERT_LM) return
         val selected = localModelRepository.resolveLocalModelSelection(platform.model, platform.accelerator)
         val entry = modelCatalogRepository.getCachedVisibleEntries().firstOrNull { it.id == selected.modelId }
@@ -616,6 +622,36 @@ class ChatRepositoryImpl(
             }
         }
     }
+
+    private suspend fun checkBenchmarkLlamaReadiness(profile: PlatformV2, policy: BenchmarkExecutionPolicy) {
+        val capabilities = reasoningCapabilities ?: throw dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProviderFailureException(
+            "The exact model's readiness could not be checked.",
+            "REASONING_CAPABILITY_UNAVAILABLE"
+        )
+        val saved = benchmarkSavedLlamaReasoning(profile)
+        val requested = if (policy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) listOf(saved) else listOf(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, saved).distinct()
+        for (mode in requested) {
+            val observation = capabilities.check(profile, mode)
+            val code = observation.safeReasonCode
+            if (code in setOf("SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_LOADING", "SELECTED_MODEL_NOT_AVAILABLE")) {
+                throw dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProviderFailureException(
+                    observation.detailMessage ?: "On the gateway host, run prepare-model --model with the exact selected ID, then run again.",
+                    code
+                )
+            }
+            if (!observation.permitsRequest) {
+                throw dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProviderFailureException(
+                    "The selected model cannot verify Reasoning ${mode.name}. Choose Saved profile settings with a compatible reasoning mode or select a qualified model.",
+                    code ?: "REASONING_CAPABILITY_UNVERIFIED"
+                )
+            }
+        }
+    }
+
+    private suspend fun benchmarkSavedLlamaReasoning(profile: PlatformV2) = dev.chungjungsoo.gptmobile.data.context.ReasoningPolicy.preference(
+        profile.reasoning,
+        settingRepository.getFeatureSettings().llamaReasoningModes[profile.uid]
+    )
 
     override suspend fun supportsBenchmarkTools(platform: PlatformV2): Boolean = when (platform.compatibleType) {
         ClientType.FREE -> !FreeAiProvider.requireFor(platform).isRetired
@@ -727,10 +763,24 @@ class ChatRepositoryImpl(
                 "Prompt JSON mode requires an exact-schema compatibility receipt"
             }
         }
+        val llamaReasoningMode = if (target.compatibleType == ClientType.LLAMA) {
+            if (requested.executionPolicy == BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1 &&
+                !benchmarkCategory.startsWith(dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY)
+            ) {
+                dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF
+            } else {
+                benchmarkSavedLlamaReasoning(platform)
+            }
+        } else {
+            null
+        }
         val constraints = RequestConstraints(
             maxOutputTokens = outputBudget,
             allowTools = tools.isNotEmpty() && (requested.executionPolicy != BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1 || !target.disableAllTools),
-            allowReasoning = if (schema != null && local) {
+            reasoningModeOverride = llamaReasoningMode,
+            allowReasoning = if (llamaReasoningMode != null) {
+                llamaReasoningMode != dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF
+            } else if (schema != null && local) {
                 false
             } else if (requested.executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) {
                 target.reasoning
@@ -738,6 +788,8 @@ class ChatRepositoryImpl(
                 benchmarkCategory.startsWith(dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY)
             },
             freshResponse = true,
+            lockSelectedRoute = true,
+            attemptId = java.util.UUID.randomUUID().toString().takeIf { target.compatibleType == ClientType.LLAMA },
             requestRole = if (requested.readinessProbe) "benchmark-readiness" else "benchmark",
             finalResponseSchemaJson = schema,
             structuredOutputMode = mode,

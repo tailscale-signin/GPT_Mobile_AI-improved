@@ -507,6 +507,22 @@ class BenchmarkRunnerTest {
     }
 
     @Test
+    fun `provider rejection without an answer is not graded`() = runTest {
+        val failure = ProviderEvent.Failed(
+            "Rejected",
+            errorCode = "400",
+            failureDetails = kotlinx.serialization.json.buildJsonObject {
+                put("http_status", kotlinx.serialization.json.JsonPrimitive(400))
+            }
+        )
+        val sample = BenchmarkRunner({ _, _ -> session(flowOf(failure)) }).run(instruction, true)
+        assertEquals(400, sample.providerHttpStatus)
+        assertEquals("HTTP_400", sample.failure?.code)
+        assertEquals(false, sample.failure?.retryable)
+        assertNull(sample.validation)
+    }
+
+    @Test
     fun `strict JSON rejects code fences and wrong values`() = runTest {
         val test = benchmarkSuite(BenchmarkMode.QUICK).first { it.id == "json" }
         suspend fun grade(text: String) = BenchmarkRunner({ _, _ -> session(flowOf(ProviderEvent.TextDelta(text), ProviderEvent.Completed)) }).run(test, true).outcome

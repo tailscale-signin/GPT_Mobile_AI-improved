@@ -127,7 +127,17 @@ internal class GatewayTerminalRecovery(private val api: GatewayAPI) {
         val requested = config.extraHeaders.entries.firstOrNull { it.key.equals("X-Gateway-Job-ID", true) }?.value
         val reported = (rejection["job_id"] as? JsonPrimitive)?.contentOrNull
         val bound = requested?.matches(Regex("[A-Za-z0-9_-]{1,128}")) == true && requested == reported && (responseJobId == null || responseJobId == requested)
-        val saved = if (bound) api.getJobResult(requireNotNull(requested), config) else null
+        val saved = if (bound) {
+            try {
+                api.getJobResult(requireNotNull(requested), config)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                null
+            }
+        } else {
+            null
+        }
         val verified = saved?.takeIf { it.jobId == requested && (it.job?.jobId == null || it.job.jobId == requested) && it.matchesRequestedModel(model) }
         val disposition = verified?.recoveryDisposition ?: GatewayResultDisposition.UNAVAILABLE
         val retainedText = verified?.takeIf { it.status.lowercase() in setOf("completed", "failed", "cancelled", "canceled", "interrupted") }?.recoverableContent
@@ -154,7 +164,7 @@ internal class GatewayTerminalRecovery(private val api: GatewayAPI) {
                     retryable = false,
                     failureDetails = JsonObject(
                         (original?.failureDetails ?: rejection) + mapOf(
-                            "recovery_identity_verified" to JsonPrimitive(bound),
+                            "recovery_identity_verified" to JsonPrimitive(verified != null),
                             "retryable" to JsonPrimitive(false),
                             "recovery_code" to JsonPrimitive("TERMINAL_JOB_NOT_RESUMABLE"),
                             "recovery_http_status" to JsonPrimitive(httpStatus),

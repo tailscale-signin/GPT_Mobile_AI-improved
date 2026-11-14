@@ -58,6 +58,13 @@ internal fun benchmarkOutputView(raw: String): BenchmarkOutputView {
     return BenchmarkOutputView(parts.filter { it.channel == BenchmarkOutputChannel.FINAL_ANSWER }.joinToString("") { raw.substring(it.startUtf16, it.endUtf16) }.trim(), parts, true, hasProgress)
 }
 
+internal fun benchmarkJsonMatchesSchema(answer: String, schema: String?): Boolean = runCatching {
+    val value = kotlinx.serialization.json.Json.parseToJsonElement(answer) as? kotlinx.serialization.json.JsonObject ?: return false
+    if (schema == null) return true
+    val contract = kotlinx.serialization.json.Json.parseToJsonElement(schema) as? kotlinx.serialization.json.JsonObject ?: return false
+    dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(value, contract).isEmpty()
+}.getOrDefault(false)
+
 internal fun benchmarkWordCount(answer: String): Int = Regex("[\\p{L}\\p{N}]+(?:['’-][\\p{L}\\p{N}]+)*").findAll(answer).count()
 
 internal fun benchmarkValidation(
@@ -89,7 +96,7 @@ internal fun benchmarkValidation(
     val units = if (mass != null) Regex("(?i)\\bkg\\b").containsMatchIn(answer) else null
     val format = when {
         mass != null || test.category == "tools" || test.category == "task" -> expected?.let { answer == it }
-        test.category == "json" -> runCatching { kotlinx.serialization.json.Json.parseToJsonElement(answer) }.isSuccess
+        test.category == "json" -> benchmarkJsonMatchesSchema(answer, test.responseSchemaJson)
         test.category == "speed" -> !invalidBenchmarkEnvelope(answer) && (!test.prompt.contains("No heading", true) || !Regex("(?m)^\\s*#{1,6}\\s+").containsMatchIn(answer))
         else -> null
     }

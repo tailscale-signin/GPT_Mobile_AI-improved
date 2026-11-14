@@ -27,7 +27,10 @@ internal interface BenchmarkExportOutput {
 
 /** Never owns the stream and never accumulates a complete document or history array. */
 @OptIn(ExperimentalSerializationApi::class)
-internal class BenchmarkStreamingExport(private val output: OutputStream) : BenchmarkExportOutput {
+internal class BenchmarkStreamingExport(
+    private val output: OutputStream,
+    private val includePrivateProfileDetails: Boolean = false
+) : BenchmarkExportOutput {
     private var firstField = true
     private var finished = false
 
@@ -63,7 +66,7 @@ internal class BenchmarkStreamingExport(private val output: OutputStream) : Benc
     }
 
     private fun element(value: JsonElement) {
-        benchmarkExportJson.encodeToStream(JsonElement.serializer(), redactBenchmarkExport(value), output)
+        benchmarkExportJson.encodeToStream(JsonElement.serializer(), redactBenchmarkExport(value, includePrivateProfileDetails), output)
     }
 
     fun finish() {

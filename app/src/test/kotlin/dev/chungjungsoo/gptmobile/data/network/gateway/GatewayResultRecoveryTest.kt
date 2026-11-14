@@ -160,6 +160,19 @@ class GatewayResultRecoveryTest {
         assertFalse(forged.hasClientOwnedExecutionProof)
     }
 
+    @Test fun unavailableSavedResultRetainsTheOriginalRejectionAndUnverifiedIdentity() = runTest {
+        val api = mockk<GatewayAPI>()
+        val config = ProviderRequestConfig("https://gateway.test/v1", "secret", extraHeaders = mapOf("X-Gateway-Job-ID" to "saved"))
+        val failure = json.parseToJsonElement("""{"code":"terminal_job_not_resumable","job_id":"saved","http_status":409}""").jsonObject
+        coEvery { api.getJobResult("saved", config) } throws java.io.IOException("Disconnected")
+        val result = requireNotNull(GatewayTerminalRecovery(api).read(409, failure, config, "selected", "saved"))
+        val details = result.error?.failureDetails
+        assertEquals("TERMINAL_JOB_NOT_RESUMABLE", result.error?.code)
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(409), details?.get("http_status"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive(false), details?.get("recovery_identity_verified"))
+        assertEquals(kotlinx.serialization.json.JsonPrimitive("UNAVAILABLE"), details?.get("recovery_disposition"))
+    }
+
     @Test fun terminalConflictCannotReadAnUnboundOrDifferentJob() = runTest {
         val api = mockk<GatewayAPI>()
         val recovery = GatewayTerminalRecovery(api)

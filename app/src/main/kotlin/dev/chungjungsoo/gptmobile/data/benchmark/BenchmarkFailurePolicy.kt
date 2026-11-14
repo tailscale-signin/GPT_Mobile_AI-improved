@@ -20,6 +20,17 @@ internal class BenchmarkProviderFailureException(
 internal class BenchmarkUnsupportedConfigurationException(message: String) : IllegalStateException(message)
 
 private val unsupportedReasoning = setOf("REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED")
+private val modelLoadBlockers = setOf("SELECTED_MODEL_NOT_LOADED", "SELECTED_MODEL_LOADING", "SELECTED_MODEL_NOT_AVAILABLE")
+private val reasoningChecks = setOf("REASONING_CAPABILITY_UNVERIFIED", "REASONING_CAPABILITY_UNAVAILABLE", "REASONING_CAPABILITY_TIMEOUT")
+
+internal fun BenchmarkFailure.retryCondition(): String = when {
+    code in modelLoadBlockers -> "After the selected model is available and loaded"
+    code in unsupportedReasoning || code in reasoningChecks -> "After changing the reasoning mode or checking model support"
+    code in setOf("HTTP_400", "HTTP_ERROR_400", "INVALID_REQUEST", "PROVIDER_PAYLOAD_ERROR", "UNSUPPORTED_OUTPUT_CONTRACT") -> "After correcting the request configuration"
+    nextEligibleAt != null -> "After the provider cooldown"
+    retryable -> "Start a new run when the connection or service recovers"
+    else -> "Review the recorded failure before starting a new run"
+}
 
 /** An availability failure stops one profile; a completed wrong answer never does. */
 internal fun benchmarkFailure(error: Throwable, stage: String = "request"): BenchmarkFailure {
@@ -33,7 +44,7 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
     val auditFailure = causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.audit.AppAuditModelQualificationException>().firstOrNull()
     val effectiveStage = if (auditFailure != null) {
         if (auditFailure.beforeDispatch) "admission" else "qualification"
-    } else if (providerCode in unsupportedReasoning || causes.any { it is BenchmarkPolicyBlockedException || it is BenchmarkUnsupportedConfigurationException }) {
+    } else if (providerCode in unsupportedReasoning || providerCode in modelLoadBlockers || providerCode in reasoningChecks || causes.any { it is BenchmarkPolicyBlockedException || it is BenchmarkUnsupportedConfigurationException }) {
         "admission"
     } else {
         causes.filterIsInstance<dev.chungjungsoo.gptmobile.data.localruntime.QnnRuntimeFailure>().firstOrNull()?.stage?.name?.lowercase() ?: stage
@@ -49,6 +60,7 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
         providerCode == "LOCAL_COOLDOWN_ACTIVE" -> "COOLDOWN_ACTIVE"
         providerCode == "LOCAL_ALLOWANCE_EXHAUSTED" -> "LOCAL_ALLOWANCE_BLOCKED"
         providerCode == "PROVIDER_RATE_LIMITED" -> "QUOTA_BLOCKED"
+        providerCode in setOf("400", "HTTP_400", "HTTP_ERROR_400") -> "HTTP_400"
         providerCode in setOf("CACHED_UNUSABLE_RESPONSE", "STREAM_DEGRADED", "HOSTED_GENERATION_FAILED", "PROVIDER_PAYLOAD_ERROR", "REASONING_BUDGET_EXHAUSTED", "NO_VISIBLE_ANSWER") -> requireNotNull(providerCode)
         providerFailure?.errorCode?.matches(Regex("[A-Z][A-Z0-9_]{0,79}")) == true -> requireNotNull(providerFailure.errorCode)
         "memory_admission" in text -> "RESOURCE_ADMISSION"
@@ -72,7 +84,7 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
         else -> "EXECUTION_FAILED"
     }
     val next = limit?.retryAt ?: causes.filterIsInstance<FreeAiRateLimitException>().firstOrNull()?.retryAt ?: retryTimestampFromLegacyMessage(message)
-    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("AUDIT_MODEL_") && !code.startsWith("UNSUPPORTED_") && code !in unsupportedReasoning && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED"), nextEligibleAt = next)
+    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("AUDIT_MODEL_") && !code.startsWith("UNSUPPORTED_") && code !in unsupportedReasoning && code !in modelLoadBlockers && code !in reasoningChecks && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED", "HTTP_400", "INVALID_REQUEST", "PROVIDER_PAYLOAD_ERROR"), nextEligibleAt = next)
 }
 
 /** Compatibility for older persisted failures; punctuation is never part of an ISO instant. */

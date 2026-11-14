@@ -2497,6 +2497,16 @@
     "docs/repairs/gateway-admission-reporting-2026-11-13-task.json",
     "docs/repairs/gateway-admission-reporting-2026-11-13.md",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkFailurePolicyTest.kt",
-    "docs/repairs/session-conflict-and-transport-reporting-2026-11-13-task.json"
+    "docs/repairs/session-conflict-and-transport-reporting-2026-11-13-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMetrics.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRuntimeObservation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStreamingExport.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkValidation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkQueueCard.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkQueueProgress.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkResultCard.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExportTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunnerTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkQueueProgressTest.kt"
   ]
 }

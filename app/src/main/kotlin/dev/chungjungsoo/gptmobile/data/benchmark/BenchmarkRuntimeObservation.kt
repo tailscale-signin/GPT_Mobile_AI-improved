@@ -52,7 +52,12 @@ internal fun benchmarkObservedCache(sample: BenchmarkSample): String {
     val configs = sample.runtimeExecutions.mapNotNull { it.configuration }
     val reused = if (configs.isNotEmpty()) configs.map { it.reusedPromptTokens } else sample.localSegments.map { it.native?.reusedPromptTokens?.toLong() }
     return when {
-        reused.isEmpty() || reused.any { it == null || it < 0 } -> "unknown"
+        reused.isEmpty() -> when (sample.reportedCachedPromptTokens) {
+            null -> "unknown"
+            0 -> "provider_reported_uncached"
+            else -> "provider_reported_cached_prefix"
+        }
+        reused.any { it == null || it < 0 } -> "unknown"
         reused.all { it == 0L } -> "observed_uncached"
         reused.all { it!! > 0 } -> "observed_cached_prefix"
         else -> "mixed_observed_reuse"

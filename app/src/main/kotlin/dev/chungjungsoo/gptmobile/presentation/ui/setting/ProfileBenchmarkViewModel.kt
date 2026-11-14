@@ -441,7 +441,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
         return accepted
     }
 
-    fun exportBenchmarks(uri: android.net.Uri, detailed: Boolean = false, retainedArtifactId: String? = null, auditBatchId: String? = null) {
+    fun exportBenchmarks(uri: android.net.Uri, detailed: Boolean = false, retainedArtifactId: String? = null, auditBatchId: String? = null, includePrivateProfileDetails: Boolean = false) {
         if (mutableExporting.value) return
         mutableExporting.value = true
         mutableExportNotice.value = if (auditBatchId != null) "Preparing app audit evidence…" else "Preparing a complete benchmark export…"
@@ -463,7 +463,9 @@ class ProfileBenchmarkViewModel @Inject constructor(
                     }
                 } else {
                     check(!detailed || settings.getDebugMode()) { "Enable Debug Mode to export diagnostic benchmark data." }
-                    exportArtifacts.prepare(detailed) { output -> store.writeExport(output, detailed) }
+                    exportArtifacts.prepare(detailed, includePrivateProfileDetails = includePrivateProfileDetails) { output ->
+                        store.writeExport(output, detailed, includePrivateProfileDetails)
+                    }
                 }
                 artifact = prepared
                 mutableRetainedExport.value = prepared
@@ -555,14 +557,28 @@ class ProfileBenchmarkViewModel @Inject constructor(
         if (!execution.isRunning) execution.resumeBatch(batchId)
     }
 
-    fun retryFailed(batchId: String) {
+    fun retryFailed(batchId: String, requestedPolicy: BenchmarkExecutionPolicy? = null) {
         if (execution.isRunning) return
         val previous = batches.value.firstOrNull { it.id == batchId } ?: return
-        val failed = previous.items.filter { it.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED) }
-        if (failed.isEmpty()) return
+        val now = System.currentTimeMillis()
+        val policy = requestedPolicy ?: previous.executionPolicy ?: BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1
+        val currentProfiles = profiles.value.associateBy { it.uid }
+        val failed = previous.items.filter { item ->
+            item.state in setOf(BenchmarkQueueState.FAILED, BenchmarkQueueState.BLOCKED, BenchmarkQueueState.INTERRUPTED) &&
+                (item.failure?.nextEligibleAt?.let { it <= now } ?: true)
+        }.mapNotNull { item ->
+            val current = currentProfiles[item.profile.uid]?.takeIf { it.enabled && it.model.isNotBlank() } ?: return@mapNotNull null
+            if (item.auditModelBinding != null && appAuditBenchmarkProfileHash(current) != item.auditModelBinding.profileSnapshotHash) return@mapNotNull null
+            item.copy(profile = current.benchmarkSnapshot(), configKey = benchmarkConfigKey(current, localEnvironment.value, policy))
+        }
+        if (failed.isEmpty()) {
+            mutableError.value = "No failed profile is eligible for a new run. Check the selected profile and any recorded cooldown."
+            return
+        }
         val next = previous.copy(
             id = UUID.randomUUID().toString(), createdAt = System.currentTimeMillis(), state = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatchState.QUEUED,
             activeOrdinal = null, endedAt = null, stopOrigin = null, retryOfBatchId = previous.id, storageWarning = null,
+            localEnvironment = localEnvironment.value, executionPolicy = policy,
             items = failed.mapIndexed { ordinal, item -> item.copy(ordinal = ordinal, runId = UUID.randomUUID().toString(), retryOfRunId = item.runId, state = BenchmarkQueueState.QUEUED, failure = null, startedAt = null, endedAt = null, activeCaseId = null, completedCases = 0) }
         )
         execution.startBatch(next)

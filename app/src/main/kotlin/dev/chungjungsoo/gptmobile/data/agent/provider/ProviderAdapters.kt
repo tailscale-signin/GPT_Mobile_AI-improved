@@ -498,7 +498,15 @@ class OpenAICompatibleAdapter @Inject constructor(
             },
             responseFormat = constraints.finalResponseSchemaJson
                 ?.takeIf { isOpenRouter || isLlama }
-                ?.let { runCatching { json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }.getOrNull() },
+                ?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+                ?.let { format ->
+                    when ((format["type"] as? JsonPrimitive)?.content) {
+                        "text", "json_object" -> format
+                        "json_schema" -> if (isLlama) JsonObject(mapOf("type" to JsonPrimitive("json_object"))) else format
+                        "object" -> JsonObject(mapOf("type" to JsonPrimitive("json_object")))
+                        else -> null
+                    }
+                },
             sessionId = openRouterSessionId,
             options = parsedOllamaOptions?.let { if (constraints.githubSampling == null) it else it.copy(temperature = effectiveTemperature, topP = null) }
         ).let { baseRequest ->
@@ -957,7 +965,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 }
                                 // A saved-result binding must precede historical observations and failures.
                                 chunk.gatewayMetadata?.let { metadata ->
-                                    if (metadata.jobId != null) {
+                                    if (metadata.jobId != null && (constraints.requestRole?.startsWith("benchmark") != true || metadata.transportVerified)) {
                                         capturedGatewayJobId = metadata.jobId
                                     }
                                     emit(ProviderEvent.GatewayMetadataCaptured(metadata))
@@ -989,7 +997,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond,
                                             reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 },
                                             phase = if (terminalReceived || lastFinishReason != null || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM,
-                                            writerObservationKey = writerObservationKey
+                                            writerObservationKey = writerObservationKey,
+                                            cachedPromptTokens = usage.promptTokensDetails?.get("cached_tokens")?.let { it as? JsonPrimitive }?.intOrNull?.takeIf { it >= 0 }
                                         )
                                     )
                                 }

@@ -98,23 +98,28 @@ fun ProfileBenchmarkScreen(
     val exportError by viewModel.exportError.collectAsStateWithLifecycle()
     val retainedExport by viewModel.retainedExport.collectAsStateWithLifecycle()
     var detailedExport by rememberSaveable { mutableStateOf(false) }
+    var privateProfileExport by rememberSaveable { mutableStateOf(false) }
+    var confirmPrivateProfileExport by rememberSaveable { mutableStateOf(false) }
     var choosingExportDestination by rememberSaveable { mutableStateOf(false) }
     var retainedArtifactId by rememberSaveable { mutableStateOf<String?>(null) }
     var auditExportBatchId by rememberSaveable { mutableStateOf<String?>(null) }
     val exportLauncher = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/json")) { uri ->
         choosingExportDestination = false
-        if (uri != null) viewModel.exportBenchmarks(uri, detailedExport, retainedArtifactId, auditExportBatchId) else viewModel.exportDestinationCanceled()
+        if (uri != null) viewModel.exportBenchmarks(uri, detailedExport, retainedArtifactId, auditExportBatchId, privateProfileExport) else viewModel.exportDestinationCanceled()
         retainedArtifactId = null
         auditExportBatchId = null
     }
-    val launchExport: (Boolean, BenchmarkExportArtifact?, String?) -> Unit = { detailed, retained, auditId ->
+    val launchExport: (Boolean, BenchmarkExportArtifact?, String?, Boolean) -> Unit = { detailed, retained, auditId, includePrivate ->
         if (!viewModel.exporting.value && !choosingExportDestination) {
             detailedExport = detailed
+            privateProfileExport = includePrivate
             retainedArtifactId = retained?.id
             auditExportBatchId = auditId
             choosingExportDestination = true
             val fileName = retained?.fileName ?: "${if (auditId != null) {
                 "app-audit"
+            } else if (includePrivate) {
+                "benchmark-private"
             } else if (detailed) {
                 "benchmark-debug"
             } else {
@@ -127,8 +132,22 @@ fun ProfileBenchmarkScreen(
             }
         }
     }
-    val requestExport: (Boolean, BenchmarkExportArtifact?) -> Unit = { detailed, retained -> launchExport(detailed, retained, null) }
-    val requestAuditExport: (String) -> Unit = { id -> launchExport(false, null, id) }
+    val requestExport: (Boolean, BenchmarkExportArtifact?) -> Unit = { detailed, retained -> launchExport(detailed, retained, null, false) }
+    val requestAuditExport: (String) -> Unit = { id -> launchExport(false, null, id, false) }
+    if (confirmPrivateProfileExport) {
+        AlertDialog(
+            onDismissRequest = { confirmPrivateProfileExport = false },
+            title = { Text("Export private profile details?") },
+            text = { Text("This file includes configured endpoint hosts and paths and profile instructions. Save it somewhere private.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmPrivateProfileExport = false
+                    launchExport(true, null, null, true)
+                }) { Text("Choose destination") }
+            },
+            dismissButton = { TextButton(onClick = { confirmPrivateProfileExport = false }) { Text("Cancel") } }
+        )
+    }
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
     val profile by viewModel.selected.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle()
@@ -282,7 +301,7 @@ fun ProfileBenchmarkScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(if (retained.content == BenchmarkExportContent.APP_AUDIT) "A retained app audit export is available to save." else "A retained benchmark export is available to save.", style = MaterialTheme.typography.titleSmall)
                         Text(retained.fileName, style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { requestExport(retained.detailed, retained) }, enabled = !choosingExportDestination) { Text("Save retained export") }
+                        TextButton(onClick = { requestExport(retained.detailed, retained) }, enabled = !choosingExportDestination) { Text(if (retained.includesPrivateProfileDetails) "Save retained private export" else "Save retained export") }
                     }
                 }
             }
@@ -330,6 +349,7 @@ fun ProfileBenchmarkScreen(
                             requestCancel,
                             onResume = { viewModel.resumeRemaining(batch.id) },
                             onRetry = { viewModel.retryFailed(batch.id) },
+                            onRunWithProfileSettings = { viewModel.retryFailed(batch.id, BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) },
                             onResults = {
                                 mode = batch.mode
                                 tab = 5
@@ -439,6 +459,7 @@ fun ProfileBenchmarkScreen(
                         Text("Runs the selected model's full benchmark suite and records per-test memory, thermal and battery samples alongside timings, tokens, tool results and score dimensions. Provider usage is billed normally.")
                         Button(onClick = viewModel::startDebugBenchmark, enabled = selected != null && ready && progress == null) { Text("Run full model diagnostics") }
                         TextButton(onClick = { requestExport(true, null) }, enabled = !exporting && !choosingExportDestination && ready) { Text("Export diagnostic data & score breakdown") }
+                        TextButton(onClick = { confirmPrivateProfileExport = true }, enabled = !exporting && !choosingExportDestination && ready) { Text("Export private diagnostics") }
                     }
                 }
                 items(history.filter { it.diagnosticMode }, key = { "debug.${it.id}" }) { run ->

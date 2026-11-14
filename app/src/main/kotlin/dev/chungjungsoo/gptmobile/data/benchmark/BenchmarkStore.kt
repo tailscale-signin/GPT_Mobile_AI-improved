@@ -502,7 +502,8 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     /** Export never hydrates/re-publishes history or parses an obsolete canonical backup mirror. */
     suspend fun writeExport(
         output: OutputStream,
-        detailed: Boolean = false
+        detailed: Boolean = false,
+        includePrivateProfileDetails: Boolean = false
     ) = withContext(Dispatchers.IO) {
         mutex.withLock {
             loadEnrollmentLocked()
@@ -616,7 +617,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                         add(if (normalized == null) original else preserveBenchmarkExportUnknown(original, normalized))
                     }
                 }
-            val writer = BenchmarkStreamingExport(output)
+            val writer = BenchmarkStreamingExport(output, includePrivateProfileDetails)
             writeBenchmarkExport(writer, source, detailed) { fields ->
                 fields.put("runs", storedRecords(BenchmarkExportTable.RUNS))
                 fields.put("scoreTable", rawScore)

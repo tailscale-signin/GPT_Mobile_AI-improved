@@ -457,3 +457,28 @@ recovery fields remain bounded and negotiated. The current readiness document is
 delivery retains local validation. Required Android and exact-head hosted checks
 remain pending the final shared integration candidate; the separately owned
 benchmark interruption correction must also be preserved before qualification.
+
+## Benchmark interruption review
+
+The follow-up based on `37a37dd87f5626871f006a233bc5144780b1f7ac` preserves the
+published paging and PR Python runtime corrections. Restart recovery previously
+changed a provisional coding case to `INTERRUPTED` before shared normalization,
+leaving its top-level score and resolution flag visible despite `graded=false`.
+Recovery now clears only that unfinished case's score and resolution while
+retaining completed cases and each measured attempt's separate evidence.
+
+A second reproduction found that an unknown physical outcome in a parallel
+comparison could leave the shared cancellation flag unset. Executor shutdown
+then allowed queued samples to dispatch before propagating the interruption.
+The worker now signals cancellation before it can dequeue another trial, and
+the collector cancels pending futures while admitted observations settle within
+the existing request bounds. The original cancellation receipts and completed
+comparison arms remain available; an interrupted parent is never qualified.
+
+All 35 focused benchmark tests passed on this combined source. The new real
+coordinator/runner/journal regression uses a fake transport: a completed
+sequential arm remains saved, two admitted concurrent observations retain their
+receipts, and the remaining three samples never dispatch. It does not execute a
+live model or Docker candidate. Container-cleanup reconciliation and malformed
+coding evidence are separately owned follow-ups and remain a source hold before
+the final shared-head Android, packaging and hosted verification gates.

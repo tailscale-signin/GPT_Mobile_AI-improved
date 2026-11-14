@@ -157,6 +157,11 @@ class BenchmarkRunner:
                     name, turns, expected = entry
                     try:
                         return self.measure_case(run, name, turns, expected)
+                    except InterruptedError:
+                        # Fence the worker before it can dequeue another trial.
+                        # Running observers settle their own admitted requests.
+                        self.cancelled.set()
+                        raise
                     except (requests.RequestException, TimeoutError, ValueError, TypeError) as error:
                         return {'id': name, 'status': 'ERROR', 'executed': None, 'graded': False, 'error': type(error).__name__}
                 if arm == 'sequential':
@@ -165,8 +170,14 @@ class BenchmarkRunner:
                     with ThreadPoolExecutor(max_workers=width, thread_name_prefix='benchmark-request') as pool:
                         futures = {pool.submit(sample, entry): index for index, entry in enumerate(CASES)}
                         results = {}
-                        for future in as_completed(futures):
-                            results[futures[future]] = future.result()
+                        try:
+                            for future in as_completed(futures):
+                                results[futures[future]] = future.result()
+                        except InterruptedError:
+                            self.cancelled.set()
+                            for pending in futures:
+                                pending.cancel()
+                            raise
                         samples = [results[index] for index in range(len(CASES))]
                 elapsed = (time.perf_counter() - started) * 1000
                 self.guard(run)

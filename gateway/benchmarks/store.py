@@ -161,7 +161,8 @@ class BenchmarkStore:
                 for ordinal, payload in db.execute('SELECT ordinal,payload FROM benchmark_cases WHERE run_id=?', (ident,)).fetchall():
                     case = json.loads(payload)
                     if case.get('status') == 'RUNNING':
-                        case.update(status='INTERRUPTED', graded=False, error='PROCESS_INTERRUPTED')
+                        case.update(status='INTERRUPTED', graded=False, resolved=False, score=None,
+                                    error='PROCESS_INTERRUPTED')
                         db.execute('UPDATE benchmark_cases SET payload=? WHERE run_id=? AND ordinal=?',
                                    (json.dumps(case, allow_nan=False), ident, ordinal))
             self.update(ident, state='INTERRUPTED', endedAt=self.now(),

@@ -110,6 +110,31 @@ class BenchmarkJournalTest(unittest.TestCase):
         self.assertEqual(350, saved['cases'][0]['attempts'][0]['score'])
         self.assertEqual([], self.store.pending())
 
+    def test_restart_clears_uncommitted_case_score_but_keeps_completed_evidence(self):
+        run = self.create()
+        self.store.update(run['id'], state='RUNNING', summary={'score': 1000, 'qualified': True})
+        attempt = {'id': 'pagination-1', 'status': 'PASSED', 'graded': True, 'resolved': True, 'score': 1000}
+        # The runner saves a measured attempt before committing its final case.
+        provisional = dict(attempt, status='RUNNING', graded=False, attempts=[attempt], repairBudget=1)
+        completed = dict(attempt, id='idempotency-1', attempts=[dict(attempt, id='idempotency-1')])
+        self.store.case(run['id'], 0, provisional)
+        self.store.case(run['id'], 1, completed)
+
+        self.store.recover()
+
+        saved = self.store.get(run['id'])
+        self.assertEqual('INTERRUPTED', saved['state'])
+        self.assertIsNone(saved['summary']['score'])
+        self.assertFalse(saved['summary']['qualified'])
+        interrupted = saved['cases'][0]
+        self.assertEqual('INTERRUPTED', interrupted['status'])
+        self.assertFalse(interrupted['graded'])
+        self.assertFalse(interrupted['resolved'])
+        self.assertIsNone(interrupted['score'])
+        self.assertEqual([attempt], interrupted['attempts'])
+        self.assertEqual(completed, saved['cases'][1])
+        self.assertEqual([], self.store.pending())
+
     def test_history_pages_do_not_leak_other_principals(self):
         for index in range(5):
             run = self.create(str(index), 'alice' if index % 2 else 'bob')
@@ -394,6 +419,56 @@ class BenchmarkLifecycleTest(unittest.TestCase):
             saved = service.store.get(run['id'])
             self.assertEqual('INTERRUPTED', saved['state'])
             self.assertEqual('CANCELLATION_UNCONFIRMED', saved['failure']['code'])
+
+    def test_unknown_concurrent_outcome_fences_queued_trials_and_keeps_completed_pair_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.make_service(directory)
+            run = service.create(Principal('admin', frozenset(), True), request(suite='batch_comparison', seed=1))
+            running = threading.Event()
+            observed_cancel = threading.Event()
+            lock = threading.Lock()
+            dispatched = []
+            receipt = dict(passed=True, firstContentMs=1, totalMs=2, maximumContentGapMs=0,
+                           backendTimings=None, usage=None, outputSha256='measured', finishReason='stop',
+                           observedModel='selected', modelReceipt='REPORTED_IDENTIFIER',
+                           identityScope='HTTP_ROUTE_AND_REPORTED_IDENTIFIER', gatewayJobId='completed')
+
+            def measured(_post, _origin, _model, turns, **options):
+                name = next(name for name, messages, _expected in benchmark.CASES if messages == turns)
+                with lock:
+                    dispatched.append(name)
+                    ordinal = len(dispatched)
+                # Warm-up and the first sequential arm have already completed.
+                if ordinal <= 1 + len(benchmark.CASES):
+                    return dict(receipt)
+                if name == benchmark.CASES[0][0]:
+                    self.assertTrue(running.wait(5), 'The second admitted request did not start')
+                    raise BenchmarkInterrupted({'jobId': 'unsettled', 'outcome': 'unknown'})
+                if name == benchmark.CASES[1][0]:
+                    running.set()
+                    if options['cancel_event'].wait(5):
+                        observed_cancel.set()
+                        raise BenchmarkInterrupted({'jobId': 'running', 'outcome': 'confirmed'})
+                return dict(receipt)
+
+            with patch.object(BenchmarkRunner, 'execute', BenchmarkRunner.paired), \
+                    patch('benchmarks.runner.measure', side_effect=measured):
+                service.run_one(run['id'])
+
+            self.assertTrue(observed_cancel.is_set())
+            self.assertCountEqual([entry[0] for entry in benchmark.CASES[:2]], dispatched[1 + len(benchmark.CASES):])
+            saved = service.store.get(run['id'])
+            self.assertEqual('INTERRUPTED', saved['state'])
+            self.assertEqual('CANCELLATION_UNCONFIRMED', saved['failure']['code'])
+            self.assertCountEqual([{'jobId': 'unsettled', 'outcome': 'unknown', 'case': benchmark.CASES[0][0]},
+                                   {'jobId': 'running', 'outcome': 'confirmed', 'case': benchmark.CASES[1][0]}],
+                                  [row for row in saved['failure']['cancellationReceipts'] if 'case' in row])
+            self.assertEqual(1, len(saved['cases']))
+            self.assertEqual('PASSED', saved['cases'][0]['status'])
+            self.assertEqual('sequential', saved['cases'][0]['arm'])
+            self.assertEqual(len(benchmark.CASES), len(saved['cases'][0]['samples']))
+            self.assertFalse(saved['summary']['qualified'])
+            self.assertEqual([], service.store.pending())
 
     def test_routes_scope_history_lookup_cancel_and_delete_to_admitted_owner(self):
         with tempfile.TemporaryDirectory() as directory:

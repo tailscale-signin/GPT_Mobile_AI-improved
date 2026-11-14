@@ -310,4 +310,29 @@ class GitHubProgressNarratorTest {
         assertTrue(constraints.allowReasoning)
         assertFalse(constraints.maximizeReasoning)
     }
+
+    @Test fun changingOnlyPendingActivityDoesNotRepeatTheSameFindings() {
+        val first = state().copy(pending = 1, activity = "Reading workflow definitions")
+        val later = first.copy(revision = 2, pending = 0, activity = "Workflow definition result received")
+        assertEquals(GitHubProgressNarrator.factualSummary(first), GitHubProgressNarrator.factualSummary(later))
+        assertFalse(GitHubProgressNarrator.factualSummary(first).contains("Reading workflow definitions"))
+        assertEquals("", GitHubProgressNarrator.factualSummary(first.copy(completed = 1, pending = 0, recentSteps = emptyList())))
+    }
+
+    @Test fun zeroFailureCountsAndSkippedChecksCannotDisplaceAnEarlierActualFailure() {
+        val summary = GitHubProgressNarrator.factualSummary(
+            state().copy(
+                recentSteps = listOf(
+                    "The source read for Source.kt failed.",
+                    "Recorded checks: 15 successful, 18 skipped, 0 in progress, 0 failed.",
+                    "The workflow inventory contains 55 definitions; listing does not execute validation.",
+                    "The source read for Latest.kt returned a result for inspection."
+                )
+            )
+        )
+        assertTrue(summary.contains("Source.kt failed"))
+        assertTrue(summary.contains("Latest.kt"))
+        val zero = GitHubProgressNarrator.factualSummary(state().copy(recentSteps = listOf("Checks: 0 failed, 0 skipped.", "Read Middle.kt.", "Read Latest.kt.")))
+        assertFalse(zero.contains("Earlier"))
+    }
 }

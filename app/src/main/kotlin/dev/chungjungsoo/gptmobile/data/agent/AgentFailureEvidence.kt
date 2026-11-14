@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisiteRejected
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequestRejected
 import dev.chungjungsoo.gptmobile.data.github.GatewayExecutionRejected
 import dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity
 import kotlinx.serialization.json.Json
@@ -63,7 +65,7 @@ internal object AgentFailureEvidence {
                 }
             )
         }
-        val rejected = error as? GatewayExecutionRejected ?: return null
+        val rejected = error as? GatewayExecutionRejected ?: return engineeringRejection(error, partialOutput)
         val unknown = rejected.commandOutcomeUnknown || rejected.code == "EXECUTION_OPERATION_UNKNOWN_OUTCOME"
         val inference = rejected.inferenceAttempted
         return ProviderEvent.Failed(
@@ -88,6 +90,36 @@ internal object AgentFailureEvidence {
                     put("dispatched", inference)
                     put("dispatch_state", if (inference) "FAILED" else "NOT_DISPATCHED")
                     put("remote_acceptance", if (inference) "UNKNOWN" else "NO")
+                }
+            }
+        )
+    }
+
+    private fun engineeringRejection(error: Throwable, partialOutput: Boolean): ProviderEvent.Failed? {
+        val rejected = error as? GatewayEngineeringRequestRejected ?: return null
+        val prerequisite = rejected as? GatewayEngineeringPrerequisiteRejected
+        val unknown = rejected.commandOutcomeUnknown
+        return ProviderEvent.Failed(
+            message = rejected.message.orEmpty(),
+            errorCode = if (unknown) GatewayOutcomeRecovery.ERROR_CODE else rejected.errorCode ?: "REQUEST_REJECTED",
+            transportComplete = !unknown,
+            taskOutcome = if (unknown) "PARTIAL" else "BLOCKED",
+            failureDetails = buildJsonObject {
+                prerequisite?.diagnosticDetails?.forEach { (key, value) -> put(key, value) }
+                put("failed_stage", if (unknown) "gateway_dispatch" else rejected.failedStage ?: "provider_admission")
+                put("http_status", rejected.httpStatus)
+                put("attempt_dispatch_state", "REJECTED")
+                put("retryable", false)
+                put("partial_output_preserved", partialOutput)
+                put("request_replay_allowed", false)
+                put("requires_reconciliation", unknown)
+                if (unknown) {
+                    put("recovery_action", "RECONCILE_REMOTE_OUTCOME")
+                    put("remote_acceptance", "UNKNOWN")
+                } else if (!partialOutput) {
+                    put("dispatched", false)
+                    put("dispatch_state", "NOT_DISPATCHED")
+                    put("remote_acceptance", "NO")
                 }
             }
         )

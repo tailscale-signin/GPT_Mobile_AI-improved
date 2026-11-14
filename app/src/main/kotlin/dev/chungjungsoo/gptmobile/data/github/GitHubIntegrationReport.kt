@@ -199,8 +199,13 @@ internal object GitHubIntegrationReport {
         if (blockers.isEmpty()) return
         val capabilities = checkpoint.array("capabilities").associateBy { it.text("id") }
         val count = blockers.sumOf { (it["capability_ids"] as? JsonArray).orEmpty().size }
+        val pendingIds = blockers.flatMap { it.strings("capability_ids") }.toSet()
+        val requiredCount = pendingIds.count { capabilities[it]?.get("required") != JsonPrimitive(false) }
+        val conditionalCount = pendingIds.size - requiredCount
         append("\n### Before Continue: remaining prerequisites\n\n")
-        append("All $count unresolved capability rows are listed in ${blockers.size} prerequisite groups below. Continue revalidates prepared steps under the current authorization; resolve each affected operation's listed inputs or approvals to make that operation admissible.\n\n")
+        append("All $count unresolved capability rows are listed in ${blockers.size} prerequisite groups below: $requiredCount required and $conditionalCount conditional outside the required scope. ")
+        append("Only required capabilities count toward acceptance. Conditional lifecycle or interaction checks remain untested until their own prerequisites apply. ")
+        append("Continue revalidates prepared steps under the current authorization; resolve each affected operation's listed inputs or approvals to make that operation admissible.\n\n")
         val budget = checkpoint["stage_budget"] as? JsonObject
         val remaining = budget?.number("remaining_calls")
         append(

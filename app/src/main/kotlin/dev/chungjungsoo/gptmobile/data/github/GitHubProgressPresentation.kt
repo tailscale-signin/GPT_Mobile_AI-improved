@@ -56,6 +56,13 @@ internal object GitHubProgressPresentation {
     /** Compare displayed lines, including whitespace and formatting differences. */
     fun lineKey(text: String): String = preview(text).replace(Regex("\\s+"), " ").trim().trimEnd('.', '…').lowercase(java.util.Locale.ROOT)
 
+    /** Exact application staging notices expire when a visible response or terminal result arrives. */
+    fun isTransientActivity(text: String): Boolean = lineKey(text) in setOf(
+        "putting the response together",
+        "preparing the requested repository checks",
+        "locating the relevant repository evidence"
+    )
+
     private val duration = Regex("""\b\d{1,4}:\d{2}(?::\d{2})?\b|\b\d+\s*(?:ms|s|seconds?|minutes?|hours?)\s+elapsed\b|\belapsed\s*[:=]\s*\d+\s*(?:ms|s|seconds?|minutes?|hours?)?""", RegexOption.IGNORE_CASE)
     private val prefix = Regex("""^status\b\s*(?:[:·|—-]\s*)?""", RegexOption.IGNORE_CASE)
 

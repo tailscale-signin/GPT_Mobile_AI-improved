@@ -56,6 +56,8 @@ internal object GitHubIntegrationPreparation {
             put("scope", "Prepare exact authorized reads and the supported task-owned content fixture. Missing IDs, approval or cleanup recipes remain explicit prerequisites.")
             put("budget", budget)
             put("ready_read_count", readCalls.size)
+            put("required_pending_capability_count", pending.count { it["required"] != JsonPrimitive(false) })
+            put("conditional_pending_capability_count", pending.count { it["required"] == JsonPrimitive(false) })
             put("ready_reads", JsonArray(readCalls.take(16).map(::call)))
             put("additional_ready_read_count", (readCalls.size - 16).coerceAtLeast(0))
             put("owned_fixture_creation_admissible", canCreate && fixtureCall?.arguments?.get("action") == JsonPrimitive("branch"))
@@ -69,6 +71,8 @@ internal object GitHubIntegrationPreparation {
                         buildJsonObject {
                             put("code", code)
                             put("capability_ids", JsonArray(rows.mapNotNull { it["id"] }))
+                            put("required_capability_ids", JsonArray(rows.filter { it["required"] != JsonPrimitive(false) }.mapNotNull { it["id"] }))
+                            put("conditional_capability_ids", JsonArray(rows.filter { it["required"] == JsonPrimitive(false) }.mapNotNull { it["id"] }))
                             val exactInputs = rows.flatMap { (it["required_inputs"] as? JsonArray).orEmpty() }.distinct()
                             put("required_inputs", if (exactInputs.isNotEmpty()) JsonArray(exactInputs) else JsonArray(requiredInputs(code).map(::JsonPrimitive)))
                             put("next_action", GitHubCriterionBlocker.from(code)?.nextAction ?: GitHubCriterionBlocker.BLOCKER_DETAIL_NOT_RECORDED.nextAction)

@@ -10,6 +10,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionException
 import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason
 import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionSurface
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringInputRejected
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisiteRejected
 import dev.chungjungsoo.gptmobile.data.github.GatewayExecutionRejected
 import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
 import kotlinx.serialization.json.JsonArray
@@ -23,9 +24,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CoordinatorSetupFailureReceiptTest {
+    @Test fun validationPrerequisiteProducesAReconciledReceiptWithItsRepairAction() {
+        val rejected = GatewayEngineeringPrerequisiteRejected(412, "VALIDATION_POLICY_REQUIRED")
+        val failure = requireNotNull(coordinatorFailureRecord(MessageV2(content = "", platformType = "primary"), rejected, gatewayPreflightKnownUnsent = true))
+        assertTrue(failure.isUnsentSetup)
+        assertEquals(listOf("CONFIGURE_VALIDATION_POLICY"), failure.recoveryActions)
+        val event = requireNotNull(coordinatorSetupFailureEvent(failure, rejected, partialOutput = false))
+        assertEquals("VALIDATION_POLICY_REQUIRED", event.errorCode)
+        assertEquals(JsonPrimitive("admission"), event.failureDetails?.get("failed_stage"))
+        assertEquals(JsonPrimitive("CONFIGURE_VALIDATION_POLICY"), event.failureDetails?.get("recovery_action"))
+        assertEquals(JsonPrimitive(false), event.failureDetails?.get("request_replay_allowed"))
+    }
+
     @Test fun laterPrecheckPreservesEarlierDispatchAndAcceptanceThroughReceiptProjection() {
         val errors = listOf(
             GatewayExecutionRejected("EXECUTION_MODEL_NOT_READY", 409, inferenceAttempted = false),
+            GatewayEngineeringPrerequisiteRejected(412, "VALIDATION_POLICY_REQUIRED"),
             GatewayModelPreparationException(GatewayModelPreparationState("profile", "model", GatewayModelPreparationPhase.BLOCKED, "Preparation unavailable", failureCode = "MODEL_PREPARATION_REJECTED"))
         )
         for (acceptance in listOf(RemoteRequestAcceptance.UNKNOWN, RemoteRequestAcceptance.YES)) {
@@ -41,7 +55,7 @@ class CoordinatorSetupFailureReceiptTest {
                 assertEquals(JsonPrimitive(true), event.failureDetails?.get("dispatched"))
                 assertEquals(JsonPrimitive("DISPATCHED"), event.failureDetails?.get("dispatch_state"))
                 assertEquals(JsonPrimitive(acceptance.name), event.failureDetails?.get("remote_acceptance"))
-                assertEquals(JsonPrimitive(if (error is GatewayExecutionRejected) "REJECTED" else "NOT_DISPATCHED"), event.failureDetails?.get("attempt_dispatch_state"))
+                assertEquals(JsonPrimitive(if (error is GatewayExecutionRejected || error is GatewayEngineeringPrerequisiteRejected) "REJECTED" else "NOT_DISPATCHED"), event.failureDetails?.get("attempt_dispatch_state"))
                 val projected = ProfileFailureRecord.fromProvider(event.message, event.errorCode, event.failureDetails)
                 assertEquals(true, projected.dispatched)
                 assertEquals(acceptance, projected.remoteAcceptance)

@@ -15,6 +15,39 @@ class GitHubActivityLinesTest {
         assertEquals(listOf("First summary", "Preparing", "Next summary", "Reading", "Checking"), lines.map { it.content })
     }
 
+    @Test fun returningToEarlierActivityKeepsTheLatestActivationAtTheBottom() {
+        val first = line("Reading source files").copy(progressId = "read-1", progressSequence = 1)
+        val second = line("Checking workflow runs").copy(progressId = "checks-2", progressSequence = 2)
+        val latest = first.copy(progressId = "read-3", progressSequence = 3)
+        val lines = gitHubActivityLines(listOf(first, second, latest), "review", active = true)
+        assertEquals(listOf("checks-2", "read-3"), lines.takeLast(2).map { it.progressId })
+        assertEquals(listOf(1L, 2L, 3L), lines.filterNot { it.statusSummary }.map { it.progressSequence })
+    }
+
+    @Test fun stoppedHistoryHidesOnlyAutomaticTransientActivityAndPreservesEvidence() {
+        val transient = line("Putting the response together.")
+        val fact = line("Checks: 8 successful, 1 skipped, 9 running, 0 failed.")
+        val approval = line("Waiting for approval before committing.")
+        val authored = transient.copy(modelAuthored = true)
+        val retained = listOf(transient, fact, approval, authored)
+        val active = gitHubActivityLines(retained, "review", active = true)
+        assertTrue(active.any { it.content == transient.content && !it.modelAuthored })
+        val stopped = gitHubActivityLines(retained, "review", active = false)
+        assertFalse(stopped.any { it.content == transient.content && !it.modelAuthored })
+        assertTrue(stopped.any { it.content.startsWith("Checks:") })
+        assertTrue(stopped.any { it.content == approval.content })
+        assertTrue(stopped.any { it.content == authored.content && it.modelAuthored })
+    }
+
+    @Test fun compactedCounterBetweenIdenticalActivitiesDoesNotHideTheNewestActivation() {
+        val counter = line("Checks: 3/8 verified").copy(progressId = "checks", progressSequence = 3)
+        val first = line("Reading source files").copy(progressId = "read-2", progressSequence = 2)
+        val latest = first.copy(progressId = "read-4", progressSequence = 4)
+        val lines = gitHubActivityLines(listOf(counter, first, latest), "review", active = true)
+        assertEquals(listOf("read-2", "checks", "read-4"), lines.filterNot { it.statusSummary }.map { it.progressId })
+        assertEquals(listOf(3L, 4L), lines.takeLast(2).map { it.progressSequence })
+    }
+
     @Test fun absentSummaryAndCompactWindowStillStartWithTextSummary() {
         val lines = gitHubActivityLines(listOf(line("Preparing"), line("Reading"), line("Checking"), line("Finishing")), "status")
         assertTrue(lines.first().statusSummary)

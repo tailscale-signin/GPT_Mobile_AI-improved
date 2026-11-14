@@ -2559,6 +2559,10 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderConflictEvidence.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/CapacityAdmissionObservationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidenceTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderConflictEvidenceTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderConflictEvidenceTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteRejected.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacityTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteTest.kt"
   ]
 }

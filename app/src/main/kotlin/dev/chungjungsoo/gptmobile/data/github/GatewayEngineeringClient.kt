@@ -135,10 +135,17 @@ class GatewayEngineeringClient internal constructor(
                                 preflight.blockers.map { it.reasonCode },
                                 policyState = preflight.validationPolicyState
                             )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
-                            throw GatewayEngineeringRequestRejected(response.status.value, preflight.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" }, errorCode = safeEngineeringRejectionCode(code), failedStage = "provider_admission")
+                            throw GatewayEngineeringPrerequisites.rejected(response.status.value, preflight)
+                                .withCommandOutcomeUnknown(detail?.get("command_outcome_unknown") == JsonPrimitive(true))
                         }
-                        if (code in setOf("ENGINEERING_REPOSITORY_ACCESS_REQUIRED", "SOURCE_REVISION_CHANGED", "SOURCE_REVISION_REQUIRED", "VALIDATION_POLICY_REQUIRED")) {
-                            throw GatewayEngineeringRequestRejected(response.status.value, "$code: ${detail?.get("message")?.jsonPrimitive?.content.orEmpty().take(1000)}", errorCode = safeEngineeringRejectionCode(code), failedStage = "provider_admission")
+                        if (code in GatewayEngineeringPrerequisites.codes) {
+                            throw GatewayEngineeringPrerequisiteRejected(
+                                response.status.value,
+                                requireNotNull(code),
+                                stage = GatewayEngineeringPrerequisites.stage((detail?.get("failed_stage") as? JsonPrimitive)?.contentOrNull),
+                                policyState = (detail?.get("validation_policy_state") as? JsonPrimitive)?.contentOrNull,
+                                commandOutcomeUnknown = detail?.get("command_outcome_unknown") == JsonPrimitive(true)
+                            )
                         }
                         val confirmedRejection = detail?.get("admission_state") == JsonPrimitive("rejected") &&
                             detail["dispatch_state"] == JsonPrimitive("not_dispatched") &&
@@ -211,7 +218,7 @@ class GatewayEngineeringClient internal constructor(
             result.blockers.map { it.reasonCode },
             policyState = result.validationPolicyState
         )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
-        if (!result.ready) throw GatewayEngineeringRequestRejected(412, result.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" }.ifBlank { "Engineering prerequisites have not been verified." }, errorCode = result.blockers.firstOrNull()?.reasonCode?.let(::safeEngineeringRejectionCode), failedStage = "provider_admission")
+        if (!result.ready) throw GatewayEngineeringPrerequisites.rejected(412, result)
         check(request.taskScope != "implement" || result.acceptance.isNotEmpty()) { "The gateway did not provide a testable acceptance contract." }
         return result
     }

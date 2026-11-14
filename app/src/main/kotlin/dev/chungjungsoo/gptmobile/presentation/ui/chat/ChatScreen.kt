@@ -2031,6 +2031,7 @@ internal fun ChatMessagePair(
                             .widthIn(max = maximumOpponentChatBubbleWidth),
                         canEdit = canUseChat && isIdle && !isSourceResponse,
                         canRetry = !waitingForProvider &&
+                            gatewayAdmission == null &&
                             responseRecoveryKind == ProfileRecoveryKind.NONE &&
                             if (isCombinedConversation) {
                                 canUseChat &&

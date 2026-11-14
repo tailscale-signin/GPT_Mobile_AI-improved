@@ -93,6 +93,7 @@ import java.util.regex.PatternSyntaxException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -258,6 +259,63 @@ class ChatRepositoryImplTest {
         assertTrue(summary.contains("source read") && summary.contains("failed") && summary.contains("MainActivity.kt"))
         assertTrue(summary.contains("inspect the source read error"))
         assertFalse(summary.contains("identify the pull request associated"))
+    }
+
+    @Test fun nativeSemanticResultsReachTheSameProgressSummaryThatReceivesTerminalEvents() = runBlocking {
+        val repository = createRepository()
+        val trace = mockk<ToolTraceSession>()
+        coEvery { trace.gateway(any()) } returns null
+        coEvery { trace.finish(any(), any()) } returns null
+        var clock = 0L
+        val progress = GitHubChatProgress("Test the GitHub integration") { clock }
+        progress.tick()
+        val call = ProviderEvent.ToolCall(
+            "checks",
+            "github_context",
+            buildJsonObject {
+                put("action", "checks")
+                put("pull_number", 1089)
+            }
+        )
+        val receipt = buildJsonObject {
+            put(
+                "semantic_summary",
+                buildJsonObject {
+                    put("schema", "github.semantic-summary.v1")
+                    put("operation", "github_context")
+                    put(
+                        "check_counts",
+                        buildJsonObject {
+                            put("successful", 8)
+                            put("skipped", 1)
+                            put("in_progress", 9)
+                            put("failed", 0)
+                            put("other_completed", 0)
+                        }
+                    )
+                    put("check_inventory_complete", false)
+                }
+            )
+        }
+        val result = AgentToolResult(call.callId, ToolResultContent.Text("Private raw result"), false, executionReceipt = receipt)
+        repository.streamAgentEvents(
+            flowOf(AgentRunEvent.ToolStarted(call), AgentRunEvent.ToolFinished(call, result)),
+            customPlatform(),
+            "semantic-progress",
+            1,
+            trace,
+            dispatchAuthority = RequestAuthorizationGuard("selected", null) {},
+            githubChat = true,
+            githubProgress = progress
+        ).collect { progress.forward(it) }
+        clock = 45_000
+        val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
+        assertTrue(summary.contains("8 successful"))
+        assertTrue(summary.contains("9 in progress"))
+        assertTrue(summary.contains("incomplete captured list"))
+        assertFalse(summary.contains("Private raw result"))
+        assertEquals(1, progress.summarySnapshot().completed)
+        assertEquals(0, progress.summarySnapshot().pending)
     }
 
     @Test fun gatewayOwnedResultEchoesDoNotDuplicateNativeProgressCounts() = runBlocking {

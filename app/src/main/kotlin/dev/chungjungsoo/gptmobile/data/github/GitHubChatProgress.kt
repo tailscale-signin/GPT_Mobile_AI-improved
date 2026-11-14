@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emitAll
@@ -13,10 +15,12 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 
 /** Observed activity and explicitly selected-profile prose; no inference runs on the ticker. */
 internal class GitHubChatProgress(task: String = "", private val now: () -> Long = { System.nanoTime() / 1_000_000 }) {
     private val taskLabel = GitHubProgressPresentation.taskLabel(task)
+    private val integrationCoverage = GitHubTaskCoverage.matches(task)
     private var activity = "Locating the relevant repository evidence"
     private var nextStep = "connect the requested behavior to its implementation and choose the first useful check"
     private var completed = 0
@@ -27,7 +31,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var lastSummaryAt = lastPreviewAt
     private var initial = true
     private var summary = GitHubProgressPresentation.introduction(task)
-    private val previews = mutableSetOf<String>()
+    private var lastPreviewKey = ""
     private val livePreviews = mutableMapOf<String, String>()
     private val recentSteps = ArrayDeque<String>()
     private var lastProblem: String? = null
@@ -41,6 +45,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private val activeCalls = mutableSetOf<Pair<String, String>>()
     private val blockedCalls = mutableSetOf<Pair<String, String>>()
     private val observedProgress = linkedSetOf<Triple<String, Int, String>>()
+    private val resultObservations = linkedMapOf<String, ResultObservation>()
+    private var responseStarted = false
+    private var terminal = false
 
     fun updates(): Flow<ApiState> = flow {
         while (kotlinx.coroutines.currentCoroutineContext().isActive) {
@@ -51,14 +58,15 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
 
     /** A single monotonic clock owns all public preview and summary admission. */
     @Synchronized internal fun tick(): List<ApiState> = buildList {
+        if (responseStarted || terminal) return@buildList
         val at = now()
         admitSummary(at, allowFallback = true)?.let(::add)
         val liveKey = GitHubProgressPresentation.liveKey(activity)
         if (liveKey != null) {
             if (admitCounter(liveKey, activity)) add(ApiState.ProgressCheckpoint(activity))
-        } else if (activity.isNotBlank() && at - lastPreviewAt >= PREVIEW_INTERVAL_MS && previews.add(GitHubProgressPresentation.lineKey(activity))) {
+        } else if (activity.isNotBlank() && at - lastPreviewAt >= PREVIEW_INTERVAL_MS && GitHubProgressPresentation.lineKey(activity) != lastPreviewKey) {
             add(ApiState.ProgressCheckpoint(activity))
-            if (previews.size > 256) previews.remove(previews.first())
+            lastPreviewKey = GitHubProgressPresentation.lineKey(activity)
             lastPreviewAt = at
         }
     }
@@ -85,13 +93,15 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
 
     private fun admitCounter(liveKey: String, text: String): Boolean {
         val key = GitHubProgressPresentation.lineKey(text)
-        if (livePreviews[liveKey] == key) return false
+        if (livePreviews[liveKey] == key && lastPreviewKey == key) return false
         livePreviews[liveKey] = key
+        lastPreviewKey = key
         return true
     }
 
     @Synchronized fun forward(event: ApiState): ApiState? {
         observe(event)
+        if ((responseStarted || terminal) && (event is ApiState.ProgressCheckpoint || event is ApiState.ActivitySummary)) return null
         return when (event) {
             is ApiState.ProgressCheckpoint -> event.takeIf {
                 !event.modelAuthored && GitHubProgressPresentation.liveKey(event.text)?.let { admitCounter(it, event.text) } == true
@@ -101,7 +111,24 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         }
     }
 
+    /** Consume existing bounded facts; never parse or hash a raw tool body on the progress path. */
+    @Synchronized fun observeResult(call: ProviderEvent.ToolCall, result: AgentToolResult): String? {
+        if (terminal || result.isError || call.callId != result.callId || "view_cursor" in call.arguments) return null
+        val facts = (result.executionReceipt?.get("semantic_summary") as? JsonObject)
+            ?: listOf(result.retainedContent, result.content).firstNotNullOfOrNull { content ->
+                (((content as? ToolResultContent.Json)?.value as? JsonObject)?.get("semantic_summary") as? JsonObject)
+            } ?: return null
+        if (facts["schema"] != JsonPrimitive("github.semantic-summary.v1") || facts["operation"] != JsonPrimitive(call.name.substringBefore("__"))) return null
+        val saved = result.sharedResult || result.executionReceipt?.get("read_source") == JsonPrimitive("RETAINED")
+        val observation = semanticObservation(call.name, call.arguments, facts, saved) ?: return null
+        resultObservations[call.callId] = observation
+        while (resultObservations.size > 256) resultObservations.remove(resultObservations.keys.first())
+        return observation.preview
+    }
+
     @Synchronized fun observe(event: ApiState) {
+        if (terminal) return
+        if (responseStarted && (event is ApiState.ProgressCheckpoint || event is ApiState.ActivitySummary)) return
         when (event) {
             is ApiState.GatewayProgressChanged -> {
                 val progress = event.progress
@@ -125,14 +152,16 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 when (eventName) {
                     "tool_started" -> {
                         if (terminalKey in terminalCalls) return
+                        responseStarted = false
                         terminalKey?.let(blockedCalls::remove)
                         terminalKey?.takeUnless { it in terminalCalls }?.let(activeCalls::add)
                         activity = operationSummary(name, progress.toolArgs)
-                        nextStep = operation.next
+                        nextStep = nextFor(operation)
                         revision++
                     }
                     "tool_failed" -> {
                         if (terminalKey != null && !terminalCalls.add(terminalKey)) return
+                        resultObservations.remove(progress.toolCallId)
                         terminalKey?.let(activeCalls::remove)
                         terminalKey?.let(blockedCalls::remove)
                         failures++
@@ -144,6 +173,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                     }
                     "tool_blocked" -> {
                         if (terminalKey in terminalCalls || terminalKey != null && !blockedCalls.add(terminalKey)) return
+                        resultObservations.remove(progress.toolCallId)
                         terminalKey?.let(activeCalls::remove)
                         blocked++
                         modelSummaryRetained = false
@@ -157,6 +187,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                         terminalKey?.let(activeCalls::remove)
                         terminalKey?.let(blockedCalls::remove)
                         if (eventName == "tool_skipped") {
+                            resultObservations.remove(progress.toolCallId)
                             skipped++
                             modelSummaryRetained = false
                             pendingSummary = null
@@ -166,9 +197,18 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                             return
                         }
                         completed++
-                        activity = milestone(name, false, false, progress.toolArgs)
-                        nextStep = operation.next
-                        rememberStep(observation(name, false, false, progress.toolArgs))
+                        val observed = resultObservations.remove(progress.toolCallId)
+                        activity = observed?.preview ?: milestone(name, false, false, progress.toolArgs)
+                        nextStep = nextFor(operation)
+                        if (observed?.problem == true) {
+                            modelSummaryRetained = false
+                            pendingSummary = null
+                        }
+                        if (observed != null || sourceFocus(progress.toolArgs).isNotBlank() || operation.mutation) {
+                            rememberStep(observed?.summary ?: observation(name, false, false, progress.toolArgs), problem = observed?.problem == true)
+                        } else {
+                            revision++
+                        }
                     }
                 }
                 val counter = listOfNotNull(progress.message, progress.ui?.title).firstOrNull { GitHubProgressPresentation.liveKey(it) != null }
@@ -183,8 +223,21 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 pendingSummaryRevision = revision
             }
             is ApiState.Success -> {
-                activity = "Putting the response together."
-                nextStep = "present the supported findings and identify any remaining work"
+                if (event.textChunk.isNotBlank()) {
+                    responseStarted = true
+                    pendingSummary = null
+                    activity = ""
+                }
+            }
+            ApiState.GitHubRoundStarted -> {
+                responseStarted = false
+                activity = ""
+            }
+            is ApiState.Error, ApiState.Done -> {
+                terminal = true
+                pendingSummary = null
+                activity = ""
+                resultObservations.clear()
             }
             else -> Unit
         }
@@ -207,16 +260,68 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     )
 
     private fun rememberStep(step: String, problem: Boolean = false) {
-        if (problem) lastProblem = step.take(220)
-        if (recentSteps.lastOrNull() != step) recentSteps.addLast(step.take(220))
+        if (problem) lastProblem = step.take(320)
+        if (recentSteps.lastOrNull() != step) recentSteps.addLast(step.take(320))
         while (recentSteps.size > 8) recentSteps.removeFirst()
         revision++
+    }
+
+    private fun nextFor(operation: Operation): String = if (integrationCoverage) {
+        "compare this operation with the integration criteria and identify the next admissible check"
+    } else {
+        operation.next
     }
 
     companion object {
         const val PREVIEW_INTERVAL_MS = 3_000L
         const val SUMMARY_INTERVAL_MS = 45_000L
         private data class Operation(val preview: String, val subject: String, val next: String, val mutation: Boolean = false)
+        private data class ResultObservation(val preview: String, val summary: String, val problem: Boolean = false)
+
+        private fun semanticObservation(name: String, args: JsonObject, facts: JsonObject, saved: Boolean): ResultObservation? {
+            if (operation(name, args).mutation) return null
+            fun count(source: JsonObject, key: String) = (source[key] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }
+            fun quantity(value: Int, noun: String) = "$value $noun" + if (value == 1) "" else "s"
+            fun observation(preview: String, summary: String, problem: Boolean = false): ResultObservation = ResultObservation(
+                (if (saved) "Saved results: " else "") + preview + sourceFocus(args).let { if (it.isBlank()) "" else " · $it" },
+                if (saved) "From saved results: ${summary.replaceFirstChar(Char::lowercase)} Current state still needs verification." else summary,
+                problem
+            )
+            val counts = facts["check_counts"] as? JsonObject
+            if (counts != null) {
+                val successful = count(counts, "successful")
+                val skipped = count(counts, "skipped")
+                val running = count(counts, "in_progress")
+                val failed = count(counts, "failed")
+                val other = count(counts, "other_completed")
+                if (successful != null && skipped != null && running != null && failed != null && other != null) {
+                    val values = "$successful successful, $skipped skipped, $running in progress, $failed failed" + if (other > 0) ", $other other completed" else ""
+                    val coverage = if (facts["check_inventory_complete"] == JsonPrimitive(true)) "complete captured list" else "incomplete captured list"
+                    return observation("Checks observed: $values", "Recorded checks${focusClause(args)}: $values ($coverage). These are existing results, not a new validation run.", failed > 0)
+                }
+            }
+            val issues = count(facts, "open_issue_count")
+            val pulls = count(facts, "open_pull_request_count")
+            if (issues != null || pulls != null) {
+                val values = listOfNotNull(issues?.let { quantity(it, "open issue") }, pulls?.let { quantity(it, "open pull request") }).joinToString(" and ")
+                return observation("Repository status: $values", "Repository status reports $values. Counts do not establish code or test health.")
+            }
+            count(facts, "workflow_definitions_observed")?.let { count ->
+                val coverage = if (facts["workflow_inventory_complete"] == JsonPrimitive(true)) "complete captured inventory" else "incomplete captured inventory"
+                return observation("${quantity(count, "workflow definition")} found", "The workflow inventory contains ${quantity(count, "definition")} ($coverage). Listing definitions does not execute validation.")
+            }
+            count(facts, "open_pull_requests_observed")?.let { count ->
+                val coverage = if (facts["open_pull_request_inventory_complete"] == JsonPrimitive(true)) "complete captured list" else "incomplete captured list"
+                return observation("${quantity(count, "open pull request")} observed", "Observed ${quantity(count, "open pull request")} ($coverage); review and check status still need inspection.")
+            }
+            if (facts["required_checks_state"] == JsonPrimitive("UNKNOWN")) {
+                return observation("Required-check policy is unavailable", "Required-check policy${focusClause(args)} is unavailable; merge readiness cannot be established.", problem = true)
+            }
+            count(facts, "changed_files_observed")?.let { count ->
+                return observation("${quantity(count, "changed file")} observed", "The comparison${focusClause(args)} contains ${quantity(count, "observed changed file")}; source review remains unverified.")
+            }
+            return null
+        }
 
         /** Only these bounded request identifiers enter public progress; result bodies stay private. */
         private fun sourceFocus(args: JsonObject?): String {
@@ -290,7 +395,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 failed -> "failed"
                 shared -> "is available from saved results"
                 operation.mutation -> "returned a result; any remote change still needs verification"
-                else -> "is available for review"
+                else -> "returned a result for inspection"
             }
             return "The ${operation.subject}${focusClause(args)} $outcome."
         }
@@ -301,7 +406,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
                 failed -> "needs attention"
                 shared -> "reused from saved results"
                 operation.mutation -> "result available; verification pending"
-                else -> "available for review"
+                else -> "result received"
             }
             return "${operation.subject.replaceFirstChar(Char::uppercase)} $outcome" + sourceFocus(args).let { if (it.isBlank()) "" else " · $it" }
         }

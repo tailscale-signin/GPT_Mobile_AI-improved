@@ -74,6 +74,9 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
         // older persistence path omitted statusSummary. Preserve its authorship
         // and invocation identity; measured operational notices remain visible.
         val item = publicProgressSummary(retained) ?: retained
+        if (!active && !item.modelAuthored && !item.statusSummary && GitHubProgressPresentation.isTransientActivity(item.content)) {
+            return@forEachIndexed
+        }
         if (publicSummaryAvailable &&
             !item.modelAuthored &&
             item.statusSummary &&
@@ -105,8 +108,8 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             }
             else -> {
                 val previewKey = GitHubProgressPresentation.lineKey(item.content)
-                val id = item.progressId ?: "legacy-preview:$previewKey"
-                if (previews.add(previewKey)) {
+                val id = item.progressId ?: "legacy-preview:${item.progressSequence ?: sourceIndex}:$previewKey"
+                if (previews.add(id)) {
                     activationOrder[id] = item.progressSequence ?: sourceIndex.toLong()
                     coalesced.add(item.copy(progressId = id))
                 }
@@ -120,6 +123,16 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
         // Legacy receipts predate the persisted sequence clock. Never compare
         // their source indices numerically with a new clock that starts at one.
         .sortedWith(compareBy<AssistantTimelineItem> { it.progressSequence != null }.thenBy { activationOrder[it.progressId] ?: Long.MIN_VALUE })
+        // Compare adjacent activations only after sorting. A compacted counter
+        // can occupy an older receipt slot between two equal activity texts.
+        .fold(mutableListOf<AssistantTimelineItem>()) { result, item ->
+            if (result.lastOrNull()?.let { GitHubProgressPresentation.lineKey(it.content) == GitHubProgressPresentation.lineKey(item.content) } == true) {
+                result[result.lastIndex] = item
+            } else {
+                result.add(item)
+            }
+            result
+        }
     val newestPair = previewsInOrder.takeLast(2)
     val summariesInOrder = coalesced.filter { it.statusSummary }
     val ordered = previewsInOrder.dropLast(newestPair.size) + summariesInOrder + newestPair

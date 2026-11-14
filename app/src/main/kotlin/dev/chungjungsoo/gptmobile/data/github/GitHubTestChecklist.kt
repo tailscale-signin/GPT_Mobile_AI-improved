@@ -796,15 +796,20 @@ internal object GitHubTestChecklist {
     /** Compact public progress uses evaluated outcomes, never receipt or call counts. */
     fun progressSummary(checkpoint: JsonObject, next: ProviderEvent.ToolCall?): String {
         val catalog = (checkpoint["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
-        val rows = catalog.filter { it.text("status") !in setOf("OUT_OF_SCOPE", "NOT_REQUESTED") }
+        val rows = catalog.filter { it["required"] != JsonPrimitive(false) && it.text("status") !in setOf("OUT_OF_SCOPE", "NOT_REQUESTED") }
         val excluded = catalog.size - rows.size
-        val completed = rows.count { it.text("status") in setOf("PASSED", "RECOVERED") }
+        val completed = rows.count { it.text("acceptance_state").ifBlank { GitHubAcceptanceLedger.state(it.text("status")).name } == "PASS" }
         val waiting = rows.count { it.text("status") == "WAITING_FOR_APPROVAL" }
         val conditional = rows.count { it.text("status") == "CONDITIONAL" }
         val failed = rows.count { it.text("status") in setOf("FAILED", "PREFLIGHT_REJECTED") }
         val blocked = rows.count { it.text("status") == "BLOCKED" }
         val nextAction = if (next == null) {
-            "Review remaining blockers in the results."
+            val criteria = (checkpoint["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["required"] != JsonPrimitive(false) }
+            when {
+                criteria.isNotEmpty() && criteria.all { it.text("acceptance_state") == "PASS" } -> "All requested criteria are verified."
+                rows.isNotEmpty() && completed == rows.size -> "Review the remaining task criteria."
+                else -> "Review required inputs and approvals in the results."
+            }
         } else {
             val tool = next.name.substringBefore("__")
             val action = next.arguments.text("action")
@@ -819,7 +824,7 @@ internal object GitHubTestChecklist {
                 }
             "Next: $label."
         }
-        return "Checks: $completed/${rows.size} complete" + (if (waiting > 0) "; $waiting waiting for approval" else "") + (if (conditional > 0) "; $conditional conditional before mutation" else "") + (if (failed > 0) "; $failed failed" else "") + (if (blocked > 0) "; $blocked blocked" else "") + (if (excluded > 0) "; $excluded excluded from scope" else "") + ". $nextAction"
+        return "Checks: $completed/${rows.size} verified" + (if (waiting > 0) "; $waiting waiting for approval" else "") + (if (conditional > 0) "; $conditional need fixture approval" else "") + (if (failed > 0) "; $failed failed" else "") + (if (blocked > 0) "; $blocked blocked" else "") + (if (excluded > 0) "; $excluded outside required scope" else "") + ". $nextAction"
     }
 
     /** Repeating identical observations is history, not forward execution progress. */
@@ -958,7 +963,8 @@ internal object GitHubTestChecklist {
         val observations = trusted(receipts)
         val exhaustive = GitHubChecklistScope.exhaustive(task)
         val remaining = GitHubChecklistBudget.remaining(receipts, remainingToolCalls)
-        val next = if (remaining == null || remaining > GitHubChecklistBudget.VERIFICATION_RESERVE) continuation(task, tools, receipts, localOnly = true) ?: continuation(task, tools, receipts, localOnly = false) else null
+        val acquisitionAllowed = GitHubChecklistBudget.acquisitionAllowed(receipts, remaining)
+        val next = if (acquisitionAllowed) continuation(task, tools, receipts, localOnly = true) ?: continuation(task, tools, receipts, localOnly = false) else null
         val rejected = pending.count { page -> observations.lastOrNull { it["tool"] == page["tool"] && it["arguments"] == page["arguments"] }?.get("success") == JsonPrimitive(false) }
         return buildJsonObject {
             put("mode", if (exhaustive) "COMPLETE_INVENTORY_REQUESTED" else "BOUNDED_SMOKE_SAMPLE")
@@ -966,6 +972,8 @@ internal object GitHubTestChecklist {
             put("failed_page_count", rejected)
             put("remote_samples_spent", remoteSamples(observations))
             put("complete", pending.isEmpty())
+            put("acquisition_allowed", acquisitionAllowed)
+            put("cleanup_reserve", GitHubChecklistBudget.cleanupReserve(receipts))
             next?.let {
                 put(
                     "next_call",
@@ -979,7 +987,7 @@ internal object GitHubTestChecklist {
                 "next_action",
                 when {
                     pending.isEmpty() -> "No issued continuation remains; inspect independent inventory coverage for gaps."
-                    remaining != null && remaining <= GitHubChecklistBudget.VERIFICATION_RESERVE -> "Acquisition budget is reserved for verification/cleanup. Resume from saved read recipes with an explicitly authorized new budget; no ceiling was increased."
+                    !acquisitionAllowed -> "Acquisition budget is reserved for verification and owned-fixture cleanup. Reconcile the fixture before further optional reads; a larger allowance requires explicit authorization."
                     next != null -> "Continue the exact next_call read under the existing authorization and budget. No writes, decisions, workflow dispatch or merges are implied."
                     rejected > 0 -> "Resolve the failed page's exact permission, validation or availability blocker before resuming. Unchanged failures are not retried."
                     !exhaustive -> "Ordinary integration tests sample remote inventory within bounded limits. Request testing all tools and completing pending pagination to traverse retained read recipes; other permissions and budgets still apply."

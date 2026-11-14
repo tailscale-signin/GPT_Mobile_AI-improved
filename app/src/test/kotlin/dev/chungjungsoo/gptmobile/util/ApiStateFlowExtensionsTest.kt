@@ -20,6 +20,61 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ApiStateFlowExtensionsTest {
+    @Test fun partialTerminalRetiresComposingNoticeButKeepsFactsAndTheReport() = runBlocking {
+        var answer = ""
+        var timeline = emptyList<AssistantTimelineItem>()
+        val result = flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ActivitySummary("The returned checks are still running."),
+            ApiState.ProgressCheckpoint("Checks: 47/70 verified"),
+            ApiState.ProgressCheckpoint("Putting the response together."),
+            ApiState.ProgressCheckpoint("Waiting for approval before committing."),
+            ApiState.Success("## Results\n\nRequired checks remain blocked."),
+            ApiState.Error("Integration is partial", errorCode = "GITHUB_TASK_INCOMPLETE")
+        ).collectApiStateUpdates(onUpdate = { text, _, items ->
+            answer = text
+            timeline = items
+        })
+        assertTrue(result is ApiStateFlowOutcome.Failed)
+        assertEquals("## Results\n\nRequired checks remain blocked.", answer)
+        assertFalse(timeline.any { it.content == "Putting the response together." })
+        assertTrue(timeline.any { it.content == "Checks: 47/70 verified" })
+        assertTrue(timeline.any { it.content == "Waiting for approval before committing." })
+        assertTrue(timeline.any { it.statusSummary })
+    }
+
+    @Test fun unchangedCounterCanReactivateAfterAnotherActivityWithoutDuplicatingItsRow() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ProgressCheckpoint("Checks: 3/8 verified"),
+            ApiState.ProgressCheckpoint("Reading source files"),
+            ApiState.ProgressCheckpoint("Checks: 3/8 verified"),
+            ApiState.Error("Interrupted")
+        ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        val counter = timeline.single { it.content.startsWith("Checks:") }
+        val activity = timeline.single { it.content == "Reading source files" }
+        assertTrue(requireNotNull(counter.progressSequence) > requireNotNull(activity.progressSequence))
+        assertTrue(timeline.indexOf(counter) < timeline.indexOf(activity))
+    }
+
+    @Test fun previewCanReactivateAfterACounterThatWasUpdatedInItsOriginalSlot() = runBlocking {
+        var timeline = emptyList<AssistantTimelineItem>()
+        flowOf(
+            ApiState.GitHubRoundStarted,
+            ApiState.ProgressCheckpoint("Checks: 2/8 verified"),
+            ApiState.ProgressCheckpoint("Reading source files"),
+            ApiState.ProgressCheckpoint("Checks: 3/8 verified"),
+            ApiState.ProgressCheckpoint("Reading source files"),
+            ApiState.Error("Interrupted")
+        ).collectApiStateUpdates(onUpdate = { _, _, items -> timeline = items })
+        val previews = timeline.filter { it.content == "Reading source files" }
+        val counter = timeline.single { it.content.startsWith("Checks:") }
+        assertEquals(2, previews.size)
+        assertTrue(requireNotNull(previews.last().progressSequence) > requireNotNull(counter.progressSequence))
+        assertTrue(requireNotNull(previews.first().progressSequence) < requireNotNull(counter.progressSequence))
+    }
+
     @Test fun unverifiedResponseObservationClearsGatewayProofAcrossProviderRounds() = runBlocking {
         val gateway = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(dev.chungjungsoo.gptmobile.data.database.entity.ResponseTransport.GATEWAY, profileUid = "same-profile", modelId = "same-model", gatewayVerified = true)
         val unknown = dev.chungjungsoo.gptmobile.data.database.entity.ResponseSource(profileUid = "same-profile", modelId = "same-model")

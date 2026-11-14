@@ -59,15 +59,24 @@ internal object GatewayClientDiagnostics {
         return researchHash("${config.apiUrl.trim().trimEnd('/')}|${researchHash(config.token.orEmpty())}|${researchHash(headers)}")
     }
 
-    fun runtimeEpoch(config: ProviderRequestConfig): String = synchronized(lock) { instances[routeIdentity(config)]?.id ?: "unobserved" }
+    fun runtimeEpoch(config: ProviderRequestConfig): String {
+        val route = routeIdentity(config)
+        return synchronized(lock) { instances[route]?.id ?: "unobserved" }
+    }
 
-    fun capabilityEpoch(config: ProviderRequestConfig): Long = synchronized(lock) { instances[routeIdentity(config)]?.revision ?: revisionClock }
+    fun capabilityEpoch(config: ProviderRequestConfig): Long {
+        val route = routeIdentity(config)
+        return synchronized(lock) { instances[route]?.revision ?: revisionClock }
+    }
 
     /** A selected profile can observe its bound route's restart without resolving a stored credential. */
-    fun profileCapabilityEpoch(profileUid: String, apiUrl: String): Long = synchronized(lock) {
-        profiles[profileKey(profileUid, apiUrl)]?.let { binding ->
-            maxOf(binding.revision, instances[binding.route]?.revision ?: revisionClock)
-        } ?: revisionClock
+    fun profileCapabilityEpoch(profileUid: String, apiUrl: String): Long {
+        val key = profileKey(profileUid, apiUrl)
+        return synchronized(lock) {
+            profiles[key]?.let { binding ->
+                maxOf(binding.revision, instances[binding.route]?.revision ?: revisionClock)
+            } ?: revisionClock
+        }
     }
 
     private fun profileKey(profileUid: String, apiUrl: String) = researchHash("$profileUid|${apiUrl.trim().trimEnd('/')}")
@@ -75,8 +84,8 @@ internal object GatewayClientDiagnostics {
     private fun rememberRoute(config: ProviderRequestConfig): String {
         val route = routeIdentity(config)
         config.profileUid?.takeIf(String::isNotBlank)?.let { profileUid ->
+            val key = profileKey(profileUid, config.apiUrl)
             synchronized(lock) {
-                val key = profileKey(profileUid, config.apiUrl)
                 val previous = profiles[key]
                 if (previous?.route != route) {
                     if (profiles.size >= 128 && key !in profiles) {

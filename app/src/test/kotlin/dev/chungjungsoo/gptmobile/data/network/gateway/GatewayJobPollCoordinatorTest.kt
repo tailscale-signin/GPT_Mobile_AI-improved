@@ -14,6 +14,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -48,6 +49,33 @@ class GatewayJobPollCoordinatorTest {
             assertEquals(complete, read())
             assertEquals(2, reads)
         }
+    }
+
+    @Test fun missingResponsesBackOffAndNetworkEpochChangesAllowAnImmediateFreshRead() = runTest {
+        val coordinator = GatewayJobPollCoordinator({ testScheduler.currentTime }, { 0L })
+        var epoch = "first"
+        var reads = 0
+        suspend fun read() = coordinator.read("route", "saved", { epoch }) { received ->
+            reads++
+            if (reads <= 2) {
+                null
+            } else {
+                received(GatewayJobPollResponse(200, null))
+                complete
+            }
+        }
+        assertNull(read())
+        advanceTimeBy(3_999)
+        assertNull(read())
+        assertEquals(1, reads)
+        advanceTimeBy(1)
+        assertNull(read())
+        advanceTimeBy(7_999)
+        assertNull(read())
+        assertEquals(2, reads)
+        epoch = "network-recovered"
+        assertEquals(complete, read())
+        assertEquals(3, reads)
     }
 
     @Test fun cancellationAfterResponseRetainsDeadlineWithoutInventingAResult() = runTest {

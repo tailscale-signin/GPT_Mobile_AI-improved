@@ -26,6 +26,8 @@ internal class GatewayJobPollCoordinator(
         var revision = 0L
         var runtime: String? = null
         var nextAllowedAt = Long.MIN_VALUE
+        var transportRetryAt = Long.MIN_VALUE
+        var consecutiveTransportFailures = 0
         var observation: Observation? = null
     }
 
@@ -49,13 +51,17 @@ internal class GatewayJobPollCoordinator(
         try {
             return entry.read.withLock {
                 currentCoroutineContext().ensureActive()
+                val readRuntime = runtime()
                 synchronized(lock) {
-                    if (entry.runtime != null && entry.runtime != runtime()) {
+                    if (entry.runtime != null && entry.runtime != readRuntime) {
                         entry.observation = null
+                        entry.transportRetryAt = Long.MIN_VALUE
+                        entry.consecutiveTransportFailures = 0
                         // A new capabilities epoch invalidates evidence, not the
                         // Retry-After already received for this route and job.
                         entry.revision++
                     }
+                    if (entry.transportRetryAt > elapsedMillis()) return@withLock null
                     val observation = entry.observation
                     if (observation != null && (observation.terminal || entry.nextAllowedAt > elapsedMillis())) return@withLock observation.result
                 }
@@ -84,8 +90,17 @@ internal class GatewayJobPollCoordinator(
                 currentCoroutineContext().ensureActive()
                 synchronized(lock) {
                     if (entry.revision != revision) return@withLock null
-                    if (!responseReceived) entry.nextAllowedAt = ProviderRetryPolicy.deadlineMillis(elapsedMillis(), DEFAULT_INTERVAL_MILLIS)
-                    entry.runtime = runtime()
+                    if (responseReceived) {
+                        entry.consecutiveTransportFailures = 0
+                        entry.transportRetryAt = Long.MIN_VALUE
+                    } else {
+                        entry.consecutiveTransportFailures = (entry.consecutiveTransportFailures + 1).coerceAtMost(5)
+                        val wait = (DEFAULT_INTERVAL_MILLIS shl entry.consecutiveTransportFailures).coerceAtMost(60_000L)
+                        entry.transportRetryAt = ProviderRetryPolicy.deadlineMillis(elapsedMillis(), wait)
+                    }
+                    // A failed attempt belongs to the epoch that started it.
+                    // A successful exchange can discover a new server instance.
+                    entry.runtime = if (responseReceived) runtime() else readRuntime
                     val terminal = responseStatus == 200 &&
                         result != null &&
                         result.status.lowercase() in setOf("completed", "failed", "cancelled", "canceled", "interrupted") &&
@@ -102,7 +117,7 @@ internal class GatewayJobPollCoordinator(
                 // retain their lightweight deadline even under cache pressure.
                 while (entries.size > 128) {
                     val unused = entries.entries.firstOrNull {
-                        it.value.users == 0 && (it.value.observation?.terminal == true || it.value.nextAllowedAt <= elapsedMillis())
+                        it.value.users == 0 && (it.value.observation?.terminal == true || maxOf(it.value.nextAllowedAt, it.value.transportRetryAt) <= elapsedMillis())
                     } ?: break
                     entries.remove(unused.key)
                 }
@@ -125,7 +140,7 @@ internal class GatewayJobPollCoordinator(
     }
 
     private fun remaining(identity: String, jobId: String): Long = synchronized(lock) {
-        entries["$identity|$jobId"]?.let { ProviderRetryPolicy.remainingMillis(it.nextAllowedAt, elapsedMillis()) } ?: 0L
+        entries["$identity|$jobId"]?.let { ProviderRetryPolicy.remainingMillis(maxOf(it.nextAllowedAt, it.transportRetryAt), elapsedMillis()) } ?: 0L
     }
 
     /** A mutation discards evidence across verified/unverified authority aliases on the same credentials. */

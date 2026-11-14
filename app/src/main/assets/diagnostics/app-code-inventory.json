@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "569f13139917879bf33863610324af14225f0d8290616f02455eea3108ac3186",
+  "source_digest": "9f5019ea7aa1dc24b1d8431f6cd744d3d49c09f74e00054529a3761a689eb538",
   "file_count": 2566,
-  "indexed_line_count": 410248,
+  "indexed_line_count": 410317,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -94,7 +94,7 @@
       "id": "gateway_client",
       "label": "Android gateway client",
       "file_count": 35,
-      "indexed_line_count": 5655
+      "indexed_line_count": 5702
     },
     {
       "id": "network",
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 12623
+      "indexed_line_count": 12645
     },
     {
       "id": "benchmark",
@@ -5540,8 +5540,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GatewayReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "8c200238dc1bbe5c30cc603169a0d6db7cb5b91980f8774866d769d88929fd76",
-      "indexed_lines": 123
+      "sha256": "571f1d8b7cf73cb8e813f8ef9ae5abcad4288aefb3956be288d25e0aabee83b4",
+      "indexed_lines": 145
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GroupedAppLog.kt",
@@ -9698,8 +9698,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAPIImpl.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "d2427bf2fc4940f845a957ff6021664078052581dedc3e4f8f41e11e22374a4b",
-      "indexed_lines": 399
+      "sha256": "b2debd471e921abb182b5b98f44dd066ff03a8a47ccd7f733768089407236656",
+      "indexed_lines": 422
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAppDiagnosticProjection.kt",
@@ -9740,8 +9740,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayClientDiagnostics.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "cb2b547803be74f8981a2a928f0338bddadbf592ab021c9dc73f0ba7ec7d53b0",
-      "indexed_lines": 530
+      "sha256": "ad6d416058e339c3bdb405fcc9730e7479814920b75a34b2fb73bca9b34606cd",
+      "indexed_lines": 539
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayClientExchange.kt",
@@ -9859,8 +9859,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayJobPollCoordinator.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "0c16f66a9963a34640a75ac644369415bb33217460c6719ec8dc7ef76830fea0",
-      "indexed_lines": 198
+      "sha256": "bd0efc51b620239d0fe604d1828bca2fcebeb9aa06e671901f072fdf1fe64acf",
+      "indexed_lines": 213
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayModelPreparationAPI.kt",

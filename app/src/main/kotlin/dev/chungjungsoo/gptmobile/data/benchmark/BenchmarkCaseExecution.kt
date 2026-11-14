@@ -224,12 +224,15 @@ internal class BenchmarkCaseExecution(
             if (answer.isNotBlank()) {
                 validation = benchmarkValidation(test, raw, answer, if (test.category == "tools") code else test.expected, false, if (test.category == "tools") scenario.passed(calls.values.toList(), successful, expectedErrors) else null, listOf(failure.code))
             }
+            val failureHttpStatus = (providerFailure?.failureDetails?.get("http_status") as? JsonPrimitive)
+                ?.content?.toIntOrNull()?.takeIf { it in 100..599 }
+                ?: providerFailure?.errorCode?.toIntOrNull()?.takeIf { it in 100..599 }
+                ?: providerHttpStatus
             return sample(outcome, failure.message).copy(
                 failureCategory = failure.code,
                 failure = failure,
                 runtimeStage = failure.stage,
-                providerHttpStatus = (providerFailure?.failureDetails?.get("http_status") as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it in 100..599 }
-                    ?: providerFailure?.errorCode?.toIntOrNull()?.takeIf { it in 100..599 } ?: providerHttpStatus,
+                providerHttpStatus = failureHttpStatus,
                 requestDispatched = when {
                     nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
                     providerFailure?.failureDetails?.get("dispatched") == JsonPrimitive(false) -> false
@@ -238,13 +241,12 @@ internal class BenchmarkCaseExecution(
                     providerFailure?.providerLimit?.let { it.knownNotAccepted && it.category in setOf("LOCAL_COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_EXHAUSTED") } == true -> false
                     failure.code.startsWith("AUDIT_MODEL_") && failure.stage == "admission" -> false
                     failure.code in setOf("RESOURCE_ADMISSION", "NATIVE_QUARANTINED", "COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_BLOCKED", "UNSUPPORTED_OUTPUT_CONTRACT", "POLICY_BLOCKED", "STRUCTURED_OUTPUT_MODE_UNSUPPORTED", "STRUCTURED_OUTPUT_COMPATIBILITY_CHANGED") -> false
-                    else -> null
+                    else -> true.takeIf { failureHttpStatus != null }
                 },
                 requestAdmitted = when {
                     nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
                     providerFailure?.failureDetails?.get("dispatched") == JsonPrimitive(false) ||
-                        providerHttpStatus == 400 ||
-                        providerFailure?.errorCode == "400" ||
+                        failureHttpStatus == 400 ||
                         failure.stage == "admission" &&
                         failure.code.startsWith("REASONING_") -> false
                     else -> null

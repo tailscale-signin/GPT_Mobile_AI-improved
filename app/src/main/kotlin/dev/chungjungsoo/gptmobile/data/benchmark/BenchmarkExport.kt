@@ -90,7 +90,7 @@ internal fun redactBenchmarkExport(value: JsonElement, includePrivateProfileDeta
                     if (includePrivateProfileDetails) put(key, DiagnosticRedactor.redact(item.content))
                 }
                 normalized == "systempromptdigest" && value["systemPrompt"]?.let { it is JsonPrimitive && it.isString } == true -> Unit
-                normalized in setOf("apiurl", "endpoint", "baseurl", "configuredendpoint") && item is JsonPrimitive && item.isString -> {
+                normalized in setOf("apiurl", "batchapiurl", "endpoint", "baseurl", "configuredendpoint") && item is JsonPrimitive && item.isString -> {
                     if (includePrivateProfileDetails) {
                         put(
                             key,

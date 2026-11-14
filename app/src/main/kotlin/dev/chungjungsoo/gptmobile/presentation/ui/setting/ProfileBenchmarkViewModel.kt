@@ -450,7 +450,11 @@ class ProfileBenchmarkViewModel @Inject constructor(
             var artifact: BenchmarkExportArtifact? = null
             try {
                 val prepared = if (retainedArtifactId != null) {
-                    checkNotNull(exportArtifacts.find(retainedArtifactId)) { "The retained export is unavailable. Export the current benchmark data again." }
+                    val retained = checkNotNull(exportArtifacts.find(retainedArtifactId)) { "The retained export is unavailable. Export the current benchmark data again." }
+                    check(!retained.includesPrivateProfileDetails || includePrivateProfileDetails && settings.getDebugMode()) {
+                        "Enable Debug Mode and confirm private details to save this retained export."
+                    }
+                    retained
                 } else if (auditBatchId != null) {
                     val batch = checkNotNull(batches.value.firstOrNull { it.id == auditBatchId && it.mode == BenchmarkMode.APP_AUDIT && it.audit != null }) { "The saved app audit is unavailable. Run the audit again." }
                     exportArtifacts.prepare(false, BenchmarkExportContent.APP_AUDIT) { output ->

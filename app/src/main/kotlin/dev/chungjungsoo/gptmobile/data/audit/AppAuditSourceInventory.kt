@@ -9,15 +9,15 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "edb0501f640e201d8a618a6c24a243634190a8f4a437cfe7492bf6e9cbb71000"
+    val sourceDigest: String = "9f0084f07ccc0f990342cae020adc9c5966294801b624222b25249a6e6ec1218"
     val fileCount: Int = 2535
-    val lineCount: Int = 407265
+    val lineCount: Int = 407301
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 73, 8479),
         AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 526, 93649),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 197, 9224),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 225, 37939),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 225, 37945),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 21988),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4675),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
@@ -31,7 +31,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4932),
         AppAuditSourceArea("persistence", "Databases, backup and storage", 109, 14610),
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 93, 12543),
-        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 110, 16692),
+        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 110, 16722),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1941),
         AppAuditSourceArea("voice_and_media", "Voice and media", 23, 4853),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),

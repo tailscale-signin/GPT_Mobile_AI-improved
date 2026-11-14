@@ -639,6 +639,12 @@ class ChatRepositoryImpl(
                     code
                 )
             }
+            if (!observation.routeVerified) {
+                throw dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProviderFailureException(
+                    observation.detailMessage ?: "The serving model could not be verified. Check the connection and make the exact selected model available, then run again.",
+                    code?.takeIf { it.startsWith("REASONING_CAPABILITY_") } ?: "REASONING_CAPABILITY_UNVERIFIED"
+                )
+            }
             if (!observation.permitsRequest) {
                 throw dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProviderFailureException(
                     "The selected model cannot verify Reasoning ${mode.name}. Choose Saved profile settings with a compatible reasoning mode or select a qualified model.",

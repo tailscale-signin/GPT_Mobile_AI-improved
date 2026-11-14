@@ -100,6 +100,7 @@ fun ProfileBenchmarkScreen(
     var detailedExport by rememberSaveable { mutableStateOf(false) }
     var privateProfileExport by rememberSaveable { mutableStateOf(false) }
     var confirmPrivateProfileExport by rememberSaveable { mutableStateOf(false) }
+    var confirmRetainedPrivateId by rememberSaveable { mutableStateOf<String?>(null) }
     var choosingExportDestination by rememberSaveable { mutableStateOf(false) }
     var retainedArtifactId by rememberSaveable { mutableStateOf<String?>(null) }
     var auditExportBatchId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -136,16 +137,30 @@ fun ProfileBenchmarkScreen(
     val requestAuditExport: (String) -> Unit = { id -> launchExport(false, null, id, false) }
     if (confirmPrivateProfileExport) {
         AlertDialog(
-            onDismissRequest = { confirmPrivateProfileExport = false },
+            onDismissRequest = {
+                confirmPrivateProfileExport = false
+                confirmRetainedPrivateId = null
+            },
             title = { Text("Export private profile details?") },
             text = { Text("This file includes configured endpoint hosts and paths and profile instructions. Save it somewhere private.") },
             confirmButton = {
                 TextButton(onClick = {
+                    val retainedId = confirmRetainedPrivateId
                     confirmPrivateProfileExport = false
-                    launchExport(true, null, null, true)
+                    confirmRetainedPrivateId = null
+                    if (retainedId == null) {
+                        launchExport(true, null, null, true)
+                    } else {
+                        retainedExport?.takeIf { it.id == retainedId }?.let { launchExport(it.detailed, it, null, true) }
+                    }
                 }) { Text("Choose destination") }
             },
-            dismissButton = { TextButton(onClick = { confirmPrivateProfileExport = false }) { Text("Cancel") } }
+            dismissButton = {
+                TextButton(onClick = {
+                    confirmPrivateProfileExport = false
+                    confirmRetainedPrivateId = null
+                }) { Text("Cancel") }
+            }
         )
     }
     val profiles by viewModel.profiles.collectAsStateWithLifecycle()
@@ -301,7 +316,17 @@ fun ProfileBenchmarkScreen(
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(if (retained.content == BenchmarkExportContent.APP_AUDIT) "A retained app audit export is available to save." else "A retained benchmark export is available to save.", style = MaterialTheme.typography.titleSmall)
                         Text(retained.fileName, style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { requestExport(retained.detailed, retained) }, enabled = !choosingExportDestination) { Text(if (retained.includesPrivateProfileDetails) "Save retained private export" else "Save retained export") }
+                        TextButton(
+                            onClick = {
+                                if (retained.includesPrivateProfileDetails) {
+                                    confirmRetainedPrivateId = retained.id
+                                    confirmPrivateProfileExport = true
+                                } else {
+                                    requestExport(retained.detailed, retained)
+                                }
+                            },
+                            enabled = !choosingExportDestination && (!retained.includesPrivateProfileDetails || debugMode)
+                        ) { Text(if (retained.includesPrivateProfileDetails) "Save retained private export" else "Save retained export") }
                     }
                 }
             }

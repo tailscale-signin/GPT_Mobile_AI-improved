@@ -401,7 +401,8 @@ jobs:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: python3 scripts/resolve_validation_base.py
       - name: Install repository contract dependencies
-        run: python3 -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-ci.txt
+        run: |
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-ci.txt
       - name: Repository contracts and workflow policy
         run: |
           python3 scripts/check_ci_policy.py

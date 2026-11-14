@@ -50,20 +50,8 @@ jobs:
               file.write_text(value.replace(old, new))
               touched.add(path)
           replace(main + 'data/agent/ProgressiveToolCatalog.kt',
-          '''                taskRequired + ranked(task).filter {
-                              (initialNames == null || it.name in initialNames) &&
-                                  dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
-                          }
-          '''.replace('                              ', '                    ').replace('                                  ', '                        ').replace('                          }', '                }'),
-          '''                taskRequired + ranked(task).filter {
-                              (initialNames == null || it.name in initialNames) &&
-                                  dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering
-                          } + if (taskRequired.none(::isGitHubTool)) {
-                              candidates.values.filter { isGitHubTool(it) && (initialNames == null || it.name in initialNames) }
-                          } else {
-                              emptyList()
-                          }
-          '''.replace('                                  ', '                        ').replace('                              ', '                    ').replace('                          }', '                }'))
+              '                taskRequired + ranked(task).filter {\n                    (initialNames == null || it.name in initialNames) &&\n                        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering\n                }\n',
+              '                taskRequired + ranked(task).filter {\n                    (initialNames == null || it.name in initialNames) &&\n                        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) !in deferredEngineering\n                } + if (taskRequired.none(::isGitHubTool)) {\n                    candidates.values.filter { isGitHubTool(it) && (initialNames == null || it.name in initialNames) }\n                } else {\n                    emptyList()\n                }\n')
           replace(main + 'data/agent/ProgressiveToolCatalog.kt',
               '            // GitHub and other schemas obey the same bounded selection window.\n            val cost = schemaTokens(tool)\n            val reason = when {\n                cost + 256 > schemaAllowance -> "SCHEMA_TOO_LARGE"\n                selected.size >= toolAllowance -> "TOOL_COUNT_WINDOW"\n                tokens + cost > schemaAllowance -> "SCHEMA_WINDOW_BUDGET"',
               '            // An individual authorized GitHub schema may exceed the soft discovery\n            // window. Hard provider context admission still precedes all dispatch.\n            val cost = schemaTokens(tool)\n            val singleGitHubContract = githubUpfront && isGitHubTool(tool) && selected.all { it.name == "read_recovery_context" }\n            val reason = when {\n                cost + 256 > schemaAllowance && !singleGitHubContract -> "SCHEMA_TOO_LARGE"\n                selected.size >= toolAllowance -> "TOOL_COUNT_WINDOW"\n                tokens + cost > schemaAllowance && !singleGitHubContract -> "SCHEMA_WINDOW_BUDGET"')
@@ -85,9 +73,6 @@ jobs:
           replace(test + 'data/agent/GitHubFullToolVisibilityTest.kt',
               'AgentRunner(AgentRunLimits(githubMode = true, maxRounds = 3)).run(session, listOf(github), selectDefinitions = { emptyList() })',
               'AgentRunner(AgentRunLimits(githubMode = true, maxRounds = 3)).run(session, listOf(github))')
-          replace(test + 'data/agent/GitHubFullToolVisibilityTest.kt',
-              'AgentRunner(AgentRunLimits(githubMode = true)).run(session, listOf(github), selectDefinitions = { emptyList() })',
-              'AgentRunner(AgentRunLimits(githubMode = true)).run(session, listOf(github))')
           output = Path(os.environ['RUNNER_TEMP']) / 'context-repair'
           output.mkdir()
           (output / 'paths.json').write_text(json.dumps(sorted(touched)))

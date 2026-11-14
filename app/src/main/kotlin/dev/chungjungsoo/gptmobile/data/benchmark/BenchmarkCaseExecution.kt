@@ -224,10 +224,14 @@ internal class BenchmarkCaseExecution(
             if (answer.isNotBlank()) {
                 validation = benchmarkValidation(test, raw, answer, if (test.category == "tools") code else test.expected, false, if (test.category == "tools") scenario.passed(calls.values.toList(), successful, expectedErrors) else null, listOf(failure.code))
             }
-            val failureHttpStatus = (providerFailure?.failureDetails?.get("http_status") as? JsonPrimitive)
-                ?.content?.toIntOrNull()?.takeIf { it in 100..599 }
-                ?: providerFailure?.errorCode?.toIntOrNull()?.takeIf { it in 100..599 }
-                ?: providerHttpStatus
+            val attemptNotDispatched = providerFailure?.failureDetails?.get("attempt_dispatch_state") == JsonPrimitive("NOT_DISPATCHED")
+            // A capability/preparation HTTP response is not a generation response.
+            val failureHttpStatus = if (attemptNotDispatched) {
+                providerHttpStatus
+            } else {
+                (providerFailure?.failureDetails?.get("http_status") as? JsonPrimitive)?.content?.toIntOrNull()?.takeIf { it in 100..599 }
+                    ?: providerFailure?.errorCode?.toIntOrNull()?.takeIf { it in 100..599 } ?: providerHttpStatus
+            }
             return sample(outcome, failure.message).copy(
                 failureCategory = failure.code,
                 failure = failure,
@@ -236,7 +240,6 @@ internal class BenchmarkCaseExecution(
                 requestDispatched = when {
                     nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
                     providerFailure?.failureDetails?.get("dispatched") == JsonPrimitive(false) -> false
-                    failure.stage == "admission" && failure.code.startsWith("REASONING_") -> false
                     providerFailure?.providerLimit?.category == "PROVIDER_RATE_LIMITED" -> true
                     providerFailure?.providerLimit?.let { it.knownNotAccepted && it.category in setOf("LOCAL_COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_EXHAUSTED") } == true -> false
                     failure.code.startsWith("AUDIT_MODEL_") && failure.stage == "admission" -> false
@@ -245,10 +248,8 @@ internal class BenchmarkCaseExecution(
                 },
                 requestAdmitted = when {
                     nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
-                    providerFailure?.failureDetails?.get("dispatched") == JsonPrimitive(false) ||
-                        failureHttpStatus == 400 ||
-                        failure.stage == "admission" &&
-                        failure.code.startsWith("REASONING_") -> false
+                    providerFailure?.providerLimit?.knownNotAccepted == true -> false
+                    providerFailure?.failureDetails?.get("dispatched") == JsonPrimitive(false) || failureHttpStatus == 400 -> false
                     else -> null
                 },
                 timingEligible = false,

@@ -23,6 +23,36 @@ class IssueReportSubmissionTest {
         .apply { retryAfter?.let { header("Retry-After", it) } }.body(body.toResponseBody("application/json".toMediaType())).build()
     private fun body(request: Request) = Buffer().also { request.body?.writeTo(it) }.readUtf8()
 
+    @Test fun preparingVoiceRequiresServiceSupportBeforePostingApprovedBytes() {
+        val context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_engine" to "KOKORO", "voice_phase" to "PREPARING"), 1_000L)
+        val enriched = report.copy(context = context)
+        val payload = enriched.approvedPayload()
+        var supported = false
+        var dispatched = 0
+        val posted = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                val features = if (supported) "[\"VOICE_PLAYBACK_PHASE_V1\"]" else "[]"
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+            } else {
+                posted += body(request)
+                response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+            }
+        }.build()
+        val submission = IssueReportSubmission(origin, client)
+        val blocked = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+        assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+        assertFalse(blocked.automaticRetry)
+        assertEquals(0, dispatched)
+        assertTrue(posted.isEmpty())
+        assertEquals(payload, enriched.approvedPayload())
+        supported = true
+        assertEquals(IssueReportSubmission.Confirmed(941), submission.send(report.reportId, payload) { dispatched++ })
+        assertEquals(1, dispatched)
+        assertEquals(listOf(payload), posted)
+    }
+
     @Test fun changedPolicyFieldsRequireTheirOwnCapabilityAndKeepApprovedBytes() {
         for (code in listOf("CHAT_FAILED", "DISPATCH_POLICY_CHANGED")) {
             val context = IssueReportContext.fromFields(

@@ -44,7 +44,7 @@ fun benchmarkCoverage(run: BenchmarkRun): BenchmarkCoverage {
         samples.count { it.outcome in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED) },
         (planned - samples.size).coerceAtLeast(0),
         samples.count { it.requestAdmitted == null && !it.knownExecuted() && it.outcome !in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED) },
-        samples.count { it.requestDispatched == null && !it.knownExecuted() && it.outcome !in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED) },
+        samples.count { it.requestDispatched != false && it.requestAdmitted != false && !it.knownExecuted() && it.outcome !in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED) },
         samples.count { it.knownExecuted() && it.terminalReceived == null },
         plannedKnown = run.plannedTrials > 0
     )

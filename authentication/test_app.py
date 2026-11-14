@@ -233,6 +233,18 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertEqual(200, self.submit(report).status_code)
         self.assertEqual(len(cases), len(self.issued))
 
+    def test_preparing_voice_report_keeps_unknown_first_audio_as_unavailable(self):
+        capture = self.diagnostics("VOICE", {"voice_engine": "KOKORO", "voice_phase": "PREPARING"})
+        report = {**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)}
+        approved = json.dumps(report, separators=(",", ":"))
+        self.assertEqual(200, self.submit(report).status_code)
+        body = self.issued[-1]["body"]
+        self.assertIn("| voice_phase | `PREPARING` |", body)
+        self.assertNotIn("| voice_first_audio_basis |", body)
+        self.assertNotIn("| voice_response_to_first_audio_ms |", body)
+        self.assertIn("`voice_response_to_first_audio_ms`", body)
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+
     def test_model_preparation_capture_reaches_report_with_exact_approved_typed_fields(self):
         values = {"profile_hash": "a" * 64, "model_hash": "b" * 64, "operation_id_hash": "c" * 64,
                   "model_preparation_state": "LOAD_REJECTED", "model_preparation_action": "WAKE", "model_preparation_dispatch": "DISPATCHED",
@@ -360,7 +372,7 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
                          {key: response.json()[key] for key in ("service", "version")})
         self.assertEqual([1, 2, 3, 4, 5, 6, 7], response.json()["reportContextVersions"])
-        self.assertEqual(["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1", "INCIDENT_FAILURE_DETAILS_V1", "DISPATCH_POLICY_DIAGNOSTICS_V1", "CHANGED_POLICY_FIELDS_V1", "EXECUTION_OUTCOME_DIAGNOSTICS_V1", "RUN_FAILURE_EVIDENCE_V1", "RECOVERY_OBSERVATIONS_V1", "ISSUE_RECOVERY_DETAILS_V1", "ADMISSION_DIAGNOSTICS_V1", "SESSION_RECOVERY_DIAGNOSTICS_V1"], response.json()["reportDiagnosticFeatures"])
+        self.assertEqual(["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1", "INCIDENT_FAILURE_DETAILS_V1", "DISPATCH_POLICY_DIAGNOSTICS_V1", "CHANGED_POLICY_FIELDS_V1", "EXECUTION_OUTCOME_DIAGNOSTICS_V1", "RUN_FAILURE_EVIDENCE_V1", "RECOVERY_OBSERVATIONS_V1", "ISSUE_RECOVERY_DETAILS_V1", "ADMISSION_DIAGNOSTICS_V1", "SESSION_RECOVERY_DIAGNOSTICS_V1", "VOICE_PLAYBACK_PHASE_V1"], response.json()["reportDiagnosticFeatures"])
         self.assertEqual("no-store", response.headers["cache-control"])
         self.assertFalse(self.issued)
         # Old clients may continue posting their original reports without a

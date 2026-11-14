@@ -103,26 +103,32 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
         value = withContext(Dispatchers.Default) { gitHubSearchActivity(events) }
     }
     val lines = remember(timeline, task, search != null, active) { gitHubActivityLines(timeline, task, searchActive = search != null, active = active) }
+    val sourcePositions = remember(timeline) { timeline.mapIndexed { index, item -> (item.progressSequence ?: item.content) to index }.toMap() }
+    fun identity(item: dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem): Any =
+        item.progressId ?: "summary:${sourcePositions[item.progressSequence ?: item.content] ?: item.content}"
     var visibleEntries by remember(task, expanded) { androidx.compose.runtime.mutableIntStateOf(20) }
     // Saved history and rows revealed by "Show earlier" are already available;
     // reserve the entrance fade for new arrivals during this presentation.
-    val seenEntries = remember(task) { lines.mapTo(mutableSetOf()) { (it.progressId ?: it.content) to it.statusSummary } }
-    SideEffect { lines.forEach { seenEntries.add((it.progressId ?: it.content) to it.statusSummary) } }
+    val seenEntries = remember(task) { lines.mapTo(mutableSetOf()) { identity(it) to it.statusSummary } }
+    SideEffect { lines.forEach { seenEntries.add(identity(it) to it.statusSummary) } }
     Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
         val visibleLines = remember(lines, visibleEntries) { gitHubVisibleActivityLines(lines, compact = true, entryLimit = visibleEntries) }
-        val latestPreview = visibleLines.lastIndex.takeIf { active && visibleLines.lastOrNull()?.statusSummary == false } ?: -1
+        val latestPreview = visibleLines.lastIndex.takeIf { active && gitHubHasActivePreview(timeline, search != null) && visibleLines.lastOrNull()?.statusSummary == false } ?: -1
         val motion = rememberGitHubProgressMotion(latestPreview >= 0)
         Column(Modifier.fillMaxWidth().testTag("github_live_activity"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (visibleLines.size < lines.size) {
                 TextButton(onClick = { visibleEntries = (visibleEntries + 20).coerceAtMost(lines.size) }, modifier = Modifier.testTag("github_activity_show_earlier")) { Text("Show earlier activity") }
             }
             visibleLines.forEachIndexed { index, item ->
-                androidx.compose.runtime.key(item.progressId ?: item.content, item.statusSummary) {
-                    val animateEntry = remember { ((item.progressId ?: item.content) to item.statusSummary) !in seenEntries }
+                val lineIdentity = identity(item)
+                androidx.compose.runtime.key(lineIdentity, item.statusSummary) {
+                    // Arrival eligibility is independent of animation preferences;
+                    // "Show earlier" only reveals retained rows and adds no reading budget.
+                    val animateEntry = remember { (lineIdentity to item.statusSummary) !in seenEntries }
                     if (item.statusSummary) {
-                        GitHubActivitySummary(item.content, animateEntry)
+                        GitHubActivitySummary(item.content, animateEntry, lineIdentity)
                     } else {
-                        GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null }, animateEntry = animateEntry)
+                        GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null }, animateEntry = animateEntry, lineIdentity = lineIdentity)
                     }
                 }
             }
@@ -131,8 +137,9 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
 }
 
 @Composable
-private fun GitHubActivitySummary(text: String, animateEntry: Boolean) {
+private fun GitHubActivitySummary(text: String, animateEntry: Boolean, lineIdentity: Any) {
     val entry = rememberGitHubActivityEntry(animateEntry)
+    val reportLayout = rememberGitHubTextLayout("summary" to lineIdentity, firstAppearanceAddsLines = animateEntry)
     GitHubActivityCrossfade(
         text,
         // Preserve the complete authored paragraphs. Fade only the drawing so
@@ -141,6 +148,7 @@ private fun GitHubActivitySummary(text: String, animateEntry: Boolean) {
     ) { displayed, current ->
         Text(
             displayed,
+            onTextLayout = { if (current) reportLayout(it) },
             style = MaterialTheme.typography.bodyLarge.copy(lineHeight = 1.5.em),
             color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.fillMaxWidth().then(

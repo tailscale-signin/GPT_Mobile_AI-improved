@@ -49,7 +49,18 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
     private var threads = 2
     private var replyId: String? = null
     private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+    private var playbackStarted: (() -> Unit)? = null
     private var delegate: KokoroOutput? = null
+
+    // The deferred native output reports playback-head consumption without loading JNI here.
+    override val reportsPlaybackStart: Boolean get() = existing()?.reportsPlaybackStart ?: true
+    override fun bindPlaybackStarted(started: (() -> Unit)?) {
+        synchronized(lock) {
+            if (closed) return
+            playbackStarted = started
+            delegate?.bindPlaybackStarted(started)
+        }
+    }
 
     private fun existing(): KokoroOutput? = synchronized(lock) { delegate }
 
@@ -61,6 +72,7 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
                 output.configureThreads(threads)
                 replyId?.let(output::bindReply)
                 output.bindDiagnostics(diagnosticProbe)
+                output.bindPlaybackStarted(playbackStarted)
             }
         }
         delegate
@@ -151,6 +163,11 @@ internal class KokoroVoiceOutput(
     private var threadCount = 2
     private var replyId: String? = null
     private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+    private var playbackStarted: (() -> Unit)? = null
+    override val reportsPlaybackStart: Boolean get() = true
+    override fun bindPlaybackStarted(started: (() -> Unit)?) {
+        playbackStarted = started
+    }
 
     override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
         diagnosticProbe = probe
@@ -180,7 +197,8 @@ internal class KokoroVoiceOutput(
         val watchdog: Runnable,
         val complete: () -> Unit,
         val error: (String, Boolean) -> Unit,
-        val diagnostics: VoiceDiagnosticTrace.Probe?
+        val diagnostics: VoiceDiagnosticTrace.Probe?,
+        val audioStarted: (() -> Unit)?
     ) {
         val id = UUID.randomUUID().toString()
         val startedAt = SystemClock.elapsedRealtime()
@@ -285,7 +303,7 @@ internal class KokoroVoiceOutput(
                 }
             }
         }
-        playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error, diagnosticProbe)
+        playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error, diagnosticProbe, playbackStarted)
         active = playback
         playback.diagnostics?.engine(VoiceDiagnosticTrace.Engine.KOKORO)
         val focusResult = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull()
@@ -534,6 +552,9 @@ internal class KokoroVoiceOutput(
             playback.firstFrame = true
             playback.diagnostics?.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
             timing("first_audio", playback)
+            main.post {
+                if (!closed && active === playback) playback.audioStarted?.invoke()
+            }
         }
         return frames
     }

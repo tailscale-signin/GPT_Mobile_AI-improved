@@ -4,6 +4,12 @@ Android build 141. Scoped reliability release covering the changes since [0.9.66
 
 This release brings together persistent gateway conversations and jobs, more reliable GitHub task recovery and acceptance evidence, application audits, safer diagnostics, and the November 7–9 integration repairs. The latest repair also addresses the Gateway conversations crash and the Android method-size and regression failures found while reviewing PR #815.
 
+## November 14 chat, voice, and benchmark follow-up
+
+Increase the GitHub header fade, retain preview activation order, reattach chat follow at the user-reached bottom, and pace new rendered GitHub text at 1.5 seconds per line. Refresh voice presentation with theme-aware captions and observed playback-start feedback. Preserve schema constraints in benchmark requests, select reasoning modes from frozen cases, and distinguish request dispatch, admission and model execution. The [repair audit](docs/repairs/chat-voice-and-report-audit-2026-11-14.md) accounts for the complete supplied diagnostic and benchmark exports.
+
+The November 14 chat and voice follow-up requires physical-device gesture, layout, audio and frame-time acceptance. Preparing-voice reports require a hosted reporter advertising VOICE_PLAYBACK_PHASE_V1. Private gateway/model availability and historical incidents with missing receipts remain dependent on live evidence; host and CI checks do not establish those outcomes.
+
 ## November 13 interface, voice, and audit updates
 
 Improve GitHub chat scrolling and progress, Gateway conversation navigation, background voice plugin installation, and bounded app audit modes. Add safe observations for URL-reader DNS cooldowns, saved-view recovery, and fixture approval.

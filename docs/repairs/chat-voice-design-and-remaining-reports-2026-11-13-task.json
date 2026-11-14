@@ -1,0 +1,135 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+  "working_branch": "fix/session-conflict-and-transport-reporting-2026-11-13",
+  "starting_sha": "71ec060f7899fe03d1a792fd832100e66dac4dfa",
+  "pull_request": 1089,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "chat-voice-design-and-remaining-reports-2026-11-13",
+  "state": "READY_FOR_HOSTED_VERIFICATION",
+  "intent": "Implement the approved five chat/voice interaction changes, review current open PR branches and issues, reconcile latest diagnostics and benchmark failures, add specific missing diagnostic evidence where needed, validate and merge only after required checks are green.",
+  "issue_numbers_at_intake": [],
+  "inputs": [
+    "app-diagnostics-2992951956134468049.jsonl",
+    "benchmarks-1794622835861.json",
+    "github-chat-voice-design-plan.pdf"
+  ],
+  "validation": {
+    "gateway": {
+      "command": "python3 gateway/check_gateway.py",
+      "exit_code": 0,
+      "python_tests": 944,
+      "python_skipped": 3,
+      "browser_tests": 7,
+      "skip_reasons": [
+        "Windows Credential Manager",
+        "Windows file-sharing semantics",
+        "No bindable LAN IPv4 interface"
+      ]
+    },
+    "authentication_report_contracts": {
+      "command": "python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract",
+      "exit_code": 0,
+      "tests": 88
+    },
+    "provider_response_format_policy": {
+      "method": "Standalone Kotlin compilation of real production sources and JUnit tests",
+      "tests": 6,
+      "passed": 6
+    },
+    "android_resources": {
+      "task": ":app:processDebugResources",
+      "offline": true,
+      "exit_code": 0
+    },
+    "canonical_fast_initial": {
+      "tests": 495,
+      "failures": 1,
+      "reason": "Generated app source inventory stale during active edits; regenerate after integration and rerun"
+    },
+    "android_compile": "PENDING_HOSTED_VERIFICATION",
+    "android_generation_initial": {
+      "tasks": [
+        ":app:kspDebugKotlin",
+        ":app:kaptDebugKotlin"
+      ],
+      "exit_code": 1,
+      "reason": "Gradle daemon disappeared at kapt stubs after KSP; no compiler diagnostic. Retrying independent phases without raising repository memory limits."
+    },
+    "chat_policy_host": {
+      "method": "Standalone Kotlin/JUnit production helpers",
+      "tests": 21,
+      "passed": 21
+    },
+    "canonical_fast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "exit_code": 0,
+      "python_tests": 496,
+      "regex_literals": 1647,
+      "regex_dynamic_skipped": 82,
+      "resource_xml_files": 34
+    },
+    "android_ksp": {
+      "task": ":app:kspDebugKotlin",
+      "offline": true,
+      "exit_code": 0
+    },
+    "android_kapt": {
+      "task": ":app:kaptDebugKotlin",
+      "offline": true,
+      "exit_code": 1,
+      "reason": "Daemon again disappeared at stub generation without a compiler diagnostic after successful KSP; full Android results must come from integrated hosted verification."
+    },
+    "voice_acceptance_wiring": {
+      "command": "python3 -m unittest scripts.tests.test_prepare_emulator_ui.AcceptanceSetupOrderTest -v",
+      "tests": 4,
+      "passed": 4,
+      "android_voice_cases": 3,
+      "device_execution": "PENDING"
+    },
+    "changed_kotlin_format": {
+      "files": 55,
+      "exit_code": 0,
+      "ktlint": "1.3.1"
+    },
+    "android_kapt_bounded_retry": {
+      "task": ":app:kaptDebugKotlin",
+      "offline": true,
+      "heap_mib": 2048,
+      "metaspace_mib": 512,
+      "exit_code": 1,
+      "reason": "Daemon disappeared again at stub generation after KSP; no compiler diagnostic or JVM crash file. Repository memory settings unchanged. Hosted verification required."
+    }
+  },
+  "merge_gate": "Current head/base, complete required verification, applicable branch rules, and mergeable state.",
+  "integrated_remote_revisions": [
+    "48d807e95b4ff5cd06a9d0155b288ddcb01f1182",
+    "4bd7f737a6efd6f2ae9957555e05ec982519e2ae",
+    "29eeba43c286ffde4fed26e64be092749503638e",
+    "335c25e311239bb38bb731b4ac5cd858d8e1be98"
+  ],
+  "branch_inventory": {
+    "branches": 747,
+    "distinct_heads": 704,
+    "open_pull_requests": 1,
+    "open_non_pr_issues": 0,
+    "repair_branch_only": true
+  },
+  "ruleset": {
+    "id": 27005122,
+    "enforcement": "active",
+    "strict": true,
+    "required_checks": [
+      "Required verification",
+      "Analyze (java-kotlin)"
+    ],
+    "bypass": "never"
+  },
+  "independent_reviews": {
+    "benchmark": "Provider envelopes, frozen-plan readiness, request delivery/admission/execution, quota rejection and verified job affinity; concrete findings repaired.",
+    "voice": "Playback cancellation/fallback ownership, cold start, complete captions and motion guards; no remaining source-level blocker observed.",
+    "chat": "Table reflow, hidden-history reveal, mixed legacy activation ordering and paragraph-to-table promotion line-accounting findings repaired; focused host suite passes."
+  }
+}

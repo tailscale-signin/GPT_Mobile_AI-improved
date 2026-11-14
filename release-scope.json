@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Implement measured GitHub fade and rendered-line pacing, stable preview activation order, shared user-bottom follow, themed voice captions with observed playback phases, and schema-preserving benchmark request and execution-evidence repairs.",
     "Repair durable voice download lifecycle and queued UI feedback; preserve bounded transport, read-window, saved-cursor, acceptance-claim and strict reasoning admission evidence in approved issue reports.",
     "Keep logical gateway operation identities stable and retain bounded model preparation, gateway capture retrieval, MCP rejection, tool provenance, GitHub verdict provenance, and frame timing evidence. Defer eligible pre-dispatch provider connectivity failures with bounded backoff.",
     "Improve GitHub chat scrolling and progress, Gateway conversation navigation, background voice plugin installation, and bounded app audit modes. Add safe observations for URL-reader DNS cooldowns, saved-view recovery, and fixture approval.",
@@ -110,10 +111,10 @@
     "Resolve a pinned comparison base for manual CI validation while preserving event-supplied PR, push and merge-queue comparisons and rejecting unavailable or invalid references.",
     "Isolate real-worker engineering recovery tests under the unchanged per-module watchdog, preserving every unique assertion and the existing readiness and shutdown limits while removing identical inherited executions.",
     "Refresh microphone permission evidence from the actual owner permission check after capture read security failures, retaining typed recovery, resource cleanup, generation ownership and privacy invalidation.",
-    "Repair PR 881 open issues #884–#890: exact-model sleep preparation and durable uncertainty, typed model/report diagnostics with negotiated reporter features, explicit immutable review baselines and review intent, and revision-bound self-test workflow dependency discovery.",
+    "Repair PR 881 open issues #884\u2013#890: exact-model sleep preparation and durable uncertainty, typed model/report diagnostics with negotiated reporter features, explicit immutable review baselines and review intent, and revision-bound self-test workflow dependency discovery.",
     "Repair diagnostic capture 62a4cb28 engineering scope serialization and retained replay identity, preserve pre-job and model-preparation failure evidence across versioned approved reports, and split serial durable queue dispatch.",
     "Preserve accepted status criteria and immutable receipt provenance, bind target-repository and exact-SHA pagination evidence, reject mixed page sizes, and render complete integration prerequisites within existing authority and call ceilings.",
-    "Repair built-in head/base review parsing, preserve original provider tool identities through routing and durable continuation, align issue presentation arguments and add negotiated bounded incident-failure diagnostics for issues #891–#921.",
+    "Repair built-in head/base review parsing, preserve original provider tool identities through routing and durable continuation, align issue presentation arguments and add negotiated bounded incident-failure diagnostics for issues #891\u2013#921.",
     "Repair the November 13 diagnostic workflow failures with exact provider-tool replay, bounded argument correction, review baseline parsing, task-aware status budgets, separate ordinary and engineering conversation bindings, native integration routing, and immutable context-v7 incident evidence; retain unconfirmed historical causes as diagnostic follow-up."
   ],
   "limitations": [
@@ -174,7 +175,8 @@
     "The later 141-check audit and diagnostic capture were supplied as analyses, not original files; their capture-specific rows and measurements were not independently revalidated. The audit's 67 untested checks remain untested until matching execution evidence is retained.",
     "The supplemental repairs require exact-head Android regression results and an updated hosted reporter advertising context schema 5. Physical frame/allocation measurements, ASUS microphone behavior and the user's private gateway/model remain unqualified by host fixtures. Reports without a proven historical cause may be closed under the requested diagnostic-follow-up policy after specific capture is implemented and tested; this does not establish that the original failure was reproduced or fixed.",
     "New gateway preparation diagnostics require a hosted reporter advertising GATEWAY_MODEL_PREPARATION_V1; new review error codes require REVIEW_COMPARISON_V1. An older reporter leaves the approved report saved with an update-required status before submission. Native GitHub submission retains its separately selected account and approval. Private gateway configuration, installed-device behavior and full hosted Android validation remain separate qualification steps.",
-    "Diagnostic capture 62a4cb28 repairs require matching gateway and hosted reporting rollout, complete hosted Android validation and separate private-service/device qualification; host regressions and source inventory do not establish those outcomes or promote Unified Reliability v2 acceptance."
+    "Diagnostic capture 62a4cb28 repairs require matching gateway and hosted reporting rollout, complete hosted Android validation and separate private-service/device qualification; host regressions and source inventory do not establish those outcomes or promote Unified Reliability v2 acceptance.",
+    "The November 14 chat and voice follow-up requires physical-device gesture, layout, audio and frame-time acceptance. Preparing-voice reports require a hosted reporter advertising VOICE_PLAYBACK_PHASE_V1. Private gateway/model availability and historical incidents with missing receipts remain dependent on live evidence; host and CI checks do not establish those outcomes."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -2508,6 +2510,38 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkResultCard.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExportTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRunnerTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkQueueProgressTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkQueueProgressTest.kt",
+    "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationInstrumentedTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderResponseFormatPolicy.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExecutionPolicy.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkLlamaReasoning.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatFadeGeometry.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScrollInput.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLineAutoScroller.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLinePacingQueue.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLineLedger.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLines.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTopFadeGeometry.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/MeasuredMarkdownTableRow.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLiveCaptions.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceWave.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderResponseFormatPolicyTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkLlamaReasoningTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkProviderOutcomeTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkQueuePolicyTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackStartTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBottomFollowTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScrollInputTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLineAutoScrollerTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLinePacingQueueTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLineLedgerTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLinesLayoutTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTopFadeGeometryTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionTest.kt",
+    "docs/repairs/chat-voice-and-report-audit-2026-11-14.md",
+    "docs/repairs/chat-voice-design-and-remaining-reports-2026-11-13-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTableLineObserver.kt"
   ]
 }

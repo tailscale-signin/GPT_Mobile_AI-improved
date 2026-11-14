@@ -53,13 +53,13 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
         } else if (id == "answer_correctness") {
             "evaluable answers only"
         } else if (id == "delivery_completion") {
-            "requests known to have been dispatched"
+            "requests that reached the physical dispatch boundary or produced a provider response; not proof of model execution"
         } else {
             "planned supported trials"
         }
     )
     val graded = samples.filter { it.completed && it.category !in setOf("speed", "performance", IntelligenceBenchmark.CATEGORY) && (it.outputCharacters > 0 || it.preview.isNotBlank()) && it.failureCategory != "FIXTURE_INVALID" }
-    val dispatched = samples.filter { it.physicalRequestIds.isNotEmpty() || it.providerHttpStatus != null || it.knownExecuted() }
+    val dispatched = samples.filter { it.requestDispatched == true || it.physicalRequestIds.isNotEmpty() || it.providerHttpStatus != null || it.knownExecuted() }
     val eligibleProfiles = runs.filter { it.cancellationOrigin !in setOf(BenchmarkStopOrigin.USER_SKIP, BenchmarkStopOrigin.USER_STOP) && it.samples.any { sample -> sample.requestAdmitted != null || sample.requestDispatched == false || sample.knownExecuted() } }
     val admitted = eligibleProfiles.count { run -> run.samples.any { it.requestAdmitted == true || it.knownExecuted() } }
     val qualifiedSamples = runs.filter { benchmarkTimingExecutionExclusion(it) == null }.flatMap { it.samples }.filterNot { it.warmup }

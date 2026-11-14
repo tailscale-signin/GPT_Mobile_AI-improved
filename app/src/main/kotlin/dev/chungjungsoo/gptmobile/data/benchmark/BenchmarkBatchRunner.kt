@@ -197,6 +197,7 @@ class BenchmarkBatchRunner @Inject constructor(
             else -> benchmarkSuiteForVersion(batch.suiteVersion, batch.mode, batch.fixtureRotationSeed ?: 0)
         }
         require(plan.isNotEmpty()) { "FIXTURE_INVALID: Unknown suite ${batch.suiteVersion}" }
+        val preflightContext = BenchmarkRequestContext(policy, plannedRequestCategories = plan.map { it.requestCategory }.toSet())
         var run = newRun(batch, item, primary, plan.size)
         checkpoint(batch, run, event = "PREFLIGHT")
         var stage = "preflight"
@@ -213,9 +214,9 @@ class BenchmarkBatchRunner @Inject constructor(
                             validateEnvironment(batch)
                         }
                         check(!usesLocal || !localCleanupBlocked) { "NATIVE_QUARANTINED: Previous native cleanup was not acknowledged." }
-                        withContext(BenchmarkRequestContext(policy)) { chats.validateBenchmarkProfile(primary) }
-                        if (batch.mode == BenchmarkMode.DELEGATION) withContext(BenchmarkRequestContext(policy)) { chats.validateBenchmarkProfile(target) }
-                        reviewer?.let { withContext(BenchmarkRequestContext(policy)) { chats.validateBenchmarkProfile(it) } }
+                        withContext(preflightContext) { chats.validateBenchmarkProfile(primary) }
+                        if (batch.mode == BenchmarkMode.DELEGATION) withContext(preflightContext) { chats.validateBenchmarkProfile(target) }
+                        reviewer?.let { withContext(preflightContext) { chats.validateBenchmarkProfile(it) } }
                         if (batch.mode == BenchmarkMode.DELEGATION) null else withContext(BenchmarkRequestContext(policy)) { chats.benchmarkContextTokens(primary) }
                     }
                 } finally {

@@ -18,7 +18,8 @@ class BenchmarkRequestContext(
     val requestDeadlineMs: Long? = null,
     val readinessProbe: Boolean = false,
     val structuredOutputMode: BenchmarkStructuredOutputMode = BenchmarkStructuredOutputMode.NATIVE_JSON_SAFE_V1,
-    val verifiedStructuredCompatibilityKey: String? = null
+    val verifiedStructuredCompatibilityKey: String? = null,
+    val plannedRequestCategories: Set<String> = emptySet()
 ) : AbstractCoroutineContextElement(Key) {
     init {
         require(requestDeadlineMs == null || requestDeadlineMs > 0)

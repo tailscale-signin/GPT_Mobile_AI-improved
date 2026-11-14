@@ -132,7 +132,7 @@ class GitHubLiveProgressTest {
         compose.onAllNodesWithTag("github_activity_summary").assertCountEquals(2)
         val newSummary = compose.onNodeWithText("The files are available; checking the next step.").fetchSemanticsNode()
         val previousPreview = compose.onAllNodesWithTag("github_previous_preview").fetchSemanticsNodes().last()
-        assertTrue("The next summary follows the faded preview", newSummary.boundsInRoot.top >= previousPreview.boundsInRoot.bottom)
+        assertTrue("The next summary stays above the newest preview pair", newSummary.boundsInRoot.bottom <= previousPreview.boundsInRoot.top)
         val enteringTop = newSummary.boundsInRoot.top
         compose.mainClock.advanceTimeBy(320)
         val settledTop = compose.onNodeWithText("The files are available; checking the next step.").fetchSemanticsNode().boundsInRoot.top
@@ -143,6 +143,20 @@ class GitHubLiveProgressTest {
         compose.setContent { MaterialTheme { GitHubLiveProgressCard(emptyList(), "status") } }
         compose.onNodeWithText(dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.introduction("status")).assertExists()
         compose.onAllNodesWithTag("github_latest_preview").assertCountEquals(0)
+    }
+
+    @Test fun revealingEarlierRetainedActivityDoesNotAddLinePacingTime() {
+        val timeline = listOf(line("Retained summary", true)) + (1..35).map { line("Inspecting retained file $it") }
+        lateinit var lines: GitHubRenderedLines
+        compose.setContent {
+            MaterialTheme {
+                lines = remember { GitHubRenderedLines() }
+                GitHubLineScope(lines, "turn") { GitHubLiveProgressCard(timeline, active = false) }
+            }
+        }
+        compose.runOnIdle { lines.ledger.arm() }
+        compose.onNodeWithTag("github_activity_show_earlier").performClick()
+        compose.runOnIdle { assertEquals(0, lines.ledger.takeLines()) }
     }
 
     @Test fun countersChangeInTheSameSingleLineRowsWithoutMovingOrDuplicatingThem() {
@@ -168,7 +182,7 @@ class GitHubLiveProgressTest {
         assertEquals(1, layouts.single().lineCount)
     }
 
-    @Test fun updatedCounterBecomesActiveInItsExistingPosition() {
+    @Test fun updatedCounterBecomesActiveBelowItsImmediatePredecessor() {
         val checks = line("Checks: 1/103 complete").copy(progressSequence = 1)
         val files = line("Files: 1/3 complete").copy(progressSequence = 2)
         var timeline by mutableStateOf(listOf(checks, files))
@@ -178,7 +192,9 @@ class GitHubLiveProgressTest {
         compose.runOnIdle { timeline = listOf(checks.copy(content = "Checks: 2/103 complete", progressSequence = 3), files) }
         val updated = compose.onNodeWithTag("github_latest_preview").assertTextEquals("Checks: 2/103 complete").fetchSemanticsNode()
         assertEquals(original.id, updated.id)
-        assertEquals(original.boundsInRoot.top, updated.boundsInRoot.top, 0.1f)
+        assertTrue(updated.boundsInRoot.top > original.boundsInRoot.top)
+        val predecessor = compose.onNodeWithTag("github_previous_preview").fetchSemanticsNode()
+        assertTrue(predecessor.boundsInRoot.bottom <= updated.boundsInRoot.top)
         compose.onAllNodesWithTag("github_preview_row").assertCountEquals(2)
     }
 

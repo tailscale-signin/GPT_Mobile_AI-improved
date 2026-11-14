@@ -496,17 +496,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             } else {
                 null
             },
-            responseFormat = constraints.finalResponseSchemaJson
-                ?.takeIf { isOpenRouter || isLlama }
-                ?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
-                ?.let { format ->
-                    when ((format["type"] as? JsonPrimitive)?.content) {
-                        "text", "json_object" -> format
-                        "json_schema" -> if (isLlama) JsonObject(mapOf("type" to JsonPrimitive("json_object"))) else format
-                        "object" -> JsonObject(mapOf("type" to JsonPrimitive("json_object")))
-                        else -> null
-                    }
-                },
+            responseFormat = ProviderResponseFormatPolicy.chatCompletions(platform.compatibleType, constraints.finalResponseSchemaJson),
             sessionId = openRouterSessionId,
             options = parsedOllamaOptions?.let { if (constraints.githubSampling == null) it else it.copy(temperature = effectiveTemperature, topP = null) }
         ).let { baseRequest ->

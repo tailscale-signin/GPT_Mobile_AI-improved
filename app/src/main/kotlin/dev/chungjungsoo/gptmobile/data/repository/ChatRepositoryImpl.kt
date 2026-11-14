@@ -601,7 +601,7 @@ class ChatRepositoryImpl(
         }
         if (platform.compatibleType == ClientType.LLAMA) {
             kotlinx.coroutines.currentCoroutineContext()[BenchmarkRequestContext]?.let {
-                checkBenchmarkLlamaReadiness(platform, it.executionPolicy)
+                checkBenchmarkLlamaReadiness(platform, it)
             }
             return
         }
@@ -623,13 +623,13 @@ class ChatRepositoryImpl(
         }
     }
 
-    private suspend fun checkBenchmarkLlamaReadiness(profile: PlatformV2, policy: BenchmarkExecutionPolicy) {
+    private suspend fun checkBenchmarkLlamaReadiness(profile: PlatformV2, request: BenchmarkRequestContext) {
         val capabilities = reasoningCapabilities ?: throw dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkProviderFailureException(
             "The exact model's readiness could not be checked.",
             "REASONING_CAPABILITY_UNAVAILABLE"
         )
         val saved = benchmarkSavedLlamaReasoning(profile)
-        val requested = if (policy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) listOf(saved) else listOf(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF, saved).distinct()
+        val requested = dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkLlamaReasoning.forPlan(request.executionPolicy, saved, request.plannedRequestCategories)
         for (mode in requested) {
             val observation = capabilities.check(profile, mode)
             val code = observation.safeReasonCode
@@ -770,13 +770,7 @@ class ChatRepositoryImpl(
             }
         }
         val llamaReasoningMode = if (target.compatibleType == ClientType.LLAMA) {
-            if (requested.executionPolicy == BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1 &&
-                !benchmarkCategory.startsWith(dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY)
-            ) {
-                dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF
-            } else {
-                benchmarkSavedLlamaReasoning(platform)
-            }
+            dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkLlamaReasoning.forRequest(requested.executionPolicy, benchmarkSavedLlamaReasoning(platform), benchmarkCategory)
         } else {
             null
         }

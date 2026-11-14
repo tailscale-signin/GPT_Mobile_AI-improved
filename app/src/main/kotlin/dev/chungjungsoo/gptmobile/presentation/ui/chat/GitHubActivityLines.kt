@@ -60,22 +60,16 @@ internal fun gitHubResponsePresentation(text: String, timeline: List<AssistantTi
     )
 }
 
-/** Repair ordering in retained timelines too: introduce the activity before any preview. */
+/** Presentation order is the last activation order, independent of retained evidence slots. */
 internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: String, searchActive: Boolean = false, active: Boolean = false): List<AssistantTimelineItem> {
     val previews = mutableSetOf<String>()
     val summaries = mutableSetOf<String>()
     val counterPositions = mutableMapOf<String, Int>()
-    var lastPreviewId: String? = null
-    var lastPreviewSequence: Long? = null
-    fun recordPreview(id: String, sequence: Long?) {
-        val previous = lastPreviewSequence
-        if (previous != null && sequence != null && sequence <= previous) return
-        lastPreviewId = id
-        if (sequence != null) lastPreviewSequence = sequence
-    }
+    val activationOrder = mutableMapOf<String, Long>()
     val coalesced = mutableListOf<AssistantTimelineItem>()
     val publicSummaryAvailable = gitHubPublicSummary(timeline) != null
-    timeline.asSequence().filter { it.progressCheckpoint && it.content.isNotBlank() }.forEach { retained ->
+    timeline.forEachIndexed { sourceIndex, retained ->
+        if (!retained.progressCheckpoint || retained.content.isBlank()) return@forEachIndexed
         // A selected-model progress notice is public summary prose even when an
         // older persistence path omitted statusSummary. Preserve its authorship
         // and invocation identity; measured operational notices remain visible.
@@ -85,17 +79,17 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
             item.statusSummary &&
             (item.progressId == "github-activity-introduction" || legacyActivitySummary(item.content))
         ) {
-            return@forEach
+            return@forEachIndexed
         }
         val counterKey = GitHubProgressPresentation.liveKey(item.content).takeUnless { item.statusSummary }
         when {
             counterKey != null -> {
-                val current = item.copy(content = item.content.substringBefore(". "), progressId = counterKey, statusSummary = false)
+                val current = item.copy(content = item.content.substringBefore(". "), progressId = item.progressId ?: counterKey, statusSummary = false)
                 val position = counterPositions[counterKey]
                 val previousSequence = position?.let { coalesced[it].progressSequence }
                 val sequence = current.progressSequence
-                if (previousSequence != null && sequence != null && sequence <= previousSequence) return@forEach
-                recordPreview(counterKey, sequence)
+                if (previousSequence != null && sequence != null && sequence <= previousSequence) return@forEachIndexed
+                activationOrder[current.progressId!!] = sequence ?: sourceIndex.toLong()
                 if (position == null) {
                     counterPositions[counterKey] = coalesced.size
                     coalesced.add(current)
@@ -113,19 +107,26 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
                 val previewKey = GitHubProgressPresentation.lineKey(item.content)
                 val id = item.progressId ?: "legacy-preview:$previewKey"
                 if (previews.add(previewKey)) {
-                    recordPreview(id, item.progressSequence)
+                    activationOrder[id] = item.progressSequence ?: sourceIndex.toLong()
                     coalesced.add(item.copy(progressId = id))
                 }
             }
         }
     }
-    val summary = coalesced.indexOfFirst { it.statusSummary }
-    val activeSourceIndex = coalesced.indexOfLast { !it.statusSummary && it.progressId == lastPreviewId }
-    val newerSummaryEndsPreview = activeSourceIndex >= 0 &&
-        coalesced.drop(activeSourceIndex + 1).any { it.statusSummary }
-    val ordered = when {
-        summary == 0 -> coalesced
-        summary > 0 -> listOf(coalesced[summary]) + coalesced.take(summary) + coalesced.drop(summary + 1)
+    // Counter rows are compacted in persistence, so their list positions are the
+    // original receipt slots. The persisted monotonic sequence survives a reopen
+    // and reconnect and tells us when that row most recently became active.
+    val previewsInOrder = coalesced.filterNot { it.statusSummary }
+        // Legacy receipts predate the persisted sequence clock. Never compare
+        // their source indices numerically with a new clock that starts at one.
+        .sortedWith(compareBy<AssistantTimelineItem> { it.progressSequence != null }.thenBy { activationOrder[it.progressId] ?: Long.MIN_VALUE })
+    val newestPair = previewsInOrder.takeLast(2)
+    val summariesInOrder = coalesced.filter { it.statusSummary }
+    val ordered = previewsInOrder.dropLast(newestPair.size) + summariesInOrder + newestPair
+    val summary = ordered.indexOfFirst { it.statusSummary }
+    val introduced = when {
+        summary == 0 -> ordered
+        summary > 0 -> listOf(ordered[summary]) + ordered.take(summary) + ordered.drop(summary + 1)
         else -> listOf(
             AssistantTimelineItem(
                 type = AssistantTimelineItemType.NOTICE,
@@ -135,20 +136,25 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
                 modelAuthored = false,
                 progressId = "github-activity-introduction"
             )
-        ) + coalesced
+        ) + ordered
     }
-    if (searchActive && lastPreviewId == null) {
-        return ordered + AssistantTimelineItem(
+    if (searchActive && previewsInOrder.isEmpty()) {
+        return introduced + AssistantTimelineItem(
             type = AssistantTimelineItemType.NOTICE,
             content = "Searching websites",
             progressCheckpoint = true,
             progressId = "github-search-preview"
         )
     }
-    if (!active || lastPreviewId == null || newerSummaryEndsPreview) return ordered
-    val activeIndex = ordered.indexOfLast { !it.statusSummary && it.progressId == lastPreviewId }
-    if (activeIndex < 0 || activeIndex == ordered.lastIndex) return ordered
-    return ordered.take(activeIndex) + ordered.drop(activeIndex + 1) + ordered[activeIndex]
+    return introduced
+}
+
+/** A summary can retire the accent without moving the retired preview back into history. */
+internal fun gitHubHasActivePreview(timeline: List<AssistantTimelineItem>, searchActive: Boolean): Boolean {
+    if (searchActive && timeline.none { it.progressCheckpoint && !it.statusSummary && publicProgressSummary(it) == null }) return true
+    val latest = timeline.withIndex().filter { it.value.progressCheckpoint && it.value.content.isNotBlank() }
+        .maxWithOrNull(compareBy<IndexedValue<AssistantTimelineItem>> { it.value.progressSequence != null }.thenBy { it.value.progressSequence ?: it.index.toLong() })?.value ?: return searchActive
+    return !latest.statusSummary && publicProgressSummary(latest) == null
 }
 
 /** Count entries, independently of line wrapping or font size, retaining summary context. */
@@ -158,7 +164,7 @@ internal fun gitHubVisibleActivityLines(lines: List<AssistantTimelineItem>, comp
     val start = lines.size - entryLimit
     val summaryIndex = lines.indices.take(start + 1).lastOrNull { lines[it].statusSummary }
     val counters = lines.indices.filter { !lines[it].statusSummary && GitHubProgressPresentation.liveKey(lines[it].content) != null }
-    val pinned = (listOfNotNull(summaryIndex, lines.lastIndex) + counters.asReversed())
+    val pinned = (listOfNotNull(summaryIndex, lines.lastIndex - 1, lines.lastIndex) + counters.asReversed())
         .distinct().take(entryLimit).toSet()
     val recent = lines.indices.filter { it !in pinned }.takeLast(entryLimit - pinned.size)
     return (listOfNotNull(summaryIndex) + (pinned + recent).filter { it != summaryIndex }.sorted()).map(lines::get)

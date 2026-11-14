@@ -57,7 +57,7 @@ ENUMS = {
     },
     "acceptance_evidence_scope": {"CURRENT_VERDICT", "RETAINED_VERDICT"},
     "voice_engine": {"SYSTEM", "LOCAL", "KOKORO"},
-    "voice_phase": {"PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "SPEAKING", "ERROR", "CLOSED"},
+    "voice_phase": {"PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"},
     "voice_focus_result": {"GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"},
     "voice_first_audio_basis": {"UTTERANCE_START", "PLAYBACK_HEAD"},
     "gateway_reason_code": ENGINEERING_REASONS | MODEL_PREPARATION_REASONS,

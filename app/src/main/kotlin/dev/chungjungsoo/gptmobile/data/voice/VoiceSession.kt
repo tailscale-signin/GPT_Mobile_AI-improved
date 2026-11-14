@@ -40,6 +40,12 @@ interface VoiceAudio {
     fun retryAfterMillis(): Long = 0
     fun listen(listener: Listener)
     fun speak(text: String, complete: () -> Unit, error: (String) -> Unit)
+
+    /** True only when this backend reports its first audible-output event. */
+    val reportsPlaybackStart: Boolean get() = false
+
+    /** Snapshot this observer for each operation; cancelled operations must never invoke it. */
+    fun bindPlaybackStarted(started: (() -> Unit)?) = Unit
     val streamsReplies: Boolean get() = false
     fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? = null
     fun stop()
@@ -51,7 +57,7 @@ interface VoiceAudio {
     fun close()
 }
 
-enum class VoicePhase { PAUSED, STARTING, LISTENING, FINALIZING, REVIEWING, THINKING, SPEAKING, ERROR, CLOSED }
+enum class VoicePhase { PAUSED, STARTING, LISTENING, FINALIZING, REVIEWING, THINKING, PREPARING, SPEAKING, ERROR, CLOSED }
 enum class VoiceRecoveryAction { MICROPHONE_PERMISSION, SPEECH_SERVICE, SPEECH_LANGUAGE, LOCAL_MODEL }
 
 data class VoiceState(
@@ -127,7 +133,7 @@ class VoiceSession(
     }
     private fun continueTurn() {
         diagnosticTrace.retain()
-        if (state.phase == VoicePhase.SPEAKING) update(state.copy(phase = VoicePhase.PAUSED))
+        if (state.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) update(state.copy(phase = VoicePhase.PAUSED))
         if (autoContinue) resume() else pause()
     }
     fun tick() {
@@ -215,7 +221,7 @@ class VoiceSession(
         val operation = when (state.phase) {
             VoicePhase.STARTING -> "voice_capture"
             VoicePhase.LISTENING, VoicePhase.FINALIZING -> "voice_recognition"
-            VoicePhase.SPEAKING -> "voice_playback"
+            VoicePhase.PREPARING, VoicePhase.SPEAKING -> "voice_playback"
             else -> null
         }
         return diagnosticTrace.incidentFields() + mapOf("failed_stage" to operation, "operation" to operation)
@@ -229,6 +235,7 @@ class VoiceSession(
         playbackFinished = false
         if (streamId != null) streamAudio = false
         audio.stop(reason)
+        audio.bindPlaybackStarted(null)
         audio.bindDiagnostics(diagnosticProbe)
     }
     private fun accessAllowed() = enabled && permission && foreground && state.phase != VoicePhase.CLOSED
@@ -244,7 +251,7 @@ class VoiceSession(
     }
 
     fun resume() {
-        if (!accessAllowed() || state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING, VoicePhase.SPEAKING)) return
+        if (!accessAllowed() || state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING, VoicePhase.REVIEWING, VoicePhase.PREPARING, VoicePhase.SPEAKING)) return
         if (waiting) {
             engaged = true
             update(state.copy(phase = VoicePhase.THINKING, level = 0f))
@@ -407,6 +414,7 @@ class VoiceSession(
         }
         if (replyPlayback == null && queuedSpeech.isNotEmpty() && audio.streamsReplies) {
             val ticket = generation
+            preparePlayback(ticket)
             val opened = audio.openReply(
                 complete = {
                     if (ticket == generation && replyPlayback != null) {
@@ -419,7 +427,6 @@ class VoiceSession(
             )
             if (ticket != generation) return
             replyPlayback = opened
-            if (replyPlayback != null) update(state.copy(phase = VoicePhase.SPEAKING))
         }
         replyPlayback?.let { playback ->
             while (replyPlayback === playback) playback.enqueue(queuedSpeech.removeFirstOrNull() ?: break)
@@ -441,14 +448,24 @@ class VoiceSession(
         }
         chunkPlaying = true
         val ticket = generation
-        val sequence = ++playbackSequence
-        update(state.copy(phase = VoicePhase.SPEAKING))
+        val sequence = preparePlayback(ticket)
         audio.speak(chunk, complete = {
             if (generation == ticket && sequence == playbackSequence && chunkPlaying) {
                 chunkPlaying = false
                 pumpSpeech()
             }
         }, error = { message -> if (generation == ticket && sequence == playbackSequence) playbackFailed(message) })
+    }
+
+    private fun preparePlayback(ticket: Long): Long {
+        val sequence = ++playbackSequence
+        update(state.copy(phase = if (audio.reportsPlaybackStart) VoicePhase.PREPARING else VoicePhase.SPEAKING, level = 0f, notice = null))
+        audio.bindPlaybackStarted {
+            if (ticket == generation && sequence == playbackSequence && state.phase == VoicePhase.PREPARING) {
+                update(state.copy(phase = VoicePhase.SPEAKING))
+            }
+        }
+        return sequence
     }
     private fun playbackFailed(message: String) {
         // Audio can fail while the model is still streaming. Keep its turn and captions alive.
@@ -465,7 +482,7 @@ class VoiceSession(
     }
 
     fun stopSpeaking() {
-        if (state.phase != VoicePhase.SPEAKING) return
+        if (state.phase !in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) return
         stopAudio("user_stop_speaking")
         streamAudio = false
         if (waiting && !streamComplete) {
@@ -546,7 +563,7 @@ class VoiceSession(
         }
         stopAudio()
         val ticket = generation
-        update(state.copy(phase = VoicePhase.SPEAKING, level = 0f, notice = null))
+        preparePlayback(ticket)
         diagnosticProbe.queued()
         audio.bindReply(id)
         audio.speak(spoken, complete = {
@@ -560,7 +577,7 @@ class VoiceSession(
         recognitionFailures = 0
         update(state.copy(muted = !state.muted))
         diagnosticProbe.muted(state.muted)
-        if (state.phase == VoicePhase.SPEAKING || state.phase == VoicePhase.THINKING || state.phase == VoicePhase.REVIEWING) return
+        if (state.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING, VoicePhase.THINKING, VoicePhase.REVIEWING)) return
         if (state.muted) {
             pause()
         } else {

@@ -17,6 +17,18 @@ class IssueReportDiagnosticsTest {
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 
+    @Test fun preparingVoicePreservesThePhaseWithoutInventingPlaybackEvidence() {
+        val snapshot = capture("VOICE", mapOf("voice_engine" to "KOKORO", "voice_phase" to "PREPARING"))
+        val payload = report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(snapshot)).approvedPayload()
+        val restored = requireNotNull(IssueReport.json.decodeFromString(IssueReport.serializer(), payload).context?.diagnostics)
+        assertEquals(JsonPrimitive("PREPARING"), restored.values["voice_phase"])
+        assertEquals(setOf("VOICE_PLAYBACK_PHASE_V1"), restored.requiredServiceFeatures())
+        assertFalse("voice_first_audio_basis" in restored.values)
+        assertFalse("voice_response_to_first_audio_ms" in restored.values)
+        assertTrue("voice_response_to_first_audio_ms" in restored.unavailableFields)
+        assertEquals(payload, report(IssueReportContext.fromFields("VOICE_STATE", occurredAtMillis = time).withDiagnostics(restored)).approvedPayload())
+    }
+
     @Test fun githubSubfieldPolicyEvidenceRequiresTheUpdatedService() {
         val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to listOf("githubProfileOverride", "githubProfileOverride.sampling"))), time).diagnostics)
         assertTrue(diagnostic.requiredServiceFeatures().contains("ISSUE_RECOVERY_DETAILS_V1"))

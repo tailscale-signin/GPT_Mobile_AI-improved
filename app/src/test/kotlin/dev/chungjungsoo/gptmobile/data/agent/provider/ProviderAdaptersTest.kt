@@ -84,6 +84,24 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun benchmarkProgressCannotReplaceVerifiedJobAffinity() = runBlocking {
+        for (role in listOf("benchmark", "benchmark-readiness")) {
+            for (verified in listOf(null, false, true)) {
+                val progress = dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress(jobId = "observed-job")
+                val metadata = verified?.let { GatewayResponseMetadata(jobId = "bound-job", transportVerified = it) }
+                val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(gatewayMetadata = metadata, gatewayProgress = progress)), emptyFlow())))
+                val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                    .openSession(turns(), platform(ClientType.LLAMA), RequestConstraints(requestRole = role))
+                val events = session.streamRound(listOf(definition), emptyList()).toList()
+                session.streamRound(emptyList(), listOf(AgentToolExchange(listOf(call), listOf(result)))).toList()
+
+                assertNull(api.configs.first().extraHeaders["X-Gateway-Job-ID"])
+                assertEquals(if (verified == true) "bound-job" else null, api.configs.last().extraHeaders["X-Gateway-Job-ID"])
+                assertEquals(progress, events.filterIsInstance<ProviderEvent.GatewayProgressUpdate>().single().progress)
+            }
+        }
+    }
+
     @Test fun savedJobBindingPrecedesHistoricalAttemptMetadataAndFailure() = runBlocking {
         val recovery = NetworkClient.json.parseToJsonElement("""{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":50,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"empty_completion","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"}]}""").jsonObject
         for (failed in listOf(false, true)) {
@@ -128,14 +146,14 @@ class ProviderAdaptersTest {
         }
     }
 
-    @Test fun llamaBenchmarkSerializesJsonObjectFormatInsteadOfTheFixtureSchema() = runBlocking {
+    @Test fun llamaBenchmarkSerializesItsSchemaInsideJsonObjectFormat() = runBlocking {
         val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
         val schema = """{"type":"object","properties":{"status":{"type":"string"}},"required":["status"]}"""
         OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
             .openSession(turns(), platform(ClientType.LLAMA), RequestConstraints(finalResponseSchemaJson = schema, requestRole = "benchmark"))
             .streamRound(emptyList(), emptyList()).toList()
         val wire = NetworkClient.json.parseToJsonElement(NetworkClient.json.encodeToString(ChatCompletionRequest.serializer(), api.chatRequests.single())).jsonObject
-        assertEquals(NetworkClient.json.parseToJsonElement("""{"type":"json_object"}"""), wire["response_format"])
+        assertEquals(NetworkClient.json.parseToJsonElement("""{"type":"json_object","schema":$schema}"""), wire["response_format"])
     }
 
     @Test fun githubClaimExtractionSendsStrictSchemaAndUsesLowAdvertisedReasoning() = runBlocking {
@@ -152,6 +170,33 @@ class ProviderAdaptersTest {
         val request = api.chatRequests.single()
         assertEquals(NetworkClient.json.parseToJsonElement(schema).jsonObject, request.responseFormat)
         assertEquals("low", request.reasoning?.effort)
+    }
+
+    @Test fun benchmarkRawSchemasUseTheSelectedProvidersResponseFormatOnWire() = runBlocking {
+        val schema = """{"type":"object","properties":{"status":{"type":"string"}},"required":["status"],"additionalProperties":false}"""
+        for (provider in listOf(ClientType.LLAMA, ClientType.OPENROUTER)) {
+            val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+            OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(provider), RequestConstraints(finalResponseSchemaJson = schema, requestRole = "benchmark-readiness"))
+                .streamRound(emptyList(), emptyList()).toList()
+            val format = requestJson(api.chatRequests.single()).getValue("response_format").jsonObject
+            if (provider == ClientType.LLAMA) {
+                assertEquals("json_object", format.getValue("type").jsonPrimitive.content)
+                assertEquals(NetworkClient.json.parseToJsonElement(schema), format["schema"])
+            } else {
+                assertEquals("json_schema", format.getValue("type").jsonPrimitive.content)
+                assertEquals(NetworkClient.json.parseToJsonElement(schema), format.getValue("json_schema").jsonObject["schema"])
+            }
+        }
+    }
+
+    @Test fun llamaGithubClaimExtractionRetainsItsNamedStrictSchemaOnWire() = runBlocking {
+        val schema = dev.chungjungsoo.gptmobile.data.github.GitHubClaimBatches.responseSchemaJson()
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(emptyFlow())))
+        OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.LLAMA), RequestConstraints(finalResponseSchemaJson = schema, requestRole = "github-claim-extraction"))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(NetworkClient.json.parseToJsonElement(schema), requestJson(api.chatRequests.single())["response_format"])
     }
 
     @Test fun adaptiveOverridesOllamaAdvancedSamplingOnWireWithoutChangingProfile() = runBlocking {

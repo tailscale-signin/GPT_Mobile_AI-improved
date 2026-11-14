@@ -742,6 +742,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkInspectionAttribution.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkIntelligenceEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkIntelligenceFixtures.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkLlamaReasoning.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMeasurement.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMetrics.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkModels.kt",

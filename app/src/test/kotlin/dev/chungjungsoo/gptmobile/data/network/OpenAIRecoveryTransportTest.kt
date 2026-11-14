@@ -230,17 +230,27 @@ class OpenAIRecoveryTransportTest {
                 model = "selected-model",
                 timeout = 30
             )
+            val capabilityUrls = mutableListOf<String>()
             val wireUrls = mutableListOf<String>()
             val wireModels = mutableListOf<String>()
             withApi(
                 MockEngine { outgoing ->
-                    wireUrls += outgoing.url.toString()
-                    wireModels += NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject.getValue("model").jsonPrimitive.content
-                    check(wireUrls.size <= 4) { "Recovery dispatched more than the three failed attempts and one success" }
-                    if (wireUrls.size <= 3) {
-                        respond("""{"error":{"message":"Temporarily unavailable"}}""", status, headersOf(HttpHeaders.RetryAfter, "0"))
+                    if (outgoing.url.encodedPath == "/v1/gateway/capabilities") {
+                        assertEquals(io.ktor.http.HttpMethod.Get, outgoing.method)
+                        capabilityUrls += outgoing.url.toString()
+                        // Direct Ollama has no gateway capability surface; discovery precedes inference.
+                        respond("{}", HttpStatusCode.NotFound, headersOf(HttpHeaders.ContentType, "application/json"))
                     } else {
-                        respond("""{"choices":[{"index":0,"message":{"role":"assistant","content":"Recovered after HTTP ${status.value}"},"finish_reason":"stop"}]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                        assertEquals(io.ktor.http.HttpMethod.Post, outgoing.method)
+                        assertEquals("/v1/chat/completions", outgoing.url.encodedPath)
+                        wireUrls += outgoing.url.toString()
+                        wireModels += NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject.getValue("model").jsonPrimitive.content
+                        check(wireUrls.size <= 4) { "Recovery dispatched more than the three failed attempts and one success" }
+                        if (wireUrls.size <= 3) {
+                            respond("""{"error":{"message":"Temporarily unavailable"}}""", status, headersOf(HttpHeaders.RetryAfter, "0"))
+                        } else {
+                            respond("""{"choices":[{"index":0,"message":{"role":"assistant","content":"Recovered after HTTP ${status.value}"},"finish_reason":"stop"}]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                        }
                     }
                 }
             ) { api ->
@@ -270,6 +280,7 @@ class OpenAIRecoveryTransportTest {
                 assertNull(failure.providerLimit)
                 assertEquals(2, configs.size)
                 assertTrue(configs.all { it.apiUrl == profile.apiUrl })
+                assertEquals(listOf(profile.apiUrl + "gateway/capabilities"), capabilityUrls)
                 assertEquals(List(4) { profile.apiUrl + "chat/completions" }, wireUrls)
                 assertEquals(List(4) { profile.model }, wireModels)
                 assertEquals("Recovered after HTTP ${status.value}", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)

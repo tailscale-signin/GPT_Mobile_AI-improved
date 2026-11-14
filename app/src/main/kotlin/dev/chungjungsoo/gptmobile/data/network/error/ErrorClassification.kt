@@ -85,7 +85,27 @@ object ErrorClassification {
             dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.unknownOutcomeCodes.any { msg.contains(it.lowercase(java.util.Locale.ROOT)) } -> ClassifiedError(ErrorCategory.REMOTE_OUTCOME_UNKNOWN, ErrorSeverity.HIGH, false, 0, "A dispatched operation has an unknown outcome. Reconcile the exact saved result before another write; do not repeat the request.", throwable, errorCode = "RECONCILIATION_REQUIRED")
             gatewayAdmission != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, requireNotNull(gatewayAdmission.message), throwable, errorCode = "GATEWAY_${gatewayAdmission.reason.name}")
             recoveryCheckpointCode != null -> ClassifiedError(ErrorCategory.POLICY_STALE, ErrorSeverity.HIGH, false, 0, "$recoveryCheckpointCode: The saved recovery checkpoint changed. Reconcile the retained results and current task settings before resuming. Automatic retry has stopped; completed actions remain recorded.", throwable, errorCode = "POLICY_STALE")
-            contract != null -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, contract.message, throwable, errorCode = contract.code)
+            contract != null -> when (contract.code) {
+                "OUTPUT_CAPACITY_EXCEEDED" -> ClassifiedError(
+                    ErrorCategory.INVALID_OUTPUT_CAP,
+                    ErrorSeverity.MEDIUM,
+                    false,
+                    0,
+                    contract.message,
+                    throwable,
+                    errorCode = contract.code
+                )
+                "INPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "CONTEXT_BUDGET_EXCEEDED" -> ClassifiedError(
+                    ErrorCategory.CONTEXT_WINDOW_EXCEEDED,
+                    ErrorSeverity.MEDIUM,
+                    false,
+                    0,
+                    contract.message,
+                    throwable,
+                    errorCode = contract.code
+                )
+                else -> ClassifiedError(ErrorCategory.REQUEST_REJECTED, ErrorSeverity.HIGH, false, 0, contract.message, throwable, errorCode = contract.code)
+            }
             githubCode != null -> ClassifiedError(
                 category = when {
                     githubCode == "AUTH_REQUIRED" -> ErrorCategory.AUTHENTICATION_FAILED

@@ -1099,11 +1099,11 @@ class LiteRtLmAdapter(
                         send(localToolContextFailure(error, generationDispatched))
                     } catch (error: LocalEngineLoadException) {
                         localRuntime.state.value.admissionReceipt?.let { receipt -> send(ProviderEvent.RequestConfigured(configuredProfileType = platform.compatibleType.name, localAdmissionReceipt = receipt)) }
-                        send(ProviderEvent.Failed(error.message ?: engineLoadFailedError))
+                        send(ProviderEvent.Failed(error.message ?: engineLoadFailedError, failureDetails = providerAdapterExceptionEvidence(error)))
                     } catch (error: Exception) {
                         localRuntime.state.value.admissionReceipt?.let { receipt -> send(ProviderEvent.RequestConfigured(configuredProfileType = platform.compatibleType.name, localAdmissionReceipt = receipt)) }
                         val message = error.message ?: "Local inference failed"
-                        send(ProviderEvent.Failed(if (isLocalTemplateMismatch(message)) LOCAL_TEMPLATE_ERROR else message))
+                        send(ProviderEvent.Failed(if (isLocalTemplateMismatch(message)) LOCAL_TEMPLATE_ERROR else message, failureDetails = providerAdapterExceptionEvidence(error)))
                     }
                 }
                 runInference()

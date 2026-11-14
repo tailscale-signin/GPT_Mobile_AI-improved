@@ -41,6 +41,9 @@ internal data class IssueReportDiagnostics(
     }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values["incident_capture_site"] as? JsonPrimitive)?.contentOrNull in setOf("PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE")) {
+            add("CAPTURE_BOUNDARY_EVIDENCE_V1")
+        }
         if ((values.keys + omittedFields).any { it in githubSchemaBudgetFields } ||
             listOf("provider_failure_code", "causal_failure_code", "voice_chat_failure_code").any { values[it] == JsonPrimitive("GITHUB_TOOL_CONTEXT_BUDGET") }
         ) {

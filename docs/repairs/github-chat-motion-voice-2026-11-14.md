@@ -542,3 +542,51 @@ conversation metadata/API regressions. The regenerated package manifest matches
 reviewed source; the app inventory contains 2,599 files across 26 areas. Final
 staged scope and full-PR Kotlin formatting are checked at publication. These
 receipts retain the final shared-head hosted qualification requirement.
+
+## Late reports #1129 and #1130
+
+Both reports arrived during qualification and identify the preceding build 141
+commit `b5ab42bfe5270cbe28c2bbde16eecb38d44b4194`. Intake now covers 29 issues.
+Neither contains an external attachment, and neither establishes a regression
+on the then-current candidate `007b29d2a7581c0acfd5474f7bc01ba768c57bae`.
+
+#1129 retained only `CHAT_FAILED`, absent code state and unknown origin. Source
+inspection identified two real diagnostic gaps: Gemini, Groq, Ollama and LiteRT
+could catch exceptions and emit ordinary failure values without exception
+metadata; repository preflight/recovery could also emit error values without
+run/provider or capture-boundary evidence. Neither path reaches the terminal
+Throwable catch. Actual adapter catches now retain sanitized type, bounded app
+frames, fingerprint and hashed cause types. An outer repository error-value
+projection supplies missing run/provider correlation and identifies the
+observed repository boundary. Existing typed details and cancellation are
+preserved. A normal error value does not gain an invented exception, HTTP
+response, dispatch state, retry authority or causal origin.
+
+The closed capture sites are `PROVIDER_ADAPTER_STREAM_CATCH` and
+`CHAT_REPOSITORY_ERROR_VALUE`; both use `CAPTURE_BOUNDARY_ONLY` provenance.
+Hosted delivery requires the new `CAPTURE_BOUNDARY_EVIDENCE_V1` capability only
+when one of these new values is present. An older service leaves the exact
+approved report saved. Native authenticated GitHub submission stays independent
+of hosted readiness. The readiness document remains below its existing byte
+limit. The historical failure is still undiagnosed and needs an updated app
+and a new report from the original route.
+
+#1130 is a capability-prerequisite verdict: 45 of 118 verified, 66 blocked,
+seven untested, zero failed operations and 173 calls left. Compared with #1127,
+the extra 48 required/blocked capabilities are 47 owned-fixture and one
+live-evidence prerequisite. Their distinct run identities remain distinct.
+`FULL_CATALOG` selects API capabilities; `BOUNDED_SMOKE_SAMPLE` still bounds
+ordinary inventory traversal, so 15 pending pages alone do not prove stalled
+required work. Existing preparation advances admissible selected-SHA graph and
+workflow dependencies, then retains actual fixture/input blockers. `ASK` does
+not become fixture approval, and Continue cannot supply missing owned resources
+or live evidence. Current recovery reports already include preparation state,
+ready-call count, fixture admissibility, operation families and graph/workflow
+observations, so this report requires no additional source mechanism.
+
+The regression additions cover actual adapter catches, typed-error precedence,
+message-only responses without fabricated exception evidence, cancellation,
+the real Android report collector for Continue without a saved original, and
+hosted capability compatibility with durable/native delivery boundaries.
+Focused local receipts and the final full Android execution are recorded in
+PR #1122; local host fixtures are not physical-device/provider qualification.

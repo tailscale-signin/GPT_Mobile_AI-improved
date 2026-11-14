@@ -1009,6 +1009,103 @@ class ProviderAdaptersTest {
     }
 
     @Test
+    fun `Ollama Groq and Gemini preserve bounded exception evidence at their actual catches`() = runBlocking {
+        val error = IllegalStateException("PRIVATE_UPSTREAM https://private.invalid/token", IllegalArgumentException("PRIVATE_INNER"))
+        error.stackTrace = arrayOf(StackTraceElement("dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAdapters", "fixture", "private-file", 42))
+        val ollama = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow<ChatCompletionChunk> { throw error })))
+        val groq = FakeGroqAPI(ArrayDeque(listOf(flow<GroqChatCompletionChunk> { throw error })))
+        val google = FakeGoogleAPI(ArrayDeque(listOf(flow<GenerateContentResponse> { throw error })))
+        val sessions = listOf(
+            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)),
+            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)),
+            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE))
+        )
+        for (session in sessions) {
+            val events = session.streamRound(emptyList(), emptyList()).toList()
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertFalse(events.any { it == ProviderEvent.Completed })
+            val details = requireNotNull(failure.failureDetails)
+            assertEquals(JsonPrimitive("PROVIDER_ADAPTER_STREAM_CATCH"), details["incident_capture_site"])
+            assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), details["incident_phase_provenance"])
+            assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.exceptionFingerprint(error)), details["exception_fingerprint"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("java.lang.IllegalStateException"), JsonPrimitive("java.lang.IllegalArgumentException"))), details["cause_types"])
+            assertEquals(JsonPrimitive("IllegalStateException"), details["exception_report_type"])
+            assertTrue(details.getValue("exception_application_frames").jsonArray.contains(JsonPrimitive("dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAdapters.fixture:42")))
+            for (key in listOf("failed_stage", "dispatched", "http_status", "remote_acceptance", "retryable", "request_replay_allowed", "invocation_id")) assertNull(details[key])
+            assertFalse(details.toString().contains("PRIVATE_"))
+            assertFalse(details.toString().contains("private.invalid"))
+            assertFalse(details.toString().contains("private-file"))
+        }
+        assertEquals(1, ollama.chatRequests.size)
+        assertEquals(1, groq.requests.size)
+        assertEquals(1, google.requests.size)
+    }
+
+    @Test
+    fun `message only remote errors do not invent adapter exception evidence`() = runBlocking {
+        val ollama = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Remote rejection"))))))
+        val groq = FakeGroqAPI(ArrayDeque(listOf(flowOf(NetworkClient.json.decodeFromString<GroqChatCompletionChunk>("""{"error":{"message":"Remote rejection"}}""")))))
+        val google = FakeGoogleAPI(ArrayDeque(listOf(flowOf(GenerateContentResponse(error = dev.chungjungsoo.gptmobile.data.dto.google.response.ErrorDetail(message = "Remote rejection"))))))
+        val sessions = listOf(
+            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)),
+            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)),
+            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE))
+        )
+        for (session in sessions) {
+            val failure = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals("Remote rejection", failure.message)
+            assertNull(failure.failureDetails)
+            assertNull(failure.invocationId)
+        }
+    }
+
+    @Test
+    fun `Ollama typed rejection stays authoritative after a trailing exception`() = runBlocking {
+        val typed = buildJsonObject {
+            put("failed_stage", "backend_template")
+            put("http_status", 400)
+            put("dispatched", false)
+            put("retryable", false)
+        }
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow {
+                        emit(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Typed rejection", code = "BACKEND_TEMPLATE_INVALID", failureDetails = typed)))
+                        throw java.net.ConnectException("PRIVATE_LATE_FAILURE")
+                    }
+                )
+            )
+        )
+        val failure = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA))
+            .streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("BACKEND_TEMPLATE_INVALID", failure.errorCode)
+        assertEquals(typed, failure.failureDetails)
+        assertEquals(1, api.chatRequests.size)
+        assertNull(failure.failureDetails?.get("exception_fingerprint"))
+    }
+
+    @Test
+    fun `adapter exception capture preserves upstream cancellation without emitting failure`() = runBlocking {
+        val cancelled = CancellationException("PRIVATE_CANCELLED")
+        val ollama = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow<ChatCompletionChunk> { throw cancelled })))
+        val groq = FakeGroqAPI(ArrayDeque(listOf(flow<GroqChatCompletionChunk> { throw cancelled })))
+        val google = FakeGoogleAPI(ArrayDeque(listOf(flow<GenerateContentResponse> { throw cancelled })))
+        val sessions = listOf(
+            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)),
+            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)),
+            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE))
+        )
+        for (session in sessions) {
+            val observed = mutableListOf<ProviderEvent>()
+            val failure = runCatching { session.streamRound(emptyList(), emptyList()).collect { observed += it } }.exceptionOrNull()
+            assertTrue(failure is CancellationException)
+            assertTrue(generateSequence(failure) { it.cause }.any { it === cancelled })
+            assertFalse(observed.any { it is ProviderEvent.Failed || it == ProviderEvent.Completed })
+        }
+    }
+
+    @Test
     fun `OpenRouter typed rejection remains authoritative after trailing stream exception`() = runBlocking {
         val typed = buildJsonObject {
             put("failed_stage", "backend_template")

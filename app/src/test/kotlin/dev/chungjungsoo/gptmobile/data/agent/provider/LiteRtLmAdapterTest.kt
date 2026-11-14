@@ -52,6 +52,7 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -2547,6 +2548,13 @@ class LiteRtLmAdapterTest {
         assertTrue(failed.message.contains("CPU fallback:"))
         assertTrue(failed.message.contains("CreateSharedMemoryManager"))
         assertTrue(failed.message.indexOf("GPU:") < failed.message.indexOf("CPU fallback:"))
+        val evidence = requireNotNull(failed.failureDetails)
+        assertEquals(JsonPrimitive("PROVIDER_ADAPTER_STREAM_CATCH"), evidence["incident_capture_site"])
+        assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), evidence["incident_phase_provenance"])
+        assertEquals(JsonPrimitive("LocalEngineLoadException"), evidence["exception_report_type"])
+        assertTrue(evidence.containsKey("exception_fingerprint"))
+        assertFalse(evidence.toString().contains("CreateSharedMemoryManager"))
+        for (key in listOf("failed_stage", "dispatched", "http_status", "remote_acceptance", "retryable")) assertNull(evidence[key])
     }
 
     @Test
@@ -2618,7 +2626,29 @@ class LiteRtLmAdapterTest {
         val events = adapter(runtime).openSession(turns("hello"), localPlatform())
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, runtime.loadEngineCalls.size)
-        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("GPU / CPU edition"))
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertTrue(failure.message.contains("GPU / CPU edition"))
+        val evidence = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("PROVIDER_ADAPTER_STREAM_CATCH"), evidence["incident_capture_site"])
+        assertEquals(JsonPrimitive("LocalNpuPackageException"), evidence["exception_report_type"])
+        assertTrue(evidence.containsKey("exception_fingerprint"))
+        assertFalse(evidence.toString().contains("native failure"))
+        for (key in listOf("failed_stage", "dispatched", "http_status", "remote_acceptance", "retryable")) assertNull(evidence[key])
+    }
+
+    @Test
+    fun `engine cancellation is rethrown without a captured failure`() = runBlocking {
+        val cancelled = CancellationException("PRIVATE_ENGINE_CANCELLED")
+        val runtime = FakeLocalRuntime().apply { failLoadEngineIf = { cancelled } }
+        val observed = mutableListOf<ProviderEvent>()
+        val failure = runCatching {
+            adapter(runtime).openSession(turns("hello"), localPlatform())
+                .streamRound(emptyList(), emptyList()).collect { observed += it }
+        }.exceptionOrNull()
+        assertTrue(failure is CancellationException)
+        assertTrue(generateSequence(failure) { it.cause }.any { it === cancelled })
+        assertFalse(observed.any { it is ProviderEvent.Failed || it == ProviderEvent.Completed })
+        assertEquals(1, runtime.loadEngineCalls.size)
     }
 
     @Test

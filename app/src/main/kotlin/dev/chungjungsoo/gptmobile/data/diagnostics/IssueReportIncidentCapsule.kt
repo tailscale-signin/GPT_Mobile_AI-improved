@@ -171,12 +171,17 @@ internal object IssueReportIncidentCapsule {
     val coreFields = listOf("incident_phase", "causal_id_hash", "causal_provenance", "incident_evidence_status")
     val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes") + policyDiagnostics + runEvidenceFields
 
-    enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH }
+    enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH, PROVIDER_ADAPTER_STREAM_CATCH, CHAT_REPOSITORY_ERROR_VALUE }
+
+    /** An observed boundary does not establish dispatch, retryability, or a throwable. */
+    fun boundaryFields(site: ExceptionCaptureSite): JsonObject = buildJsonObject {
+        put("incident_capture_site", site.name)
+        put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+    }
 
     /** Captured at the actual catch. A boundary identifies where observed, not where dispatched. */
     fun exceptionFields(error: Throwable, site: ExceptionCaptureSite): JsonObject = buildJsonObject {
-        put("incident_capture_site", site.name)
-        put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+        boundaryFields(site).forEach { (key, value) -> put(key, value) }
         put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).map(::JsonPrimitive)))
         IssueReportContext.exceptionFingerprint(error)?.let { put("exception_fingerprint", it) }
         val (type, frames) = IssueReport.exceptionMetadata(error)

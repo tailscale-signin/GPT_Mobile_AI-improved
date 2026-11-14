@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -136,6 +137,35 @@ class IssueReportIncidentCapsuleTest {
         assertFalse(approved.contains("ChatRepositoryImpl.completeChat"))
         assertFalse(approved.contains("cause_types"))
         assertEquals(approved, report(context).approvedPayload())
+    }
+
+    @Test fun newCaptureBoundariesPreserveTheObservedSiteWithoutInventingAThrowableOrDispatch() {
+        for (site in listOf(IssueReportIncidentCapsule.ExceptionCaptureSite.PROVIDER_ADAPTER_STREAM_CATCH, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)) {
+            val observed = IssueReportIncidentCapsule.boundaryFields(site)
+            assertEquals(setOf("incident_capture_site", "incident_phase_provenance"), observed.keys)
+            val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", observed)
+            val diagnostic = requireNotNull(context.diagnostics)
+            assertEquals(JsonPrimitive(site.name), diagnostic.values["incident_capture_site"])
+            assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), diagnostic.values["incident_phase_provenance"])
+            assertEquals(JsonPrimitive("unknown"), diagnostic.values["incident_phase"])
+            assertEquals(setOf("CAPTURE_BOUNDARY_EVIDENCE_V1"), diagnostic.requiredServiceFeatures())
+            assertNull(context.exceptionFingerprint)
+            assertNull(diagnostic.values["exception_type_hashes"])
+            assertNull(context.stage)
+            assertNull(context.dispatched)
+            assertNull(context.retryable)
+            assertNull(context.remoteAcceptance)
+            val approved = report(context).withCapturedException(observed).approvedPayload()
+            assertFalse(approved.contains("errorType"))
+            assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.parseToJsonElement(approved).jsonObject["context"]))
+        }
+    }
+
+    @Test fun legacyCaptureVocabularyDoesNotRequireTheAdditiveHostedCapability() {
+        for (site in listOf(IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_TERMINAL_CATCH, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_PREFLIGHT, IssueReportIncidentCapsule.ExceptionCaptureSite.OPENAI_ADAPTER_STREAM_CATCH)) {
+            val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", IssueReportIncidentCapsule.boundaryFields(site))
+            assertFalse("CAPTURE_BOUNDARY_EVIDENCE_V1" in requireNotNull(context.diagnostics).requiredServiceFeatures())
+        }
     }
 
     @Test fun exceptionObservationRejectsOpenCaptureNamesAndMalformedFingerprints() {

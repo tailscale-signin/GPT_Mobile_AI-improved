@@ -6,6 +6,8 @@ This release brings together persistent gateway conversations and jobs, more rel
 
 ## November 14 chat, voice, and benchmark follow-up
 
+Late reports #1129 and #1130 are included in the same repair. Generic chat errors now retain safe exception evidence at the actual Gemini, Groq, Ollama and LiteRT catch sites. Repository-emitted error values retain their observed boundary and owning run/provider even when no Throwable exists. Known typed failures and cancellation keep their existing semantics; message-only errors do not gain invented dispatch, HTTP or causal evidence. The two new capture sites require `CAPTURE_BOUNDARY_EVIDENCE_V1` from hosted reporters, while approved bytes stay saved and native authenticated GitHub delivery remains independent. The old incidents are not claimed reproduced. Capability self-tests retain legitimate fixture-approval, owned-resource and live-evidence prerequisites and do not equate full catalog scope with exhaustive pagination.
+
 Gateway 17 adds native Chat and Saved destinations, searchable message bookmarks, favorites and archive controls in the app's Cyan theme. The benchmark workspace keeps durable history, graphical breakdowns, paired serial/concurrent request measurements and bounded isolated coding trials. Advanced controls remain behind Settings.
 
 Gateway 17 coding scores cover disposable local repository fixtures and declared grading criteria; seeded repeats are not distinct coding capabilities, HTTP concurrency does not verify native inference batching, and Windows layout, sandbox execution, physical-device behavior and reporter rollout require their own observed qualification.

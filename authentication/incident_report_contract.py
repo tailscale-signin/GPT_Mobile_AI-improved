@@ -477,7 +477,7 @@ ENUMS = {
     'branch_rules_observation': POLICY_OBSERVATION,
     'provider_wait_terminal_status': {'COMPLETED', 'PARTIAL', 'FAILED', 'BLOCKED', 'INTERRUPTED', 'CANCELED', 'EVIDENCE_MISSING', 'WAITING_FOR_APPROVAL'},
     'changed_policy_observation': {'OBSERVED', 'PARTIAL', 'MALFORMED'},
-    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH'},
+    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH', 'PROVIDER_ADAPTER_STREAM_CATCH', 'CHAT_REPOSITORY_ERROR_VALUE'},
     'incident_phase_provenance': {'CAPTURE_BOUNDARY_ONLY'},
     'native_dependency_state': {'DEFERRED', 'FAILED'},
     'tool_execution_observation': {'REMOTE_READ_SUCCEEDED'},

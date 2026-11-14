@@ -200,6 +200,66 @@ class ChatRepositoryImplTest {
         }
     }
 
+    /** An emitted error has no Throwable; the real collector must still retain its observed boundary. */
+    fun missingRecoverySourceRetainsBoundaryEvidenceThroughCollector() = runBlocking {
+        val incidents = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
+        incidents.initialize(androidx.test.core.app.ApplicationProvider.getApplicationContext())
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(false)
+        incidents.privacyChanged(false)
+        incidents.debugPreferenceChanged(false)
+        incidents.clearRecent()
+        dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(true)
+        try {
+            val user = MessageV2(id = 1, chatId = 7, content = "Continue", platformType = null)
+            val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
+            coEvery { persistence.getMessages(7) } returns listOf(user)
+            val api = RecordingOpenAIAPI()
+            val runId = "PRIVATE_MISSING_RECOVERY_RUN"
+            val states = mutableListOf<ApiState>()
+            val outcome = createRepository(openAIAPI = api, persistenceOverride = persistence).completeChat(
+                listOf(user),
+                emptyList(),
+                customPlatform().copy(enabled = true, disableAllTools = true),
+                runId
+            ).onEach { states += it }.collectApiStateUpdates(onUpdate = { _, _, _ -> })
+            assertTrue(outcome is dev.chungjungsoo.gptmobile.util.ApiStateFlowOutcome.Failed)
+            val failure = states.filterIsInstance<ApiState.Error>().single()
+            assertTrue(failure.message.contains("There is no saved task to resume"))
+            assertNull(failure.errorCode)
+            assertNull(failure.invocationId)
+            assertEquals(0, api.streamChatCompletionCalls)
+            val report = incidents.pending.value.single()
+            assertEquals("CHAT_FAILED", report.errorCode)
+            assertNull(report.errorType)
+            assertTrue(report.frames.isEmpty())
+            val context = requireNotNull(report.context)
+            assertEquals(IssueReportContext.identifierHash("run", runId), context.runIdHash)
+            assertEquals("CUSTOM", context.provider)
+            assertNull(context.stage)
+            assertNull(context.exceptionFingerprint)
+            assertNull(context.invocationIdHash)
+            assertNull(context.dispatched)
+            assertNull(context.remoteAcceptance)
+            assertNull(context.httpStatus)
+            assertNull(context.retryable)
+            val values = requireNotNull(context.diagnostics).values
+            assertEquals(JsonPrimitive("CHAT_REPOSITORY_ERROR_VALUE"), values["incident_capture_site"])
+            assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), values["incident_phase_provenance"])
+            assertEquals(JsonPrimitive("ABSENT"), values["chat_failure_code_state"])
+            assertEquals(JsonPrimitive("unknown"), values["incident_phase"])
+            assertEquals(JsonPrimitive("UNAVAILABLE"), values["causal_provenance"])
+            assertFalse(values.containsKey("exception_type_hashes"))
+            val approved = report.approvedPayload()
+            assertFalse(approved.contains("PRIVATE_"))
+            assertEquals(approved, report.approvedPayload())
+        } finally {
+            dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.setEnabled(false)
+            incidents.privacyChanged(false)
+            incidents.debugPreferenceChanged(false)
+            incidents.clearRecent()
+        }
+    }
+
     @Test fun preparationCancellationStillPropagatesWithoutAnApiFailure() = runBlocking {
         val user = MessageV2(id = 1, chatId = 7, content = "Explain this synthetic fixture", platformType = null)
         val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
@@ -1799,6 +1859,8 @@ class ChatRepositoryImplTest {
                 ApiState.Error(
                     "Gemini safety settings blocked the prompt: SAFETY",
                     failureDetails = buildJsonObject {
+                        put("incident_capture_site", "CHAT_REPOSITORY_ERROR_VALUE")
+                        put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
                         put("run_id", runId)
                         put("provider_kind", "GOOGLE")
                     }
@@ -1835,6 +1897,8 @@ class ChatRepositoryImplTest {
                 ApiState.Error(
                     "Gemini safety settings blocked the response.",
                     failureDetails = buildJsonObject {
+                        put("incident_capture_site", "CHAT_REPOSITORY_ERROR_VALUE")
+                        put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
                         put("run_id", runId)
                         put("provider_kind", "GOOGLE")
                     }

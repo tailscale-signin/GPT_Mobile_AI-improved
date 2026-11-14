@@ -39,7 +39,9 @@ class IssueReportSubmissionTest {
             "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INDEX_UNCONFIRMED")),
             "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INPUT_REQUIRED")),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_pending_reason" to "CONNECTIVITY"),
-            "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND")
+            "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND"),
+            "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "PROVIDER_ADAPTER_STREAM_CATCH", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY"),
+            "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_REPOSITORY_ERROR_VALUE", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY")
         )) {
             val area = when (feature) {
                 "ACCEPTANCE_SCOPE_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1", "GITHUB_GRAPH_POLICY_EVIDENCE_V1", "ACCEPTANCE_RECOVERY_EVIDENCE_V1" -> "ACCEPTANCE"

@@ -21,12 +21,18 @@ included in main. Historical branches remain intact; this is not a claim that
 every old branch independently builds. Current fixes and qualification belong
 to the single active repair branch.
 
-The issue intake contains 27 open reports: #1101–#1128, excluding PR #1122.
+The initial issue intake contained 27 open reports: #1101–#1128, excluding PR #1122.
 Their preceding fixes and diagnostic dispositions are recorded in
 [the combined chat, voice, and diagnostic repair](github-chat-motion-voice-2026-11-14.md).
 This follow-up addresses the repository-map audit and strengthens the new
 integration and policy-status reports #1127 and #1128. Issue closure follows
 qualification and merge of the combined current head.
+
+Two reports arrived during qualification, bringing intake to 29. #1129 adds
+safe provider-catch and repository error-value evidence; #1130 is a broader
+old-build capability verdict addressed by the existing preparation fixes and
+explicit fixture/live-evidence prerequisites. Both are recorded in
+`gateway17-issue-dispositions.json`; neither old incident is claimed reproduced.
 
 ## Observed problems and implemented changes
 
@@ -103,6 +109,24 @@ Processing is complete in this reconstruction, while coverage remains partial.
 Encrypted status summaries are atomically paired with snapshot revision,
 storage version, and extractor version, avoiding full snapshot decryption and
 relationship reconstruction during ordinary status polling.
+
+### Later immutable-source capacity check
+
+A separate full-source reconstruction at immutable commit
+`1beceb290d0e342ae20af66dce38cc912f6d1686` supersedes the earlier capacity
+numbers above. It processed all 5,617 eligible files: 5,518 indexed and 99
+explicitly partial, with 257 excluded files and zero retryable failures. The
+graph contained 63,230 nodes, 156,945 edges and 409,269 unresolved references.
+Processing completed; coverage remained partial.
+
+The production encrypted store saved a 115,310,020-byte serialized snapshot
+under the unchanged 134,217,728-byte limit, leaving 18,907,708 bytes of serialized
+headroom. Three 32,000-byte architecture-page requests returned `FOUND` at
+10,200, 11,073 and 11,029 bytes, with advancing cursors and complete endpoints.
+This is local source/storage evidence at the stated revision; it does not
+measure remote authorization, deployed indexing, model accuracy or token savings.
+The exact measurement receipt is in
+[PR comment 6882411546](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1122#issuecomment-6882411546).
 
 ## Reporting and unresolved environments
 

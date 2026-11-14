@@ -563,7 +563,7 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(67, len(capsule.POLICY_FIELD_NAMES))
 
     def test_exception_capture_survives_validation_without_claiming_provider_dispatch(self):
-        for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH"):
+        for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH", "PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE"):
             with self.subTest(site=site):
                 capture = self.capture("INCIDENT", {
                     "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",
@@ -587,6 +587,22 @@ class IncidentReportContractTest(unittest.TestCase):
                     invalid["context"]["diagnostics"]["values"][key] = value
                     with self.assertRaises(ReportError):
                         issue_from_report(invalid)
+
+    def test_error_value_boundary_preserves_unknown_cause_without_exception_metadata(self):
+        capture = self.capture("INCIDENT", {
+            "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",
+            "causal_failure_code": "CHAT_FAILED", "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+            "incident_capture_site": "CHAT_REPOSITORY_ERROR_VALUE", "incident_phase_provenance": "CAPTURE_BOUNDARY_ONLY",
+        })
+        del capture["values"]["causal_id_hash"]
+        capture["unavailableFields"] = sorted((CORE_FIELDS["INCIDENT"] | capsule.CORE) - capture["values"].keys())
+        report = self.report(capture)
+        approved = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("CHAT_REPOSITORY_ERROR_VALUE", issue["body"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        self.assertNotIn("exception_type_hashes", capture["values"])
+        self.assertTrue({"stage", "httpStatus", "dispatched", "retryable", "remoteAcceptance", "exceptionFingerprint"}.issubset(report["context"]["unavailableFields"]))
 
     def test_exception_capture_vocabulary_matches_native_contract(self):
         source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()

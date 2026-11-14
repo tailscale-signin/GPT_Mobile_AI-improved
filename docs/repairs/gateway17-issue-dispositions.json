@@ -17,8 +17,8 @@
     "aad56e7f6b9bbac05ca905907cdd627e2bb36244"
   ],
   "prepared_at_utc_date": "2026-11-14",
-  "intent": "Audit all 27 open non-PR reports, preserve existing fixes and concurrent source changes, improve missing diagnosis, and provide honest per-issue closure evidence.",
-  "issue_count": 27,
+  "intent": "Audit all 29 open non-PR reports, including late arrivals #1129 and #1130, preserve existing fixes and concurrent source changes, improve missing diagnosis, and provide honest per-issue closure evidence.",
+  "issue_count": 29,
   "remote_mutations_performed_by_this_audit": false,
   "closure_policy": "The requested closure may include diagnostic resolutions. Each note must preserve its remaining qualification; issue closure is not a declaration of full live/device acceptance.",
   "privacy": "No original prompts, private endpoints, repository names from report payloads, identifiers, credentials, raw tool arguments or raw logs are stored in this audit.",
@@ -58,6 +58,18 @@
       "status": "passed",
       "version": "1.3.1",
       "scope": "Ten Kotlin source/test files in the combined diagnostic/status scope, after reconciliation to 0a340a91."
+    },
+    "late_report_followup": {
+      "status": "focused_local_validation_passed_exact_head_android_pending",
+      "source_base_sha": "007b29d2a7581c0acfd5474f7bc01ba768c57bae",
+      "scope": "Actual provider catch sites, emitted repository error values, approved report projection and capability-negotiated delivery; historical incidents remain unreproduced.",
+      "qualification": "Focused local contract receipts and final hosted Android execution are recorded in PR #1122. A source or host-fixture pass does not establish physical-device or private-provider reproduction.",
+      "local_kotlin_host_tests": 195,
+      "local_reporter_contract_tests": 81,
+      "local_full_authentication_tests": 102,
+      "local_kotlin_format": "14 changed Kotlin files passed ktlint 1.3.1",
+      "host_boundary": "Current report/context/codes/capsule/diagnostics/submission transport are compiled; Android Build, storage and surrounding provider ports remain stubbed. New real Robolectric, adapter and repository integration regressions require hosted Android execution.",
+      "canonical_host_checks": 510
     }
   },
   "reporter_contract": {
@@ -65,12 +77,14 @@
       "GITHUB_PREREQUISITE_EVIDENCE_V1",
       "ACCEPTANCE_RECOVERY_EVIDENCE_V1",
       "GITHUB_GRAPH_POLICY_EVIDENCE_V1",
-      "ISSUE_RECOVERY_CODES_V1"
+      "ISSUE_RECOVERY_CODES_V1",
+      "CAPTURE_BOUNDARY_EVIDENCE_V1"
     ],
     "client": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
     "server": [
       "authentication/issue_report_diagnostics.py",
-      "authentication/issue_report_app.py"
+      "authentication/issue_report_app.py",
+      "authentication/incident_report_contract.py"
     ],
     "tests": [
       "authentication/test_incident_report_contract.py",
@@ -796,6 +810,80 @@
         "current_reporter_python",
         "current_ktlint"
       ]
+    },
+    {
+      "issue": 1129,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1129",
+      "disposition": "diagnostic_resolution",
+      "observed_problem": "The old build 141 report retained CHAT_FAILED with an absent code, unknown origin and no run, provider, exception or causal identity. It has no external attachment. The report cannot establish the failing provider or original cause.",
+      "resolution": "Preserve safe exception type, bounded application frames and hashed cause types at actual Gemini, Groq, Ollama and LiteRT catch sites. Preserve typed failure details and cancellation. Normal repository-emitted errors also retain their observed repository boundary and owning run/selected provider when missing, including Continue without a saved original. No Throwable, HTTP response, dispatch, recovery authority or causal origin is invented for message-only values. The new capture sites require CAPTURE_BOUNDARY_EVIDENCE_V1 for hosted delivery; saved approvals remain unchanged until support is available, and native authenticated GitHub delivery is independent.",
+      "remaining_qualification": "The historical CHAT_FAILED has not been reproduced or assigned a cause. Install the updated app and, for hosted delivery, deploy a reporter advertising CAPTURE_BOUNDARY_EVIDENCE_V1. Reproduce on the original route with opt-in diagnostics to obtain actual boundary/exception evidence. Device and private-provider behavior are not established by unit tests.",
+      "closure_basis": "The requested diagnostic fallback is implemented; closure does not assert the historical failure mechanism is fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapter.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "authentication/incident_report_contract.py",
+        "authentication/issue_report_app.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImplTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryResearchIncidentTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdaptersTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LiteRtLmAdapterTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_incident_report_contract.py"
+      ],
+      "validation_refs": [
+        "late_report_followup"
+      ]
+    },
+    {
+      "issue": 1130,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1130",
+      "disposition": "code_fix_and_explicit_prerequisites",
+      "observed_problem": "An old build 141 full-catalog capability check verified 45 of 118 capabilities, with 66 blocked and 7 untested, zero failed operations, zero unresolved outcomes and 173 calls remaining. Its bounded smoke sample retained 15 remote continuations and omitted 68 of 74 criterion details from the public capsule.",
+      "resolution": "The existing exact-revision graph and workflow preparation now prioritizes eligible dependency reads before issuing an incomplete verdict. The report records actual preparation state, ready-call counts, fixture admissibility and blocked operation families, plus graph/workflow dependency observations. Compared with #1127, the broader catalog adds 47 owned-fixture and one live-evidence blocker; matching verified/call totals do not make distinct run identities the same run.",
+      "remaining_qualification": "FULL_CATALOG capability scope is not exhaustive inventory traversal. Pending smoke-sample pages do not establish stalled required work. ASK/CONDITIONAL approval does not authorize fixture creation, and Continue cannot supply missing owned resources, cleanup authority or live evidence. No claim is made that all 118 capabilities are verified. Hosted delivery of the new recovery fields requires the advertised recovery/prerequisite/graph capabilities.",
+      "closure_basis": "Existing preparation repair and improved diagnostic fallback, with actual fixture and live prerequisites retained.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPrerequisites.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestWorkflowJobs.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPrerequisitesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestWorkflowJobsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationStopReasonTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryCheckpointTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt"
+      ],
+      "validation_refs": [
+        "concurrent_source_regressions",
+        "current_recovery_kotlin",
+        "current_reporter_python",
+        "current_ktlint",
+        "late_report_followup"
+      ]
     }
-  ]
+  ],
+  "late_intake_base_sha": "007b29d2a7581c0acfd5474f7bc01ba768c57bae"
 }

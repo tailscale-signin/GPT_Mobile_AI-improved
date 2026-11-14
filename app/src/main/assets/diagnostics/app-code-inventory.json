@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "787e513f3f1499f815533ee67c24252597e812bc8782c0ce0b46ca950ba57860",
+  "source_digest": "81aa0d339f1888d09b7b582cec40eee10a68c3d217fa7ea24a56c8e30a6cf7d0",
   "file_count": 2602,
-  "indexed_line_count": 418680,
+  "indexed_line_count": 418858,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 138,
-      "indexed_line_count": 69548
+      "indexed_line_count": 69726
     },
     {
       "id": "authentication_service",
@@ -17370,7 +17370,7 @@
       "path": "gateway/desktop/configuration.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ecaba7e8b713e71dd352dcde8a41decb73988a1938a184fe35d1750176441b7b",
+      "sha256": "abfb8c842f4991fb69cadfd5ef652e5c64a1e816461d658c79974809579eea77",
       "indexed_lines": 172
     },
     {
@@ -17489,15 +17489,15 @@
       "path": "gateway/desktop/ui.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "2b2cdfcf25e03aee9f77d69e1a0ed6b9bd28fdcc6330a096f9ad4c68d2180f1f",
-      "indexed_lines": 401
+      "sha256": "aad569e87633f883def7930f74616616db52b8e07bbfe5dfc701dbec3256e8ff",
+      "indexed_lines": 466
     },
     {
       "path": "gateway/desktop/validation_policy.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "7d718105b6b8c3d98a400197c7af42369363327978817fc2c1f40ce50e45277c",
-      "indexed_lines": 73
+      "sha256": "24e2371ec28fa173025575c27793751a37002d95e3dfc5e6bae7a942b45baf10",
+      "indexed_lines": 182
     },
     {
       "path": "gateway/desktop/window_lifecycle.py",
@@ -17937,8 +17937,8 @@
       "path": "gateway/v14/engineering_validation.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "6e8f7262a9d09a63280cb2d0bbc082c62908854626a5a2e5be3f9e29f5ae0f80",
-      "indexed_lines": 339
+      "sha256": "5b82ec9e37f8f4f68bcaf37d9390c03cc68faa20b71816efe3670b818736f475",
+      "indexed_lines": 343
     },
     {
       "path": "gateway/v14/errors.py",

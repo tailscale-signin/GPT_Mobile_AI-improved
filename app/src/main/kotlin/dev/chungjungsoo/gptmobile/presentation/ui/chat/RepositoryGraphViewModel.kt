@@ -176,7 +176,18 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
         }
     }
 
+    private fun clearMap() {
+        mapRequests.clear()
+        mutable.update { it.copy(architecture = null, searchResult = null, mapQuery = "", mapFocusPath = null, mapPage = 0, mapNextCursor = null) }
+    }
+
     private fun publishMap(response: GatewayGraphResponse, arguments: JsonObject, requestedPage: Int) {
+        if (response.result.graphText("status") == "NOT_INDEXED") {
+            // A snapshot can disappear between its status and source reads.
+            clearMap()
+            mutable.update { it.copy(result = response.result, resultOperation = response.operation, indexStatus = response.result, indexCursor = null, indexingPaused = false) }
+            return
+        }
         val next = response.result.graphText("next_cursor").ifBlank { response.result.graphText("result_cursor") }.takeIf(String::isNotBlank)
         if (response.result["has_more"] == JsonPrimitive(true) && next == null) throw GatewayGraphResultException("GRAPH_RESULT_CURSOR_MISSING", "The gateway omitted the next result cursor. Refresh this search before continuing.", "RESTART_MAP_SEARCH")
         if (next != null && next == arguments.graphText("result_cursor")) throw GatewayGraphResultException("GRAPH_RESULT_CURSOR_REPEATED", "The gateway repeated a result page. Refresh this search before continuing.", "RESTART_MAP_SEARCH")
@@ -268,7 +279,14 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
                 false
             )
             suspend fun loadArchitecture(result: JsonObject) {
-                if (result["graph"] !is JsonObject || mutable.value.indexOutcomeUnknown || !current()) return
+                if (!current()) return
+                // An unindexed revision carries scope metadata too; it has no
+                // saved source map or result cursors to inspect.
+                if (result.graphText("status") == "NOT_INDEXED" || result["graph"] !is JsonObject) {
+                    clearMap()
+                    return
+                }
+                if (mutable.value.indexOutcomeUnknown) return
                 val arguments = buildJsonObject {
                     put("action", "architecture")
                     put("limit", MAP_PAGE_SIZE)
@@ -298,7 +316,6 @@ class RepositoryGraphViewModel @Inject constructor(private val graphs: GatewayGr
                         if (response.operation in setOf("architecture", "query")) publishMap(response, arguments, mapPage)
                         publish(response)
                         if (response.operation == "status") {
-                            if (response.result["graph"] !is JsonObject) mutable.update { it.copy(architecture = null, searchResult = null, mapNextCursor = null) }
                             loadArchitecture(response.result)
                             return@withTimeout
                         }

@@ -374,3 +374,50 @@ The publication candidate based on `b279eddfe` passed 509 canonical host checks
 and 99 tests in the four authentication/reporter modules used by PR Validation.
 The source inventory and exact staged scope are checked again at publication;
 these local receipts do not replace the final combined-head hosted gates.
+
+## Independent reporter and map integration review
+
+The follow-up review starts from shared map integration
+`b279eddfe41edd23602aacd811c881defa3b1aea` and preserves its source,
+relationship, pagination and durable-worker repairs. The combined follow-up also
+preserves the voice ownership/admission/theme repair
+`b1a0ea71ce748a04d50b0d85fa4c301032c57107`. The Python graph review
+passed 44 focused paging, context and durable-index tests; the exact-source
+planner/status host passed 125 tests. These checks do not establish physical
+device behavior or replace final shared-head Android qualification.
+
+The hosted reporting compatibility reproduction covered twelve newly accepted
+failure codes at six possible locations. Existing provider enum constraints
+correctly exclude eleven combinations, leaving 61 valid approved payloads. The
+main-branch reporter rejects all 61, while the updated reporter accepts them.
+Before the correction, the app dispatched 57 to the older service and converted
+its rejection into terminal `INVALID_REPORT`. After the correction, all 61 wait
+before dispatch with `REPORT_SERVICE_UPDATE_REQUIRED`; their approved bytes and
+report IDs remain unchanged for explicit retry after compatible support exists.
+
+The eleven new budget, validation, source-revision and repository-access codes
+require `ISSUE_RECOVERY_CODES_V1`. Protocol failures retain
+`COMPLETION_EVIDENCE_V1`, now including causal and voice nesting. The guard is
+inside hosted `IssueReportSubmission`; native authenticated GitHub reporting
+continues to validate and render locally without depending on hosted readiness.
+The real readiness document is 813 bytes against the retained 1,024-byte bound.
+Freshly compiled production report/submission sources passed all 28 submission
+tests, including the 61 supported location/code combinations. All 53 reporter
+HTTP/contract tests passed. Suite and fixture counts overlap and are not a
+combined unique-test total.
+
+The map integration review also reproduced a never-indexed revision being shown
+as an empty indexed map: its status now carries revision metadata, which the
+ViewModel previously treated as proof that an architecture query was available.
+The follow-up preserves `NOT_INDEXED` as a distinct state and keeps real indexed
+empty results separate. It also clears stale map/search cursors after refresh or
+snapshot eviction between status and architecture reads. Five real-ViewModel
+host checks passed with HTTP/lifecycle boundaries isolated; four added repository
+regressions remain subject to the full Android suite. Index admission, scope,
+pagination and coverage rules retain their existing production contracts.
+
+After reconciling the voice follow-up, the combined canonical host gate passed
+509 tests. The four authentication/report modules passed 100 tests. Generated
+source inventories, diagnostic schema and whitespace checks are current; hosted
+Android, CodeQL, emulator and applicable packaging gates remain required on the
+final shared head.

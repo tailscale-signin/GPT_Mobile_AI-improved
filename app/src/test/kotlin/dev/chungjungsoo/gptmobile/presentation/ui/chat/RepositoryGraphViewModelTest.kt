@@ -263,6 +263,80 @@ class RepositoryGraphViewModelTest {
         assertEquals(architecture, model.state.value.architecture)
     }
 
+    @Test fun unindexedStatusMetadataDoesNotTriggerArchitectureOrBecomeAnEmptyIndex() = runTest {
+        val missing = json("""{"status":"NOT_INDEXED","graph":{"repository":"owner/repo","branch":"main","commit_sha":"${context.commitSha}","processing_complete":false,"coverage_complete":false,"complete":false}}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(missing)
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        assertEquals(missing, model.state.value.result)
+        assertEquals("NOT_INDEXED", model.state.value.indexStatus?.graphText("status"))
+        assertNull(model.state.value.architecture)
+        assertNull(model.state.value.visibleMap)
+        assertNull(model.state.value.error)
+        coVerify(exactly = 0) { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) }
+    }
+
+    @Test fun completeEmptyIndexStillLoadsItsRealArchitecture() = runTest {
+        val saved = json("""{"has_more":false,"graph":{"commit_sha":"${context.commitSha}","processing_complete":true,"coverage_complete":true,"complete":true}}""")
+        val empty = json("""{"nodes":[],"edges":[],"has_more":false,"graph":{"commit_sha":"${context.commitSha}","complete":true}}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(saved)
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns response(empty, "architecture")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        assertEquals(empty, model.state.value.visibleMap)
+        assertTrue(repositoryGraphPresentation(model.state.value.visibleMap).nodes.isEmpty())
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) }
+    }
+
+    @Test fun aSnapshotLostBetweenStatusAndArchitectureRemainsUnindexed() = runTest {
+        val saved = json("""{"has_more":true,"index_cursor":"stale-index-cursor","graph":{"commit_sha":"${context.commitSha}"}}""")
+        val missing = json("""{"status":"NOT_INDEXED","graph":{"commit_sha":"${context.commitSha}","complete":false}}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(saved)
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns response(missing, "architecture")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        assertEquals(missing, model.state.value.result)
+        assertEquals(missing, model.state.value.indexStatus)
+        assertEquals("architecture", model.state.value.resultOperation)
+        assertNull(model.state.value.visibleMap)
+        assertNull(model.state.value.indexCursor)
+        assertFalse(model.state.value.indexingPaused)
+        assertNull(model.state.value.error)
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) }
+    }
+
+    @Test fun unindexedRefreshDiscardsThePriorSearchPageAndItsSavedCursors() = runTest {
+        val first = json("""{"nodes":[{"id":"one"}],"has_more":true,"next_cursor":"page-two"}""")
+        val second = json("""{"nodes":[{"id":"two"}],"has_more":true,"next_cursor":"page-three"}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "query" }, any(), any()) } coAnswers {
+            response(if (secondArg<JsonObject>().graphText("result_cursor") == "page-two") second else first, "query")
+        }
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.searchMap("symbol")
+        advanceUntilIdle()
+        model.nextMapPage()
+        advanceUntilIdle()
+        assertEquals(1, model.state.value.mapPage)
+        val missing = json("""{"status":"NOT_INDEXED","graph":{"commit_sha":"${context.commitSha}","complete":false}}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(missing)
+        model.request("status")
+        advanceUntilIdle()
+        assertNull(model.state.value.visibleMap)
+        assertNull(model.state.value.mapNextCursor)
+        assertEquals(0, model.state.value.mapPage)
+        assertEquals("", model.state.value.mapQuery)
+        model.previousMapPage()
+        model.nextMapPage()
+        advanceUntilIdle()
+        coVerify(exactly = 2) { graphs.executeForMap(context, match { it.graphText("action") == "query" }, any(), any()) }
+        coVerify(exactly = 0) { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) }
+    }
+
     @Test fun mainMapSearchUsesTheBackendAndPreservesItsQueryAcrossServerPages() = runTest {
         val first = json("""{"nodes":[{"id":"one","qualified":"Hidden.method"}],"has_more":true,"next_cursor":"page-two","total_matches":2}""")
         val second = json("""{"nodes":[{"id":"two","qualified":"Hidden.other"}],"has_more":false,"total_matches":2}""")

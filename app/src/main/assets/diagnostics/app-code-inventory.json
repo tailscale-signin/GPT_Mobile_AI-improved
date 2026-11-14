@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2163a6b966b9e0fbd73c33cd3debf91221dd8b2f5b14e431cc925978d014519d",
+  "source_digest": "0b4aee5e34759db49d2c3a8a823429fef6da1d3dec66a110a96866ccadb956b1",
   "file_count": 2581,
-  "indexed_line_count": 414118,
+  "indexed_line_count": 414147,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 550,
-      "indexed_line_count": 95819
+      "indexed_line_count": 95836
     },
     {
       "id": "accessibility_and_localization",
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 12897
+      "indexed_line_count": 12909
     },
     {
       "id": "benchmark",
@@ -5638,8 +5638,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "71d02f27c58e7430d61a7aa2d7e8d514c00517872b9bc58a9c2bbe600457f0e8",
-      "indexed_lines": 176
+      "sha256": "416f4d18228f07387c3388f1bfafa11f597cd77877a5377e72da2996376ecbd6",
+      "indexed_lines": 188
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorker.kt",
@@ -13506,8 +13506,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/RepositoryGraphViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "7d0f825d716ccfa2426ad9214113dbe7140ac986020453ab99f1a5d0e45028cd",
-      "indexed_lines": 349
+      "sha256": "5b4d6e8867419d0f8c7619416279c5b045404dce71807f0a2b7979e64dc35b07",
+      "indexed_lines": 366
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ResearchAttemptProgressCard.kt",
@@ -17139,7 +17139,7 @@
       "path": "authentication/issue_report_app.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "ac75fff07f47d5695f195c8f76e28ca36e7ac1dec081dc77b6d3c13497973845",
+      "sha256": "67aa147eef6cc8b120c09983dfeec009df86be2e81ac2b5efd04866ee868f1d8",
       "indexed_lines": 80
     },
     {

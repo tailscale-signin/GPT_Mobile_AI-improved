@@ -134,6 +134,102 @@ class IssueReportSubmissionTest {
         }
     }
 
+    @Test fun recoveryAndProtocolCodesWaitForServiceSupportInEveryAllowedReportLocation() {
+        val recoveryCodes = listOf(
+            "TOOL_BUDGET_EXHAUSTED",
+            "VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED",
+            "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED",
+            "SOURCE_REVISION_REQUIRED", "SOURCE_REVISION_CHANGED",
+            "VALIDATION_REVISION_UNAVAILABLE", "VALIDATION_RUNTIME_UNAVAILABLE", "ENGINEERING_REPOSITORY_ACCESS_REQUIRED"
+        )
+        val locations = listOf("errorCode", "originalFailureCode", "events", "provider_failure_code", "causal_failure_code", "voice_chat_failure_code")
+        var retainedFixtures = 0
+        for (code in recoveryCodes + "TOOL_PROTOCOL_INVALID_FRAME") {
+            val feature = if (code in recoveryCodes) "ISSUE_RECOVERY_CODES_V1" else "COMPLETION_EVIDENCE_V1"
+            for (location in locations) {
+                val context = when (location) {
+                    "errorCode", "events" -> null
+                    "originalFailureCode" -> IssueReportContext.fromFields(
+                        "CHAT_FAILURE",
+                        mapOf("failure_origin" to "local_recovery", "recovery_code" to "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "original_interruption" to mapOf("code" to code)),
+                        1_000L
+                    ).also { assertEquals(code, it.originalFailureCode) }
+                    else -> {
+                        val area = when (location) {
+                            "provider_failure_code" -> "PROVIDER"
+                            "voice_chat_failure_code" -> "VOICE"
+                            else -> "INCIDENT"
+                        }
+                        IssueReportContext.fromFields(if (area == "VOICE") "VOICE_STATE" else "CHAT_FAILURE", mapOf("diagnostic_area" to area, location to code), 1_000L)
+                    }
+                }
+                if (location == "provider_failure_code" && code in recoveryCodes) {
+                    assertFalse(requireNotNull(context?.diagnostics).values.containsKey(location))
+                    continue
+                }
+                if (location.endsWith("_failure_code")) assertEquals(JsonPrimitive(code), context?.diagnostics?.values?.get(location))
+                val approved = when (location) {
+                    "errorCode" -> report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = code)
+                    "events" -> report.copy(events = listOf("-1ms E tools $code"))
+                    else -> report.copy(context = context)
+                }
+                val payload = approved.approvedPayload()
+                val requiredFeatures = context?.diagnostics?.requiredServiceFeatures().orEmpty() + feature
+                var supported = false
+                var dispatched = 0
+                val methods = mutableListOf<String>()
+                val posted = mutableListOf<String>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    methods += request.method
+                    if (request.method == "GET") {
+                        val features = JsonArray(requiredFeatures.filter { supported || it != feature }.map(::JsonPrimitive))
+                        response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                    } else {
+                        posted += body(request)
+                        response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                    }
+                }.build()
+                val submission = IssueReportSubmission(origin, client)
+                val blocked = submission.send(report.reportId, payload) { dispatched++ }
+                assertTrue("$code at $location must wait before dispatch: $methods", blocked is IssueReportSubmission.Failure)
+                blocked as IssueReportSubmission.Failure
+                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+                assertTrue(blocked.retryable)
+                assertFalse(blocked.automaticRetry)
+                assertEquals(listOf("GET"), methods)
+                assertEquals(0, dispatched)
+                assertTrue(posted.isEmpty())
+                assertEquals(payload, approved.approvedPayload())
+                supported = true
+                assertEquals(IssueReportSubmission.Confirmed(941), submission.send(report.reportId, payload) { dispatched++ })
+                assertEquals(listOf("GET", "GET", "POST"), methods)
+                assertEquals(1, dispatched)
+                assertEquals(listOf(payload), posted)
+                retainedFixtures++
+            }
+        }
+        assertEquals(61, retainedFixtures)
+    }
+
+    @Test fun establishedFailureCodesRemainDeliverableWithoutNewServiceCapabilities() {
+        for (code in listOf("TOOL_FAILURE", "ENGINEERING_STATE_OR_INPUT_CHANGED")) {
+            val approved = report.copy(source = "debug", title = null, description = null, feature = "tools", errorCode = code, events = listOf("-1ms E tools $code"))
+            val payload = approved.approvedPayload()
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                posted += body(request)
+                response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+            }.build()
+            assertEquals(IssueReportSubmission.Confirmed(941), IssueReportSubmission(origin, client).send(report.reportId, payload))
+            assertEquals(listOf("POST"), methods)
+            assertEquals(listOf(payload), posted)
+        }
+    }
+
     @Test fun preparingVoiceRequiresServiceSupportBeforePostingApprovedBytes() {
         val context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_engine" to "KOKORO", "voice_phase" to "PREPARING"), 1_000L)
         val enriched = report.copy(context = context)

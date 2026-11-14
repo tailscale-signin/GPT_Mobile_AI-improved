@@ -286,5 +286,35 @@
       ]
     }
   },
-  "previous_checkpoint_source_sha": "2f7d5826c4ab043c628fae5f54caf32cdd8349d3"
+  "previous_checkpoint_source_sha": "2f7d5826c4ab043c628fae5f54caf32cdd8349d3",
+  "independent_reporter_map_review": {
+    "base_sha": "b279eddfe41edd23602aacd811c881defa3b1aea",
+    "state": "PENDING_FINAL_SHARED_HEAD_QUALIFICATION",
+    "reporter_compatibility": {
+      "valid_payloads": 61,
+      "old_service_terminal_failures_before": 57,
+      "held_before_dispatch_after": 61,
+      "provider_enum_filtered": 11,
+      "client_submission_tests_passed": 28,
+      "reporter_http_tests_passed": 53,
+      "readiness_bytes": 813,
+      "readiness_limit_bytes": 1024,
+      "hosted_capability": "ISSUE_RECOVERY_CODES_V1",
+      "approved_bytes_preserved": true,
+      "native_github_route_unchanged": true
+    },
+    "python_graph_tests_passed": 44,
+    "planner_status_host_tests_passed": 125,
+    "map_state_regression": "NOT_INDEXED revision metadata must not imply an existing empty architecture map",
+    "limits": [
+      "Host suites do not replace final Android, CodeQL and emulator qualification.",
+      "Physical device and private-provider incidents remain unverified without matching live evidence."
+    ],
+    "map_viewmodel_host_checks_passed": 5,
+    "map_repository_regressions_added": 4,
+    "map_repository_regressions_ci": "PENDING_FINAL_SHARED_HEAD",
+    "integration_parent": "b1a0ea71ce748a04d50b0d85fa4c301032c57107",
+    "combined_canonical_host_tests_passed": 509,
+    "combined_auth_reporter_tests_passed": 100
+  }
 }

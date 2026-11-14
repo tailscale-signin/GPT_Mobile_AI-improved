@@ -139,9 +139,34 @@ internal object ToolFailureMetadata {
             put("phase", if (normalized.dispatched) "tool_execution" else "tool_precheck")
             put("retryable", retryable(classified))
             put("requires_reconciliation", normalized.errorCode in ToolResultEnvelope.unknownOutcomeCodes)
+            if (observedGitHubPrecheck(classified)) put("failed_stage", "tool_precheck")
         }
         // Domain receipts carry stronger remote-state evidence and must keep every existing field.
         return normalized.copy(executionReceipt = JsonObject(fields + classified.executionReceipt.orEmpty()))
+    }
+
+    /** Translate the observed GitHub phase without inferring a stage from non-dispatch alone. */
+    private fun observedGitHubPrecheck(result: AgentToolResult): Boolean {
+        val observed = result.executionReceipt ?: return false
+        if (!result.isError ||
+            result.dispatched ||
+            result.errorCode in ToolResultEnvelope.unknownOutcomeCodes ||
+            observed["schema"] != JsonPrimitive("github.dispatch.v1") ||
+            observed["phase"] != JsonPrimitive("PREFLIGHT_REJECTED") ||
+            observed["requires_reconciliation"] != JsonPrimitive(false)
+        ) {
+            return false
+        }
+        if (listOf("failed_stage", "failedStage", "failurePhase", "stage", "authority_failed_stage").any { it in observed }) return false
+        if (listOf("dispatched", "requiresReconciliation", "command_outcome_unknown", "remote_outcome_unknown").any { it in observed && observed[it] != JsonPrimitive(false) }) return false
+        if (listOf("remote_acceptance", "remoteAcceptance").any { it in observed && observed[it] != JsonPrimitive("NO") }) return false
+        if (listOf("error_code", "cause_code", "causal_failure_code").any { (observed[it] as? JsonPrimitive)?.content in ToolResultEnvelope.unknownOutcomeCodes }) return false
+        val rejectedStates = setOf(JsonPrimitive("NOT_DISPATCHED"), JsonPrimitive("PRECHECK_REJECTED"), JsonPrimitive("PREFLIGHT_REJECTED"))
+        if (listOf("execution_state", "executionState", "dispatch_state", "dispatchState", "attempt_dispatch_state", "state", "outcome").any { it in observed && observed[it] !in rejectedStates }) return false
+        return listOf(
+            "read_requests", "read_response_observations", "recovered_read_requests", "read_http_failures", "unobserved_read_requests", "observation_mismatches",
+            "mutation_requests", "accepted_mutations", "rejected_mutations", "unknown_mutations"
+        ).all { observed[it] == JsonPrimitive(0) }
     }
 
     fun retryable(result: AgentToolResult): Boolean = result.isError &&

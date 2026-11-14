@@ -1,9 +1,20 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.provider.OpenAICompatibleAdapter
+import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAttachmentEncoder
+import dev.chungjungsoo.gptmobile.data.agent.provider.RequestConstraints
+import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatCompletionRequest
+import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
 import dev.chungjungsoo.gptmobile.data.dto.openai.request.ResponsesRequest
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatCompletionChunk
+import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseCompletedEvent
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponseGatewayMetadataEvent
+import dev.chungjungsoo.gptmobile.data.model.ClientType
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.mock.MockEngine
 import io.ktor.client.engine.mock.respond
@@ -15,12 +26,17 @@ import io.ktor.http.headersOf
 import io.mockk.every
 import io.mockk.mockk
 import java.net.UnknownHostException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -184,9 +200,88 @@ class OpenAIRecoveryTransportTest {
         }
     }
 
+    @Test fun transientHttp502RecoversInsideTransportBeforeAnAdapterFailure() = runTest {
+        var attempts = 0
+        withApi(
+            MockEngine {
+                if (++attempts == 1) {
+                    respond("""{"error":{"message":"Temporarily unavailable"}}""", HttpStatusCode.BadGateway, headersOf(HttpHeaders.RetryAfter, "0"))
+                } else {
+                    respond("""{"choices":[{"message":{"content":"Recovered after HTTP 502"}}]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                }
+            }
+        ) { api ->
+            val chunks = api.streamChatCompletion(request, 5, config).toList()
+            assertEquals(2, attempts)
+            assertEquals("Recovered after HTTP 502", chunks.single { it.choices != null }.choices!!.single().effectiveDelta.content)
+            assertEquals(listOf(1), chunks.mapNotNull { it.retryAttempts })
+            assertTrue(chunks.none { it.error != null })
+        }
+    }
+
+    // The real producer uses Dispatchers.IO; keep the adapter deadline on real time too.
+    @Test fun ollamaRecoversAfterBoundedHttpAttemptsOnlyWithTheActualProducerReplayGrant() = runBlocking {
+        for (status in listOf(HttpStatusCode.BadGateway, HttpStatusCode.ServiceUnavailable, HttpStatusCode.GatewayTimeout)) {
+            val profile = PlatformV2(
+                uid = "ollama-http-${status.value}",
+                name = "Ollama",
+                compatibleType = ClientType.OLLAMA,
+                apiUrl = "https://ollama-${status.value}.$fixtureHost/v1/",
+                model = "selected-model",
+                timeout = 30
+            )
+            val wireUrls = mutableListOf<String>()
+            val wireModels = mutableListOf<String>()
+            withApi(
+                MockEngine { outgoing ->
+                    wireUrls += outgoing.url.toString()
+                    wireModels += NetworkClient.json.parseToJsonElement((outgoing.body as TextContent).text).jsonObject.getValue("model").jsonPrimitive.content
+                    check(wireUrls.size <= 4) { "Recovery dispatched more than the three failed attempts and one success" }
+                    if (wireUrls.size <= 3) {
+                        respond("""{"error":{"message":"Temporarily unavailable"}}""", status, headersOf(HttpHeaders.RetryAfter, "0"))
+                    } else {
+                        respond("""{"choices":[{"index":0,"message":{"role":"assistant","content":"Recovered after HTTP ${status.value}"},"finish_reason":"stop"}]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+                    }
+                }
+            ) { api ->
+                val failures = mutableListOf<ErrorDetail>()
+                val configs = mutableListOf<ProviderRequestConfig>()
+                val observingApi = object : OpenAIAPI by api {
+                    override fun streamChatCompletion(request: ChatCompletionRequest, timeoutSeconds: Int, config: ProviderRequestConfig): Flow<ChatCompletionChunk> {
+                        configs += config
+                        assertTrue(timeoutSeconds in 1..30)
+                        return api.streamChatCompletion(request, timeoutSeconds, config).onEach { chunk -> chunk.error?.let(failures::add) }
+                    }
+                }
+                val encoder = object : ProviderAttachmentEncoder(null as android.content.Context?) {
+                    override fun gatewayPerformanceHeaders(): Map<String, String> = emptyMap()
+                    override suspend fun openAIChatMessages(turns: List<ConversationTurn>, systemPrompt: String?): List<ChatMessage> = request.messages
+                }
+                val turns = listOf(ConversationTurn(MessageV2(content = "Transport fixture request.", platformType = null), null, isCurrentTurn = true))
+                val events = OpenAICompatibleAdapter(observingApi, mockk<GroqAPI>(), encoder)
+                    .openSession(turns, profile, RequestConstraints(lockSelectedRoute = true))
+                    .streamRound(emptyList(), emptyList()).toList()
+                val failure = failures.single()
+                assertEquals(status.value.toString(), failure.code)
+                assertEquals(true, failure.retryable)
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(status.value), failure.failureDetails?.get("http_status"))
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(true), failure.failureDetails?.get("request_replay_allowed"))
+                assertEquals(kotlinx.serialization.json.JsonPrimitive(true), failure.failureDetails?.get("retryable"))
+                assertNull(failure.providerLimit)
+                assertEquals(2, configs.size)
+                assertTrue(configs.all { it.apiUrl == profile.apiUrl })
+                assertEquals(List(4) { profile.apiUrl + "chat/completions" }, wireUrls)
+                assertEquals(List(4) { profile.model }, wireModels)
+                assertEquals("Recovered after HTTP ${status.value}", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+                assertFalse(events.any { it is ProviderEvent.Failed })
+                assertEquals(1, events.count { it == ProviderEvent.Completed })
+            }
+        }
+    }
+
     @Test fun boundedHttpRetriesRetainKnownProviderFailureInBothTransports() = runTest {
         for (responses in listOf(false, true)) {
-            for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.ServiceUnavailable)) {
+            for (status in listOf(HttpStatusCode.TooManyRequests, HttpStatusCode.BadGateway, HttpStatusCode.ServiceUnavailable)) {
                 var attempts = 0
                 val isolated = config.copy(apiUrl = "https://http-${status.value}-$responses.$fixtureHost/v1/")
                 withApi(

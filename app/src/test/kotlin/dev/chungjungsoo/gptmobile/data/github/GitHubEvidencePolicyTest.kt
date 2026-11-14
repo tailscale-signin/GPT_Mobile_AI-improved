@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -22,6 +23,7 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -233,6 +235,86 @@ class GitHubEvidencePolicyTest {
         val (text) = GitHubEvidencePolicy.partial(mapOf("r" to agedReceipt), 2_000_000, 1, task, "GITHUB_EXTRACTION_TIMEOUT")
         assertTrue(text.contains("Historical observation"))
         assertTrue(text.contains("As of (UTC)"))
+    }
+
+    @Test fun freshnessPredicatesDistinguishTimestampAgeAndEpochBoundaries() {
+        val claim = json("""{"receipt_id":"r","pointer":"/count","value":3}""")
+        val receipt = json("""{"trusted":true,"success":true,"observed_at_ms":80000,"epoch":7,"result":{"count":3}}""")
+        data class Case(val timestamp: Long, val epoch: Long, val status: String, val predicates: List<String>)
+        val cases = listOf(
+            Case(80_000, 7, "VERIFIED", emptyList()),
+            Case(79_999, 7, "STALE", listOf("MUTABLE_AGE_EXCEEDED")),
+            Case(200_000, 6, "STALE", listOf("MUTABLE_EPOCH_MISMATCH")),
+            Case(79_999, 6, "STALE", listOf("MUTABLE_AGE_EXCEEDED", "MUTABLE_EPOCH_MISMATCH")),
+            Case(200_001, 6, "STALE", listOf("OBSERVATION_TIME_FUTURE")),
+            Case(0, 6, "STALE", listOf("OBSERVATION_TIME_UNAVAILABLE")),
+            Case(Long.MIN_VALUE, 6, "STALE", listOf("OBSERVATION_TIME_UNAVAILABLE"))
+        )
+        assertEquals(120_000L, GitHubEvidencePolicy.MAX_AGE_MS)
+        for (case in cases) {
+            val input = JsonObject(receipt + mapOf("observed_at_ms" to JsonPrimitive(case.timestamp), "epoch" to JsonPrimitive(case.epoch)))
+            val checked = GitHubEvidencePolicy.verify(claim, mapOf("r" to input), 200_000, 7)
+            assertEquals(case.toString(), JsonPrimitive(case.status), checked["status"])
+            assertEquals(case.toString(), JsonArray(case.predicates.map(::JsonPrimitive)), checked["freshness_predicates"])
+        }
+        for (raw in listOf(null, "null", "{}", "[]", "true", "\"private-invalid-time\"", "-1")) {
+            val input = JsonObject(receipt - "observed_at_ms" + raw?.let { mapOf("observed_at_ms" to Json.parseToJsonElement(it)) }.orEmpty())
+            val checked = GitHubEvidencePolicy.verify(claim, mapOf("r" to input), 200_000, 7, allowHistorical = true)
+            assertEquals(JsonPrimitive("STALE"), checked["status"])
+            assertEquals(JsonPrimitive("OBSERVATION_TIME_UNKNOWN"), checked["reason"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("OBSERVATION_TIME_UNAVAILABLE"))), checked["freshness_predicates"])
+        }
+    }
+
+    @Test fun freshnessAnnotationsPreserveImmutableHistoricalAndContradictedDecisions() {
+        val claim = json("""{"receipt_id":"r","pointer":"/count","value":3}""")
+        val receipt = json("""{"trusted":true,"success":true,"observed_at_ms":1000,"epoch":0,"result":{"count":3}}""")
+        val historical = GitHubEvidencePolicy.verify(claim, mapOf("r" to receipt), 200_000, 1, allowHistorical = true)
+        assertEquals(JsonPrimitive("HISTORICAL"), historical["status"])
+        assertEquals(JsonPrimitive("HISTORICAL_OBSERVATION"), historical["reason"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("MUTABLE_AGE_EXCEEDED"), JsonPrimitive("MUTABLE_EPOCH_MISMATCH"))), historical["freshness_predicates"])
+        val immutable = JsonObject(receipt + ("immutable" to JsonPrimitive(true)))
+        val verified = GitHubEvidencePolicy.verify(claim, mapOf("r" to immutable), 200_000, 1)
+        assertEquals(JsonPrimitive("VERIFIED"), verified["status"])
+        assertEquals(JsonArray(emptyList()), verified["freshness_predicates"])
+        for (tool in listOf("github_pr", "github_issue")) {
+            val stable = JsonObject(receipt + mapOf("tool" to JsonPrimitive(tool), "result" to json("""{"number":42}""")))
+            val checked = GitHubEvidencePolicy.verify(json("""{"receipt_id":"r","pointer":"/number","value":42}"""), mapOf("r" to stable), 200_000, 1)
+            assertEquals(JsonPrimitive("VERIFIED"), checked["status"])
+            assertEquals(JsonArray(emptyList()), checked["freshness_predicates"])
+        }
+        val future = JsonObject(immutable + ("observed_at_ms" to JsonPrimitive(200_001)))
+        val unknown = GitHubEvidencePolicy.verify(claim, mapOf("r" to future), 200_000, 1, allowHistorical = true)
+        assertEquals(JsonPrimitive("STALE"), unknown["status"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("OBSERVATION_TIME_FUTURE"))), unknown["freshness_predicates"])
+        val contradiction = JsonObject(claim + ("value" to JsonPrimitive(4)))
+        val contradictedFuture = GitHubEvidencePolicy.verify(contradiction, mapOf("r" to future), 200_000, 1)
+        assertEquals(JsonPrimitive("CONTRADICTED"), contradictedFuture["status"])
+        assertEquals(JsonPrimitive("OBSERVATION_TIME_UNKNOWN"), contradictedFuture["reason"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("OBSERVATION_TIME_FUTURE"))), contradictedFuture["freshness_predicates"])
+        val contradictedOld = GitHubEvidencePolicy.verify(contradiction, mapOf("r" to receipt), 200_000, 1)
+        assertEquals(JsonPrimitive("CONTRADICTED"), contradictedOld["status"])
+        assertEquals(JsonPrimitive("VALUE_MISMATCH"), contradictedOld["reason"])
+        assertEquals(JsonArray(emptyList()), contradictedOld["freshness_predicates"])
+    }
+
+    @Test fun unmeasuredClaimsDoNotAttributeReceiptFailuresToFreshness() {
+        val claim = json("""{"receipt_id":"r","pointer":"/count","value":3}""")
+        val receipt = json("""{"trusted":true,"success":true,"observed_at_ms":200001,"epoch":0,"result":{"count":3}}""")
+        val cases = listOf(
+            claim to emptyMap(),
+            claim to mapOf("r" to JsonObject(receipt + ("trusted" to JsonPrimitive(false)))),
+            claim to mapOf("r" to JsonObject(receipt + ("success" to JsonPrimitive(false)))),
+            claim to mapOf("r" to JsonObject(receipt + ("verification_eligible" to JsonPrimitive(false)))),
+            JsonObject(claim - "value") to mapOf("r" to receipt),
+            JsonObject(claim + ("pointer" to JsonPrimitive("/missing"))) to mapOf("r" to receipt),
+            JsonObject(claim + ("field_type" to JsonPrimitive("private-wrong-type"))) to mapOf("r" to receipt)
+        )
+        for ((input, receipts) in cases) {
+            val checked = GitHubEvidencePolicy.verify(input, receipts, 200_000, 1)
+            assertEquals(JsonPrimitive("NOT_MEASURED"), checked["status"])
+            assertNull(checked["freshness_predicates"])
+        }
     }
 
     @Test fun savedReviewLabelsOldPrAndCiFactsButOnlyRefreshesThemWhenCurrentStatusWasRequested() {

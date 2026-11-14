@@ -24,6 +24,65 @@ class IssueReportSubmissionTest {
         .apply { retryAfter?.let { header("Retry-After", it) } }.body(body.toResponseBody("application/json".toMediaType())).build()
     private fun body(request: Request) = Buffer().also { request.body?.writeTo(it) }.readUtf8()
 
+    @Test fun newEvidenceValuesAndOmittedNamesWaitForCompatibleReporterWithoutChangingApproval() {
+        var fixtures = 0
+        for ((feature, family) in listOf("HANDOFF_RECONCILIATION_EVIDENCE_V1" to IssueReportIncidentCapsule.handoffReconciliationFields, "CHAT_DELIVERY_EVIDENCE_V1" to IssueReportIncidentCapsule.chatDeliveryFields, "CLAIM_FRESHNESS_EVIDENCE_V1" to IssueReportIncidentCapsule.claimFreshnessFields)) {
+            val area = if (feature == "CLAIM_FRESHNESS_EVIDENCE_V1") "ACCEPTANCE" else "INCIDENT"
+            val fields = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "RECONCILIATION_REQUIRED", mapOf("diagnostic_area" to area))
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+            val base = requireNotNull(context.diagnostics)
+            for (key in family) {
+                val value = when {
+                    key == "acceptance_claim_freshness_predicates" -> JsonArray(emptyList())
+                    key.endsWith("_hash") -> JsonPrimitive("a".repeat(64))
+                    key == "handoff_checkpoint_state" -> JsonPrimitive("TOOL_HANDOFF")
+                    key == "handoff_durable_lookup" -> JsonPrimitive("RETURNED_EMPTY")
+                    key == "chat_delivery_terminal" -> JsonPrimitive("DONE")
+                    key == "chat_delivery_answer_state" -> JsonPrimitive("EMPTY_CONTENT")
+                    key == "chat_delivery_counts_capped" -> JsonPrimitive(false)
+                    else -> JsonPrimitive(0)
+                }
+                for (omitted in listOf(false, true)) {
+                    val diagnostics = if (omitted) base.copy(omittedFields = listOf(key)) else base.copy(values = base.values + (key to value))
+                    val approved = report.copy(context = context.withDiagnostics(diagnostics))
+                    val payload = approved.approvedPayload()
+                    val requiredFeatures = diagnostics.requiredServiceFeatures()
+                    assertTrue("$key omitted=$omitted", feature in requiredFeatures)
+                    var supported = false
+                    var dispatched = 0
+                    val methods = mutableListOf<String>()
+                    val posted = mutableListOf<String>()
+                    val client = OkHttpClient.Builder().addInterceptor { chain ->
+                        val request = chain.request()
+                        methods += request.method
+                        if (request.method == "GET") {
+                            val features = JsonArray(requiredFeatures.filter { supported || it != feature }.map(::JsonPrimitive))
+                            response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                        } else {
+                            posted += body(request)
+                            response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                        }
+                    }.build()
+                    val submission = IssueReportSubmission(origin, client)
+                    val blocked = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+                    assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+                    assertFalse(blocked.automaticRetry)
+                    assertEquals(listOf("GET"), methods)
+                    assertEquals(0, dispatched)
+                    assertTrue(posted.isEmpty())
+                    assertEquals(payload, approved.approvedPayload())
+                    supported = true
+                    assertEquals(IssueReportSubmission.Confirmed(941), submission.send(report.reportId, payload) { dispatched++ })
+                    assertEquals(listOf("GET", "GET", "POST"), methods)
+                    assertEquals(1, dispatched)
+                    assertEquals(listOf(payload), posted)
+                    fixtures++
+                }
+            }
+        }
+        assertEquals(42, fixtures)
+    }
+
     @Test fun newDiagnosticEvidenceRequiresMatchingServiceBeforePostingTheUnchangedApprovedPayload() {
         for ((feature, evidence) in listOf(
             "GITHUB_SCHEMA_BUDGET_EVIDENCE_V1" to mapOf("required_schema_tokens" to 5000, "available_schema_tokens" to 0),
@@ -41,11 +100,15 @@ class IssueReportSubmissionTest {
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_pending_reason" to "CONNECTIVITY"),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND"),
             "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "PROVIDER_ADAPTER_STREAM_CATCH", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY"),
-            "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_REPOSITORY_ERROR_VALUE", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY")
+            "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_REPOSITORY_ERROR_VALUE", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY"),
+            "CHAT_DELIVERY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_FLOW_EMPTY_ANSWER"),
+            "CLAIM_FRESHNESS_EVIDENCE_V1" to mapOf("acceptance_claim_freshness_predicates" to listOf("MUTABLE_AGE_EXCEEDED", "MUTABLE_EPOCH_MISMATCH"))
         )) {
             val area = when (feature) {
                 "ACCEPTANCE_SCOPE_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1", "GITHUB_GRAPH_POLICY_EVIDENCE_V1", "ACCEPTANCE_RECOVERY_EVIDENCE_V1" -> "ACCEPTANCE"
+                "CLAIM_FRESHNESS_EVIDENCE_V1" -> "ACCEPTANCE"
                 "VOICE_INSTALL_EVIDENCE_V1" -> "VOICE"
+                "CHAT_DELIVERY_EVIDENCE_V1" -> "INCIDENT"
                 else -> "PROVIDER"
             }
             val context = IssueReportContext.fromFields(if (area == "VOICE") "VOICE_STATE" else "CHAT_FAILURE", evidence + ("diagnostic_area" to area), 1_000L)

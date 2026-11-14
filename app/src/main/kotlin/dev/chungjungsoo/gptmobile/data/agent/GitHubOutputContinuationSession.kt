@@ -95,7 +95,8 @@ internal class GitHubOutputContinuationSession(
         val evidence = continuationEvidenceDigests(exchanges)
         val evidenceDigest = evidence.full
         val providerEvidenceDigest = evidence.provider
-        val previous = loadCheckpointForRound(evidence.receipts, providerEvidenceDigest)
+        val loaded = loadCheckpointForRound(evidence.receipts, providerEvidenceDigest)
+        val previous = loaded.checkpoint
         val reconciled = reconciledCallIds()
         val sameEvidence = if (previous?.get("state") == JsonPrimitive("WAITING_PROVIDER_LIMIT")) {
             providerCheckpointValidated || previous["provider_evidence_digest"] == JsonPrimitive(providerEvidenceDigest)
@@ -164,6 +165,7 @@ internal class GitHubOutputContinuationSession(
                         put("user_input_required", false)
                         put("next_action", "RECONCILE_TOOL_RECEIPTS")
                         put("dispatched", false)
+                        loaded.handoffEvidence?.forEach { (key, value) -> put(key, value) }
                     }
                 )
             )
@@ -446,7 +448,7 @@ internal class GitHubOutputContinuationSession(
     private suspend fun loadCheckpointForRound(
         replayReceipts: List<ToolHandoffReceipt>,
         providerEvidenceDigest: String
-    ): JsonObject? = checkpointMutex.withLock {
+    ): LoadedCheckpoint = checkpointMutex.withLock {
         val saved = readCheckpoint() ?: currentCheckpoint
         if (!providerCheckpointValidated && expectedProviderCheckpoint != null) {
             val resume = kotlinx.coroutines.currentCoroutineContext()[GitHubProviderResumeContext]
@@ -473,15 +475,27 @@ internal class GitHubOutputContinuationSession(
         }
         if (saved == null || saved["state"] !in GitHubToolHandoff.states) {
             currentCheckpoint = saved
-            saved
+            LoadedCheckpoint(saved)
         } else {
             val durable = durableToolReceipts(GitHubToolHandoff.pending(saved))
             val updated = GitHubToolHandoff.reconcile(saved, replayReceipts + durable, reconciledCallIds())
             if (updated != saved) saveCheckpoint(updated)
             currentCheckpoint = updated
-            updated
+            LoadedCheckpoint(
+                updated,
+                GitHubHandoffReconciliationEvidence.capture(
+                    updated,
+                    replayReceipts,
+                    durable,
+                    toolCheckpointBinding,
+                    toolCheckpointEvidenceDigest,
+                    toolCheckpointJournalDigest
+                )
+            )
         }
     }
+
+    private data class LoadedCheckpoint(val checkpoint: JsonObject?, val handoffEvidence: JsonObject? = null)
 
     /** Replay may regroup or omit consumed calls; only durable source identities may prove that change safe. */
     private fun providerBoundaryMatches(saved: List<JsonObject>, replay: List<ToolHandoffReceipt>, durable: List<ToolHandoffReceipt>, sameReplay: Boolean): Boolean {

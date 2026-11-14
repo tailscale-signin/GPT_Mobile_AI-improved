@@ -133,7 +133,8 @@
     "Repair repository-map paging, structural coverage and source reuse, durable indexing, stage-specific context admission, model-consumption evidence, and negotiated graph/policy report diagnostics.",
     "Retire superseded automatic and latest-revision manual speech without interrupting explicitly selected historical replay, leaking stale callbacks, or restarting capture.",
     "Preserve request-owned voice draft admission across playback, pause and recreation; verify themed transcript controls with required dark, light and large-text render evidence.",
-    "Retain benchmark sandbox ownership before launch and across restart, block further work and installer maintenance until cleanup is confirmed, and preserve measured grading when model-supplied evidence is malformed."
+    "Retain benchmark sandbox ownership before launch and across restart, block further work and installer maintenance until cleanup is confirmed, and preserve measured grading when model-supplied evidence is malformed.",
+    "Diagnose all 44 open reports through #1145, preserve handoff receipt observations and current-collection empty-answer evidence, retain verification-time freshness predicates, and negotiate the closed report families without altering approved bytes or recovery authority."
   ],
   "limitations": [
     "The new keyboard and completion diagnostics require a hosted reporter advertising COMPOSER_IME_EVIDENCE_V1 and COMPLETION_EVIDENCE_V1. Confirm keyboard behavior on the affected Android device and empty model responses on the original route.",
@@ -2735,6 +2736,10 @@
     "gateway/desktop/window_lifecycle.py",
     "scripts/requirements-ci.txt",
     "gateway/tests/test_gateway_benchmark_cleanup.py",
-    "gateway/tests/test_gateway_benchmark_evidence_validation.py"
+    "gateway/tests/test_gateway_benchmark_evidence_validation.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubHandoffReconciliationEvidence.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubHandoffReconciliationEvidenceTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ChatFlowDeliveryObservation.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ChatFlowDeliveryReportTest.kt"
   ]
 }

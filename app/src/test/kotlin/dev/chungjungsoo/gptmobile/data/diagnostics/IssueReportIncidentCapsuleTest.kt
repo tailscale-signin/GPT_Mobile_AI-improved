@@ -1,9 +1,16 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.agent.GitHubHandoffReconciliationEvidence
+import dev.chungjungsoo.gptmobile.data.agent.GitHubToolHandoff
+import dev.chungjungsoo.gptmobile.data.agent.ToolHandoffReceipt
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -13,6 +20,207 @@ import org.junit.Test
 
 class IssueReportIncidentCapsuleTest {
     private val time = 1_800_000_000_000L
+
+    @Test fun handoffProducerProjectsRemainingPendingEvidenceIntoApprovedBytesWithoutRawIdentities() {
+        val checkpoint = buildJsonObject {
+            put("state", "TOOL_HANDOFF")
+            put("pending_calls", JsonArray(listOf("private-settled-invocation", "private-pending-invocation").map(::JsonPrimitive)))
+            put("context", buildJsonObject { put("tool_checkpoint_binding", "private-tool-binding") })
+        }
+        fun receipt(id: String, pending: Boolean) = ToolHandoffReceipt(
+            "private-$id-call",
+            "private-$id-invocation",
+            "a".repeat(64),
+            "b".repeat(64),
+            dispatched = true,
+            errorCode = if (pending) "GATEWAY_OUTCOME_UNKNOWN" else null,
+            requiresReconciliation = pending
+        )
+        val pending = receipt("pending", true)
+        val replay = listOf(pending, receipt("unrelated", false))
+        val durable = listOf(receipt("settled", false), pending)
+        val reconciled = GitHubToolHandoff.reconcile(checkpoint, replay + durable, emptySet())
+        assertEquals(setOf("private-pending-invocation"), GitHubToolHandoff.pending(reconciled))
+        val observed = GitHubHandoffReconciliationEvidence.capture(reconciled, replay, durable, "private-tool-binding", "e".repeat(64), "d".repeat(64))
+        assertEquals(IssueReportIncidentCapsule.handoffReconciliationFields, observed.keys)
+        val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "RECONCILIATION_REQUIRED", observed)
+        val diagnostics = requireNotNull(context.diagnostics)
+        assertEquals("INCIDENT", diagnostics.area)
+        assertEquals(3, diagnostics.schemaVersion)
+        assertEquals(7, context.schemaVersion)
+        observed.forEach { (key, value) -> assertEquals(key, value, diagnostics.values[key]) }
+        assertEquals(JsonPrimitive("TOOL_HANDOFF"), diagnostics.values["handoff_checkpoint_state"])
+        assertEquals(JsonPrimitive("RETURNED_RECEIPTS"), diagnostics.values["handoff_durable_lookup"])
+        assertEquals(JsonPrimitive(2), diagnostics.values["handoff_replay_receipt_count"])
+        assertEquals(JsonPrimitive(2), diagnostics.values["handoff_durable_receipt_count"])
+        for (key in listOf("handoff_replay_matched_count", "handoff_durable_matched_count", "handoff_retained_matched_count")) assertEquals(JsonPrimitive(1), diagnostics.values[key])
+        assertEquals(diagnostics.values["handoff_tool_binding_hash"], diagnostics.values["handoff_saved_tool_binding_hash"])
+        assertTrue("HANDOFF_RECONCILIATION_EVIDENCE_V1" in diagnostics.requiredServiceFeatures())
+        assertNull(context.dispatched)
+        assertNull(context.retryable)
+        assertNull(context.remoteAcceptance)
+        assertNull(context.callIdHash)
+        assertNull(context.invocationIdHash)
+        assertNull(context.exceptionFingerprint)
+        val approved = report(context).approvedPayload()
+        assertFalse(approved.contains("private-"))
+        assertFalse(approved.contains("e".repeat(64)))
+        assertFalse(approved.contains("d".repeat(64)))
+        assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.parseToJsonElement(approved).jsonObject["context"]))
+        assertEquals(approved, IssueReport.json.decodeFromString(IssueReport.serializer(), approved).approvedPayload())
+    }
+
+    @Test fun handoffReconciliationContractRejectsMalformedValuesAndOtherAreas() {
+        val diagnostics = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "RECONCILIATION_REQUIRED", emptyMap()).diagnostics)
+        val fields = IssueReportIncidentCapsule.handoffReconciliationFields
+        assertEquals(11, fields.size)
+        for (key in fields) {
+            val valid = when {
+                key.endsWith("_count") -> listOf(JsonPrimitive(0), JsonPrimitive(1024))
+                key.endsWith("_hash") -> listOf(JsonPrimitive("a".repeat(64)))
+                key == "handoff_checkpoint_state" -> listOf("TOOL_HANDOFF", "TOOL_RESULTS_READY").map(::JsonPrimitive)
+                else -> listOf("RETURNED_EMPTY", "RETURNED_RECEIPTS").map(::JsonPrimitive)
+            }
+            for (value in valid) assertTrue("$key=$value", diagnostics.copy(values = diagnostics.values + (key to value)).isValid())
+            val invalid: List<JsonElement> = listOf(JsonNull, JsonObject(emptyMap()), JsonArray(emptyList()), JsonPrimitive(true), JsonPrimitive("private-value")) + when {
+                key.endsWith("_count") -> listOf(JsonPrimitive(-1), JsonPrimitive(1025), JsonPrimitive("1"), JsonPrimitive(1.5))
+                key.endsWith("_hash") -> listOf(JsonPrimitive("A".repeat(64)), JsonPrimitive("a".repeat(63)), JsonPrimitive(1))
+                else -> listOf(JsonPrimitive(1))
+            }
+            for (value in invalid) assertNull("$key=$value", diagnostics.copy(values = diagnostics.values + (key to value)).validated())
+            for (area in listOf("TOOL", "ACCEPTANCE", "GATEWAY", "PROVIDER", "APP", "VOICE")) {
+                val other = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "RECONCILIATION_REQUIRED", mapOf("diagnostic_area" to area)).diagnostics)
+                assertTrue(other.isValid())
+                assertNull("$area $key value", other.copy(values = other.values + (key to valid.first())).validated())
+                assertNull("$area $key omission", other.copy(omittedFields = listOf(key)).validated())
+            }
+        }
+        assertFalse("HANDOFF_RECONCILIATION_EVIDENCE_V1" in diagnostics.requiredServiceFeatures())
+        assertNull(diagnostics.copy(values = diagnostics.values + ("handoff_tool_binding" to JsonPrimitive("private-binding"))).validated())
+        val omitted = diagnostics.copy(omittedFields = fields.sorted())
+        assertTrue(omitted.isValid())
+        assertTrue("HANDOFF_RECONCILIATION_EVIDENCE_V1" in omitted.requiredServiceFeatures())
+        assertNull(omitted.copy(schemaVersion = 2).validated())
+    }
+
+    @Test fun emptyChatDeliveryPreservesObservedStateAndCountsWithoutInventingThrowableOrDispatch() {
+        val observed = IssueReportIncidentCapsule.boundaryFields(IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_FLOW_EMPTY_ANSWER)
+        for (answer in listOf("EMPTY_CONTENT", "NO_ANSWER_CONTENT", "GITHUB_ANSWER_PENDING")) {
+            val fields = observed + mapOf(
+                "failed_stage" to "delivery", "failure_origin" to "APPLICATION", "chat_delivery_terminal" to "DONE", "chat_delivery_answer_state" to answer,
+                "chat_delivery_content_bytes" to 0, "chat_delivery_thinking_bytes" to 80, "chat_delivery_success_events" to 1,
+                "chat_delivery_tool_events" to 2, "chat_delivery_progress_events" to 3, "chat_delivery_github_rounds" to 4, "chat_delivery_counts_capped" to false,
+                "content" to "private-answer", "thinking" to "private-thinking", "tool_arguments" to "private-tool-arguments"
+            )
+            val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", fields)
+            val diagnostic = requireNotNull(context.diagnostics)
+            assertEquals("INCIDENT", diagnostic.area)
+            assertEquals("delivery", context.stage)
+            assertEquals(JsonPrimitive("delivery"), diagnostic.values["incident_phase"])
+            assertEquals(JsonPrimitive("APPLICATION"), diagnostic.values["incident_origin"])
+            assertEquals(JsonPrimitive("CHAT_FLOW_EMPTY_ANSWER"), diagnostic.values["incident_capture_site"])
+            assertEquals(JsonPrimitive(answer), diagnostic.values["chat_delivery_answer_state"])
+            assertEquals(JsonPrimitive(80), diagnostic.values["chat_delivery_thinking_bytes"])
+            assertEquals(JsonPrimitive(false), diagnostic.values["chat_delivery_counts_capped"])
+            assertEquals(9, diagnostic.values.keys.intersect(IssueReportIncidentCapsule.chatDeliveryFields).size)
+            assertTrue("CHAT_DELIVERY_EVIDENCE_V1" in diagnostic.requiredServiceFeatures())
+            assertNull(context.dispatched)
+            assertNull(context.retryable)
+            assertNull(context.remoteAcceptance)
+            assertNull(context.exceptionFingerprint)
+            assertNull(diagnostic.values["exception_type_hashes"])
+            assertNull(diagnostic.values["causal_id_hash"])
+            assertEquals(JsonPrimitive("UNAVAILABLE"), diagnostic.values["causal_provenance"])
+            val approved = report(context).approvedPayload()
+            assertFalse(approved.contains("private-"))
+            assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.parseToJsonElement(approved).jsonObject["context"]))
+        }
+    }
+
+    @Test fun chatDeliveryContractRejectsPrivateEnumsInvalidCountsAndNonIncidentObservations() {
+        val diagnostics = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", emptyMap()).diagnostics)
+        for (key in IssueReportIncidentCapsule.chatDeliveryFields) {
+            val valid = when (key) {
+                "chat_delivery_terminal" -> listOf(JsonPrimitive("DONE"))
+                "chat_delivery_answer_state" -> listOf("EMPTY_CONTENT", "NO_ANSWER_CONTENT", "GITHUB_ANSWER_PENDING").map(::JsonPrimitive)
+                "chat_delivery_counts_capped" -> listOf(JsonPrimitive(false), JsonPrimitive(true))
+                else -> listOf(JsonPrimitive(0), JsonPrimitive(16_000_000))
+            }
+            valid.forEach { assertTrue("$key=$it", diagnostics.copy(values = diagnostics.values + (key to it)).isValid()) }
+            val invalid: List<JsonElement> = listOf(JsonNull, JsonArray(emptyList()), JsonObject(emptyMap()), JsonPrimitive("private-text")) + when (key) {
+                "chat_delivery_counts_capped" -> listOf(JsonPrimitive("false"), JsonPrimitive(0))
+                "chat_delivery_terminal", "chat_delivery_answer_state" -> listOf(JsonPrimitive(0), JsonPrimitive(true))
+                else -> listOf(JsonPrimitive(-1), JsonPrimitive(16_000_001), JsonPrimitive("1"), JsonPrimitive(1.0), JsonPrimitive(true))
+            }
+            invalid.forEach { assertNull("$key=$it", diagnostics.copy(values = diagnostics.values + (key to it)).validated()) }
+            for (area in listOf("TOOL", "ACCEPTANCE", "GATEWAY", "PROVIDER", "APP", "VOICE")) {
+                val other = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", mapOf("diagnostic_area" to area)).diagnostics)
+                assertTrue(other.isValid())
+                assertNull(other.copy(values = other.values + (key to valid.first())).validated())
+                assertNull(other.copy(omittedFields = listOf(key)).validated())
+                assertNull(other.copy(values = other.values + ("incident_capture_site" to JsonPrimitive("CHAT_FLOW_EMPTY_ANSWER"))).validated())
+            }
+        }
+        assertFalse("CHAT_DELIVERY_EVIDENCE_V1" in diagnostics.requiredServiceFeatures())
+        assertFalse("CHAT_DELIVERY_EVIDENCE_V1" in diagnostics.copy(omittedFields = listOf("incident_capture_site")).requiredServiceFeatures())
+        val siteOnly = diagnostics.copy(values = diagnostics.values + ("incident_capture_site" to JsonPrimitive("CHAT_FLOW_EMPTY_ANSWER")))
+        assertTrue(siteOnly.isValid())
+        assertTrue("CHAT_DELIVERY_EVIDENCE_V1" in siteOnly.requiredServiceFeatures())
+        val omitted = diagnostics.copy(omittedFields = IssueReportIncidentCapsule.chatDeliveryFields.sorted())
+        assertTrue(omitted.isValid())
+        assertTrue("CHAT_DELIVERY_EVIDENCE_V1" in omitted.requiredServiceFeatures())
+    }
+
+    @Test fun claimFreshnessPreservesObservedEmptyAndClosedPredicatesWithoutInventingMissingObservations() {
+        val key = "acceptance_claim_freshness_predicates"
+        val predicates = listOf("OBSERVATION_TIME_UNAVAILABLE", "OBSERVATION_TIME_FUTURE", "MUTABLE_AGE_EXCEEDED", "MUTABLE_EPOCH_MISMATCH")
+        val base = mapOf("diagnostic_area" to "ACCEPTANCE", "failed_stage" to "verification")
+        for (observed in (0..4).map { predicates.take(it) } + listOf(predicates.reversed())) {
+            val context = capture(
+                ReportFeature.CHAT,
+                "CHAT_FAILURE",
+                "GITHUB_TASK_INCOMPLETE",
+                base + mapOf(key to observed, "claim_path" to "private/path", "observed_timestamp" to "private-timestamp", "freshness_predicates" to listOf("private-value"))
+            )
+            val diagnostics = requireNotNull(context.diagnostics)
+            assertEquals("ACCEPTANCE", diagnostics.area)
+            assertEquals(JsonArray(observed.map(::JsonPrimitive)), diagnostics.values[key])
+            assertTrue("CLAIM_FRESHNESS_EVIDENCE_V1" in diagnostics.requiredServiceFeatures())
+            val approved = report(context).approvedPayload()
+            assertFalse(approved.contains("private"))
+            assertFalse(approved.contains("\"freshness_predicates\""))
+            assertFalse(approved.contains("observed_timestamp"))
+            assertTrue(IssueReportContext.validDiagnosticsIn(IssueReport.json.parseToJsonElement(approved).jsonObject["context"]))
+            assertEquals(approved, IssueReport.json.decodeFromString(IssueReport.serializer(), approved).approvedPayload())
+        }
+        val unavailable = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "GITHUB_TASK_INCOMPLETE", base).diagnostics)
+        assertNull(unavailable.values[key])
+        assertFalse(key in unavailable.omittedFields)
+        assertFalse("CLAIM_FRESHNESS_EVIDENCE_V1" in unavailable.requiredServiceFeatures())
+        val omitted = unavailable.copy(omittedFields = listOf(key))
+        assertTrue(omitted.isValid())
+        assertTrue("CLAIM_FRESHNESS_EVIDENCE_V1" in omitted.requiredServiceFeatures())
+    }
+
+    @Test fun claimFreshnessRejectsDuplicatesOversizedPrivateAndNonAcceptanceEvidence() {
+        val key = "acceptance_claim_freshness_predicates"
+        val predicate = JsonPrimitive("MUTABLE_AGE_EXCEEDED")
+        val diagnostics = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "GITHUB_TASK_INCOMPLETE", mapOf("diagnostic_area" to "ACCEPTANCE")).diagnostics)
+        val invalid = listOf(
+            JsonNull, JsonPrimitive("MUTABLE_AGE_EXCEEDED"), JsonPrimitive(true), JsonPrimitive(1), JsonObject(emptyMap()),
+            JsonArray(listOf(predicate, predicate)), JsonArray(List(5) { predicate }), JsonArray(listOf(JsonPrimitive("private-predicate"))),
+            JsonArray(listOf(JsonPrimitive("mutable_age_exceeded"))), JsonArray(listOf(JsonPrimitive(true))), JsonArray(listOf(JsonPrimitive(1))),
+            JsonArray(listOf(JsonNull)), JsonArray(listOf(JsonArray(emptyList()))), JsonArray(listOf(JsonObject(emptyMap())))
+        )
+        for (value in invalid) assertNull(value.toString(), diagnostics.copy(values = diagnostics.values + (key to value)).validated())
+        for (area in listOf("TOOL", "INCIDENT", "GATEWAY", "PROVIDER", "APP", "VOICE")) {
+            val other = requireNotNull(capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", mapOf("diagnostic_area" to area)).diagnostics)
+            assertTrue(other.isValid())
+            assertNull(other.copy(values = other.values + (key to JsonArray(emptyList()))).validated())
+            assertNull(other.copy(values = other.values + (key to JsonArray(listOf(predicate)))).validated())
+            assertNull(other.copy(omittedFields = listOf(key)).validated())
+        }
+    }
 
     @Test fun dispatchPolicyReportRetainsClosedSectionsAndRequiresCompatibleService() {
         val context = capture(

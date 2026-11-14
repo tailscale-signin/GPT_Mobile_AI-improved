@@ -24,6 +24,7 @@ internal object GitHubAcceptanceReportDiagnostics {
                 .filter { it in setOf("RECEIPT_NOT_FOUND", "UNTRUSTED_RECEIPT", "AUTHORIZATION_REVALIDATION_REQUIRED", "OPERATION_FAILED", "CLAIM_VALUE_MISSING", "POINTER_NOT_IN_EVIDENCE", "FIELD_SEMANTICS_MISMATCH", "OBSERVATION_TIME_UNKNOWN", "HISTORICAL_OBSERVATION", "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "VALUE_MISMATCH", "EXACT_RECEIPT_MATCH") }.distinct().take(8)
             if (reasons.isNotEmpty()) put("acceptance_claim_failure_reasons", JsonArray(reasons.map(::JsonPrimitive)))
         }
+        recordedFreshnessPredicates(verdict)?.let { put("acceptance_claim_freshness_predicates", it) }
         val requirements = (ledger["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
         val unmetRequirements = requirements.filter { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") }
         val capabilities = (ledger["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["required"] == JsonPrimitive(true) }
@@ -146,6 +147,28 @@ internal object GitHubAcceptanceReportDiagnostics {
             budget?.let { put("stage_budget", it) }
         }
         put("checkpoint_hash", GitHubEvidenceBook.digest(checkpoint.toString()))
+    }
+
+    private fun recordedFreshnessPredicates(verdict: JsonObject): JsonArray? {
+        val claims = verdict["claims"] as? JsonArray ?: return null
+        if (claims.size !in 1..128 || claims.any { it !is JsonObject }) return null
+        val rows = claims.filterIsInstance<JsonObject>()
+        if (rows.any { it.text("status") !in setOf("VERIFIED", "HISTORICAL", "STALE", "CONTRADICTED", "NOT_MEASURED", "INFERRED") }) return null
+        val checked = rows.filter { it.text("status") !in setOf("NOT_MEASURED", "INFERRED") }
+        if (checked.isEmpty()) return null
+        val values = checked.flatMap { claim ->
+            // Old or incomplete checkpoints are unavailable, not an observed
+            // empty result. Never infer a predicate from a reason or timestamp.
+            if (claim.text("reason") !in setOf("EXACT_RECEIPT_MATCH", "HISTORICAL_OBSERVATION", "OBSERVATION_TIME_UNKNOWN", "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "VALUE_MISMATCH")) return null
+            val recorded = claim["freshness_predicates"] as? JsonArray ?: return null
+            if (recorded.size > 4 || recorded.distinct().size != recorded.size) return null
+            val invalid = recorded.any {
+                it !is JsonPrimitive || !it.isString || it.contentOrNull !in GitHubEvidencePolicy.freshnessPredicateValues
+            }
+            if (invalid) return null
+            recorded
+        }.distinct()
+        return JsonArray(values)
     }
 
     private fun JsonObject.text(key: String): String = (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull.orEmpty()

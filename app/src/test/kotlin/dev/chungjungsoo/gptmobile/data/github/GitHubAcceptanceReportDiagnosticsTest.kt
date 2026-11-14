@@ -129,6 +129,145 @@ class GitHubAcceptanceReportDiagnosticsTest {
         assertFalse(diagnostic.toString().contains("private-claim"))
     }
 
+    @Test fun retainedFreshnessPredicatesKeepVerificationTimeAfterRestore() = runTest {
+        val saved = linkedMapOf<String, JsonObject>()
+        var now = 1_000L
+        fun book() = GitHubEvidenceBook(
+            "private-binding", "private-owner/private-repo", "main", setOf("github_ci"), { now }, { saved[it] }, { id, value -> saved[id] = value },
+            retainedIds = { saved.keys.filter { it.startsWith("ev_") } },
+            latestVerdict = { saved.entries.singleOrNull { it.key.startsWith("verification_current_") }?.value }
+        )
+        val original = book()
+        for ((callId, time, count) in listOf(Triple("private-old", 1_000L, 3), Triple("private-future", 201_000L, 4))) {
+            now = time
+            val call = ProviderEvent.ToolCall(callId, "github_ci", buildJsonObject { put("action", "status") })
+            original.observe(call, AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("count", count) }), false))
+        }
+        now = 200_000L
+        val (receipts, epoch) = original.snapshot()
+        val answer = buildJsonObject {
+            put(
+                "claims",
+                JsonArray(
+                    receipts.map { (id, receipt) ->
+                        buildJsonObject {
+                            put("kind", "fact")
+                            put("receipt_id", id)
+                            put("pointer", "/count")
+                            put("value", (receipt.getValue("result") as JsonObject).getValue("count"))
+                        }
+                    }
+                )
+            )
+        }
+        val report = GitHubEvidencePolicy.render(answer, receipts, now, epoch).second
+        val retained = original.retainVerdict(report)
+        val expected = JsonArray(listOf(JsonPrimitive("MUTABLE_AGE_EXCEEDED"), JsonPrimitive("OBSERVATION_TIME_FUTURE")))
+        assertEquals(expected, GitHubAcceptanceReportDiagnostics.fields(retained, true)["acceptance_claim_freshness_predicates"])
+        now = 900_000L
+        val restored = book()
+        restored.restore()
+        val checkpoint = requireNotNull(restored.diagnostic())
+        assertEquals(retained["claims"], checkpoint["claims"])
+        val fields = GitHubAcceptanceReportDiagnostics.fields(checkpoint, true)
+        assertEquals(expected, fields["acceptance_claim_freshness_predicates"])
+        assertEquals(JsonPrimitive("RETAINED_VERDICT"), fields["acceptance_evidence_scope"])
+        assertFalse(fields.toString().contains("private"))
+        assertFalse(fields.toString().contains("observed_at_ms"))
+        // A new verification would classify the formerly future receipt as old;
+        // reporting the retained verdict must preserve its original observation.
+        val (current, currentEpoch) = restored.snapshot()
+        val rechecked = GitHubEvidencePolicy.render(answer, current, now, currentEpoch).second
+        for (claim in rechecked.getValue("claims") as JsonArray) {
+            assertEquals(JsonArray(listOf(JsonPrimitive("MUTABLE_AGE_EXCEEDED"))), (claim as JsonObject)["freshness_predicates"])
+        }
+    }
+
+    @Test fun oldAndIncompleteFreshnessAnnotationsStayUnavailableWhileObservedEmptyIsPreserved() {
+        val fresh = checkedFreshnessClaim(200_000, 7)
+        val known = checkedFreshnessClaim(200_001, 7)
+        val old = JsonObject(checkedFreshnessClaim(0, 7) - "freshness_predicates")
+        assertEquals(JsonArray(emptyList()), GitHubAcceptanceReportDiagnostics.fields(freshnessVerdict(fresh), true)["acceptance_claim_freshness_predicates"])
+        for (verdict in listOf(freshnessVerdict(old), freshnessVerdict(known, old), freshnessVerdict(JsonObject(fresh - "freshness_predicates")))) {
+            assertNull(GitHubAcceptanceReportDiagnostics.fields(verdict, true)["acceptance_claim_freshness_predicates"])
+        }
+        val unmeasured = buildJsonObject {
+            put("status", "NOT_MEASURED")
+            put("reason", "RECEIPT_NOT_FOUND")
+            put("observed_at_ms", 0)
+        }
+        assertNull(GitHubAcceptanceReportDiagnostics.fields(freshnessVerdict(unmeasured), true)["acceptance_claim_freshness_predicates"])
+    }
+
+    @Test fun malformedFreshnessAnnotationsAreNotPartiallyReportedOrInferred() {
+        val checked = checkedFreshnessClaim(0, 7)
+        val invalid = listOf(
+            "null", "true", "17", "{}", "\"OBSERVATION_TIME_UNAVAILABLE\"",
+            "[true]", "[\"PRIVATE_receipt_value\"]",
+            "[\"OBSERVATION_TIME_UNAVAILABLE\",\"PRIVATE_receipt_value\"]",
+            "[\"OBSERVATION_TIME_UNAVAILABLE\",\"OBSERVATION_TIME_UNAVAILABLE\"]",
+            "[\"OBSERVATION_TIME_UNAVAILABLE\",\"OBSERVATION_TIME_FUTURE\",\"MUTABLE_AGE_EXCEEDED\",\"MUTABLE_EPOCH_MISMATCH\",\"PRIVATE_extra\"]"
+        )
+        for (raw in invalid) {
+            val claim = JsonObject(checked + ("freshness_predicates" to Json.parseToJsonElement(raw)))
+            val fields = GitHubAcceptanceReportDiagnostics.fields(freshnessVerdict(claim), true)
+            assertNull(raw, fields["acceptance_claim_freshness_predicates"])
+            assertFalse(fields.toString().contains("PRIVATE"))
+        }
+    }
+
+    @Test fun incompleteCheckedClaimsCannotBeHiddenByAnotherObservedEmptyClaim() {
+        val fresh = checkedFreshnessClaim(200_000, 7)
+        val incomplete = buildJsonObject { put("status", "STALE") }
+        assertNull(GitHubAcceptanceReportDiagnostics.fields(freshnessVerdict(fresh, incomplete), true)["acceptance_claim_freshness_predicates"])
+        val calculation = buildJsonObject {
+            put("status", "VERIFIED")
+            put("kind", "calculation")
+        }
+        assertNull(GitHubAcceptanceReportDiagnostics.fields(freshnessVerdict(fresh, calculation), true)["acceptance_claim_freshness_predicates"])
+        val stale = checkedFreshnessClaim(0, 7)
+        for (key in listOf("status", "reason")) {
+            for (raw in listOf(null, "null", "true", "17", "[]", "{}", "\"PRIVATE_unknown_value\"")) {
+                val claim = JsonObject(stale - key + raw?.let { mapOf(key to Json.parseToJsonElement(it)) }.orEmpty())
+                val fields = GitHubAcceptanceReportDiagnostics.fields(freshnessVerdict(fresh, claim), true)
+                assertNull("$key=$raw", fields["acceptance_claim_freshness_predicates"])
+                assertFalse(fields.toString().contains("PRIVATE"))
+            }
+        }
+        val notMeasured = buildJsonObject { put("status", "NOT_MEASURED") }
+        val inferred = buildJsonObject { put("status", "INFERRED") }
+        val fields = GitHubAcceptanceReportDiagnostics.fields(freshnessVerdict(fresh, notMeasured, inferred), true)
+        assertEquals(JsonArray(emptyList()), fields["acceptance_claim_freshness_predicates"])
+    }
+
+    @Test fun publicFreshnessDiagnosticsRetainOnlyFourClosedPredicatesWithoutPrivateReceiptData() {
+        val verdict = freshnessVerdict(checkedFreshnessClaim(0, 7), checkedFreshnessClaim(200_001, 7), checkedFreshnessClaim(1_000, 6), checkedFreshnessClaim(1_000, 6))
+        val fields = GitHubAcceptanceReportDiagnostics.fields(verdict, true)
+        val expected = JsonArray(listOf("OBSERVATION_TIME_UNAVAILABLE", "OBSERVATION_TIME_FUTURE", "MUTABLE_AGE_EXCEEDED", "MUTABLE_EPOCH_MISMATCH").map(::JsonPrimitive))
+        assertEquals(expected, fields["acceptance_claim_freshness_predicates"])
+        val diagnostic = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1_800_000_000_000))
+        assertEquals(expected, diagnostic.values["acceptance_claim_freshness_predicates"])
+        assertFalse(diagnostic.toString().contains("private"))
+        assertFalse(diagnostic.toString().contains("observed_at_ms"))
+        assertFalse(diagnostic.toString().contains("receipt_id"))
+        assertFalse(diagnostic.toString().contains("pointer"))
+        val empty = GitHubAcceptanceReportDiagnostics.fields(freshnessVerdict(checkedFreshnessClaim(200_000, 7)), true)
+        val observedEmpty = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", empty, 1_800_000_000_000))
+        assertEquals(JsonArray(emptyList()), observedEmpty.values["acceptance_claim_freshness_predicates"])
+    }
+
+    private fun checkedFreshnessClaim(timestamp: Long, epoch: Long): JsonObject {
+        val claim = Json.parseToJsonElement("""{"receipt_id":"private-receipt","pointer":"/state","value":"private-observation"}""") as JsonObject
+        val receipt = Json.parseToJsonElement("""{"trusted":true,"success":true,"observed_at_ms":$timestamp,"epoch":$epoch,"result":{"state":"private-observation"}}""") as JsonObject
+        return GitHubEvidencePolicy.verify(claim, mapOf("private-receipt" to receipt), 200_000, 7)
+    }
+
+    private fun freshnessVerdict(vararg claims: JsonObject) = buildJsonObject {
+        put("acceptance_ledger", buildJsonObject {})
+        put("claims", JsonArray(claims.toList()))
+        put("unresolved_claims", JsonArray(claims.filter { it["status"] in setOf(JsonPrimitive("STALE"), JsonPrimitive("CONTRADICTED")) }))
+    }
+
     @Test fun deliveredVerdictPublishesExactUnmetCriterionAndRetainedBudgetWithoutClaimingDispatch() {
         val ledger = GitHubAcceptanceLedger.snapshot(
             JsonArray(

@@ -315,6 +315,8 @@ def validate_diagnostics(value):
     values = value["values"]
     if not isinstance(values, dict) or set(values) - allowed or not all(_valid_value(key, item) for key, item in values.items()):
         raise ValueError("invalid diagnostic values")
+    if area != "INCIDENT" and values.get("incident_capture_site") == "CHAT_FLOW_EMPTY_ANSWER":
+        raise ValueError("invalid chat delivery diagnostic area")
     lengths = {len(values[key]) for key in CRITERION_FIELDS & values.keys()}
     if len(lengths) > 1:
         raise ValueError("unaligned criterion observations")

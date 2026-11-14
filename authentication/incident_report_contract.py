@@ -304,6 +304,12 @@ ACCEPTANCE_FIELDS = {
 }
 
 COMBINED_FIELDS = {'combined_requirement_gap', 'combined_issue_count', 'pending_tool_count', 'pending_tool_identity_hashes', 'pending_tool_receipt_state', 'local_readiness_failure'}
+HANDOFF_RECONCILIATION_COUNTS = {'handoff_replay_receipt_count', 'handoff_replay_matched_count', 'handoff_durable_receipt_count', 'handoff_durable_matched_count', 'handoff_retained_matched_count'}
+HANDOFF_RECONCILIATION_HASHES = {'handoff_tool_binding_hash', 'handoff_saved_tool_binding_hash', 'handoff_evidence_digest_hash', 'handoff_journal_digest_hash'}
+HANDOFF_RECONCILIATION_FIELDS = HANDOFF_RECONCILIATION_COUNTS | HANDOFF_RECONCILIATION_HASHES | {'handoff_checkpoint_state', 'handoff_durable_lookup'}
+CHAT_DELIVERY_COUNTS = {'chat_delivery_content_bytes', 'chat_delivery_thinking_bytes', 'chat_delivery_success_events', 'chat_delivery_tool_events', 'chat_delivery_progress_events', 'chat_delivery_github_rounds'}
+CHAT_DELIVERY_FIELDS = CHAT_DELIVERY_COUNTS | {'chat_delivery_terminal', 'chat_delivery_answer_state', 'chat_delivery_counts_capped'}
+CLAIM_FRESHNESS_FIELDS = {'acceptance_claim_freshness_predicates'}
 PROVIDER_FIELDS = {'provider_route_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_wait_terminal_status', 'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
 VOICE_FIELDS = {'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase'}
 
@@ -331,7 +337,7 @@ HASHES = {
     'saved_view_cursor_hash',
     'saved_view_source_hash',
     'server_request_id_hash',
-}
+} | HANDOFF_RECONCILIATION_HASHES
 
 HASH_LISTS = {
     'dependency_call_id_hashes', 'pending_tool_identity_hashes',
@@ -342,6 +348,7 @@ HASH_LISTS = {
 }
 
 FLAGS = {
+    'chat_delivery_counts_capped',
     'tls_response_started', 'provider_local_budget_block',
     'dispatch_policy_resume_required',
     'voice_reply_failed',
@@ -363,7 +370,7 @@ COUNTS = {
     'unknown_field_count',
     'untested_capability_count',
     'verified_capability_count',
-} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS
+} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS | CHAT_DELIVERY_COUNTS
 
 TYPES = {
     'ARRAY',
@@ -466,6 +473,10 @@ OPERATIONS = {
 MCP_HEALTH = {'DNS_FAILED', 'DNS_RECOVERY', 'ROUTE_UNAVAILABLE', 'CONNECTION_REFUSED', 'AUTHENTICATION_FAILED', 'TLS_FAILED', 'CONNECT_TIMEOUT', 'HTTP_ERROR', 'MCP_HANDSHAKE_FAILED', 'STREAM_INTERRUPTED', 'STREAM_IDLE_TIMEOUT', 'REQUEST_TIMEOUT', 'HEALTHY', 'UNKNOWN'}
 
 ENUMS = {
+    'chat_delivery_terminal': {'DONE'},
+    'chat_delivery_answer_state': {'EMPTY_CONTENT', 'NO_ANSWER_CONTENT', 'GITHUB_ANSWER_PENDING'},
+    'handoff_checkpoint_state': {'TOOL_HANDOFF', 'TOOL_RESULTS_READY'},
+    'handoff_durable_lookup': {'RETURNED_EMPTY', 'RETURNED_RECEIPTS'},
     'url_reader_dns_state': {'RECOVERY_COOLDOWN', 'LOOKUP_FAILED'},
     'fixture_decision_mode': {'AUTO_APPROVE', 'SUGGESTED', 'ASK', 'UNKNOWN'},
     'crash_surface': {'CHAT', 'DEBUG_LOGS', 'GITHUB_WORKSPACE'},
@@ -477,7 +488,7 @@ ENUMS = {
     'branch_rules_observation': POLICY_OBSERVATION,
     'provider_wait_terminal_status': {'COMPLETED', 'PARTIAL', 'FAILED', 'BLOCKED', 'INTERRUPTED', 'CANCELED', 'EVIDENCE_MISSING', 'WAITING_FOR_APPROVAL'},
     'changed_policy_observation': {'OBSERVED', 'PARTIAL', 'MALFORMED'},
-    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH', 'PROVIDER_ADAPTER_STREAM_CATCH', 'CHAT_REPOSITORY_ERROR_VALUE'},
+    'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH', 'PROVIDER_ADAPTER_STREAM_CATCH', 'CHAT_REPOSITORY_ERROR_VALUE', 'CHAT_FLOW_EMPTY_ANSWER'},
     'incident_phase_provenance': {'CAPTURE_BOUNDARY_ONLY'},
     'native_dependency_state': {'DEFERRED', 'FAILED'},
     'tool_execution_observation': {'REMOTE_READ_SUCCEEDED'},
@@ -525,6 +536,7 @@ ENUMS = {
 }
 
 ENUM_LISTS = {
+    'acceptance_claim_freshness_predicates': {'OBSERVATION_TIME_UNAVAILABLE', 'OBSERVATION_TIME_FUTURE', 'MUTABLE_AGE_EXCEEDED', 'MUTABLE_EPOCH_MISMATCH'},
     'semantic_read_rules': {'RANGE_ARRAY', 'SOURCE_REQUIRED', 'RANGE_OBJECT', 'RANGE_FIELDS', 'REPOSITORY_FILE_PATH', 'RANGE_OFFSET', 'LINE_WINDOW'},
     'dependency_admission_reasons': {'TOOL_UNAVAILABLE', 'REPEATED_FAILURE', 'REPEAT_LIMIT', 'CALL_ALLOWANCE', 'DECISION_REQUIRED', 'PREREQUISITE_DEFERRED'},
     'dispatch_policy_sections': {'PROFILE', 'BUDGET', 'SPEND', 'TOOLS', 'MCP', 'PERMISSIONS', 'ASSIST', 'DELEGATION', 'RESEARCH', 'GATEWAY', 'GITHUB', 'REASONING', 'ENGINEERING'},
@@ -543,10 +555,14 @@ ENUM_LISTS = {
 
 
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
+    if key in CLAIM_FRESHNESS_FIELDS:
+        return isinstance(value, list) and len(value) <= 4 and all(
+            isinstance(item, str) and item in ENUM_LISTS[key] for item in value
+        ) and len(set(value)) == len(value)
     if key in HASH_LISTS or key in ENUM_LISTS:
         return isinstance(value, list) and 1 <= len(value) <= (4 if key == 'privacy_blockers' else 8) and all(
             isinstance(item, str) and (bool(re.fullmatch(r'[a-f0-9]{64}', item)) if key in HASH_LISTS else item in ENUM_LISTS[key]) for item in value
@@ -568,6 +584,8 @@ def valid_value(key, value):
         return 1 <= value <= 1000
     if key == 'argument_repair_attempt':
         return 1 <= value <= 3
+    if key in HANDOFF_RECONCILIATION_COUNTS:
+        return 0 <= value <= 1024
     return key in COUNTS and 0 <= value <= 16_000_000
 
 

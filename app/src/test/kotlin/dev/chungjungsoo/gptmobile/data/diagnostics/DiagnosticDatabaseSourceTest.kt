@@ -86,9 +86,18 @@ class DiagnosticDatabaseSourceTest {
         assertEquals(3, locations.map { it.rowId }.distinct().size)
         assertTrue(locations.all { it.table == "workspace_records" && it.sourceBytes > 0 && it.maximumBytes == 4096 })
         assertFalse(locations.joinToString { it.json().toString() }.contains("private fixture"))
+        assertEquals(setOf("workspace_records", "pending_prompts"), coverage.map { it.getValue("table").jsonPrimitive.content }.toSet())
+        assertTrue(coverage.all { it["pageSize"] == JsonPrimitive(1) })
         val workspaceCoverage = coverage.single { it["table"] == JsonPrimitive("workspace_records") }
-        assertEquals(JsonPrimitive(1), workspaceCoverage["pageSize"])
+        assertEquals(JsonPrimitive(3L), workspaceCoverage["expectedRows"])
+        assertEquals(JsonPrimitive(3L), workspaceCoverage["inspectedRows"])
         assertEquals(JsonPrimitive(3L), workspaceCoverage["emittedRows"])
+        assertEquals(JsonPrimitive("AVAILABLE"), workspaceCoverage["availability"])
+        val pendingCoverage = coverage.single { it["table"] == JsonPrimitive("pending_prompts") }
+        assertEquals(JsonPrimitive(0L), pendingCoverage["expectedRows"])
+        assertEquals(JsonPrimitive(0L), pendingCoverage["inspectedRows"])
+        assertEquals(JsonPrimitive(0L), pendingCoverage["emittedRows"])
+        assertEquals(JsonPrimitive("EMPTY"), pendingCoverage["availability"])
     }
 
     @Test fun fencedWaitRecoveryExplainsTerminalStateWhenWorkspaceStillHasTheOriginalInterruption() = runBlocking {

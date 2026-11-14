@@ -732,6 +732,86 @@ class GitHubToolTest {
         assertTrue(text.contains("tailscale-signin/GPT_Mobile_AI-improved"))
     }
 
+    @Test fun repositorySearchRejectsMissingBlankOrNonStringQueryBeforeDispatch() = runTest {
+        var requests = 0
+        val client = HttpClient(
+            MockEngine {
+                requests++
+                error("Invalid repository searches must not dispatch")
+            }
+        )
+        try {
+            val tool = GitHubTool("token", client, persistentState = false)
+            for ((index, raw) in listOf(null, "\"\"", "\"   \"", "null", "false", "42", "{}", "[]").withIndex()) {
+                val input = buildJsonObject {
+                    put("action", "search_repositories")
+                    raw?.let { put("query", Json.parseToJsonElement(it)) }
+                }
+                val result = tool.execute("invalid-search-$index", input)
+                assertTrue(result.isError)
+                assertEquals("INVALID_ARGUMENTS", result.errorCode)
+                assertFalse(result.dispatched)
+                assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), result.executionReceipt?.get("phase"))
+                assertTrue(result.content.toString().contains("'query'"))
+                assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+                assertEquals(0, requests)
+            }
+        } finally {
+            client.close()
+        }
+    }
+
+    @Test fun repositoryDiscoveryRejectsMissingQueryAndAcceptsOneCorrectedSearch() = runTest {
+        var requests = 0
+        val client = HttpClient(
+            MockEngine { request ->
+                requests++
+                assertEquals("/search/repositories", request.url.encodedPath)
+                assertEquals("language:Kotlin", request.url.parameters["q"])
+                respond("""{"total_count":0,"items":[]}""", headers = headersOf(HttpHeaders.ContentType, "application/json"))
+            }
+        )
+        try {
+            val tool = GitHubTool(
+                "token",
+                client,
+                repositoryContext = GitHubRepositoryContext("selected", "repository", "main"),
+                persistentState = false,
+                taskRequest = "Find a Kotlin repository"
+            ).operations().single { it.operation == "github_context" }
+            for ((index, query) in listOf(null, "", "   ").withIndex()) {
+                val result = tool.execute(
+                    "missing-query-$index",
+                    buildJsonObject {
+                        put("action", "repositories")
+                        query?.let { put("query", it) }
+                    }
+                )
+                assertTrue(result.isError)
+                assertEquals("INVALID_ARGUMENTS", result.errorCode)
+                assertFalse(result.dispatched)
+                assertEquals(JsonPrimitive("tool_precheck"), result.executionReceipt?.get("failed_stage"))
+                assertEquals(JsonArray(listOf(JsonPrimitive("query"))), result.executionReceipt?.get(if (query == null) "missing_fields" else "invalid_fields"))
+                assertEquals(JsonPrimitive(if (query == null) 1 else 0), result.executionReceipt?.get("missing_field_count"))
+                assertEquals(JsonPrimitive(if (query == null) 0 else 1), result.executionReceipt?.get("invalid_field_count"))
+                assertEquals(JsonArray(listOf(JsonPrimitive(if (query == null) "MISSING_REQUIRED" else "EMPTY_STRING"))), result.executionReceipt?.get("invalid_field_classes"))
+                assertTrue(result.content.toString().contains("query is required"))
+                assertEquals(0, requests)
+            }
+            val corrected = tool.execute(
+                "corrected-search",
+                buildJsonObject {
+                    put("action", "repositories")
+                    put("query", "language:Kotlin")
+                }
+            )
+            assertFalse(corrected.toString(), corrected.isError)
+            assertEquals(1, requests)
+        } finally {
+            client.close()
+        }
+    }
+
     @Test
     fun `selected repository fills whichever owner or repo field is missing`() = runTest {
         var requestIndex = 0

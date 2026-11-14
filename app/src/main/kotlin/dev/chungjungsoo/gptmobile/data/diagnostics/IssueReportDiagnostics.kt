@@ -30,6 +30,7 @@ internal data class IssueReportDiagnostics(
         if (schemaVersion !in setOf(1, 2, 3) || schemaVersion == 2 && area != "GATEWAY" || area == "INCIDENT" && schemaVersion != 3 || area !in areas || capturedAtMillis !in 1..9_999_999_999_999L || captureMode !in captureModes) return null
         val allowed = allowedFields(area, schemaVersion)
         if (values.keys.any { it !in allowed } || omittedFields.any { it !in allowed || it in values } || omittedFields.distinct().size != omittedFields.size) return null
+        if (area != "INCIDENT" && values["incident_capture_site"] == JsonPrimitive("CHAT_FLOW_EMPTY_ANSWER")) return null
         if (captureMode == "NO_CAPTURE" && (values.isNotEmpty() || omittedFields.isNotEmpty())) return null
         val copied = linkedMapOf<String, JsonElement>()
         values.forEach { (key, value) -> copied[key] = validatedValue(key, value) ?: return null }
@@ -41,6 +42,9 @@ internal data class IssueReportDiagnostics(
     }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.handoffReconciliationFields }) add("HANDOFF_RECONCILIATION_EVIDENCE_V1")
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.chatDeliveryFields } || values["incident_capture_site"] == JsonPrimitive("CHAT_FLOW_EMPTY_ANSWER")) add("CHAT_DELIVERY_EVIDENCE_V1")
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.claimFreshnessFields }) add("CLAIM_FRESHNESS_EVIDENCE_V1")
         if ((values["incident_capture_site"] as? JsonPrimitive)?.contentOrNull in setOf("PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE")) {
             add("CAPTURE_BOUNDARY_EVIDENCE_V1")
         }

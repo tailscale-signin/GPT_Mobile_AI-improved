@@ -1,9 +1,12 @@
 # Gateway 17 local validation and release qualifications
 
-The changes are prepared on the existing PR #1122 branch,
-`fix/github-context-and-voice-reliability-2026-11-14`, after reconciling remote
-commits through `aad56e7f6b9bbac05ca905907cdd627e2bb36244`. Remote CI must qualify
-the final published revision before merge. These local results do not replace it.
+The changes stay on the existing PR #1122 branch,
+`fix/github-context-and-voice-reliability-2026-11-14`. The historical local results
+below were recorded after reconciling remote commits through
+`aad56e7f6b9bbac05ca905907cdd627e2bb36244`. The [complete late-report review](github-chat-motion-voice-2026-11-14.md#complete-late-report-intake-through-1145)
+records the later 44-issue intake and its source-scoped validation. Remote CI
+must qualify the final published revision before merge; these local results
+do not replace it.
 
 ## Observed local results
 
@@ -63,12 +66,16 @@ incomplete required producers must not be described as green.
 - Physical audio, microphone contention, device layout/performance and private
   provider incidents require observations from their original environments.
 - The hosted reporter has no deployment workflow in this repository. Its
-  operator must deploy the compatible service separately and observe
-  `GITHUB_PREREQUISITE_EVIDENCE_V1`, `ACCEPTANCE_RECOVERY_EVIDENCE_V1` and
-  `GITHUB_GRAPH_POLICY_EVIDENCE_V1` and `ISSUE_RECOVERY_CODES_V1` before
-  claiming those fields are accepted. An older service preserves approved report
-  bytes and returns an update-required state before submission.
+  compatible source is prepared; service deployment is not established by these
+  repository checks. Its operator must deploy the service separately and observe
+  the required capabilities before claiming the corresponding fields are accepted:
+  `GITHUB_PREREQUISITE_EVIDENCE_V1`, `ACCEPTANCE_RECOVERY_EVIDENCE_V1`,
+  `GITHUB_GRAPH_POLICY_EVIDENCE_V1`, `ISSUE_RECOVERY_CODES_V1`,
+  `CAPTURE_BOUNDARY_EVIDENCE_V1`, `HANDOFF_RECONCILIATION_EVIDENCE_V1`,
+  `CHAT_DELIVERY_EVIDENCE_V1` and `CLAIM_FRESHNESS_EVIDENCE_V1`. An older service
+  preserves approved report bytes and returns an update-required state before
+  submission.
 
-The [27-issue disposition ledger](gateway17-issue-dispositions.json) records the
+The [44-issue disposition ledger](gateway17-issue-dispositions.json) records the
 specific code fix, bounded recovery or diagnostic closure basis for each report.
 Diagnostic closure does not establish the cause of an unreproduced incident.

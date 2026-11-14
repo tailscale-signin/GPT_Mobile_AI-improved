@@ -98,9 +98,12 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     nanoTimeProvider: () -> Long = System::nanoTime,
     publishIntervalMillis: Long = STANDARD_STREAM_PUBLISH_INTERVAL_MILLIS,
     restoredTimeline: List<AssistantTimelineItem> = emptyList(),
+    diagnosticRunId: String? = null,
+    diagnosticProvider: String? = null,
     onOutputPublication: suspend (content: String, lineage: OutputLineage, first: List<FirstOutputPublication>) -> Unit = { _, _, _ -> }
 ): ApiStateFlowOutcome {
     val buffer = StreamingMessageBuffer(nanoTimeProvider, publishIntervalMillis, restoredTimeline, onOutputPublication)
+    val deliveryObservation = ChatFlowDeliveryObservation()
     var isCompletedSuccessfully = false
     var pendingCombinedAnswer: ApiState.CombinedAnswer? = null
     suspend fun publishCombined(chunk: ApiState.CombinedAnswer) {
@@ -118,6 +121,7 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     try {
         withPublicationTicks(publishIntervalMillis).takeWhile { pulse ->
             pulse.error?.let { throw it }
+            pulse.state?.let(deliveryObservation::observe)
             when (val chunk = pulse.state) {
                 null -> buffer.publishIfDue(onUpdate)
                 is ApiState.ResearchReplacement -> {
@@ -283,7 +287,14 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
     return when {
         completedError != null -> ApiStateFlowOutcome.Failed(completedError, providerLimit, errorCode, taskOutcome)
         isCompletedSuccessfully && !buffer.hasResponse -> {
-            captureIssueReport { IssueReportIncidents.failure(ReportFeature.CHAT, "NO_VISIBLE_ANSWER") }
+            captureIssueReport {
+                IssueReportIncidents.failure(
+                    ReportFeature.CHAT,
+                    "NO_VISIBLE_ANSWER",
+                    error = null,
+                    fields = buffer.emptyAnswerFields(deliveryObservation, diagnosticRunId, diagnosticProvider)
+                )
+            }
             ApiStateFlowOutcome.Failed("The model finished without a visible answer. Please retry or choose another model.")
         }
         isCompletedSuccessfully -> ApiStateFlowOutcome.Completed
@@ -342,6 +353,8 @@ private class StreamingMessageBuffer(
     private var contentSnapshot: String? = null
     private fun currentContent(): String = contentSnapshot ?: content.toString().also { contentSnapshot = it }
     val hasResponse: Boolean get() = !githubRoundAwaitingAnswer && dev.chungjungsoo.gptmobile.data.conversation.AnswerProjection.hasAnswer(currentContent())
+    fun emptyAnswerFields(observation: ChatFlowDeliveryObservation, runId: String?, provider: String?): Map<String, Any?> =
+        observation.emptyAnswerFields(currentContent(), thoughts, githubRoundAwaitingAnswer, runId, provider)
     private var lastPublishedAtNanos = 0L
     private var hasPublishedAnswer = false
     private var publishedThoughtLength = 0

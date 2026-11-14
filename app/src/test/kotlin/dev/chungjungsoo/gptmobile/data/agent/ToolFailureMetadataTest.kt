@@ -4,8 +4,10 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
+import dev.chungjungsoo.gptmobile.data.github.GitHubDispatchAccounting
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
@@ -17,6 +19,131 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolFailureMetadataTest {
+    @Test fun observedGitHubPreflightProjectsItsStageAndExactCallWithoutPrivateReceiptValues() {
+        val original = githubPreflight().let {
+            it.copy(
+                executionReceipt = JsonObject(
+                    it.executionReceipt.orEmpty() + buildJsonObject {
+                        put(
+                            "resource_context",
+                            buildJsonObject {
+                                put("repo", "PRIVATE_REPOSITORY")
+                                put("query", "PRIVATE_QUERY")
+                            }
+                        )
+                    }
+                )
+            )
+        }
+        val result = ToolFailureMetadata.receipt(original, "github_context__github_api")
+        val receipt = requireNotNull(result.executionReceipt)
+        original.executionReceipt.orEmpty().forEach { (field, value) -> assertEquals(field, value, receipt[field]) }
+        assertEquals(original.content, result.content)
+        assertEquals(original.errorCode, result.errorCode)
+        assertFalse(result.dispatched)
+        assertEquals(JsonPrimitive("github.dispatch.v1"), receipt["schema"])
+        assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), receipt["phase"])
+        assertEquals(JsonPrimitive("tool_precheck"), receipt["failed_stage"])
+
+        val context = policyIncident(ReportFeature.TOOLS, "TOOL_RESULT", requireNotNull(result.errorCode), receipt)
+        assertEquals("tool_precheck", context.stage)
+        assertEquals(false, context.dispatched)
+        assertEquals(false, context.requiresReconciliation)
+        assertEquals(IssueReportContext.identifierHash("call", original.callId), context.callIdHash)
+        assertTrue(IssueReportIncidentCapsule.identity(context, result.errorCode) != null)
+        val report = policyReport(context, requireNotNull(result.errorCode))
+        for (privateValue in listOf(original.callId, "private-run", "PRIVATE_REJECTION_BODY", "PRIVATE_REPOSITORY", "PRIVATE_QUERY")) {
+            assertFalse(privateValue, report.contains(privateValue))
+        }
+        assertEquals(receipt, ToolFailureMetadata.receipt(result, "github_context__github_api").executionReceipt)
+    }
+
+    @Test fun githubPreflightMappingPreservesExplicitStagesAuthorityAndReplayControls() {
+        for (stageField in listOf("failed_stage", "failedStage", "failurePhase", "stage", "authority_failed_stage")) {
+            val original = githubPreflight("GITHUB_CIRCUIT_OPEN").let {
+                it.copy(
+                    executionReceipt = JsonObject(
+                        it.executionReceipt.orEmpty() + buildJsonObject {
+                            put(stageField, "delivery")
+                            put("authority_invalidation_code", "POLICY_STALE")
+                            put("resume_required", true)
+                            put("replay_safe", true)
+                            put("retryable", true)
+                            put("retry_not_before_ms", 1234L)
+                            put("cause_code", "POLICY_STALE")
+                        }
+                    )
+                )
+            }
+            val result = ToolFailureMetadata.receipt(original, "github_ci", diagnosticCode = "GITHUB_CIRCUIT_OPEN")
+            original.executionReceipt.orEmpty().forEach { (field, value) -> assertEquals("$stageField/$field", value, result.executionReceipt?.get(field)) }
+            assertEquals(if (stageField == "failed_stage") JsonPrimitive("delivery") else null, result.executionReceipt?.get("failed_stage"))
+            assertEquals("POLICY_STALE", ToolFailureMetadata.authorityCode(result))
+            assertTrue(ToolFailureMetadata.retryable(result))
+        }
+    }
+
+    @Test fun githubPreflightMappingRequiresObservedNonDispatchWithoutContradictoryOutcomeEvidence() {
+        val original = githubPreflight()
+        val receipt = requireNotNull(original.executionReceipt)
+        val contradictions = listOf(
+            buildJsonObject { put("requires_reconciliation", true) },
+            buildJsonObject { put("requires_reconciliation", JsonNull) },
+            buildJsonObject { put("dispatched", true) },
+            buildJsonObject { put("dispatched", JsonNull) },
+            buildJsonObject { put("remote_acceptance", "YES") },
+            buildJsonObject { put("remote_acceptance", "UNKNOWN") },
+            buildJsonObject { put("execution_state", "UNKNOWN_OUTCOME") },
+            buildJsonObject { put("dispatch_state", "DISPATCHED") },
+            buildJsonObject { put("state", "UNKNOWN_OUTCOME") },
+            buildJsonObject { put("outcome", "unknown") },
+            buildJsonObject { put("command_outcome_unknown", true) },
+            buildJsonObject { put("read_requests", 1) },
+            buildJsonObject { put("read_response_observations", 1) },
+            buildJsonObject { put("mutation_requests", 1) },
+            buildJsonObject { put("accepted_mutations", 1) },
+            buildJsonObject { put("unknown_mutations", 1) },
+            buildJsonObject { put("unknown_mutations", JsonNull) },
+            buildJsonObject { put("error_code", "DISPATCH_OUTCOME_UNKNOWN") },
+            buildJsonObject { put("cause_code", "RECONCILIATION_REQUIRED") }
+        ).map { original.copy(executionReceipt = JsonObject(receipt + it)) } +
+            listOf(
+                original.copy(dispatched = true),
+                original.copy(executionReceipt = JsonObject(receipt - "requires_reconciliation")),
+                original.copy(executionReceipt = JsonObject(receipt - "read_requests"))
+            ) + ToolResultEnvelope.unknownOutcomeCodes.map { original.copy(errorCode = it) }
+        for (candidate in contradictions) {
+            val result = ToolFailureMetadata.receipt(candidate, "github_ci")
+            assertNull(candidate.toString(), result.executionReceipt?.get("failed_stage"))
+            candidate.executionReceipt.orEmpty().forEach { (field, value) -> assertEquals(field, value, result.executionReceipt?.get(field)) }
+        }
+    }
+
+    @Test fun nonDispatchAloneOtherSchemasOtherPhasesAndSuccessDoNotGainAGitHubPreflightStage() {
+        val original = githubPreflight()
+        val receipt = requireNotNull(original.executionReceipt)
+        val candidates = listOf(
+            original.copy(executionReceipt = null),
+            original.copy(executionReceipt = JsonObject(receipt - "schema")),
+            original.copy(executionReceipt = JsonObject(receipt + ("schema" to JsonPrimitive("arbitrary.receipt.v1")))),
+            original.copy(executionReceipt = JsonObject(receipt + ("phase" to JsonPrimitive("READ_FAILED")))),
+            original.copy(executionReceipt = JsonObject(receipt + ("phase" to JsonPrimitive("OUTCOME_UNKNOWN")))),
+            original.copy(isError = false, errorCode = null)
+        )
+        for (candidate in candidates) {
+            val result = ToolFailureMetadata.receipt(candidate, "github_context")
+            assertNull(result.executionReceipt?.get("failed_stage"))
+            assertEquals(candidate.isError, result.isError)
+            assertEquals(candidate.dispatched, result.dispatched)
+            assertEquals(candidate.content, result.content)
+        }
+    }
+
+    private fun githubPreflight(code: String = "INVALID_ARGUMENTS"): AgentToolResult = GitHubDispatchAccounting(record = {}).finish(
+        AgentToolResult("private-preflight-call", ToolResultContent.Text("PRIVATE_REJECTION_BODY"), true, errorCode = code, dispatched = false),
+        mutation = false
+    )
+
     @Test fun searchTransportUncertaintyRemainsUnknownWhileReadRetryIsSafe() {
         val receipt = buildJsonObject {
             put("schema", "gptmobile.search-operation.v1")
@@ -248,7 +375,7 @@ class ToolFailureMetadataTest {
             1_800_000_000_000L
         )
 
-    private fun policyReport(context: IssueReportContext): String =
+    private fun policyReport(context: IssueReportContext, code: String = "DISPATCH_POLICY_CHANGED"): String =
         IssueReport(
             "11111111-1111-4111-8111-111111111111",
             "debug",
@@ -259,7 +386,7 @@ class ToolFailureMetadataTest {
             36,
             "Fixture",
             feature = "chat",
-            errorCode = "DISPATCH_POLICY_CHANGED",
+            errorCode = code,
             context = context
         ).approvedPayload()
 }

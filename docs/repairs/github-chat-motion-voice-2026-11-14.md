@@ -546,7 +546,7 @@ receipts retain the final shared-head hosted qualification requirement.
 ## Late reports #1129 and #1130
 
 Both reports arrived during qualification and identify the preceding build 141
-commit `b5ab42bfe5270cbe28c2bbde16eecb38d44b4194`. Intake now covers 29 issues.
+commit `b5ab42bfe5270cbe28c2bbde16eecb38d44b4194`. That historical intake checkpoint covered 29 issues.
 Neither contains an external attachment, and neither establishes a regression
 on the then-current candidate `007b29d2a7581c0acfd5474f7bc01ba768c57bae`.
 
@@ -590,3 +590,152 @@ the real Android report collector for Continue without a saved original, and
 hosted capability compatibility with durable/native delivery boundaries.
 Focused local receipts and the final full Android execution are recorded in
 PR #1122; local host fixtures are not physical-device/provider qualification.
+
+## Late reports #1131, #1132 and #1133
+
+Three reports arrived at 20:05 UTC from the same preceding installed build 141
+commit `b5ab42bfe5270cbe28c2bbde16eecb38d44b4194`. At that historical intake
+checkpoint, the scope grew to 32 issues. Each of the three reports contains an
+approved inline capsule and no external attachment. The complete later intake
+through #1145 is recorded below.
+The source under qualification at intake was
+`2c18d55b17c443105966c4a4d08147cf6e30734e`.
+
+#1131 records the selected OPENROUTER route and an observed terminal repository
+catch. Its source-separated original-code hash maps to `UNKNOWN`; the phase
+and cause remain unavailable. Its run and exception fingerprints do not make
+it causally equivalent to the earlier LLAMA reports. The existing terminal
+exception and Flow-boundary repair preserves a sanitized type and up to eight
+application frames. These existing approved fields address the evidence loss,
+while the historical failure still needs reproduction on the original route.
+
+#1132 and #1133 record a blocked tool-handoff continuation with one pending
+invocation and no matching terminal receipt. They have distinct blocked-run
+identities and the same reported pending-invocation hash. This correlates the
+reports without establishing the same execution. The existing handoff loader
+already considers replay and durable receipts before blocking. Its
+`dispatched=false` observation describes the blocked continuation; it cannot
+establish whether the earlier operation executed. No receipt is fabricated and
+no pending action is replayed merely to clear this state.
+
+The additional reporting captures an immutable observation from that same
+handoff reconciliation boundary:
+
+| Observation | Meaning and bound |
+| --- | --- |
+| Checkpoint state | The observed `TOOL_HANDOFF` or `TOOL_RESULTS_READY` state. |
+| Durable callback result | `RETURNED_EMPTY` or `RETURNED_RECEIPTS`; this does not establish journal absence or corruption. |
+| Replay and durable receipt totals | Literal counts from the existing callback/round, bounded to 0–1,024 in approved reports. |
+| Replay, durable and retained matches | Counts matching the remaining pending invocation identities after the existing reconciliation step. |
+| Binding and digest hashes | Namespaced hashes of available selected/saved tool bindings and actual evidence/journal digests; no raw bindings, tool names, arguments, call IDs or result bodies. |
+
+Selected and saved binding hashes use the same namespace so an actual match or
+mismatch can be compared. Each blocked round receives its own observation;
+earlier round evidence is not reused. The capture adds no lookup or receipt
+selection, and it does not alter reconciliation, resume permission, deadlines
+or original dispatch authority. Provider-wait checkpoint fields retain their
+existing meanings and are not reused for handoff identities.
+
+Hosted delivery requires `HANDOFF_RECONCILIATION_EVIDENCE_V1` for either values
+or omitted new field names. An unsupported reporter leaves the exact approved
+payload saved without posting it. Native authenticated GitHub delivery remains
+independent of hosted readiness. The capability must be deployed before a
+hosted service can receive the new observations.
+
+The focused regression scope covers empty, stale, settled and uncertain
+receipts; per-round observation refresh; bounded approved projection and raw
+data exclusion; strict enum/count/hash validation; and old/new reporter
+compatibility. Completed local and exact-head CI receipts are recorded in the
+issue disposition ledger and PR #1122. Earlier candidate passes remain scoped
+to those candidates. The historical reason for the missing receipts and the
+original operation outcomes remain unproven; closure follows the requested
+diagnostic fallback policy without asserting that those outcomes were resolved.
+
+## Complete late-report intake through #1145
+
+The later intake contains 44 unique open issue identities, #1101–#1145
+excluding PR #1122. The disposition ledger now includes all of them. The
+reports from #1131 onward came from the preceding installed `b5ab42bf` build,
+not the composed repair candidate. Their shared times, hashes or checkpoint
+identities establish only the correlations stated in each disposition.
+
+The later findings have distinct resolutions:
+
+| Reports | Resolution and remaining evidence |
+| --- | --- |
+| #1134 | Explain the exclusive `end_line` / `max_lines` choice before the first tool call. The existing semantic rejection and bounded argument repair remain correct. The measured ordinary catalog stays at 2,996 UTF-8 bytes / 999 estimated tokens under its strict below-1,000 bound. A corrected private read is not claimed. |
+| #1135–#1136 | Retain the exact freshness predicates evaluated during verification, with the checked claim and verdict. Old or incompletely annotated checked claims leave this observation unavailable. The historical conditions are not reconstructed from a later clock or epoch. |
+| #1137 | Preserve the actual completed LENGTH outcome, producing invocation's allowance/usage, zero visible bytes and recorded reasoning bytes. No larger allowance, successful repair or relationship to #1138 is established. |
+| #1138 | Capture the actual Done-without-answer collector boundary and its current-collection observations. This closes a specific evidence-loss path without inventing a provider fault or retry permission. |
+| #1139–#1142 | Preserve safe exception type and bounded application frames at the actual catch and across the Flow/report boundary. The old exception mechanisms remain unclassified despite matching signatures. |
+| #1143–#1144 | Preserve exact target admission, retain the observed GitHub preflight rejection stage, and classify a missing or invalid repository-search query before dispatch. Stage projection requires an explicit native preflight receipt with all measured request/outcome counters at zero and no contradictory or uncertain evidence. The report uses bounded field names/counts, never search text or a guessed target. A remote authentication or permission failure is not inferred. |
+| #1145 | Retain the observed HTTP 429 and recorded retry delay, selected route and explicit authority. Existing durable wait/recovery observations describe only events that actually occur; the external quota and the historical retry outcome are not changed by this repair. |
+
+### Delivery and freshness observations
+
+The empty-answer producer allocates its counters per Flow collection. It records
+only incoming success, tool, progress and GitHub-round events, plus bounded
+UTF-8 sizes of the current content and thinking buffers. The terminal value is
+`DONE`; the answer-state enum distinguishes `EMPTY_CONTENT`,
+`NO_ANSWER_CONTENT` and `GITHUB_ANSWER_PENDING`. Counts are bounded to
+16,000,000 with an explicit cap flag. The coordinator supplies its actual
+owning run and selected provider when available. Restored timeline, another
+invocation's token usage, unobserved causal identities and raw text do not fill
+missing observations. Typed errors, cancellation, incomplete streams, answered
+streams and private sessions retain their existing reporting behavior.
+
+Freshness evidence is a distinct set of at most four recorded predicates:
+`OBSERVATION_TIME_UNAVAILABLE`, `OBSERVATION_TIME_FUTURE`,
+`MUTABLE_AGE_EXCEEDED` and `MUTABLE_EPOCH_MISMATCH`. The epoch name describes
+the actual comparison; it does not assert an independently observed commit-SHA
+change. An explicitly observed empty set differs from an unavailable
+annotation. The existing unknown-time rejection, mutable age limit, epoch
+comparison, immutable/stable-number treatment and permitted historical
+observations remain the decision rules. The report projection does not
+recompute them at submission time.
+
+The Android and hosted reporter share closed field types, areas, bounds and
+vocabulary. `CHAT_DELIVERY_EVIDENCE_V1` gates delivery fields and the new capture
+site; `CLAIM_FRESHNESS_EVIDENCE_V1` gates the acceptance predicate field. Both
+also gate omitted new field names. Together with the handoff capability, the
+actual readiness response is 973 UTF-8 bytes with 28 advertised features,
+within the unchanged 1,024-byte client bound. Unsupported hosted reporters
+preserve the exact approved payload before any POST. Native authenticated
+GitHub delivery remains independent. Updated hosted source is supplied here;
+service deployment is a separate action and is not asserted by repository
+validation.
+
+### Validation and composition boundary
+
+The frozen handoff/report component is
+`3593f7f550138e0671576817d12c18e01a2ab358`, based on `2c18d55b`.
+It contains the actual handoff session/helper and the three closed reporting
+families. Focused validation passed 27 actual-source handoff-session tests,
+50 Kotlin report/submission/capsule tests, 86 Python contract/HTTP tests and
+111 tests across the authentication package. Canonical fast checks passed
+510 tests after local inventory regeneration. Nine changed Kotlin paths
+passed pinned ktlint 1.3.1. These are source-scoped receipts with documented
+platform supports; they do not execute Android persistence, the external chat
+collector, the external freshness producer, a private provider or a physical
+device.
+
+The preceding `2c18d55b` full Android run executed 10,532 tests with 11 failures
+and five skips. Its 106 provider-adapter methods, including all seven new
+replay-authority/route regressions, passed; that subset does not override the
+failed full gate. The failures identified obsolete export API mocks, a changed
+coverage stream, a stale UI control label, a direct-session assertion that
+bypassed runner-owned terminal publication, and Ollama recovery fixtures. The
+recovery review additionally traced a real producer-authorized HTTP 5xx case
+that the outer typed guard must recognize while retaining every existing
+output, authority, reconciliation, limit, route and deadline fence.
+
+The fixture and typed-HTTP corrections, delivery and freshness producers,
+repository-search query validation, observed preflight-stage projection and shared reporting contracts are integrated
+in the combined candidate. The disposition ledger tracks source follow-ups
+separately from final validation obligations. Generated inventories and release
+scope must describe the complete published source. Final Android unit, emulator,
+packaging, Gateway, analysis and required verification checks remain pending for
+the eventual exact head and current main. Earlier candidate successes remain
+discovery evidence. The coordinator's final PR record and each issue closure
+must state the final qualification and the applicable historical/device/provider
+limitations from the disposition ledger.

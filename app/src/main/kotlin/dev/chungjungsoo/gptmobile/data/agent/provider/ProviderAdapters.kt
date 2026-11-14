@@ -1299,6 +1299,10 @@ class OpenAICompatibleAdapter @Inject constructor(
 
     private fun allowsOllamaTransportReplay(error: dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail): Boolean {
         val details = error.failureDetails ?: return false
+        // The producer can retain a safe HTTP replay grant after its inner wire
+        // attempts. Require its canonical code to match the observed status.
+        val retryableHttpStatus = error.code?.takeIf { it in setOf("502", "503", "504") }?.toInt()
+        val replayableHttpFailure = retryableHttpStatus != null && details["http_status"] == JsonPrimitive(retryableHttpStatus)
         return error.retryable == true &&
             (details["retryable"] == null || details["retryable"] == JsonPrimitive(true)) &&
             details["request_replay_allowed"] == JsonPrimitive(true) &&
@@ -1306,7 +1310,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             !(details["outcome"] as? JsonPrimitive)?.content.equals("unknown", ignoreCase = true) &&
             error.providerLimit == null &&
             !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) &&
-            dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.entries.any { it.retryable && it.code == error.code }
+            (replayableHttpFailure || dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.entries.any { it.retryable && it.code == error.code })
     }
 
     private fun isOllamaTimeoutOrNetworkGlitch(errorMsg: String?, throwable: Throwable?): Boolean {

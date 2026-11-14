@@ -857,9 +857,15 @@ class GitHubTool(
     }
 
     private suspend fun handleSearchRepositories(callId: String, arguments: JsonObject): AgentToolResult {
-        val query = arguments["query"]?.jsonPrimitive?.content?.trim()
+        val query = (arguments["query"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.trim()
         if (query.isNullOrEmpty()) {
-            return errorResult(callId, "Parameter 'query' is required for action 'search_repositories'.")
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Text("Parameter 'query' must be a non-blank string for action 'search_repositories'. Use the user's search criteria; no repository was guessed and no request was sent."),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false
+            )
         }
         val encodedQuery = URLEncoder.encode(query, StandardCharsets.UTF_8.name())
         val page = (arguments["page"]?.jsonPrimitive?.intOrNull ?: 1).also { require(it in 1..34) }

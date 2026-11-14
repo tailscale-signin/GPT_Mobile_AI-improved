@@ -133,6 +133,7 @@ internal object GitHubOperationArguments {
                 }
             }
             "github_context" -> {
+                if (text("action") == "repositories") required("query")
                 if ("engineering_task_id" in args) {
                     if (text("action") != "recovery") errors += "engineering_task_id is only used by read-only native approval recovery"
                     unused("fixture_plan", "ref", "stage_id", "branch", "base_sha", "commit_sha")

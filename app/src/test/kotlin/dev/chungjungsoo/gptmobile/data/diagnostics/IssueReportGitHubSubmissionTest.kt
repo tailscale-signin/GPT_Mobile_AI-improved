@@ -121,6 +121,45 @@ class IssueReportGitHubSubmissionTest {
         }
     }
 
+    @Test fun newEvidenceAndOmissionsPublishNativelyWithoutHostedCapabilityNegotiation() {
+        val cases = listOf(
+            "HANDOFF_RECONCILIATION_EVIDENCE_V1" to mapOf("handoff_checkpoint_state" to "TOOL_HANDOFF", "handoff_durable_lookup" to "RETURNED_EMPTY", "handoff_durable_receipt_count" to 0),
+            "CHAT_DELIVERY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_FLOW_EMPTY_ANSWER", "chat_delivery_terminal" to "DONE", "chat_delivery_answer_state" to "EMPTY_CONTENT", "chat_delivery_content_bytes" to 0, "chat_delivery_counts_capped" to false),
+            "CLAIM_FRESHNESS_EVIDENCE_V1" to mapOf("diagnostic_area" to "ACCEPTANCE", "acceptance_claim_freshness_predicates" to listOf("MUTABLE_EPOCH_MISMATCH")),
+            "CLAIM_FRESHNESS_EVIDENCE_V1" to mapOf("diagnostic_area" to "ACCEPTANCE", "acceptance_claim_freshness_predicates" to emptyList<String>())
+        )
+        for ((feature, evidence) in cases) {
+            val family = when (feature) {
+                "HANDOFF_RECONCILIATION_EVIDENCE_V1" -> IssueReportIncidentCapsule.handoffReconciliationFields
+                "CLAIM_FRESHNESS_EVIDENCE_V1" -> IssueReportIncidentCapsule.claimFreshnessFields
+                else -> IssueReportIncidentCapsule.chatDeliveryFields
+            }
+            val fields = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "RECONCILIATION_REQUIRED", evidence)
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+            val diagnostic = requireNotNull(context.diagnostics)
+            for (snapshot in listOf(diagnostic, diagnostic.copy(values = diagnostic.values - family - "incident_capture_site", omittedFields = family.sorted()))) {
+                val enriched = report.copy(context = context.withDiagnostics(snapshot))
+                assertTrue(feature in snapshot.requiredServiceFeatures())
+                val payload = enriched.approvedPayload()
+                val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+                val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+                val requests = mutableListOf<Request>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    requests += request
+                    assertEquals("POST", request.method)
+                    assertEquals("api.github.com", request.url.host)
+                    assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                    assertTrue(rendered.getValue("body").toString().contains(evidence.keys.first { it in family }))
+                    response(request, 201, receipt(body = rendered.getValue("body")).toString())
+                }.build()
+                assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") {})
+                assertEquals(1, requests.size)
+                assertEquals(payload, entry.payload)
+            }
+        }
+    }
+
     @Test fun explicitApprovalPayloadAndNativeRouteRejectUnknownPrivateDiagnosticFields() {
         val enriched = report.copy(context = IssueReportContext.fromFields("TOOL_RESULT", mapOf("diagnostic_area" to "TOOL", "tool_schema_hash" to "a".repeat(64)), 1_000L))
         val raw = IssueReport.json.parseToJsonElement(enriched.approvedPayload()).jsonObject

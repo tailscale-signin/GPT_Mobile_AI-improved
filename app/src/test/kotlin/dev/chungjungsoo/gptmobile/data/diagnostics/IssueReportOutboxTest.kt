@@ -61,10 +61,32 @@ class IssueReportOutboxTest {
         assertThrows(IllegalStateException::class.java) { outbox.approve(report.copy(description = "Changed after approval")) }
     }
 
-    @Test fun newCaptureSitesRemainSavedUntilTheHostedReporterSupportsTheirExactApprovedBytes() = runTest {
-        for (site in listOf(IssueReportIncidentCapsule.ExceptionCaptureSite.PROVIDER_ADAPTER_STREAM_CATCH, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)) {
-            val fields = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", IssueReportIncidentCapsule.boundaryFields(site))
-            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+    @Test fun newEvidenceRemainsSavedUntilTheHostedReporterSupportsItsExactApprovedBytes() = runTest {
+        val fixtures = buildList {
+            for (site in listOf(IssueReportIncidentCapsule.ExceptionCaptureSite.PROVIDER_ADAPTER_STREAM_CATCH, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)) {
+                val fields = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", IssueReportIncidentCapsule.boundaryFields(site))
+                add("CAPTURE_BOUNDARY_EVIDENCE_V1" to IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L))
+            }
+            for ((feature, evidence) in listOf(
+                "HANDOFF_RECONCILIATION_EVIDENCE_V1" to mapOf("handoff_durable_lookup" to "RETURNED_EMPTY", "handoff_durable_receipt_count" to 0),
+                "CHAT_DELIVERY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_FLOW_EMPTY_ANSWER", "chat_delivery_terminal" to "DONE", "chat_delivery_answer_state" to "EMPTY_CONTENT"),
+                "CLAIM_FRESHNESS_EVIDENCE_V1" to mapOf("diagnostic_area" to "ACCEPTANCE", "acceptance_claim_freshness_predicates" to listOf("MUTABLE_AGE_EXCEEDED")),
+                "CLAIM_FRESHNESS_EVIDENCE_V1" to mapOf("diagnostic_area" to "ACCEPTANCE", "acceptance_claim_freshness_predicates" to emptyList<String>())
+            )) {
+                val fields = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", evidence)
+                val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+                val diagnostic = requireNotNull(context.diagnostics)
+                val family = when (feature) {
+                    "HANDOFF_RECONCILIATION_EVIDENCE_V1" -> IssueReportIncidentCapsule.handoffReconciliationFields
+                    "CLAIM_FRESHNESS_EVIDENCE_V1" -> IssueReportIncidentCapsule.claimFreshnessFields
+                    else -> IssueReportIncidentCapsule.chatDeliveryFields
+                }
+                add(feature to context)
+                add(feature to context.withDiagnostics(diagnostic.copy(values = diagnostic.values - family - "incident_capture_site", omittedFields = family.sorted())))
+            }
+        }
+        assertEquals(10, fixtures.size)
+        for ((requiredFeature, context) in fixtures) {
             val enriched = report.copy(context = context)
             val payload = enriched.approvedPayload()
             val directory = files.newFolder()
@@ -78,7 +100,7 @@ class IssueReportOutboxTest {
                 methods += request.method
                 val body = if (request.method == "GET") {
                     val features = requireNotNull(context.diagnostics).requiredServiceFeatures() + setOf("RUN_FAILURE_EVIDENCE_V1", "INCIDENT_FAILURE_DETAILS_V1")
-                    val advertised = JsonArray(features.filter { supported || it != "CAPTURE_BOUNDARY_EVIDENCE_V1" }.map(::JsonPrimitive))
+                    val advertised = JsonArray(features.filter { supported || it != requiredFeature }.map(::JsonPrimitive))
                     """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$advertised}"""
                 } else {
                     posted += Buffer().also { request.body!!.writeTo(it) }.readUtf8()

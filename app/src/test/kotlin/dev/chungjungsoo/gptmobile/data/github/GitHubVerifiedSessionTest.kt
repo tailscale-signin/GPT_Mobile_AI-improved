@@ -602,8 +602,12 @@ class GitHubVerifiedSessionTest {
         book.observe(call, AgentToolResult("read", ToolResultContent.Text("""{"checks":3}"""), false))
         val id = book.snapshot().first.keys.single()
         val failure = ProviderEvent.Failed("Reviewer returned invalid JSON", errorCode = "GITHUB_REVIEW_INVALID_VERDICT")
+        var providerRounds = 0
         val source = object : AgentProviderSession {
-            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(failure)
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                providerRounds++
+                emit(failure)
+            }
         }
         var extractions = 0
         val session = GitHubVerifiedSession(
@@ -613,17 +617,38 @@ class GitHubVerifiedSessionTest {
                 answer("""{"claims":[{"kind":"fact","receipt_id":"$id","pointer":"/checks","value":3}]}""")
             }, {}, {}, now = { 1000L }, privateReviewCandidate = { "UNVERIFIED: everything is fixed" }
         )
-        val events = session.streamRound(emptyList(), emptyList()).toList()
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, emptyList()).toList()
+            .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(text.contains("3"))
         assertFalse(text.contains("everything is fixed"))
         assertEquals(0, extractions)
-        assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
-        val noEvidence = GitHubVerifiedSession(source, GitHubEvidenceBook("empty", "o/r", "main", emptySet()), "Explain", { 8192 }, { error("No receipts") }, {}, {})
-        val noEvidenceEvents = noEvidence.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, providerRounds)
+        val retainedFailure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("PARTIAL", retainedFailure.taskOutcome)
+        assertEquals(failure.errorCode, retainedFailure.errorCode)
+        assertEquals(retainedFailure, events.last())
+        assertFalse(events.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+        val noEvidence = GitHubVerifiedSession(
+            source,
+            GitHubEvidenceBook("empty", "o/r", "main", emptySet()),
+            "Explain",
+            { 8192 },
+            { error("No receipts") },
+            {},
+            {},
+            privateReviewCandidate = { "UNVERIFIED: everything is fixed" }
+        )
+        val noEvidenceEvents = AgentRunner(AgentRunLimits(githubTask = true)).run(noEvidence, emptyList()).toList()
+            .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(2, providerRounds)
+        assertEquals(0, extractions)
+        assertEquals(failure, noEvidenceEvents.filterIsInstance<ProviderEvent.Failed>().single())
         assertEquals(failure, noEvidenceEvents.last())
-        assertTrue(noEvidenceEvents.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("draft remains unverified"))
-        assertTrue(noEvidenceEvents.none { it == ProviderEvent.Completed })
+        val unverifiedText = noEvidenceEvents.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(unverifiedText.contains("draft remains unverified"))
+        assertFalse(unverifiedText.contains("everything is fixed"))
+        assertFalse(noEvidenceEvents.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
     }
 
     @Test fun assistantFailureQuestionUsesOnlyHistoricalDiagnostics() = runBlocking {

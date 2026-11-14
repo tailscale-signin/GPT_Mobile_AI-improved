@@ -10,6 +10,16 @@ import org.junit.Test
 class GitHubOperationArgumentsTest {
     private fun args(value: String) = Json.parseToJsonElement(value) as JsonObject
 
+    @Test fun repositoryDiscoveryRequiresANonBlankSearchQuery() {
+        for (input in listOf("""{"action":"repositories"}""", """{"action":"repositories","query":""}""", """{"action":"repositories","query":"   "}""")) {
+            assertEquals(listOf("query is required"), GitHubOperationArguments.errors("github_context", args(input)))
+        }
+        assertTrue(GitHubOperationArguments.errors("github_context", args("""{"action":"repositories","query":"language:Kotlin"}""")).isEmpty())
+        for (action in listOf("resolve", "status", "index", "branches", "repository")) {
+            assertTrue(action, GitHubOperationArguments.errors("github_context", args("""{"action":"$action"}""")).isEmpty())
+        }
+    }
+
     @Test fun lineWindowDiagnosticsDistinguishCorrectableConstraints() {
         fun range(value: String) = kotlinx.serialization.json.Json.parseToJsonElement(value) as kotlinx.serialization.json.JsonObject
         org.junit.Assert.assertEquals(setOf("BAD_START", "CONFLICTING_LIMITS", "BAD_MAX_LINES"), GitHubOperationArguments.readWindowFailures(range("""{"start_line":0,"end_line":-1,"max_lines":2001}""")))

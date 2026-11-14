@@ -2,6 +2,7 @@
 import importlib
 import sqlite3
 import unittest
+from contextlib import closing
 from unittest.mock import patch
 
 import test_gateway_v14_jobs as fixtures
@@ -99,7 +100,7 @@ class MetadataTests(unittest.TestCase):
         with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion):
             ident = self.create(client)
             original = client.get('/gateway/conversations/' + ident + '/messages').json()['messages']
-            with sqlite3.connect(self.db) as db:
+            with closing(sqlite3.connect(self.db)) as db, db:
                 db.execute('DROP TABLE gateway_message_bookmarks')
                 db.execute('DROP TABLE gateway_conversation_metadata')
                 db.execute("DELETE FROM gateway_installation WHERE key='conversation_metadata_schema'")
@@ -120,7 +121,7 @@ class MetadataTests(unittest.TestCase):
         with self.client() as client, patch.object(self.runtime, 'process_chat_payload', side_effect=self.completion):
             ident = self.create(client)
             message = client.get('/gateway/conversations/' + ident + '/messages').json()['messages'][0]['logical_message_id']
-            with sqlite3.connect(self.db) as db:
+            with closing(sqlite3.connect(self.db)) as db, db:
                 db.execute('UPDATE gateway_conversations SET principal=? WHERE id=?', ('tailnet:owner', ident))
             users = {'owner@test': {'principalId': 'owner', 'scopes': ['chat', 'jobs', 'tools']},
                      'other@test': {'principalId': 'other', 'scopes': ['chat', 'jobs', 'tools']},

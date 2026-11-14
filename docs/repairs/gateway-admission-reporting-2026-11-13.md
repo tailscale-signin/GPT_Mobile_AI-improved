@@ -2,8 +2,8 @@
 
 Repository: `tailscale-signin/GPT_Mobile_AI-improved`.
 Working branch: `fix/gateway-admission-reporting-2026-11-13`.
-Parent: PR #1068, `fix/open-issue-recovery-2026-11-13`, commit `317892d349fbfe941f8c72a6fb06a6ecc679fa7f`.
-No draft was open at intake. The existing PR was ready for review, so this work uses one new branch based on that exact head.
+Parent: PR #1068, `fix/open-issue-recovery-2026-11-13`, commit `317892d349fbfe941f8c72a6fb06a6ecc679fa7f`, merged to `main` as `e4457b24905a1a268048d30fce4eb99aaf19ac15`.
+No draft was open at intake. The existing PR was ready for review, so this work used one new branch based on that exact head and was retargeted to the verified parent merge before final CI.
 
 ## Evidence
 
@@ -19,6 +19,7 @@ Capture build: 0.9.66.7 / 141, source `05660b80f1b5ec725a730fe2b275069b532145e5`
 - Review repair: both the app and reporting-service diagnostics validators now accept all four selected capacity codes. Regression coverage constructs and validates each complete provider capture, preventing a selected code from silently discarding its diagnostic payload.
 - Review repair: the gateway source manifest was regenerated after the preflight test changed. `gateway.py validate-config` now verifies the reviewed package instead of stopping every platform on a stale test hash.
 - Review repair: the strict release-scope gate identified four unlisted source, regression and repair-ledger files. Those four exact paths are now admitted without broadening the release base, qualification, limitations or path patterns.
+- Publication repair: the first Git-data upload of the large release-scope file was truncated. The malformed blob was detected before merge and replaced with the exact complete JSON manifest; its local Git blob hash and uploaded blob hash both equal `ba3b36e8df6b1a3f54dcfb55425e377164d5f5b4`.
 - A failed text initialization probe ends benchmark readiness and persists its final receipt before any tool probe. Initialization and requested tool probes are required for a positive readiness result, even if remote metadata originally required only configuration. Strict On/Off settings are not silently changed to Auto.
 - Validation policies whose JSON root is a list or scalar produce a normal admission blocker rather than an uncaught attribute error. The gateway emits fixed policy categories: not configured, missing/oversized, repository unconfigured, invalid document/entry, unreadable, or validated. No configured path or policy text is exported.
 - Both HTTP-success preflight refusals and structured error responses retain gateway report snapshots. Previously a normal preflight refusal could throw before its reason reached the selected Gateway report capture.

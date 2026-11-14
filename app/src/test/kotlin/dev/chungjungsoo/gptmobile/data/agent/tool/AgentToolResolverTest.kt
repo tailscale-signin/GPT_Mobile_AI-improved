@@ -1437,13 +1437,19 @@ class AgentToolResolverTest {
         assertFalse(catalog.execute("discover-write", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive("github_write__native")))) }).isError)
         assertTrue(catalog.selected(definitions).any { it.name == "github_write__native" })
 
-        // Other current requests retain the full engineering catalogue. The status
-        // optimization must not hide source, integration, or mutation capabilities.
+        // Other current requests keep the full authorization inventory while
+        // advertising only a bounded, task-sized engineering window.
         for (task in listOf("Inspect the repository source code", "[github-workflow-preset:test_integration]\nTest GitHub integration", "Check repository status and delete the old branch")) {
             val tools = resolver.resolve(profile.uid, selection, dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = task, platformType = null))
             val engineering = requireNotNull(tools.firstNotNullOfOrNull { it.progressiveCatalog })
             assertFalse(task, engineering.scopedGitHubStatus)
-            assertEquals(task, authorizedNames, engineering.selected(tools.map { it.tool.definition }).map { it.name }.filter { GitHubOperationTool.operationName(it) != null }.toSet())
+            val selected = engineering.selected(tools.map { it.tool.definition })
+            val selectedOperations = selected.map { it.name }.filter { GitHubOperationTool.operationName(it) != null }.toSet()
+            assertTrue(task, selectedOperations.isNotEmpty())
+            assertTrue(task, selectedOperations.size < authorizedNames.size)
+            val deferred = authorizedNames.first { it !in selectedOperations }
+            assertFalse(engineering.execute("discover-$task", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(deferred)))) }).isError)
+            assertTrue(task, engineering.selected(tools.map { it.tool.definition }).any { it.name == deferred })
         }
         val retained = statusTools.single { it.modelToolName == "github_context__native" }
         assertTrue(requireNotNull(retained.canReuseResult).invoke())

@@ -139,7 +139,7 @@ class GitHubFullToolVisibilityTest {
                     1 -> emit(ProviderEvent.ToolCall("discover-$round", ProgressiveToolCatalog.NAME, buildJsonObject { put("names", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("github_read")))) }))
                     2 -> {
                         assertTrue(tools.any { it.name == "github_read" })
-                        emit(ProviderEvent.ToolCall("discover-$round", ProgressiveToolCatalog.NAME, buildJsonObject { put("names", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("github_read")))) })
+                        emit(ProviderEvent.ToolCall("discover-$round", ProgressiveToolCatalog.NAME, buildJsonObject { put("names", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive("github_read")))) }))
                     }
                     3 -> {
                         assertFalse(tools.any { it.name == ProgressiveToolCatalog.NAME })

@@ -54,7 +54,11 @@ class DesktopValidationPolicyTests(unittest.TestCase):
             original_open = Path.open
 
             def restricted_open(path, *args, **kwargs):
-                if path == settings:
+                # Windows may expand the temporary directory's short-name
+                # spelling when environment() resolves the desktop root.
+                # Compare the resolved file identity so the mock still
+                # exercises the unreadable-selection recovery path.
+                if path.resolve() == settings.resolve():
                     raise PermissionError('Saved policy selection cannot be read')
                 return original_open(path, *args, **kwargs)
 

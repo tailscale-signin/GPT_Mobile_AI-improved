@@ -9,7 +9,7 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
-from desktop.validation_policy import SETTING as VALIDATION_POLICY_SETTING, selected_policy_path
+from desktop.validation_policy import SETTING as VALIDATION_POLICY_SETTING, active_policy_path
 
 DEFAULTS = dict(schema=1, port=8090, backend='http://127.0.0.1:8080', workers=2,
                 active_chats=8, shutdown_seconds=30, update_mode='notify',
@@ -148,7 +148,7 @@ def environment(root, cfg, management_token=''):
     # This is an explicit host policy selection, not a listener/consent override.
     # Reapply it at both supervisor spawn and frozen engine initialization.
     try:
-        policy_path = selected_policy_path(root)
+        policy_path = active_policy_path(root)
     except (OSError, ValueError):
         # A broken optional selection must not stop chat or the Settings repair
         # path. Its env key was already stripped, so never inherit a different

@@ -2,6 +2,7 @@
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -9,7 +10,10 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop.configuration import atomic_json, environment, load, validate
-from desktop.validation_policy import SETTING, check_policy_file, save_policy_path, selected_policy_path
+from desktop.validation_policy import (
+    DEFAULT_REPOSITORY, SETTING, check_policy_file, default_policy, managed_policy_path, prepare_default_policy,
+    read_desktop_policy, save_desktop_policy, save_policy_path, selected_policy_path,
+)
 from v14.engineering_validation import ValidationPolicyError, load_policy
 
 
@@ -172,6 +176,56 @@ class DesktopValidationPolicyTests(unittest.TestCase):
                 save_policy_path(temp, 'relative.json')
             with self.assertRaises(ValueError):
                 save_policy_path(temp, str(Path(temp) / 'missing.json'))
+
+    def test_managed_policy_copies_legacy_entries_and_survives_deleting_the_external_file(self):
+        with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {}, clear=True):
+            legacy = self.policy(temp)
+            save_policy_path(temp, str(legacy))
+            document = read_desktop_policy(temp)
+            self.assertIn('owner/repo', document)
+            entry = default_policy(temp)
+            entry['image'] = 'python@sha256:' + 'a' * 64
+            document[DEFAULT_REPOSITORY] = entry
+            save_desktop_policy(temp, document)
+            legacy.unlink()
+            self.assertEqual(document, read_desktop_policy(temp))
+            first = environment(temp, validate({}))
+            with patch.dict(os.environ, first, clear=True):
+                second = environment(temp, validate({}))
+            self.assertEqual(str(managed_policy_path(temp)), second[SETTING])
+            with patch.dict(os.environ, second, clear=True):
+                self.assertEqual(entry, load_policy(DEFAULT_REPOSITORY)[0])
+                self.assertEqual([['python', '-m', 'unittest']], load_policy('owner/repo')[3])
+            with self.assertRaisesRegex(ValueError, 'Timeout'):
+                save_desktop_policy(temp, {DEFAULT_REPOSITORY: dict(entry, timeout_seconds=0)})
+            self.assertEqual(document, read_desktop_policy(temp))
+
+    def test_prepare_resolves_digest_and_installs_mirror_without_saving_policy(self):
+        with tempfile.TemporaryDirectory() as temp:
+            image = 'python@sha256:' + 'b' * 64
+
+            def run(argv, **kwargs):
+                if argv[:2] == ['docker', 'info']:
+                    stdout = 'linux'
+                elif argv[:3] == ['docker', 'image', 'inspect']:
+                    stdout = json.dumps([image])
+                else:
+                    stdout = ''
+                if argv[:3] == ['git', 'clone', '--mirror']:
+                    Path(argv[-1]).mkdir()
+                if argv[:2] == ['docker', 'run']:
+                    self.assertIn('--network=none', argv)
+                    self.assertIn('--pull=never', argv)
+                    self.assertIn(image, argv)
+                return subprocess.CompletedProcess(argv, 0, stdout)
+
+            with patch('desktop.validation_policy.subprocess.run', side_effect=run) as execute:
+                policy = prepare_default_policy(temp)
+            self.assertEqual(5, execute.call_count)
+            self.assertTrue(Path(policy['mirror']).is_dir())
+            self.assertEqual(image, policy['image'])
+            self.assertEqual(600, policy['timeout_seconds'])
+            self.assertFalse(managed_policy_path(temp).exists())
 
     def test_policy_check_does_not_modify_environment_or_execute_commands(self):
         with tempfile.TemporaryDirectory() as temp, patch.dict(os.environ, {SETTING: '/existing.json'}, clear=True), \

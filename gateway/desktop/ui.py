@@ -6,7 +6,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from desktop.configuration import atomic_json, load, public_repository_maps, save_public_repository_maps, validate
-from desktop.validation_policy import check_policy_file, save_policy_path, selected_policy_path
+from desktop.validation_policy import DEFAULT_REPOSITORY, default_policy, prepare_default_policy, read_desktop_policy, save_desktop_policy
 from v14.engineering_batch_policy import load_policy as load_execution_policy, save_policy as save_execution_policy
 from desktop.manager import request, startup_registration
 from desktop.addons import load_addons, save_addons
@@ -60,9 +60,9 @@ def build_window(root, parent=None, section='General'):
     advanced_visible = tk.BooleanVar(value=section == 'Advanced')
     advanced_shell = None
     scroll_surfaces = {}
-    def page(name):
-        shell = ttk.Frame(tabs)
-        tabs.add(shell, text=name)
+    def page(name, notebook=tabs):
+        shell = ttk.Frame(notebook)
+        notebook.add(shell, text=name)
         canvas = tk.Canvas(shell, bg=BACKGROUND, highlightthickness=0)
         scrollbar = ttk.Scrollbar(shell, orient='vertical', command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -86,7 +86,7 @@ def build_window(root, parent=None, section='General'):
 
     window.bind('<MouseWheel>', scroll)
     sections = {}
-    for title in ('General', 'Advanced', 'Add-ons', 'GitHub'):
+    for title in ('General', 'Advanced', 'Add-ons'):
         canvas = page(title)
         if title == 'Advanced':
             advanced_shell = canvas.master
@@ -187,37 +187,6 @@ def build_window(root, parent=None, section='General'):
                  values=['1', '2', '3', '4']).grid(row=15, column=0, columnspan=3, sticky='ew', pady=5)
     ttk.Label(advanced, text='One runs sequentially. Higher values parallelize only adjacent independent checks that the repository validation policy explicitly groups. Each check stays in its own offline sandbox. GitHub API requests remain serialized; native cloud-provider batching is unavailable.',
               style='Muted.TLabel', wraplength=600).grid(row=16, column=0, columnspan=3, sticky='w', pady=(4, 12))
-    ttk.Label(advanced, text='Repository validation policy', style='Section.TLabel').grid(row=17, column=0, columnspan=3, sticky='w', pady=(12, 8))
-    validation_policy_invalid = False
-    validation_policy_error = ''
-    try:
-        validation_policy_saved = selected_policy_path(root)
-    except (OSError, ValueError) as error:
-        validation_policy_saved = ''
-        validation_policy_invalid = True
-        validation_policy_error = f'Validation policy selection needs repair: {error}. Choose a policy or leave the field empty, then save settings.'
-    validation_policy = tk.StringVar(value=validation_policy_saved)
-    ttk.Entry(advanced, textvariable=validation_policy).grid(row=18, column=0, columnspan=3, sticky='ew', pady=5)
-    policy_buttons = ttk.Frame(advanced)
-    policy_buttons.grid(row=19, column=0, columnspan=3, sticky='w', pady=5)
-    policy_note = tk.StringVar(value=validation_policy_error or 'Choose the policy approved on this PC for repository builds and behavior tests. Save settings and restart to apply.')
-    ttk.Label(advanced, textvariable=policy_note, style='Muted.TLabel', wraplength=600).grid(row=20, column=0, columnspan=3, sticky='w', pady=(4, 12))
-
-    def browse_policy():
-        selected = filedialog.askopenfilename(parent=window, title='Choose repository validation policy', filetypes=[('JSON policy', '*.json'), ('All files', '*.*')])
-        if selected:
-            validation_policy.set(selected)
-
-    def inspect_policy():
-        try:
-            checked = check_policy_file(validation_policy.get())
-            policy_note.set(f"Policy file validated for {checked['repositories']} repositories. Runtime and source checks run when a job starts."
-                            if checked['state'] == 'VALIDATED' else 'No policy selected. Implementation jobs require a host-approved policy.')
-        except ValueError as error:
-            policy_note.set(str(error))
-
-    ttk.Button(policy_buttons, text='Choose policy…', command=browse_policy).pack(side='left', padx=(0, 8))
-    ttk.Button(policy_buttons, text='Check policy', command=inspect_policy).pack(side='left')
     def benchmark_settings():
         from desktop.benchmark_panel import open_benchmark_settings
         open_benchmark_settings(window, root)
@@ -283,11 +252,116 @@ def build_window(root, parent=None, section='General'):
     reload_addons()
 
     from desktop.github_setup import build_github_settings
-    github = sections['GitHub']
+    github_shell = ttk.Frame(tabs)
+    tabs.add(github_shell, text='GitHub')
+    if section == 'GitHub':
+        tabs.select(github_shell)
+    github_tabs = ttk.Notebook(github_shell)
+    github_tabs.pack(fill='both', expand=True)
+
+    def github_page(name):
+        canvas = page(name, github_tabs)
+        frame = ttk.Frame(canvas, padding=24)
+        frame.columnconfigure(1, weight=1)
+        attach(canvas, frame)
+        return frame
+
+    github = github_page('Connection')
     title(github, 'GitHub', 'Map public repositories or connect GitHub for private maps and saved jobs.')
     public_maps_saved = public_repository_maps(root)
     public_maps = tk.BooleanVar(value=public_maps_saved)
     refresh_github = build_github_settings(github, root, cfg, public_maps, values['engineering'])
+
+    policy = github_page('Validation policy')
+    title(policy, 'Repository validation', 'Configure the offline checks Gateway runs before publishing repository changes.')
+    policy_note = tk.StringVar(value='Prepare the defaults with Git and Docker Desktop, then save and restart Gateway.')
+    try:
+        policies = read_desktop_policy(root)
+    except (OSError, ValueError) as error:
+        policies = {}
+        policy_note.set(f'Could not read the previous policy. Save a repaired policy to replace it. {error}')
+    repository = tk.StringVar(value=next(iter(policies), DEFAULT_REPOSITORY))
+    ttk.Label(policy, text='Repository (owner/name)').grid(row=2, column=0, sticky='w', padx=(0, 18), pady=6)
+    repositories = ttk.Combobox(policy, textvariable=repository, values=sorted(policies))
+    repositories.grid(row=2, column=1, columnspan=2, sticky='ew', pady=6)
+    policy_fields = {}
+    for row, (key, label) in enumerate((
+        ('mirror', 'Bare Git mirror'), ('image', 'Container image digest'), ('timeout_seconds', 'Timeout (seconds)'),
+        ('commands', 'Commands (JSON argv)'), ('parallel_command_groups', 'Parallel groups (JSON)'),
+        ('acceptance_map', 'Acceptance mapping (JSON)'),
+    ), start=3):
+        ttk.Label(policy, text=label).grid(row=row, column=0, sticky='w', padx=(0, 18), pady=6)
+        variable = tk.StringVar()
+        ttk.Entry(policy, textvariable=variable).grid(row=row, column=1, columnspan=2, sticky='ew', pady=6)
+        policy_fields[key] = variable
+
+    def show_policy(entry):
+        for key, variable in policy_fields.items():
+            fallback = 600 if key == 'timeout_seconds' else '' if key in {'mirror', 'image'} else []
+            value = entry.get(key, fallback)
+            variable.set(json.dumps(value, ensure_ascii=False) if isinstance(value, list) else str(value))
+
+    def select_policy(_event=None):
+        name = repository.get().strip().lower()
+        if name in policies:
+            show_policy(policies[name])
+
+    repositories.bind('<<ComboboxSelected>>', select_policy)
+    show_policy(policies.get(repository.get(), default_policy(root)))
+    policy_buttons = ttk.Frame(policy)
+    policy_buttons.grid(row=9, column=0, columnspan=3, sticky='w', pady=(12, 8))
+    ttk.Label(policy, textvariable=policy_note, style='Muted.TLabel', wraplength=600).grid(
+        row=10, column=0, columnspan=3, sticky='w', pady=(4, 12))
+
+    def save_validation():
+        try:
+            name = repository.get().strip().lower()
+            entry = dict(policies.get(name, {}))
+            for key, variable in policy_fields.items():
+                value = variable.get().strip()
+                entry[key] = value if key in {'mirror', 'image'} else json.loads(value)
+            updated = {**policies, name: entry}
+            save_desktop_policy(root, updated)
+            policies.update(updated)
+            repositories.configure(values=sorted(policies))
+            policy_note.set('Policy saved. Restart Gateway to apply it. Keep the mirror current for new commits.')
+        except (OSError, ValueError, TypeError) as error:
+            policy_note.set(f'Check the policy fields. {error}')
+
+    def prepare_defaults():
+        prepare_button.configure(state='disabled')
+        save_policy_button.configure(state='disabled')
+        policy_note.set('Preparing the Git mirror and Docker image…')
+        result = queue.Queue()
+
+        def prepare():
+            try:
+                result.put((True, prepare_default_policy(root)))
+            except (OSError, ValueError) as error:
+                result.put((False, str(error)))
+
+        def finish():
+            try:
+                success, value = result.get_nowait()
+            except queue.Empty:
+                window.after(200, finish)
+                return
+            prepare_button.configure(state='normal')
+            save_policy_button.configure(state='normal')
+            if success:
+                repository.set(DEFAULT_REPOSITORY)
+                show_policy(value)
+                policy_note.set('Defaults prepared. Save the validation policy and restart Gateway. The default checks cover Python source and repository policy.')
+            else:
+                policy_note.set(value)
+
+        threading.Thread(target=prepare, daemon=True).start()
+        window.after(200, finish)
+
+    prepare_button = ttk.Button(policy_buttons, text='Prepare defaults', command=prepare_defaults)
+    prepare_button.pack(side='left', padx=(0, 8))
+    save_policy_button = ttk.Button(policy_buttons, text='Save validation policy', command=save_validation)
+    save_policy_button.pack(side='left')
 
     footer = ttk.Frame(window, padding=(24, 16))
     footer.pack(fill='x')
@@ -299,7 +373,7 @@ def build_window(root, parent=None, section='General'):
     busy = False
 
     def save():
-        nonlocal public_maps_saved, validation_policy_saved, validation_policy_invalid
+        nonlocal public_maps_saved
         try:
             updated = dict(cfg)
             for name, variable in values.items():
@@ -313,20 +387,11 @@ def build_window(root, parent=None, section='General'):
             # never receives the new policy fields.
             from v14.engineering_batch_policy import validate_policy as validate_execution_policy
             staged_batch = validate_execution_policy(staged_batch)
-            policy_changed = validation_policy_invalid or validation_policy.get() != validation_policy_saved or not (root / 'data' / 'validation-settings.json').exists()
-            if policy_changed:
-                check_policy_file(validation_policy.get())
             startup_registration(root, updated['start_at_login'])
             atomic_json(root / 'settings.json', updated)
             cfg.update(updated)
             save_execution_policy(batch_policy_path, staged_batch)
             batch_settings.update(staged_batch)
-            if policy_changed:
-                checked_policy = save_policy_path(root, validation_policy.get())
-                validation_policy_saved = validation_policy.get()
-                validation_policy_invalid = False
-                policy_note.set('Validation policy selection saved. Restart to apply.' if checked_policy['state'] == 'VALIDATED'
-                                else 'No policy selected. Implementation jobs remain blocked until a host-approved policy is selected.')
             if public_maps.get() != public_maps_saved:
                 save_public_repository_maps(root, public_maps.get())
                 public_maps_saved = public_maps.get()

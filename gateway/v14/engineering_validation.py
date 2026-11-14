@@ -199,6 +199,10 @@ def load_policy(repository, *, policy_path=None):
     policy = document.get(repository.lower())
     if not isinstance(policy, dict):
         raise ValidationPolicyError('REPOSITORY_UNCONFIGURED', 'Repository has no host-approved validation policy')
+    return validate_policy_entry(policy)
+
+
+def validate_policy_entry(policy):
     mirror = Path(policy['mirror']).resolve()
     image = policy.get('image', '')
     commands = policy.get('commands')

@@ -1163,6 +1163,31 @@ class ProviderAdaptersTest {
     }
 
     @Test
+    fun `Ollama typed disconnect text cannot select the emulator fallback route`() = kotlinx.coroutines.test.runTest {
+        val transport = replayableOllamaTransport(java.net.ConnectException("PRIVATE_DISCONNECT_FAILURE"))
+            .copy(message = "Connection refused")
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flowOf(ChatCompletionChunk(error = transport)),
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop"))))
+                )
+            )
+        )
+        val profile = platform(ClientType.OLLAMA).copy(apiUrl = "http://127.0.0.1:11434/v1")
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = false))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, api.chatRequests.size)
+        assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
+        assertTrue(api.chatRequests.all { it.model == profile.model })
+        assertEquals(2_000L, testScheduler.currentTime)
+        assertEquals("Recovered", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+    }
+
+    @Test
     fun `Ollama producer typed DNS disconnect and EOF retain explicit replay authority`() = kotlinx.coroutines.test.runTest {
         val causes = listOf(
             java.net.UnknownHostException("PRIVATE_DNS_FAILURE"),

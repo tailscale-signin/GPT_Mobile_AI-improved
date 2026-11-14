@@ -670,9 +670,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                         return null
                     }
                     // If connecting to localhost or 127.0.0.1 fails immediately, try switching to 10.0.2.2 for Android emulator
-                    val connectionFailed = effectiveThrowable is java.net.ConnectException ||
-                        rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
-                        rawError.orEmpty().contains("failed to connect", ignoreCase = true)
+                    val connectionFailed = chunkFailure == null &&
+                        (effectiveThrowable is java.net.ConnectException ||
+                            rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
+                            rawError.orEmpty().contains("failed to connect", ignoreCase = true))
                     if (!constraints.lockSelectedRoute && !emulatorFallbackTried && connectionFailed && isLocalLoopbackUrl(currentConfig.apiUrl)) {
                         val fallbackUrl = rewriteLoopbackForEmulator(currentConfig.apiUrl)
                         if (fallbackUrl != currentConfig.apiUrl) {

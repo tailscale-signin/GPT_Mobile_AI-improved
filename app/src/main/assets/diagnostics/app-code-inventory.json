@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "8af0469a9af04c07966c27dfb2bd01005f6fd5a1994370477ed4f79bb1eea3f8",
+  "source_digest": "1f8a0ce767e9ed6c3b00afe25c8aa0f04097f1c4e20670316134e584cb45d0b2",
   "file_count": 2599,
-  "indexed_line_count": 418272,
+  "indexed_line_count": 418273,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -76,7 +76,7 @@
       "id": "model_providers",
       "label": "Model providers and adapters",
       "file_count": 63,
-      "indexed_line_count": 9114
+      "indexed_line_count": 9115
     },
     {
       "id": "models_and_profiles",
@@ -2208,8 +2208,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "ad42f2b1ab614385ee44fee4ccc4140b8db8ac9f365b33292edc3f4cff5e4a3e",
-      "indexed_lines": 1909
+      "sha256": "0d2c1570b3d7901877ab9756863656ee4617930d10dd8ab107e2b85cb90f8cec",
+      "indexed_lines": 1910
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAttachmentEncoder.kt",

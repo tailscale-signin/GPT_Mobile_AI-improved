@@ -794,8 +794,8 @@ class ChatRepositoryImpl(
                 benchmarkCategory.startsWith(dev.chungjungsoo.gptmobile.data.benchmark.IntelligenceBenchmark.CATEGORY)
             },
             freshResponse = true,
-            lockSelectedRoute = true,
-            attemptId = java.util.UUID.randomUUID().toString().takeIf { target.compatibleType == ClientType.LLAMA },
+            lockSelectedRoute = target.compatibleType == ClientType.LLAMA,
+            attemptId = if (target.compatibleType == ClientType.LLAMA) java.util.UUID.randomUUID().toString() else null,
             requestRole = if (requested.readinessProbe) "benchmark-readiness" else "benchmark",
             finalResponseSchemaJson = schema,
             structuredOutputMode = mode,

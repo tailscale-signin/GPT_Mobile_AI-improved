@@ -1008,7 +1008,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                 }
                                 chunk.gatewayProgress?.let { progress ->
-                                    if (progress.jobId != null) {
+                                    if (progress.jobId != null && constraints.requestRole?.startsWith("benchmark") != true) {
                                         capturedGatewayJobId = progress.jobId
                                     }
                                     emit(ProviderEvent.GatewayProgressUpdate(progress))

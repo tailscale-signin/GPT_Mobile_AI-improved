@@ -352,7 +352,8 @@ fun benchmarkConfigKey(profile: PlatformV2, localEnvironment: String = "", execu
         effective.systemPrompt.orEmpty(), profile.reasoning.toString(), profile.disableAllTools.toString(),
         profile.disableLocalTools.toString(), if (profile.compatibleType == ClientType.LITERT_LM) localEnvironment else ""
     )
-    val identity = if (executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) values + kotlinx.serialization.json.Json.encodeToString(PlatformV2.serializer(), effective.copy(id = 0, uid = "", name = "", token = null, secretRef = null)) else values
+    val requestIdentity = if (profile.compatibleType == ClientType.LLAMA) values + "llama-benchmark-request-v2" else values
+    val identity = if (executionPolicy == BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) requestIdentity + kotlinx.serialization.json.Json.encodeToString(PlatformV2.serializer(), effective.copy(id = 0, uid = "", name = "", token = null, secretRef = null)) else requestIdentity
     return MessageDigest.getInstance("SHA-256").digest(identity.joinToString("\u0000").toByteArray())
         .joinToString("") { "%02x".format(it) }
 }

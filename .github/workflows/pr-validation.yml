@@ -77,14 +77,21 @@ jobs:
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py
 
-      # Release KSP/KAPT/compiler graphs between phases. Run 42144027027
-      # exhausted the bounded 3 GiB heap when generating and compiling together.
-      - name: Generate unit-test production sources
+      # The diagnostic workflow reproduced heap exhaustion when KSP and KAPT
+      # shared a process. Keep Room generation, annotations and compilation separate.
+      - name: Generate unit-test Room sources
         timeout-minutes: 15
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --console=plain --max-workers=1 2>&1 | tee unit-generation.log
+          python3 scripts/gradle_retry.py -- :app:kspDebugKotlin --no-daemon --console=plain --max-workers=1 2>&1 | tee unit-ksp.log
+
+      - name: Generate unit-test annotation sources
+        timeout-minutes: 15
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py -- :app:kaptDebugKotlin --no-daemon --console=plain --max-workers=1 '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee unit-kapt.log
 
       - name: Compile unit-test production sources
         timeout-minutes: 25
@@ -260,7 +267,7 @@ jobs:
 
       - name: Collect structured failure diagnostics
         if: always()
-        run: python3 scripts/collect_ci_diagnostics.py unit-generation.log unit-production.log unit-compile.log test.log lint.log heap.log apk.log
+        run: python3 scripts/collect_ci_diagnostics.py unit-ksp.log unit-kapt.log unit-production.log unit-compile.log test.log lint.log heap.log apk.log
 
       - name: Upload validation logs
         if: always()
@@ -270,7 +277,8 @@ jobs:
           name: pr-validation-logs
           path: |
             ci-diagnostics.json
-            unit-generation.log
+            unit-ksp.log
+            unit-kapt.log
             unit-production.log
             unit-compile.log
             test.log

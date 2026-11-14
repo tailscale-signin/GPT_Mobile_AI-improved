@@ -1,0 +1,801 @@
+{
+  "schema": "gateway17.issue-dispositions.v1",
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "pull_request": 1122,
+  "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
+  "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
+  "audit_started_from_sha": "6d56939a5811c7779e49a072d8d1e3c08cf8fdd3",
+  "concurrent_source_sha_reviewed": "aad56e7f6b9bbac05ca905907cdd627e2bb36244",
+  "reconciled_source_heads": [
+    "b9f3a36c6861c39ff0d65791e7c13c8a4dbbd88c",
+    "752e61c5e76afe305c5fd5aca88f60c4ac86ada9",
+    "2f7d5826c4ab043c628fae5f54caf32cdd8349d3",
+    "0a340a91a4e76f49c85339ecdd04891d7dfb2d72",
+    "90c2f835c032c3fce846777a07265fccb83fd43b",
+    "b279eddfe41edd23602aacd811c881defa3b1aea",
+    "b1a0ea71ce748a04d50b0d85fa4c301032c57107",
+    "aad56e7f6b9bbac05ca905907cdd627e2bb36244"
+  ],
+  "prepared_at_utc_date": "2026-11-14",
+  "intent": "Audit all 27 open non-PR reports, preserve existing fixes and concurrent source changes, improve missing diagnosis, and provide honest per-issue closure evidence.",
+  "issue_count": 27,
+  "remote_mutations_performed_by_this_audit": false,
+  "closure_policy": "The requested closure may include diagnostic resolutions. Each note must preserve its remaining qualification; issue closure is not a declaration of full live/device acceptance.",
+  "privacy": "No original prompts, private endpoints, repository names from report payloads, identifiers, credentials, raw tool arguments or raw logs are stored in this audit.",
+  "validation": {
+    "existing_pr_regressions": {
+      "status": "reviewed_existing_source_and_recorded_evidence",
+      "record": "docs/repairs/github-chat-motion-voice-2026-11-14.md",
+      "qualification": "Historical suite totals in that document are not relabeled as a rerun of the final PR head. Listed Android/Compose/Robolectric suites remain part of exact-head qualification."
+    },
+    "concurrent_source_regressions": {
+      "status": "reviewed_concurrent_source_and_recorded_evidence",
+      "source_sha": "0a340a91a4e76f49c85339ecdd04891d7dfb2d72",
+      "record": "docs/repairs/github-chat-motion-voice-2026-11-14-task.json",
+      "qualification": "Graph/workflow/prerequisite and preflight tests are retained from the concurrent source changes. Current status/report regression results are recorded separately; exact-head CI still qualifies the complete application."
+    },
+    "current_recovery_kotlin": {
+      "status": "passed",
+      "tests": 61,
+      "source_base_sha": "0a340a91a4e76f49c85339ecdd04891d7dfb2d72",
+      "includes_uncommitted_diagnostic_changes": true,
+      "suites": [
+        "GitHubAcceptanceRecoveryEvidenceTest",
+        "GitHubAcceptanceRecoveryCheckpointTest",
+        "GitHubStatusCorrectnessTest",
+        "IssueReportSubmissionTest"
+      ],
+      "scope": "Current changed production report/projection/status/checkpoint/integration-report sources; cached surrounding planner classes and stubbed Android/report-storage boundaries. This is not a full Android or device test.",
+      "results": "After reconciliation to 0a340a91, the source-pinned local harness passed all 61 cases including its policy-access recovery regression. Final publication still requires exact-head repository CI gates."
+    },
+    "current_reporter_python": {
+      "status": "passed",
+      "tests": 78,
+      "command": "python -m unittest authentication.test_incident_report_contract authentication.test_app",
+      "scope": "Approved report contract, closed types/enums and application reporter readiness. Service deployment is not implied by local tests."
+    },
+    "current_ktlint": {
+      "status": "passed",
+      "version": "1.3.1",
+      "scope": "Ten Kotlin source/test files in the combined diagnostic/status scope, after reconciliation to 0a340a91."
+    }
+  },
+  "reporter_contract": {
+    "features": [
+      "GITHUB_PREREQUISITE_EVIDENCE_V1",
+      "ACCEPTANCE_RECOVERY_EVIDENCE_V1",
+      "GITHUB_GRAPH_POLICY_EVIDENCE_V1",
+      "ISSUE_RECOVERY_CODES_V1"
+    ],
+    "client": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+    "server": [
+      "authentication/issue_report_diagnostics.py",
+      "authentication/issue_report_app.py"
+    ],
+    "tests": [
+      "authentication/test_incident_report_contract.py",
+      "authentication/test_app.py",
+      "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt"
+    ],
+    "deployment_status": "not_deployed_by_this_subtask",
+    "incompatible_service_behavior": "Preserve approved report bytes and return REPORT_SERVICE_UPDATE_REQUIRED before POST; do not silently drop new evidence or mutate an approved payload."
+  },
+  "issues": [
+    {
+      "issue": 1101,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1101",
+      "disposition": "code_fix_and_diagnostics",
+      "observed_problem": "A GitHub request was rejected during tool-schema context admission.",
+      "resolution": "The current PR retains the required task-sized schema set and the route to the remaining authorized catalog, including opaque MCP aliases. Soft catalog discovery allowance does not inflate the provider hard limit. A genuine admission failure remains typed, carries the owning schema allowance and dispatch facts, and cannot silently drop required tools.",
+      "remaining_qualification": "The reported private provider/model context was not replayed. A request that genuinely cannot fit still needs a supported larger context or a smaller explicit request/output allowance. Catalog availability never proves execution coverage.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlanner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlannerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1102,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1102",
+      "disposition": "code_fix_and_diagnostics",
+      "observed_problem": "A GitHub request was rejected during tool-schema context admission.",
+      "resolution": "The current PR retains the required task-sized schema set and the route to the remaining authorized catalog, including opaque MCP aliases. Soft catalog discovery allowance does not inflate the provider hard limit. A genuine admission failure remains typed, carries the owning schema allowance and dispatch facts, and cannot silently drop required tools.",
+      "remaining_qualification": "The reported private provider/model context was not replayed. A request that genuinely cannot fit still needs a supported larger context or a smaller explicit request/output allowance. Catalog availability never proves execution coverage.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlanner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlannerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1103,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1103",
+      "disposition": "code_fix_and_diagnostics",
+      "observed_problem": "A GitHub request was rejected during tool-schema context admission.",
+      "resolution": "The current PR retains the required task-sized schema set and the route to the remaining authorized catalog, including opaque MCP aliases. Soft catalog discovery allowance does not inflate the provider hard limit. A genuine admission failure remains typed, carries the owning schema allowance and dispatch facts, and cannot silently drop required tools.",
+      "remaining_qualification": "The reported private provider/model context was not replayed. A request that genuinely cannot fit still needs a supported larger context or a smaller explicit request/output allowance. Catalog availability never proves execution coverage.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlanner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlannerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1104,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1104",
+      "disposition": "code_fix_and_diagnostics",
+      "observed_problem": "An ordinary-chat pre-dispatch GitHub admission failure was presented as generic CHAT_FAILED.",
+      "resolution": "Preserve the typed GitHub admission rejection through the ordinary chat failure boundary and attach the actual request budget and dispatch observation. A later-session failure cannot relabel earlier generation as unsent.",
+      "remaining_qualification": "This repairs classification and actionable evidence. The admission boundary remains enforced, and the original private endpoint was not replayed.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerFailureBoundaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1105,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1105",
+      "disposition": "code_fix_and_diagnostics",
+      "observed_problem": "A GitHub request was rejected during tool-schema context admission.",
+      "resolution": "The current PR retains the required task-sized schema set and the route to the remaining authorized catalog, including opaque MCP aliases. Soft catalog discovery allowance does not inflate the provider hard limit. A genuine admission failure remains typed, carries the owning schema allowance and dispatch facts, and cannot silently drop required tools.",
+      "remaining_qualification": "The reported private provider/model context was not replayed. A request that genuinely cannot fit still needs a supported larger context or a smaller explicit request/output allowance. Catalog availability never proves execution coverage.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlanner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlannerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1106,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1106",
+      "disposition": "code_fix_and_diagnostics",
+      "observed_problem": "A GitHub request was rejected during tool-schema context admission.",
+      "resolution": "The current PR retains the required task-sized schema set and the route to the remaining authorized catalog, including opaque MCP aliases. Soft catalog discovery allowance does not inflate the provider hard limit. A genuine admission failure remains typed, carries the owning schema allowance and dispatch facts, and cannot silently drop required tools.",
+      "remaining_qualification": "The reported private provider/model context was not replayed. A request that genuinely cannot fit still needs a supported larger context or a smaller explicit request/output allowance. Catalog availability never proves execution coverage.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlanner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlannerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1107,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1107",
+      "disposition": "diagnostic_resolution",
+      "observed_problem": "Voice setup was reported unavailable; completion of a model transfer alone did not establish both engines were ready.",
+      "resolution": "Retain independent recognition-pack and speech-pack readiness, download/install scheduler state, failure category and progress. Existing readiness gates still require usable engine assets before enabling the corresponding route.",
+      "remaining_qualification": "Successful install and capture/playback on the affected physical phone are unverified. The report can now distinguish transfer, scheduler, pack-readiness and engine admission failures without treating download completion as successful voice setup.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryViewModel.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceNativeEngineGateTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePluginSetupTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1108,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1108",
+      "disposition": "bounded_recovery_and_diagnostics",
+      "observed_problem": "Playback failed when Android did not grant audio focus.",
+      "resolution": "The local speech output retries the initial focus rejection once within the existing session boundary and records focus-attempt count, focus outcome and terminal playback failure. No indefinite retry or false playback-start signal is introduced.",
+      "remaining_qualification": "A persistent external focus owner can still deny playback. The affected phone contention was not reproduced, and a host/emulator result does not establish physical audio output.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackStartTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailureReportingTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1109,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1109",
+      "disposition": "bounded_recovery_and_diagnostics",
+      "observed_problem": "Microphone capture was unavailable or silenced and surfaced VOICE_MICROPHONE_BUSY.",
+      "resolution": "The local recognizer may recreate the recorder once only for a retryable zero-sample start. Capture-attempt count, reads, captured/nonzero samples, silence, permission and focus observations remain distinct. Existing callbacks, cancellation and half-duplex guards remain active.",
+      "remaining_qualification": "Another app or Android policy can still hold the microphone. No report is classified as a successful capture merely because audio focus was granted, and the historical physical-device conflict was not replayed.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceCaptureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailureReportingTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1110,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1110",
+      "disposition": "bounded_recovery_and_diagnostics",
+      "observed_problem": "Playback failed when Android did not grant audio focus.",
+      "resolution": "The local speech output retries the initial focus rejection once within the existing session boundary and records focus-attempt count, focus outcome and terminal playback failure. No indefinite retry or false playback-start signal is introduced.",
+      "remaining_qualification": "A persistent external focus owner can still deny playback. The affected phone contention was not reproduced, and a host/emulator result does not establish physical audio output.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackStartTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailureReportingTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1111,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1111",
+      "disposition": "bounded_recovery_and_diagnostics",
+      "observed_problem": "Microphone capture was unavailable or silenced and surfaced VOICE_MICROPHONE_BUSY.",
+      "resolution": "The local recognizer may recreate the recorder once only for a retryable zero-sample start. Capture-attempt count, reads, captured/nonzero samples, silence, permission and focus observations remain distinct. Existing callbacks, cancellation and half-duplex guards remain active.",
+      "remaining_qualification": "Another app or Android policy can still hold the microphone. No report is classified as a successful capture merely because audio focus was granted, and the historical physical-device conflict was not replayed.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceCaptureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailureReportingTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1112,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1112",
+      "disposition": "bounded_recovery_and_diagnostics",
+      "observed_problem": "Microphone capture was unavailable or silenced and surfaced VOICE_MICROPHONE_BUSY.",
+      "resolution": "The local recognizer may recreate the recorder once only for a retryable zero-sample start. Capture-attempt count, reads, captured/nonzero samples, silence, permission and focus observations remain distinct. Existing callbacks, cancellation and half-duplex guards remain active.",
+      "remaining_qualification": "Another app or Android policy can still hold the microphone. No report is classified as a successful capture merely because audio focus was granted, and the historical physical-device conflict was not replayed.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceCaptureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailureReportingTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1113,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1113",
+      "disposition": "bounded_recovery_and_diagnostics",
+      "observed_problem": "Microphone capture was unavailable or silenced and surfaced VOICE_MICROPHONE_BUSY.",
+      "resolution": "The local recognizer may recreate the recorder once only for a retryable zero-sample start. Capture-attempt count, reads, captured/nonzero samples, silence, permission and focus observations remain distinct. Existing callbacks, cancellation and half-duplex guards remain active.",
+      "remaining_qualification": "Another app or Android policy can still hold the microphone. No report is classified as a successful capture merely because audio focus was granted, and the historical physical-device conflict was not replayed.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceCaptureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailureReportingTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1114,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1114",
+      "disposition": "code_fix_with_device_qualification",
+      "observed_problem": "Live voice captions could show the wrong text or lose the reader position while following speech.",
+      "resolution": "The themed caption surface keeps the complete text and validates observed speech ranges. Automatic movement does not detach following; explicit manual reading does, and returning to the bottom resumes it. Invalid/stale ranges cannot highlight another utterance, and text timing is not fabricated.",
+      "remaining_qualification": "Pure caption and session regressions cover text, Unicode ranges and follow behavior. Exact-head Compose/device visual verification remains a release gate; no physical speech timing comparison was performed here.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaptionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePlaybackStartTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1115,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1115",
+      "disposition": "code_fix_and_diagnostics",
+      "observed_problem": "A GitHub request was rejected during tool-schema context admission.",
+      "resolution": "The current PR retains the required task-sized schema set and the route to the remaining authorized catalog, including opaque MCP aliases. Soft catalog discovery allowance does not inflate the provider hard limit. A genuine admission failure remains typed, carries the owning schema allowance and dispatch facts, and cannot silently drop required tools.",
+      "remaining_qualification": "The reported private provider/model context was not replayed. A request that genuinely cannot fit still needs a supported larger context or a smaller explicit request/output allowance. Catalog availability never proves execution coverage.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlanner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlannerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1116,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1116",
+      "disposition": "diagnostic_resolution",
+      "observed_problem": "A tool failure occurred when the shared tool-result byte allowance was exhausted.",
+      "resolution": "The tool budget boundary retains spent and remaining result allowance and produces a specific exhausted-budget outcome. The runner preserves completed results and uses a bounded answer-only recovery when allowed; it does not spend another tool-output allowance or silently reset the accepted budget.",
+      "remaining_qualification": "Exhaustion is an enforced resource boundary, not proof of a provider defect. The historical task may still require a new explicitly authorized allowance or smaller scope.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolProgressAndBudgetTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContextTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1117,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1117",
+      "disposition": "bounded_recovery_and_diagnostics",
+      "observed_problem": "The model produced no usable visible completion; retained review evidence included reasoning-only output at the selected allowance.",
+      "resolution": "The existing bounded empty-completion recovery and current PR failure evidence retain the producing invocation, usage and finish reason. Concurrent b9f3a36c adds a distinct preflight retry that can grow a 2048-token allowance to at most 4096 only when the complete request fits and it actually increases the allowance. The terminal failure is published once.",
+      "remaining_qualification": "The external provider failure is not reproduced as a live request. Explicit profile/reasoning caps, selected identity and unknown-outcome boundaries remain authoritative; unavailable extra allowance does not trigger a pointless repeat.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewCompatibility.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/RequestConstraints.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewAvailabilityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GitHubReasoningPolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerFailureBoundaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions",
+        "concurrent_source_regressions"
+      ]
+    },
+    {
+      "issue": 1118,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1118",
+      "disposition": "diagnostic_resolution",
+      "observed_problem": "A generic chat failure was associated with a local/native tool protocol frame that could not be admitted.",
+      "resolution": "Malformed, mixed, truncated and unauthorized tool frames remain typed and non-dispatchable. Parser status and bounded failure evidence preserve the failed boundary without exporting raw frames or provider text.",
+      "remaining_qualification": "The exact historical provider frame and upstream model behavior were not reproduced. The change improves classification and prevents invalid dispatch; it does not claim the provider now always emits valid frames.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalNativeToolFrameSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalNativeToolFrameSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1119,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1119",
+      "disposition": "bounded_recovery_and_diagnostics",
+      "observed_problem": "The model produced no usable visible completion; retained review evidence included reasoning-only output at the selected allowance.",
+      "resolution": "The existing bounded empty-completion recovery and current PR failure evidence retain the producing invocation, usage and finish reason. Concurrent b9f3a36c adds a distinct preflight retry that can grow a 2048-token allowance to at most 4096 only when the complete request fits and it actually increases the allowance. The terminal failure is published once.",
+      "remaining_qualification": "The external provider failure is not reproduced as a live request. Explicit profile/reasoning caps, selected identity and unknown-outcome boundaries remain authoritative; unavailable extra allowance does not trigger a pointless repeat.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewCompatibility.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/RequestConstraints.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewAvailabilityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/GitHubReasoningPolicyTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerFailureBoundaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions",
+        "concurrent_source_regressions"
+      ]
+    },
+    {
+      "issue": 1120,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1120",
+      "disposition": "code_fix_with_device_qualification",
+      "observed_problem": "The keyboard repeatedly opened and closed while a chat draft was being edited.",
+      "resolution": "Background run state does not steal the active editor focus or dismiss another editor input session. Sending releases the actual composer focus before dispatch while preserving the exact draft. Opted-in diagnostics retain focus and IME visibility transitions, not typed content.",
+      "remaining_qualification": "Compose lifecycle regressions are present; the original device/IME combination was not replayed. A physical keyboard/IME check remains distinct from source and host validation.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ComposerInputLifecycleTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContextTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1121,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1121",
+      "disposition": "diagnostic_resolution",
+      "observed_problem": "A terminal CHAT_FAILED report did not identify the underlying application failure.",
+      "resolution": "Sanitized exception category and application stack frames survive the terminal Flow/report boundary, while arbitrary exception messages, URLs and unobserved capture sites are excluded. Existing consent and report-preview rules continue to govern export.",
+      "remaining_qualification": "The original exception cause remains unproven. Closure records improved actionable evidence for recurrence, not a claimed repair of an unidentified crash.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppLogRecorder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerFailureBoundaryTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1123,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1123",
+      "disposition": "code_fix_and_diagnostics",
+      "observed_problem": "A GitHub request was rejected during tool-schema context admission.",
+      "resolution": "The current PR retains the required task-sized schema set and the route to the remaining authorized catalog, including opaque MCP aliases. Soft catalog discovery allowance does not inflate the provider hard limit. A genuine admission failure remains typed, carries the owning schema allowance and dispatch facts, and cannot silently drop required tools.",
+      "remaining_qualification": "The reported private provider/model context was not replayed. A request that genuinely cannot fit still needs a supported larger context or a smaller explicit request/output allowance. Catalog availability never proves execution coverage.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlanner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressiveToolCatalogTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlannerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/LocalToolContextFailureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1124,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1124",
+      "disposition": "diagnostic_resolution",
+      "observed_problem": "A terminal CHAT_FAILED report did not identify the underlying application failure.",
+      "resolution": "Sanitized exception category and application stack frames survive the terminal Flow/report boundary, while arbitrary exception messages, URLs and unobserved capture sites are excluded. Existing consent and report-preview rules continue to govern export.",
+      "remaining_qualification": "The original exception cause remains unproven. Closure records improved actionable evidence for recurrence, not a claimed repair of an unidentified crash.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/AppLogRecorder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatViewModel.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsuleTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunnerFailureBoundaryTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1125,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1125",
+      "disposition": "bounded_recovery_and_diagnostics",
+      "observed_problem": "Microphone capture was unavailable or silenced and surfaced VOICE_MICROPHONE_BUSY.",
+      "resolution": "The local recognizer may recreate the recorder once only for a retryable zero-sample start. Capture-attempt count, reads, captured/nonzero samples, silence, permission and focus observations remain distinct. Existing callbacks, cancellation and half-duplex guards remain active.",
+      "remaining_qualification": "Another app or Android policy can still hold the microphone. No report is classified as a successful capture merely because audio focus was granted, and the historical physical-device conflict was not replayed.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceCaptureFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceCaptureTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTraceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceFailureReportingTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1126,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1126",
+      "disposition": "code_fix_and_diagnostics",
+      "observed_problem": "A GitHub conversation configured to use a gateway could be missing from the Gateway list before its first successful server submission.",
+      "resolution": "Gateway membership includes saved gateway selections, verified active inference profiles and distinct verified engineering bindings. Offline local records remain visible, archived chats remain excluded, and bubbles retain their true conversation mode. Opening a profile-only local draft preserves that local draft and mode.",
+      "remaining_qualification": "Regression coverage distinguishes local drafts from canonical server conversations and checks principal changes. The Android UI and private gateway end-to-end path still require their existing exact-head validation.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModel.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsScreen.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationsViewModelTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayConversationActivityTest.kt"
+      ],
+      "validation_refs": [
+        "existing_pr_regressions"
+      ]
+    },
+    {
+      "issue": 1127,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1127",
+      "disposition": "code_fix_and_explicit_prerequisites",
+      "observed_problem": "Integration acceptance stopped with CAPABILITY_PREREQUISITES_MISSING: 45 of 70 required capabilities were verified, 18 had input blockers and 7 had approval blockers. The retained sample had 14 remote continuation recipes and 173 calls remaining.",
+      "resolution": "Concurrent b9f3a36c and 0a340a91 prepare the selected revision graph through its existing checkpoint flow and follows issued exact-SHA workflow continuation pages to find an executed job under a bounded dependency allowance. They make fixture approval settings and source prerequisites actionable, retain typed graph/workflow dependency observations, and do not mark an unindexed graph verified. This change adds report-safe retained preparation state/counts, fixture-creation admissibility and a bounded sample of blocked operation families with an omitted-family count. The stop summary counts missing repository/ref/source inputs.",
+      "remaining_qualification": "45/70 remains partial historical coverage. Remaining budget does not authorize fixture mutations, create missing resources, choose a different revision, or verify pending operations. A bounded smoke sample cannot be reported as full inventory. Failed/uncertain graph indexing must be reconciled; missing baseline, logs, nodes and approval remain prerequisites. New report fields require a reporter deployment advertising ACCEPTANCE_RECOVERY_EVIDENCE_V1.",
+      "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPrerequisites.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestWorkflowJobs.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPrerequisitesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestWorkflowJobsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparationTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationStopReasonTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryCheckpointTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt"
+      ],
+      "validation_refs": [
+        "concurrent_source_regressions",
+        "current_recovery_kotlin",
+        "current_reporter_python",
+        "current_ktlint"
+      ]
+    },
+    {
+      "issue": 1128,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1128",
+      "disposition": "missing_permission_explained_and_diagnosed",
+      "observed_problem": "Repository Health had six of seven observations verified. Applicable rules were observed, while branch protection was not found or inaccessible, so required-check policy remained unknown.",
+      "resolution": "Concurrent b9f3a36c and 0a340a91 retain separate policy-endpoint HTTP observations, actionable access text and a clearly partial policy summary in the status checkpoint. This change projects actual numeric HTTP status, actual branch-protected/completeness flags and a closed endpoint-specific recovery hint into approved reports. An inaccessible policy endpoint requests REFRESH_REPOSITORY_ACCESS with automatic retry disabled; other unavailable reads retain RESOLVE_CAPABILITY_PREREQUISITE. Neither is a generic unfinished-work replay.",
+      "remaining_qualification": "A protection 404 cannot establish absence; protected=false and empty observed rules cannot establish complete policy. This code cannot grant repository permissions. Recheck authentication/policy read access and refresh the same selected branch at its current head. Unknown policy remains unverified. New report fields require a reporter deployment advertising ACCEPTANCE_RECOVERY_EVIDENCE_V1.",
+      "closure_basis": "Improved diagnosis and bounded recovery; the historical external outcome is not claimed fixed.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusPolicyEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusRequest.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusCorrectnessTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryCheckpointTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt"
+      ],
+      "validation_refs": [
+        "concurrent_source_regressions",
+        "current_recovery_kotlin",
+        "current_reporter_python",
+        "current_ktlint"
+      ]
+    }
+  ]
+}

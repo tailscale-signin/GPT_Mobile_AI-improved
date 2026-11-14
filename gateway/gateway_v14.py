@@ -67,6 +67,7 @@ from v14.profile_metadata import profile_metadata
 from v14.conversation_policy import conversation_retention, verify_mutation_identity, MUTATION_IDENTITY_HEADERS, ORDINARY_RETENTION_POLICY
 from v14.execution_binding import ExecutionBindingError, configured_route, fingerprint
 from v14.model_preparation_routes import ModelPreparationService, install_model_preparation_routes
+from benchmarks.service import BenchmarkService, install_benchmark_routes
 
 runtime.GATEWAY_VERSION = VERSION
 runtime.AUTO_MEMORY_RETRIEVE = False
@@ -129,7 +130,9 @@ debug_log.configure_identity(gatewayVersion=VERSION, sourceCommit=build_identity
                                                                    'mode': config.mode, 'durableJobs': runtime.GATEWAY_DURABLE_JOBS}),
                              startupReason=os.getenv('GATEWAY_STARTUP_REASON', 'process_start'))
 model_preparation = ModelPreparationService(engineering.capabilities)
-app = FastAPI(title="Private Gateway 16", version=VERSION, lifespan=model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace)))),
+benchmarks = BenchmarkService(runtime, engineering)
+runtime.gateway_benchmarks = benchmarks
+app = FastAPI(title="Private Gateway 17", version=VERSION, lifespan=benchmarks.lifecycle(model_preparation.lifecycle(debug_lifecycle(debug_log, engineering.lifecycle(service.lifespan(runtime, config.shutdown_grace))))),
               docs_url="/gateway/docs", openapi_url="/gateway/openapi.json")
 app.add_middleware(LoadGuard, config=config, state=service)
 app.add_middleware(ActivityMiddleware, tracker=activity)
@@ -139,6 +142,7 @@ install_debug_routes(app, debug_log)
 install_engineering_routes(app, engineering)
 install_conversation_routes(app, runtime.gateway_conversations, engineering, service, lambda: runtime.device_store)
 install_model_preparation_routes(app, model_preparation, runtime.gateway_conversations.gateway_id)
+install_benchmark_routes(app, benchmarks)
 from v14.maintenance import install_maintenance
 install_maintenance(app, runtime, service, engineering)
 
@@ -326,12 +330,14 @@ def capabilities(model=""):
                                     loopbackBrowserCsrf=config.mode == "loopback", boundedAdmission=True,
                                     versionedJournal=True, mcpCircuitBreakers=True, supervisedShutdown=True,
                                     selectedModelLimits=True, model_preparation_v1=True, mutation_identity_preconditions_v1=True,
-                                    ordinary_conversation_retention_v1=True, **{key: gateway_id is not None for key in FEATURES})})
+                                    ordinary_conversation_retention_v1=True, durable_benchmarks_v1=gateway_id is not None, **{key: gateway_id is not None for key in FEATURES})})
     result['accepted_request_headers'].extend(['X-Gateway-Profile-ID', 'X-Gateway-Profile-Name-Base64', 'X-Gateway-Conversation-Retention', *MUTATION_IDENTITY_HEADERS])
-    result['endpoints'].update(identity='/gateway/identity', job_catalog='/gateway/job-catalog', conversations='/gateway/conversations', conversation_messages='/gateway/conversations/{conversation_id}/messages', command='/gateway/commands/{command_id}', model_prepare='/gateway/models/prepare')
+    result['endpoints'].update(identity='/gateway/identity', job_catalog='/gateway/job-catalog', conversations='/gateway/conversations', conversation_messages='/gateway/conversations/{conversation_id}/messages', command='/gateway/commands/{command_id}', model_prepare='/gateway/models/prepare', conversation_metadata='/gateway/conversations/{conversation_id}/metadata', saved_messages='/gateway/saved-messages', message_bookmark='/gateway/conversations/{conversation_id}/bookmarks/{message_id}', benchmarks='/gateway/benchmarks')
     result['headers'].update(gateway_id='X-Gateway-ID', principal_id='X-Gateway-Principal-ID', conversation_id='X-Gateway-Conversation-ID', command_id='X-Gateway-Command-ID', detach_safe='X-Gateway-Detach-Safe')
     result['contracts'].update(gatewayJobCatalog=['gptmobile.gateway.job-catalog.v1'], gatewayConversations=['gptmobile.gateway.conversations.v1'])
     result['contracts']['modelPreparation'] = ['gptmobile.gateway.model-preparation.v1']
+    result['contracts']['conversationMetadata'] = ['gptmobile.gateway.conversation-metadata.v1']
+    result['contracts']['benchmarks'] = ['gateway.benchmark.v1']
     if model:
         result['selectedModel'] = engineering.capabilities.selected_model(model)
         model_preparation.observe_loaded(model, result['selectedModel'])
@@ -348,6 +354,8 @@ async def v14_capabilities(request: Request, model: str = ""):
     return result
 
 
+@app.get("/gateway/v17")
+@app.get("/v1/gateway/v17")
 @app.get("/gateway/v16")
 @app.get("/v1/gateway/v16")
 @app.get("/gateway/v15")

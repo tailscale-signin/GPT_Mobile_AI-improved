@@ -57,6 +57,8 @@ def build_window(root, parent=None, section='General'):
     ttk.Label(header, textvariable=state_text, style='Muted.TLabel').pack(side='right')
     tabs = ttk.Notebook(window)
     tabs.pack(fill='both', expand=True, padx=20)
+    advanced_visible = tk.BooleanVar(value=section == 'Advanced')
+    advanced_shell = None
     scroll_surfaces = {}
     def page(name):
         shell = ttk.Frame(tabs)
@@ -86,12 +88,24 @@ def build_window(root, parent=None, section='General'):
     sections = {}
     for title in ('General', 'Advanced', 'Add-ons', 'GitHub'):
         canvas = page(title)
+        if title == 'Advanced':
+            advanced_shell = canvas.master
         frame = ttk.Frame(canvas, padding=24)
         attach(canvas, frame)
         frame.columnconfigure(1, weight=1)
         sections[title] = frame
         if title == section:
             tabs.select(canvas.master)
+    def toggle_advanced():
+        if advanced_visible.get():
+            tabs.insert(1, advanced_shell, text='Advanced')
+            tabs.select(advanced_shell)
+        else:
+            tabs.hide(advanced_shell)
+    ttk.Checkbutton(header, text='Show advanced settings', variable=advanced_visible,
+                    command=toggle_advanced).pack(side='right', padx=18)
+    if not advanced_visible.get():
+        tabs.hide(advanced_shell)
     values = {}
 
     def title(frame, text, detail):
@@ -204,6 +218,10 @@ def build_window(root, parent=None, section='General'):
 
     ttk.Button(policy_buttons, text='Choose policy…', command=browse_policy).pack(side='left', padx=(0, 8))
     ttk.Button(policy_buttons, text='Check policy', command=inspect_policy).pack(side='left')
+    def benchmark_settings():
+        from desktop.benchmark_panel import open_benchmark_settings
+        open_benchmark_settings(window, root)
+    ttk.Button(advanced, text='Benchmark settings…', command=benchmark_settings).grid(row=22, column=0, columnspan=3, sticky='w', pady=(14, 6))
 
     addons = sections['Add-ons']
     title(addons, 'Extend your gateway', 'Manage configured PC tools.')

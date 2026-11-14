@@ -24,6 +24,51 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_acceptance_recovery_evidence_preserves_unknown_policy_and_prerequisites(self):
+        values = {
+            "acceptance_preparation_state": "PREREQUISITES_REQUIRED",
+            "acceptance_ready_read_count": 0, "acceptance_additional_ready_read_count": 0,
+            "acceptance_fixture_creation_admissible": False,
+            "acceptance_blocked_operation_families": ["github_ci", "github_read"],
+            "status_policy_protection_http_status": 404,
+            "status_policy_rules_http_status": 403,
+            "status_branch_protected": False, "status_policy_complete": False,
+            "status_policy_recovery_hint": "CHECK_POLICY_READ_PERMISSIONS",
+        }
+        capture = self.capture("ACCEPTANCE", values)
+        original = copy.deepcopy(capture)
+        validate_diagnostics(capture)
+        self.assertEqual(original, capture)
+        self.assertFalse(capture["values"]["status_policy_complete"])
+        self.assertFalse(capture["values"]["acceptance_fixture_creation_admissible"])
+        for key, bad in (
+            ("status_policy_protection_http_status", "404"),
+            ("status_policy_rules_http_status", 600),
+            ("status_branch_protected", "false"),
+            ("status_policy_complete", 0),
+            ("acceptance_fixture_creation_admissible", "true"),
+            ("acceptance_ready_read_count", -1),
+            ("acceptance_preparation_state", "private repository path"),
+            ("acceptance_blocked_operation_families", ["private-owner/private-repo"]),
+            ("status_policy_recovery_hint", "BYPASS_POLICY"),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {key: bad}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("VOICE", values))
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt").read_text()
+        from authentication import issue_report_diagnostics as contract
+        for name, expected in (("preparationStates", contract.ENUMS["acceptance_preparation_state"]),
+                               ("operationFamilies", contract.ENUM_LISTS["acceptance_blocked_operation_families"]),
+                               ("policyRecoveryHints", contract.ENUMS["status_policy_recovery_hint"]),
+                               ("fields", contract.ACCEPTANCE_RECOVERY_FIELDS)):
+            match = re.search(r"val " + name + r" = setOf\((.*?)\n?    \)", source, re.S)
+            if name != "fields":
+                match = re.search(r"val " + name + r" = setOf\(([^\n]*)\)", source)
+            self.assertIsNotNone(match, name)
+            self.assertEqual(expected, set(re.findall(r'"([^"\n]+)"', match.group(1))), name)
+
     def test_admission_diagnostics_preserve_typed_capacity_queue_and_preflight(self):
         samples = {
             "PROVIDER": {"admission_prompt_tokens": 9639, "admission_safety_tokens": 2409,

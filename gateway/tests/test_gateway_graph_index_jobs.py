@@ -22,7 +22,8 @@ class IndexJobTests(unittest.TestCase):
         self.database = Path(self.temp.name) / 'jobs.db'
         self.clock = 1000.0
         runtime = SimpleNamespace(GATEWAY_DURABLE_JOBS=True, durable_job_initialized=True,
-                                  durable_job_lock=threading.RLock(), _durable_connect=lambda: sqlite3.connect(self.database))
+                                  durable_job_lock=threading.RLock(), _durable_connect=lambda: sqlite3.connect(self.database),
+                                  gateway_draining=False, gateway_service=SimpleNamespace(lock=threading.RLock(), draining=False))
         self.storage = EngineeringStore(runtime)
         self.actor = 7
         self.authorized = True
@@ -220,6 +221,67 @@ class IndexJobTests(unittest.TestCase):
                     patch.object(self.storage, 'tx', side_effect=AssertionError('Disabled storage must not be opened')):
                 self.jobs.close()
                 self.assertTrue(self.jobs.stop.is_set())
+
+    def test_maintenance_drain_blocks_new_admission_and_worker_claims(self):
+        runtime = self.storage.runtime
+        for target, flag in ((runtime, 'gateway_draining'), (runtime.gateway_service, 'draining')):
+            with self.subTest(flag=flag), patch.object(target, flag, True), \
+                    patch.object(self.service, 'authorize', side_effect=AssertionError('must not read after drain')):
+                with self.assertRaises(TimeoutError):
+                    self.enqueue()
+        self.enqueue()
+        with runtime.gateway_service.lock:
+            runtime.gateway_service.draining = True
+        self.assertIsNone(self.jobs._take())
+        self.assertEqual('QUEUED', self.jobs.status('principal', self.request)['state'])
+        self.assertEqual({'activeIndexBatches': 0}, self.jobs.snapshot())
+        runtime.gateway_service.draining = False
+        self.assertIsNotNone(self.jobs._take())
+
+    def test_drain_during_authorization_rejects_before_persisting_admission(self):
+        def authorize(*args):
+            result = self.authorize(*args)
+            with self.storage.runtime.gateway_service.lock:
+                self.storage.runtime.gateway_service.draining = True
+            return result
+        with patch.object(self.service, 'authorize', side_effect=authorize):
+            with self.assertRaises(TimeoutError):
+                self.enqueue()
+        count = self.jobs._transaction(lambda db: db.execute('SELECT COUNT(*) FROM code_graph_index_jobs').fetchone()[0])
+        self.assertEqual(0, count)
+        self.jobs.start.assert_not_called()
+
+    def test_cancelled_row_keeps_physical_batch_visible_until_close_settles(self):
+        accepted = self.enqueue()['index_job']
+        entered, release, closed = threading.Event(), threading.Event(), threading.Event()
+        def slow_step(_job):
+            entered.set()
+            if not release.wait(3):
+                raise AssertionError('test batch was not released')
+        def close():
+            self.jobs.close()
+            closed.set()
+        with patch.object(self.jobs, '_step', side_effect=slow_step):
+            self.jobs.thread = threading.Thread(target=self.jobs._run, name='test-index-worker', daemon=True)
+            self.jobs.thread.start()
+            closer = None
+            try:
+                self.assertTrue(entered.wait(2))
+                self.enqueue(job_action='cancel', job_id=accepted['id'], job_generation=accepted['generation'], request_id='cancel-active')
+                self.assertEqual('CANCELLED', self.jobs.status('principal', self.request)['state'])
+                self.assertEqual({'activeIndexBatches': 1}, self.jobs.snapshot())
+                closer = threading.Thread(target=close, daemon=True)
+                closer.start()
+                self.assertFalse(closed.wait(.05))
+                self.assertEqual({'activeIndexBatches': 1}, self.jobs.snapshot())
+            finally:
+                release.set()
+                self.jobs.thread.join(2)
+                if closer is not None:
+                    closer.join(2)
+            self.assertTrue(closed.is_set())
+            self.assertFalse(self.jobs.thread.is_alive())
+            self.assertEqual({'activeIndexBatches': 0}, self.jobs.snapshot())
 
 
 class GraphIndexIntegrationTests(unittest.TestCase):

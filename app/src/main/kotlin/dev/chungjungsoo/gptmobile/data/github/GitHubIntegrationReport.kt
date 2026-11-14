@@ -25,6 +25,7 @@ internal object GitHubIntegrationReport {
         val blockers = unmet.groupingBy { it.text("blocker_code").ifBlank { "BLOCKER_DETAIL_NOT_RECORDED" } }.eachCount()
         val graphInputs = unmet.count { it.text("id").startsWith("repository_graph:") && it.text("blocker_code") in GitHubSelfTestPrerequisites.graphInputBlockerCodes }
         val unindexedGraphInputs = unmet.count { it.text("repository_graph_observation") == "NOT_INDEXED" }
+        val otherRepositoryInputs = unmet.count { !it.text("id").startsWith("repository_graph:") && it.text("blocker_code") == "REPOSITORY_INPUT_REQUIRED" }
         val reason = when {
             GitHubTestChecklist.integration(task) && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."
             GitHubPendingApproval.snapshot(receipts).isNotEmpty() -> "WAITING_FOR_APPROVAL" to "The existing native Approve & Commit card must be resolved. Its exact patch, task identity and fixture are retained; another Continue does not approve the commit."
@@ -41,6 +42,7 @@ internal object GitHubIntegrationReport {
                 if ("FIXTURE_APPROVAL_MODE_REQUIRED" in blockers) append("${blockers.getValue("FIXTURE_APPROVAL_MODE_REQUIRED")} require the explicit fixture approval policy; no fixture mutation was started under the current policy. ")
                 if ("OWNED_FIXTURE_REQUIRED" in blockers) append("${blockers.getValue("OWNED_FIXTURE_REQUIRED")} require a separately authorized disposable resource and verified cleanup lifecycle. ")
                 if ("WORKFLOW_RUN_OR_JOB_REQUIRED" in blockers) append("${blockers.getValue("WORKFLOW_RUN_OR_JOB_REQUIRED")} need an observed workflow resource or executed job at the selected revision. ")
+                if (otherRepositoryInputs > 0) append("$otherRepositoryInputs need authorized repository, ref or source inputs from the retained prerequisite plan. ")
                 if (unindexedGraphInputs > 0) append("$unindexedGraphInputs require a graph index at the already observed selected revision; graph status is NOT_INDEXED. ")
                 if (graphInputs > unindexedGraphInputs) append("${graphInputs - unindexedGraphInputs} require the graph connection, revision or operation inputs identified in their prerequisite observations. ")
                 append("The retained prerequisite plan identifies the exact missing inputs. Unused budget does not grant approval or establish missing execution.")

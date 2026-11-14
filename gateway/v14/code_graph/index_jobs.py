@@ -32,7 +32,23 @@ class GraphIndexJobs:
         self.stop = threading.Event()
         self.wake = threading.Event()
         self.guard = threading.Lock()
+        self.admission_guard = threading.RLock()
+        self.active_batches = 0
         self.thread = None
+
+    def _admission_lock(self):
+        state = getattr(self.store.runtime, 'gateway_service', None)
+        return state.lock if state is not None else self.admission_guard
+
+    def _draining(self):
+        state = getattr(self.store.runtime, 'gateway_service', None)
+        return self.stop.is_set() or bool(getattr(self.store.runtime, 'gateway_draining', False)) or bool(getattr(state, 'draining', False))
+
+    def snapshot(self):
+        # Keep physical work visible even after cancel/pause changes its durable
+        # row. Maintenance holds this same lock through its idle/admission fence.
+        with self._admission_lock():
+            return {'activeIndexBatches': self.active_batches}
 
     @staticmethod
     def schema(db):
@@ -83,6 +99,9 @@ class GraphIndexJobs:
         return self.view(self._transaction(lambda db: self._read(db, key)))
 
     def handle(self, principal, request):
+        with self._admission_lock():
+            if self._draining():
+                raise TimeoutError('Repository indexing admission is draining')
         namespace, key = self._scope(principal, request)
         action = request.get('job_action', 'start')
         if action not in {'start', 'cancel', 'pause', 'resume'}:
@@ -137,9 +156,14 @@ class GraphIndexJobs:
             self._write(db, job)
             return job
 
-        job = self._transaction(mutate)
-        self.start()
-        self.wake.set()
+        # Authorization can perform bounded network reads. Recheck admission
+        # after those reads, before saving or starting any accepted work.
+        with self._admission_lock():
+            if self._draining():
+                raise TimeoutError('Repository indexing admission is draining')
+            job = self._transaction(mutate)
+            self.start()
+            self.wake.set()
         # The receipt is sufficient to reconcile acceptance even before the first
         # source batch creates a snapshot. Graph coverage still comes from status.
         return {'repository': request['repository'], 'branch': request['branch'], 'commit_sha': request['commit_sha'],
@@ -154,10 +178,13 @@ class GraphIndexJobs:
             self.thread.start()
 
     def close(self):
-        self.stop.set()
-        self.wake.set()
+        with self._admission_lock():
+            self.stop.set()
+            self.wake.set()
         if self.thread and self.thread is not threading.current_thread():
-            self.thread.join(5)
+            # HTTP/source reads are bounded. Retain the backend and journal
+            # until that work has actually settled, including cancellation.
+            self.thread.join()
         # A later lifecycle can disable durable storage after this worker was
         # created. Stop observation without initializing or writing a disabled
         # journal; a retained lease will reconcile after storage is available.
@@ -188,7 +215,10 @@ class GraphIndexJobs:
                        updated_at=now)
             self._write(db, job)
             return job
-        return self._transaction(take)
+        with self._admission_lock():
+            if self._draining():
+                return None
+            return self._transaction(take)
 
     def _finish(self, claimed, **changes):
         def finish(db):
@@ -235,6 +265,8 @@ class GraphIndexJobs:
                         graph.get('pending_files'), result.get('has_more'), result.get('index_cursor'))
 
     def _step(self, job):
+        if not self._owned(job):
+            return
         principal, request = job['principal'], job['request']
         namespace, _ = self._scope(principal, dict(request, action='status'))
         if namespace != job['namespace']:
@@ -285,7 +317,7 @@ class GraphIndexJobs:
                      retry_outcome_unknown=False, batches=job['batches'] + 1, attempts=0, error_code=None, **self._progress(result))
 
     def _failure(self, job, error):
-        if isinstance(error, InterruptedError):
+        if isinstance(error, InterruptedError) or self.stop.is_set():
             self._finish(job, state='INTERRUPTED', next_at=self.now(), error_code=None)
             return
         transient = isinstance(error, (requests.RequestException, TimeoutError, OSError))
@@ -299,21 +331,25 @@ class GraphIndexJobs:
     def _run(self):
         while not self.stop.is_set():
             try:
-                if getattr(self.store.runtime, 'gateway_draining', False):
-                    job = None
-                else:
-                    job = self._take()
+                with self._admission_lock():
+                    job = None if self._draining() else self._take()
+                    if job:
+                        self.active_batches += 1
                 if job:
                     finished = threading.Event()
-                    heartbeat = threading.Thread(target=self._heartbeat, args=(job, finished), daemon=True)
-                    heartbeat.start()
+                    heartbeat = None
                     try:
+                        heartbeat = threading.Thread(target=self._heartbeat, args=(job, finished), daemon=True)
+                        heartbeat.start()
                         self._step(job)
                     except Exception as error:
                         self._failure(job, error)
                     finally:
                         finished.set()
-                        heartbeat.join(1)
+                        if heartbeat is not None and heartbeat.ident is not None:
+                            heartbeat.join(1)
+                        with self._admission_lock():
+                            self.active_batches -= 1
                     continue
             except Exception as error:
                 logging.getLogger(__name__).warning('Repository index checkpoint unavailable: %s', type(error).__name__)

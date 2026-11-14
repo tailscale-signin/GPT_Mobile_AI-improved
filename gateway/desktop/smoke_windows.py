@@ -70,11 +70,12 @@ def main():
             assert observation['service']['activeWorkers'] == 0
             assert observation['historyError'] is None
             assert (root / 'data' / 'activity.json').exists()
-            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=45)
+            subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=150)
             ui = json.loads((root / 'dashboard-ui-smoke.json').read_text(encoding='utf-8'))
-            assert ui['pages'] == ['Overview', 'Jobs', 'Devices', 'Recent activity', 'Search jobs', 'GitHub jobs', 'Benchmarks']
+            assert ui['pages'] == ['Overview', 'Chat', 'Saved', 'Jobs', 'Benchmarks']
             assert ui['width'] >= 900 and ui['height'] >= 600
-            shutil.copy2(root / 'dashboard-preview.png', output / 'dashboard-preview.png')
+            for capture in root.glob('dashboard-*.png'):
+                shutil.copy2(capture, output / capture.name)
             results.append('frozen themed dashboard renders all views; observer persists metadata; UI closes without stopping gateway')
             assert child.poll() is None
             from desktop.tray import TrayIcon

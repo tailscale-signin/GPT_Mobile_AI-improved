@@ -215,28 +215,9 @@ internal object GitHubStatusEvidence {
         val policyKnown = (latestPolicy?.get("policy") as? JsonObject)?.let {
             it["required_checks_complete"] == JsonPrimitive(true) && it.text("required_checks_state") in setOf("VERIFIED_NONE", "VERIFIED_PRESENT")
         } == true
-        fun sourceState(key: String, expectsArray: Boolean): String {
-            val observation = latestPolicy?.get(key) as? JsonObject ?: return "UNOBSERVED"
-            val status = observation.integer("http_status")
-            if (observation["available"] == JsonPrimitive(true)) {
-                val data = observation["data"]
-                val valid = if (expectsArray) {
-                    (data as? JsonArray)?.all { it is JsonObject && it.text("type").isNotBlank() } == true
-                } else {
-                    data is JsonObject
-                }
-                return if (valid) "OBSERVED" else "INVALID_RESPONSE"
-            }
-            return when (status) {
-                401, 403 -> "ACCESS_DENIED"
-                404 -> "NOT_FOUND_OR_INACCESSIBLE"
-                429 -> "RATE_LIMITED"
-                null -> "UNAVAILABLE"
-                else -> "HTTP_FAILURE"
-            }
-        }
-        val protectionState = sourceState("protection", expectsArray = false)
-        val rulesState = sourceState("rules", expectsArray = true)
+        val policyEvidence = GitHubStatusPolicyEvidence.snapshot(latestPolicy)
+        val protectionState = policyEvidence.text("branch_protection_observation")
+        val rulesState = policyEvidence.text("branch_rules_observation")
         fun sourceStatus(key: String) = (latestPolicy?.get(key) as? JsonObject)?.integer("http_status")?.takeIf { it in 100..599 }
         fun sourceDescription(key: String, state: String) = state.lowercase().replace('_', ' ') + (sourceStatus(key)?.let { " (HTTP $it)" } ?: "")
         val observedChecks = ((latestPolicy?.get("policy") as? JsonObject)?.get("observed_required_checks") as? JsonArray).orEmpty()
@@ -268,8 +249,7 @@ internal object GitHubStatusEvidence {
             recovery,
             summary = policySummary,
             policyEvidence = buildJsonObject {
-                put("branch_protection_observation", protectionState)
-                put("branch_rules_observation", rulesState)
+                policyEvidence.forEach { (key, value) -> put(key, value) }
                 sourceStatus("protection")?.let { put("branch_protection_http_status", it) }
                 sourceStatus("rules")?.let { put("branch_rules_http_status", it) }
             }

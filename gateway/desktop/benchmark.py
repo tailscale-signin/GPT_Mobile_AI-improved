@@ -3,6 +3,8 @@ from pathlib import Path
 from statistics import median
 import json
 import time
+import uuid
+from urllib.parse import urlencode
 
 import requests
 
@@ -141,3 +143,110 @@ def run(root, model, progress):
                 and (row.get('model'), row.get('backend')) != (model, cfg['backend'])]
     atomic_json(Path(root) / RESULTS, {'suite': SUITE, 'results': [result, *existing][:100]})
     return result
+
+
+class BenchmarkRejected(ValueError):
+    """A definitive rejection is safe to correct without retrying admission."""
+
+
+def execution_binding(root):
+    origin = endpoint(load(root))
+    with client_session() as client:
+        identity = get_json(client, origin + '/gateway/identity')
+    return {'origin': origin, 'gateway_id': identity['gateway_id'], 'principal_id': identity['principal_id']}
+
+
+def service_request(root, path='', *, method='GET', payload=None, binding=None):
+    """Observe gateway-owned work; the desktop never owns the worker."""
+    origin = endpoint(load(root))
+    if binding is not None and binding['origin'] != origin:
+        raise ValueError('Reconnect to the original Gateway before reconciling this submission.')
+    with client_session() as client:
+        headers = {}
+        if method != 'GET' or binding is not None:
+            identity = get_json(client, origin + '/gateway/identity')
+            if binding is not None and any(identity.get(key) != binding[key] for key in ('gateway_id', 'principal_id')):
+                raise ValueError('The Gateway or account changed. Reconnect to the original identity to reconcile this submission.')
+            headers = {'X-Gateway-Installation-ID': identity['gateway_id'],
+                       'X-Gateway-Principal-ID': identity['principal_id']}
+        with client.request(method, origin + '/gateway/benchmarks' + path, json=payload,
+                            headers=headers, timeout=(3, 15), stream=True, allow_redirects=False) as response:
+            raw = bytearray()
+            for chunk in response.iter_content(16384):
+                raw.extend(chunk)
+                if len(raw) > 16 * 1024 * 1024:
+                    raise ValueError('Benchmark response exceeds its display bound')
+            value = json.loads(raw)
+            if response.status_code != 200:
+                error = value.get('error', {}) if isinstance(value, dict) else {}
+                code, detail = error.get('code', 'benchmark_unavailable'), error.get('message')
+                messages = {'benchmark_scope_required': 'Enable engineering access on this Gateway for coding tests.',
+                            'benchmark_storage_unavailable': 'Benchmark storage is unavailable.',
+                            'benchmark_not_found': 'This saved benchmark is no longer available.'}
+                exception = BenchmarkRejected if response.status_code in {400, 403, 404, 409, 413, 422} else ValueError
+                raise exception(messages.get(code, detail if isinstance(detail, str) else 'Gateway rejected the benchmark request: ' + str(code)))
+            if not isinstance(value, dict):
+                raise ValueError('Invalid benchmark response')
+            return value
+
+
+def start_run(root, model, suite='quick_check', preset='quick', *, request_id=None, seed=17, concurrency=2, binding=None):
+    return service_request(root, method='POST', binding=binding, payload={'request_id': request_id or 'benchmark-' + uuid.uuid4().hex,
+                           'model': model, 'suite': suite, 'preset': preset, 'seed': seed, 'concurrency': concurrency})
+
+
+def reconcile_run(root, request_id, binding):
+    """Read the original request receipt. Absence never dispatches a model."""
+    return service_request(root, '?' + urlencode({'request_id': request_id}), binding=binding)
+
+
+def save_pending(root, value):
+    path = Path(root) / 'data' / 'benchmark-pending.json'
+    if value is None:
+        path.unlink(missing_ok=True)
+    else:
+        atomic_json(path, value)
+
+
+def load_pending(root):
+    path = Path(root) / 'data' / 'benchmark-pending.json'
+    try:
+        if path.stat().st_size > 4096:
+            return None
+        value = json.loads(path.read_bytes())
+        if not isinstance(value, dict) or not isinstance(value.get('_binding'), dict):
+            return None
+        from benchmarks.contracts import validate_request
+        validate_request({key: item for key, item in value.items() if not key.startswith('_')})
+        if any(not isinstance(value['_binding'].get(key), str) for key in ('origin', 'gateway_id', 'principal_id')):
+            return None
+        value['_uncertain'] = True
+        return value
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def history(root, before=None):
+    return service_request(root, '?before=' + str(before) if before else '')
+
+
+def run_snapshot(root, ident):
+    if not isinstance(ident, str) or not __import__('re').fullmatch(r'bench_[a-f0-9]{32}', ident):
+        raise ValueError('Invalid benchmark identity')
+    return service_request(root, '/' + ident)
+
+
+def stop_run(root, ident):
+    run_snapshot(root, ident)
+    return service_request(root, '/' + ident + '/cancel', method='POST', payload={})
+
+
+def remove_run(root, ident):
+    run_snapshot(root, ident)
+    return service_request(root, '/' + ident, method='DELETE')
+
+
+def export_run(root, ident, path):
+    snapshot = run_snapshot(root, ident)
+    atomic_json(Path(path), snapshot)
+    return snapshot

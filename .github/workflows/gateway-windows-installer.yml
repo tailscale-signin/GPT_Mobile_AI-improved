@@ -35,7 +35,7 @@ jobs:
             dist/windows/*.zip
             dist/windows/SHA256SUMS.txt
             dist/windows/smoke-results.json
-            dist/windows/dashboard-preview.png
+            dist/windows/dashboard-*.png
           if-no-files-found: error
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: failure()

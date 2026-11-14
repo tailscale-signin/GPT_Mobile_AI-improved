@@ -14,6 +14,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import threading
 import time
 from urllib.parse import urlsplit
 
@@ -51,22 +52,61 @@ def decode_event(line):
     return value
 
 
-def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256, clock=time.perf_counter, validate_output=None, gateway_options=None):
+class BenchmarkInterrupted(InterruptedError):
+    def __init__(self, receipt):
+        super().__init__('Benchmark stopped')
+        self.cancellation = receipt
+
+
+def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256, clock=time.perf_counter, validate_output=None, gateway_options=None, cancel_event=None, cancel_request=None, on_admitted=None):
+    if cancel_event is not None and cancel_event.is_set():
+        raise InterruptedError('Benchmark cancelled before dispatch')
     started = clock()
     first, previous, largest_gap, events, output_bytes = None, None, 0.0, 0, 0
     output = bytearray()
     content_digest = hashlib.sha256()
-    usage, timings, done, finish = None, None, False, None
+    usage, timings, done, finish, observed_model = None, None, False, None, None
+    cancellation = {'outcome': 'unknown', 'jobId': None}
     payload = {'model': model, 'messages': messages, 'max_tokens': output_tokens,
                'temperature': 0, 'stream': True, 'stream_options': {'include_usage': True},
                'tools': [], 'tool_choice': 'none'}
     if gateway_options is not None:
         payload['gateway'] = gateway_options
-    with post(endpoint + '/v1/chat/completions', json=payload, headers=headers or {},
-              timeout=(10, 120), stream=True, allow_redirects=False) as response:
+    response = None
+    finished = threading.Event()
+    watcher = None
+    def watch():
+        while not finished.wait(.05):
+            if cancel_event.is_set():
+                if cancel_request is not None:
+                    try:
+                        cancellation.update(cancel_request(cancellation['jobId']))
+                    except Exception:
+                        cancellation['outcome'] = 'unknown'
+                # The Gateway cancellation endpoint stops the admitted job;
+                # closing the observer alone would not prove model cancellation.
+                response.close()
+                return
+    try:
+        # Gateway emits a heartbeat every five seconds. A bounded read timeout
+        # also closes silent/broken streams during shutdown before the runtime
+        # lifecycle ends. Non-Gateway CLI measurements retain their old bound.
+        response = post(endpoint + '/v1/chat/completions', json=payload, headers=headers or {},
+                        timeout=(5, 20) if cancel_event is not None else (10, 120), stream=True, allow_redirects=False)
+        received_headers = getattr(response, 'headers', {})
+        admitted = received_headers.get('X-Gateway-Job-ID') or received_headers.get('x-gateway-job-id')
+        if isinstance(admitted, str) and re.fullmatch(r'[A-Za-z0-9_-]{1,128}', admitted):
+            cancellation['jobId'] = admitted
+            if on_admitted is not None:
+                on_admitted(admitted)
+        if cancel_event is not None:
+            watcher = threading.Thread(target=watch, name='benchmark-stream-cancel', daemon=True)
+            watcher.start()
         if response.status_code != 200:
             raise ValueError('Benchmark selected route rejected the request: HTTP ' + str(response.status_code))
         for line in response.iter_lines(chunk_size=1024):
+            if cancel_event is not None and cancel_event.is_set():
+                raise InterruptedError('Benchmark cancelled during response')
             if clock() - started > 180:
                 raise TimeoutError('Benchmark request exceeded its total deadline')
             event = decode_event(line)
@@ -80,6 +120,8 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
             reported = event.get('model')
             if reported is not None and reported != model:
                 raise ValueError('Selected model receipt contradicted the requested identifier')
+            if isinstance(reported, str):
+                observed_model = reported
             for choice in event.get('choices', []):
                 text = choice.get('delta', {}).get('content')
                 finish = choice.get('finish_reason') or finish
@@ -100,13 +142,46 @@ def measure(post, endpoint, model, messages, *, headers=None, output_tokens=256,
                 usage = {key: value for key, value in event['usage'].items() if key in {'prompt_tokens', 'completion_tokens', 'total_tokens'} and type(value) is int and value >= 0}
             if isinstance(event.get('timings'), dict):
                 timings = {key: value for key, value in event['timings'].items() if key in {'prompt_ms', 'predicted_ms', 'prompt_n', 'predicted_n'} and type(value) in (int, float) and math.isfinite(value) and value >= 0}
-    if not done or first is None or finish is None:
-        raise ValueError('Benchmark stream lacks first content or a verified terminal envelope')
+        if not done or first is None or finish is None:
+            raise ValueError('Benchmark stream lacks first content or a verified terminal envelope')
+    except Exception:
+        if cancel_event is not None and cancel_event.is_set():
+            # The watcher records a requested/unknown outcome rather than
+            # treating a closed response as proof of stopped inference.
+            if watcher is not None:
+                watcher.join(25)
+            raise BenchmarkInterrupted(dict(cancellation)) from None
+        if cancel_request is not None and (response is None or response.status_code == 200):
+            # A lost stream may leave an admitted worker running. Stop/reconcile
+            # that exact observed job before the coordinator dispatches another
+            # trial. Unconfirmed admission or cancellation ends this run.
+            try:
+                cancellation.update(cancel_request(cancellation['jobId']))
+            except Exception:
+                cancellation['outcome'] = 'unknown'
+            if cancellation['outcome'] not in {'confirmed', 'terminal', 'not_canceled'}:
+                raise BenchmarkInterrupted(dict(cancellation)) from None
+        raise
+    finally:
+        finished.set()
+        if response is not None:
+            close = getattr(response, 'close', None)
+            if close is not None:
+                close()
+        if watcher is not None:
+            watcher.join(25)
+    if cancel_event is not None and cancel_event.is_set():
+        if cancellation['outcome'] == 'unknown' and cancel_request is not None:
+            cancellation.update(cancel_request(cancellation['jobId']))
+        raise BenchmarkInterrupted(dict(cancellation))
     result = {'firstContentMs': (first - started) * 1000, 'totalMs': (clock() - started) * 1000,
             'maximumContentGapMs': largest_gap * 1000, 'contentEvents': events, 'outputBytes': output_bytes,
             'outputSha256': content_digest.hexdigest(), 'finishReason': finish, 'usage': usage,
             'backendTimings': timings, 'queueMs': None, 'coldLoadMs': None, 'offload': 'NOT_MEASURED',
-            'clock': 'source_monotonic', 'transport': 'HTTP_SSE', 'requestedModel': model}
+            'clock': 'source_monotonic', 'transport': 'HTTP_SSE', 'requestedModel': model,
+            'observedModel': observed_model, 'modelReceipt': 'REPORTED_IDENTIFIER' if observed_model else 'MISSING',
+            'identityScope': 'HTTP_ROUTE_AND_REPORTED_IDENTIFIER' if observed_model else 'HTTP_ROUTE_ONLY',
+            'gatewayJobId': cancellation['jobId'], 'modelArtifactDigest': None}
     if validate_output is not None:
         result['passed'] = bool(validate_output(output.decode()))
     return result

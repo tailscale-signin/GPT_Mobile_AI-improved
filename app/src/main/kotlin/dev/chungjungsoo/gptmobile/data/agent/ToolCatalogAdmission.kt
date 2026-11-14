@@ -129,7 +129,10 @@ internal fun planAuthorizedToolContext(
         fullGitHubCatalog -> advertised.filter {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_context"
         }.take(1)
-        else -> emptyList()
+        else -> advertised.filter { definition ->
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
+                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
+        }
     }
     val pinnedSchemas = (requiredGitHubSchemas + required).distinctBy { it.name }
     val normalized = limits.normalized()

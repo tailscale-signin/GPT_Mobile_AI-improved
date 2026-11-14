@@ -341,7 +341,7 @@ internal object GitHubTestChecklist {
             // sampled run-history page must not strand an issued definition page.
             if (definitionPage && (exhaustive || definitionPagesRead < 31)) return call(page.text("tool"), args)
             val required = "view_cursor" in args || issueDependency
-            // A missing issue dependency must not trigger unbounded remote inventory traversal.
+            // Missing resource dependencies must not trigger unbounded remote inventory traversal.
             // Preserve local view fragments, but cap sampled remote pages for ordinary tests.
             if (!exhaustive && "view_cursor" !in args && sampled >= 8) continue
             if (!exhaustive && !required && sampled >= 2) continue
@@ -531,6 +531,7 @@ internal object GitHubTestChecklist {
         val selected = if (observedOnly) coverage.cumulative.filter { capability -> historical.any { matches(it, capability) } } else coverage.cumulative
         if (selected.isEmpty()) return JsonArray(emptyList())
         val allTrusted = trusted(receipts)
+        val graphObservation = GitHubSelfTestPrerequisites.graphObservation(allTrusted)
         val readyReads = GitHubSelfTestReads.available(tools, allTrusted).associateBy { it.name.substringBefore("__") to it.arguments.text("action") }
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()
         val integrationCoverage = integration(task)
@@ -606,13 +607,14 @@ internal object GitHubTestChecklist {
                     failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + GitHubVerificationRecovery.advice(failures)
                     readyCall != null -> "Ready under the current authorized action schema; all required inputs are available. No qualifying execution has been observed."
                     repositoryPrerequisites?.requiredInputs?.isNotEmpty() == true -> "Repository lifecycle prerequisites: " + repositoryPrerequisites.requiredInputs.joinToString("; ")
-                    graphPrerequisites.isNotEmpty() -> "Graph prerequisites: " + graphPrerequisites.joinToString("; ")
+                    graphPrerequisites.isNotEmpty() -> "Graph prerequisite: $graphObservation. " + graphPrerequisites.joinToString("; ")
                     conditionalDecision -> "Conditional user-decision behavior has no genuine decision in this task. It remains untested; test it in the interaction harness."
                     capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run bound to the selected revision. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
                     !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
                     capability.tool == "github_pr" -> "No pull request identifier observed from the pull request inventory."
                     capability.tool == "github_ci" -> "Requires an observed workflow/run and a completed job for logs or a failed completed run for failure analysis."
+                    capability.tool == "repository_graph" -> "Graph prerequisite: $graphObservation. Preparation has not executed this capability and does not change graph authorization."
                     capability.tool == "github_release" -> "Requires a tag or release observed in the repository inventory."
                     else -> "Requires an authorized tool and its observed repository revision or source path."
                 }
@@ -696,6 +698,9 @@ internal object GitHubTestChecklist {
                     blockerCode?.let { put("blocker_code", it.name) }
                     repositoryPrerequisites?.requiredInputs?.takeIf { it.isNotEmpty() }?.let { put("required_inputs", JsonArray(it.map(::JsonPrimitive))) }
                     if (graphPrerequisites.isNotEmpty() && status !in setOf("PASSED", "RECOVERED") && readyCall == null) put("required_inputs", JsonArray(graphPrerequisites.map(::JsonPrimitive)))
+                    if (capability.tool == "repository_graph" && blockerCode == GitHubCriterionBlocker.REPOSITORY_INPUT_REQUIRED) {
+                        put("repository_graph_observation", graphObservation)
+                    }
                     put("evidence_origins", JsonArray(successes.ifEmpty { eligible }.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     put("historical_evidence_origins", JsonArray(eligible.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     if (eligible.any { GitHubPendingApproval.publication(it, allTrusted) != null }) {
@@ -924,7 +929,7 @@ internal object GitHubTestChecklist {
         )
         put("acceptance_ledger", GitHubAcceptanceLedger.snapshot(requirements = requirements, capabilities = capabilities, requestDigest = GitHubEvidenceBook.digest(task)))
         put("coverage_source", if (tools.isEmpty()) "BASELINE_CATALOG" else "AUTHORIZED_TOOL_ACTION_SCHEMAS")
-        put("pagination_policy", "Reuse complete persisted originals and their exact remote recipes; consume display fragments only when no complete original was retained; up to 32 definition pages per revision independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
+        put("pagination_policy", "Reuse complete persisted originals and their exact remote recipes; consume display fragments only when no complete original was retained; up to 32 definition pages per revision and eight exact-head executed-job continuation pages independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
         val acceptance = if (integrationCoverage) {
             listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Complete durable sources or required local fragments, and remote pages, consumed or explicitly pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up")
         } else {
@@ -988,6 +993,11 @@ internal object GitHubTestChecklist {
             put("complete", pending.isEmpty())
             put("acquisition_allowed", acquisitionAllowed)
             put("cleanup_reserve", GitHubChecklistBudget.cleanupReserve(receipts))
+            GitHubSelfTestWorkflowJobs.dependencyObservation(tools, observations)?.let { observed ->
+                val current = GitHubSelfTestPrerequisites.selected(observations)
+                val runPage = next?.name?.substringBefore("__") == "github_ci" && next.arguments.text("action") == "runs" && current != null && next.arguments["commit_sha"] == current.head
+                put("workflow_dependency_observation", if (observed == "MISSING_EXECUTED_JOB" && runPage) "RUN_PAGE_AVAILABLE" else observed)
+            }
             next?.let {
                 put(
                     "next_call",

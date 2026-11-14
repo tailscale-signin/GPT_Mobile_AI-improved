@@ -103,8 +103,8 @@ read fits but its discovery route does not.
 
 ### Report evidence
 
-The latest previously supplied archive, `diagnostics-a199704a-2fe7-4afd-9832-24d1035b97c6-part-1-e6fa218d-8b59-4aaa-8a91-7ce5bfdcab6e.zip`,
-was available locally during the preceding pass. All 20
+The archive reviewed during the initial PR implementation, `diagnostics-a199704a-2fe7-4afd-9832-24d1035b97c6-part-1-e6fa218d-8b59-4aaa-8a91-7ce5bfdcab6e.zip`,
+was available locally at that checkpoint. All 20
 stage digests matched. Its 11 retained runs comprise seven failures, two blocked
 runs and two completed runs. These are run outcomes, not a count of independent
 defects. Raw reports and private account, session, prompt, endpoint and model
@@ -124,6 +124,8 @@ details are not committed.
 | #1120 | Preserve draft focus across background run changes and retain opted-in keyboard/focus observations. |
 | #1121, #1124 | Diagnostic follow-up: preserve bounded sanitized application stack frames and exception type when a terminal Flow failure no longer carries its Throwable. These reports retained UNKNOWN classification; a shared fingerprint alone does not establish their cause. |
 | #1126 | Include gateway-backed GitHub chats before successful submission, resolve distinct engineering-gateway bindings, preserve original workflow modes during navigation, and show Gateway-tab mode icons. |
+| #1127 | Follow issued exact-head workflow pages within existing limits, distinguish unindexed graph prerequisites, and retain bounded prerequisite diagnostics. Fixture approval and indexing remain required. |
+| #1128 | Preserve observed rules as partial policy evidence and select access-refresh recovery; inaccessible classic protection remains unknown. |
 
 The terminal exception enhancement reuses the existing approved `errorType` and
 `frames` fields. It carries at most eight application-package frames using the
@@ -213,7 +215,7 @@ labeled as stored-row size rather than decrypted-payload size. These observation
 help distinguish remaining allocation bursts, oversized source values and
 insufficient process headroom on the affected device.
 
-### Supplemental verification
+### Concurrent implementation verification before integration
 
 The focused production exporter/projection/frame-context host suite passes 71
 tests, with Android trace and entity boundaries stubbed. The authentication and
@@ -231,3 +233,87 @@ full Android and exact-head hosted qualification remain required before merge.
 The checkpoint records the rest of the current validation and issue-closure
 dispositions. Physical microphone ownership, private endpoint behavior and phone
 frame/heap improvements have not been reproduced by these host suites.
+
+### Latest voice implementation
+
+Voice-origin rooms retain a separate presentation preference bound to room ID and
+creation time. Temporary rooms are excluded. The full transcript reuses the same
+ChatViewModel and voice-session owner, with an Auto read control and a themed
+Read aloud/Stop action on each assistant response. Ordinary transcript Back leaves
+accepted generation running; explicit End voice still ends the voice interaction.
+A generation ledger primes existing history, tracks new typed and spoken replies,
+coalesces stream/final updates, and prevents stopped or superseded replies from
+re-entering automatic playback. Recording permission gates capture, while explicit
+playback can operate without microphone permission.
+
+Both exact pinned English lexicons were downloaded and their hashes verified.
+US has 178,401 normalized entries and GB 191,924; each contains `here` with normal
+phonemes. Current-source ordinary `here`, `Here` and `HERE` did not reproduce the
+reported spelling. Parsing now handles dictionary whitespace, normalization,
+comments and delimiters consistently, and speech projection removes supported
+word-internal invisible formatting characters. Explicit known initialisms remain
+spellable. Unknown ordinary words produce a typed pronunciation failure and
+retained captions instead of automatic letter spelling or native silent omission.
+This is a deliberate failure boundary while an offline grapheme-to-phoneme front
+end remains unqualified; it is not a claim that every name/language is pronounceable.
+Content-free pronunciation counts, lexicon health and precise output reasons are
+retained in the existing diagnostic log path. Public playback failures retain the
+compatible `SYNTHESIS_FAILED` category.
+
+Kokoro remains on the supported CPU execution provider. PCM callbacks are divided
+into bounded 100 ms batches with no more than six seconds queued, while synthesis
+and playback remain overlapped. Native release uses the shared native-engine gate.
+Thread preferences remain bounded; no unsupported GPU provider or unmeasured
+higher-thread default is introduced. Device time-to-first-audio, thermal stability
+and accelerator execution are not measured by host tests.
+
+### New GitHub report dispositions
+
+| Issue | Change and limits |
+| --- | --- |
+| #1127 | Continue authorized, already-issued exact-head workflow pages when an executed job/log dependency is still missing, within the accepted call budget and bounded eight-page prerequisite allowance. Identify unindexed graph prerequisites explicitly and retain closed-enum graph/workflow observations. Indexing and fixture approval remain real prerequisites. |
+| #1128 | Retain observed rules as partial policy evidence and choose access-refresh recovery when another policy endpoint is inaccessible. Do not retry unchanged reads automatically or infer that 404 means no branch protection. Complete policy and merge readiness remain unverified until all required sources are available. |
+
+Three new public prerequisite fields require `GITHUB_PREREQUISITE_EVIDENCE_V1`.
+The app gate, server validation and advertised capability change together; deployment
+of that reporter support is required before those enhanced public payloads can be
+submitted. The diagnostic archive retains the underlying bounded evidence independently.
+
+The current branch audit also checked the recent divergent production repair tips.
+Their associated PRs #785, #801, #802, #803, #804 and #807 are already merged into
+`main`; a separate Windows-suite branch is patch-equivalent. The remaining recent
+release-recovery branches contain one-time publication procedures rather than new
+application fixes. Historical refs are preserved and are not represented as
+independently rebuilt or newly merged by this repair.
+
+## Combined-head integration
+
+The combined implementation preserves concurrent commits
+`6d56939a5811c7779e49a072d8d1e3c08cf8fdd3` and
+`b9f3a36c6861c39ff0d65791e7c13c8a4dbbd88c`, plus the subsequent Windows test fixes
+`752e61c5e76afe305c5fd5aca88f60c4ac86ada9` and
+`2f7d5826c4ab043c628fae5f54caf32cdd8349d3`. Their review, workflow, graph,
+desktop-policy and export changes are reconciled with the voice transcript,
+pronunciation and public prerequisite diagnostics on the same PR branch.
+
+The independent archive review reconstructed 19 chunked records only after every
+chunk and complete-record digest matched. Six actual run rows comprise two partial,
+three blocked and one failed run; metadata records are excluded. The remaining
+58 workspace rows require resumed capture on the source phone. No missing
+payloads or historical root causes are inferred.
+
+After integration, canonical fast validation passed 508 checks. The unchanged reporter
+suite passed 102 tests. Rebuilt focused exact-source host suites passed 34 capture,
+11 review-preflight, 13 review/request-budget, 20 prerequisite/status and four
+standalone graph-preparation cases. The voice work passed 45 runtime/classification,
+66 session/transcript and five acceptance-runner cases. Counts overlap and
+must not be summed as unique cases. The real Kokoro API compiles against pinned
+Sherpa 2.0.1 and Android 16 interfaces with unrelated store/report boundaries
+stubbed. Exact-head Android CI remains required; earlier-head results do not
+qualify the combined head. The two new Compose response-control tests are wired
+into both the API 34/API 36 acceptance runner and packet verification.
+
+The pinned full gateway checker also passed: 955 Python cases, three platform/
+environment skips and seven browser cases, with no failures. The final preserved
+Windows alias-path policy regression was separately rerun (11 passed). Package
+digests match reviewed source; dependency lock hashes were not changed.

@@ -30,11 +30,12 @@ class IssueReportSubmissionTest {
             "CAPACITY_ADMISSION_EVIDENCE_V1" to mapOf("admission_capacity_provenance" to "VERIFIED_ROUTE"),
             "CONVERSATION_CONFLICT_EVIDENCE_V1" to mapOf("conflict_pending_tool_state" to "NOT_REPORTED"),
             "ACCEPTANCE_SCOPE_EVIDENCE_V1" to mapOf("acceptance_capability_scope" to "FULL_CATALOG", "acceptance_pagination_mode" to "BOUNDED_SMOKE_SAMPLE"),
+            "GITHUB_PREREQUISITE_EVIDENCE_V1" to mapOf("repository_graph_observation" to "NOT_INDEXED", "graph_input_blocked_count" to 16, "workflow_dependency_observation" to "MISSING_EXECUTED_JOB"),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_pending_reason" to "CONNECTIVITY"),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND")
         )) {
             val area = when (feature) {
-                "ACCEPTANCE_SCOPE_EVIDENCE_V1" -> "ACCEPTANCE"
+                "ACCEPTANCE_SCOPE_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1" -> "ACCEPTANCE"
                 "VOICE_INSTALL_EVIDENCE_V1" -> "VOICE"
                 else -> "PROVIDER"
             }

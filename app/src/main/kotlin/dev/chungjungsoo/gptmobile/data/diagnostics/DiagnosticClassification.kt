@@ -39,7 +39,7 @@ internal fun classifyDiagnostic(level: String?, tag: String?, message: String): 
         transcriptionCode != null -> DiagnosticClassification("native_operation_failure", "error", true, "inspect_operation_receipt")
         tag == "Android" && capturedTag == "sherpa-onnx" && isSherpaConfigurationRecord(text) ->
             DiagnosticClassification("native_voice_configuration", "info", false)
-        tag == "VoiceTiming" && text.startsWith("kokoro_terminal") && Regex("(?:^| · )reason=(?:timeout|engine_failed|synthesis_failed|audio_failed|text_queue_full|memory_pressure)(?: · |$)").containsMatchIn(text) ->
+        tag == "VoiceTiming" && text.startsWith("kokoro_terminal") && Regex("(?:^| · )reason=(?:timeout|engine_failed|synthesis_failed|audio_failed|text_queue_full|memory_pressure|pronunciation_unavailable|lexicon_unavailable)(?: · |$)").containsMatchIn(text) ->
             DiagnosticClassification("voice_playback_failure", "warning", true, "review_playback_timing_and_selected_voice")
         tag == "Android" && capturedTag == "androidruntime" && text.startsWith("process:") -> DiagnosticClassification("crash_context", "info", false)
         tag == "VoiceRecognition" && Regex("(?:^| · )errorcode=speech_service_(?:start_failed|start_timeout|unavailable)(?: · |$)").containsMatchIn(text) ->

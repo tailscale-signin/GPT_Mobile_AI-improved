@@ -69,6 +69,21 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("VOICE", {key: "raw recorder or speech text"}))
 
+    def test_github_prerequisite_evidence_is_typed_and_keeps_policy_unknown(self):
+        values = {"repository_graph_observation": "NOT_INDEXED", "graph_input_blocked_count": 16,
+                  "workflow_dependency_observation": "MISSING_EXECUTED_JOB",
+                  "branch_protection_observation": "NOT_FOUND_OR_INACCESSIBLE", "branch_rules_observation": "OBSERVED"}
+        sample = self.capture("ACCEPTANCE", values)
+        original = copy.deepcopy(sample)
+        validate_diagnostics(sample)
+        self.assertEqual(original, sample)
+        for key in values:
+            invalid = dict(values, **{key: -1 if key == "graph_input_blocked_count" else "private repository or run"})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", invalid))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", values))
+
     def test_completion_and_composer_report_fields(self):
         validate_diagnostics(self.capture("PROVIDER", {
             "provider_failure_code": "TOOL_PROTOCOL_INVALID_FRAME",

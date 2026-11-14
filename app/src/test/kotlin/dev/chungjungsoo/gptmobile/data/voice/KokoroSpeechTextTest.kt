@@ -38,11 +38,37 @@ class KokoroSpeechTextTest {
         )
     }
 
-    @Test fun spellsUnknownNamesAndPronouncesKnownPartsOfIdentifiers() {
+    @Test fun spellsExplicitInitialismsAndPronouncesKnownPartsOfIdentifiers() {
         assertEquals(
-            "e m a n u e l used g p u and git hub.",
-            normalize("Emanuél used GPU and [GitHub](https://github.com/example).") { it != "emanuel" && it != "github" }
+            "emanuel used g p u and git hub.",
+            normalize("Emanuél used GPU and [GitHub](https://github.com/example).") { it != "github" }
         )
+    }
+
+    @Test fun unknownOrdinaryWordsAreReportedInsteadOfSpelledOrSilentlyOmitted() {
+        val projection = KokoroSpeechText.projected("here") { it != "here" }
+        assertNull(projection.parts)
+        assertEquals(KokoroPronunciationFailure.UNKNOWN_WORD, projection.observation.failure)
+        assertEquals(1, projection.observation.unknownWords)
+        assertEquals(0, projection.observation.spelledLetters)
+        assertNull(normalize("Emanuel") { it != "emanuel" })
+    }
+
+    @Test fun invisibleFormattingCannotTurnAWordIntoSeparateLetters() {
+        val projection = KokoroSpeechText.projected("h\u200Be\u2060r\u00ADe") { it == "here" }
+        assertEquals(listOf("here"), projection.parts)
+        assertEquals(3, projection.observation.removedFormatCharacters)
+        assertEquals(1, projection.observation.knownWords)
+        assertEquals(0, projection.observation.spelledLetters)
+        assertEquals("h e r e", normalize("H-E-R-E"))
+    }
+
+    @Test fun pronunciationObservationsContainOnlyCountsAndFiniteReasons() {
+        val projection = KokoroSpeechText.projected("Here GPU unknownprivateword") { it != "unknownprivateword" }
+        assertEquals(KokoroPronunciationObservation(1, 1, 1, 3, 0, KokoroPronunciationFailure.UNKNOWN_WORD), projection.observation)
+        assertTrue(!projection.observation.toString().contains("unknownprivateword"))
+        assertEquals(KokoroPronunciationFailure.UNSUPPORTED_SCRIPT, KokoroSpeechText.projected("已完成") { true }.observation.failure)
+        assertEquals(KokoroPronunciationFailure.MISSING_LETTER, KokoroSpeechText.projected("GPU") { it != "g" }.observation.failure)
     }
 
     @Test fun declinesScriptsAndLettersTheEnglishLexiconCannotSpeak() {

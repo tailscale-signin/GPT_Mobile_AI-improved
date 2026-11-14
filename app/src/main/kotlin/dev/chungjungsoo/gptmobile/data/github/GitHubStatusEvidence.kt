@@ -239,6 +239,13 @@ internal object GitHubStatusEvidence {
         val rulesState = sourceState("rules", expectsArray = true)
         fun sourceStatus(key: String) = (latestPolicy?.get(key) as? JsonObject)?.integer("http_status")?.takeIf { it in 100..599 }
         fun sourceDescription(key: String, state: String) = state.lowercase().replace('_', ' ') + (sourceStatus(key)?.let { " (HTTP $it)" } ?: "")
+        val observedChecks = ((latestPolicy?.get("policy") as? JsonObject)?.get("observed_required_checks") as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.contentOrNull?.takeIf(String::isNotBlank) }.distinct()
+        val policySummary = if (!policyKnown && (protectionState == "OBSERVED" || rulesState == "OBSERVED")) {
+            "Partial required-check policy: ${observedChecks.size} required check name(s) captured from the available policy source. The unavailable source can add requirements; this does not establish the complete policy or merge readiness."
+        } else {
+            ""
+        }
         val recovery = if (!policyKnown) {
             buildString {
                 append("Required-check policy is unknown. Branch protection: ${sourceDescription("protection", protectionState)}. ")
@@ -259,6 +266,7 @@ internal object GitHubStatusEvidence {
             selected && policyKnown,
             policy.keys,
             recovery,
+            summary = policySummary,
             policyEvidence = buildJsonObject {
                 put("branch_protection_observation", protectionState)
                 put("branch_rules_observation", rulesState)

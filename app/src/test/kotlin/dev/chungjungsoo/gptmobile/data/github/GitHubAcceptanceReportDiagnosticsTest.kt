@@ -256,4 +256,18 @@ class GitHubAcceptanceReportDiagnosticsTest {
         assertEquals(JsonPrimitive("CHECK_PROTECTION_READ_PERMISSION"), fields["status_policy_recovery"])
         assertEquals(JsonPrimitive("NOT_FOUND_OR_INACCESSIBLE"), fields["branch_protection_observation"])
     }
+
+    @Test fun graphAndWorkflowPrerequisitesRetainTypedCausesWithoutSourceIdentifiers() {
+        val verdict = Json.parseToJsonElement("""{"acceptance_ledger":{},"test_checklist":{"capabilities":[{"id":"repository_graph:query","required":true,"blocker_code":"REPOSITORY_INPUT_REQUIRED","repository_graph_observation":"NOT_INDEXED","required_inputs":["private/path"]},{"id":"repository_graph:node","required":true,"blocker_code":"REPOSITORY_INPUT_REQUIRED","repository_graph_observation":"NOT_INDEXED"},{"id":"repository_graph:note","required":false,"blocker_code":"REPOSITORY_INPUT_REQUIRED","repository_graph_observation":"NOT_INDEXED"}],"pagination_resume":{"workflow_dependency_observation":"MISSING_EXECUTED_JOB"}}}""") as JsonObject
+        val fields = GitHubAcceptanceReportDiagnostics.fields(verdict, true)
+        assertEquals(JsonPrimitive(2), fields["graph_input_blocked_count"])
+        assertEquals(JsonPrimitive("NOT_INDEXED"), fields["repository_graph_observation"])
+        assertEquals(JsonPrimitive("MISSING_EXECUTED_JOB"), fields["workflow_dependency_observation"])
+        assertFalse(fields.toString().contains("private/path"))
+        assertFalse(fields.toString().contains("repository_graph:query"))
+        val absent = GitHubAcceptanceReportDiagnostics.fields(buildJsonObject { put("acceptance_ledger", JsonObject(emptyMap())) }, true)
+        assertFalse("repository_graph_observation" in absent)
+        assertFalse("workflow_dependency_observation" in absent)
+        assertFalse("graph_input_blocked_count" in absent)
+    }
 }

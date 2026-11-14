@@ -108,6 +108,7 @@ class VoiceSession(
     private var recognitionFailures = 0
     private var lastReply: String? = null
     private var streamId: String? = null
+    private var streamDiagnosticId: String? = null
     private var speechBuffer = VoiceSpeechBuffer()
     private val queuedSpeech = ArrayDeque<String>()
     private var chunkPlaying = false
@@ -117,8 +118,10 @@ class VoiceSession(
     private var replyPlayback: VoiceReplyPlayback? = null
     private var captionSearchFrom = 0
     private var playbackFinished = false
+    private var manualPlayback = false
     private fun resetStream() {
         streamId = null
+        streamDiagnosticId = null
         speechBuffer = VoiceSpeechBuffer()
         queuedSpeech.clear()
         chunkPlaying = false
@@ -126,6 +129,7 @@ class VoiceSession(
         streamAudio = true
         replyPlayback = null
         playbackFinished = false
+        manualPlayback = false
     }
     var editBeforeSend = false
     var autoContinue = false
@@ -170,7 +174,7 @@ class VoiceSession(
         }
     }
     fun admission(stage: VoiceAdmissionStage, reason: String? = null) {
-        if (!waiting || state.phase == VoicePhase.CLOSED) return
+        if (!waiting || streamId != null || state.phase == VoicePhase.CLOSED) return
         when (stage) {
             VoiceAdmissionStage.CHECKING -> draftPending = true
             VoiceAdmissionStage.QUEUED, VoiceAdmissionStage.ACCEPTED -> {
@@ -199,13 +203,40 @@ class VoiceSession(
         update(state.copy(transcript = transcript, reply = reply, phase = if (review) VoicePhase.REVIEWING else VoicePhase.PAUSED))
     }
     fun replay() {
-        if (state.reply.isBlank() || !accessAllowed() || waiting) return
-        diagnosticProbe = diagnosticTrace.beginReply(generation)
-        audio.bindDiagnostics(diagnosticProbe)
+        val text = state.reply
+        if (text.isBlank() || !accessAllowed()) return
+        val id = "replay:${generation + 1}"
+        if (beginMessage(id, manual = true)) reply(id, text)
+    }
+
+    /** Adopt a typed or explicitly selected reply without acquiring microphone permission. */
+    fun beginMessage(id: String, manual: Boolean = false, diagnosticRunId: String = id, readAloud: Boolean = true): Boolean {
+        if (!accessAllowed()) return false
+        if (!manual && waiting && streamId == id) return true
+        if (!manual && waiting && streamId == null) {
+            // A captured prompt already owns its diagnostics and draft/admission state.
+            // Bind its first response without resetting capture-to-playback measurements.
+            streamId = id
+            streamDiagnosticId = diagnosticRunId
+            streamAudio = playbackAllowed() && state.speaker && readAloud
+            audio.bindReply(diagnosticRunId)
+            return true
+        }
+        if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
+        stopAudio(if (manual) "message_replay_selected" else "message_playback_started")
+        resetStream()
+        manualPlayback = manual
         waiting = true
         lastReply = null
         engaged = true
-        reply("replay:$generation", state.reply)
+        diagnosticProbe = diagnosticTrace.beginReply(generation)
+        audio.bindDiagnostics(diagnosticProbe)
+        streamId = id
+        streamDiagnosticId = diagnosticRunId
+        streamAudio = playbackAllowed() && (state.speaker || manualPlayback) && (readAloud || manualPlayback)
+        audio.bindReply(diagnosticRunId)
+        update(state.copy(phase = VoicePhase.THINKING, reply = "", notice = null, spokenRange = null, level = 0f))
+        return true
     }
     private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null, reportFailure: Boolean = true, failureFields: Map<String, Any?> = emptyMap()) {
         // Silence is a normal listening outcome. Preserve its cooldown and retry
@@ -247,16 +278,16 @@ class VoiceSession(
         captionSearchFrom = 0
         audio.bindDiagnostics(diagnosticProbe)
     }
-    private fun accessAllowed() = enabled && permission && foreground && state.phase != VoicePhase.CLOSED
+    private fun accessAllowed() = enabled && foreground && state.phase != VoicePhase.CLOSED
     private fun playbackAllowed() = engaged && accessAllowed()
-    private fun captureAllowed() = playbackAllowed() && !state.muted
+    private fun captureAllowed() = playbackAllowed() && permission && !state.muted
 
     fun access(enabled: Boolean, permission: Boolean, foreground: Boolean) {
         this.enabled = enabled
         this.permission = permission
         this.foreground = foreground
         diagnosticProbe.access(permission, foreground, state.muted)
-        if (!accessAllowed() && state.phase != VoicePhase.CLOSED) pause()
+        if ((!accessAllowed() || !permission && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) && state.phase != VoicePhase.CLOSED) pause()
     }
 
     fun resume() {
@@ -272,6 +303,12 @@ class VoiceSession(
             engaged = true
             automaticRetry = false
             update(state.copy(phase = VoicePhase.REVIEWING))
+            return
+        }
+        // Playback and typed turns remain available when recording permission is denied.
+        // Only an explicit microphone action requests permission in the presentation layer.
+        if (!permission) {
+            update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
             return
         }
         val remaining = maxOf(audio.retryAfterMillis(), (state.retryAtMillis - now()).coerceAtLeast(0))
@@ -394,14 +431,16 @@ class VoiceSession(
         if (text.isNotBlank()) diagnosticProbe.responseText()
         if (streamId == null) {
             streamId = id
+            streamDiagnosticId = id
             audio.bindDiagnostics(diagnosticProbe)
             audio.bindReply(id)
-            streamAudio = playbackAllowed() && state.speaker
+            streamAudio = playbackAllowed() && (state.speaker || manualPlayback)
         }
         update(state.copy(reply = text))
         streamComplete = complete
-        // Android can speak a stable first phrase without waiting for a complete sentence.
-        val chunks = speechBuffer.append(text, complete, earlyStart = true)
+        // While generating, start after a stable phrase. A completed response or explicit
+        // replay already has its full text and can retain natural sentence boundaries.
+        val chunks = speechBuffer.append(text, complete, earlyStart = !complete)
         if (chunks == null) {
             stopAudio("response_revised")
             update(state.copy(phase = VoicePhase.THINKING, notice = "The response was revised. The current answer is available in chat."))
@@ -413,7 +452,7 @@ class VoiceSession(
     }
     private fun pumpSpeech() {
         if (chunkPlaying || state.phase == VoicePhase.CLOSED) return
-        if (!streamAudio || !playbackAllowed() || !state.speaker) {
+        if (!streamAudio || !playbackAllowed() || !state.speaker && !manualPlayback) {
             queuedSpeech.clear()
             if (streamComplete) {
                 waiting = false
@@ -517,7 +556,7 @@ class VoiceSession(
     }
 
     fun stopSpeaking() {
-        if (state.phase !in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) return
+        if (state.phase !in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING) && !waiting) return
         stopAudio("user_stop_speaking")
         streamAudio = false
         if (waiting && !streamComplete) {
@@ -538,7 +577,7 @@ class VoiceSession(
         resume()
     }
     fun reply(id: String, text: String, failed: Boolean = false, failure: ProfileFailureRecord? = null, terminalStatus: String? = null) {
-        if (!waiting || id == lastReply || state.phase == VoicePhase.CLOSED) return
+        if (!waiting || id == lastReply || state.phase == VoicePhase.CLOSED || (streamId != null && streamId != id)) return
         if (streamId == id && !failed && text.isNotBlank()) {
             lastReply = id
             streamReply(id, text, complete = true)
@@ -552,7 +591,7 @@ class VoiceSession(
         waiting = false
         lastReply = id
         if (failed || text.isBlank()) {
-            val replyEvidence = VoiceReplyFailureDiagnostics.fields(id, state.phase, failed, failure, terminalStatus) + buildMap {
+            val replyEvidence = VoiceReplyFailureDiagnostics.fields(streamDiagnosticId ?: id, state.phase, failed, failure, terminalStatus) + buildMap {
                 put("voice_reply_characters", text.length)
                 if (failure == null) put("voice_reply_state", if (failed) "FAILED_WITHOUT_DETAILS" else "EMPTY_REPLY")
             }
@@ -587,7 +626,7 @@ class VoiceSession(
             pause()
             return
         }
-        if (!state.speaker) {
+        if (!state.speaker && !manualPlayback) {
             continueTurn()
             return
         }
@@ -600,7 +639,7 @@ class VoiceSession(
         val ticket = generation
         preparePlayback(ticket)
         diagnosticProbe.queued()
-        audio.bindReply(id)
+        audio.bindReply(streamDiagnosticId ?: id)
         audio.speak(spoken, complete = {
             if (ticket == generation && playbackAllowed()) continueTurn()
         }, error = { message -> if (ticket == generation) playbackFailed(message) })
@@ -622,11 +661,14 @@ class VoiceSession(
     fun speaker() {
         if (state.phase == VoicePhase.CLOSED) return
         update(state.copy(speaker = !state.speaker))
-        if (!state.speaker) stopSpeaking()
+        if (!state.speaker && !manualPlayback) stopSpeaking()
     }
     fun pause() {
         if (state.phase == VoicePhase.CLOSED) return
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
+        // A completed model response may still be draining audio. Once that playback is
+        // cancelled, there is no later model event left to release its waiting ownership.
+        if (streamComplete) waiting = false
         engaged = false
         automaticRetry = false
         stopAudio("session_paused")

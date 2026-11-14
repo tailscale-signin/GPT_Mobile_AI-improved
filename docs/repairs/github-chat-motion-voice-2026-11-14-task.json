@@ -3,7 +3,7 @@
   "base_branch": "main",
   "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
   "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
-  "source_sha": "652cfd824c7d045d645d4655adc567a1d8e66876",
+  "source_sha": "2f7d5826c4ab043c628fae5f54caf32cdd8349d3",
   "pull_request": 1122,
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "github-chat-motion-voice-2026-11-14",
@@ -14,15 +14,21 @@
     "Enable bottom-reaching to anchor all chats",
     "Pace GitHub follow at 1.5 s for one line, 1 s per line for multiline",
     "Redesign theme-aware voice UI and seamless live captions",
-    "Repair reports or add specific diagnostic evidence, validate, merge, close addressed issues"
+    "Repair reports or add specific diagnostic evidence, validate, merge, close addressed issues",
+    "Keep all follow-up fixes on existing PR 1122",
+    "Add themed per-response playback and automatic reading throughout voice chat",
+    "Fix ordinary-word pronunciation and measured bounded voice latency",
+    "Diagnose reports 1127 and 1128 and newest partial diagnostic archive",
+    "Close addressed issues with fix or precise diagnostic coverage, merge only after exact-head required verification"
   ],
   "validation": {
     "canonical_host_tests": {
-      "passed": 507,
-      "failed": 0
+      "passed": 508,
+      "failed": 0,
+      "scope": "Reconciled source, canonical fast validation"
     },
     "reporter_contract_tests": {
-      "passed": 97,
+      "passed": 102,
       "failed": 0
     },
     "scroll_host_tests": {
@@ -39,8 +45,32 @@
       "failed": 0
     },
     "kotlin_formatting": "PASS",
-    "android_ci": "PENDING_LATEST_HEAD",
-    "physical_device": "NOT_RUN"
+    "android_ci": "PENDING_NEW_IMPLEMENTATION_HEAD",
+    "physical_device": "NOT_RUN",
+    "followup_host_suites": {
+      "staged_diagnostics": 34,
+      "review_preflight": 11,
+      "voice_runtime_and_classification": 45,
+      "voice_session_and_transcript": 66,
+      "github_prerequisite_and_status": 20,
+      "acceptance_runner_fixtures": 5,
+      "note": "Suites overlap; counts must not be added as unique test cases. Platform boundaries are stubbed where noted in the repair report.",
+      "review_request_and_stage_budget": 13,
+      "standalone_graph_preparation": 4
+    },
+    "kokoro_android_sherpa_api_compile": "PASS_WITH_UNRELATED_STORE_REPORT_BOUNDARIES_STUBBED",
+    "combined_gateway": {
+      "cases": 958,
+      "passed": 955,
+      "skipped": 3,
+      "failed": 0,
+      "browser_passed": 7,
+      "dependencies": "Existing pinned requirements verified with --require-hashes",
+      "latest_windows_policy_regression": {
+        "passed": 11,
+        "failed": 0
+      }
+    }
   },
   "intake": {
     "remote_branches": 748,
@@ -48,7 +78,7 @@
     "active_unmerged_prs": [
       1122
     ],
-    "open_issues": 25,
+    "open_issues": 27,
     "issues": [
       1101,
       1102,
@@ -74,12 +104,26 @@
       1123,
       1124,
       1125,
-      1126
+      1126,
+      1127,
+      1128
     ],
-    "historical_branches": "Retained; no force pushes or deletion. Current repair work is consolidated on PR 1122."
+    "historical_branches": "Retained; no force pushes or deletion. Current repair work is consolidated on PR 1122.",
+    "latest_archive": "partial-diagnostics-18276bce-b052-4c77-ba86-9e026808939f-part-1-8181a445-1dd9-49f1-b3af-3d7472cbd67a.zip",
+    "archive_stage_digests_verified": 40,
+    "latest_archive_capture_complete": false,
+    "latest_archive_missing": "workspace tail: Java heap pressure; resumable on source device",
+    "recent_divergent_merged_prs": [
+      785,
+      801,
+      802,
+      803,
+      804,
+      807
+    ]
   },
   "merge_rules": {
-    "source": "GET /repos/tailscale-signin/GPT_Mobile_AI-improved/rules/branches/main",
+    "source": "GET /repos/tailscale-signin/GPT_Mobile_AI-improved/rulesets/27005122",
     "ruleset": 27005122,
     "required_checks": [
       "Required verification",
@@ -99,7 +143,12 @@
     "94af00d05734819f41c0a49a2e7ff7f0c4d95081",
     "f0f6895e16c0d628f9a5f0ed37535fae4e5a31f1",
     "d85fce1b207eb3fe0919fd17696718e11d28e285",
-    "652cfd824c7d045d645d4655adc567a1d8e66876"
+    "652cfd824c7d045d645d4655adc567a1d8e66876",
+    "1987683f8b560c6e1bae0d2a8ea22344980cdf9d",
+    "6d56939a5811c7779e49a072d8d1e3c08cf8fdd3",
+    "b9f3a36c6861c39ff0d65791e7c13c8a4dbbd88c",
+    "752e61c5e76afe305c5fd5aca88f60c4ac86ada9",
+    "2f7d5826c4ab043c628fae5f54caf32cdd8349d3"
   ],
   "context_followup": [
     "Preserve advertised GitHub subsets across local admission",
@@ -107,6 +156,7 @@
     "Permit one explicitly selected large GitHub schema through the soft window, followed by hard admission",
     "Reserve the necessary discovery route before initial authorization narrowing"
   ],
+  "runtime_task_store": "App Room task database unavailable in this checkout; this file is the versioned development checkpoint and does not fabricate runtime receipts.",
   "followup": {
     "source_sha": "1987683f8b560c6e1bae0d2a8ea22344980cdf9d",
     "intent": [

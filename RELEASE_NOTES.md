@@ -6,6 +6,12 @@ This release brings together persistent gateway conversations and jobs, more rel
 
 ## November 14 chat, voice, and benchmark follow-up
 
+Voice pronunciation and latency changes require physical-device qualification. Unknown ordinary words retain captions with an explicit synthesis failure while no offline grapheme-to-phoneme front end is qualified. CPU remains the verified provider; GPU acceleration and higher thread defaults are not established. New GitHub prerequisite public fields require a hosted reporter advertising GITHUB_PREREQUISITE_EVIDENCE_V1.
+
+Voice rooms now keep their full transcript and typed composer inside the same voice session. Each assistant response has a themed Read/Stop control; new typed and spoken replies read automatically in sequence. Historical messages, duplicate terminal updates and stopped replies do not restart narration. Auto read off keeps captions and turn completion working, and explicit playback does not require microphone permission.
+
+Kokoro pronunciation normalizes dictionary/text forms and word-internal formatting. Known ordinary words remain words; only explicit initialisms spell their letters. Unsupported vocabulary reports a clear synthesis failure with retained captions instead of silently spelling or omitting it. Bounded PCM batches overlap generation and playback on the supported CPU provider. Device sound, latency, heat and GPU execution still require measurement. GitHub prerequisite reports add negotiated graph/workflow observations through `GITHUB_PREREQUISITE_EVIDENCE_V1`.
+
 The supplemental diagnostic repair gives reasoning-only GitHub review preflights one retry only when a larger output allowance fits the selected model's actual context. It publishes terminal review failures once, retains the producing invocation's observed request identity and transport evidence, and follows exact-revision workflow continuations without repeatedly probing skipped runs. Repository-graph preparation uses the existing bounded index/checkpoint path and reports the precise inputs still needed for unsupported probes.
 
 Diagnostic exports retain memory and numeric source-row evidence at the actual deferral, require the original stage's headroom before retrying, and resume with smaller source pages without reducing record limits. Protected rows share one bounded projection. Opted-in frame reports record layout constraints and repeated measurement context. The desktop gateway can select, validate and retain its approved repository validation policy across both launcher stages and restarts.

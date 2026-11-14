@@ -143,6 +143,74 @@ class GitHubStatusCorrectnessTest {
         assertEquals(4, GitHubExecutionLimits.toolCalls("$health Budget: 4 tool calls.", 100, GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID)))
     }
 
+    @Test fun observedRulesSurviveHiddenClassicProtectionWithoutClosingThePolicyGap() {
+        val partialPolicy = JsonObject(
+            policy() + buildJsonObject {
+                put(
+                    "protection",
+                    buildJsonObject {
+                        put("available", false)
+                        put("http_status", 404)
+                    }
+                )
+                put(
+                    "rules",
+                    buildJsonObject {
+                        put("available", true)
+                        put("data", JsonArray(listOf(buildJsonObject { put("type", "required_status_checks") })))
+                    }
+                )
+                put(
+                    "policy",
+                    buildJsonObject {
+                        put("required_checks_state", "UNKNOWN")
+                        put("required_checks_complete", false)
+                        put("observed_required_checks", JsonArray(listOf(JsonPrimitive("Required verification"))))
+                    }
+                )
+            }
+        )
+        val records = base() + mapOf(
+            "checks" to receipt("github_context", args("checks"), checks(1, 0, 0)),
+            "policy" to receipt(
+                "github_context",
+                buildJsonObject {
+                    put("action", "branch")
+                    put("branch", "main")
+                },
+                partialPolicy
+            ),
+            "failures" to receipt(
+                "github_ci",
+                buildJsonObject {
+                    put("action", "runs")
+                    put("branch", "main")
+                    put("status", "failure")
+                },
+                buildJsonObject {
+                    put("workflow_runs", JsonArray(emptyList()))
+                    put("has_more", false)
+                }
+            )
+        )
+        val (text, report) = requireNotNull(GitHubEvidencePolicy.status(records, now, 0, health))
+        assertEquals(JsonPrimitive(false), report["completion_verified"])
+        assertTrue(text.contains("Required verification"))
+        val coverage = report.getValue("status_coverage").jsonArray.map { it.jsonObject }.single { it["item"] == JsonPrimitive("Required-check policy") }
+        assertEquals(JsonPrimitive(false), coverage["observed"])
+        assertEquals(JsonPrimitive("OBSERVED"), coverage["branch_rules_observation"])
+        assertEquals(JsonPrimitive("NOT_FOUND_OR_INACCESSIBLE"), coverage["branch_protection_observation"])
+        assertTrue(coverage.getValue("summary").toString().contains("Partial required-check policy"))
+        assertEquals(null, GitHubStatusRequest.nextCall(tools, records, now, 0, health))
+        val checkpoint = GitHubStatusRequest.checkpoint(tools, records, now, 0, health, null, report, buildJsonObject { put("remaining_calls", 25) })
+        val stop = checkpoint.getValue("stop_reason").jsonObject
+        assertEquals(JsonPrimitive("STATUS_OBSERVATION_UNAVAILABLE"), stop["code"])
+        assertEquals(JsonPrimitive("REFRESH_REPOSITORY_ACCESS"), stop["recovery_action"])
+        assertEquals(JsonPrimitive(false), stop["automatic_retry_allowed"])
+        assertEquals(JsonPrimitive(25), stop["remaining_tool_calls"])
+        assertEquals(JsonPrimitive("REFRESH_REPOSITORY_ACCESS"), GitHubTaskLifecycle.acceptanceFailureDetails(JsonObject(report + ("stop_reason" to stop)))["recovery_action"])
+    }
+
     @Test fun completeHealthPresetCollectsTwoCheckPagesAndTwoPrReviewsWithinItsAllowance() {
         val records = linkedMapOf<String, JsonObject>()
         val limit = GitHubExecutionLimits.toolCalls(health, 100, GitHubWorkflowPreset.selected(GitHubWorkflowPreset.DEFAULT_ID))

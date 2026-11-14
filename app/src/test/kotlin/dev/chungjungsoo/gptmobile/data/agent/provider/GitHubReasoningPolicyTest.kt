@@ -17,7 +17,11 @@ class GitHubReasoningPolicyTest {
         assertTrue(preflight.allowReasoning)
         assertFalse(preflight.maximizeReasoning)
         assertEquals(128, primary.copy(maxOutputTokens = 128).forRole("github-review-preflight").maxOutputTokens)
-        assertEquals(4096, primary.forRole("github-review-preflight-output-retry").maxOutputTokens)
+        val retry = primary.forRole("github-review-preflight-output-retry")
+        assertEquals(4096, retry.maxOutputTokens)
+        assertTrue(retry.allowReasoning)
+        assertFalse(retry.maximizeReasoning)
+        assertEquals(128, primary.copy(maxOutputTokens = 128).forRole("github-review-preflight-output-retry").maxOutputTokens)
         assertEquals(1024, primary.copy(maxOutputTokens = 1024).forRole("github-review-preflight-output-retry").maxOutputTokens)
         assertEquals(8192, primary.forRole("primary").maxOutputTokens)
     }

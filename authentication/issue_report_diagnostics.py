@@ -139,6 +139,11 @@ FIELDS_BY_AREA["PROVIDER"].update({"reasoning_capability_age_ms", "reasoning_mod
 FIELDS_BY_AREA["GATEWAY"].update({"queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason"})
 FIELDS_BY_AREA["ACCEPTANCE"].update({"status_policy_recovery", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
 
+COUNTS.add("graph_input_blocked_count")
+ENUMS["repository_graph_observation"] = {"NOT_INDEXED", "OBSERVED", "UNOBSERVED", "REVISION_MISMATCH", "UNAVAILABLE"}
+ENUMS["workflow_dependency_observation"] = {"UNOBSERVED", "READ_FAILED", "OBSERVED_EXECUTED_JOB", "RUN_READ_PENDING", "MISSING_EXECUTED_JOB", "RUN_PAGE_AVAILABLE"}
+FIELDS_BY_AREA["ACCEPTANCE"].update({"repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation"})
+
 # Bounded evidence from the owning request and the exact retained verdict.
 ENUMS["provider_failure_code"].update({"CONVERSATION_CONFLICT", "GITHUB_CIRCUIT_OPEN", "REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED"})
 ENUMS["conflict_active_job_kind"] = {"generation", "engineering"}

@@ -81,6 +81,55 @@ class GitHubChecklistPaginationTest {
         assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools and all issues", issueTools, records)?.arguments)
     }
 
+    @Test fun missingExecutedJobCanReadAnIssuedExactHeadRunPageAfterOrdinarySamples() {
+        val (available, records, remote) = workflowDependency()
+        val original = records.toString()
+        assertEquals(remote, GitHubTestChecklist.paginationResume("test all tools", records, available)["next_call"])
+        assertEquals(remote["arguments"], GitHubTestChecklist.nextCall("test all tools", available, records)?.arguments)
+        assertEquals(original, records.toString())
+        repeat(6) { index ->
+            records["extra$index"] = json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches","page":${index + 5}},"result":{}}""")
+        }
+        assertEquals(remote, GitHubTestChecklist.paginationResume("test all tools", records, available)["next_call"])
+        repeat(8) { index ->
+            records["runPage$index"] = json("""{"trusted":true,"success":true,"binding":"task","repository":"owner/repo","tool":"github_ci","arguments":{"action":"runs","commit_sha":"${"a".repeat(40)}","page":${index + 3}},"result":{}}""")
+        }
+        assertFalse("next_call" in GitHubTestChecklist.paginationResume("test all tools", records, available))
+        assertEquals(remote, GitHubTestChecklist.paginationResume("test all tools and all history", records, available)["next_call"])
+    }
+
+    @Test fun workflowDependencyPagesNeedCurrentAuthorityRevisionAndAnUnresolvedExecutableJob() {
+        val (available, records, _) = workflowDependency()
+        val ciReadOnly = listOf(AgentToolDefinition("github_ci", "Run inventory", json("""{"properties":{"action":{"const":"runs"}}}""")))
+        assertFalse("next_call" in GitHubTestChecklist.paginationResume("test all tools", records, ciReadOnly))
+        val changes = listOf(
+            "runs" to JsonObject(records.getValue("runs") + ("binding" to JsonPrimitive("another-task"))),
+            "runs" to JsonObject(records.getValue("runs") + ("tool" to JsonPrimitive("github_ci__other"))),
+            "runs" to json(records.getValue("runs").toString().replace("\"action\":\"runs\",\"commit_sha\":\"${"a".repeat(40)}\",\"page\":1", "\"action\":\"runs\",\"commit_sha\":\"${"b".repeat(40)}\",\"page\":1")),
+            "status" to json(records.getValue("status").toString().replace("a".repeat(40), "b".repeat(40))),
+            "jobs" to JsonObject(records.getValue("jobs") + ("success" to JsonPrimitive(false))),
+            "jobs" to json(records.getValue("jobs").toString().replace("skipped", "success")),
+            "status" to JsonObject(records.getValue("status") + ("repository_role" to JsonPrimitive("READ_SOURCE")))
+        )
+        for ((id, changed) in changes) {
+            assertFalse("$id: $changed", "next_call" in GitHubTestChecklist.paginationResume("test all tools", records + (id to changed), available))
+        }
+    }
+
+    private fun workflowDependency(): Triple<List<AgentToolDefinition>, LinkedHashMap<String, JsonObject>, JsonObject> {
+        val head = "a".repeat(40)
+        val remote = json("""{"tool":"github_ci","arguments":{"action":"runs","commit_sha":"$head","per_page":30,"page":2}}""")
+        fun bound(value: JsonObject) = JsonObject(value + mapOf("binding" to JsonPrimitive("task"), "repository" to JsonPrimitive("owner/repo")))
+        val records = linkedMapOf(
+            "status" to bound(json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"status"},"result":{"commit_sha":"$head"}}""")),
+            "runs" to bound(json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"runs","commit_sha":"$head","page":1},"result":{"workflow_runs":[{"id":7,"head_sha":"$head","run_attempt":1,"status":"completed","conclusion":"success"}],"continuation_call":$remote}}""")),
+            "jobs" to bound(json("""{"trusted":true,"success":true,"tool":"github_ci","arguments":{"action":"jobs","run_id":7,"run_attempt":1,"expected_head_sha":"$head"},"result":{"jobs":[{"id":8,"run_id":7,"run_attempt":1,"head_sha":"$head","status":"completed","conclusion":"skipped"}]}}"""))
+        )
+        repeat(2) { index -> records["sample$index"] = bound(json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches","page":${index + 3}},"result":{}}""")) }
+        val available = listOf(AgentToolDefinition("github_ci", "Workflow reads", json("""{"properties":{"action":{"enum":["runs","jobs","job","logs"]}}}""")))
+        return Triple(available, records, remote)
+    }
+
     @Test fun consumedLocalFragmentsDoNotSpendTheRemoteSamplingAllowance() {
         val remote = json("""{"tool":"github_context","arguments":{"action":"branches","page":2}}""")
         val records = linkedMapOf("source" to json("""{"trusted":true,"success":true,"tool":"github_context","arguments":{"action":"branches"},"result":{"local_page_complete":true,"continuation_call":$remote}}"""))

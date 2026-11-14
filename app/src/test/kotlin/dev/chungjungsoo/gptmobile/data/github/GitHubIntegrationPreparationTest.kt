@@ -137,6 +137,34 @@ class GitHubIntegrationPreparationTest {
         assertTrue(owned.getValue("supported_preparation_ids").jsonArray.isEmpty())
     }
 
+    @Test fun unindexedGraphKeepsItsExactPrerequisiteSeparateFromMissingRepositorySelection() {
+        val available = listOf(tool("github_context", "status"), tool("repository_graph", "status", "index", "query", "node"))
+        val graph = receipt("graph", "repository_graph", """{"action":"status"}""", """{"status":"NOT_INDEXED","repository":"owner/repo","commit_sha":"$sha","next_action":"index"}""")
+        val records = mapOf("source" to source(), "graph" to graph)
+        val checkpoint = GitHubTestChecklist.checkpoint(task, records, available, 173)
+        val blocked = checkpoint.getValue("capabilities").jsonArray.map { it.jsonObject }.filter { it["blocker_code"] == JsonPrimitive("REPOSITORY_INPUT_REQUIRED") }
+        assertEquals(2, blocked.size)
+        assertTrue(blocked.all { it["repository_graph_observation"] == JsonPrimitive("NOT_INDEXED") })
+        assertTrue(blocked.all { it.getValue("required_inputs").jsonArray.any { field -> field.toString().contains("index", ignoreCase = true) } })
+        assertTrue(blocked.all { it.getValue("next_action").toString().contains("NOT_INDEXED") })
+        val stop = GitHubIntegrationReport.stopReason(task, records, available, 173, checkpoint)
+        assertTrue(stop.getValue("detail").toString().contains("2 require a graph index"))
+        assertEquals(JsonPrimitive(2), stop["graph_input_blocked_count"])
+        assertEquals(json("""{"action":"index"}"""), GitHubTestChecklist.nextCall(task, available, records, 173)?.arguments)
+        val index = checkpoint.getValue("capabilities").jsonArray.map { it.jsonObject }.single { it["id"] == JsonPrimitive("repository_graph:index") }
+        assertEquals(JsonPrimitive("EXECUTION_NOT_EXERCISED"), index["blocker_code"])
+        assertEquals(JsonPrimitive("UNTESTED"), index["status"])
+        assertEquals(2, records.size)
+        for (changed in listOf(
+            JsonObject(graph + ("binding" to JsonPrimitive("another-task"))),
+            json(graph.toString().replace(sha, "b".repeat(40))),
+            JsonObject(graph + ("repository_role" to JsonPrimitive("READ_SOURCE")))
+        )) {
+            val rows = GitHubTestChecklist.rows(records + ("graph" to changed), available, task).map { it.jsonObject }
+            assertFalse(rows.any { it["repository_graph_observation"] == JsonPrimitive("NOT_INDEXED") })
+        }
+    }
+
     @Test fun existingFixtureReservesCleanupBeforeOptionalReadsAndSurvivesCheckpointSerialization() {
         val receipts = active()
         assertEquals(4, GitHubChecklistBudget.cleanupReserve(receipts))

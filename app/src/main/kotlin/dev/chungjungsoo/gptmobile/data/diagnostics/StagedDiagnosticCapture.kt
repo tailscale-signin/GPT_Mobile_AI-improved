@@ -112,9 +112,18 @@ class DiagnosticStageSink internal constructor(
     internal val sourcePageSize: Int get() = if (options.cooperativeHeapRecovery) 1 else 16
     internal var heapDeferral: JsonObject? = null
         private set
+    private var minimumObservedHeadroomBytes: Long? = null
+    private var budgetChecks = 0L
 
     internal fun sourceRecord(value: DiagnosticSourceRecord?) {
         sourceRecord = value
+    }
+
+    internal fun memoryGuardEvidence(): JsonObject = buildJsonObject {
+        put("minimumRequiredHeadroomBytes", minimumHeadroom)
+        put("minimumObservedHeadroomBytes", minimumObservedHeadroomBytes?.let(::JsonPrimitive) ?: JsonNull)
+        put("budgetChecks", budgetChecks)
+        put("scope", "Samples at this collector's budget checks. heapDeferral retains the rejecting sample; source collectors can defer independently.")
     }
 
     /** The byte boundary and source cursor are committed together after a complete logical row. */
@@ -178,6 +187,8 @@ class DiagnosticStageSink internal constructor(
         currentCoroutineContext().ensureActive()
         options.guard()
         val memory = options.memorySampler()
+        budgetChecks++
+        minimumObservedHeadroomBytes = minOf(minimumObservedHeadroomBytes ?: Long.MAX_VALUE, memory.javaHeadroomBytes)
         if (memory.javaHeadroomBytes < minimumHeadroom) {
             heapDeferral = buildJsonObject {
                 put("measurement", "AT_BUDGET_DEFERRAL")
@@ -369,6 +380,7 @@ object StagedDiagnosticCapture {
                         put("retryHeadroomBytes", retryMemory.javaHeadroomBytes)
                         put("retryRequiredHeadroomBytes", retryThreshold)
                         put("priorHeapDeferral", prior["heapDeferral"] ?: JsonNull)
+                        put("priorMemoryGuard", prior["memoryGuard"] ?: JsonNull)
                     }
                 )
             }
@@ -722,6 +734,7 @@ object StagedDiagnosticCapture {
             put("memoryAfter", options.memorySampler().json())
             put("heapDeferral", sink?.heapDeferral ?: JsonNull)
             put("cooperativeHeapRecovery", options.cooperativeHeapRecovery)
+            put("memoryGuard", sink?.memoryGuardEvidence() ?: JsonNull)
         }
         atomicJson(receiptFile, receipt)
         if (failure is CancellationException) throw failure

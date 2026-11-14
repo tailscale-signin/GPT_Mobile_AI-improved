@@ -95,6 +95,18 @@ internal object GitHubAcceptanceReportDiagnostics {
                 }
             }
         val checklist = verdict["test_checklist"] as? JsonObject
+        val graphInputs = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter {
+            it["required"] == JsonPrimitive(true) && it.text("id").startsWith("repository_graph:") && it.text("blocker_code") == "REPOSITORY_INPUT_REQUIRED"
+        }
+        if (graphInputs.isNotEmpty()) {
+            put("graph_input_blocked_count", graphInputs.size)
+            graphInputs.map { it.text("repository_graph_observation") }.distinct().singleOrNull()
+                ?.takeIf { it in setOf("NOT_INDEXED", "OBSERVED", "UNOBSERVED", "REVISION_MISMATCH", "UNAVAILABLE") }
+                ?.let { put("repository_graph_observation", it) }
+        }
+        (checklist?.get("pagination_resume") as? JsonObject)?.text("workflow_dependency_observation")
+            ?.takeIf { it in setOf("UNOBSERVED", "READ_FAILED", "OBSERVED_EXECUTED_JOB", "RUN_READ_PENDING", "MISSING_EXECUTED_JOB", "RUN_PAGE_AVAILABLE") }
+            ?.let { put("workflow_dependency_observation", it) }
         checklist?.text("coverage_scope")?.takeIf { it in setOf("FULL_CATALOG", "OBSERVED_CAPABILITIES") }?.let {
             put("acceptance_capability_scope", it)
         }

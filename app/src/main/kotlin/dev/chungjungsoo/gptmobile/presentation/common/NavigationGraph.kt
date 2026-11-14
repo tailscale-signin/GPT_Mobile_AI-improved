@@ -31,7 +31,6 @@ import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType
 import dev.chungjungsoo.gptmobile.data.model.collectReusableProfileLabels
-import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeScreen
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeTab
 import dev.chungjungsoo.gptmobile.presentation.ui.home.HomeViewModel
@@ -423,7 +422,7 @@ internal fun NavGraphBuilder.chatScreenNavigation(navController: NavHostControll
                 onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) }
             ) { approvalContent ->
                 dev.chungjungsoo.gptmobile.presentation.ui.chat.AdaptiveConversationLayout(chatId, { id -> conversation.leaveConversation { navController.navigate("chat_room/$id") { popUpTo(Route.CHAT_ROOM) { inclusive = true } } } }) {
-                    ChatScreen(
+                    dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceOrTextChatScreen(
                         onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
                         onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) },
                         chatViewModel = conversation,

@@ -225,12 +225,34 @@ class GitHubReviewAvailabilityTest {
         }
     }
 
+    @Test fun unknownOutcomeOnEnlargedProbePreservesItsIdentityAndCannotStartRepositoryWork() = runTest {
+        var probes = 0
+        val delegate = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> = error("An uncertain probe cannot authorize work")
+        }
+        val result = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Inspect the repository", 8192, { _, _ ->
+            probes++
+            if (probes == 1) {
+                session(ProviderEvent.Failed("Bounded output exhausted", errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED", invocationId = "first-probe"))
+            } else {
+                session(ProviderEvent.Failed("Probe outcome unknown", errorCode = "GATEWAY_OUTCOME_UNKNOWN", invocationId = "uncertain-probe", failureDetails = buildJsonObject { put("requires_reconciliation", true) }))
+            }
+        }, {}, compatibility = GitHubReviewCompatibility(), outputLimitForPass = ::outputAllowance).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, probes)
+        val failure = result.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("GATEWAY_OUTCOME_UNKNOWN", failure.errorCode)
+        assertEquals("uncertain-probe", failure.invocationId)
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("requires_reconciliation"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("repository_operations_started"))
+        assertFalse(result.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+    }
+
     @Test fun truncatedButInterruptedProbeCannotTriggerCompactFallback() = runTest {
         var probes = 0
         val result = GitHubReviewedSession(session(ProviderEvent.Completed), GitHubReviewEvidence(), "Inspect the repository", 8192, { _, _ ->
             probes++
             session(ProviderEvent.Usage(outputTokens = 2048, finishReason = "length"), ProviderEvent.Failed("Connection interrupted", errorCode = "CONNECTION_ABORTED"))
-        }, {}, compatibility = GitHubReviewCompatibility()).streamRound(emptyList(), emptyList()).toList()
+        }, {}, compatibility = GitHubReviewCompatibility(), outputLimitForPass = { GitHubStageBudget.resolve(32768, null, it).output }).streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, probes)
         assertEquals("CONNECTION_ABORTED", result.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
     }
@@ -256,7 +278,7 @@ class GitHubReviewAvailabilityTest {
             assertEquals(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, prompt)
             assertEquals("github-review-preflight", kind)
             session(limited)
-        }, {}, compatibility = GitHubReviewCompatibility(), reviewerRevision = "same-selected-profile").streamRound(emptyList(), emptyList()).toList()
+        }, {}, compatibility = GitHubReviewCompatibility(), reviewerRevision = "same-selected-profile", outputLimitForPass = { GitHubStageBudget.resolve(32768, null, it).output }).streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, probes)
         val failure = result.filterIsInstance<ProviderEvent.Failed>().single()
         assertEquals("RATE_LIMITED", failure.errorCode)

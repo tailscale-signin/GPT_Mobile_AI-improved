@@ -121,7 +121,8 @@ class GitHubSelfTestWorkflowJobsTest {
     @Test fun jobDependencyPagesAreRevisionBoundDurableAndIndependentlyLimited() {
         val tool = AgentToolDefinition("github_ci", "CI", json("""{"properties":{"action":{"enum":["runs","jobs","job","logs"]}}}"""))
         fun page(number: Int, head: String = sha, extra: String = "") = json("""{"tool":"github_ci","arguments":{"action":"runs","commit_sha":"$head","page":$number$extra}}""")
-        val exhausted = listOf(status(), runs(1), jobs(1))
+        val scopedRuns = JsonObject(runs(1) + ("arguments" to json("""{"action":"runs","commit_sha":"$sha"}""")))
+        val exhausted = listOf(status(), scopedRuns, jobs(1))
         val issuer = exhausted[1]
         assertTrue(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), exhausted, issuer))
         assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2, "b".repeat(40)), listOf(tool), exhausted, issuer))
@@ -130,6 +131,14 @@ class GitHubSelfTestWorkflowJobsTest {
         assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), listOf(status(), runs(1, 2), jobs(1)), issuer))
         assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), exhausted, JsonObject(issuer + ("binding" to JsonPrimitive("other-task")))))
         assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), exhausted, JsonObject(issuer + ("repository" to JsonPrimitive("other/repo")))))
+        for (foreign in listOf(
+            JsonObject(issuer + ("tool" to JsonPrimitive("github_ci__other"))),
+            JsonObject(issuer + ("arguments" to json("""{"action":"workflows","commit_sha":"$sha"}"""))),
+            JsonObject(issuer + ("arguments" to json("""{"action":"runs","commit_sha":"${"b".repeat(40)}"}"""))),
+            JsonObject(issuer + ("arguments" to json("""{"action":"runs"}""")))
+        )) {
+            assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), listOf(status(), foreign, jobs(1)), foreign))
+        }
         val failed = JsonObject(jobs(1) + ("success" to JsonPrimitive(false)))
         assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), listOf(status(), runs(1), failed), issuer))
         val pages = (2..9).map { number -> receipt("runs", "{}", """, "commit_sha":"$sha", "page":$number""") }

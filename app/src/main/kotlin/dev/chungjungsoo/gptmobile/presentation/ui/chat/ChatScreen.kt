@@ -222,6 +222,7 @@ private fun ChatScreenContent(
     viewportWidth: Dp,
     viewportHeight: Dp
 ) {
+    val voiceControls = dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoiceMessageControls.current
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val providerWaitDeadlines by chatViewModel.providerWaitDeadlines.collectAsStateWithLifecycle()
@@ -1224,8 +1225,14 @@ private fun ChatScreenContent(
                         onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
                         onFileRemoved = { filePath -> chatViewModel.removeSelectedFile(filePath) },
                         onFileRetry = chatViewModel::retrySelectedFile,
-                        onCancelButtonClick = chatViewModel::cancelActiveRuns,
-                        onComposerFocusChanged = dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints::composerFocusChanged
+                        onCancelButtonClick = {
+                            voiceControls?.stop?.invoke()
+                            chatViewModel.cancelActiveRuns()
+                        },
+                        onComposerFocusChanged = { focused ->
+                            if (focused) voiceControls?.pauseCapture?.invoke()
+                            dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.composerFocusChanged(focused)
+                        }
                     ) {
                         if (!requestedNotificationPermission &&
                             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -2014,6 +2021,9 @@ internal fun ChatMessagePair(
                     )
                 }
                 androidx.compose.runtime.CompositionLocalProvider(LocalGitHubAssistantReferences provides receiptScopedGitHubReferences) {
+                    selectedAssistantMessage?.let { response ->
+                        dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMessageSpeaker(response, assistantContent)
+                    }
                     OpponentChatBubble(
                         modifier = Modifier
                             .fillMaxWidth()

@@ -2,6 +2,7 @@
 from contextlib import contextmanager
 import json
 from pathlib import Path
+import re
 import sqlite3
 import threading
 import time
@@ -30,6 +31,7 @@ class BenchmarkStore:
                 db.execute('CREATE TABLE IF NOT EXISTS benchmark_runs (id TEXT PRIMARY KEY, principal TEXT NOT NULL, request_id TEXT NOT NULL, fingerprint TEXT NOT NULL, state TEXT NOT NULL, updated REAL NOT NULL, payload TEXT NOT NULL, UNIQUE(principal,request_id))')
                 db.execute('CREATE TABLE IF NOT EXISTS benchmark_cases (run_id TEXT NOT NULL REFERENCES benchmark_runs(id) ON DELETE CASCADE, ordinal INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(run_id,ordinal))')
                 db.execute('CREATE TABLE IF NOT EXISTS benchmark_request_tombstones (request_key TEXT PRIMARY KEY, removed REAL NOT NULL)')
+                db.execute('CREATE TABLE IF NOT EXISTS benchmark_sandboxes (run_id TEXT PRIMARY KEY REFERENCES benchmark_runs(id), container TEXT NOT NULL UNIQUE)')
                 with db:
                     yield db
             finally:
@@ -152,6 +154,36 @@ class BenchmarkStore:
         with self.db() as db:
             return [x[0] for x in db.execute("SELECT id FROM benchmark_runs WHERE state='QUEUED' ORDER BY rowid").fetchall()]
 
+    def claim_sandbox(self, ident, container):
+        if not isinstance(container, str) or not re.fullmatch(r'gateway-benchmark-[a-f0-9]{32}', container):
+            raise ValueError('Invalid benchmark sandbox identity')
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            run = db.execute('SELECT state FROM benchmark_runs WHERE id=?', (ident,)).fetchone()
+            if not run or run[0] not in {'RUNNING', 'CANCELLING'}:
+                raise BenchmarkConflict('Only an admitted running benchmark can own a sandbox')
+            old = db.execute('SELECT container FROM benchmark_sandboxes WHERE run_id=?', (ident,)).fetchone()
+            if old:
+                if old[0] != container:
+                    raise BenchmarkConflict('The previous benchmark sandbox still needs cleanup')
+                return
+            # One container per sequential run; the existing 500-run history
+            # bound also bounds this journal without dropping older ownership.
+            db.execute('INSERT INTO benchmark_sandboxes VALUES(?,?)', (ident, container))
+
+    def pending_sandboxes(self):
+        with self.db() as db:
+            return [{'run_id': row[0], 'container': row[1]} for row in
+                    db.execute('SELECT run_id,container FROM benchmark_sandboxes ORDER BY rowid').fetchall()]
+
+    def release_sandbox(self, ident, container):
+        with self.db() as db:
+            db.execute('BEGIN IMMEDIATE')
+            old = db.execute('SELECT container FROM benchmark_sandboxes WHERE run_id=?', (ident,)).fetchone()
+            if old and old[0] != container:
+                raise BenchmarkConflict('Sandbox cleanup receipt belongs to a different container')
+            db.execute('DELETE FROM benchmark_sandboxes WHERE run_id=? AND container=?', (ident, container))
+
     def recover(self):
         with self.db() as db:
             rows = db.execute("SELECT id,payload FROM benchmark_runs WHERE state IN ('QUEUED','RUNNING','CANCELLING')").fetchall()
@@ -177,6 +209,8 @@ class BenchmarkStore:
                 return False
             if row[0] not in TERMINAL:
                 raise BenchmarkConflict('Stop the benchmark before removing its saved result')
+            if db.execute('SELECT 1 FROM benchmark_sandboxes WHERE run_id=?', (ident,)).fetchone():
+                raise BenchmarkConflict('Sandbox cleanup must be confirmed before removing its saved result')
             # Removing presentation/history must never make an uncertain retry
             # admissible again. Tombstones contain only a hash and timestamp.
             # At the finite bound, refuse deletion instead of forgetting identity.

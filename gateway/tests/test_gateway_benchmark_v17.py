@@ -273,7 +273,8 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
         def launched(argv, cwd, timeout, maximum, destination=None):
             destination.write(b'docker daemon unavailable')
             return {'exit_code': 125, 'output_sha256': 'd', 'elapsed_ms': 10}
-        with patch.object(sandbox, 'run_bounded', side_effect=launched), patch.object(sandbox.subprocess, 'run'):
+        with patch.object(sandbox, 'run_bounded', side_effect=launched), \
+                patch.object(sandbox.subprocess, 'run', return_value=SimpleNamespace(returncode=0)):
             result = sandbox.execute({'service.py': 'def handle(x): return x'}, [{}],
                                      {'sandbox_image': 'image@sha256:' + 'a' * 64, 'sandbox_seconds': 5}, docker='docker')
         self.assertEqual('ERROR', result['status'])
@@ -283,7 +284,8 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
         def launched(argv, cwd, timeout, maximum, destination=None):
             destination.write((sandbox.START_MARKER + '\n').encode())
             return {'exit_code': 125, 'output_sha256': 'd', 'elapsed_ms': 10}
-        with patch.object(sandbox, 'run_bounded', side_effect=launched), patch.object(sandbox.subprocess, 'run'):
+        with patch.object(sandbox, 'run_bounded', side_effect=launched), \
+                patch.object(sandbox.subprocess, 'run', return_value=SimpleNamespace(returncode=0)):
             result = sandbox.execute({'service.py': 'def handle(x): return x'}, [{}],
                                      {'sandbox_image': 'image@sha256:' + 'a' * 64, 'sandbox_seconds': 5}, docker='docker')
         self.assertEqual('FAILED', result['status'])

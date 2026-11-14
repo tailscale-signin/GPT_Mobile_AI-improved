@@ -130,7 +130,8 @@
     "Keep voice rooms in a shared voice transcript/session with themed per-response playback, sequential automatic reading for typed and spoken replies, lifecycle-safe silent captions, normalized Kokoro pronunciation, and bounded PCM delivery.",
     "Repair repository-map paging, structural coverage and source reuse, durable indexing, stage-specific context admission, model-consumption evidence, and negotiated graph/policy report diagnostics.",
     "Retire superseded automatic and latest-revision manual speech without interrupting explicitly selected historical replay, leaking stale callbacks, or restarting capture.",
-    "Preserve request-owned voice draft admission across playback, pause and recreation; verify themed transcript controls with required dark, light and large-text render evidence."
+    "Preserve request-owned voice draft admission across playback, pause and recreation; verify themed transcript controls with required dark, light and large-text render evidence.",
+    "Retain benchmark sandbox ownership before launch and across restart, block further work and installer maintenance until cleanup is confirmed, and preserve measured grading when model-supplied evidence is malformed."
   ],
   "limitations": [
     "The new keyboard and completion diagnostics require a hosted reporter advertising COMPOSER_IME_EVIDENCE_V1 and COMPLETION_EVIDENCE_V1. Confirm keyboard behavior on the affected Android device and empty model responses on the original route.",
@@ -2729,6 +2730,8 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionPlaybackTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceGenerationSupersessionTest.kt",
     "gateway/desktop/window_lifecycle.py",
-    "scripts/requirements-ci.txt"
+    "scripts/requirements-ci.txt",
+    "gateway/tests/test_gateway_benchmark_cleanup.py",
+    "gateway/tests/test_gateway_benchmark_evidence_validation.py"
   ]
 }

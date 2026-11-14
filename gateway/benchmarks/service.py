@@ -19,6 +19,7 @@ from fastapi.responses import JSONResponse
 
 from benchmarks.contracts import TERMINAL, digest, validate_request
 from benchmarks.runner import BenchmarkRunner
+from benchmarks import sandbox
 from benchmarks.sandbox import SandboxUnavailable
 from benchmarks.settings import load_settings
 from benchmarks.store import BenchmarkConflict, BenchmarkStore
@@ -40,6 +41,7 @@ class BenchmarkService:
         self.active = {}
         self.thread = None
         self.draining = False
+        self.cleanup_after = 0.0
 
     def origin(self):
         if (self.root / 'settings.json').exists():
@@ -72,8 +74,32 @@ class BenchmarkService:
     def snapshot(self):
         with self.lock:
             queued = len(self.store.pending()) if getattr(self.runtime, 'GATEWAY_DURABLE_JOBS', False) else 0
-            return {'activeBenchmarks': len(self.active), 'queuedBenchmarks': queued,
-                    'benchmarkDraining': self.draining}
+            claimed = {row['run_id'] for row in self.sandbox_claims()}
+            return {'activeBenchmarks': len(set(self.active) | claimed), 'queuedBenchmarks': queued,
+                    'unconfirmedSandboxCleanups': len(claimed - self.active.keys()), 'benchmarkDraining': self.draining}
+
+    def sandbox_claims(self):
+        # Disabling durable admission cannot erase existing physical ownership,
+        # but an installation with no journal needs no new database side effect.
+        return self.store.pending_sandboxes() if self.store.path.exists() else []
+
+    def unconfirmed_sandboxes(self):
+        with self.lock:
+            return [row for row in self.sandbox_claims() if row['run_id'] not in self.active]
+
+    def reconcile_sandboxes(self):
+        pending = self.unconfirmed_sandboxes()
+        if not pending:
+            return True
+        if time.monotonic() < self.cleanup_after:
+            return False
+        self.cleanup_after = time.monotonic() + 5
+        owned = pending[0]
+        receipt = sandbox.reconcile_container(owned['container'])
+        if (receipt.get('kind') == 'sandbox' and receipt.get('container') == owned['container'] and
+                receipt.get('outcome') == 'confirmed'):
+            self.store.release_sandbox(owned['run_id'], owned['container'])
+        return not self.unconfirmed_sandboxes()
 
     def create(self, principal, request):
         request = validate_request(request)
@@ -85,6 +111,8 @@ class BenchmarkService:
                 raise BenchmarkConflict('Gateway is stopping or updating; start the benchmark after it is ready')
             if not getattr(self.runtime, 'GATEWAY_DURABLE_JOBS', False):
                 raise BenchmarkConflict('Durable storage is required for saved benchmark runs')
+            if self.unconfirmed_sandboxes():
+                raise BenchmarkConflict('A previous sandbox cleanup is unconfirmed. Restore the local container runtime before starting more work.')
             run, created = self.store.create(principal.id, request, self.provenance())
             if created:
                 self.wake.set()
@@ -129,20 +157,24 @@ class BenchmarkService:
             data = Path(self.runtime.GATEWAY_JOB_DB_PATH).parent
             self.root = Path(os.environ.get('GATEWAY_DESKTOP_ROOT', str(data.parent if data.name == 'data' else data)))
             if self.store.path != data / 'benchmarks.sqlite3':
+                if self.sandbox_claims():
+                    raise RuntimeError('The original benchmark journal still owns an unsettled sandbox')
                 self.store = BenchmarkStore(data / 'benchmarks.sqlite3')
-        if not getattr(self.runtime, 'GATEWAY_DURABLE_JOBS', False):
+        if not getattr(self.runtime, 'GATEWAY_DURABLE_JOBS', False) and not self.store.path.exists():
             return
         self.store.recover()
         self.stop.clear()
         self.draining = False
+        self.cleanup_after = 0.0
         self.thread = threading.Thread(target=self.work, name='gateway-benchmark-coordinator', daemon=True)
         self.thread.start()
 
     def work(self):
         while not self.stop.is_set():
             try:
-                ids = self.store.pending()
-                if ids and not getattr(self.runtime, 'gateway_draining', False):
+                settled = self.reconcile_sandboxes()
+                ids = self.store.pending() if getattr(self.runtime, 'GATEWAY_DURABLE_JOBS', False) else []
+                if settled and ids and not getattr(self.runtime, 'gateway_draining', False):
                     self.run_one(ids[0])
                     continue
             except (OSError, ValueError, sqlite3.Error, RuntimeError) as error:
@@ -153,6 +185,8 @@ class BenchmarkService:
     def run_one(self, ident):
         with self.runtime.gateway_service.lock:
             if self.stop.is_set() or self.runtime.gateway_service.draining:
+                return
+            if self.unconfirmed_sandboxes():
                 return
             run = self.store.get(ident, cases=False)
             if run is None or run['state'] != 'QUEUED':
@@ -179,7 +213,7 @@ class BenchmarkService:
             unknown = any(row.get('outcome') not in {'confirmed', 'terminal', 'not_canceled'} for row in receipts)
             state = 'INTERRUPTED' if self.stop.is_set() or unknown else 'CANCELLED'
             self.store.update(ident, state=state, endedAt=time.time(),
-                              progress='Benchmark stopped; model cancellation remains unconfirmed' if unknown else 'Stopped; completed measurements remain saved',
+                              progress='Benchmark stopped; execution shutdown is unconfirmed' if unknown else 'Stopped; completed measurements remain saved',
                               failure={'code': 'CANCELLATION_UNCONFIRMED' if unknown else 'BENCHMARK_STOPPED', 'cancellationReceipts': receipts})
         except (SandboxUnavailable, PermissionError) as error:
             self.store.update(ident, state='BLOCKED', endedAt=time.time(), progress=str(error)[:240],

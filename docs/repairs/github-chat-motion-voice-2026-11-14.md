@@ -482,3 +482,63 @@ receipts, and the remaining three samples never dispatch. It does not execute a
 live model or Docker candidate. Container-cleanup reconciliation and malformed
 coding evidence are separately owned follow-ups and remain a source hold before
 the final shared-head Android, packaging and hosted verification gates.
+
+## Durable benchmark cleanup and grading evidence
+
+This follow-up starts from `46736a827a500ba25930edb55d93b4722227cf1c`,
+preserving the restart/parallel interruption corrections, the desktop list and
+callback repairs, and the explicitly pinned CI dependency and workflow syntax
+correction. It completes the two benchmark follow-ups identified above.
+
+Model-supplied `evidence.changed_files` previously accepted a list containing
+mixed types, then raised `TypeError` while sorting after successful execution.
+Four failing-before shapes reproduced lost grading despite a passing patch.
+The guard now requires strings before comparison. Malformed metadata earns
+zero for the evidence dimension while preserving the eight other measured
+dimensions, execution and resolution; the controlled passing proposal scores
+950 rather than losing its entire result.
+
+A bounded Docker client timeout or output overflow can leave its actual
+container active. The prior implementation discarded failed removal receipts
+and could start another repair or trial. The repair keeps the partial execution
+observation, output digest, elapsed time, model/job receipts and prior attempts,
+then interrupts before further dispatch when physical cleanup is unconfirmed.
+Reference calibration remains separate: its observed execution is retained,
+but it cannot count as an executed candidate trial or cause model dispatch.
+
+The existing benchmark journal now records one exact generated container name
+per run before launch. Claims survive process restart and disabling new durable
+benchmark admission. Unresolved ownership blocks new execution, history
+deletion and installer maintenance; healthy active work can still accept a
+queued run. The existing 500-run history bound also bounds cleanup ownership.
+Recovery performs bounded removal and exact-name absence observations, never
+candidate or model replay. Only confirmed removal, a successful attached
+completion, or a successful observation of absence releases a claim. A failed
+Docker query does not establish absence. Preflight, launch, removal and restart
+reconciliation use an explicit empty Docker configuration and default context,
+so inherited settings cannot direct cleanup to another endpoint.
+
+The focused isolated Gateway runner passed 12 new cleanup tests, 35 existing
+benchmark tests, one grading-evidence test and four maintenance tests: 52 cases.
+These exercise the real coordinator, journal, runner and maintenance admission
+with controlled platform failures. Two existing exit-125 fixtures now explicitly
+provide successful cleanup while retaining their original assertions. The new
+tests also cover unknown nonzero client exits, unavailable Docker observation,
+restart with admission disabled, and cleanup of an absent prelaunch container.
+Independent source review covered sandbox settlement and runner evidence as
+well as service/store ownership and maintenance; no additional blocker remained.
+
+The separate desktop follow-up passed 24 focused cases; three native display
+cases cannot run in this container and remain required in hosted Windows
+qualification. The PyYAML 6.0.3 CPython 3.12 Linux wheel checksum independently
+matches the official PyPI release metadata. No live Docker workload, model
+inference, physical device result or hosted reporter deployment is claimed.
+Canonical checks, package digests and exact staged scope are validated before
+publication. All applicable hosted jobs must qualify the final shared head and
+current base before the single authorized merge and issue disposition flow.
+
+The publication candidate passed all 510 canonical host checks and six real
+conversation metadata/API regressions. The regenerated package manifest matches
+reviewed source; the app inventory contains 2,599 files across 26 areas. Final
+staged scope and full-PR Kotlin formatting are checked at publication. These
+receipts retain the final shared-head hosted qualification requirement.

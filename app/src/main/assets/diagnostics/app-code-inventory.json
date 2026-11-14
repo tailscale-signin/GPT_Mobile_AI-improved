@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "73414ba350d363e65e2751f6feafb38b1cfcb2cb6d0d70abb8e3a65c2754274e",
+  "source_digest": "b7a1d0001e657dfda58d736866a02a2c2adc3c1b04977bfb7ba7ea8dd174aca1",
   "file_count": 2599,
-  "indexed_line_count": 418029,
+  "indexed_line_count": 418205,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 138,
-      "indexed_line_count": 69372
+      "indexed_line_count": 69548
     },
     {
       "id": "authentication_service",
@@ -17216,8 +17216,8 @@
       "path": "gateway/benchmarks/coding.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ce4770e5593c2d6d0f0a3532e9aebed422d500c1ed8bc7e249c954044a504bc8",
-      "indexed_lines": 166
+      "sha256": "df976f4737584ff78af0eb1ec1699531738199b42c71998ef440447fac479cac",
+      "indexed_lines": 167
     },
     {
       "path": "gateway/benchmarks/contracts.py",
@@ -17237,22 +17237,22 @@
       "path": "gateway/benchmarks/runner.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "6fb583b3750eea13f7ad6c3ff72d3c39aaab644ebbe9fdeb662622c01e2f74c9",
-      "indexed_lines": 256
+      "sha256": "b37c9d66ddc9dd687067bfb9bec55e78673213edacd25c94002e1c4d9c26f126",
+      "indexed_lines": 287
     },
     {
       "path": "gateway/benchmarks/sandbox.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "85473abbaa1776ea1f6325261797f2365fea200fdaf49c8ba20f639b2c6cd4f8",
-      "indexed_lines": 158
+      "sha256": "630da11af0b18473db08be0b2d8a6e29f4aef9dab9c20b0505b2fea880ea5d70",
+      "indexed_lines": 234
     },
     {
       "path": "gateway/benchmarks/service.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "94bd249c4ca1e302016dd0ec9af00eaf17105f97ac416cded3b73e0296fbc525",
-      "indexed_lines": 274
+      "sha256": "3c37c46a30f08b76c2155abc4c5370f1dc2eae1578aa8427ea94981549fcfc0b",
+      "indexed_lines": 308
     },
     {
       "path": "gateway/benchmarks/settings.py",
@@ -17265,8 +17265,8 @@
       "path": "gateway/benchmarks/store.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "bfb4059280f122985508f449b564eed8a2f6739102e7f3d39ec77eaa1ca07334",
-      "indexed_lines": 188
+      "sha256": "c5729b0729d84e59511309e87f54720af1d41efa424ba70ec96b7862c387fc33",
+      "indexed_lines": 222
     },
     {
       "path": "gateway/build_v14_package.py",

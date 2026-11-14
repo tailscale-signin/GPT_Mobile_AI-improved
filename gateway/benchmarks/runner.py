@@ -196,6 +196,28 @@ class BenchmarkRunner:
                 self.checkpoint(run, len(cases) - 1, case)
         return paired_summary(cases, count)
 
+    def execute_sandbox(self, run, *args, **kwargs):
+        return sandbox.execute(*args, **kwargs,
+                               retain=lambda name: self.store.claim_sandbox(run['id'], name),
+                               release=lambda name: self.store.release_sandbox(run['id'], name))
+
+    def sandbox_interrupted(self, run, ordinal, task, error, stage, attempts=(), timing=None):
+        receipt = dict(error.cancellation, case=task['id'], stage=stage)
+        with self.receipt_lock:
+            self.cancellation_receipts.append(dict(error.cancellation))
+        observed = error.observation or {}
+        case = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
+        case.update(status='INTERRUPTED', executed=observed.get('executed') if stage == 'CANDIDATE' else False, graded=False, resolved=False,
+                    score=None, integrity='VERIFIED', error='SANDBOX_CLEANUP_UNCONFIRMED' if receipt['outcome'] == 'unknown' else 'BENCHMARK_STOPPED',
+                    dimensions={key: None for key in coding.CODING_WEIGHTS}, cancellation=receipt,
+                    sandboxObservation={key: observed[key] for key in ('status', 'executed', 'error', 'exitCode', 'outputDigest', 'durationMs') if key in observed})
+        if timing is not None:
+            case['timing'] = {key: timing.get(key) for key in ('firstMs', 'totalMs', 'inputTokens', 'outputTokens', 'finishReason')}
+            case.update({key: timing.get(key) for key in ('observedModel', 'modelReceipt', 'identityScope', 'gatewayJobId')})
+        if stage == 'CANDIDATE':
+            case['attempts'] = [*attempts, dict(case)]
+        self.store.case(run['id'], ordinal, case)
+
     def code(self, run):
         tasks = fixtures.suite(run['request']['preset'], run['request']['seed'])
         self.store.update(run['id'], planned=len(tasks), progress='Checking isolated evaluator')
@@ -207,7 +229,11 @@ class BenchmarkRunner:
             self.store.update(run['id'], progress=f'{ordinal + 1}/{len(tasks)} · {task["title"]}')
             # Pin a fresh, trusted reference evaluation before trusting this
             # task's environment; its expected answers remain outside Docker.
-            baseline = sandbox.execute(task['referenceSources'], task['vectors'], settings, self.cancelled, docker=docker)
+            try:
+                baseline = self.execute_sandbox(run, task['referenceSources'], task['vectors'], settings, self.cancelled, docker=docker)
+            except sandbox.SandboxInterrupted as error:
+                self.sandbox_interrupted(run, ordinal, task, error, 'REFERENCE')
+                raise
             if baseline.get('status') != 'COMPLETED' or len(baseline.get('outputs', [])) != len(task['vectors']) or any('output' not in row or not coding.same(row['output'], fixtures.expected(task, vector))
                     for row, vector in zip(baseline.get('outputs', []), task['vectors'])):
                 raise sandbox.SandboxUnavailable('The trusted reference failed in this sandbox; no model score was recorded.')
@@ -216,14 +242,19 @@ class BenchmarkRunner:
             final = None
             for attempt in range(settings['repair_attempts'] + 1):
                 answer = []
+                timing = None
                 def capture(text):
                     answer.append(text)
                     return True
                 try:
                     timing = self.measure_case(run, task['id'], turns, None, validate=capture, output_tokens=4096)
-                    final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker)
+                    final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker,
+                                         execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
                     final['timing'] = {key: timing.get(key) for key in ('firstMs', 'totalMs', 'inputTokens', 'outputTokens', 'finishReason')}
                     final.update({key: timing.get(key) for key in ('observedModel', 'modelReceipt', 'identityScope', 'gatewayJobId')})
+                except sandbox.SandboxInterrupted as error:
+                    self.sandbox_interrupted(run, ordinal, task, error, 'CANDIDATE', attempts, timing)
+                    raise
                 except (requests.RequestException, TimeoutError, ValueError, TypeError) as error:
                     if isinstance(error, sandbox.SandboxUnavailable):
                         raise

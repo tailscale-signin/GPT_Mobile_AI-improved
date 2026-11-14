@@ -3,7 +3,7 @@
   "base_branch": "main",
   "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
   "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
-  "source_sha": "1ed51b1a0ebbdd8fa1efd1b51d1b27cac379c773",
+  "source_sha": "46736a827a500ba25930edb55d93b4722227cf1c",
   "pull_request": 1122,
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "github-chat-motion-voice-2026-11-14",
@@ -23,9 +23,9 @@
   ],
   "validation": {
     "canonical_host_tests": {
-      "passed": 509,
+      "passed": 510,
       "failed": 0,
-      "scope": "Combined Gateway 17, voice, map and reporting source plus query-paging follow-up"
+      "scope": "Combined final benchmark cleanup, desktop, workflow, map, voice and reporter source"
     },
     "reporter_contract_tests": {
       "passed": 105,
@@ -103,6 +103,25 @@
       "report_readiness_limit_bytes": 1024,
       "native_github_independent": true,
       "architecture_index": "Canonical generated index exactly matches concurrent correction 1ed51b1a0ebbdd8fa1efd1b51d1b27cac379c773"
+    },
+    "independent_benchmark_cleanup_review": {
+      "reviewed_parent": "46736a827a500ba25930edb55d93b4722227cf1c",
+      "state": "LOCAL_PASSED_FINAL_SHARED_HEAD_PENDING",
+      "cleanup_tests": 12,
+      "existing_benchmark_tests": 35,
+      "grading_evidence_tests": 1,
+      "maintenance_tests": 4,
+      "desktop_followup_passed": 24,
+      "desktop_native_display_skipped": 3,
+      "scope": "Real coordinator, runner, journal and maintenance with controlled platform failures; no live Docker/model execution",
+      "preserved": "Incoming provisional-result normalization, parallel interruption fence, repository-map paging, reporting, voice and desktop fixes",
+      "dependency_hash": "PyYAML 6.0.3 cp312 Linux wheel verified independently against official PyPI metadata",
+      "hosted_final_head": "PENDING",
+      "canonical_host_tests": 510,
+      "conversation_metadata_tests": 6,
+      "package_manifest": "Validated against the reviewed source",
+      "app_inventory_files": 2599,
+      "app_inventory_areas": 26
     }
   },
   "intake": {
@@ -188,7 +207,13 @@
     "b1a0ea71ce748a04d50b0d85fa4c301032c57107",
     "aad56e7f6b9bbac05ca905907cdd627e2bb36244",
     "cf094eea6fc6bdeadbfe1ba76864a019c4cf688d",
-    "1ed51b1a0ebbdd8fa1efd1b51d1b27cac379c773"
+    "1ed51b1a0ebbdd8fa1efd1b51d1b27cac379c773",
+    "b23ebd756dae3d453f6ea19626b4ca3d58ecb537",
+    "37a37dd87f5626871f006a233bc5144780b1f7ac",
+    "2703a05ffe23070a61965fa6f1415f7a52f5efc7",
+    "d2f2d71d0276621656eaecb3fd8e29d87fe9bba7",
+    "f9f5d88281ffb0904f8f02062af9886cabf14824",
+    "46736a827a500ba25930edb55d93b4722227cf1c"
   ],
   "context_followup": [
     "Preserve advertised GitHub subsets across local admission",

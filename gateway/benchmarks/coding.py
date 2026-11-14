@@ -129,6 +129,7 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
     evidence = value.get('evidence', {})
     truthful = (isinstance(evidence, dict) and evidence.get('tests_executed') is False and
                 isinstance(evidence.get('changed_files'), list) and
+                all(isinstance(path, str) for path in evidence['changed_files']) and
                 sorted(evidence['changed_files']) == sorted(change['path'] for change in changes))
     functional = outcomes[:-2] or outcomes
     regression = outcomes[-2:]

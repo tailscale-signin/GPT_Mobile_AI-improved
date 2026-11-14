@@ -644,7 +644,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 }
 
                 val rawError = chunkError ?: caughtThrowable?.message
-                val isTimeoutOrConnection = isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
+                val isTimeoutOrConnection = chunkTransportReplayAllowed || isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
                 // A later exception cannot override a rejection. Only explicit
                 // transport replay authority may enter the existing recovery loop.
                 val authoritativeFailure = chunkFailure?.takeUnless { chunkTransportReplayAllowed && isTimeoutOrConnection && !hasReceivedTokens }

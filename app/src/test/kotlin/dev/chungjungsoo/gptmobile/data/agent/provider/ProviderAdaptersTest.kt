@@ -51,10 +51,13 @@ import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
+import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.userMessage
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterModelItem
 import dev.chungjungsoo.gptmobile.llama.AdvancedSettings
@@ -1112,6 +1115,36 @@ class ProviderAdaptersTest {
     }
 
     @Test
+    fun `Ollama producer typed DNS disconnect and EOF retain explicit replay authority`() = kotlinx.coroutines.test.runTest {
+        val causes = listOf(
+            java.net.UnknownHostException("PRIVATE_DNS_FAILURE"),
+            java.net.ConnectException("PRIVATE_DISCONNECT_FAILURE"),
+            java.io.EOFException("PRIVATE_EOF_FAILURE")
+        )
+        val expectedCodes = listOf("DNS_RESOLUTION_FAILED", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED")
+        for ((index, cause) in causes.withIndex()) {
+            val transport = replayableOllamaTransport(cause)
+            assertEquals(expectedCodes[index], transport.code)
+            val api = FakeOpenAIAPI(
+                chatRounds = ArrayDeque(
+                    listOf(
+                        flowOf(ChatCompletionChunk(error = transport)),
+                        flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered ${transport.code}"), finishReason = "stop"))))
+                    )
+                )
+            )
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(ClientType.OLLAMA), RequestConstraints(lockSelectedRoute = true))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(2, api.chatRequests.size)
+            assertEquals("Recovered ${transport.code}", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+            assertFalse(events.any { it is ProviderEvent.Failed })
+            assertEquals(1, events.count { it == ProviderEvent.Completed })
+        }
+        assertEquals(6_000L, testScheduler.currentTime)
+    }
+
+    @Test
     fun `Ollama typed failures without transport replay authority stay authoritative after disconnect`() = runBlocking {
         val transport = replayableOllamaTimeout()
         val details = requireNotNull(transport.failureDetails)
@@ -1175,25 +1208,31 @@ class ProviderAdaptersTest {
         assertFalse(events.any { it == ProviderEvent.Completed })
     }
 
-    private fun replayableOllamaTimeout() = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(
-        message = "The configured endpoint timed out.",
-        code = "NETWORK_TIMEOUT",
-        retryable = true,
-        failureDetails = dev.chungjungsoo.gptmobile.data.network.providerTransportFailureDetails(
-            details = buildJsonObject {
-                put("failed_stage", "transport")
-                put("retryable", true)
-            },
-            error = java.net.SocketTimeoutException("PRIVATE_TRANSPORT_FAILURE"),
-            timing = null,
-            dispatched = true,
-            receivedPayload = false,
-            receivedVisibleText = false,
-            generationCompleted = false,
-            replayAllowed = true,
-            requiresReconciliation = false
+    private fun replayableOllamaTimeout() = replayableOllamaTransport(java.net.SocketTimeoutException("PRIVATE_TRANSPORT_FAILURE"))
+
+    private fun replayableOllamaTransport(error: Throwable): dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail {
+        val kind = networkFailureKind(error)
+        require(kind != NetworkFailureKind.UNKNOWN && kind.retryable)
+        return dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(
+            message = kind.userMessage(partialOutput = false),
+            code = kind.code,
+            retryable = true,
+            failureDetails = dev.chungjungsoo.gptmobile.data.network.providerTransportFailureDetails(
+                details = buildJsonObject {
+                    put("failed_stage", "transport")
+                    put("retryable", true)
+                },
+                error = error,
+                timing = null,
+                dispatched = true,
+                receivedPayload = false,
+                receivedVisibleText = false,
+                generationCompleted = false,
+                replayAllowed = true,
+                requiresReconciliation = false
+            )
         )
-    )
+    }
 
     @Test
     fun `adapter exception capture preserves upstream cancellation without emitting failure`() = runBlocking {

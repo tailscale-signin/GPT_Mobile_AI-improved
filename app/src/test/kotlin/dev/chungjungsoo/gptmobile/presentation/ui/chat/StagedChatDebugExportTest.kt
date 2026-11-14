@@ -95,7 +95,7 @@ class StagedChatDebugExportTest {
             }
             DiagnosticLogSnapshot(sources, 123, true, 0, snapshotDirectory = directory)
         }
-        coEvery { database.capture(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { database.capture(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             val consume = arg<suspend (JsonObject) -> Unit>(4)
             val omitted = arg<(String) -> Unit>(5)
             // The real database producer projects each bounded row before passing it to the adapter.

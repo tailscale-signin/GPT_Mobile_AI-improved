@@ -420,6 +420,10 @@ internal class GitHubVerifiedSession(
     private suspend fun FlowCollector<ProviderEvent>.deliverDraftRound(round: DraftRound, tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) {
         val (draft, calls, completed, failed, providerFailure) = round
         if (failed || !completed) {
+            if (providerFailure != null && reviewOriginFailure(providerFailure)) {
+                emitAll(retainedFailureResponse(providerFailure))
+                return
+            }
             // The runner owns retries and protocol repair. Do not turn a transient
             // failure into completion before that policy has had a chance to run.
             // Failure prose is published by retainedFailureResponse after the

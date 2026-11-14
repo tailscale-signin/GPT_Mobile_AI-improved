@@ -86,8 +86,9 @@ class DiagnosticDatabaseSourceTest {
         assertEquals(3, locations.map { it.rowId }.distinct().size)
         assertTrue(locations.all { it.table == "workspace_records" && it.sourceBytes > 0 && it.maximumBytes == 4096 })
         assertFalse(locations.joinToString { it.json().toString() }.contains("private fixture"))
-        assertEquals(JsonPrimitive(1), coverage.single()["pageSize"])
-        assertEquals(JsonPrimitive(3L), coverage.single()["emittedRows"])
+        val workspaceCoverage = coverage.single { it["table"] == JsonPrimitive("workspace_records") }
+        assertEquals(JsonPrimitive(1), workspaceCoverage["pageSize"])
+        assertEquals(JsonPrimitive(3L), workspaceCoverage["emittedRows"])
     }
 
     @Test fun fencedWaitRecoveryExplainsTerminalStateWhenWorkspaceStillHasTheOriginalInterruption() = runBlocking {

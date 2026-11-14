@@ -24,6 +24,38 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_admission_diagnostics_preserve_typed_capacity_queue_and_preflight(self):
+        samples = {
+            "PROVIDER": {"admission_prompt_tokens": 9639, "admission_safety_tokens": 2409,
+                         "admission_output_tokens": 4096, "admission_capacity_tokens": 5632,
+                         "admission_dominant_component": "tool_schemas", "admission_dominant_tokens": 4414,
+                         "reasoning_model_state": "LOADED", "reasoning_capability_age_ms": 1000,
+                         "admission_measurement": "UTF8_ESTIMATE", "reasoning_recovery_action": "CHOOSE_AUTO_OR_QUALIFIED_MODEL"},
+            "GATEWAY": {"queue_blocker": "ACTIVE_LEASE", "queue_active_leases": 1, "queue_concurrency_limit": 1,
+                        "gateway_validation_policy_state": "NOT_CONFIGURED", "gateway_preflight_reason": "VALIDATION_POLICY_REQUIRED", "gateway_preflight_blocker_count": 1},
+            "ACCEPTANCE": {"status_policy_recovery": "CHECK_PROTECTION_READ_PERMISSION", "acceptance_approval_blocked_total": 7, "acceptance_input_blocked_total": 16,
+                           "acceptance_live_blocked_total": 0, "acceptance_continuation_blocked_total": 13},
+        }
+        for area, values in samples.items():
+            with self.subTest(area=area):
+                capture = self.capture(area, values)
+                if area == "GATEWAY":
+                    from authentication.engineering_report_contract import GATEWAY_ADMISSION_CORE
+                    capture["unavailableFields"] = sorted(set(capture["unavailableFields"]) | GATEWAY_ADMISSION_CORE)
+                original = copy.deepcopy(capture)
+                validate_diagnostics(capture)
+                self.assertEqual(original, capture)
+                for key, value in values.items():
+                    bad = copy.deepcopy(capture)
+                    bad["values"][key] = -1 if type(value) is int else "private host/path or prompt"
+                    with self.assertRaises(ValueError):
+                        validate_diagnostics(bad)
+        for code in ("CONTEXT_CAPACITY_EXCEEDED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CAPACITY_UNVERIFIED"):
+            report = self.report(self.capture("PROVIDER"))
+            report.update(feature="chat", errorCode=code)
+            _, issue = issue_from_report(report)
+            self.assertIn(code, issue["title"])
+
     def test_typed_capsule_validates_without_rewriting_approved_input(self):
         capture = self.capture(values={
             "native_tool_action": "create", "validation_field_names": ["issue_number"], "validation_path_hashes": ["b" * 64],

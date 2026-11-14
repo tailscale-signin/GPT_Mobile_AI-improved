@@ -1578,53 +1578,64 @@ private fun ChatScreenContent(
             )
         }
 
-        messageEditSession?.let { session ->
-            when (session.role) {
-                ChatViewModel.MessageEditRole.USER -> {
-                    UserMessageEditDialog(
-                        initialQuestion = session.message,
-                        attachments = session.attachments,
-                        onFileSelected = chatViewModel::addMessageEditFile,
-                        onCopyFailed = chatViewModel::notifyAttachmentCopyFailed,
-                        onFileRemoved = chatViewModel::removeMessageEditFile,
-                        onDismissRequest = chatViewModel::discardMessageEditDialog,
-                        onConfirmRequest = { question ->
-                            if (chatViewModel.saveUserMessageEdit(question, session.attachments)) {
-                                chatViewModel.finishMessageEditDialog()
-                            }
-                        }
-                    )
-                }
+        ChatEditingOverlays(chatViewModel, messageEditSession, isSelectTextSheetOpen)
+    }
+}
 
-                ChatViewModel.MessageEditRole.ASSISTANT -> {
-                    AssistantMessageEditDialog(
-                        initialMessage = session.message,
-                        attachments = session.attachments,
-                        onFileSelected = chatViewModel::addMessageEditFile,
-                        onCopyFailed = chatViewModel::notifyAttachmentCopyFailed,
-                        onFileRemoved = chatViewModel::removeMessageEditFile,
-                        onDismissRequest = chatViewModel::discardMessageEditDialog,
-                        onConfirmRequest = { message, thoughts ->
-                            if (chatViewModel.saveAssistantMessageEdit(message, thoughts, session.attachments)) {
-                                chatViewModel.finishMessageEditDialog()
-                            }
+/** Keep dialog composition out of the large transcript method so ART can compile each independently. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChatEditingOverlays(
+    chatViewModel: ChatViewModel,
+    messageEditSession: ChatViewModel.MessageEditSession?,
+    isSelectTextSheetOpen: Boolean
+) {
+    messageEditSession?.let { session ->
+        when (session.role) {
+            ChatViewModel.MessageEditRole.USER -> {
+                UserMessageEditDialog(
+                    initialQuestion = session.message,
+                    attachments = session.attachments,
+                    onFileSelected = chatViewModel::addMessageEditFile,
+                    onCopyFailed = chatViewModel::notifyAttachmentCopyFailed,
+                    onFileRemoved = chatViewModel::removeMessageEditFile,
+                    onDismissRequest = chatViewModel::discardMessageEditDialog,
+                    onConfirmRequest = { question ->
+                        if (chatViewModel.saveUserMessageEdit(question, session.attachments)) {
+                            chatViewModel.finishMessageEditDialog()
                         }
-                    )
-                }
+                    }
+                )
+            }
+
+            ChatViewModel.MessageEditRole.ASSISTANT -> {
+                AssistantMessageEditDialog(
+                    initialMessage = session.message,
+                    attachments = session.attachments,
+                    onFileSelected = chatViewModel::addMessageEditFile,
+                    onCopyFailed = chatViewModel::notifyAttachmentCopyFailed,
+                    onFileRemoved = chatViewModel::removeMessageEditFile,
+                    onDismissRequest = chatViewModel::discardMessageEditDialog,
+                    onConfirmRequest = { message, thoughts ->
+                        if (chatViewModel.saveAssistantMessageEdit(message, thoughts, session.attachments)) {
+                            chatViewModel.finishMessageEditDialog()
+                        }
+                    }
+                )
             }
         }
+    }
 
-        if (isSelectTextSheetOpen) {
-            val selectedText by chatViewModel.selectedText.collectAsStateWithLifecycle()
-            ModalBottomSheet(onDismissRequest = chatViewModel::closeSelectTextSheet) {
-                SelectionContainer(
-                    modifier = Modifier
-                        .padding(24.dp)
-                        .heightIn(min = 200.dp)
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Text(selectedText)
-                }
+    if (isSelectTextSheetOpen) {
+        val selectedText by chatViewModel.selectedText.collectAsStateWithLifecycle()
+        ModalBottomSheet(onDismissRequest = chatViewModel::closeSelectTextSheet) {
+            SelectionContainer(
+                modifier = Modifier
+                    .padding(24.dp)
+                    .heightIn(min = 200.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(selectedText)
             }
         }
     }

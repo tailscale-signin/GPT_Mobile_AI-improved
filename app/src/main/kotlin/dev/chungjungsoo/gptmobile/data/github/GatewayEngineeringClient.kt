@@ -128,6 +128,13 @@ class GatewayEngineeringClient internal constructor(
                         }
                         val preflight = runCatching { error?.get("preflight")?.let { json.decodeFromJsonElement(GatewayEngineeringPreflight.serializer(), it) } }.getOrNull()
                         if (preflight != null && !preflight.ready && preflight.blockers.isNotEmpty()) {
+                            dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.preflight(
+                                config.profileUid,
+                                config.lockedModel,
+                                preflight.ready,
+                                preflight.blockers.map { it.reasonCode },
+                                policyState = preflight.validationPolicyState
+                            )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
                             throw GatewayEngineeringRequestRejected(response.status.value, preflight.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" }, errorCode = safeEngineeringRejectionCode(code), failedStage = "provider_admission")
                         }
                         if (code in setOf("ENGINEERING_REPOSITORY_ACCESS_REQUIRED", "SOURCE_REVISION_CHANGED", "SOURCE_REVISION_REQUIRED", "VALIDATION_POLICY_REQUIRED")) {
@@ -197,6 +204,13 @@ class GatewayEngineeringClient internal constructor(
     suspend fun preflight(config: ProviderRequestConfig, request: GatewayEngineeringRequest): GatewayEngineeringPreflight {
         val result = json.decodeFromString<GatewayEngineeringPreflight>(this.request(config, "preflight", json.encodeToString(request)))
         check(result.schema == "github.engineering-admission.v1" && result.objectiveSha256 == GitHubRepositoryStateStore.digest(request.objective) && result.sourceSha == request.sourceSha) { "The gateway preflight does not match this objective and source revision." }
+        dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.preflight(
+            config.profileUid,
+            request.model,
+            result.ready,
+            result.blockers.map { it.reasonCode },
+            policyState = result.validationPolicyState
+        )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
         if (!result.ready) throw GatewayEngineeringRequestRejected(412, result.blockers.joinToString("\n") { "${it.message} (${it.failedStage}: ${it.reasonCode}; ${it.recoveryAction})" }.ifBlank { "Engineering prerequisites have not been verified." }, errorCode = result.blockers.firstOrNull()?.reasonCode?.let(::safeEngineeringRejectionCode), failedStage = "provider_admission")
         check(request.taskScope != "implement" || result.acceptance.isNotEmpty()) { "The gateway did not provide a testable acceptance contract." }
         return result

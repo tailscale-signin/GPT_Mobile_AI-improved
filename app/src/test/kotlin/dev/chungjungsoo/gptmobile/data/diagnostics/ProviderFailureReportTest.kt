@@ -137,4 +137,28 @@ class ProviderFailureReportTest {
             return events.asFlow()
         }
     }
+
+    @Test fun contextCapacityRemainsTypedAndCarriesOwningBudget() {
+        val failure = ProviderEvent.Failed(
+            "private prompt",
+            errorCode = "CONTEXT_CAPACITY_EXCEEDED",
+            failureDetails = buildJsonObject {
+                put("admission_prompt_tokens", 9639)
+                put("admission_safety_tokens", 2409)
+                put("admission_output_tokens", 4096)
+                put("admission_capacity_tokens", 5632)
+                put("admission_dominant_component", "tool_schemas")
+                put("admission_dominant_tokens", 4414)
+                put("admission_measurement", "UTF8_ESTIMATE")
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure, null)
+        val fields = ProviderFailureReport.fields("run", failure, receipt)
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1000))
+        assertEquals("CONTEXT_CAPACITY_EXCEEDED", IssueReportCodes.select(failure.errorCode, "CHAT_FAILED"))
+        assertEquals(JsonPrimitive(5632), capture.values["admission_capacity_tokens"])
+        assertEquals(JsonPrimitive("tool_schemas"), capture.values["admission_dominant_component"])
+        assertTrue("ADMISSION_DIAGNOSTICS_V1" in capture.requiredServiceFeatures())
+        assertFalse(capture.toString().contains("private prompt"))
+    }
 }

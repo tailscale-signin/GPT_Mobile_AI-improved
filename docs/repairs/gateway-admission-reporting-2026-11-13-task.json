@@ -1,0 +1,30 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "fix/open-issue-recovery-2026-11-13",
+  "base_sha": "317892d349fbfe941f8c72a6fb06a6ecc679fa7f",
+  "parent_pr": 1068,
+  "working_branch": "fix/gateway-admission-reporting-2026-11-13",
+  "intent": "Repair context error attribution and readiness fail-fast; add source-owned queue, preflight, capacity and acceptance evidence for issues 1069\u20131076 and uploaded diagnostics.",
+  "checkpoint_storage": "repository_file",
+  "state": "IMPLEMENTED_PENDING_ANDROID_VERIFICATION",
+  "reviewed_issues": [
+    1069,
+    1070,
+    1071,
+    1072,
+    1073,
+    1074,
+    1075,
+    1076
+  ],
+  "repair_register": "docs/repairs/gateway-admission-reporting-2026-11-13.md",
+  "report_feature": "ADMISSION_DIAGNOSTICS_V1",
+  "validation": {
+    "canonical_fast": "495 tests passed plus canonical policy/schema/secret/regex/resource checks",
+    "report_service": "86 passed",
+    "gateway_preflight_validation": "26 passed",
+    "kotlin_host": "10 passed with explicit Android/application/DTO boundaries",
+    "android": "Gradle bootstrap network unavailable; full Android and device verification not claimed",
+    "ktlint": "1.3.1 passed on all changed Kotlin files"
+  }
+}

@@ -41,6 +41,38 @@ internal object GatewayReportDiagnostics {
         return IssueReportDiagnostics.fromFields("STRUCTURED_EVENT", fields, capturedAtMillis)?.takeIf { it.values.isNotEmpty() }
     }
 
+    fun preflight(profileUid: String?, model: String?, ready: Boolean, reasons: List<String>, capturedAtMillis: Long = System.currentTimeMillis(), policyState: String? = null): IssueReportDiagnostics? =
+        IssueReportDiagnostics.fromFields(
+            "STRUCTURED_EVENT",
+            buildMap {
+                put("diagnostic_area", "GATEWAY")
+                put("gateway_admission_ready", ready)
+                put("gateway_failure_phase", "provider_admission")
+                put("gateway_preflight_blocker_count", reasons.size)
+                put("gateway_validation_policy_state", policyState)
+                reasons.firstOrNull()?.let { put("gateway_preflight_reason", it) }
+                profileUid?.let { put("profile_hash", researchHash(it)) }
+                model?.let { put("model_hash", researchHash(it)) }
+            },
+            capturedAtMillis
+        )
+
+    fun queue(blocker: String, active: Int, deliveries: Int, unsettled: Int, legacy: Int, cached: Int, capturedAtMillis: Long = System.currentTimeMillis()): IssueReportDiagnostics? =
+        IssueReportDiagnostics.fromFields(
+            "STRUCTURED_EVENT",
+            mapOf(
+                "diagnostic_area" to "GATEWAY",
+                "queue_blocker" to blocker,
+                "queue_active_leases" to active,
+                "queue_pending_deliveries" to deliveries,
+                "queue_unsettled_submissions" to unsettled,
+                "queue_legacy_runs" to legacy,
+                "queue_cached_active_jobs" to cached,
+                "queue_concurrency_limit" to 1
+            ),
+            capturedAtMillis
+        )
+
     fun modelPreparation(profileUid: String?, model: String, receipt: GatewayModelPreparationReceipt, capturedAtMillis: Long = System.currentTimeMillis()): IssueReportDiagnostics? {
         if (receipt.requestedModel != model || receipt.operationId.isBlank()) return null
         val safe = receipt.sanitized()

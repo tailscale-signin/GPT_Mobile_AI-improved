@@ -10,7 +10,7 @@ import re
 from pathlib import Path
 
 from v14.engineering_scope import accepted_scope
-from v14.engineering_validation import load_policy, run_bounded
+from v14.engineering_validation import ValidationPolicyError, load_policy, run_bounded
 from v14.execution_binding import ExecutionBindingError
 
 
@@ -46,11 +46,16 @@ def preflight(request, *, runner=None):
         return result
     try:
         policy, mirror, image, commands, coverage = load_policy(request['repository'])
-    except (OSError, ValueError, KeyError, TypeError):
+    except (OSError, ValueError, KeyError, TypeError) as failure:
+        result['validation_policy_state'] = (
+            failure.state if isinstance(failure, ValidationPolicyError) else
+            'UNREADABLE' if isinstance(failure, OSError) else
+            'INVALID_DOCUMENT' if isinstance(failure, (json.JSONDecodeError, UnicodeError)) else 'INVALID_ENTRY')
         block('validation_policy', 'VALIDATION_POLICY_REQUIRED',
               'Configure a valid host-approved validation policy for this repository before implementation.', 'CONFIGURE_VALIDATION_POLICY')
         return result
     result['checks']['validation_policy'] = 'ready'
+    result['validation_policy_state'] = 'VALIDATED'
     result['policy_sha256'] = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
     if not result['acceptance'] and request.get('draft_repair'):
         try:

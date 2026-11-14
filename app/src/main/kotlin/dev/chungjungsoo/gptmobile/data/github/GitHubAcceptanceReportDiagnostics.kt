@@ -57,6 +57,12 @@ internal object GitHubAcceptanceReportDiagnostics {
             val rows = ledger[section] as? JsonArray ?: continue
             put(target, rows.filterIsInstance<JsonObject>().count { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") })
         }
+        // Counts describe recorded blocker codes, including rows omitted from the compact sample.
+        val blockers = unmet.map { it.text("blocker_code") }
+        put("acceptance_approval_blocked_total", blockers.count { it in setOf("FIXTURE_APPROVAL_MODE_REQUIRED", "FIXTURE_APPROVAL_STATE_UNKNOWN", "APPROVAL_REQUIRED", "AUTHORIZATION_REQUIRED") })
+        put("acceptance_input_blocked_total", blockers.count { it in setOf("REPOSITORY_INPUT_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "OWNED_FIXTURE_REQUIRED") })
+        put("acceptance_live_blocked_total", blockers.count { it == "LIVE_EVIDENCE_REQUIRED" })
+        put("acceptance_continuation_blocked_total", blockers.count { it == "CONTINUATION_REQUIRED" })
         val selected = unmet.take(8)
         put("unmet_criterion_omitted_count", unmet.size - selected.size)
         if (selected.isNotEmpty()) {
@@ -75,6 +81,9 @@ internal object GitHubAcceptanceReportDiagnostics {
         }
         (verdict["status_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             .firstOrNull { it.text("item") == "Required-check policy" }?.let { coverage ->
+                if (coverage.text("branch_protection_observation") == "NOT_FOUND_OR_INACCESSIBLE") {
+                    put("status_policy_recovery", "CHECK_PROTECTION_READ_PERMISSION")
+                }
                 for (key in listOf("branch_protection_observation", "branch_rules_observation")) {
                     coverage[key]?.let { put(key, it) }
                 }

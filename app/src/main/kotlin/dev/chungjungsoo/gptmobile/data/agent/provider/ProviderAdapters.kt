@@ -643,8 +643,10 @@ class OpenAICompatibleAdapter @Inject constructor(
                     caughtThrowable = java.net.SocketTimeoutException("Ollama recovery deadline exceeded")
                 }
 
-                val rawError = chunkError ?: caughtThrowable?.message
-                val isTimeoutOrConnection = chunkTransportReplayAllowed || isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
+                // A typed frame also owns recovery classification and endpoint selection.
+                val effectiveThrowable = caughtThrowable.takeIf { chunkFailure == null }
+                val rawError = chunkError ?: effectiveThrowable?.message
+                val isTimeoutOrConnection = chunkTransportReplayAllowed || isOllamaTimeoutOrNetworkGlitch(rawError, effectiveThrowable)
                 // A later exception cannot override a rejection. Only explicit
                 // transport replay authority may enter the existing recovery loop.
                 val authoritativeFailure = chunkFailure?.takeUnless { chunkTransportReplayAllowed && isTimeoutOrConnection && !hasReceivedTokens }
@@ -668,7 +670,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                         return null
                     }
                     // If connecting to localhost or 127.0.0.1 fails immediately, try switching to 10.0.2.2 for Android emulator
-                    val connectionFailed = caughtThrowable is java.net.ConnectException ||
+                    val connectionFailed = effectiveThrowable is java.net.ConnectException ||
                         rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
                         rawError.orEmpty().contains("failed to connect", ignoreCase = true)
                     if (!constraints.lockSelectedRoute && !emulatorFallbackTried && connectionFailed && isLocalLoopbackUrl(currentConfig.apiUrl)) {

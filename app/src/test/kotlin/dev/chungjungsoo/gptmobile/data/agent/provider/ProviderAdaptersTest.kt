@@ -302,6 +302,27 @@ class ProviderAdaptersTest {
         assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
     }
 
+    @Test fun ollamaUnframedConnectionFailurePreservesEmulatorFallback() = kotlinx.coroutines.test.runTest {
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow { throw java.net.ConnectException("Connection refused") },
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop"))))
+                )
+            )
+        )
+        val profile = platform(ClientType.OLLAMA).copy(apiUrl = "http://127.0.0.1:11434/v1")
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = false))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(profile.apiUrl, "http://10.0.2.2:11434/v1"), api.configs.map { it.apiUrl })
+        assertEquals(2, api.chatRequests.size)
+        assertTrue(api.chatRequests.all { it.model == profile.model })
+        assertEquals(1_000L, testScheduler.currentTime)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+    }
+
     @Test fun unknownGatewayOutcomeDoesNotRotateCredentialsOrRetryAReportedCeiling() = runBlocking {
         val message = "Rate limit exceeded; maximum completion tokens is 128."
         val responses = FakeOpenAIAPI(
@@ -1108,6 +1129,33 @@ class ProviderAdaptersTest {
         assertEquals(2, api.chatRequests.size)
         assertTrue(api.chatRequests.all { it.model == profile.model })
         assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
+        assertEquals(2_000L, testScheduler.currentTime)
+        assertEquals("Recovered", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+    }
+
+    @Test
+    fun `Ollama typed timeout owns recovery route despite trailing connection exception`() = kotlinx.coroutines.test.runTest {
+        val transport = replayableOllamaTimeout()
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow {
+                        emit(ChatCompletionChunk(error = transport))
+                        throw java.net.ConnectException("PRIVATE_TRAILING_DISCONNECT")
+                    },
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop"))))
+                )
+            )
+        )
+        val profile = platform(ClientType.OLLAMA).copy(apiUrl = "http://127.0.0.1:11434/v1")
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = false))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, api.chatRequests.size)
+        assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
+        assertTrue(api.chatRequests.all { it.model == profile.model })
         assertEquals(2_000L, testScheduler.currentTime)
         assertEquals("Recovered", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
         assertFalse(events.any { it is ProviderEvent.Failed })

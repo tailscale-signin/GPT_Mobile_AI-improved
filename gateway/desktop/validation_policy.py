@@ -109,11 +109,18 @@ def default_policy(root):
 
 
 def active_policy_path(root):
+    # Explicit disable and immutable snapshots supersede the first built-in
+    # mutable policy format. Invalid saved selectors always fail closed.
+    selected = selected_policy_path(root)
+    if (Path(root) / 'data' / 'validation-settings.json').exists():
+        snapshots = Path(root).resolve() / 'data' / 'repository-validation'
+        if not selected or Path(selected).resolve().is_relative_to(snapshots):
+            return selected
     managed = managed_policy_path(root)
     try:
         managed.stat()
     except FileNotFoundError:
-        return selected_policy_path(root)
+        return selected
     return str(managed)
 
 

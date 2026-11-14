@@ -101,6 +101,12 @@ def patch_identity(head, changes):
 
 
 def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
+    from v14.validation_host import command
+    with command(argv) as approved:
+        return _run_bounded(approved, cwd, timeout, maximum, destination)
+
+
+def _run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
     started = time.monotonic()
     output = bytearray()
     total = 0
@@ -306,7 +312,10 @@ def validate(job, changes):
                 if cidfile.exists():
                     container = cidfile.read_text().strip()
                     if re.fullmatch('[a-f0-9]{64}', container):
-                        subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
+                        from v14.validation_host import command as host_command, environment as host_environment
+                        with host_command(['docker', 'rm', '-f', container]) as cleanup:
+                            subprocess.run(cleanup, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL, timeout=15, check=False, env=host_environment(root))
             return dict(result, command=command, report_snapshots=capture_behavior_reports(command_coverage, command_checkout))
 
         index = 0

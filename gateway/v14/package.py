@@ -14,6 +14,8 @@ REQUIRED.update({'v14/engineering_batch_plan.py', 'v14/engineering_batch_policy.
 REQUIRED.update({'v14/conversation_metadata.py', 'benchmarks/__init__.py', 'benchmarks/service.py', 'benchmarks/contracts.py', 'benchmarks/store.py', 'benchmarks/runner.py', 'benchmarks/fixtures.py', 'benchmarks/capstones.py', 'benchmarks/coding.py', 'benchmarks/sandbox.py', 'benchmarks/settings.py'})
 REQUIRED.update({'v14/model_preparation.py', 'v14/model_preparation_routes.py', 'v14/inference_capabilities.py'})
 
+REQUIRED.update({'desktop/repository_validation.py', 'desktop/repository_validation_panel.py', 'v14/validation_host.py'})
+
 
 def validate_package(root):
     root = Path(root).resolve()

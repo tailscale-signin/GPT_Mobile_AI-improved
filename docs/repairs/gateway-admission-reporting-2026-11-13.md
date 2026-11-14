@@ -17,6 +17,7 @@ Capture build: 0.9.66.7 / 141, source `05660b80f1b5ec725a730fe2b275069b532145e5`
 
 - All four typed request-capacity rejection codes survive report selection and provider error classification. A capacity error no longer becomes `CHAT_FAILED` simply because the reporting vocabulary omitted its code. Reports retain the owning request's measured/estimated input, safety, output, capacity and largest-component counts.
 - Review repair: both the app and reporting-service diagnostics validators now accept all four selected capacity codes. Regression coverage constructs and validates each complete provider capture, preventing a selected code from silently discarding its diagnostic payload.
+- Review repair: the gateway source manifest was regenerated after the preflight test changed. `gateway.py validate-config` now verifies the reviewed package instead of stopping every platform on a stale test hash.
 - A failed text initialization probe ends benchmark readiness and persists its final receipt before any tool probe. Initialization and requested tool probes are required for a positive readiness result, even if remote metadata originally required only configuration. Strict On/Off settings are not silently changed to Auto.
 - Validation policies whose JSON root is a list or scalar produce a normal admission blocker rather than an uncaught attribute error. The gateway emits fixed policy categories: not configured, missing/oversized, repository unconfigured, invalid document/entry, unreadable, or validated. No configured path or policy text is exported.
 - Both HTTP-success preflight refusals and structured error responses retain gateway report snapshots. Previously a normal preflight refusal could throw before its reason reached the selected Gateway report capture.
@@ -49,6 +50,7 @@ The log also contains frame stalls, a thread-suspension warning, and Android's W
 - Canonical `bash scripts/validate-local.sh fast`: 495 tests passed, plus CI/dependency/schema/secret checks, regex and resource checks.
 - Reporting/authentication service: 90 tests passed after the capacity-code contract repair, including bounded admission values, invalid/private-value rejection and complete provider-capture validation for every capacity code.
 - Gateway preflight/validation suites: 26 tests passed, including malformed document and fixed policy-state behavior without dispatch.
+- Gateway package validation: `python3 gateway/gateway.py validate-config` passed after regenerating `manifest-v14.json` from the exact reviewed head.
 - Focused Kotlin 2.4.20 host harness: 10 tests passed; production diagnostics validator, gateway report builder, capacity code classification and readiness runner compiled and exercised with explicit Android/application/DTO boundaries. This is not a full Android build.
 - Changed Kotlin files checked with ktlint 1.3.1.
 - Full Android test attempt could not bootstrap Gradle 9.8.0 because the Java download connection was unavailable; no full Android test or device result is claimed. Draft must remain subject to hosted CI and device validation.

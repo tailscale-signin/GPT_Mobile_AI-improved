@@ -19,11 +19,12 @@
   ],
   "repair_register": "docs/repairs/gateway-admission-reporting-2026-11-13.md",
   "report_feature": "ADMISSION_DIAGNOSTICS_V1",
-  "review_repair": "Expanded both app and reporting-service provider failure vocabularies so every selected capacity code produces a valid retained diagnostic instead of being discarded.",
+  "review_repair": "Expanded both app and reporting-service provider failure vocabularies so every selected capacity code produces a valid retained diagnostic instead of being discarded; regenerated the gateway source manifest after the preflight test changed so validate-config accepts the reviewed package.",
   "validation": {
     "canonical_fast": "495 tests passed plus canonical policy/schema/secret/regex/resource checks",
     "report_service": "90 passed after capacity-code contract repair",
     "gateway_preflight_validation": "26 passed",
+    "gateway_package": "validate-config passed after manifest regeneration",
     "kotlin_host": "10 passed with explicit Android/application/DTO boundaries",
     "android": "Gradle bootstrap network unavailable; full Android and device verification not claimed",
     "ktlint": "1.3.1 passed on all changed Kotlin files"

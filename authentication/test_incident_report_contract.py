@@ -69,6 +69,20 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("VOICE", {key: "raw recorder or speech text"}))
 
+    def test_completion_and_composer_report_fields(self):
+        validate_diagnostics(self.capture("PROVIDER", {
+            "provider_failure_code": "TOOL_PROTOCOL_INVALID_FRAME",
+            "empty_completion_observed_attempts": 2, "empty_completion_reasoning_only_attempts": 1,
+        }))
+        validate_diagnostics(self.capture("APP", {
+            "composer_focus_transitions": 1, "composer_ime_transitions": 2,
+            "composer_focused": True, "composer_ime_visible": False,
+        }))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("APP", {"composer_focus_transitions": 256}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("APP", {"composer_focused": "draft text"}))
+
     def test_github_schema_budget_preserves_specific_code_and_bounded_counts(self):
         code = "GITHUB_TOOL_CONTEXT_BUDGET"
         counts = {"required_schema_tokens": 5000, "available_schema_tokens": 0}

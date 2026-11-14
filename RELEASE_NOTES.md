@@ -6,6 +6,10 @@ This release brings together persistent gateway conversations and jobs, more rel
 
 ## November 14 chat, voice, and benchmark follow-up
 
+Keep the composer focused during background run changes and report bounded keyboard transitions, invalid tool frames, result-budget exhaustion and reasoning-only completion attempts.
+
+The new keyboard and completion diagnostics require a hosted reporter advertising COMPOSER_IME_EVIDENCE_V1 and COMPLETION_EVIDENCE_V1. Confirm keyboard behavior on the affected Android device and empty model responses on the original route.
+
 Preserve typed GitHub schema admission and its token budget, retry transient voice audio handoffs once, and add per-pack, capture, playback and caption evidence to approved reports.
 
 Voice capture and playback report fields require a hosted reporter advertising VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1. Exact caption highlighting requires speech-engine timing for the displayed utterance. The affected phone and private gateway validation policy require live verification.

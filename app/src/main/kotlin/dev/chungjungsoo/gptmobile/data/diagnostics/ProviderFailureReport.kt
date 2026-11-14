@@ -127,6 +127,14 @@ internal object ProviderFailureReport {
         listOf("attempts" to "backend_attempts", "completed_attempts" to "backend_completed_attempts", "failed_attempt" to "backend_failed_attempt")
             .forEach { (source, target) -> backend?.number(source)?.let { put(target, it) } }
         val lastAttempt = (backend?.get("attempt_receipts") as? JsonArray)?.lastOrNull() as? JsonObject
+        if (receipt.errorCode == "EMPTY_COMPLETION") {
+            val attempts = (backend?.get("attempt_receipts") as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+            val reasoningOnly = attempts.count { it.number("visible_output_bytes") == 0 && (it.number("reasoning_output_bytes") ?: 0) > 0 }
+            if (attempts.isNotEmpty()) {
+                put("empty_completion_observed_attempts", attempts.size)
+                put("empty_completion_reasoning_only_attempts", reasoningOnly)
+            }
+        }
         if (lastAttempt != null) {
             put("output_byte_scope", "LAST_BACKEND_ATTEMPT")
             lastAttempt.number("visible_output_bytes")?.let { put("visible_output_bytes", it) }

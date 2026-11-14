@@ -194,7 +194,9 @@ internal object IssueReportIncidents {
             } else {
                 evidence
             }
-            failure(feature, precheck?.code ?: IssueReportCodes.select(code, if (toolPrecheck) "TOOL_FAILURE" else "APP_ERROR"), error, reportEvidence, reportSource)
+            val toolBudget = toolPrecheck && toolContext?.diagnostics?.values?.get("tool_budget_kind") != null
+            val publicCode = if (toolBudget) "TOOL_BUDGET_EXHAUSTED" else precheck?.code ?: IssueReportCodes.select(code, if (toolPrecheck) "TOOL_FAILURE" else "APP_ERROR")
+            failure(feature, publicCode, error, reportEvidence, reportSource)
         } else {
             synchronized(lock) {
                 if (!isPrivate) addEvent(severity, feature, IssueReportCodes.known(code))
@@ -262,6 +264,7 @@ internal object IssueReportIncidents {
             code == "BILLING_UNAVAILABLE" || rejection == "BILLING_UNAVAILABLE" && input.httpStatus in setOf(400, 402) -> "SOURCE_PAYMENT_REQUIRED"
             code == "OUTPUT_CONTINUATION_PENDING_TOOLS" && input.stage == "tool_reconciliation" && input.dispatched == false -> "RECONCILIATION_REQUIRED"
             code == "RATE_LIMIT" && input.provider != null -> "PROVIDER_RATE_LIMITED"
+            code == "TOOL_PROTOCOL_INVALID_FRAME" -> "TOOL_PROTOCOL_INVALID_FRAME"
             code == "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET" -> "GITHUB_TOOL_CONTEXT_BUDGET"
             code in dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.codes -> code
             code == "tool_use_failed" && input.provider != null -> "PROVIDER_PAYLOAD_ERROR"
@@ -291,6 +294,13 @@ internal object IssueReportIncidents {
                 "gateway_validation_policy_state" to fields["validation_policy_state"],
                 "gateway_http_status" to input.httpStatus,
                 "gateway_failure_phase" to input.stage.takeIf { it in setOf("provider_admission", "connection_preflight") }
+            )
+        } else if (publicCode == "TOOL_PROTOCOL_INVALID_FRAME") {
+            fields + mapOf(
+                "diagnostic_area" to "PROVIDER",
+                "failed_stage" to (input.stage ?: "provider_generation"),
+                "provider_failure_stage" to "GENERATION",
+                "provider_failure_code" to publicCode
             )
         } else if (publicCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
             fields + mapOf(

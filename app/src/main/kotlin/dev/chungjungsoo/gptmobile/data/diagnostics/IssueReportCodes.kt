@@ -71,6 +71,8 @@ internal object IssueReportCodes {
         "REMOTE_OUTCOME_UNKNOWN",
         "PARSING_ERROR",
         "TOOL_FAILURE",
+        "TOOL_PROTOCOL_INVALID_FRAME",
+        "TOOL_BUDGET_EXHAUSTED",
         "OUTPUT_LIMIT",
         "INCOMPLETE_PROVIDER_STREAM",
         "CONNECTION_REFUSED",
@@ -263,6 +265,7 @@ internal object IssueReportCodes {
     /** Reporting aliases only; the original tool receipt remains authoritative for recovery. */
     fun toolResult(code: String?): String? = when (code) {
         "DEPENDENCY_FAILED", "DEPENDENCY_DEFERRED" -> "TOOL_FAILURE"
+        "BUDGET_EXHAUSTED" -> "TOOL_BUDGET_EXHAUSTED"
         "DNS_FAILED", "DNS_RECOVERY" -> "DNS_RESOLUTION_FAILED"
         "GITHUB_PR_VALIDATION_FAILED" -> "GITHUB_VALIDATION_FAILED"
         "GITHUB_SEARCH_CURSOR_UNAVAILABLE" -> "SAVED_VIEW_UNAVAILABLE"

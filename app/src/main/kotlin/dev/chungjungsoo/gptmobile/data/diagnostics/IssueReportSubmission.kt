@@ -126,6 +126,7 @@ internal class IssueReportSubmission(
             return buildSet {
                 if (codes.any { it in REVIEW_CODES }) add("REVIEW_COMPARISON_V1")
                 if ("GITHUB_TOOL_CONTEXT_BUDGET" in codes) add("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1")
+                if ("TOOL_PROTOCOL_INVALID_FRAME" in codes) add("COMPLETION_EVIDENCE_V1")
                 if ("COMBINED_REQUIREMENTS_UNMET" in codes) add("EXECUTION_OUTCOME_DIAGNOSTICS_V1")
             }
         }

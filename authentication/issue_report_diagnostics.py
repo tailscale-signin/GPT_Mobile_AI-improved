@@ -200,7 +200,13 @@ VOICE_CAPTURE_PLAYBACK_FIELDS = {"voice_playback_failure", "voice_playback_focus
 ENUMS["voice_playback_failure"] = {"AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED"}
 ENUMS["voice_capture_silenced_stage"] = {"CAPTURE_START", "CAPTURE_READ"}
 ENUMS["voice_caption_alignment"] = {"NO_TIMING", "EXACT_RANGE", "TEXT_UNMAPPED"}
-COUNTS.add("voice_playback_focus_attempts")
+COMPOSER_EVIDENCE_FIELDS = {"composer_focus_transitions", "composer_ime_transitions", "composer_focused", "composer_ime_visible"}
+FLAGS.update({"composer_focused", "composer_ime_visible"})
+FIELDS_BY_AREA["APP"].update(COMPOSER_EVIDENCE_FIELDS)
+COMPLETION_EVIDENCE_FIELDS = {"empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts"}
+ATTEMPTS.update(COMPLETION_EVIDENCE_FIELDS)
+FIELDS_BY_AREA["PROVIDER"].update(COMPLETION_EVIDENCE_FIELDS)
+ENUMS["provider_failure_code"].add("TOOL_PROTOCOL_INVALID_FRAME")
 VOICE_PACK_STATUS_FIELDS = {"voice_install_recognition_status", "voice_install_playback_status"}
 for field in VOICE_PACK_STATUS_FIELDS:
     ENUMS[field] = {"CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"}
@@ -238,6 +244,10 @@ def _valid_value(key, value):
         return type(value) is bool
     if type(value) is not int:
         return False
+    if key in {"composer_focus_transitions", "composer_ime_transitions"}:
+        return 0 <= value <= 255
+    if key == "voice_playback_focus_attempts":
+        return 1 <= value <= 2
     if key == "voice_generation":
         return 0 <= value <= 9_223_372_036_854_775_807
     if key == "gateway_protocol_version":

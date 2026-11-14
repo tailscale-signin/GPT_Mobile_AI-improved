@@ -149,4 +149,25 @@ class GatewayReportDiagnosticsTest {
         assertFalse(Json.encodeToString(IssueReportDiagnostics.serializer(), snapshot).contains("private"))
         assertTrue(snapshot.isValid())
     }
+
+    @Test fun preflightRejectionIsRetainedEvenWhenHttpSucceeded() {
+        val snapshot = requireNotNull(GatewayReportDiagnostics.preflight("private-profile", "private-model", false, listOf("VALIDATION_POLICY_REQUIRED"), 1000, policyState = "NOT_CONFIGURED"))
+        assertEquals(JsonPrimitive(false), snapshot.values["gateway_admission_ready"])
+        assertEquals(JsonPrimitive("VALIDATION_POLICY_REQUIRED"), snapshot.values["gateway_preflight_reason"])
+        assertEquals(JsonPrimitive("NOT_CONFIGURED"), snapshot.values["gateway_validation_policy_state"])
+        assertEquals(JsonPrimitive("provider_admission"), snapshot.values["gateway_failure_phase"])
+        assertTrue("ADMISSION_DIAGNOSTICS_V1" in snapshot.requiredServiceFeatures())
+        assertFalse(snapshot.toString().contains("private-profile"))
+    }
+
+    @Test fun queueSnapshotExplainsSerialLeaseWithoutClaimingServerCapacity() {
+        val snapshot = requireNotNull(GatewayReportDiagnostics.queue("ACTIVE_LEASE", 1, 0, 2, 0, 1, 1000))
+        assertEquals(JsonPrimitive(1), snapshot.values["queue_concurrency_limit"])
+        assertEquals(JsonPrimitive(2), snapshot.values["queue_unsettled_submissions"])
+        assertNull(snapshot.values["gateway_admission_ready"])
+        assertTrue("job_id_hash" in snapshot.unavailableFields)
+        val hostile = requireNotNull(GatewayReportDiagnostics.queue("private prompt", -1, 0, 0, 0, 0, 1000))
+        assertNull(hostile.values["queue_blocker"])
+        assertNull(hostile.values["queue_active_leases"])
+    }
 }

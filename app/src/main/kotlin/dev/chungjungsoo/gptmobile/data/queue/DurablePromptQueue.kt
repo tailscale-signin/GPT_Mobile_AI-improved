@@ -191,26 +191,31 @@ class DurablePromptQueue @Inject constructor(
                 else -> selected.validate(profile)
             }
             if (blocker != null) {
+                gatewayStore.captureBlocker("CONFIGURATION")
                 states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.BLOCKED, counts[chatId] ?: 1, blocker))
                 return
             }
             if (database.gatewayJobDao().queuedDispatches().isNotEmpty() || chatId in busyChats) {
+                gatewayStore.captureBlocker(if (chatId in busyChats) "CHAT_BUSY" else "ACTIVE_LEASE")
                 cancelPreparation(prompt)
                 states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.QUEUED, counts[chatId] ?: 1, "Waiting for the current Gateway job to finish."))
                 return
             }
             if (database.gatewayJobDao().queuedDeliveries(chatId).isNotEmpty()) {
+                gatewayStore.captureBlocker("DELIVERY_PENDING")
                 cancelPreparation(prompt)
                 states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.RECONCILING, counts[chatId] ?: 1, "The previous job has ended. Waiting for its saved reply before continuing this chat."))
                 return
             }
             if (externalBlocker != null) {
+                gatewayStore.captureBlocker("EXTERNAL_WORK")
                 cancelPreparation(prompt)
                 states.putIfAbsent(chatId, GatewayQueuedChatState(GatewayQueuedState.RECONCILING, counts[chatId] ?: 1, externalBlocker))
                 return
             }
             val observation = ready[targetKey(selected)]
             if (!GatewayQueueModelAdmission.mayPrepare(observation, android.os.SystemClock.elapsedRealtime())) {
+                gatewayStore.captureBlocker("GATEWAY_NOT_READY")
                 states.putIfAbsent(chatId, waitingState(observation, counts[chatId] ?: 1))
                 return
             }
@@ -378,7 +383,10 @@ class DurablePromptQueue @Inject constructor(
                 validate()
                 true
             }
-            if (preparation != null) return preparation.copy(runId = runId, canCancelUnsubmitted = true)
+            if (preparation != null) {
+                gatewayStore.captureBlocker("MODEL_PREPARATION")
+                return preparation.copy(runId = runId, canCancelUnsubmitted = true)
+            }
             // The asynchronous preparation only qualifies this exact model. The
             // owned lease and a fresh conversation admission still gate generation.
             validate()

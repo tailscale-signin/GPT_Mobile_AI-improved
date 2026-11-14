@@ -24,7 +24,7 @@ internal class BenchmarkReadinessRunner(
             BenchmarkReadinessReceipt(now(), null, listOf(BenchmarkReadinessCheck("configuration", BenchmarkReadinessStatus.FAILED, benchmarkFailure(failure, "readiness").message)), setOf("configuration"), executionPolicy = policy)
         }
         var receipt = initial.copy(finishedAt = null, executionPolicy = policy)
-        receipt = receipt.copy(checks = receipt.checks.filterNot { it.id == "json" }, requiredCheckIds = receipt.requiredCheckIds - "json" + schemas.keys.map { "json:${benchmarkHash(it)}" })
+        receipt = receipt.copy(checks = receipt.checks.filterNot { it.id == "json" }, requiredCheckIds = receipt.requiredCheckIds - "json" + schemas.keys.map { "json:${benchmarkHash(it)}" } + (if (requiresTools) setOf("tools") else emptySet()))
 
         suspend fun save() = withContext(NonCancellable) { persist(receipt) }
         fun check(id: String, status: BenchmarkReadinessStatus, detail: String? = null, sample: BenchmarkSample? = null) {
@@ -69,9 +69,15 @@ internal class BenchmarkReadinessRunner(
             return receipt
         }
         if (schemas.isEmpty()) {
+            receipt = receipt.copy(requiredCheckIds = receipt.requiredCheckIds + "initialization")
             val test = BenchmarkCase("readiness-text", "Initialization readiness", "task", "Reply with exactly READY and nothing else.", "READY", validatorVersion = "benchmark-validator-v5")
             val result = probe(test, BenchmarkStructuredOutputMode.NATIVE_JSON_SAFE_V1)
             check("initialization", if (result.passed) BenchmarkReadinessStatus.PASSED else BenchmarkReadinessStatus.FAILED, sample = result.sample)
+            if (!result.passed) {
+                receipt = receipt.copy(finishedAt = now())
+                save()
+                return receipt
+            }
         }
         for ((schema, examples) in schemas) {
             val digest = benchmarkHash(schema)

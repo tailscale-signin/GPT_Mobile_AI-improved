@@ -2491,6 +2491,10 @@
     "app/src/main/res/raw/voice_mic_start.wav",
     "app/src/main/res/raw/voice_mic_stop.wav",
     "docs/repairs/open-issue-recovery-2026-11-13.md",
-    "docs/repairs/open-issue-recovery-2026-11-13-task.json"
+    "docs/repairs/open-issue-recovery-2026-11-13-task.json",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkReadinessRunner.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkReadinessRunnerTest.kt",
+    "docs/repairs/gateway-admission-reporting-2026-11-13-task.json",
+    "docs/repairs/gateway-admission-reporting-2026-11-13.md"
   ]
 }

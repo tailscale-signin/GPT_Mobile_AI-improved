@@ -38,6 +38,21 @@ class PreparationErrorClassificationTest {
         }
     }
 
+    @Test fun capacityContractCodesKeepTheirSpecificClassification() {
+        val cases = mapOf(
+            "CAPACITY_UNVERIFIED" to ErrorCategory.REQUEST_REJECTED,
+            "INPUT_CAPACITY_EXCEEDED" to ErrorCategory.CONTEXT_WINDOW_EXCEEDED,
+            "CONTEXT_CAPACITY_EXCEEDED" to ErrorCategory.CONTEXT_WINDOW_EXCEEDED,
+            "CONTEXT_BUDGET_EXCEEDED" to ErrorCategory.CONTEXT_WINDOW_EXCEEDED
+        )
+        for ((code, category) in cases) {
+            val result = ErrorClassification.classify(IllegalStateException(code))
+            assertEquals(category, result.category)
+            assertEquals(code, result.errorCode)
+            assertFalse(result.isRetryable)
+        }
+    }
+
     @Test fun wrappedDnsErrorsAreConnectivityFailures() {
         assertEquals(ErrorCategory.NETWORK_DISCONNECTED, ErrorClassification.classify(IllegalStateException("Transport failure", java.net.UnknownHostException("endpoint"))).category)
     }

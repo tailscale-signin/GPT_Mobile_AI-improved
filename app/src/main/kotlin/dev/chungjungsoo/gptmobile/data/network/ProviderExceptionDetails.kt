@@ -39,6 +39,15 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 error.outputTokens?.let { put("output_allowance", it) }
                 error.capacityTokens?.let { put("capacity_tokens", it) }
                 put("measurement", error.measurement.name)
+                put("admission_prompt_tokens", error.promptTokens)
+                put("admission_safety_tokens", error.safetyTokens)
+                error.outputTokens?.let { put("admission_output_tokens", it) }
+                error.capacityTokens?.let { put("admission_capacity_tokens", it) }
+                put("admission_measurement", error.measurement.name)
+                error.budget?.dominantComponent?.let {
+                    put("admission_dominant_component", it.name)
+                    put("admission_dominant_tokens", it.tokens)
+                }
                 put("partial_output_preserved", partialOutput)
                 // A rejected continuation cannot prove that an earlier physical
                 // request was unsent. Invocation accounting retains that history.
@@ -230,7 +239,10 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 put("retryable", false)
                 put("reasoning_requested_mode", error.requested.name)
                 put("reasoning_admission_basis", "NO_VERIFIED_CONTROL")
+                put("reasoning_recovery_action", "CHOOSE_AUTO_OR_QUALIFIED_MODEL")
                 error.gatewayRoute?.let { put("reasoning_route_kind", if (it) "GATEWAY" else "DIRECT") }
+                error.gatewayObservation?.observationAgeMillis?.let { put("reasoning_capability_age_ms", it) }
+                error.gatewayObservation?.modelState?.let { put("reasoning_model_state", it) }
                 error.gatewayObservation?.reasoningControlState?.let { put("reasoning_control_state", it) }
                 dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("reasoning-template", error.templateRevision)
                     ?.let { put("reasoning_template_hash", it) }

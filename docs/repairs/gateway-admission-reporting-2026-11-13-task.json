@@ -1,0 +1,34 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "e4457b24905a1a268048d30fce4eb99aaf19ac15",
+  "parent_pr": 1068,
+  "parent_pr_state": "MERGED_AND_RETARGETED",
+  "working_branch": "fix/gateway-admission-reporting-2026-11-13",
+  "intent": "Repair context error attribution and readiness fail-fast; add source-owned queue, preflight, capacity and acceptance evidence for issues 1069\u20131076 and uploaded diagnostics.",
+  "checkpoint_storage": "repository_file",
+  "state": "IMPLEMENTED_PENDING_ANDROID_VERIFICATION",
+  "reviewed_issues": [
+    1069,
+    1070,
+    1071,
+    1072,
+    1073,
+    1074,
+    1075,
+    1076
+  ],
+  "repair_register": "docs/repairs/gateway-admission-reporting-2026-11-13.md",
+  "report_feature": "ADMISSION_DIAGNOSTICS_V1",
+  "review_repair": "Expanded both app and reporting-service provider failure vocabularies so every selected capacity code produces a valid retained diagnostic instead of being discarded; regenerated the gateway source manifest after the preflight test changed so validate-config accepts the reviewed package; admitted the four new source, regression and repair-ledger files as exact release-scope paths after the ready-for-review gate identified them; restored the complete release-scope blob after detecting a truncated Git-data upload before merge; retargeted to the verified parent merge on main for fresh exact-base CI.",
+  "validation": {
+    "canonical_fast": "495 tests passed plus canonical policy/schema/secret/regex/resource checks",
+    "report_service": "90 passed after capacity-code contract repair",
+    "gateway_preflight_validation": "26 passed",
+    "gateway_package": "validate-config passed after manifest regeneration",
+    "release_scope": "scoped validation passed after adding only the four exact changed paths reported by the strict gate",
+    "kotlin_host": "10 passed with explicit Android/application/DTO boundaries",
+    "android": "Gradle bootstrap network unavailable; full Android and device verification not claimed",
+    "ktlint": "1.3.1 passed on all changed Kotlin files"
+  }
+}

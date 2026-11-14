@@ -131,4 +131,36 @@ class BenchmarkReadinessRunnerTest {
         assertEquals("{\"partial\":", last.probes.single().sample?.canonicalAnswer)
         assertEquals(true, last.probes.single().sample?.runtimeCleanup?.safeForSuccessor)
     }
+
+    @Test fun initializationAdmissionFailureStopsBeforeToolProbeAndPersistsFinalReceipt() = runTest {
+        val calls = mutableListOf<String>()
+        val saved = mutableListOf<BenchmarkReadinessReceipt>()
+        val plan = listOf(BenchmarkCase("tool", "tool", "tools", "use fixture"))
+        val result = BenchmarkReadinessRunner(
+            { _, _ -> metadata(false) },
+            { test, _, retained ->
+                calls += test.id
+                failed(test, "REASONING_OFF_UNSUPPORTED").also { retained(it) }
+            },
+            { saved += it }
+        ).run(plan, policy, false, true)
+        assertFalse(result.ready)
+        assertEquals(listOf("readiness-text"), calls)
+        assertEquals(BenchmarkReadinessStatus.FAILED, result.checks.single { it.id == "initialization" }.status)
+        assertEquals(result, saved.last())
+        assertTrue(result.finishedAt != null)
+    }
+
+    @Test fun failedToolReadinessCannotPassUsingOnlyConfigurationMetadata() = runTest {
+        val result = BenchmarkReadinessRunner(
+            { _, _ -> metadata(false) },
+            { test, _, retained ->
+                (if (test.id == "readiness-tools") failed(test, "TOOL_UNSUPPORTED") else passed(test, null, false)).also { retained(it) }
+            },
+            {}
+        ).run(listOf(BenchmarkCase("tool", "tool", "tools", "use fixture")), policy, false, true)
+        assertFalse(result.ready)
+        assertTrue("tools" in result.requiredCheckIds)
+        assertEquals(BenchmarkReadinessStatus.FAILED, result.checks.single { it.id == "tools" }.status)
+    }
 }

@@ -135,4 +135,31 @@ class GitHubAcceptanceReportDiagnosticsTest {
         put("required", required)
         put("acceptance", "private missing evidence for $id")
     }
+
+    @Test fun blockerTotalsIncludeCriteriaOutsideTheCompactSample() {
+        val rows = (1..12).map { index ->
+            buildJsonObject {
+                put("id", "criterion-$index")
+                put("required", true)
+                put("state", "BLOCKED")
+                put("blocker_code", if (index <= 9) "FIXTURE_APPROVAL_MODE_REQUIRED" else "REPOSITORY_INPUT_REQUIRED")
+            }
+        }
+        val fields = GitHubAcceptanceReportDiagnostics.fields(
+            buildJsonObject {
+                put("acceptance_ledger", buildJsonObject { put("requirements", JsonArray(rows)) })
+            },
+            retainedReport = true
+        )
+        assertEquals(JsonPrimitive(9), fields["acceptance_approval_blocked_total"])
+        assertEquals(JsonPrimitive(3), fields["acceptance_input_blocked_total"])
+        assertEquals(JsonPrimitive(4), fields["unmet_criterion_omitted_count"])
+    }
+
+    @Test fun ambiguousProtectionObservationRequestsPermissionCheckWithoutClaimingNoPolicy() {
+        val verdict = Json.parseToJsonElement("""{"acceptance_ledger":{},"status_coverage":[{"item":"Required-check policy","branch_protection_observation":"NOT_FOUND_OR_INACCESSIBLE","branch_rules_observation":"OBSERVED"}]}""") as JsonObject
+        val fields = GitHubAcceptanceReportDiagnostics.fields(verdict, true)
+        assertEquals(JsonPrimitive("CHECK_PROTECTION_READ_PERMISSION"), fields["status_policy_recovery"])
+        assertEquals(JsonPrimitive("NOT_FOUND_OR_INACCESSIBLE"), fields["branch_protection_observation"])
+    }
 }

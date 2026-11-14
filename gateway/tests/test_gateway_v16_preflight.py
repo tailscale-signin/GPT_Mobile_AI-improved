@@ -51,6 +51,21 @@ class EngineeringPreflightTests(unittest.TestCase):
         self.path.write_text(json.dumps({'owner/repo': self.policy}))
         return preflight(request or self.request, runner=self.probe)
 
+    def test_policy_failure_reports_fixed_state_without_paths_or_dispatch(self):
+        cases = [([], 'INVALID_DOCUMENT'), ("private-path", 'INVALID_DOCUMENT'), ({}, 'REPOSITORY_UNCONFIGURED'),
+                 ({'owner/repo': {}}, 'INVALID_ENTRY')]
+        for document, expected in cases:
+            with self.subTest(expected=expected, document=document):
+                self.path.write_text(json.dumps(document))
+                result = preflight(self.request, runner=self.probe)
+                self.assertFalse(result['ready'])
+                self.assertEqual(expected, result['validation_policy_state'])
+                self.assertEqual('VALIDATION_POLICY_REQUIRED', result['blockers'][0]['reason_code'])
+                self.assertNotIn(str(self.root), json.dumps(result))
+                self.assertEqual([], self.calls)
+        with patch.dict(os.environ, GATEWAY_ENGINEERING_VALIDATION_POLICY=''):
+            self.assertEqual('NOT_CONFIGURED', preflight(self.request)['validation_policy_state'])
+
     def test_default_contract_is_selected_from_objective_and_has_exact_producers(self):
         result = self.check()
         self.assertTrue(result['ready'], result)

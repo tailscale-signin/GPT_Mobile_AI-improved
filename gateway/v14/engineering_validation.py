@@ -177,17 +177,27 @@ def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
         reader.join(timeout=.25)
 
 
+class ValidationPolicyError(ValueError):
+    """Closed admission category; never includes the configured host path or policy content."""
+    def __init__(self, state, message):
+        super().__init__(message)
+        self.state = state
+
+
 def load_policy(repository):
     """One parser shared by admission and execution; host policy is never model-selected."""
     policy_path = os.getenv('GATEWAY_ENGINEERING_VALIDATION_POLICY', '')
     if not policy_path:
-        raise ValueError('Configure an approved repository mirror, immutable container image and command list before admission')
+        raise ValidationPolicyError('NOT_CONFIGURED', 'Configure an approved repository mirror, immutable container image and command list before admission')
     policy_file = Path(policy_path)
     if not policy_file.is_file() or policy_file.stat().st_size > 65536:
-        raise ValueError('Validation policy is missing or oversized')
-    policy = json.loads(policy_file.read_text()).get(repository.lower())
+        raise ValidationPolicyError('MISSING_OR_OVERSIZED', 'Validation policy is missing or oversized')
+    document = json.loads(policy_file.read_text())
+    if not isinstance(document, dict):
+        raise ValidationPolicyError('INVALID_DOCUMENT', 'Validation policy must be a repository mapping')
+    policy = document.get(repository.lower())
     if not isinstance(policy, dict):
-        raise ValueError('Repository has no host-approved validation policy')
+        raise ValidationPolicyError('REPOSITORY_UNCONFIGURED', 'Repository has no host-approved validation policy')
     mirror = Path(policy['mirror']).resolve()
     image = policy.get('image', '')
     commands = policy.get('commands')

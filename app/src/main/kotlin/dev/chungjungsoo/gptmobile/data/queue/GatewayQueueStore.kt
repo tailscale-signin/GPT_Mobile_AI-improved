@@ -62,6 +62,31 @@ class GatewayQueueStore @Inject constructor(
 
     internal fun turn(lease: GatewaySubmissionRecord): GatewayQueuedTurn = json.decodeFromString(lease.payload)
 
+    private var lastCaptureNanos: Long? = null
+    private var lastCaptureBlocker: String? = null
+
+    internal suspend fun captureBlocker(blocker: String) {
+        if (!dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.enabled) return
+        val now = System.nanoTime()
+        if (lastCaptureBlocker == blocker && lastCaptureNanos?.let { now - it in 0 until 10_000_000_000L } == true) return
+        lastCaptureNanos = now
+        lastCaptureBlocker = blocker
+        try {
+            dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.queue(
+                blocker,
+                dao.queuedDispatches().size,
+                dao.queuedDeliveries().size,
+                dao.unsettledSubmissions().size,
+                dao.legacyUnsettledRuns().size,
+                dao.cachedJobs().count { json.decodeFromString<GatewayJobSummary>(it.snapshot).group != GatewayJobGroup.RECENT }
+            )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Optional diagnostic capture cannot pause or otherwise change a saved turn.
+        }
+    }
+
     internal suspend fun persist(
         prompt: PendingPrompt,
         history: List<MessageV2>,

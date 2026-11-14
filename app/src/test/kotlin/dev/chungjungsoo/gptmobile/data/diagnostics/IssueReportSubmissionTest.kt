@@ -23,12 +23,14 @@ class IssueReportSubmissionTest {
         .apply { retryAfter?.let { header("Retry-After", it) } }.body(body.toResponseBody("application/json".toMediaType())).build()
     private fun body(request: Request) = Buffer().also { request.body?.writeTo(it) }.readUtf8()
 
-    @Test fun newAdmissionEvidenceRequiresMatchingServiceBeforePostingTheUnchangedApprovedPayload() {
+    @Test fun newDiagnosticEvidenceRequiresMatchingServiceBeforePostingTheUnchangedApprovedPayload() {
         for ((feature, evidence) in listOf(
             "CAPACITY_ADMISSION_EVIDENCE_V1" to mapOf("admission_capacity_provenance" to "VERIFIED_ROUTE"),
-            "CONVERSATION_CONFLICT_EVIDENCE_V1" to mapOf("conflict_pending_tool_state" to "NOT_REPORTED")
+            "CONVERSATION_CONFLICT_EVIDENCE_V1" to mapOf("conflict_pending_tool_state" to "NOT_REPORTED"),
+            "ACCEPTANCE_SCOPE_EVIDENCE_V1" to mapOf("acceptance_capability_scope" to "FULL_CATALOG", "acceptance_pagination_mode" to "BOUNDED_SMOKE_SAMPLE")
         )) {
-            val context = IssueReportContext.fromFields("CHAT_FAILURE", evidence + ("diagnostic_area" to "PROVIDER"), 1_000L)
+            val area = if (feature == "ACCEPTANCE_SCOPE_EVIDENCE_V1") "ACCEPTANCE" else "PROVIDER"
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", evidence + ("diagnostic_area" to area), 1_000L)
             val enriched = report.copy(context = context)
             val payload = enriched.approvedPayload()
             var supported = false

@@ -12,9 +12,13 @@ Move turn-presentation scans out of the large chat composable and enforce the An
 
 For reports #1090 and #1091, retain capacity provenance and numeric input components before admission rejects, preserve the resolved output allowance, and show guidance based on remaining context headroom. Preserve explicit conversation rejection evidence and add bounded pending-tool state, identity hash and handoff sequence without granting ownership or replay authority.
 
+For report #1092, preserve the retained capability scope and pagination mode so an incomplete task report distinguishes full catalog requirements from observed capabilities and complete inventory requests from bounded sampling. Keep those two closed values through bounded criterion-sample trimming, without changing approvals or completion requirements.
+
 The November 14 chat and voice follow-up requires physical-device gesture, layout, audio and frame-time acceptance. Preparing-voice reports require a hosted reporter advertising VOICE_PLAYBACK_PHASE_V1. Private gateway/model availability and historical incidents with missing receipts remain dependent on live evidence; host and CI checks do not establish those outcomes.
 
 The November 14 capacity/conflict follow-up requires matching gateway and hosted reporter capabilities CAPACITY_ADMISSION_EVIDENCE_V1 and CONVERSATION_CONFLICT_EVIDENCE_V1. The original private requests and affected-device performance are not qualified by diagnostic or host regressions.
+
+Acceptance-scope reports require a hosted reporter advertising ACCEPTANCE_SCOPE_EVIDENCE_V1. Older approved reports remain unchanged and cannot reveal scope that was never captured; the historical task is not established as completed by the diagnostic enhancement.
 
 ## November 13 interface, voice, and audit updates
 

@@ -286,3 +286,26 @@ Local checks passed: repository CI policy, policy checks against both upstream
 workflow texts, YAML parsing, `bash -n` for all 43 run blocks, checkpoint JSON
 parsing and `git diff --check`. `actionlint` was unavailable in the local tooling
 and is not claimed as run.
+
+## Retained acceptance scope for issue #1092
+
+The approved report in [issue #1092](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1092) came from tested merge `e4d256dc56e2f90453a330f883cd795a6d1b46b1`; its approved payload SHA-256 is `cf79531117299875f288501116340b2bc7aa72fb8f409ea3412290898af2a94e`. It recorded five required criteria, three verified and two remaining; 70 capabilities comprised 47 verified, 16 blocked and seven untested. Seven approval blockers and 16 input blockers remained. Thirteen remote continuations were retained while no continuation blocked acceptance. The bounded sample retained seven of 25 unmet criteria and accurately reported 18 omissions.
+
+`task_kind=GENERAL` is an operation/answer category, not evidence that the ordinary-task checklist path was used. Source review found that full catalog coverage is selected by integration scope; ordinary tasks use observed capabilities. Likewise, retained remote pages can coexist with zero pagination blockers when the task requests bounded sampling. The historical report does not retain those two decisions, so neither a global catalog promotion defect nor a pagination defect is established by the available evidence. No historical private task was replayed or declared complete.
+
+The new capture projects only the exact retained checkpoint fields:
+
+| Approved diagnostic field | Retained source | Closed values |
+| --- | --- | --- |
+| `acceptance_capability_scope` | `test_checklist.coverage_scope` | `FULL_CATALOG`, `OBSERVED_CAPABILITIES` |
+| `acceptance_pagination_mode` | `test_checklist.pagination_resume.mode` | `COMPLETE_INVENTORY_REQUESTED`, `BOUNDED_SMOKE_SAMPLE` |
+
+Missing, malformed and unknown values remain absent; the reporter does not recompute scope from task text or a top-level lookalike. The maximum compact representation of both fields is 115 bytes. They receive priority before optional criterion-sample trimming within the unchanged 3,072-byte diagnostic limit. Aligned arrays and truthful omission counts are retained. No raw task, repository details, tool arguments or capability catalog is added. The matching Android and Python contracts permit these fields only in the acceptance area.
+
+`ACCEPTANCE_SCOPE_EVIDENCE_V1` is required before hosted submission, including when a known field was omitted by bounding. An older reporter leaves the approved payload saved with an update-required result; subsequent supported submission uses exactly the originally approved bytes. Historical reports without scope remain valid and are not rewritten. This is the requested diagnostic-follow-up disposition for #1092, with no weakening of fixture approval, required coverage, work reserves or completion gates.
+
+New regressions exercise actual retained checklist/save/restore/lifecycle projection for ordinary, bounded integration and exhaustive integration tasks; malformed and absent metadata; bounded criterion sampling; unsupported-to-supported reporter transition; and Python validation through issue construction. The 92 authentication/report tests and formatting of five changed Kotlin files passed locally. Full Android execution and current-head CI remain pending publication of this combined change.
+
+The concurrent progress/prerequisite repair `3d2f210cca8865599b06ee23382443ed34ab12af` is preserved. The annotation-generation repair `9ead17c5a2c9e32d505bf37757bbbe41228118cd` is also preserved: a small additional observability change wraps each audit generation phase with the existing build-metrics collector and always retains both JSON reports. It changes no heap, metaspace, worker count, process deadline, step limit or subsequent gate. Repository CI policy and all 30 CI-observability/delivery regressions passed.
+
+Final combined host validation passed `bash scripts/validate-local.sh fast`: 507 Python tests, 1,651 literal regular expressions with 82 dynamic patterns skipped, 34 Android resource XML files, CI/schema/dependency/secret checks, icon checks and provenance checks. Generated inventory is current. The release validator passed all changed paths and verbatim limitation disclosures; the shallow recovery checkout cannot independently establish full release-base ancestry, so the hosted full-checkout gate remains required. These checks do not claim execution of the newly added Android regressions.

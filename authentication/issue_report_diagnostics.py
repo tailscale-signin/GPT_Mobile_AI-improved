@@ -176,6 +176,10 @@ ENUMS["conflict_stream_job_relation"] = {"MATCHES_VERIFIED_STREAM_JOB", "DIFFERS
 HASH_FIELDS.add("conflict_pending_tool_ids_hash")
 FIELDS_BY_AREA["PROVIDER"].update(CONFLICT_EVIDENCE_FIELDS)
 
+ENUMS["acceptance_capability_scope"] = {"FULL_CATALOG", "OBSERVED_CAPABILITIES"}
+ENUMS["acceptance_pagination_mode"] = {"COMPLETE_INVENTORY_REQUESTED", "BOUNDED_SMOKE_SAMPLE"}
+FIELDS_BY_AREA["ACCEPTANCE"].update({"acceptance_capability_scope", "acceptance_pagination_mode"})
+
 CORE_FIELDS = {
     "PROVIDER": {"profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"},
     "TOOL": {"tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "missing_field_count", "invalid_field_count"},

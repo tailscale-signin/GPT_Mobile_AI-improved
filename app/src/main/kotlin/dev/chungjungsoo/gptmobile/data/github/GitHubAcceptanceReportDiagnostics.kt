@@ -95,6 +95,12 @@ internal object GitHubAcceptanceReportDiagnostics {
                 }
             }
         val checklist = verdict["test_checklist"] as? JsonObject
+        checklist?.text("coverage_scope")?.takeIf { it in setOf("FULL_CATALOG", "OBSERVED_CAPABILITIES") }?.let {
+            put("acceptance_capability_scope", it)
+        }
+        (checklist?.get("pagination_resume") as? JsonObject)?.text("mode")?.takeIf { it in setOf("COMPLETE_INVENTORY_REQUESTED", "BOUNDED_SMOKE_SAMPLE") }?.let {
+            put("acceptance_pagination_mode", it)
+        }
         val approval = checklist?.get("fixture_approval_preflight") as? JsonObject
         approval?.get("state")?.let { put("fixture_approval_state", it) }
         approval?.get("decision_mode")?.let { IssueReportIncidentCapsule.validValue("fixture_decision_mode", it) }?.let {

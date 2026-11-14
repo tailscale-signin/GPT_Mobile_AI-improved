@@ -1,7 +1,12 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
+import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -15,6 +20,88 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAcceptanceReportDiagnosticsTest {
+    @Test fun retainedCheckpointsPreserveRecordedCoverageAndPaginationWithoutChangingAcceptance() = runTest {
+        val cases = listOf(
+            Triple("Review the selected branch against its base.", "OBSERVED_CAPABILITIES", "BOUNDED_SMOKE_SAMPLE"),
+            Triple("Test all authorized GitHub integration tools", "FULL_CATALOG", "BOUNDED_SMOKE_SAMPLE"),
+            Triple("Test all authorized GitHub integration tools and complete pending pagination", "FULL_CATALOG", "COMPLETE_INVENTORY_REQUESTED")
+        )
+        for ((task, scope, pagination) in cases) {
+            val saved = linkedMapOf<String, JsonObject>()
+            val schema = Json.parseToJsonElement("""{"properties":{"action":{"const":"branches"},"page":{"type":"integer"}}}""") as JsonObject
+            val tools = listOf(AgentToolDefinition("github_context", "Branches", schema))
+            val book = GitHubEvidenceBook("binding", "private-owner/private-repo", "main", setOf("github_context"), load = { saved[it] }, save = { id, value -> saved[id] = value })
+            val args = Json.parseToJsonElement("""{"action":"branches","page":1}""") as JsonObject
+            val result = Json.parseToJsonElement("""{"local_page_complete":true,"continuation_call":{"tool":"github_context","arguments":{"action":"branches","page":2}}}""") as JsonObject
+            val call = ProviderEvent.ToolCall("source", "github_context", args)
+            book.observe(call, AgentToolResult(call.callId, ToolResultContent.Json(result), false))
+            val (receipts, epoch) = book.snapshot()
+            val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, tools, remainingToolCalls = 50)
+            val ledger = checkpoint.getValue("acceptance_ledger") as JsonObject
+            val verdict = buildJsonObject {
+                put("acceptance_ledger", ledger)
+                put("completion_verified", ledger.getValue("completion_verified"))
+                put("test_checklist", checkpoint)
+                put("stop_reason", GitHubIntegrationReport.stopReason(task, receipts, tools, checklist = checkpoint))
+            }
+            assertEquals(JsonPrimitive(false), verdict["completion_verified"])
+            assertTrue(book.retainAnswerIfCurrent("Saved private task report", verdict, epoch, receipts.keys))
+            val restored = GitHubEvidenceBook("binding", "private-owner/private-repo", "main", setOf("github_context"), load = { saved[it] }, retainedIds = { saved.keys.filter { it.startsWith("ev_") } })
+            restored.restore()
+            val retained = requireNotNull(restored.retainedAnswer()).second
+            assertEquals(verdict, retained)
+            val details = GitHubTaskLifecycle.acceptanceFailureDetails(retained, retainedReport = true)
+            val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", details, 1_800_000_000_000).diagnostics)
+            assertEquals(JsonPrimitive(scope), diagnostic.values["acceptance_capability_scope"])
+            assertEquals(JsonPrimitive(pagination), diagnostic.values["acceptance_pagination_mode"])
+            assertEquals(JsonPrimitive("RETAINED_VERDICT"), diagnostic.values["acceptance_evidence_scope"])
+            assertEquals(JsonPrimitive(1), diagnostic.values["pending_remote_continuations"])
+            assertEquals(JsonPrimitive(1), diagnostic.values["acceptance_pending_remote_continuations"])
+            assertEquals(verdict, retained)
+            assertFalse(diagnostic.toString().contains("private"))
+        }
+    }
+
+    @Test fun missingChecklistScopeIsNotInferredFromTaskKindOrTopLevelMetadata() {
+        for (taskKind in listOf("GENERAL", "INTEGRATION_TEST")) {
+            val fields = GitHubAcceptanceReportDiagnostics.fields(
+                buildJsonObject {
+                    put("acceptance_ledger", buildJsonObject {})
+                    put("task_kind", taskKind)
+                    put("coverage_scope", "FULL_CATALOG")
+                    put("pagination_resume", buildJsonObject { put("mode", "COMPLETE_INVENTORY_REQUESTED") })
+                    put("test_checklist", buildJsonObject {})
+                },
+                retainedReport = true
+            )
+            assertEquals(JsonPrimitive(taskKind), fields["task_kind"])
+            assertNull(fields["acceptance_capability_scope"])
+            assertNull(fields["acceptance_pagination_mode"])
+        }
+    }
+
+    @Test fun malformedAndUnknownChecklistScopesStayAbsent() {
+        for (value in listOf("null", "true", "17", "[]", "{}", "\"private-scope\"")) {
+            val invalid = Json.parseToJsonElement(value)
+            val fields = GitHubAcceptanceReportDiagnostics.fields(
+                buildJsonObject {
+                    put("acceptance_ledger", buildJsonObject {})
+                    put(
+                        "test_checklist",
+                        buildJsonObject {
+                            put("coverage_scope", invalid)
+                            put("pagination_resume", buildJsonObject { put("mode", invalid) })
+                        }
+                    )
+                },
+                retainedReport = true
+            )
+            assertNull(fields["acceptance_capability_scope"])
+            assertNull(fields["acceptance_pagination_mode"])
+            assertFalse(fields.toString().contains("private-scope"))
+        }
+    }
+
     @Test fun unsupportedClaimReportExplainsMissingEvidenceWithoutExportingClaimText() {
         val fields = GitHubAcceptanceReportDiagnostics.fields(
             buildJsonObject {

@@ -148,6 +148,52 @@ class IncidentReportContractTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_diagnostics(invalid)
 
+    def test_retained_acceptance_scope_survives_issue_submission_without_promoting_coverage(self):
+        for capability_scope in ("FULL_CATALOG", "OBSERVED_CAPABILITIES"):
+            for pagination_mode in ("COMPLETE_INVENTORY_REQUESTED", "BOUNDED_SMOKE_SAMPLE"):
+                with self.subTest(capability_scope=capability_scope, pagination_mode=pagination_mode):
+                    capture = self.capture("ACCEPTANCE", {
+                        "acceptance_capability_scope": capability_scope,
+                        "acceptance_pagination_mode": pagination_mode,
+                        "acceptance_pending_remote_continuations": 13,
+                        "acceptance_continuation_blocked_total": 0,
+                        "acceptance_approval_blocked_total": 7,
+                        "acceptance_input_blocked_total": 16,
+                    })
+                    report = self.report(capture)
+                    report.update(feature="chat", errorCode="GITHUB_TASK_INCOMPLETE")
+                    report["context"]["source"] = "CHAT_FAILURE"
+                    approved = json.dumps(report, separators=(",", ":"))
+                    self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                    _, issue = issue_from_report(report)
+                    self.assertIn(capability_scope, issue["body"])
+                    self.assertIn(pagination_mode, issue["body"])
+                    self.assertIn("GITHUB_TASK_INCOMPLETE", issue["title"])
+                    self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                    self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+
+        legacy = self.capture("ACCEPTANCE", {"acceptance_pending_remote_continuations": 13})
+        self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        self.assertNotIn("acceptance_capability_scope", legacy["values"])
+        self.assertNotIn("acceptance_pagination_mode", legacy["values"])
+
+    def test_acceptance_scope_rejects_unknown_values_wrong_types_and_other_areas(self):
+        for key, value in (
+            ("acceptance_capability_scope", "GENERAL"),
+            ("acceptance_pagination_mode", "ALL_PAGES_VERIFIED"),
+            ("acceptance_capability_scope", "private task or repository"),
+            ("acceptance_pagination_mode", True),
+            ("acceptance_capability_scope", 1),
+            ("acceptance_pagination_mode", ["BOUNDED_SMOKE_SAMPLE"]),
+        ):
+            with self.subTest(key=key, value=value):
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("ACCEPTANCE", {key: value}))
+        for area in ("PROVIDER", "TOOL"):
+            with self.subTest(area=area):
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {"acceptance_capability_scope": "FULL_CATALOG"}))
+
     def test_typed_capsule_validates_without_rewriting_approved_input(self):
         capture = self.capture(values={
             "native_tool_action": "create", "validation_field_names": ["issue_number"], "validation_path_hashes": ["b" * 64],

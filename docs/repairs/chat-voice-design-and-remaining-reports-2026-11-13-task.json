@@ -220,6 +220,56 @@
       },
       "scoped_release_contract": "PASSED; new files listed individually and all limitations disclosed",
       "full_android_and_compiled_apk_size": "PENDING_PUBLISHED_HEAD"
+    },
+    "configuration_event_fixture_follow_up": {
+      "commit": "78bea4854dfd940f8b6e4d01a6aded818b022ef3",
+      "tests_adjusted": 3,
+      "preserved_assertions": [
+        "one upstream request",
+        "original collector exception",
+        "one terminal failure",
+        "no completion"
+      ],
+      "hosted_result": "PENDING_CURRENT_HEAD"
+    },
+    "audit_generation_heap_follow_up": {
+      "failed_head": "78bea4854dfd940f8b6e4d01a6aded818b022ef3",
+      "run": 43558764249,
+      "job": 132337569673,
+      "artifact": 14099561512,
+      "artifact_sha256": "53cbfcf8371163b0c87c9c067da5e852b0ade3b112c7ac79a12a7c81d7f18757",
+      "failure": "Java heap space in KaptStubConverter.KaptStub.writeMetadataIfNeeded during combined Room/KAPT source generation; no tests ran in this job.",
+      "canonical_repair": "9ead17c5a2c9e32d505bf37757bbbe41228118cd",
+      "repair": "Separate generation processes; retain bounded canonical KAPT 4096 MiB heap and 768 MiB metaspace, single worker and existing deadlines. Add per-phase build_metrics JSON to always-retained artifacts.",
+      "policy_checks": "PASSED",
+      "ci_observability_delivery_tests": 30,
+      "hosted_result": "PENDING_CURRENT_HEAD"
+    },
+    "acceptance_scope_follow_up": {
+      "base_sha": "3d2f210cca8865599b06ee23382443ed34ab12af",
+      "authentication_report_contracts": {
+        "command": "python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract",
+        "exit_code": 0,
+        "tests": 92
+      },
+      "changed_kotlin_format": {
+        "files": 5,
+        "ktlint": "1.3.1",
+        "exit_code": 0
+      },
+      "retained_scope_android_tests": "PENDING_HOSTED_EXECUTION",
+      "canonical_fast": {
+        "command": "bash scripts/validate-local.sh fast",
+        "exit_code": 0,
+        "python_tests": 507,
+        "regex_literals": 1651,
+        "regex_dynamic_skipped": 82,
+        "resource_xml_files": 34
+      },
+      "diagnostic_byte_limit": 3072,
+      "maximum_two_enum_bytes": 115,
+      "approval_completion_and_pagination_policy": "UNCHANGED",
+      "scoped_release_contract": "PASSED against every changed path and exact limitation disclosures; full ancestry gate deferred to hosted full checkout."
     }
   },
   "merge_gate": "Current head/base, complete required verification, applicable branch rules, and mergeable state.",
@@ -229,7 +279,11 @@
     "29eeba43c286ffde4fed26e64be092749503638e",
     "335c25e311239bb38bb731b4ac5cd858d8e1be98",
     "858579f8a7ed078366828d5bae9b5d6415efbb00",
-    "4e4f9959d1aacb4ceca2964270f9471b05c5a650"
+    "4e4f9959d1aacb4ceca2964270f9471b05c5a650",
+    "7c43e3d2be494b414ba47244be8870dcf3d9b463",
+    "78bea4854dfd940f8b6e4d01a6aded818b022ef3",
+    "9ead17c5a2c9e32d505bf37757bbbe41228118cd",
+    "3d2f210cca8865599b06ee23382443ed34ab12af"
   ],
   "branch_inventory": {
     "branches": 747,
@@ -254,11 +308,13 @@
     "chat": "Table reflow, hidden-history reveal, mixed legacy activation ordering and paragraph-to-table promotion line-accounting findings repaired; focused host suite passes.",
     "chat_follow_up": "Canonical native-layout fixture retains explicit MotionDurationScale=1, exact 4500ms first budget, intermediate-not-bottom and final-empty-queue assertions. Actual model/API review found no helper signature mismatch.",
     "ci_method_size_gate": "Actual defined methods required, fixed >=16383 boundary, bounded APK/DEX input, malformed inputs fail closed, mandatory shell checks and always-retained measurement reports; existing gates preserved.",
-    "new_diagnostic_contracts": "No blocking findings: closed bounded Kotlin/Python contracts agree; actual constructor signatures reviewed; verified-stream comparison never claims local-run ownership; unchanged3072byte cap; new/omitted fields and zero pendingcount negotiate matching service support before posting unchanged approved bytes."
+    "new_diagnostic_contracts": "No blocking findings: closed bounded Kotlin/Python contracts agree; actual constructor signatures reviewed; verified-stream comparison never claims local-run ownership; unchanged3072byte cap; new/omitted fields and zero pendingcount negotiate matching service support before posting unchanged approved bytes.",
+    "acceptance_scope": "Retained source fields, string-only producer, matching closed Android/Python enums, acceptance-only membership, feature negotiation including omissions, immutable approved bytes and protected bounded sample reviewed against concurrent3d2f210c; no source-level blocker observed. Hosted Android execution remains required."
   },
   "issue_numbers_received_during_validation": [
     1090,
-    1091
+    1091,
+    1092
   ],
   "new_issue_review": {
     "1090": {
@@ -289,6 +345,29 @@
       "disposition": "Preserve explicit gateway rejection evidence and add bounded pending-tool state, count, identity hash, handoff sequence and verified-stream relationship; original-job recovery fences unchanged.",
       "service_feature": "CONVERSATION_CONFLICT_EVIDENCE_V1",
       "historical_private_job": "NOT_REPRODUCED_OR_REPAIRED"
+    },
+    "1092": {
+      "code": "GITHUB_TASK_INCOMPLETE",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "cf79531117299875f288501116340b2bc7aa72fb8f409ea3412290898af2a94e",
+      "required_criteria": 5,
+      "verified_criteria": 3,
+      "remaining_criteria": 2,
+      "required_capabilities": 70,
+      "verified_capabilities": 47,
+      "blocked_capabilities": 16,
+      "untested_capabilities": 7,
+      "approval_blocked": 7,
+      "input_blocked": 16,
+      "pending_remote_continuations": 13,
+      "continuation_blocked": 0,
+      "unmet_criteria": 25,
+      "retained_criterion_sample": 7,
+      "omitted_criteria": 18,
+      "state": "REPORT_CONTRACT_TESTS_PASSED_PENDING_HOSTED_ANDROID_VERIFICATION",
+      "disposition": "Preserve retained checklist capability scope and pagination mode as closed observations; current evidence does not establish accidental catalog promotion or a pagination defect. Existing approval, required coverage and completion policies remain unchanged.",
+      "service_feature": "ACCEPTANCE_SCOPE_EVIDENCE_V1",
+      "historical_private_task": "NOT_REPLAYED_OR_QUALIFIED"
     }
   }
 }

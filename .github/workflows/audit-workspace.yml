@@ -93,13 +93,13 @@ jobs:
         run: |
           set -o pipefail
           chmod +x gradlew
-          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee audit-ksp.log
+          python3 scripts/build_metrics.py --label audit-ksp --output build/reports/profile/audit-ksp-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee audit-ksp.log
       - name: Generate annotation sources in a separate process
         timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee audit-kapt.log
+          python3 scripts/build_metrics.py --label audit-kapt --output build/reports/profile/audit-kapt-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee audit-kapt.log
       - name: Compile production sources in a separate process
         timeout-minutes: 20
         id: production_compile
@@ -129,6 +129,8 @@ jobs:
           path: |
             audit-ksp.log
             audit-kapt.log
+            build/reports/profile/audit-ksp-metrics.json
+            build/reports/profile/audit-kapt-metrics.json
             audit-production-compile.log
             audit-unit-compile.log
             audit-unit.log
@@ -187,6 +189,8 @@ jobs:
           name: audit-android-results-${{ github.run_attempt }}
           path: |
             audit-*.log
+            build/reports/profile/audit-ksp-metrics.json
+            build/reports/profile/audit-kapt-metrics.json
             app/build/test-results/testDebugUnitTest
             app/build/reports/tests/testDebugUnitTest
             app/build/reports/lint-results-debug.*

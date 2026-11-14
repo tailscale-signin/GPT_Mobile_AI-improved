@@ -148,12 +148,16 @@ class GitHubAcceptanceReportDiagnosticsTest {
         val fields = GitHubAcceptanceReportDiagnostics.fields(
             buildJsonObject {
                 put("acceptance_ledger", buildJsonObject { put("requirements", JsonArray(rows)) })
+                put("stop_reason", buildJsonObject { put("pending_remote_continuations", 14) })
             },
             retainedReport = true
         )
         assertEquals(JsonPrimitive(9), fields["acceptance_approval_blocked_total"])
         assertEquals(JsonPrimitive(3), fields["acceptance_input_blocked_total"])
         assertEquals(JsonPrimitive(4), fields["unmet_criterion_omitted_count"])
+        assertEquals(JsonPrimitive(14), fields["acceptance_pending_remote_continuations"])
+        val blockers = fields["unmet_criterion_blockers"] as JsonArray
+        assertTrue(JsonPrimitive("REPOSITORY_INPUT_REQUIRED") in blockers)
     }
 
     @Test fun ambiguousProtectionObservationRequestsPermissionCheckWithoutClaimingNoPolicy() {

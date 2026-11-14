@@ -80,6 +80,9 @@ internal fun structuredProviderFailure(body: String, httpStatus: Int? = null): J
             value is JsonPrimitive &&
             value.content.length <= 256
     }.toMutableMap()
+    (error?.get("pending_client_tool_count") as? JsonPrimitive)
+        ?.takeIf { !it.isString && it.intOrNull?.let { count -> count in 1..128 } == true }
+        ?.let { fields["pending_client_tool_count"] = it }
     val pending = error?.get("pending_client_tool_call_ids") as? kotlinx.serialization.json.JsonArray
     if (pending != null && pending.size <= 128 && pending.all { it is JsonPrimitive && it.isString && it.content.isNotBlank() && it.content.length <= 256 && it.content.none(Char::isISOControl) }) {
         fields["pending_client_tool_call_ids"] = pending

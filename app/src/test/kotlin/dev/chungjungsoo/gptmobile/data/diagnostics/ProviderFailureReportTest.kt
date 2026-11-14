@@ -26,6 +26,27 @@ import org.junit.Test
 class ProviderFailureReportTest {
     private val profile = PlatformV2(uid = "private-profile", name = "Private selected profile", model = "private-model", compatibleType = ClientType.LLAMA)
 
+    @Test fun gatewayConflictReportIdentifiesOwnedHandoffWithoutRevealingIds() {
+        val details = requireNotNull(
+            dev.chungjungsoo.gptmobile.data.network.structuredProviderFailure(
+                """{"error":{"code":"conversation_conflict","failed_stage":"conversation_admission","dispatched":false,"active_job_kind":"generation","active_job_state":"WAITING_FOR_CLIENT_TOOL","conversation_id":"private-conversation","conversation_revision":7,"pending_client_tool_count":2}}""",
+                409
+            )
+        )
+        val failure = ProviderEvent.Failed("private prompt", errorCode = "CONVERSATION_CONFLICT", failureDetails = details)
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        val fields = ProviderFailureReport.fields("run", failure, receipt)
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1000))
+        assertEquals(ProviderFailureStage.ADMISSION, receipt.stage)
+        assertEquals(JsonPrimitive("CONVERSATION_CONFLICT"), capture.values["provider_failure_code"])
+        assertEquals(JsonPrimitive("generation"), capture.values["conflict_active_job_kind"])
+        assertEquals(JsonPrimitive(7), capture.values["conflict_conversation_revision"])
+        assertEquals(JsonPrimitive(2), capture.values["conflict_pending_tool_count"])
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("conversation", "private-conversation")), capture.values["conflict_conversation_hash"])
+        assertTrue("SESSION_RECOVERY_DIAGNOSTICS_V1" in capture.requiredServiceFeatures())
+        assertFalse(capture.toString().contains("private"))
+    }
+
     @Test fun cooldownReportDistinguishesWaitEligibilityFromCheckpointAvailability() {
         val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision(
             provider = "LLAMA",

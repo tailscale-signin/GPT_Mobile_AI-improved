@@ -14,6 +14,7 @@ import java.util.UUID
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonPrimitive
 
 /** One isolated attempt with small collection, validation and accounting methods. */
 internal class BenchmarkCaseExecution(
@@ -214,6 +215,7 @@ internal class BenchmarkCaseExecution(
                 runtimeStage = failure.stage,
                 requestDispatched = when {
                     nativeEntryObserved || chunks > 0 || calls.isNotEmpty() || rounds.isNotEmpty() -> true
+                    providerFailure?.failureDetails?.get("dispatched") == JsonPrimitive(false) -> false
                     providerFailure?.providerLimit?.category == "PROVIDER_RATE_LIMITED" -> true
                     providerFailure?.providerLimit?.let { it.knownNotAccepted && it.category in setOf("LOCAL_COOLDOWN_ACTIVE", "LOCAL_ALLOWANCE_EXHAUSTED") } == true -> false
                     failure.code.startsWith("AUDIT_MODEL_") && failure.stage == "admission" -> false

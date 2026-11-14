@@ -145,7 +145,8 @@ private val admissionReasons = mapOf(
     "browser_csrf_required" to GatewayAdmissionReason.INVALID_CONNECTION,
     "conversation_storage_disabled" to GatewayAdmissionReason.STORAGE_UNAVAILABLE,
     "conversation_storage_unavailable" to GatewayAdmissionReason.STORAGE_UNAVAILABLE,
-    "cursor_expired" to GatewayAdmissionReason.CURSOR_EXPIRED
+    "cursor_expired" to GatewayAdmissionReason.CURSOR_EXPIRED,
+    "command_receipt_unavailable" to GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE
 )
 
 internal fun safeGatewayAdmissionCode(value: String?): String? = value?.takeIf { it.length <= 80 && it in admissionReasons }
@@ -157,7 +158,9 @@ internal fun gatewayAdmissionFailure(status: Int, surface: GatewayAdmissionSurfa
         val error = root?.get("error") as? JsonObject ?: root?.get("detail") as? JsonObject ?: root
         safeGatewayAdmissionCode((error?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull)
     }
-    val reason = admissionReasons[code] ?: when (status) {
+    val reason = admissionReasons[code]?.takeUnless {
+        it == GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE && (status != 404 || surface != GatewayAdmissionSurface.COMMAND)
+    } ?: when (status) {
         404 -> if (surface == GatewayAdmissionSurface.COMMAND) GatewayAdmissionReason.COMMAND_RECEIPT_UNAVAILABLE else GatewayAdmissionReason.UNSUPPORTED_CONTRACT
         405, 501 -> GatewayAdmissionReason.UNSUPPORTED_CONTRACT
         410 -> GatewayAdmissionReason.CURSOR_EXPIRED

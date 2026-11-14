@@ -264,7 +264,8 @@ internal class GitHubVerifiedSession(
                 val retryAt = GitHubTransportRecovery.retryNotBefore(receipts.values)
                 val wait = retryAt?.minus(now())?.coerceAtLeast(0) ?: 0L
                 if (wait > 0 && next.name != "discover_available_tools" && "view_cursor" !in next.arguments) {
-                    if (transportWaited || wait > GitHubTransportRecovery.MAX_WAIT_MILLIS || (evidence.remainingTaskMillis()?.let { it <= wait } == true)) {
+                    val stop = GitHubTransportRecovery.waitBlocker(wait, transportWaited, evidence.remainingTaskMillis())
+                    if (stop != null) {
                         emitAll(
                             publish(
                                 null,
@@ -276,6 +277,7 @@ internal class GitHubVerifiedSession(
                                         put("failed_stage", "tool_continuation")
                                         put("retry_after_ms", wait)
                                         put("retry_not_before_ms", retryAt)
+                                        put("github_cooldown_stop", stop)
                                         put("dispatched", false)
                                     }
                                 )

@@ -2495,6 +2495,8 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkReadinessRunner.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkReadinessRunnerTest.kt",
     "docs/repairs/gateway-admission-reporting-2026-11-13-task.json",
-    "docs/repairs/gateway-admission-reporting-2026-11-13.md"
+    "docs/repairs/gateway-admission-reporting-2026-11-13.md",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkFailurePolicyTest.kt",
+    "docs/repairs/session-conflict-and-transport-reporting-2026-11-13-task.json"
   ]
 }

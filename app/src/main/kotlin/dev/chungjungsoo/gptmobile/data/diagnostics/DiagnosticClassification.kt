@@ -172,6 +172,14 @@ private fun classifyGatewayAdmission(tag: String?, text: String): DiagnosticClas
     val headerCode = Regex("(?:^|\\s)x-gateway-admission-error\\s*:\\s*([a-z_]+)(?=$|\\s|[·,])").find(text)?.groupValues?.get(1)
     val structured = text.startsWith("admission_read") || text.startsWith("client_exchange")
     val code = headerCode ?: if (structured) Regex("(?:^| · )(?:admissioncode|code)=([a-z_]+)(?: · |$)").find(text)?.groupValues?.get(1) else null
+    if (text.startsWith("admission_read") &&
+        code == "command_receipt_unavailable" &&
+        " · codesource=gateway · " in text &&
+        Regex("(?:^| · )surface=command(?: · |$)").containsMatchIn(text) &&
+        Regex("(?:^| · )httpstatus=404(?: · |$)").containsMatchIn(text)
+    ) {
+        return DiagnosticClassification("gateway_command_reconciliation", "info", false, "retain_command_and_reconcile_original_gateway")
+    }
     val recovery = when (code) {
         "remote_surface_not_admitted" -> "verify_gateway_source_and_saved_work_contract"
         "scope_not_granted", "engineering_scope_required", "tool_scope_required_for_runtime", "local_admin_required" -> "check_original_gateway_scope"

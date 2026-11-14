@@ -98,7 +98,7 @@ class GatewayJobClient internal constructor(
                                 val failure = gatewayAdmissionFailure(response.status.value, surface, code, body, directModelServer)
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                                     "Gateway",
-                                    "ADMISSION_READ · phase=${failure.phase} · surface=$surface · method=GET · responseHeadersReceived=true · httpStatus=${failure.httpStatus} · responseService=${if (directModelServer) "LLAMA_CPP" else "UNVERIFIED"} · code=${failure.wireCode ?: failure.reason.name} · dependentDispatch=${failure.dispatchState}",
+                                    "ADMISSION_READ · phase=${failure.phase} · surface=$surface · method=GET · responseHeadersReceived=true · httpStatus=${failure.httpStatus} · responseService=${if (directModelServer) "LLAMA_CPP" else "UNVERIFIED"} · code=${failure.wireCode ?: failure.reason.name} · codeSource=${if (failure.wireCode == null) "HTTP_STATUS" else "GATEWAY"} · dependentDispatch=${failure.dispatchState}",
                                     "W"
                                 )
                                 throw failure

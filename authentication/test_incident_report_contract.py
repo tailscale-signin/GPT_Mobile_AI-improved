@@ -58,6 +58,31 @@ class IncidentReportContractTest(unittest.TestCase):
             _, issue = issue_from_report(report)
             self.assertIn(code, issue["title"])
 
+    def test_session_recovery_diagnostics_validate_through_issue_submission(self):
+        samples = {
+            "PROVIDER": {"provider_failure_code": "CONVERSATION_CONFLICT", "conflict_active_job_kind": "generation",
+                         "conflict_conversation_revision": 7, "conflict_pending_tool_count": 1, "conflict_conversation_hash": "a" * 64},
+            "TOOL": {"github_transport_kind": "DNS", "github_transport_read_attempts": 3,
+                     "github_transport_unanswered_reads": 3, "github_transport_http_responses": 0},
+            "ACCEPTANCE": {"acceptance_pending_remote_continuations": 14},
+        }
+        for area, values in samples.items():
+            with self.subTest(area=area):
+                capture = self.capture(area, values)
+                original = copy.deepcopy(capture)
+                self.assertEqual(original, validate_diagnostics(capture))
+                report = self.report(capture)
+                if area != "TOOL":
+                    report["feature"] = "chat"
+                    report["errorCode"] = "CONVERSATION_CONFLICT" if area == "PROVIDER" else "GITHUB_TASK_INCOMPLETE"
+                    report["context"]["source"] = "CHAT_FAILURE"
+                _, issue = issue_from_report(report)
+                for key in values:
+                    self.assertIn(key, issue["body"])
+        bad = self.capture("PROVIDER", {"conflict_pending_tool_count": 129})
+        with self.assertRaises(ValueError):
+            validate_diagnostics(bad)
+
     def test_typed_capsule_validates_without_rewriting_approved_input(self):
         capture = self.capture(values={
             "native_tool_action": "create", "validation_field_names": ["issue_number"], "validation_path_hashes": ["b" * 64],

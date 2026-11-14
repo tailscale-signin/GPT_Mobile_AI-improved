@@ -38,9 +38,13 @@ class EngineeringCommandOutcomeTests(unittest.TestCase):
         self.assertFalse(outcome['inference_attempted'])
         self.assertNotIn('Private backend detail', recovered.text)
         self.assertNotIn(self.request['objective'], recovered.text)
-        self.assertEqual(404, self.receipt(include=False).status_code)
-        self.assertEqual(404, self.receipt(headers={'Tailscale-User-Login': 'other@example.test'}).status_code)
-        self.assertEqual(404, self.receipt(headers={'Tailscale-User-Login': 'reader@example.test'}).status_code)
+        for unavailable in (
+            self.receipt(include=False),
+            self.receipt(headers={'Tailscale-User-Login': 'other@example.test'}),
+            self.receipt(headers={'Tailscale-User-Login': 'reader@example.test'}),
+        ):
+            self.assertEqual(404, unavailable.status_code)
+            self.assertEqual({'error': {'code': 'command_receipt_unavailable'}}, unavailable.json())
         with self.assertRaises(ConversationConflict):
             self.store.create('tailnet:owner', self.request)
         self.assertEqual([], self.store.list('tailnet:owner'))

@@ -1,0 +1,19 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "e4457b24905a1a268048d30fce4eb99aaf19ac15",
+  "parent_pr": 1077,
+  "parent_head_sha": "cadcec5aa0ba08722dd94272547caa98780b0628",
+  "working_branch": "fix/session-conflict-and-transport-reporting-2026-11-13",
+  "intent": "Reduce chat compilation pressure, distinguish saved gateway handoffs from new work, and make reports actionable for the attached diagnostic export and open issues.",
+  "state": "IMPLEMENTED_PENDING_HOSTED_VALIDATION",
+  "reviewed_issues": [1078, 1079, 1080, 1081, 1082, 1083, 1084, 1085, 1086, 1087, 1088],
+  "diagnostic_only": {
+    "1078-1079,1081-1082": "DNS resolution requires the affected network. Reports now capture attempted reads, HTTP responses and unanswered reads.",
+    "1080": "Reports now show which cooldown boundary ended the run.",
+    "1083-1084": "Reports now preserve the remote continuation count and sample distinct prerequisite blockers.",
+    "1085": "Reports now capture schema and reserve token usage. The oversized fixture still requires a smaller authorized request or more verified context.",
+    "1086-1088": "Reports now distinguish active job kind, conversation revision and pending tool count when available. Recovering the captured job requires its original retained results."
+  },
+  "validation_boundary": "Hosted Android checks and physical reproduction are separate from the host tests."
+}

@@ -13,6 +13,13 @@ internal object GitHubTransportRecovery {
     const val MAX_WAIT_MILLIS = 30_000L
     val codes = setOf("GITHUB_CIRCUIT_OPEN", "GITHUB_TRANSIENT_NETWORK", "GITHUB_TRANSIENT_SERVER")
 
+    fun waitBlocker(waitMillis: Long, alreadyWaited: Boolean, remainingTaskMillis: Long?): String? = when {
+        alreadyWaited -> "WAIT_ALREADY_USED"
+        waitMillis > MAX_WAIT_MILLIS -> "WAIT_LIMIT"
+        remainingTaskMillis != null && remainingTaskMillis <= waitMillis -> "TASK_DEADLINE"
+        else -> null
+    }
+
     fun provenNoMutation(receipt: JsonObject): Boolean {
         if (receipt["trusted"] != JsonPrimitive(true) ||
             receipt["verification_eligible"] == JsonPrimitive(false) ||

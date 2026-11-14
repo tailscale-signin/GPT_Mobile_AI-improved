@@ -44,9 +44,15 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 error.outputTokens?.let { put("admission_output_tokens", it) }
                 error.capacityTokens?.let { put("admission_capacity_tokens", it) }
                 put("admission_measurement", error.measurement.name)
-                error.budget?.dominantComponent?.let {
-                    put("admission_dominant_component", it.name)
-                    put("admission_dominant_tokens", it.tokens)
+                error.budget?.let { budget ->
+                    put("admission_tool_result_reserve_tokens", budget.toolResultReserveTokens)
+                    put("admission_attachment_reserve_tokens", budget.attachmentReserveTokens)
+                    put("admission_tool_schema_tokens", budget.components.firstOrNull { it.name == "tool_schemas" }?.tokens ?: 0)
+                    budget.dominantComponent?.let {
+                        val component = if (it.name == "attachment_reserve") "attachments" else it.name
+                        put("admission_dominant_component", component)
+                        put("admission_dominant_tokens", it.tokens)
+                    }
                 }
                 put("partial_output_preserved", partialOutput)
                 // A rejected continuation cannot prove that an earlier physical

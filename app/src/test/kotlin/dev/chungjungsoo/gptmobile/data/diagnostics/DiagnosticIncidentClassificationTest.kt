@@ -196,6 +196,15 @@ class DiagnosticIncidentClassificationTest {
         assertEquals("fatal", classifyDiagnostic("F", "Gateway", "ADMISSION_READ · surface=IDENTITY · httpStatus=403 · code=scope_not_granted").category)
     }
 
+    @Test fun commandReceipt404RemainsUnknownAndDistinguishesAnObservedGatewayResponse() {
+        val missing = "ADMISSION_READ · surface=COMMAND · httpStatus=404 · code=COMMAND_RECEIPT_UNAVAILABLE"
+        val knownRoute = classifyDiagnostic("W", "Gateway", "$missing · codeSource=GATEWAY · dependentDispatch=UNKNOWN")
+        assertEquals("gateway_command_reconciliation", knownRoute.category)
+        assertFalse(knownRoute.actionable)
+        assertTrue(classifyDiagnostic("W", "Gateway", "$missing · codeSource=HTTP_STATUS · dependentDispatch=UNKNOWN").actionable)
+        assertTrue(classifyDiagnostic("W", "Gateway", missing).actionable)
+    }
+
     @Test fun everyObservedUnboundTtsLifecycleOperationRemainsActionable() {
         for (operation in listOf("stop", "getVoices", "shutdown")) {
             val result = classifyDiagnostic("D", "Android", "D/TextToSpeech: $operation failed: not bound to TTS engine")

@@ -139,6 +139,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.R
 import dev.chungjungsoo.gptmobile.data.agent.ActiveAgentRun
+import dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState
 import dev.chungjungsoo.gptmobile.data.database.entity.ACTIVE_REVISION_LATEST
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
@@ -155,6 +156,7 @@ import dev.chungjungsoo.gptmobile.data.database.entity.effectiveTimeline
 import dev.chungjungsoo.gptmobile.data.database.entity.hasHistoricalRevisionSelected
 import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
 import dev.chungjungsoo.gptmobile.data.diagnostics.UiOperationContext
+import dev.chungjungsoo.gptmobile.data.model.ProfileColorIdentity
 import dev.chungjungsoo.gptmobile.data.model.delegationFor
 import dev.chungjungsoo.gptmobile.data.model.excludesMemory
 import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog as AlertDialog
@@ -243,25 +245,9 @@ private fun ChatScreenContent(
     val sendPreparation by chatViewModel.sendPreparation.collectAsStateWithLifecycle()
     val gatewayModelPreparation by chatViewModel.gatewayModelPreparation.collectAsStateWithLifecycle()
     var gatewayReadinessOpen by rememberSaveable(chatRoom.id) { mutableStateOf(false) }
-    val gatewayReadiness = gatewayModelPreparation.values.toList()
+    val gatewayReadiness = remember(gatewayModelPreparation) { gatewayModelPreparation.values.toList() }
     if (showTopBar && gatewayReadinessOpen && gatewayReadiness.isNotEmpty()) {
-        AlertDialog(
-            onDismissRequest = { gatewayReadinessOpen = false },
-            title = { Text("Gateway model readiness") },
-            text = {
-                Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
-                    gatewayReadiness.forEach { state ->
-                        key(state.profileUid) {
-                            dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent(
-                                state,
-                                onRecheck = { chatViewModel.recheckGatewayModel(state.profileUid) }
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = { TextButton(onClick = { gatewayReadinessOpen = false }) { Text("Done") } }
-        )
+        ChatGatewayReadinessDialog(gatewayReadiness, chatViewModel::recheckGatewayModel) { gatewayReadinessOpen = false }
     }
     val githubContextForLinks = chatToolConfig.github
     var githubLinkOrigin by remember(githubContextForLinks) { mutableStateOf<String?>(null) }
@@ -307,52 +293,20 @@ private fun ChatScreenContent(
             onCancelDelegation = { chatViewModel.respondDelegationRecovery(request.id, null) }
         )
     }
-    val reasoningAdmission by chatViewModel.reasoningAdmissionNotice.collectAsStateWithLifecycle()
-    reasoningAdmission?.let { notice ->
-        dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionDialog(
-            notice.copy(
-                state = gatewayModelPreparation[notice.profileUid]?.takeIf { notice.modelReadiness && it.model == notice.model && it.observation?.requested == notice.requested }?.let {
-                    notice.state.copy(checking = it.busy, observation = it.observation, preparation = it)
-                } ?: notice.state
-            ),
-            onRecheck = chatViewModel::recheckReasoningAdmission,
-            onSwitchToAuto = { chatViewModel.switchProfileReasoningToAuto(notice.profileUid) },
-            onSettings = {
-                chatViewModel.dismissReasoningAdmission()
-                onProfileSettings(notice.profileUid)
-            },
-            onChooseModel = {
-                chatViewModel.dismissReasoningAdmission()
-                chatViewModel.openChatModelDialog()
-            },
-            onDismiss = chatViewModel::dismissReasoningAdmission
-        )
-    }
+    ChatReasoningAdmissionDialog(chatViewModel, gatewayModelPreparation, onProfileSettings)
     val combinedFailures by chatViewModel.combinedFailures.collectAsStateWithLifecycle()
     val reasoningRecoveries by chatViewModel.reasoningRecoveries.collectAsStateWithLifecycle()
     val billingUriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val openProfileBilling: (String) -> Unit = { uid -> chatViewModel.billingUrlForProfile(uid)?.let { url -> runCatching { billingUriHandler.openUri(url) } } }
 
-    val failureTurn = combinedFailures.firstOrNull()?.userMessageId
-    if (failureTurn != null) {
-        CombinedFailuresDialog(
-            failures = combinedFailures.filter { it.userMessageId == failureTurn },
-            identities = ProfileAttributionPalette.forSelection(combinedFailures.map { it.profileUid }, featureSettings.profileAttributionColors),
-            onRetry = chatViewModel::retryCombinedProfile,
-            onRemove = chatViewModel::removeCombinedFailureProfile,
-            onContinue = { chatViewModel.combineAvailableResults(failureTurn) },
-            onDismiss = { chatViewModel.dismissCombinedFailures(failureTurn) },
-            canContinue = chatViewModel.canCombineAvailable(failureTurn),
-            onExclude = chatViewModel::excludeCombinedFailureForTurn,
-            onCheckQueuedJob = chatViewModel::checkQueuedJob,
-            recoveryStates = reasoningRecoveries,
-            billingProfiles = combinedFailures.mapNotNull { it.profileUid.takeIf { uid -> chatViewModel.billingUrlForProfile(uid) != null } }.toSet(),
-            onChangeSettings = onProfileSettings,
-            onManageBilling = openProfileBilling,
-            onRecheckReasoning = chatViewModel::recheckReasoningFailure,
-            onSwitchToAuto = chatViewModel::switchProfileReasoningToAuto
-        )
-    }
+    ChatCombinedFailuresDialog(
+        chatViewModel,
+        combinedFailures,
+        reasoningRecoveries,
+        featureSettings.profileAttributionColors,
+        onProfileSettings,
+        openProfileBilling
+    )
     val allInputRequests by chatViewModel.pendingMcpInput.collectAsStateWithLifecycle()
     val inputRequests = allInputRequests.filter { request -> request.runId?.let { agentRunsById[it]?.chatId } == chatRoom.id }
     inputRequests.firstOrNull()?.takeIf { chatToolConfig.github == null }?.let { McpInputDialog(it, respond = chatViewModel::respondMcpInput) }
@@ -1583,6 +1537,91 @@ private fun ChatScreenContent(
 }
 
 /** Keep dialog composition out of the large transcript method so ART can compile each independently. */
+@Composable
+private fun ChatGatewayReadinessDialog(
+    readiness: List<GatewayModelPreparationState>,
+    onRecheck: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Gateway model readiness") },
+        text = {
+            Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState())) {
+                readiness.forEach { state ->
+                    key(state.profileUid) {
+                        dev.chungjungsoo.gptmobile.presentation.ui.setting.GatewayModelPreparationContent(
+                            state,
+                            onRecheck = { onRecheck(state.profileUid) }
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } }
+    )
+}
+
+@Composable
+private fun ChatReasoningAdmissionDialog(
+    chatViewModel: ChatViewModel,
+    gatewayModelPreparation: Map<String, GatewayModelPreparationState>,
+    onProfileSettings: (String) -> Unit
+) {
+    val reasoningAdmission by chatViewModel.reasoningAdmissionNotice.collectAsStateWithLifecycle()
+    reasoningAdmission?.let { notice ->
+        dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningAdmissionDialog(
+            notice.copy(
+                state = gatewayModelPreparation[notice.profileUid]?.takeIf { notice.modelReadiness && it.model == notice.model && it.observation?.requested == notice.requested }?.let {
+                    notice.state.copy(checking = it.busy, observation = it.observation, preparation = it)
+                } ?: notice.state
+            ),
+            onRecheck = chatViewModel::recheckReasoningAdmission,
+            onSwitchToAuto = { chatViewModel.switchProfileReasoningToAuto(notice.profileUid) },
+            onSettings = {
+                chatViewModel.dismissReasoningAdmission()
+                onProfileSettings(notice.profileUid)
+            },
+            onChooseModel = {
+                chatViewModel.dismissReasoningAdmission()
+                chatViewModel.openChatModelDialog()
+            },
+            onDismiss = chatViewModel::dismissReasoningAdmission
+        )
+    }
+}
+
+@Composable
+private fun ChatCombinedFailuresDialog(
+    chatViewModel: ChatViewModel,
+    combinedFailures: List<CombinedProfileFailure>,
+    reasoningRecoveries: Map<String, ReasoningRecoveryUiState>,
+    profileAttributionColors: Map<String, ProfileColorIdentity>,
+    onProfileSettings: (String) -> Unit,
+    openProfileBilling: (String) -> Unit
+) {
+    val failureTurn = combinedFailures.firstOrNull()?.userMessageId
+    if (failureTurn != null) {
+        CombinedFailuresDialog(
+            failures = combinedFailures.filter { it.userMessageId == failureTurn },
+            identities = ProfileAttributionPalette.forSelection(combinedFailures.map { it.profileUid }, profileAttributionColors),
+            onRetry = chatViewModel::retryCombinedProfile,
+            onRemove = chatViewModel::removeCombinedFailureProfile,
+            onContinue = { chatViewModel.combineAvailableResults(failureTurn) },
+            onDismiss = { chatViewModel.dismissCombinedFailures(failureTurn) },
+            canContinue = chatViewModel.canCombineAvailable(failureTurn),
+            onExclude = chatViewModel::excludeCombinedFailureForTurn,
+            onCheckQueuedJob = chatViewModel::checkQueuedJob,
+            recoveryStates = reasoningRecoveries,
+            billingProfiles = combinedFailures.mapNotNull { it.profileUid.takeIf { uid -> chatViewModel.billingUrlForProfile(uid) != null } }.toSet(),
+            onChangeSettings = onProfileSettings,
+            onManageBilling = openProfileBilling,
+            onRecheckReasoning = chatViewModel::recheckReasoningFailure,
+            onSwitchToAuto = chatViewModel::switchProfileReasoningToAuto
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ChatEditingOverlays(

@@ -253,14 +253,21 @@ class Conversations:
         else:
             action = 'wait_for_active_job'
             message = 'A generation job is active in this conversation. Keep this instruction queued locally and reconnect to the existing job before sending it.'
-        return ConversationConflict(message, details={
+        details = {
             'active_job_id': conversation['active_job'], 'active_job_kind': kind,
             'active_job_state': state, 'conversation_id': conversation['id'],
             'conversation_revision': conversation['revision'],
             'failed_stage': 'conversation_admission', 'remote_acceptance': 'NO',
             'retryable_without_new_input': False, 'recovery_action': action,
             'allowed_recovery_actions': ['open_active_job', action],
-        })
+        }
+        if action == 'return_client_tool_results':
+            row = db.execute('SELECT public_json FROM gateway_jobs WHERE job_id=?', (conversation['active_job'],)).fetchone()
+            public = json.loads(row['public_json']) if row else {}
+            pending = public.get('pending_client_tool_call_ids') if public.get('principal_id') == conversation['principal'] else None
+            if isinstance(pending, list) and 0 < len(pending) <= 128 and all(isinstance(item, str) and 0 < len(item) <= 256 for item in pending):
+                details['pending_client_tool_count'] = len(pending)
+        return ConversationConflict(message, details=details)
 
     @staticmethod
     def bounded_id(value, name):

@@ -49,13 +49,16 @@ class ConversationJobStateTests(unittest.TestCase):
             db.row_factory = sqlite3.Row
             db.execute('CREATE TABLE gateway_jobs(job_id TEXT, status TEXT, public_json TEXT)')
             db.execute('CREATE TABLE engineering_jobs(id TEXT, state TEXT, principal TEXT)')
-            db.execute('INSERT INTO gateway_jobs VALUES(?,?,?)', ('generation', 'waiting_for_client_tool', '{"principal_id":"owner"}'))
+            public = {'principal_id': 'owner', 'pending_client_tool_call_ids': ['private-tool-call']}
+            db.execute('INSERT INTO gateway_jobs VALUES(?,?,?)', ('generation', 'waiting_for_client_tool', json.dumps(public)))
             db.execute('INSERT INTO engineering_jobs VALUES(?,?,?)', ('engineering', 'READ', 'owner'))
             conversation = dict(id='owned-conversation', revision=7, active_job='generation', active_kind='generation', principal='owner')
             error = Conversations.active_conflict(db, conversation).error_payload()
             self.assertEqual('return_client_tool_results', error['recovery_action'])
             self.assertEqual('generation', error['active_job_id'])
             self.assertEqual('WAITING_FOR_CLIENT_TOOL', error['active_job_state'])
+            self.assertEqual(1, error['pending_client_tool_count'])
+            self.assertNotIn('private-tool-call', json.dumps(error))
             self.assertNotIn('job_id', error)
             self.assertFalse(error['retryable_without_new_input'])
             db.execute("UPDATE gateway_jobs SET status='running'")

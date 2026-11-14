@@ -48,6 +48,9 @@ internal object GitHubAcceptanceReportDiagnostics {
             (row["receipt_ids"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { item -> item.isString }?.contentOrNull }
         }.distinct().take(8).mapNotNull { IssueReportContext.identifierHash("acceptance-receipt", it) }
         if (evidence.isNotEmpty()) put("evidence_ref_hashes", JsonArray(evidence.map(::JsonPrimitive)))
+        (verdict["stop_reason"] as? JsonObject)?.number("pending_remote_continuations")?.let {
+            put("acceptance_pending_remote_continuations", it)
+        }
         val unmet = listOf("requirements", "capabilities").asSequence()
             .flatMap { (ledger[it] as? JsonArray).orEmpty().asSequence() }.filterIsInstance<JsonObject>()
             .filter { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") }
@@ -63,7 +66,10 @@ internal object GitHubAcceptanceReportDiagnostics {
         put("acceptance_input_blocked_total", blockers.count { it in setOf("REPOSITORY_INPUT_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "OWNED_FIXTURE_REQUIRED") })
         put("acceptance_live_blocked_total", blockers.count { it == "LIVE_EVIDENCE_REQUIRED" })
         put("acceptance_continuation_blocked_total", blockers.count { it == "CONTINUATION_REQUIRED" })
-        val selected = unmet.take(8)
+        // Sample a representative of every observed blocker before taking
+        // duplicates, so a long prerequisite list does not hide other causes.
+        val firstByBlocker = unmet.distinctBy { it.text("blocker_code").ifBlank { it.text("state") } }.take(8)
+        val selected = (firstByBlocker + unmet.filter { it !in firstByBlocker }).take(8)
         put("unmet_criterion_omitted_count", unmet.size - selected.size)
         if (selected.isNotEmpty()) {
             val projection = GitHubAcceptanceDiagnostics.snapshot(buildJsonObject { put("requirements", JsonArray(selected)) }, limit = 8)

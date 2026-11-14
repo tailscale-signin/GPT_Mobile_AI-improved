@@ -24,10 +24,12 @@ internal data class BenchmarkExportArtifact(
     val createdAt: Long,
     val bytes: Long,
     val sha256: String,
-    val content: BenchmarkExportContent = BenchmarkExportContent.BENCHMARKS
+    val content: BenchmarkExportContent = BenchmarkExportContent.BENCHMARKS,
+    val includesPrivateProfileDetails: Boolean = false
 ) {
     val fileName: String get() = "${when {
         content == BenchmarkExportContent.APP_AUDIT -> "app-audit"
+        includesPrivateProfileDetails -> "benchmark-private"
         detailed -> "benchmark-debug"
         else -> "benchmarks"
     }}-$createdAt-${id.take(8)}.json"
@@ -40,8 +42,9 @@ internal class BenchmarkExportArtifactStore(
     private val directory: () -> File,
     private val now: () -> Long = System::currentTimeMillis
 ) {
-    suspend fun prepare(detailed: Boolean, contentKind: BenchmarkExportContent = BenchmarkExportContent.BENCHMARKS, write: suspend (OutputStream) -> Unit): BenchmarkExportArtifact = withContext(Dispatchers.IO) {
+    suspend fun prepare(detailed: Boolean, contentKind: BenchmarkExportContent = BenchmarkExportContent.BENCHMARKS, includePrivateProfileDetails: Boolean = false, write: suspend (OutputStream) -> Unit): BenchmarkExportArtifact = withContext(Dispatchers.IO) {
         require(contentKind != BenchmarkExportContent.APP_AUDIT || !detailed)
+        require(!includePrivateProfileDetails || detailed)
         val folder = directory()
         check(folder.isDirectory || folder.mkdirs()) { "Unable to create the private export folder." }
         val id = UUID.randomUUID().toString()
@@ -83,7 +86,7 @@ internal class BenchmarkExportArtifactStore(
                         }
                         check(bytes > 0) { "The benchmark export was empty." }
                         Files.move(partial.toPath(), content.toPath(), StandardCopyOption.ATOMIC_MOVE)
-                        val artifact = BenchmarkExportArtifact(id, detailed, now(), bytes, digest.digest().hex(), contentKind)
+                        val artifact = BenchmarkExportArtifact(id, detailed, now(), bytes, digest.digest().hex(), contentKind, includePrivateProfileDetails)
                         val properties = Properties().apply {
                             setProperty("id", artifact.id)
                             setProperty("detailed", artifact.detailed.toString())
@@ -91,6 +94,7 @@ internal class BenchmarkExportArtifactStore(
                             setProperty("bytes", artifact.bytes.toString())
                             setProperty("sha256", artifact.sha256)
                             setProperty("content", artifact.content.name)
+                            setProperty("profilePrivacy", if (artifact.includesPrivateProfileDetails) "private" else "redacted")
                         }
                         FileOutputStream(receiptPartial).use { output ->
                             properties.store(output, "Complete benchmark export")
@@ -184,7 +188,9 @@ internal class BenchmarkExportArtifactStore(
             properties.getProperty("createdAt").toLong(),
             properties.getProperty("bytes").toLong(),
             requireNotNull(properties.getProperty("sha256")),
-            properties.getProperty("content")?.let(BenchmarkExportContent::valueOf) ?: BenchmarkExportContent.BENCHMARKS
+            properties.getProperty("content")?.let(BenchmarkExportContent::valueOf) ?: BenchmarkExportContent.BENCHMARKS,
+            // Exports retained before the privacy change may include private fields.
+            properties.getProperty("content") != BenchmarkExportContent.APP_AUDIT.name && properties.getProperty("profilePrivacy") != "redacted"
         )
         require(artifact.content != BenchmarkExportContent.APP_AUDIT || !artifact.detailed)
         require(artifact.createdAt > 0 && artifact.bytes > 0 && artifact.sha256.matches(Regex("[0-9a-f]{64}")))

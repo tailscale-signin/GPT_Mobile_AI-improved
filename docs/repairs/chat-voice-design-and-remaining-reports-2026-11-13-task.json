@@ -1,0 +1,550 @@
+{
+  "schema": 1,
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+  "working_branch": "fix/session-conflict-and-transport-reporting-2026-11-13",
+  "starting_sha": "71ec060f7899fe03d1a792fd832100e66dac4dfa",
+  "pull_request": 1089,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "chat-voice-design-and-remaining-reports-2026-11-13",
+  "state": "READY_FOR_HOSTED_VERIFICATION",
+  "intent": "Implement the approved five chat/voice interaction changes, review current open PR branches and issues, reconcile latest diagnostics and benchmark failures, add specific missing diagnostic evidence where needed, validate and merge only after required checks are green.",
+  "issue_numbers_at_intake": [],
+  "inputs": [
+    "app-diagnostics-2992951956134468049.jsonl",
+    "benchmarks-1794622835861.json",
+    "github-chat-voice-design-plan.pdf"
+  ],
+  "validation": {
+    "gateway": {
+      "command": "python3 gateway/check_gateway.py",
+      "exit_code": 0,
+      "python_tests": 944,
+      "python_skipped": 3,
+      "browser_tests": 7,
+      "skip_reasons": [
+        "Windows Credential Manager",
+        "Windows file-sharing semantics",
+        "No bindable LAN IPv4 interface"
+      ]
+    },
+    "authentication_report_contracts": {
+      "command": "python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract",
+      "exit_code": 0,
+      "tests": 88
+    },
+    "provider_response_format_policy": {
+      "method": "Standalone Kotlin compilation of real production sources and JUnit tests",
+      "tests": 6,
+      "passed": 6
+    },
+    "android_resources": {
+      "task": ":app:processDebugResources",
+      "offline": true,
+      "exit_code": 0
+    },
+    "canonical_fast_initial": {
+      "tests": 495,
+      "failures": 1,
+      "reason": "Generated app source inventory stale during active edits; regenerate after integration and rerun"
+    },
+    "android_compile": "PENDING_HOSTED_VERIFICATION",
+    "android_generation_initial": {
+      "tasks": [
+        ":app:kspDebugKotlin",
+        ":app:kaptDebugKotlin"
+      ],
+      "exit_code": 1,
+      "reason": "Gradle daemon disappeared at kapt stubs after KSP; no compiler diagnostic. Retrying independent phases without raising repository memory limits."
+    },
+    "chat_policy_host": {
+      "method": "Standalone Kotlin/JUnit production helpers",
+      "tests": 21,
+      "passed": 21
+    },
+    "canonical_fast": {
+      "command": "bash scripts/validate-local.sh fast",
+      "exit_code": 0,
+      "python_tests": 496,
+      "regex_literals": 1647,
+      "regex_dynamic_skipped": 82,
+      "resource_xml_files": 34
+    },
+    "android_ksp": {
+      "task": ":app:kspDebugKotlin",
+      "offline": true,
+      "exit_code": 0
+    },
+    "android_kapt": {
+      "task": ":app:kaptDebugKotlin",
+      "offline": true,
+      "exit_code": 1,
+      "reason": "Daemon again disappeared at stub generation without a compiler diagnostic after successful KSP; full Android results must come from integrated hosted verification."
+    },
+    "voice_acceptance_wiring": {
+      "command": "python3 -m unittest scripts.tests.test_prepare_emulator_ui.AcceptanceSetupOrderTest -v",
+      "tests": 4,
+      "passed": 4,
+      "android_voice_cases": 3,
+      "device_execution": "PENDING"
+    },
+    "changed_kotlin_format": {
+      "files": 55,
+      "exit_code": 0,
+      "ktlint": "1.3.1"
+    },
+    "android_kapt_bounded_retry": {
+      "task": ":app:kaptDebugKotlin",
+      "offline": true,
+      "heap_mib": 2048,
+      "metaspace_mib": 512,
+      "exit_code": 1,
+      "reason": "Daemon disappeared again at stub generation after KSP; no compiler diagnostic or JVM crash file. Repository memory settings unchanged. Hosted verification required."
+    },
+    "hosted_iteration_1": {
+      "sha": "f5e3c8e6303473c1a2fbbae99b42af5c9f928b85",
+      "compiler": {
+        "jobs": [
+          132314053547,
+          132314053316
+        ],
+        "failure": "MeasuredMarkdownTableRow referenced missing GFMElementTypes.TABLE_CELL",
+        "repair": "Use cached markdown-jvm 0.7.9 GFMTokenTypes.CELL; real parser probe and focused Compose production compilation passed; same token correction and GitHub-only fade scoping integrated from concurrent 858579f8a7ed078366828d5bae9b5d6415efbb00"
+      },
+      "lint_generation": {
+        "job": 132314300765,
+        "failure": "KAPT stub generation exhausted the Java heap after KSP in the same default 3 GiB process",
+        "repair": "Run KSP and KAPT in separate sequential processes; preserve repository memory defaults, one worker, deadlines and required checks; retain separate logs"
+      }
+    },
+    "hosted_iteration_2": {
+      "sha": "000c0c0fd1a694431f5bf0a47ac037c18c2d8f0f",
+      "audit_run": 43552301288,
+      "audit_test_artifact": 14098320163,
+      "audit_artifact_sha256": "ab4d9bf1ae2fb8012bfb60232bef79f6767bb4b9701344ed37262e30b2566f4e",
+      "tests": 10219,
+      "failures": 6,
+      "errors": 0,
+      "skipped": 5,
+      "source_generation_and_production_compilation": "PASSED",
+      "lint_isolated_generation": "PASSED with unchanged repository heap defaults",
+      "codeql": "PASSED",
+      "emulators": {
+        "api34": "PASSED; three new voice cases executed",
+        "api36": "PASSED; three new voice cases executed"
+      },
+      "failed_cases": [
+        "BenchmarkLlamaReasoningTest.deterministicQuickDoesNotRequireTheUnusedSavedOnMode",
+        "BenchmarkStoreTest.completeBackupRestoresQueueOrderAndDoesNotResumeDispatchedAttempts",
+        "GitHubLineAutoScrollerTest.paragraphInsertedBelowTheViewportIsMeasuredAndGetsItsCompleteReadingBudget",
+        "GitHubLiveProgressTest.updatedCounterBecomesActiveBelowItsImmediatePredecessor",
+        "GitHubRenderedLinesLayoutTest.wrappingAndSimultaneousWiderWindowUseActualTextLayoutResults",
+        "BenchmarkResultCardTest.requestedGpuNameDoesNotOverrideAnActualCpuExecutionReceipt"
+      ],
+      "repair_status": "Integrated canonical 4e4f9959 corrections for all six cases. Native graphics, explicit duration scale and first queued budget assert exactly 4500 ms; captured preview position, actual Quick manifest modes, redacted backup restoration and execution-accounting text retained. Added mandatory compiled chat/voice method-size gate and extracted pure turn-presentation scans; new combined hosted verification pending.",
+      "lint_outcome": "Generation and production compile passed; lint job canceled when canonical 4e4f9959 superseded this head. No lint success claimed."
+    },
+    "chat_method_size_gate": {
+      "command": "python3 -m unittest scripts.tests.test_chat_method_size scripts.tests.test_combined_dispatch_size scripts.tests.test_mediapipe_jni -v",
+      "tests": 23,
+      "passed": 23,
+      "new_behavior_tests": 10,
+      "art_warning_boundary_code_units": 16383,
+      "apk_measurement": "PENDING_NEW_HOSTED_APK",
+      "limitation": "Static packaged size does not establish device compilation or frame-time performance."
+    },
+    "turn_presentation_extraction": {
+      "tests_added": 7,
+      "runtime": "PENDING_HOSTED_VERIFICATION",
+      "scope": "Identical collection-scan predicates extracted to ordinary Kotlin functions; Compose state ownership unchanged."
+    },
+    "benchmark_restore_host": {
+      "tests": 6,
+      "passed": 6,
+      "method": "Verbatim production normalization methods with actual kotlinx.serialization JSON; no replacement helper",
+      "android_store_and_runner": "PENDING_HOSTED_VERIFICATION"
+    },
+    "capacity_admission_host": {
+      "tests": 12,
+      "passed": 12,
+      "method": "Actual production capacity identity, guidance, bounded evidence, output allowance and rejection wrapper",
+      "mock_engine_and_adapter_integration": "PENDING_HOSTED_VERIFICATION"
+    },
+    "conversation_conflict_host": {
+      "kotlin_tests": 4,
+      "kotlin_passed": 4,
+      "gateway_tests": 6,
+      "gateway_passed": 6,
+      "http_behavior": "Extra turn remains409 with no new provider call, command receipt or transcript insertion; original waiting job retained",
+      "full_android_parser_integration": "PENDING_HOSTED_VERIFICATION"
+    },
+    "new_report_contracts_initial": {
+      "command": "python3 -m unittest authentication.test_incident_report_contract authentication.test_app",
+      "tests": 69,
+      "passed": 69,
+      "diagnostic_byte_cap": 3072
+    },
+    "combined_follow_up": {
+      "base_sha": "4e4f9959d1aacb4ceca2964270f9471b05c5a650",
+      "canonical_fast": {
+        "command": "bash scripts/validate-local.sh fast",
+        "exit_code": 0,
+        "python_tests": 506,
+        "regex_literals": 1649,
+        "regex_dynamic_skipped": 82,
+        "resource_xml_files": 34
+      },
+      "gateway": {
+        "command": "python3 gateway/check_gateway.py",
+        "exit_code": 0,
+        "python_suites": 70,
+        "python_tests": 947,
+        "python_skipped": 3,
+        "browser_tests": 7,
+        "skip_reasons": [
+          "Windows Credential Manager",
+          "Windows file-sharing semantics",
+          "No bindable LAN IPv4 interface"
+        ]
+      },
+      "authentication_report_contracts": {
+        "command": "python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract",
+        "exit_code": 0,
+        "tests": 90
+      },
+      "changed_kotlin_format": {
+        "files": 31,
+        "ktlint": "1.3.1",
+        "exit_code": 0
+      },
+      "scoped_release_contract": "PASSED; new files listed individually and all limitations disclosed",
+      "full_android_and_compiled_apk_size": "PENDING_PUBLISHED_HEAD"
+    },
+    "configuration_event_fixture_follow_up": {
+      "commit": "78bea4854dfd940f8b6e4d01a6aded818b022ef3",
+      "tests_adjusted": 3,
+      "preserved_assertions": [
+        "one upstream request",
+        "original collector exception",
+        "one terminal failure",
+        "no completion"
+      ],
+      "hosted_result": "PENDING_CURRENT_HEAD"
+    },
+    "audit_generation_heap_follow_up": {
+      "failed_head": "78bea4854dfd940f8b6e4d01a6aded818b022ef3",
+      "run": 43558764249,
+      "job": 132337569673,
+      "artifact": 14099561512,
+      "artifact_sha256": "53cbfcf8371163b0c87c9c067da5e852b0ade3b112c7ac79a12a7c81d7f18757",
+      "failure": "Java heap space in KaptStubConverter.KaptStub.writeMetadataIfNeeded during combined Room/KAPT source generation; no tests ran in this job.",
+      "canonical_repair": "9ead17c5a2c9e32d505bf37757bbbe41228118cd",
+      "repair": "Separate generation processes; retain bounded canonical KAPT 4096 MiB heap and 768 MiB metaspace, single worker and existing deadlines. Add per-phase build_metrics JSON to always-retained artifacts.",
+      "policy_checks": "PASSED",
+      "ci_observability_delivery_tests": 30,
+      "hosted_result": "PENDING_CURRENT_HEAD"
+    },
+    "acceptance_scope_follow_up": {
+      "base_sha": "3d2f210cca8865599b06ee23382443ed34ab12af",
+      "authentication_report_contracts": {
+        "command": "python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract",
+        "exit_code": 0,
+        "tests": 92
+      },
+      "changed_kotlin_format": {
+        "files": 5,
+        "ktlint": "1.3.1",
+        "exit_code": 0
+      },
+      "retained_scope_android_tests": "PENDING_HOSTED_EXECUTION",
+      "canonical_fast": {
+        "command": "bash scripts/validate-local.sh fast",
+        "exit_code": 0,
+        "python_tests": 507,
+        "regex_literals": 1651,
+        "regex_dynamic_skipped": 82,
+        "resource_xml_files": 34
+      },
+      "diagnostic_byte_limit": 3072,
+      "maximum_two_enum_bytes": 115,
+      "approval_completion_and_pagination_policy": "UNCHANGED",
+      "scoped_release_contract": "PASSED against every changed path and exact limitation disclosures; full ancestry gate deferred to hosted full checkout."
+    },
+    "new_issue_reporting_contracts": {
+      "command": "python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract",
+      "tests": 94,
+      "passed": 94,
+      "android_view_model_and_submission": "PENDING_HOSTED_VERIFICATION"
+    },
+    "packaged_method_measurement_c711": {
+      "head_sha": "c711545d829c24b2a9f5471ba1d7ca6c8497381f",
+      "tested_merge_sha": "e9aff20f12745f15aa7da8d187003c8abe6e2083",
+      "run_id": 43561380125,
+      "artifact_id": 14100804036,
+      "artifact_bytes": 5416,
+      "artifact_sha256": "df9fb7454a8fbee8ea301604adc5050c117c45ce13b9d0d47894b8fb6b53fb6d",
+      "digest_verified": true,
+      "apk_variants": [
+        "arm64-v8a",
+        "x86_64",
+        "universal"
+      ],
+      "status": "PASS",
+      "chat_screen_code_units": 1178,
+      "chat_screen_content_code_units": 13941,
+      "warning_boundary_inclusive": 16383,
+      "oversized_methods": [],
+      "next_head_measurement": "REQUIRED",
+      "physical_frame_time": "NOT_MEASURED"
+    },
+    "github_audit_follow_up": {
+      "distinct_tests": 24,
+      "passed": 24,
+      "classes": {
+        "AppAuditGitHubProbeSourceTest": 7,
+        "AppAuditGitHubSummaryTest": 4,
+        "GitHubReadRequestBudgetTest": 2,
+        "AppAuditGitHubReadTest": 7,
+        "AppAuditGitHubContractSourceTest": 2,
+        "AppAuditGitHubServicesTest": 2
+      },
+      "production_contract_fixtures_executed": 16,
+      "method": "Actual production Kotlin/JUnit policies, scoring and GitHubWorkspaceClient with real Ktor MockEngine; unrelated Android persistence/telemetry/planner boundaries isolated.",
+      "full_export_and_compose_tests": "PENDING_HOSTED_VERIFICATION",
+      "android_di_device_and_live_account": "NOT_QUALIFIED"
+    },
+    "voice_install_follow_up": {
+      "actual_source_tests": 10,
+      "passed": 10,
+      "method": "Production VoiceInstallObservation and JUnit observation/owner-lease tests",
+      "android_regressions": "PENDING_HOSTED_VERIFICATION",
+      "review_fixes": [
+        "Current-owner reference-counted transfer activity",
+        "Immutable owner-bound notification cancellation",
+        "Atomic state/notification delivery",
+        "Reject cancelled WorkManager owner during asynchronous cancellation"
+      ]
+    },
+    "new_issues_combined": {
+      "canonical_fast": {
+        "command": "bash scripts/validate-local.sh fast",
+        "exit_code": 0,
+        "tests": 507,
+        "regex_literals": 1653,
+        "regex_dynamic_skipped": 82,
+        "resource_xml_files": 34
+      },
+      "authentication_report_contracts": {
+        "tests": 94,
+        "passed": 94
+      },
+      "changed_kotlin_format": {
+        "files": 51,
+        "ktlint": "1.3.1",
+        "exit_code": 0
+      },
+      "inventories": "REGENERATED",
+      "release_scope": {
+        "changed_paths": 62,
+        "exact_path_validation": "PASS",
+        "limitations_verbatim": "PASS",
+        "full_release_base_ancestry": "HOSTED_GATE_REQUIRED"
+      },
+      "android_di_robolectric_emulators_and_apk": "PENDING_PUBLISHED_HEAD"
+    },
+    "hosted_c711_follow_up": {
+      "head": "c711545d829c24b2a9f5471ba1d7ca6c8497381f",
+      "audit_run": 43561380224,
+      "pr_run": 43561380178,
+      "pr_unit_job": 132345743999,
+      "artifact": 14100763587,
+      "artifact_sha256": "25b62c821a7e0cbc7c2b59fd985279691e0663df7f4a504cb7f266b5f5ee666b",
+      "artifact_digest_verified": true,
+      "tests": 10292,
+      "passed": 10282,
+      "failures": 5,
+      "skipped": 5,
+      "errors": 0,
+      "failed_methods": [
+        "ProviderAdaptersTest.chat completions adapter replays exact tool call id on the next round",
+        "BenchmarkStoreTest.malformedBackupsCannotMutateHistoryOrExposeTheirPayloadInErrors",
+        "GitHubAcceptanceReportDiagnosticsTest.retainedCheckpointsPreserveRecordedCoverageAndPaginationWithoutChangingAcceptance",
+        "GatewayModelAdmissionTest.earlyContextRejectionRetainsObservedRouteAndConfiguredCeilingsBeforeAnyInferencePost",
+        "GitHubLineAutoScrollerTest.paragraphInsertedBelowTheViewportIsMeasuredAndGetsItsCompleteReadingBudget"
+      ],
+      "repairs": [
+        "Retain exact configured-output event in both continuation round expectations and assert serialized output on both requests.",
+        "Check the entire sanitized exception graph across coroutine recovery; retain private payload and history protections.",
+        "Assert ordinary/bounded/exhaustive acceptance false/true/false without changing restored verdict or pending-page evidence.",
+        "Use the existing explicit clock seam and assert exact250ms capacity age rather than time-dependent field presence.",
+        "Wait for measured initial viewport before catch-up/ledger arming; regression deliberately delays list attachment and preserves exact4500ms reading budget."
+      ],
+      "repair_runtime": "PENDING_NEXT_HOSTED_GRAPH",
+      "benchmark_error_harness": {
+        "tests_per_mode": 3,
+        "modes": [
+          "coroutine recovery enabled",
+          "coroutine recovery disabled"
+        ],
+        "passed_executions": 6,
+        "scope": "Unchanged production sanitized throw expression and exact new error-graph assertion block; not full Android/Room import."
+      },
+      "api34_acceptance": "PASS",
+      "api36_acceptance": "PASS",
+      "codeql": "PASS",
+      "gateway_matrix": "PASS",
+      "windows_installer": "PASS"
+    }
+  },
+  "merge_gate": "Current head/base, complete required verification, applicable branch rules, and mergeable state.",
+  "integrated_remote_revisions": [
+    "48d807e95b4ff5cd06a9d0155b288ddcb01f1182",
+    "4bd7f737a6efd6f2ae9957555e05ec982519e2ae",
+    "29eeba43c286ffde4fed26e64be092749503638e",
+    "335c25e311239bb38bb731b4ac5cd858d8e1be98",
+    "858579f8a7ed078366828d5bae9b5d6415efbb00",
+    "4e4f9959d1aacb4ceca2964270f9471b05c5a650",
+    "7c43e3d2be494b414ba47244be8870dcf3d9b463",
+    "78bea4854dfd940f8b6e4d01a6aded818b022ef3",
+    "9ead17c5a2c9e32d505bf37757bbbe41228118cd",
+    "3d2f210cca8865599b06ee23382443ed34ab12af",
+    "2b5bfe4735769909289dbd8719e12e5d835cf258",
+    "c711545d829c24b2a9f5471ba1d7ca6c8497381f"
+  ],
+  "branch_inventory": {
+    "branches": 747,
+    "distinct_heads": 704,
+    "open_pull_requests": 1,
+    "open_non_pr_issues": 0,
+    "repair_branch_only": true
+  },
+  "ruleset": {
+    "id": 27005122,
+    "enforcement": "active",
+    "strict": true,
+    "required_checks": [
+      "Required verification",
+      "Analyze (java-kotlin)"
+    ],
+    "bypass": "never"
+  },
+  "independent_reviews": {
+    "benchmark": "Provider envelopes, frozen-plan readiness, request delivery/admission/execution, quota rejection and verified job affinity; concrete findings repaired.",
+    "voice": "Playback cancellation/fallback ownership, cold start, complete captions and motion guards; no remaining source-level blocker observed.",
+    "chat": "Table reflow, hidden-history reveal, mixed legacy activation ordering and paragraph-to-table promotion line-accounting findings repaired; focused host suite passes.",
+    "chat_follow_up": "Canonical native-layout fixture retains explicit MotionDurationScale=1, exact 4500ms first budget, intermediate-not-bottom and final-empty-queue assertions. Actual model/API review found no helper signature mismatch.",
+    "ci_method_size_gate": "Actual defined methods required, fixed >=16383 boundary, bounded APK/DEX input, malformed inputs fail closed, mandatory shell checks and always-retained measurement reports; existing gates preserved.",
+    "new_diagnostic_contracts": "No blocking findings: closed bounded Kotlin/Python contracts agree; actual constructor signatures reviewed; verified-stream comparison never claims local-run ownership; unchanged3072byte cap; new/omitted fields and zero pendingcount negotiate matching service support before posting unchanged approved bytes.",
+    "acceptance_scope": "Retained source fields, string-only producer, matching closed Android/Python enums, acceptance-only membership, feature negotiation including omissions, immutable approved bytes and protected bounded sample reviewed against concurrent3d2f210c; no source-level blocker observed. Hosted Android execution remains required.",
+    "new_chat_navigation": "Read-only review retained route arguments, chat identity, NavBackStackEntry and Hilt owner. Regression captures immutable content binding and verifies expansion/collapse without navigation-state reset. Native-graphics execution pending.",
+    "new_chat_indicator": "Shared indicator preserves follow state and measured-bottom sequencing, actual Combined pending state, idle absence and reduced-motion behavior. Four production Compose regressions added; hosted execution pending.",
+    "github_audit_follow_up": "Two concrete false-pass paths repaired: post-response prerequisite changes downgrade the outcome while preserving request evidence; audit-only strict validation rejects inventories absent before client normalization. Read-only reviewer found no remaining scope/privacy/scoring/API blocker; Android/Compose execution remains pending.",
+    "voice_install_follow_up": "Corrected current-owner transfer counting, stale notification cancellation, state/notification interleaving, and asynchronous WorkManager cancellation adoption. New regressions preserve current work and reject stale callbacks; actual Android scheduler/receiver execution remains pending."
+  },
+  "issue_numbers_received_during_validation": [
+    1090,
+    1091,
+    1092,
+    1093,
+    1094,
+    1095,
+    1096
+  ],
+  "new_issue_review": {
+    "1090": {
+      "code": "CONTEXT_CAPACITY_EXCEEDED",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "753b1a4e6cc5b4e6cfeef897c50d4499faa99591c202ec7aa045f8cbded45f80",
+      "observed_prompt_tokens": 10461,
+      "observed_safety_tokens": 2615,
+      "observed_output_tokens": 4096,
+      "observed_capacity_tokens": 5632,
+      "measurement": "UTF8_ESTIMATE",
+      "generation_dispatched": false,
+      "state": "LOCAL_REGRESSIONS_PASSED_PENDING_HOSTED_VERIFICATION",
+      "disposition": "Correct pre-dispatch rejection for observed estimate; repair missing early capacity/component evidence, ordinary-chat configured output observation, resolved allowance reporting and headroom guidance.",
+      "service_feature": "CAPACITY_ADMISSION_EVIDENCE_V1",
+      "historical_private_request": "NOT_REPLAYED_OR_QUALIFIED"
+    },
+    "1091": {
+      "code": "CONVERSATION_CONFLICT",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "eb407ebb384a9196b1b066aff4753b834389dbbeffb0743174c5de2ce95b14a4",
+      "http_status": 409,
+      "observed_job_state": "WAITING_FOR_CLIENT_TOOL",
+      "observed_recovery_action": "RETURN_CLIENT_TOOL_RESULTS",
+      "observed_job_kind": "generation",
+      "observed_conversation_revision": 8,
+      "state": "LOCAL_REGRESSIONS_PASSED_PENDING_HOSTED_VERIFICATION",
+      "disposition": "Preserve explicit gateway rejection evidence and add bounded pending-tool state, count, identity hash, handoff sequence and verified-stream relationship; original-job recovery fences unchanged.",
+      "service_feature": "CONVERSATION_CONFLICT_EVIDENCE_V1",
+      "historical_private_job": "NOT_REPRODUCED_OR_REPAIRED"
+    },
+    "1092": {
+      "code": "GITHUB_TASK_INCOMPLETE",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "cf79531117299875f288501116340b2bc7aa72fb8f409ea3412290898af2a94e",
+      "required_criteria": 5,
+      "verified_criteria": 3,
+      "remaining_criteria": 2,
+      "required_capabilities": 70,
+      "verified_capabilities": 47,
+      "blocked_capabilities": 16,
+      "untested_capabilities": 7,
+      "approval_blocked": 7,
+      "input_blocked": 16,
+      "pending_remote_continuations": 13,
+      "continuation_blocked": 0,
+      "unmet_criteria": 25,
+      "retained_criterion_sample": 7,
+      "omitted_criteria": 18,
+      "state": "REPORT_CONTRACT_TESTS_PASSED_PENDING_HOSTED_ANDROID_VERIFICATION",
+      "disposition": "Preserve retained checklist capability scope and pagination mode as closed observations; current evidence does not establish accidental catalog promotion or a pagination defect. Existing approval, required coverage and completion policies remain unchanged.",
+      "service_feature": "ACCEPTANCE_SCOPE_EVIDENCE_V1",
+      "historical_private_task": "NOT_REPLAYED_OR_QUALIFIED"
+    },
+    "1093": {
+      "title": "Voice chat plugin not downloading",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "3918e1ba764f5cbdafd97de791f8976d68d8f9bedc06f1b222037b50dc87e988",
+      "state": "LOCAL_VALIDATION_PASSED_PENDING_HOSTED_ANDROID_VERIFICATION",
+      "observed_gap": "Manual context lacks scheduler, pending reason, queue age, transfer stage and failure evidence. Source download job excludes VPN by default NetworkRequest capability; historical causality unproven.",
+      "service_feature": "VOICE_INSTALL_EVIDENCE_V1",
+      "repair": "Allow internet-capable VPNs; reconcile real scheduled work and typed pending reasons; fence progress/cancellation by attempt owner; capture bounded transfer evidence in existing approved Voice report flow without enabling disabled capture.",
+      "historical_device_download": "NOT_REPRODUCED_OR_QUALIFIED"
+    },
+    "1094": {
+      "title": "Expand fade out on button expand",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "8d5662f4d8643b65a616a54ce7dcbf6a82bf489e43247b06bbb180e24cb38f84",
+      "state": "LOCAL_VALIDATION_PASSED_PENDING_HOSTED_ANDROID_VERIFICATION",
+      "repair": "Keep measured header inset and current bindings live in retained conversation navigation; real NavHost/Scaffold expansion, collapse and state-preservation regression added. Device cause not reproduced."
+    },
+    "1095": {
+      "title": "Audit redesign",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "2b494e8d1cbb7bf17e6b99baeb55a5ae2db7d68e7ad6be9d41f4464b2565da1b",
+      "state": "LOCAL_VALIDATION_PASSED_PENDING_HOSTED_ANDROID_VERIFICATION",
+      "repair": "Expand GitHub category audit with separate honest local/live scores and bounded authorized read-only probes; no account or repository mutations.",
+      "limits": {
+        "categories": 8,
+        "local_contracts": 16,
+        "probes_per_connection": 6,
+        "max_connections": 2,
+        "max_physical_gets_per_probe": 3,
+        "max_physical_gets_per_run": 36,
+        "external_execution_gaps": 4
+      }
+    },
+    "1096": {
+      "title": "Chat loading and scroll anchoring",
+      "report_commit": "e4d256dc56e2f90453a330f883cd795a6d1b46b1",
+      "approved_payload_sha256": "f9722da86737ba75ca8cbcb817b678a6f4748db8b2f6c9adafac6b2e43bff21d",
+      "state": "LOCAL_VALIDATION_PASSED_PENDING_HOSTED_ANDROID_VERIFICATION",
+      "finding": "Shared bottom-arrival already updates follow intent, but ordinary/Combined/Gateway indicator branch omitted anchored generation dots. Extract shared indicator with real loading predicates and preserved user-intent rules."
+    }
+  },
+  "published_sha": "2b5bfe4735769909289dbd8719e12e5d835cf258",
+  "current_canonical_sha": "c711545d829c24b2a9f5471ba1d7ca6c8497381f"
+}

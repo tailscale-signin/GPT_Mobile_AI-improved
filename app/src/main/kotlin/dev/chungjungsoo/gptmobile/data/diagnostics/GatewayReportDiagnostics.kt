@@ -100,6 +100,28 @@ internal object GatewayReportDiagnostics {
         return IssueReportDiagnostics.fromFields("STRUCTURED_EVENT", fields, capturedAtMillis)
     }
 
+    fun savedResultReadFailure(
+        profileUid: String?,
+        jobId: String,
+        code: String,
+        category: String?,
+        capturedAtMillis: Long = System.currentTimeMillis()
+    ): IssueReportDiagnostics? =
+        IssueReportDiagnostics.fromFields(
+            "STRUCTURED_EVENT",
+            mapOf(
+                "diagnostic_area" to "GATEWAY",
+                "diagnostic_capture_mode" to "SELECTED_CAPTURE",
+                "profile_hash" to profileUid?.let(::researchHash),
+                "job_id_hash" to IssueReportContext.identifierHash("job", jobId),
+                "gateway_failure_phase" to "gateway_recovery",
+                "gateway_failure_category" to category,
+                "original_error_code_hash" to IssueReportContext.identifierHash("error_code", code),
+                "transport_complete" to false
+            ),
+            capturedAtMillis
+        )
+
     fun recovery(run: AgentRun, observedJobId: String, remoteStatus: String?, capturedAtMillis: Long = System.currentTimeMillis()): IssueReportDiagnostics? {
         if (run.gatewayJobId != observedJobId || observedJobId.isBlank()) return null
         val fields = buildMap<String, Any?> {

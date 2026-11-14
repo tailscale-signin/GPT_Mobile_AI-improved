@@ -49,7 +49,7 @@ import dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.Preview
 import java.util.Locale
 
 @Composable
-internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<Float>, search: GitHubSearchActivity? = null, animateEntry: Boolean = true) {
+internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<Float>, search: GitHubSearchActivity? = null, animateEntry: Boolean = true, lineIdentity: Any = raw) {
     val incomingText = search?.label ?: remember(raw) { GitHubProgressPresentation.preview(raw) }
     val activeTransition = rememberGitHubActivePreviewTransition(incomingText, active = latest, animate = animateEntry)
     val text = activeTransition.text.value
@@ -59,6 +59,7 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
     val entryOpacity = rememberGitHubActivityEntry(animateEntry && !latest)
     var expanded by rememberSaveable(text) { mutableStateOf(false) }
     var overflows by remember(text) { mutableStateOf(false) }
+    val reportLayout = rememberGitHubTextLayout("preview" to lineIdentity, updatesAddLines = false, firstAppearanceAddsLines = animateEntry)
     Row(
         modifier = Modifier.fillMaxWidth().testTag("github_preview_row")
             .then(
@@ -113,7 +114,12 @@ internal fun GitHubActivityPreview(raw: String, latest: Boolean, motion: State<F
                 color = if (latest) colors.onSurface.copy(alpha = 1f) else previewColor,
                 maxLines = if (expanded) Int.MAX_VALUE else 2,
                 overflow = if (expanded) TextOverflow.Clip else TextOverflow.Ellipsis,
-                onTextLayout = { if (current && !expanded) overflows = it.hasVisualOverflow }
+                onTextLayout = {
+                    if (current) {
+                        reportLayout(it)
+                        if (!expanded) overflows = it.hasVisualOverflow
+                    }
+                }
             )
         }
         if (overflows) {

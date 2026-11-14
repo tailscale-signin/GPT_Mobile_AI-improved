@@ -280,7 +280,15 @@ internal object IssueReportIncidents {
         // A rejected provider attempt may lack a resumable checkpoint. Retain its
         // observed cause without treating the report as authorization to retry.
         val publicCode = if (localRecovery) "CHAT_FAILED" else specificCode ?: if (rateLimited || observedRateLimit) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED"
-        val diagnosticFields = if (publicCode == "CHAT_FAILED" && "diagnostic_area" !in fields) {
+        val diagnosticFields = if (publicCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
+            fields + mapOf(
+                "diagnostic_area" to "PROVIDER",
+                "diagnostic_capture_mode" to "INCIDENT",
+                "provider_failure_stage" to "ADMISSION",
+                "provider_failure_code" to publicCode,
+                "failure_origin" to "APPLICATION"
+            )
+        } else if (publicCode == "CHAT_FAILED" && "diagnostic_area" !in fields) {
             fields + mapOf(
                 "diagnostic_area" to "INCIDENT",
                 "diagnostic_capture_mode" to "INCIDENT",

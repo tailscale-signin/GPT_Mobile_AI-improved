@@ -26,6 +26,90 @@ import org.junit.Test
 class ProviderFailureReportTest {
     private val profile = PlatformV2(uid = "private-profile", name = "Private selected profile", model = "private-model", compatibleType = ClientType.LLAMA)
 
+    @Test fun gatewayConflictReportIdentifiesTheBlockingHandoffWithoutClaimingLocalOwnership() {
+        val details = requireNotNull(
+            dev.chungjungsoo.gptmobile.data.network.structuredProviderFailure(
+                """{"error":{"code":"conversation_conflict","failed_stage":"conversation_admission","dispatched":false,"active_job_kind":"generation","active_job_state":"WAITING_FOR_CLIENT_TOOL","conversation_id":"private-conversation","conversation_revision":7,"pending_client_tool_count":2}}""",
+                409
+            )
+        )
+        val failure = ProviderEvent.Failed("private prompt", errorCode = "CONVERSATION_CONFLICT", failureDetails = details)
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        val fields = ProviderFailureReport.fields("run", failure, receipt)
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1000))
+        assertEquals(ProviderFailureStage.ADMISSION, receipt.stage)
+        assertEquals(JsonPrimitive("CONVERSATION_CONFLICT"), capture.values["provider_failure_code"])
+        assertEquals(JsonPrimitive("generation"), capture.values["conflict_active_job_kind"])
+        assertEquals(JsonPrimitive(7), capture.values["conflict_conversation_revision"])
+        assertEquals(JsonPrimitive(2), capture.values["conflict_pending_tool_count"])
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("conversation", "private-conversation")), capture.values["conflict_conversation_hash"])
+        assertTrue("SESSION_RECOVERY_DIAGNOSTICS_V1" in capture.requiredServiceFeatures())
+        assertTrue("CONVERSATION_CONFLICT_EVIDENCE_V1" in capture.requiredServiceFeatures())
+        assertEquals(JsonPrimitive("UNREPORTED"), capture.values["conflict_active_job_provenance"])
+        assertEquals(JsonPrimitive("NOT_REPORTED"), capture.values["conflict_pending_tool_state"])
+        assertEquals(JsonPrimitive("ACTIVE_JOB_NOT_REPORTED"), capture.values["conflict_stream_job_relation"])
+        assertFalse(capture.toString().contains("private"))
+    }
+
+    @Test fun conflictJobRelationUsesOnlyVerifiedStreamMetadataAndKeepsPendingIdentityHashed() {
+        val failure = ProviderEvent.Failed(
+            "private prompt",
+            errorCode = "CONVERSATION_CONFLICT",
+            failureDetails = buildJsonObject {
+                put("active_job_id", "private-active-job")
+                put("active_job_provenance", "CONVERSATION_ACTIVE_JOB")
+                put("pending_client_tool_state", "IDENTIFIED")
+                put("pending_client_tool_count", 2)
+                put("pending_client_tool_ids_hash", "a".repeat(64))
+                put("client_tool_handoff_sequence", 3)
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        for ((metadata, relation) in listOf(
+            null to "NO_VERIFIED_STREAM_JOB",
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata(jobId = "private-active-job") to "NO_VERIFIED_STREAM_JOB",
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata(jobId = "private-active-job", transportVerified = true) to "MATCHES_VERIFIED_STREAM_JOB",
+            dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata(jobId = "private-other-job", transportVerified = true) to "DIFFERS_VERIFIED_STREAM_JOB"
+        )) {
+            val fields = ProviderFailureReport.fields("run", failure, receipt, metadata = metadata)
+            val capture = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1000))
+            assertEquals(JsonPrimitive(relation), capture.values["conflict_stream_job_relation"])
+            assertEquals(JsonPrimitive("a".repeat(64)), capture.values["conflict_pending_tool_ids_hash"])
+            assertEquals(JsonPrimitive(3), capture.values["conflict_handoff_sequence"])
+            assertEquals(JsonPrimitive("IDENTIFIED"), capture.values["conflict_pending_tool_state"])
+            assertEquals(JsonPrimitive("CONVERSATION_ACTIVE_JOB"), capture.values["conflict_active_job_provenance"])
+            assertFalse(capture.toString().contains("private"))
+        }
+    }
+
+    @Test fun capacityComponentAndProvenanceEvidenceSurvivesTheFailureProjection() {
+        val evidence = buildJsonObject {
+            put("admission_system_tokens", 2000)
+            put("admission_history_tokens", 2500)
+            put("admission_current_request_tokens", 500)
+            put("admission_tool_result_tokens", 400)
+            put("admission_response_schema_tokens", 100)
+            put("admission_envelope_tokens", 547)
+            put("admission_route_context_tokens", 5632)
+            put("admission_configured_context_tokens", 8192)
+            put("admission_catalog_context_tokens", 32768)
+            put("admission_input_ceiling_tokens", 5632)
+            put("admission_output_ceiling_tokens", 4096)
+            put("admission_capacity_age_ms", 1000)
+            put("admission_capacity_provenance", "VERIFIED_ROUTE")
+        }
+        val failure = ProviderEvent.Failed("private prompt", errorCode = "CONTEXT_CAPACITY_EXCEEDED", failureDetails = evidence)
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        val fields = ProviderFailureReport.fields("run", failure, receipt, configured = ProviderEvent.RequestConfigured(configuredProfileOutputTokens = 0))
+        val capture = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1000))
+        evidence.forEach { (key, value) -> assertEquals(key, value, capture.values[key]) }
+        assertEquals(JsonPrimitive(0), capture.values["configured_output_limit"])
+        assertFalse("effective_output_limit" in capture.values)
+        assertTrue("CAPACITY_ADMISSION_EVIDENCE_V1" in capture.requiredServiceFeatures())
+        assertTrue(capture.isValid())
+        assertFalse(capture.toString().contains("private"))
+    }
+
     @Test fun cooldownReportDistinguishesWaitEligibilityFromCheckpointAvailability() {
         val limit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision(
             provider = "LLAMA",

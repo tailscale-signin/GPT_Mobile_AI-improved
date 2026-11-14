@@ -33,17 +33,19 @@ internal fun GitHubScrollMotion(
     enabled: Boolean,
     mode: GitHubScrollMode,
     dragging: Boolean,
+    renderedLines: GitHubRenderedLines,
     promptKey: String?,
     promptItem: Int,
     revision: Int,
     fontScale: Float,
     animate: Boolean
 ) {
-    ChatBottomAutoScroller(
-        listState,
-        isEnabled = enabled && !dragging && mode == GitHubScrollMode.FOLLOW_BOTTOM,
-        animate = animate,
-        githubMotion = true
+    GitHubLineAutoScroller(
+        listState = listState,
+        lines = renderedLines,
+        enabled = enabled && !dragging && mode == GitHubScrollMode.FOLLOW_BOTTOM,
+        revision = revision,
+        animate = animate
     )
     val currentItem by rememberUpdatedState(promptItem)
     val currentMode by rememberUpdatedState(mode)

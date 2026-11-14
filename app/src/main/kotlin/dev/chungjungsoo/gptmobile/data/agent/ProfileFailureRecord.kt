@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.context.isSelectedModelBlocker
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites
 import dev.chungjungsoo.gptmobile.data.github.GatewayInputRejectionDetails
 import java.time.Instant
 import kotlinx.serialization.Serializable
@@ -48,6 +49,7 @@ data class ProfileFailureRecord(
 
     /** An expired local view needs its original source receipt, never a generic cursor retry. */
     val isSavedViewUnavailable: Boolean get() = category == "SAVED_VIEW_UNAVAILABLE"
+    val isEngineeringSetup: Boolean get() = category in engineeringPreflightCodes
     val isTaskVerification: Boolean get() = category in setOf("TASK_INCOMPLETE", "EVIDENCE_REQUIRED") ||
         category.startsWith("GITHUB_EXTRACTION_") ||
         category in setOf(
@@ -66,7 +68,9 @@ data class ProfileFailureRecord(
                 phase == "provider_admission" &&
                 category.isSelectedModelBlocker() ||
                 phase == "model_preparation" &&
-                category in modelPreparationCodes
+                category in modelPreparationCodes ||
+                isEngineeringSetup &&
+                phase in GatewayEngineeringPrerequisites.stages
             )
 
     companion object {
@@ -84,7 +88,7 @@ data class ProfileFailureRecord(
         private val githubSchemaAdmissionCodes = setOf("GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_TOOL_CONTRACT_UNSUPPORTED")
         private val capacityCodes = dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES
         private val readinessCodes = setOf("REQUIRED_TOOL_ACQUISITION_PENDING", "REQUIRED_TOOL_ACQUISITION_TIMED_OUT", "REQUIRED_TOOL_ACQUISITION_FAILED", "REQUIRED_TOOL_CAPABILITY_UNAVAILABLE", "REQUIRED_TOOL_AMBIGUOUS_CONFIGURATION", "REQUIRED_TOOL_AUTHORIZATION_REQUIRED")
-        private val engineeringPreflightCodes = setOf("ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED", "VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED", "SOURCE_REVISION_REQUIRED", "VALIDATION_REVISION_UNAVAILABLE", "VALIDATION_RUNTIME_UNAVAILABLE", "ENGINEERING_REPOSITORY_ACCESS_REQUIRED", "SOURCE_REVISION_CHANGED")
+        private val engineeringPreflightCodes = GatewayEngineeringPrerequisites.codes
         private val gatewayAdmissionCodes = dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionReason.entries.mapTo(hashSetOf()) { "GATEWAY_${it.name}" }
         private val continuationCodes = setOf("OUTPUT_CONTINUATION_PENDING_TOOLS", "OUTPUT_CONTINUATION_NO_PROGRESS", "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_UNAVAILABLE", "FINAL_RESPONSE_REQUIRED")
         private val modelPreparationCodes = setOf("MODEL_PREPARATION_INCOMPLETE", "MODEL_PREPARATION_REJECTED", "MODEL_PREPARATION_STORAGE_UNAVAILABLE", "MODEL_PREPARATION_CONNECTION_FAILED")
@@ -105,7 +109,7 @@ data class ProfileFailureRecord(
             val generationCompleted = (details?.get("generation_completed") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
             val causeTypes = (details?.get("cause_types") as? JsonArray).orEmpty().take(16).mapNotNull { (it as? JsonPrimitive)?.contentOrNull?.takeIf { value -> value.length <= 160 && value.matches(Regex("[A-Za-z0-9_.$]+")) } }
             val recoveryActions = (listOfNotNull(details?.get("recovery_action") ?: details?.get("next_action")) + ((details?.get("recovery_actions") ?: details?.get("allowed_recovery_actions")) as? JsonArray).orEmpty()).mapNotNull { item ->
-                (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RETRY_AFTER_CONFIGURATION_CHANGE", "RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE") }
+                (item as? JsonPrimitive)?.contentOrNull?.uppercase(java.util.Locale.ROOT)?.takeIf { it in GatewayEngineeringPrerequisites.recoveryActions || it in setOf("REFRESH_REPOSITORY_ACCESS", "CHANGE_REPOSITORY", "SELECT_REF", "OPEN_ACTIVE_JOB", "RETURN_CLIENT_TOOL_RESULTS", "WAIT_FOR_ACTIVE_JOB", "QUEUE_INSTRUCTION", "RESOLVE_ACTIVE_JOB", "RETRY_AFTER_CONFIGURATION_CHANGE", "RESUME_UNFINISHED_WORK", "RECONCILE_REMOTE_OUTCOME", "SELECT_REVIEW_BASELINE", "RESTORE_REVIEW_COMPARISON_EVIDENCE") }
             }.distinct()
             // A local rejection must not replace an already ambiguous remote operation.
             if (observed.category in setOf(GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")) {

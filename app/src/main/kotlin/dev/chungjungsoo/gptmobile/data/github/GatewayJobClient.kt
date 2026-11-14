@@ -79,7 +79,10 @@ class GatewayJobClient internal constructor(
                                 GatewaySurfacePolicy.shared.observe(GatewaySurfacePolicy.identity(config), GatewaySurfacePolicy.Surface.CAPABILITIES, response.status.value)
                             }
                             if (!response.status.isSuccess()) {
-                                val code = safeGatewayAdmissionCode(response.headers["X-Gateway-Admission-Error"])
+                                val directModelServer = response.headers[HttpHeaders.Server]?.substringBefore('/')?.equals("llama.cpp", ignoreCase = true) == true &&
+                                    response.headers["X-Gateway-Instance-ID"].isNullOrBlank() &&
+                                    GatewayClientDiagnostics.runtimeEpoch(config) == "unobserved"
+                                val code = gatewayAdmissionWireCode(response.headers["X-Gateway-Admission-Error"], response.status.value, surface, directModelServer)
                                 val body = if (code == null) {
                                     try {
                                         response.boundedMetadata(16 * 1024)
@@ -92,13 +95,10 @@ class GatewayJobClient internal constructor(
                                 } else {
                                     null
                                 }
-                                val directModelServer = response.headers[HttpHeaders.Server]?.substringBefore('/')?.equals("llama.cpp", ignoreCase = true) == true &&
-                                    response.headers["X-Gateway-Instance-ID"].isNullOrBlank() &&
-                                    GatewayClientDiagnostics.runtimeEpoch(config) == "unobserved"
                                 val failure = gatewayAdmissionFailure(response.status.value, surface, code, body, directModelServer)
                                 dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record(
                                     "Gateway",
-                                    "ADMISSION_READ · phase=${failure.phase} · surface=$surface · method=GET · responseHeadersReceived=true · httpStatus=${failure.httpStatus} · responseService=${if (directModelServer) "LLAMA_CPP" else "UNVERIFIED"} · code=${failure.wireCode ?: failure.reason.name} · dependentDispatch=${failure.dispatchState}",
+                                    "ADMISSION_READ · phase=${failure.phase} · surface=$surface · method=GET · responseHeadersReceived=true · httpStatus=${failure.httpStatus} · responseService=${if (directModelServer) "LLAMA_CPP" else "UNVERIFIED"} · code=${failure.wireCode ?: failure.reason.name} · codeSource=${if (failure.wireCode == null) "HTTP_STATUS" else "GATEWAY"} · dependentDispatch=${failure.dispatchState}",
                                     "W"
                                 )
                                 throw failure

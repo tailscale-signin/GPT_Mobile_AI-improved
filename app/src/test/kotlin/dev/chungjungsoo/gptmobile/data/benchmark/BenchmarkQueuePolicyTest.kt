@@ -97,4 +97,22 @@ class BenchmarkQueuePolicyTest {
         assertTrue(benchmarkSuiteForVersion(999, BenchmarkMode.FULL).isEmpty())
         current.filter { it.category == "json" || it.category == "intelligence" }.forEach { kotlinx.serialization.json.Json.parseToJsonElement(checkNotNull(it.expected)) }
     }
+
+    @Test fun dispatchBoundaryAndHttpRejectionDoNotBecomeExecutedModelCases() {
+        val attempted = BenchmarkSample("task", "Task", "task", BenchmarkOutcome.ERROR, physicalRequestIds = listOf("physical-attempt"))
+        fun run(sample: BenchmarkSample) = BenchmarkRun("run", "profile", "Name", "LLAMA", "model", "config", false, BenchmarkMode.QUICK, 1, listOf(sample), plannedTrials = 1)
+        val unknown = run(attempted)
+        assertEquals(0, benchmarkCoverage(unknown).executed)
+        assertEquals(0, benchmarkCoverage(unknown).admitted)
+        val unknownMetrics = benchmarkMetricResults(listOf(unknown)).associateBy { it.id }
+        assertEquals(1, unknownMetrics.getValue("delivery_completion").denominator)
+        assertNull(unknownMetrics.getValue("profile_availability").value)
+        val rejected = run(attempted.copy(providerHttpStatus = 400, requestAdmitted = false))
+        assertEquals(0, benchmarkCoverage(rejected).executed)
+        assertEquals(0, benchmarkCoverage(rejected).executionUnknown)
+        assertEquals(0.0, benchmarkMetricResults(listOf(rejected)).single { it.id == "profile_availability" }.value!!, .001)
+        val uncertain = run(attempted.copy(providerHttpStatus = 500, requestDispatched = true))
+        assertEquals(0, benchmarkCoverage(uncertain).executed)
+        assertEquals(1, benchmarkCoverage(uncertain).executionUnknown)
+    }
 }

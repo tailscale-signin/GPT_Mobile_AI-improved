@@ -27,6 +27,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerializationException
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -34,6 +35,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.intOrNull
 
@@ -502,7 +504,8 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     /** Export never hydrates/re-publishes history or parses an obsolete canonical backup mirror. */
     suspend fun writeExport(
         output: OutputStream,
-        detailed: Boolean = false
+        detailed: Boolean = false,
+        includePrivateProfileDetails: Boolean = false
     ) = withContext(Dispatchers.IO) {
         mutex.withLock {
             loadEnrollmentLocked()
@@ -616,7 +619,7 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                         add(if (normalized == null) original else preserveBenchmarkExportUnknown(original, normalized))
                     }
                 }
-            val writer = BenchmarkStreamingExport(output)
+            val writer = BenchmarkStreamingExport(output, includePrivateProfileDetails)
             writeBenchmarkExport(writer, source, detailed) { fields ->
                 fields.put("runs", storedRecords(BenchmarkExportTable.RUNS))
                 fields.put("scoreTable", rawScore)
@@ -668,15 +671,14 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     /** Restore benchmark history and rebuild the dynamic score tables from their source runs. */
     suspend fun importBackupJson(payload: String) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            val runs = decodeBackupRuns(payload)
+            val bundle = decodeBackup(payload)
             loadLocked()
-            val restoredRuns = runs.distinctBy { it.id }.map { run ->
+            val restoredRuns = bundle.runs.distinctBy { it.id }.map { run ->
                 if (run.finished) run else run.copy(finished = true, canceled = false, state = "INTERRUPTED", cancellationOrigin = BenchmarkStopOrigin.PROCESS_INTERRUPTION, stoppedReason = run.stoppedReason ?: "Benchmark was in progress at export; restored without replaying requests.")
             }.sortedByDescending { it.startedAt }
-            val bundle = runCatching { json.decodeFromString<BenchmarkBackupPayload>(payload) }.getOrNull()
-            val trials = bundle?.runtimeTrials.orEmpty().map { it.copy(historical = true, finished = true, completed = it.finished && it.completed, failure = if (it.finished) it.failure else "Benchmark interrupted at backup time") }
-            val qualifications = bundle?.runtimeQualifications.orEmpty().map { it.copy(status = QualificationStatus.HISTORICAL, actualBackendConfirmed = false, reason = "Restored evidence requires local verification") }
-            val restoredBatches = bundle?.batches.orEmpty().map { batch ->
+            val trials = bundle.runtimeTrials.map { it.copy(historical = true, finished = true, completed = it.finished && it.completed, failure = if (it.finished) it.failure else "Benchmark interrupted at backup time") }
+            val qualifications = bundle.runtimeQualifications.map { it.copy(status = QualificationStatus.HISTORICAL, actualBackendConfirmed = false, reason = "Restored evidence requires local verification") }
+            val restoredBatches = bundle.batches.map { batch ->
                 if (batch.state in setOf(BenchmarkBatchState.RUNNING, BenchmarkBatchState.QUEUED) || batch.items.any { it.state == BenchmarkQueueState.RUNNING }) {
                     batch.copy(
                         state = BenchmarkBatchState.INTERRUPTED,
@@ -689,18 +691,18 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                     batch
                 }
             }
-            val restoredAttempts = bundle?.attempts.orEmpty().map { if (it.state == "STARTED") it.copy(state = "INTERRUPTED", dispatchUncertain = true) else it }
+            val restoredAttempts = bundle.attempts.map { if (it.state == "STARTED") it.copy(state = "INTERRUPTED", dispatchUncertain = true) else it }
             val next = DynamicScoreEngine.snapshot(restoredRuns, (dao.current()?.generation ?: 0) + 1, System.currentTimeMillis(), activeRevisions)
             dao.restoreAll(
                 restoredRuns.map { BenchmarkRunRecord(it.id, it.startedAt, json.encodeToString(it)) },
                 BenchmarkSnapshotRecord(next.generation, next.createdAt, json.encodeToString(next)),
                 trials.map { RuntimeTrialRecord(it.id, it.timestamp, json.encodeToString(it)) },
                 qualifications.map { RuntimeQualificationRecord(it.plan.id, json.encodeToString(it)) },
-                bundle?.runtimeDecisions.orEmpty().take(500).map { RuntimeDecisionRecord(it.id, it.timestamp, json.encodeToString(it.copy(historical = true))) },
+                bundle.runtimeDecisions.take(500).map { RuntimeDecisionRecord(it.id, it.timestamp, json.encodeToString(it.copy(historical = true))) },
                 restoredBatches.map { BenchmarkBatchRecord(it.id, it.createdAt, it.state.name, json.encodeToString(it)) },
                 restoredBatches.flatMap { batch -> batch.items.map { BenchmarkQueueRecord(batch.id, it.ordinal, it.runId, it.state.name, json.encodeToString(it)) } },
                 restoredAttempts.map { BenchmarkAttemptRecord(it.id, it.batchId, it.ordinal, it.caseId, json.encodeToString(it)) },
-                bundle?.batchEvents.orEmpty().map { BenchmarkEventRecord(it.batchId, it.sequence, json.encodeToString(it)) }
+                bundle.batchEvents.map { BenchmarkEventRecord(it.batchId, it.sequence, json.encodeToString(it)) }
             )
             mutableRuntimeTrials.value = trials
             mutableQualifications.value = qualifications
@@ -712,25 +714,75 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
     }
 
     fun validateBackupJson(payload: String) {
-        decodeBackupRuns(payload)
+        decodeBackup(payload)
     }
 
-    private fun decodeBackupRuns(payload: String): List<BenchmarkRun> {
+    private fun decodeBackup(payload: String): BenchmarkBackupPayload = try {
         val decoded = json.parseToJsonElement(payload)
-        val bundle = runCatching { json.decodeFromJsonElement<BenchmarkBackupPayload>(decoded) }.getOrNull()
-        if (bundle != null) {
-            val storageField = (decoded as? kotlinx.serialization.json.JsonObject)?.get("storageSchemaVersion")
-            val storageVersion = if (storageField == null) bundle.schemaVersion else requireNotNull((storageField as? kotlinx.serialization.json.JsonPrimitive)?.intOrNull) { "Invalid benchmark storage schema version." }
-            require(bundle.schemaVersion in 1..3 && storageVersion in 1..3) { "This benchmark backup requires a newer app version." }
+        val bundle = if (decoded is JsonObject) {
+            // Shareable exports represent a redacted endpoint as null. The frozen
+            // profile has a non-null URL and its default represents an absent URL.
+            val batches = decoded["batches"]
+            val normalized = if (batches is JsonArray) {
+                val diagnosticExport = decoded["format"] == JsonPrimitive("gptmobile.benchmarks.v2")
+                JsonObject(decoded + ("batches" to JsonArray(batches.map { restoreRedactedBatch(it, diagnosticExport) })))
+            } else {
+                decoded
+            }
+            json.decodeFromJsonElement<BenchmarkBackupPayload>(normalized).also {
+                val storageField = decoded["storageSchemaVersion"]
+                val storageVersion = if (storageField == null) it.schemaVersion else requireNotNull((storageField as? JsonPrimitive)?.intOrNull) { "Invalid benchmark storage schema version." }
+                require(it.schemaVersion in 1..3 && storageVersion in 1..3) { "This benchmark backup requires a newer app version." }
+            }
+        } else {
+            BenchmarkBackupPayload(runs = json.decodeFromJsonElement<List<BenchmarkRun>>(decoded))
         }
-        val runs = bundle?.runs ?: json.decodeFromJsonElement<List<BenchmarkRun>>(decoded)
+        val runs = bundle.runs
         require(runs.size <= MAX_BACKUP_RUNS) { "Benchmark backup contains too many runs." }
         require(runs.all { it.id.isNotBlank() && it.profileUid.isNotBlank() }) { "Benchmark backup contains invalid records." }
-        require(bundle?.batches.orEmpty().size <= MAX_BACKUP_RUNS && bundle?.attempts.orEmpty().size <= MAX_BACKUP_RUNS * 100) { "Benchmark queue backup is too large" }
-        require(bundle?.batches.orEmpty().all { batch -> batch.id.isNotBlank() && batch.items.map { it.ordinal }.distinct().size == batch.items.size && batch.items.all { it.runId.isNotBlank() && it.profile.uid.isNotBlank() } }) { "Invalid benchmark queue" }
-        require(bundle?.runtimeTrials.orEmpty().size <= MAX_BACKUP_RUNS && bundle?.runtimeQualifications.orEmpty().size <= MAX_BACKUP_RUNS) { "Runtime evidence backup is too large" }
-        require(bundle?.runtimeTrials.orEmpty().all { it.id.isNotBlank() && it.durationMs >= 0 }) { "Invalid runtime trial" }
-        return runs
+        require(bundle.batches.size <= MAX_BACKUP_RUNS && bundle.attempts.size <= MAX_BACKUP_RUNS * 100) { "Benchmark queue backup is too large" }
+        require(bundle.batches.all { batch -> batch.id.isNotBlank() && batch.items.map { it.ordinal }.distinct().size == batch.items.size && batch.items.all { it.runId.isNotBlank() && it.profile.uid.isNotBlank() } }) { "Invalid benchmark queue" }
+        require(bundle.runtimeTrials.size <= MAX_BACKUP_RUNS && bundle.runtimeQualifications.size <= MAX_BACKUP_RUNS) { "Runtime evidence backup is too large" }
+        require(bundle.runtimeTrials.all { it.id.isNotBlank() && it.durationMs >= 0 }) { "Invalid runtime trial" }
+        bundle
+    } catch (_: SerializationException) {
+        // Serializer exceptions can contain profile/backup JSON. Do not attach them.
+        throw IllegalArgumentException("Invalid benchmark backup data. The JSON structure does not match a supported benchmark backup.")
+    }
+
+    private fun restoreRedactedBatch(element: JsonElement, diagnosticExport: Boolean): JsonElement {
+        val batch = element as? JsonObject ?: return element
+        val restored = batch.toMutableMap()
+        val redactedUids = mutableSetOf<String>()
+        for (key in listOf("delegationPrimary", "delegationReviewer")) {
+            batch[key]?.let { restored[key] = restoreRedactedProfile(it, diagnosticExport, redactedUids) }
+        }
+        val items = batch["items"] as? JsonArray
+        if (items != null) {
+            restored["items"] = JsonArray(
+                items.map { item ->
+                    val entry = item as? JsonObject
+                    val profile = entry?.get("profile")
+                    if (entry != null && profile != null) JsonObject(entry + ("profile" to restoreRedactedProfile(profile, diagnosticExport, redactedUids))) else item
+                }
+            )
+        }
+        val existing = batch["redactedEndpointProfileUids"]
+        if (redactedUids.isNotEmpty() && (existing == null || existing is JsonArray)) {
+            restored["redactedEndpointProfileUids"] = JsonArray(existing.orEmpty() + redactedUids.map(::JsonPrimitive))
+        }
+        return JsonObject(restored)
+    }
+
+    private fun restoreRedactedProfile(element: JsonElement, diagnosticExport: Boolean, redactedUids: MutableSet<String>): JsonElement {
+        val profile = element as? JsonObject ?: return element
+        // A nullable batch URL is also a legitimate default in complete backups.
+        // Only diagnostic exports make its absence evidence of redaction.
+        val batchEndpointRedacted = diagnosticExport && (profile["batchMode"] as? JsonPrimitive)?.booleanOrNull == true && profile["batchApiUrl"] == JsonNull
+        if (profile["apiUrl"] == JsonNull || batchEndpointRedacted) {
+            (profile["uid"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotBlank() }?.let(redactedUids::add)
+        }
+        return if (profile["apiUrl"] == JsonNull) JsonObject(profile - "apiUrl") else profile
     }
 
     suspend fun saveRuntimeTrial(trial: RuntimeTrial) = withContext(Dispatchers.IO) {

@@ -8,6 +8,54 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class ProviderExceptionDetailsTest {
+    @Test fun rejectedCapacityEvidenceKeepsTheCompleteNumericPartitionAndNoPrivateIdentity() {
+        val runtime = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint("private-profile", "private-route", "private-credential", "private-model", "private-model", "private-runtime", "private-template", "private-allocation")
+        val capacity = dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(runtime, 5632, outputTokens = 2048, provenance = dev.chungjungsoo.gptmobile.data.context.CapacityProvenance.VERIFIED_ROUTE, observedAtMillis = 1000)
+        val payload = """{"messages":[{"role":"system","content":"private system"},{"role":"user","content":"private history"},{"role":"assistant","content":"private answer"},{"role":"tool","content":"private result"},{"role":"user","content":"private question"}],"tools":[{"name":"private_tool"}],"response_format":{"type":"json_object"}}"""
+        val measurement = dev.chungjungsoo.gptmobile.data.context.RequestMeasurement(10461, 2615, dev.chungjungsoo.gptmobile.data.context.TokenMeasurementKind.UTF8_ESTIMATE)
+        val budget = dev.chungjungsoo.gptmobile.data.context.PromptBudgets.capture(payload, measurement, 4096, 5632, "private-template")
+        val observation = dev.chungjungsoo.gptmobile.data.context.CapacityAdmissionObservation(capacity, 5632, 32768, 8192)
+        val error = dev.chungjungsoo.gptmobile.data.context.RequestCapacityException("CONTEXT_CAPACITY_EXCEEDED", "No inference sent", 10461, 2615, 4096, 5632, measurement.kind, budget, observation)
+        val fields = requireNotNull(providerExceptionDetails(error, false, monotonicMillis = 1500)?.failureDetails)
+        assertEquals(JsonPrimitive(5632), fields["admission_route_context_tokens"])
+        assertEquals(JsonPrimitive(32768), fields["admission_configured_context_tokens"])
+        assertEquals(JsonPrimitive(8192), fields["admission_catalog_context_tokens"])
+        assertEquals(JsonPrimitive(2048), fields["admission_output_ceiling_tokens"])
+        assertEquals(JsonPrimitive(500), fields["admission_capacity_age_ms"])
+        assertEquals(JsonPrimitive("VERIFIED_ROUTE"), fields["admission_capacity_provenance"])
+        val mapping = mapOf(
+            "system_instructions" to "admission_system_tokens",
+            "retained_history" to "admission_history_tokens",
+            "current_request" to "admission_current_request_tokens",
+            "tool_results" to "admission_tool_result_tokens",
+            "response_schema" to "admission_response_schema_tokens",
+            "serialization_and_template_estimate" to "admission_envelope_tokens",
+            "tool_schemas" to "admission_tool_schema_tokens"
+        )
+        for ((component, field) in mapping) {
+            assertEquals(JsonPrimitive(budget.components.single { it.name == component }.tokens), fields[field])
+        }
+        assertEquals(10461L, budget.components.sumOf { it.tokens })
+        assertEquals(JsonPrimitive(false), fields["dispatched"])
+        assertEquals(JsonPrimitive(false), fields["request_replay_allowed"])
+        assertNull(fields["admission_input_ceiling_tokens"])
+        org.junit.Assert.assertFalse(fields.toString().contains("private"))
+    }
+
+    @Test fun unknownCapacitySourcesAndUnobservedComponentsRemainAbsentAndCountsAreBounded() {
+        val runtime = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint("profile", "route", "credential", "model", "model", "runtime", "template", "allocation")
+        for (observedAt in listOf(0L, 1001L, 1L)) {
+            val capacity = dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(runtime, 5632, observedAtMillis = observedAt)
+            val observation = dev.chungjungsoo.gptmobile.data.context.CapacityAdmissionObservation(capacity, configuredContextTokens = 16_000_001)
+            val error = dev.chungjungsoo.gptmobile.data.context.RequestCapacityException("CONTEXT_CAPACITY_EXCEEDED", "No inference sent", 10461, 2615, 4096, 5632, dev.chungjungsoo.gptmobile.data.context.TokenMeasurementKind.UTF8_ESTIMATE, capacityObservation = observation)
+            val fields = requireNotNull(providerExceptionDetails(error, true, monotonicMillis = if (observedAt == 1L) 16_000_002L else 1000L)?.failureDetails)
+            assertEquals(JsonPrimitive("UNKNOWN"), fields["admission_capacity_provenance"])
+            for (field in listOf("admission_route_context_tokens", "admission_configured_context_tokens", "admission_catalog_context_tokens", "admission_input_ceiling_tokens", "admission_output_ceiling_tokens", "admission_capacity_age_ms", "admission_history_tokens")) assertNull(fields[field])
+            assertNull(fields["dispatched"])
+            assertNull(fields["remote_acceptance"])
+        }
+    }
+
     @Test fun modelPreparationFailureRetainsDependentNonDispatchWithoutInventingAnHttpResult() {
         val state = dev.chungjungsoo.gptmobile.data.context.GatewayModelPreparationState(
             "profile",

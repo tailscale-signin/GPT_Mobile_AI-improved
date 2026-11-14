@@ -171,6 +171,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                 put("meaning", "Passed weight / measured pass-or-fail weight. Configuration, cache, unavailable, blocked, skipped and untested rows do not grant success. No general intelligence, hardware or whole-app quality score is claimed.")
             }
         )
+        writer.field("githubIntegration", appAuditGitHubSummaryJson(boundedRun, completeEvidence))
         writer.records(
             "checks",
             retainedPlan.asSequence().map { entry ->
@@ -180,6 +181,7 @@ suspend fun writeAppAuditExport(output: OutputStream, batch: BenchmarkBatch, sou
                     put("probeId", safeProbe(entry.probeId))
                     put("label", safeAuditLabel(entry.probeId, entry.componentId))
                     put("componentId", safeComponent(entry.componentId))
+                    put("githubCategory", AppAuditGitHubCatalog.category(entry)?.id)
                     put("targetAlias", entry.targetId?.let(targets::get))
                     put("sourceAreaIds", JsonArray(entry.sourceAreaIds.take(MAX_SOURCE_AREAS).map { JsonPrimitive(safeArea(it)) }))
                     put("evidenceKind", entry.evidenceKind.name)
@@ -422,7 +424,7 @@ private fun safeDigest(value: String?): String? = value?.takeIf { it.matches(Reg
 private fun Long.nonnegative(): JsonElement = takeIf { it >= 0 }?.let(::JsonPrimitive) ?: JsonNull
 private fun safeRunId(value: String): String = value.takeIf { it.matches(Regex("[a-f0-9]{8}(-[a-f0-9]{4}){3}-[a-f0-9]{12}")) } ?: "audit-${appAuditTargetDigest(value)}"
 private fun safeArea(value: String): String = value.takeIf { id -> AppAuditSourceInventory.areas.any { it.id == id } } ?: "unknown_source_area"
-private fun safeSource(value: String): String = value.takeIf { it in setOf("local-contracts", "plugins", "source-inventory", "behavior", "appearance", "research_contract", "memory_contract", "selected_models") } ?: "unknown_source"
+private fun safeSource(value: String): String = value.takeIf { it in setOf("local-contracts", "plugins", "source-inventory", "behavior", "appearance", "research_contract", "memory_contract", "selected_models", AppAuditGitHubCatalog.CONTRACT_SOURCE, AppAuditGitHubCatalog.LIVE_SOURCE) } ?: "unknown_source"
 private fun safeProbe(value: String): String = value.takeIf { it in AUDIT_LABELS } ?: "unknown_probe"
 private fun safeAuditLabel(probe: String, component: String): String =
     AppAuditPluginProbeSource.label(probe, component) ?: AUDIT_LABELS[probe] ?: "Unrecognized audit check"
@@ -435,7 +437,7 @@ private fun safeComponent(value: String): String = value.takeIf {
 
 internal fun safeAuditReason(value: String): String = value.takeIf { it in AUDIT_REASONS } ?: "UNKNOWN_REASON"
 
-private val AUDIT_LABELS = AppAuditPluginProbeSource.labels + AppAuditSelectedModelProbeSource.labels + mapOf(
+private val AUDIT_LABELS = AppAuditPluginProbeSource.labels + AppAuditSelectedModelProbeSource.labels + AppAuditGitHubCatalog.labels + mapOf(
     "calculator" to "Calculator arithmetic and argument validation", "date-clock" to "Date tool with a fixed leap-day clock",
     "text-slice" to "Bounded text slices and invalid ranges", "selected-routing" to "Selected-profile routing and pressure refusal",
     "usage-accounting" to "Token counter and exact cost arithmetic", "dispatch-receipts" to "Unknown outcomes remain distinct from rejection",
@@ -457,7 +459,7 @@ private val AUDIT_LABELS = AppAuditPluginProbeSource.labels + AppAuditSelectedMo
     "memory_graph_v1" to "Knowledge graph extraction and bounded recall"
 )
 private val AUDIT_STAGES = AppAuditPluginProbeSource.stages + setOf("admission", "execution", "interruption", "validation", "fixture")
-private val AUDIT_REASONS = AppAuditPluginProbeSource.reasonCodes + AppAuditSelectedModelProbeSource.reasonCodes + setOf(
+private val AUDIT_REASONS = AppAuditPluginProbeSource.reasonCodes + AppAuditSelectedModelProbeSource.reasonCodes + AppAuditGitHubCatalog.reasonCodes + setOf(
     "AUDIT_VERSION_CHANGED", "INVALID_COVERAGE_CLAIM", "AUDIT_SOURCE_CHANGED", "AUDIT_MANIFEST_CHANGED", "INVALID_AUDIT_MANIFEST",
     "INVALID_AUDIT_RECEIPTS", "INVALID_AUDIT_BUDGET", "RUN_BUDGET_EXHAUSTED", "RUN_DEADLINE_EXCEEDED", "NOT_SELECTED", "NOT_CONFIGURED",
     "UNSUPPORTED", "PERMISSION_REQUIRED", "EXTERNAL_HARNESS_REQUIRED", "MODEL_EXECUTION_NOT_SELECTED", "NETWORK_READS_DISABLED",

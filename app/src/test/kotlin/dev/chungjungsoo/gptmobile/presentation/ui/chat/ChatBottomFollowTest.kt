@@ -5,64 +5,32 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ChatBottomFollowTest {
-    @Test
-    fun contentGrowthWhileFollowing_keepsFollowEnabled() {
-        assertTrue(
-            nextFollowBottom(
-                isFollowing = true,
-                isUserScrolling = false,
-                isScrollingAway = false,
-                canScrollForward = true
-            )
-        )
+    @Test fun downwardBottomArrivalUsesTheSameFollowActionAsTheButton() {
+        val intent = GitHubPromptAnchor(8f, GitHubScrollMode.USER_HISTORY)
+        intent.move(-20f)
+        intent.endGesture()
+        assertFalse(intent.shouldFollowAtBottom(false))
+        assertTrue(intent.shouldFollowAtBottom(true))
+        intent.followBottom()
+        assertTrue(intent.mode == GitHubScrollMode.FOLLOW_BOTTOM)
     }
 
-    @Test
-    fun userDragAwayFromBottom_disablesFollowing() {
-        assertFalse(
-            nextFollowBottom(
-                isFollowing = true,
-                isUserScrolling = true,
-                isScrollingAway = true,
-                canScrollForward = true
-            )
-        )
+    @Test fun upwardInputDetachesEvenIfTheBottomSentinelIsStillVisible() {
+        val intent = GitHubPromptAnchor(8f, GitHubScrollMode.FOLLOW_BOTTOM)
+        intent.move(9f)
+        assertTrue(intent.mode == GitHubScrollMode.USER_HISTORY)
+        assertFalse(intent.shouldFollowAtBottom(true))
+        intent.endGesture()
+        assertFalse(intent.shouldFollowAtBottom(true))
     }
 
-    @Test
-    fun reachingBottom_reenablesFollowing() {
-        assertTrue(
-            nextFollowBottom(
-                isFollowing = false,
-                isUserScrolling = false,
-                isScrollingAway = false,
-                canScrollForward = false
-            )
-        )
-    }
-
-    @Test
-    fun userDragTowardBottomBeforeReachingIt_keepsFollowingDisabled() {
-        assertFalse(
-            nextFollowBottom(
-                isFollowing = false,
-                isUserScrolling = true,
-                isScrollingAway = false,
-                canScrollForward = true
-            )
-        )
-    }
-
-    @Test
-    fun backwardFlingAfterPointerUp_disablesFollowing() {
-        assertFalse(
-            nextFollowBottom(
-                isFollowing = true,
-                isUserScrolling = true,
-                isScrollingAway = true,
-                canScrollForward = true
-            )
-        )
+    @Test fun keyboardHeaderAndIdleGeometryChangesNeverReattachHistory() {
+        val intent = GitHubPromptAnchor(8f, GitHubScrollMode.USER_HISTORY)
+        assertFalse(intent.shouldFollowAtBottom(true))
+        intent.move(-20f)
+        intent.endGesture()
+        intent.finishScroll()
+        assertFalse(intent.shouldFollowAtBottom(true))
     }
 
     @Test

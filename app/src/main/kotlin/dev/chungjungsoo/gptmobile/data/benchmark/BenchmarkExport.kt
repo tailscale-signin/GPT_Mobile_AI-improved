@@ -79,17 +79,38 @@ internal fun preserveBenchmarkExportUnknown(original: JsonElement?, normalized: 
     else -> normalized
 }
 
-internal fun redactBenchmarkExport(value: JsonElement): JsonElement = when (value) {
-    is JsonObject -> JsonObject(
-        value.mapValues { (key, item) ->
+internal fun redactBenchmarkExport(value: JsonElement, includePrivateProfileDetails: Boolean = false): JsonElement = when (value) {
+    is JsonObject -> buildJsonObject {
+        for ((key, item) in value) {
+            val normalized = key.lowercase().replace("_", "")
             when {
-                key.lowercase() in setOf("token", "secretref", "apikey", "api_key", "authorization", "cookie", "password") -> JsonNull
-                key.lowercase() in setOf("apiurl", "endpoint", "baseurl") && item is JsonPrimitive && item.isString -> JsonPrimitive(runCatching { java.net.URI(item.content).let { uri -> java.net.URI(uri.scheme, null, uri.host, uri.port, uri.path, null, null).toString() } }.getOrDefault("[redacted endpoint]"))
-                else -> redactBenchmarkExport(item)
+                normalized in setOf("token", "secretref", "apikey", "authorization", "cookie", "password") -> put(key, JsonNull)
+                normalized == "systemprompt" && item is JsonPrimitive && item.isString -> {
+                    put("systemPromptDigest", benchmarkHash(item.content))
+                    if (includePrivateProfileDetails) put(key, DiagnosticRedactor.redact(item.content))
+                }
+                normalized == "systempromptdigest" && value["systemPrompt"]?.let { it is JsonPrimitive && it.isString } == true -> Unit
+                normalized in setOf("apiurl", "batchapiurl", "endpoint", "baseurl", "configuredendpoint") && item is JsonPrimitive && item.isString -> {
+                    if (includePrivateProfileDetails) {
+                        put(
+                            key,
+                            runCatching {
+                                java.net.URI(item.content).let { uri ->
+                                    java.net.URI(uri.scheme, null, requireNotNull(uri.host), uri.port, uri.path, null, null).toString()
+                                }
+                            }.getOrDefault("[redacted endpoint]")
+                        )
+                    } else {
+                        put(key, JsonNull)
+                        val route = (value["compatibleType"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+                        put("routeLabel", route?.takeIf { candidate -> dev.chungjungsoo.gptmobile.data.model.ClientType.entries.any { it.name == candidate } } ?: "Configured endpoint")
+                    }
+                }
+                else -> put(key, redactBenchmarkExport(item, includePrivateProfileDetails))
             }
         }
-    )
-    is JsonArray -> JsonArray(value.map(::redactBenchmarkExport))
+    }
+    is JsonArray -> JsonArray(value.map { redactBenchmarkExport(it, includePrivateProfileDetails) })
     is JsonPrimitive -> if (value.isString) JsonPrimitive(DiagnosticRedactor.redact(value.content)) else value
     else -> value
 }

@@ -270,7 +270,11 @@ internal suspend fun Flow<ApiState>.collectApiStateUpdates(
             !isCompletedSuccessfully && terminalError == null
         }.collect {}
     } finally {
-        if (isCompletedSuccessfully && terminalError == null && buffer.hasResponse) buffer.finishGitHubProgress()
+        if (isCompletedSuccessfully && terminalError == null && buffer.hasResponse) {
+            buffer.finishGitHubProgress()
+        } else {
+            buffer.retireGitHubActivity()
+        }
         buffer.finishAssist(isCompletedSuccessfully, terminalError)
         buffer.flush(onUpdate)
     }
@@ -400,6 +404,7 @@ private class StreamingMessageBuffer(
         if (githubProgress) {
             if (timeline.none { it.statusSummary && it.content == item.content.take(1200) }) {
                 timeline += item.copy(content = item.content.take(1200), progressCheckpoint = true, progressSequence = ++progressSequence)
+                timelineVersion++
             }
             chunk.preview?.takeIf(String::isNotBlank)?.let { preview ->
                 appendProgress(preview, modelAuthored = false)
@@ -407,9 +412,14 @@ private class StreamingMessageBuffer(
             boundGitHubProgress()
         } else {
             val existing = timeline.indexOfFirst { it.statusSummary }
-            if (existing < 0) timeline.add(0, item) else timeline[existing] = item
+            if (existing < 0) {
+                timeline.add(0, item)
+                timelineVersion++
+            } else if (timeline[existing] != item) {
+                timeline[existing] = item
+                timelineVersion++
+            }
         }
-        timelineVersion++
     }
 
     fun beginGitHubRound() {
@@ -444,6 +454,20 @@ private class StreamingMessageBuffer(
         flushTimelineText()
         timeline.removeAll { it.progressCheckpoint || it.statusSummary }
         timelineVersion++
+    }
+
+    fun retireGitHubActivity() {
+        if (!githubProgress) return
+        flushTimelineText()
+        if (timeline.removeAll {
+                it.progressCheckpoint &&
+                    !it.statusSummary &&
+                    !it.modelAuthored &&
+                    dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.isTransientActivity(it.content)
+            }
+        ) {
+            timelineVersion++
+        }
     }
 
     private fun boundGitHubProgress() {
@@ -552,7 +576,12 @@ private class StreamingMessageBuffer(
 
     private fun repeatsGitHubPreview(text: String): Boolean {
         if (!githubProgress) return false
-        val previous = timeline.lastOrNull { it.progressCheckpoint && !it.statusSummary } ?: return false
+        val previous = timeline.withIndex()
+            .filter { it.value.progressCheckpoint && !it.value.statusSummary }
+            .maxWithOrNull(
+                compareBy<IndexedValue<AssistantTimelineItem>> { it.value.progressSequence != null }
+                    .thenBy { it.value.progressSequence ?: it.index.toLong() }
+            )?.value ?: return false
         return dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.lineKey(previous.content) ==
             dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.lineKey(text.take(4000))
     }
@@ -563,7 +592,8 @@ private class StreamingMessageBuffer(
         if (liveKey != null) {
             val index = timeline.indexOfLast { it.progressCheckpoint && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(it.content) == liveKey }
             val current = text.take(4000)
-            if (timeline.getOrNull(index)?.content == current) return
+            val previous = timeline.getOrNull(index)
+            if (previous?.content == current && previous.progressSequence == progressSequence) return
             val item = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, content = current, progressCheckpoint = true, progressId = liveKey, progressSequence = ++progressSequence)
             if (index < 0) timeline += item else timeline[index] = item
             boundGitHubProgress()

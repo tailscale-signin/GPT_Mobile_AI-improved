@@ -10,9 +10,42 @@ import org.junit.Test
 class GitHubActivityLinesTest {
     private fun line(text: String, summary: Boolean = false) = AssistantTimelineItem(AssistantTimelineItemType.NOTICE, text, progressCheckpoint = true, statusSummary = summary)
 
-    @Test fun retainedPreparationPreviewFollowsFirstSummaryWithoutReorderingLaterUpdates() {
+    @Test fun summariesStayAboveTheNewestPreviewPair() {
         val lines = gitHubActivityLines(listOf(line("Preparing"), line("First summary", true), line("Reading"), line("Next summary", true), line("Checking")), "fix")
-        assertEquals(listOf("First summary", "Preparing", "Reading", "Next summary", "Checking"), lines.map { it.content })
+        assertEquals(listOf("First summary", "Preparing", "Next summary", "Reading", "Checking"), lines.map { it.content })
+    }
+
+    @Test fun returningToEarlierActivityKeepsTheLatestActivationAtTheBottom() {
+        val first = line("Reading source files").copy(progressId = "read-1", progressSequence = 1)
+        val second = line("Checking workflow runs").copy(progressId = "checks-2", progressSequence = 2)
+        val latest = first.copy(progressId = "read-3", progressSequence = 3)
+        val lines = gitHubActivityLines(listOf(first, second, latest), "review", active = true)
+        assertEquals(listOf("checks-2", "read-3"), lines.takeLast(2).map { it.progressId })
+        assertEquals(listOf(1L, 2L, 3L), lines.filterNot { it.statusSummary }.map { it.progressSequence })
+    }
+
+    @Test fun stoppedHistoryHidesOnlyAutomaticTransientActivityAndPreservesEvidence() {
+        val transient = line("Putting the response together.")
+        val fact = line("Checks: 8 successful, 1 skipped, 9 running, 0 failed.")
+        val approval = line("Waiting for approval before committing.")
+        val authored = transient.copy(modelAuthored = true)
+        val retained = listOf(transient, fact, approval, authored)
+        val active = gitHubActivityLines(retained, "review", active = true)
+        assertTrue(active.any { it.content == transient.content && !it.modelAuthored })
+        val stopped = gitHubActivityLines(retained, "review", active = false)
+        assertFalse(stopped.any { it.content == transient.content && !it.modelAuthored })
+        assertTrue(stopped.any { it.content.startsWith("Checks:") })
+        assertTrue(stopped.any { it.content == approval.content })
+        assertTrue(stopped.any { it.content == authored.content && it.modelAuthored })
+    }
+
+    @Test fun compactedCounterBetweenIdenticalActivitiesDoesNotHideTheNewestActivation() {
+        val counter = line("Checks: 3/8 verified").copy(progressId = "checks", progressSequence = 3)
+        val first = line("Reading source files").copy(progressId = "read-2", progressSequence = 2)
+        val latest = first.copy(progressId = "read-4", progressSequence = 4)
+        val lines = gitHubActivityLines(listOf(counter, first, latest), "review", active = true)
+        assertEquals(listOf("read-2", "checks", "read-4"), lines.filterNot { it.statusSummary }.map { it.progressId })
+        assertEquals(listOf(3L, 4L), lines.takeLast(2).map { it.progressSequence })
     }
 
     @Test fun absentSummaryAndCompactWindowStillStartWithTextSummary() {
@@ -55,20 +88,20 @@ class GitHubActivityLinesTest {
     @Test fun repeatedCountsReplaceTheSamePublicLineAndSummaryDoesNotRecur() {
         val lines = gitHubActivityLines(listOf(line("Summary", true), line("Checks: 1/8 complete. Reading files."), line("Other summary", true), line("Summary", true), line("Checks: 3/8 complete; 1 failed. Checking jobs.")), "test all")
         assertEquals(1, lines.count { it.content.startsWith("Checks:") })
-        assertEquals("Checks: 3/8 complete; 1 failed", lines[1].content)
-        assertEquals("github-check-counts", lines[1].progressId)
+        assertEquals("Checks: 3/8 complete; 1 failed", lines.last().content)
+        assertEquals("github-check-counts", lines.last().progressId)
         assertEquals(1, lines.count { it.content == "Summary" })
     }
 
-    @Test fun independentCountersUpdateTheirOriginalRowsAndSurviveHistoryTrimming() {
+    @Test fun reactivatedCountersRemainTheNewestPairAfterHistoryTrimming() {
         val timeline = listOf(line("Summary", true), line("Check 1/8"), line("Files: 2/6")) +
             (1..30).map { line("Reviewing item $it") } + listOf(line("Check 3/8"), line("Files: 5/6"))
         val lines = gitHubActivityLines(timeline, "test")
-        assertEquals(listOf("Summary", "Check 3/8", "Files: 5/6"), lines.take(3).map { it.content })
+        assertEquals(listOf("Check 3/8", "Files: 5/6"), lines.takeLast(2).map { it.content })
         val visible = gitHubVisibleActivityLines(lines, compact = true)
         assertEquals(20, visible.size)
-        assertEquals(listOf("Summary", "Check 3/8", "Files: 5/6"), visible.take(3).map { it.content })
-        assertEquals("Reviewing item 30", visible.last().content)
+        assertEquals("Summary", visible.first().content)
+        assertEquals(listOf("Check 3/8", "Files: 5/6"), visible.takeLast(2).map { it.content })
     }
 
     @Test fun activeCounterMovesBelowNewSummariesAndIgnoresStaleUpdates() {
@@ -80,6 +113,44 @@ class GitHubActivityLinesTest {
         val updated = gitHubActivityLines(listOf(first, summary, next, stale), "test", active = true)
         assertEquals(listOf("Review in progress", "Check 3/8"), updated.map { it.content })
         assertEquals(initial.last().progressId, updated.last().progressId)
+    }
+
+    @Test fun persistedCounterSlotsReconstructActivationOrderAndKeepTheirEvidence() {
+        val first = line("Check 1/8").copy(progressId = "checks", progressSequence = 1)
+        val second = line("Files: 1/6").copy(progressId = "files", progressSequence = 2)
+        val reactivated = first.copy(content = "Check 3/8", progressSequence = 3)
+        val latest = line("Reviewing the patch").copy(progressId = "review", progressSequence = 4)
+        // Persistence overwrites the counter in its original receipt slot.
+        val retained = listOf(reactivated, second, latest)
+        val projected = gitHubActivityLines(retained, "test", active = true)
+        assertEquals(listOf("files", "checks", "review"), projected.drop(1).map { it.progressId })
+        assertEquals(listOf(2L, 3L, 4L), projected.drop(1).map { it.progressSequence })
+        assertEquals(projected, gitHubActivityLines(retained.map { it.copy() }, "test", active = false))
+        assertEquals(listOf(reactivated, second, latest), retained)
+    }
+
+    @Test fun repeatedActiveCounterUpdatesKeepTheirPlaceAndSummaryRetiresOnlyTheAccent() {
+        val previous = line("Reading source files").copy(progressSequence = 1)
+        val counter = line("Check 2/8").copy(progressSequence = 2)
+        val updated = counter.copy(content = "Check 3/8", progressSequence = 3)
+        val summary = line("The checks have started", true).copy(progressSequence = 4)
+        val before = gitHubActivityLines(listOf(previous, counter), "test", active = true)
+        val after = gitHubActivityLines(listOf(previous, updated, summary), "test", active = true)
+        assertEquals(before.takeLast(2).map { it.progressId }, after.takeLast(2).map { it.progressId })
+        assertEquals(listOf(previous.content, updated.content), after.takeLast(2).map { it.content })
+        assertFalse(gitHubHasActivePreview(listOf(previous, updated, summary), false))
+        assertTrue(gitHubHasActivePreview(listOf(previous, updated), false))
+    }
+
+    @Test fun aNewSequenceClockFollowsAllRetainedLegacyRowsEvenWhenTheCounterSlotWasCompacted() {
+        val counter = line("Check 3/8").copy(progressId = "checks", progressSequence = 1)
+        val oldRows = listOf(line("Reading legacy files"), line("Reviewing legacy changes"), line("A retained summary", true))
+        // New clocks start at one. This counter overwrote the first legacy slot.
+        val retained = listOf(counter) + oldRows
+        val projected = gitHubActivityLines(retained, "test", active = true)
+        assertEquals(listOf("Reviewing legacy changes", "Check 3/8"), projected.takeLast(2).map { it.content })
+        assertTrue(gitHubHasActivePreview(retained, false))
+        assertEquals(projected, gitHubActivityLines(retained.map { it.copy() }, "test", active = false))
     }
 
     @Test fun detailedModelSummariesRetainTheirTextAndAuthorshipWhileAcknowledgementIsDeterministic() {

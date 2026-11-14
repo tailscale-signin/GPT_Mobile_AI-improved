@@ -47,8 +47,8 @@ internal fun LocalVoiceSetupCard(
                     Text("Checking installed model…", style = MaterialTheme.typography.bodySmall)
                 }
                 LocalVoiceModelStatus.DOWNLOADING -> {
-                    LinearProgressIndicator(progress = { (state.downloadedBytes.toFloat() / state.totalBytes.coerceAtLeast(1)).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                    Text("${state.downloadedBytes / 1_000_000} / ${state.totalBytes / 1_000_000} MB · Downloading and verifying", style = MaterialTheme.typography.bodySmall)
+                    VoiceTransferProgress(state.transferStage, state.downloadedBytes, state.totalBytes)
+                    Text("${state.downloadedBytes / 1_000_000} / ${state.totalBytes / 1_000_000} MB", style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = cancel) { Text("Cancel download") }
                 }
                 LocalVoiceModelStatus.READY -> {

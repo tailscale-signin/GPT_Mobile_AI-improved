@@ -8,6 +8,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** Project the owning stream's observations. This does not read another invocation or request data. */
@@ -26,6 +27,48 @@ internal object ProviderFailureReport {
         for (key in listOf("reasoning_capability_age_ms", "reasoning_model_state", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash")) {
             failure.failureDetails?.get(key)?.let { put(key, it) }
         }
+        if (failure.errorCode.equals("CONVERSATION_CONFLICT", ignoreCase = true)) {
+            val details = failure.failureDetails.orEmpty()
+            val kind = (details["active_job_kind"] as? JsonPrimitive)?.contentOrNull
+            kind?.takeIf { it in setOf("generation", "engineering") }?.let { put("conflict_active_job_kind", it) }
+            (details["conversation_revision"] as? JsonPrimitive)?.takeUnless { it.isString }
+                ?.longOrNull?.takeIf { it in 0..16_000_000L }?.let { put("conflict_conversation_revision", it) }
+            (details["pending_client_tool_count"] as? JsonPrimitive)?.takeUnless { it.isString }
+                ?.intOrNull?.takeIf { it in 0..128 }?.let { put("conflict_pending_tool_count", it) }
+            val conversationId = (details["conversation_id"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            IssueReportContext.identifierHash("conversation", conversationId)?.let { put("conflict_conversation_hash", it) }
+            val provenance = (details["active_job_provenance"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            put("conflict_active_job_provenance", provenance?.takeIf { it == "CONVERSATION_ACTIVE_JOB" } ?: "UNREPORTED")
+            val pendingState = (details["pending_client_tool_state"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            put("conflict_pending_tool_state", pendingState?.takeIf { it in setOf("IDENTIFIED", "MISSING", "EMPTY", "INVALID", "UNAVAILABLE") } ?: "NOT_REPORTED")
+            (details["pending_client_tool_ids_hash"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                ?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { put("conflict_pending_tool_ids_hash", it) }
+            (details["client_tool_handoff_sequence"] as? JsonPrimitive)?.takeUnless { it.isString }
+                ?.longOrNull?.takeIf { it in 1..16_000_000L }?.let { put("conflict_handoff_sequence", it) }
+            val activeJobId = (details["active_job_id"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.isNotBlank() }
+            val streamJobId = metadata?.takeIf { it.transportVerified }?.jobId?.takeIf { it.isNotBlank() }
+            // Server conversation ownership does not establish ownership by this
+            // Android run. Only verified stream metadata can establish a match.
+            put(
+                "conflict_stream_job_relation",
+                when {
+                    activeJobId == null -> "ACTIVE_JOB_NOT_REPORTED"
+                    streamJobId == null -> "NO_VERIFIED_STREAM_JOB"
+                    activeJobId == streamJobId -> "MATCHES_VERIFIED_STREAM_JOB"
+                    else -> "DIFFERS_VERIFIED_STREAM_JOB"
+                }
+            )
+        }
+        if (receipt.errorCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
+            for (key in IssueReportDiagnostics.githubSchemaBudgetFields) {
+                failure.failureDetails?.get(key)?.let { put(key, it) }
+            }
+        }
+        if (receipt.errorCode in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES) {
+            for (key in IssueReportDiagnostics.capacityEvidenceFields + listOf("admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens")) {
+                failure.failureDetails?.get(key)?.let { put(key, it) }
+            }
+        }
         put("diagnostic_capture_mode", "INCIDENT")
         IssueReportContext.identifierHash("run", runId)?.let { put("run_id_hash", it) }
         IssueReportContext.identifierHash("invocation", receipt.invocationId)?.let { put("invocation_id_hash", it) }
@@ -35,6 +78,9 @@ internal object ProviderFailureReport {
         put("provider_failure_stage", receipt.stage.name)
         put("provider_failure_domain", receipt.failureDomain.name)
         put("provider_failure_code", receipt.errorCode)
+        if (receipt.errorCode == "GITHUB_CIRCUIT_OPEN") {
+            failure.failureDetails?.get("github_cooldown_stop")?.let { put("github_cooldown_stop", it) }
+        }
         put("finish_reason", receipt.finishReason.name)
         configured?.configuredProfileOutputTokens?.bounded()?.let { put("configured_output_limit", it) }
         (configured?.serializedOutputTokens ?: configured?.effectiveOutputTokens)?.bounded()?.let { put("effective_output_limit", it) }
@@ -52,7 +98,7 @@ internal object ProviderFailureReport {
         IssueReportContext.identifierHash("generation", receipt.generationId)?.let { put("generation_id_hash", it) }
         if (receipt.invocationId != null && "causal_id" !in failure.failureDetails.orEmpty()) {
             val phase = (failure.failureDetails?.get("failed_stage") as? JsonPrimitive)?.contentOrNull
-            if (phase in setOf("delivery", "tls", "connection", "dns", "transport", "provider_admission")) {
+            if (phase in setOf("delivery", "tls", "connection", "dns", "transport", "provider_admission", "conversation_admission")) {
                 put("causal_id", receipt.invocationId)
                 put("causal_provenance", "MODEL_INVOCATION")
             }

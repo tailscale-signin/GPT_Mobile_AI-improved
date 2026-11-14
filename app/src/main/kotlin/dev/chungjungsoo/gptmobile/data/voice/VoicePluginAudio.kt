@@ -11,6 +11,8 @@ internal enum class KokoroVoice(val speakerId: Int, val label: String, val lexic
 }
 
 internal interface KokoroOutput {
+    val reportsPlaybackStart: Boolean get() = false
+    fun bindPlaybackStarted(started: (() -> Unit)?) = Unit
     fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit)
     fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit) = speak(text, voice, complete, error)
     fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit): VoiceReplyPlayback? = null
@@ -34,6 +36,14 @@ internal class VoicePluginAudio(
 ) : VoiceAudio {
     private var closed = false
     private var playbackGeneration = 0L
+    private var playbackStarted: (() -> Unit)? = null
+    override fun bindPlaybackStarted(started: (() -> Unit)?) {
+        playbackStarted = started
+    }
+
+    // offlineSpeech belongs to the same Android output and shares its start observer.
+    override val reportsPlaybackStart: Boolean
+        get() = system.reportsPlaybackStart && (kokoroVoice == null || kokoro == null || kokoro.reportsPlaybackStart)
     var kokoroVoice: KokoroVoice? = null
         set(value) {
             if (closed || field == value) return
@@ -63,7 +73,10 @@ internal class VoicePluginAudio(
         val fallbackText = StringBuilder()
         var useFallback = false
         var finished = false
+        val started = playbackStarted
         fun current() = !closed && playbackGeneration == ticket
+        output.bindPlaybackStarted { if (current() && !useFallback) started?.invoke() }
+        system.bindPlaybackStarted { if (current() && useFallback) started?.invoke() }
         fun finishFallback() {
             offlineSpeech(fallbackText.toString(), { if (current()) complete() }, { if (current()) error(it) })
         }
@@ -113,16 +126,20 @@ internal class VoicePluginAudio(
         if (closed) return
         local.stop()
         val ticket = ++playbackGeneration
+        val started = playbackStarted
+        fun current() = !closed && ticket == playbackGeneration
+        system.bindPlaybackStarted { if (current()) started?.invoke() }
         val voice = kokoroVoice
         if (voice == null) {
-            system.speak(text, complete, error)
+            system.speak(text, { if (current()) complete() }, { if (current()) error(it) })
             return
         }
         if (kokoro == null || !LocalVoiceModelStore.supportsLanguage(local.languageTag)) {
-            offlineSpeech(text, complete, error)
+            offlineSpeech(text, { if (current()) complete() }, { if (current()) error(it) })
             return
         }
         system.stop()
+        kokoro.bindPlaybackStarted { if (current()) started?.invoke() }
         kokoro.speakProjected(text, voice, complete = {
             if (!closed && ticket == playbackGeneration) {
                 playbackGeneration++
@@ -130,8 +147,14 @@ internal class VoicePluginAudio(
             }
         }, error = { message, canFallback ->
             if (!closed && ticket == playbackGeneration) {
-                playbackGeneration++
-                if (canFallback) offlineSpeech(text, complete, error) else error(message)
+                val fallbackTicket = ++playbackGeneration
+                fun fallbackCurrent() = !closed && fallbackTicket == playbackGeneration
+                if (canFallback) {
+                    system.bindPlaybackStarted { if (fallbackCurrent()) started?.invoke() }
+                    offlineSpeech(text, { if (fallbackCurrent()) complete() }, { if (fallbackCurrent()) error(it) })
+                } else {
+                    error(message)
+                }
             }
         })
     }

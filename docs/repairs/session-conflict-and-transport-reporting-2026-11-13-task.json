@@ -1,0 +1,282 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "e4457b24905a1a268048d30fce4eb99aaf19ac15",
+  "parent_pr": 1077,
+  "parent_head_sha": "cadcec5aa0ba08722dd94272547caa98780b0628",
+  "working_branch": "fix/session-conflict-and-transport-reporting-2026-11-13",
+  "intent": "Reduce chat compilation pressure, distinguish saved gateway handoffs from new work, and make reports actionable for the attached diagnostic export and open issues.",
+  "state": "IMPLEMENTED_PENDING_HOSTED_VALIDATION",
+  "reviewed_issues": [
+    1078,
+    1079,
+    1080,
+    1081,
+    1082,
+    1083,
+    1084,
+    1085,
+    1086,
+    1087,
+    1088
+  ],
+  "diagnostic_only": {
+    "1078-1079,1081-1082": "DNS resolution requires the affected network. Reports now capture attempted reads, HTTP responses and unanswered reads.",
+    "1080": "Reports now show which cooldown boundary ended the run.",
+    "1083-1084": "Reports now preserve the remote continuation count and sample distinct prerequisite blockers.",
+    "1085": "Reports now capture schema and reserve token usage. The oversized fixture still requires a smaller authorized request or more verified context.",
+    "1086-1088": "Reports now distinguish active job kind, conversation revision and pending tool count when available. Recovering the captured job requires its original retained results."
+  },
+  "validation_boundary": "Hosted Android checks and physical reproduction are separate from the host tests.",
+  "chat_preview_diagnostic_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+    "working_branch": "fix/session-conflict-and-transport-reporting-2026-11-13",
+    "pull_request": 1089,
+    "initial_head_sha": "4e4f9959d1aacb4ceca2964270f9471b05c5a650",
+    "reconciled_head_sha": "9ead17c5a2c9e32d505bf37757bbbe41228118cd",
+    "state": "IMPLEMENTED_PENDING_HOSTED_VALIDATION",
+    "intent": "Improve preview and summary evidence, retire stale activity, preserve typed engineering prerequisites and required-check denominators, and plan against verified selected-route capacity for the supplied diagnostic chat.",
+    "checkpoint_store": "engineering_agent_checkpoints",
+    "checkpoint_boundary": "Android Room task store is unavailable in the editing host; retained in the existing repository repair checkpoint.",
+    "workspace_recovery": "Executor reset lost uncommitted local work. Reconstructing reviewed edits on latest existing PR head while preserving the intervening DEX and diagnostic evidence commits. All recovered changes will be revalidated before publication.",
+    "updated_at": "2026-11-14T04:59:02.060212+00:00",
+    "recovery_head_sha": "7c43e3d2be494b414ba47244be8870dcf3d9b463",
+    "concurrent_revision_reconciliation": "Preserved nonoverlapping provider adapter regression correction78bea485 and source-generation process separation9ead17c5 before publication. Task Kotlin source hashes are unchanged.",
+    "validation": {
+      "canonical_host": {
+        "command": "bash scripts/validate-local.sh fast",
+        "status": "PASS",
+        "python_tests": 507,
+        "literal_regexes": 1651,
+        "dynamic_regexes_skipped": 82,
+        "resource_xml_files": 34
+      },
+      "presentation": {
+        "status": "PASS",
+        "tests": 71,
+        "scope": "Current production progress, narration, presentation and activity projection sources; peripheral host boundaries."
+      },
+      "collector_reducer": {
+        "status": "PASS",
+        "tests": 22,
+        "scope": "Verbatim production collector, timer and buffer; peripheral host boundaries; Android ViewModel wrapper excluded."
+      },
+      "engineering_prerequisites": {
+        "status": "PASS",
+        "tests": 27,
+        "scope": "Actual prerequisite, failure classification, terminal, receipt and UI policies plus extracted coordinator preservation regressions; full HTTP client tests require Android CI."
+      },
+      "capacity": {
+        "status": "PASS",
+        "tests": 13,
+        "scope": "Actual capacity discovery, readiness and planning with Ktor metadata/template fixtures; no inference execution."
+      },
+      "integration_report": {
+        "status": "PASS",
+        "tests": 62,
+        "scope": "Current production checklist, preparation, report, EvidenceBook, operation schemas and authorization policy; unrelated export and storage ports are host boundaries."
+      },
+      "formatting": {
+        "status": "PASS",
+        "tool": "ktlint1.3.1",
+        "changed_kotlin_files": 36
+      },
+      "generated_inventory": {
+        "status": "PASS",
+        "files": 2555,
+        "areas": 26
+      },
+      "release_scope": {
+        "status": "PASS",
+        "mode": "scoped",
+        "change": "Added four exact paths required by this work; no qualification gate relaxed."
+      },
+      "local_android": {
+        "status": "BLOCKED_BY_EXECUTION_ENVIRONMENT",
+        "observed_task": ":app:kaptGenerateStubsDebugKotlin",
+        "reason": "Gradle daemon disappeared without a compiler diagnostic before executor reset; full compilation and Android tests not claimed."
+      },
+      "hosted_checks": {
+        "status": "PENDING_NEW_HEAD",
+        "required": [
+          "Required verification",
+          "Analyze (java-kotlin)"
+        ],
+        "additional_application_gates": [
+          "v0.9.50 Android acceptance",
+          "UI Review APK",
+          "Diagnostic audit validation"
+        ]
+      }
+    },
+    "effective_main_rules": {
+      "observed_required_checks": [
+        "Required verification",
+        "Analyze (java-kotlin)"
+      ],
+      "integration_id": 15368,
+      "strict": true,
+      "required_approvals": 0,
+      "force_push_blocked": true,
+      "deletion_blocked": true,
+      "review_threads": 0
+    },
+    "review": {
+      "activation_order_and_native_summary_hook": "Independent review: no blocker; sorted activation order precedes adjacent coalescing and same observer receives result before completion.",
+      "selected_route_capacity": "Independent review: no blocker; exact selection, freshness/epoch invalidation, configured ceilings and final serialized admission retained."
+    },
+    "remaining_operational_requirements": [
+      "Configure the selected gateway repository validation policy.",
+      "Supply the captured missing repository inputs and fixture approvals before claiming required integration coverage.",
+      "Recover original owned tool results for the waiting handoff; no uncertain mutations replayed.",
+      "Required tool schemas must fit actual context capacity; no live request completion claimed.",
+      "Install matching app/gateway and measure physical-device gestures/audio/frame timing separately."
+    ],
+    "repository_regression_alignment": {
+      "parent_sha": "2b5bfe4735769909289dbd8719e12e5d835cf258",
+      "reason": "The existing native progress repository regression still required an unfocused branch-comparison label. The new factual-summary contract deliberately keeps that completed operation in counts and surfaces the focused source-read failure.",
+      "change": "Assert absence of the generic comparison label while retaining all pending/completed/failed counts, source path, failure and concrete recovery-next-step assertions. Production code is unchanged.",
+      "validation": "One additional actual-source emitted-event reproduction passed; the 62 integration/report tests also passed on 2b5bfe47 after the concurrent retained-scope change. Full repository/Android execution remains a hosted gate."
+    },
+    "schema_budget_report_feature_followup": {
+      "parent_sha": "cb444428d248f09cb39c21392ac76ff60ea8b9a0",
+      "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+      "state": "IMPLEMENTED_PENDING_HOSTED_VALIDATION",
+      "updated_at": "2026-11-14T06:32:59.407920+00:00",
+      "finding": "The new GITHUB_TOOL_CONTEXT_BUDGET enum is valid in provider, causal and voice diagnostic code fields. Feature negotiation initially recognized only the provider field and new numeric counts, so valid diagnostic-only reports could POST to an older service before rejection.",
+      "change": "Require GITHUB_SCHEMA_BUDGET_EVIDENCE_V1 for the exact enum in all three validated code fields. Preserve existing count/omitted-count detection, schema/area restrictions, bounded numbers, all other codes and original approved payload bytes.",
+      "independent_review": "Accepted; validation precedes feature negotiation, which precedes beforeDispatch and POST. Omitted legacy code names alone do not assert a new enum.",
+      "validation": {
+        "before_fix_reproduction": {
+          "cases": 2,
+          "result": "Both fail as expected; missing causal/voice feature"
+        },
+        "same_reproduction_after_fix": {
+          "cases": 2,
+          "result": "PASS"
+        },
+        "diagnostics_and_submission": {
+          "tests": 44,
+          "result": "PASS; actual current serialization, diagnostics and native submission; Android metadata and unrelated delivery worker are host boundaries"
+        },
+        "acceptance_report_pagination": {
+          "tests": 52,
+          "result": "PASS"
+        },
+        "capacity_provider_diagnostics": {
+          "tests": 25,
+          "result": "PASS"
+        },
+        "canonical_host": {
+          "tests": 507,
+          "literal_regexes": 1653,
+          "dynamic_regexes_skipped": 82,
+          "resource_xml_files": 34,
+          "result": "PASS"
+        },
+        "formatting": {
+          "tool": "ktlint1.3.1",
+          "changed_kotlin_files": 4,
+          "result": "PASS"
+        },
+        "source_manifests": "Zero source changes after focused compilation; actual-source extraction origins retained.",
+        "generated_inventory": {
+          "files": 2566,
+          "areas": 26,
+          "result": "PASS"
+        },
+        "hosted": "PENDING_NEW_PUBLISHED_HEAD"
+      },
+      "preserved_concurrent_changes": [
+        "Monotonic capacity-age clock with separate epoch retry deadlines.",
+        "Cancellable measured-layout wait before scroll catch-up and reading-ledger arming.",
+        "Voice scheduler/network assignment and bounded install diagnostics.",
+        "Shared authenticated-job transport backoff with retained server Retry-After.",
+        "Retained acceptance scope, original preview improvements and prerequisite repair."
+      ],
+      "remaining_limits": "Requires matching deployed report service support; old approved bytes are retained. Full Android and required application workflows must qualify the published revision. Historical private-service requests and physical-device performance are not claimed recovered."
+    }
+  },
+  "audit_source_generation_heap_followup": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+    "working_branch": "fix/session-conflict-and-transport-reporting-2026-11-13",
+    "pull_request": 1089,
+    "implementation_start_sha": "81e57831bc5ee191acc96e873c58785013ae9309",
+    "state": "IMPLEMENTED_UPSTREAM_PENDING_HOSTED_VALIDATION",
+    "updated_at": "2026-11-14T05:03:47Z",
+    "intent": "Reconcile the measured diagnostic audit KAPT stub-generation heap failure with the concurrent bounded source-generation repair, preserving worker limits, configuration-cache policy and all verification gates.",
+    "resolution_commit": "9ead17c5a2c9e32d505bf37757bbbe41228118cd",
+    "resolution": "The concurrent commit separates Room KSP and annotation KAPT into distinct Gradle processes in both the diagnostic audit and PR unit workflow. Room retains the default 3 GiB heap and 1 GiB metaspace; annotation generation uses the existing production profile of 4 GiB heap and 768 MiB metaspace. Separate source-generation logs are retained. No duplicate workflow edit was made in this follow-up.",
+    "evidence": {
+      "head_sha": "78bea4854dfd940f8b6e4d01a6aded818b022ef3",
+      "merge_sha": "4f5dc84b0d76b4eafb43b0f0b006be80d55f2f80",
+      "run_id": 43558764249,
+      "job_id": 132337569673,
+      "step": "Generate production sources in a separate process",
+      "task": ":app:kaptGenerateStubsDebugKotlin",
+      "failure": "java.lang.OutOfMemoryError: Java heap space in KaptStubConverter.KaptStub.writeMetadataIfNeeded and FIR KAPT stub generation",
+      "observed_heap_mib": 3072,
+      "observed_metaspace_mib": 1024,
+      "elapsed": "5m32s",
+      "boundary": "No Kotlin source diagnostic or failing test was observed; compilation and tests were not reached."
+    },
+    "implemented_bounds": {
+      "room_heap_mib": 3072,
+      "room_metaspace_mib": 1024,
+      "annotation_heap_mib": 4096,
+      "annotation_metaspace_mib": 768,
+      "max_workers": 1,
+      "audit_process_timeout_seconds": 540,
+      "audit_step_timeout_minutes": 10,
+      "pr_generation_step_timeout_minutes": 15,
+      "global_gradle_defaults_changed": false,
+      "configuration_cache_enabled": false,
+      "compiler_execution": "in-process"
+    },
+    "validation": {
+      "status": "LOCAL_POLICY_PASS_HOSTED_PENDING",
+      "ci_policy": "PASS: scripts/check_ci_policy.py; the two upstream workflow texts also pass check_text at the resolution commit.",
+      "workflow_syntax": "PASS: both upstream YAML documents and bash -n for all 43 run blocks.",
+      "checkpoint_and_diff": "PASS: checkpoint JSON parsed and git diff --check.",
+      "actionlint": "UNAVAILABLE: not installed on PATH or in the available local tooling; not claimed as run.",
+      "hosted_generation": "Fresh successful generation on the repaired published head is required; the heap adjustment is not a compilation or test pass."
+    }
+  },
+  "capacity_age_followup": {
+    "base_branch": "main",
+    "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+    "reviewed_head_sha": "ef7e22d67a95b2b9b726738eeccff25df84283e8",
+    "superseded_failed_run": 43561380224,
+    "state": "IMPLEMENTED_PENDING_HOSTED_VALIDATION",
+    "intent": "Use local monotonic time for verified capacity observation age and retain wall time for retry diagnostics.",
+    "regression": "The mock gateway supplies its own timestamp. Production error projection must report an age between zero and the measured local elapsed time without a manual wall-clock override or an inference POST.",
+    "local_validation": "Canonical fast checks, generated inventory, architecture index, ktlint 1.3.1 and whitespace passed. Exact-head Android CI still required."
+  },
+  "voice_scheduler_network_followup": {
+    "base_branch": "main",
+    "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+    "reviewed_head_sha": "2bee75009427d1b0ec425604f5c63f5a7c57c741",
+    "state": "IMPLEMENTED_PENDING_HOSTED_VALIDATION",
+    "intent": "Open both scheduled voice model downloads and their redirects on the job network selected by Android.",
+    "regression": "The HTTPS source uses the injected connection for the original request and each redirect. An Android network-change callback updates subsequent connections for that job owner.",
+    "local_validation": "Canonical fast checks, generated inventory, architecture index, ktlint 1.3.1 and whitespace passed. Android scheduler and physical-device network changes are unverified."
+  },
+  "benchmark_annotation_heap_followup": {
+    "base_branch": "main",
+    "base_sha": "61083c2468a118eaa15f0f855ff8118e95b21d22",
+    "reviewed_head_sha": "b4389b6faca00e656108cfc4128bf466d7aab880",
+    "state": "IMPLEMENTED_PENDING_HOSTED_VALIDATION",
+    "intent": "Give the benchmark annotation compiler its own bounded Gradle process so the required UI Review APK workflow can reach its benchmark and runtime checks.",
+    "failure": {
+      "run_id": 43566971511,
+      "job_id": 132362892605,
+      "task": ":app:kaptGenerateStubsBenchmarkKotlin",
+      "message": "java.lang.OutOfMemoryError: Java heap space"
+    },
+    "validation": "Workflow YAML and shell syntax, CI policy, and whitespace passed. The debug APK build and packaged method-size step passed on the failed revision; fresh full UI Review and PR workflows are required."
+  }
+}

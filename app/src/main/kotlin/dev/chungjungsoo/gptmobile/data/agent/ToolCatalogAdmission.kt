@@ -21,6 +21,10 @@ internal class GitHubToolContextBudgetException(val requiredSchemaTokens: Long, 
         errorCode = "GITHUB_TOOL_CONTEXT_BUDGET",
         failureDetails = buildJsonObject {
             put("failed_stage", "provider_admission")
+            put("diagnostic_area", "PROVIDER")
+            put("provider_failure_code", "GITHUB_TOOL_CONTEXT_BUDGET")
+            put("provider_failure_stage", "ADMISSION")
+            put("failure_origin", "APPLICATION")
             put("dispatched", false)
             put("retryable", false)
             put("required_schema_tokens", requiredSchemaTokens)

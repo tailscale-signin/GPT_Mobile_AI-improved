@@ -20,6 +20,13 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReadRetryTest {
+    @Test fun cooldownStopDistinguishesDeadlineFromExhaustedWaitAllowance() {
+        assertEquals("TASK_DEADLINE", GitHubTransportRecovery.waitBlocker(20_000, false, 20_000))
+        assertEquals("WAIT_ALREADY_USED", GitHubTransportRecovery.waitBlocker(20_000, true, null))
+        assertEquals("WAIT_LIMIT", GitHubTransportRecovery.waitBlocker(30_001, false, null))
+        assertEquals(null, GitHubTransportRecovery.waitBlocker(30_000, false, 30_001))
+    }
+
     @Test fun readWaitsForOneCircuitProbeWithoutCreatingAnotherToolCall() = runTest {
         val circuit = GitHubRequestCircuit(threshold = 1, cooldownMillis = 30_000, now = { testScheduler.currentTime })
         circuit.failed(circuit.admit(), IOException("connection reset"))

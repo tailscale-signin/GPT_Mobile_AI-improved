@@ -55,6 +55,11 @@ class AndroidVoiceAudio internal constructor(
 
     @Volatile private var generation = 0L
     private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
+    private var playbackStarted: (() -> Unit)? = null
+    override val reportsPlaybackStart: Boolean get() = true
+    override fun bindPlaybackStarted(started: (() -> Unit)?) {
+        playbackStarted = started
+    }
     override fun bindDiagnostics(probe: VoiceDiagnosticTrace.Probe?) {
         diagnosticProbe = probe
     }
@@ -514,6 +519,8 @@ class AndroidVoiceAudio internal constructor(
         if (closed) return
         val ticket = generation
         val observations = diagnosticProbe
+        val audioStarted = playbackStarted
+        var reportedStart = false
         observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
         val wasWarm = speechReady
         playbackError = error
@@ -642,6 +649,10 @@ class AndroidVoiceAudio internal constructor(
                                             stop()
                                             error("Speech playback stopped responding. Your answer remains in chat.")
                                         }
+                                    }
+                                    if (!reportedStart) {
+                                        reportedStart = true
+                                        audioStarted?.invoke()
                                     }
                                 }
                             }

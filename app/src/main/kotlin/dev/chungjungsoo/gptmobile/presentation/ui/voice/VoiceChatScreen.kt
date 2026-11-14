@@ -5,15 +5,6 @@ import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -31,35 +22,23 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material.icons.rounded.ChatBubbleOutline
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.GraphicEq
-import androidx.compose.material.icons.rounded.Mic
-import androidx.compose.material.icons.rounded.MicOff
 import androidx.compose.material.icons.rounded.Settings
-import androidx.compose.material.icons.rounded.Stop
-import androidx.compose.material.icons.rounded.Subtitles
-import androidx.compose.material.icons.rounded.VolumeOff
-import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,23 +55,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
@@ -120,8 +90,6 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as Drop
 import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel
 import dev.chungjungsoo.gptmobile.presentation.ui.home.NewChatRevealPanel
 import java.util.Locale
-import kotlin.math.abs
-import kotlin.math.sin
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
@@ -513,6 +481,7 @@ private fun VoiceChatSessionScreen(
         state.phase == VoicePhase.THINKING && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.CHECKING -> "Checking your AI profile"
         state.phase == VoicePhase.THINKING && admission?.stage == dev.chungjungsoo.gptmobile.data.voice.VoiceAdmissionStage.QUEUED -> "Message queued"
         state.phase == VoicePhase.THINKING -> "Thinking"
+        state.phase == VoicePhase.PREPARING -> "Preparing voice"
         state.phase == VoicePhase.SPEAKING -> "Speaking"
         state.muted -> "Microphone muted"
         state.phase == VoicePhase.LISTENING -> "Listening"
@@ -605,6 +574,8 @@ private fun VoiceChatSessionScreen(
     VoiceConversationScreen(
         state = VoiceConversationUiState(
             profileName = profileName,
+            profiles = profiles.filter { it.enabled },
+            selectedProfileId = selectedProfile?.uid,
             captions = captions,
             session = state,
             status = status,
@@ -620,6 +591,10 @@ private fun VoiceChatSessionScreen(
             draft = draft
         ),
         actions = VoiceConversationActions(
+            selectProfile = { uid ->
+                session.pause()
+                model.selectVoiceProfile(uid) {}
+            },
             openTranscript = { transcriptOpen = true },
             openSettings = {
                 if (state.hasDraft) model.checkpointVoiceDraft(draft)
@@ -650,7 +625,7 @@ private fun VoiceChatSessionScreen(
             replay = session::replay,
             openChat = ::openChat,
             toggleMicrophone = {
-                if (state.phase == VoicePhase.SPEAKING) {
+                if (state.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) {
                     session.stopSpeaking()
                     if (buttonSounds) feedback.stop()
                 } else if (state.muted) {
@@ -826,192 +801,6 @@ private fun VoiceSettingSwitch(label: String, checked: Boolean, change: (Boolean
     }
 }
 
-private data class VoiceConversationUiState(
-    val profileName: String,
-    val captions: Boolean,
-    val session: VoiceState,
-    val status: String,
-    val remaining: Int,
-    val localModel: LocalVoiceModelState,
-    val language: String,
-    val recognitionReady: Boolean,
-    val enabled: Boolean,
-    val voiceReady: Boolean,
-    val profileError: String?,
-    val preferencesApplied: Boolean,
-    val waitingApproval: Boolean,
-    val draft: String
-)
-
-private class VoiceConversationActions(
-    val openTranscript: () -> Unit,
-    val openSettings: () -> Unit,
-    val showSettings: () -> Unit,
-    val installLocalModel: () -> Unit,
-    val cancelLocalModelInstall: () -> Unit,
-    val changeDraft: (String) -> Unit,
-    val sendDraft: () -> Unit,
-    val listen: () -> Unit,
-    val recordAgain: () -> Unit,
-    val repair: (VoiceRecoveryAction) -> Unit,
-    val openVoiceConfiguration: () -> Unit,
-    val replay: () -> Unit,
-    val openChat: () -> Unit,
-    val toggleMicrophone: () -> Unit,
-    val openAudioRoute: () -> Unit,
-    val end: () -> Unit
-)
-
-@Composable
-private fun VoiceConversationScreen(state: VoiceConversationUiState, actions: VoiceConversationActions) {
-    Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding().padding(24.dp).testTag("voice_chat_screen"),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        VoiceConversationHeader(state, actions)
-        VoiceConversationStatus(state, actions, Modifier.weight(1f).fillMaxWidth())
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 24.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, false)
-            VoiceMicrophoneControl(state, actions.toggleMicrophone)
-            VoiceControl("Audio", if (state.session.speaker) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff, actions.openAudioRoute, !state.session.speaker)
-        }
-    }
-}
-
-@Composable
-private fun VoiceConversationHeader(state: VoiceConversationUiState, actions: VoiceConversationActions) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = actions.end) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats") }
-        Column(Modifier.weight(1f)) {
-            Text(state.profileName, style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.onSurface, maxLines = 1, overflow = TextOverflow.Ellipsis)
-        }
-        IconButton(onClick = actions.openTranscript) {
-            Icon(Icons.Rounded.Subtitles, "Open transcript", tint = if (state.captions) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        IconButton(onClick = actions.openSettings, enabled = state.preferencesApplied) {
-            Icon(Icons.Rounded.Settings, "Voice settings", tint = MaterialTheme.colorScheme.primary)
-        }
-    }
-}
-
-@Composable
-private fun VoiceConversationStatus(
-    state: VoiceConversationUiState,
-    actions: VoiceConversationActions,
-    modifier: Modifier = Modifier
-) {
-    Column(modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        VoiceWave(state.session, Modifier.fillMaxWidth().height(160.dp).clearAndSetSemantics { })
-        AnimatedContent(state.status, label = "Voice status") {
-            Text(it, modifier = Modifier.semantics { if (state.remaining == 0) liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
-        }
-        Text(voiceListeningHint(state.session), Modifier.padding(top = 10.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
-        state.profileError?.let { reason ->
-            Text(reason, Modifier.padding(top = 16.dp).widthIn(max = 360.dp), color = MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-            TextButton(onClick = actions.openSettings) { Text("Choose another AI profile") }
-            TextButton(onClick = actions.openChat) { Text("Review profile in chat") }
-        }
-        if (!state.recognitionReady) {
-            Spacer(Modifier.height(16.dp))
-            LocalVoiceSetupCard(state.localModel, actions.installLocalModel, actions.cancelLocalModelInstall, {})
-            if (!LocalVoiceModelStore.supportsLanguage(state.language)) {
-                Text("Moonshine recognizes English. Choose your region in Voice settings.", Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TextButton(onClick = actions.showSettings) { Text("Choose speech language") }
-            }
-        }
-        VoiceTranscriptPreview(state)
-        if (state.session.hasDraft && state.session.phase != VoicePhase.REVIEWING) {
-            TextButton(onClick = actions.listen, enabled = state.enabled && state.voiceReady && state.preferencesApplied) { Text("Review captured text") }
-        }
-        if (state.session.phase == VoicePhase.REVIEWING) {
-            OutlinedTextField(state.draft, actions.changeDraft, label = { Text("Your message") }, modifier = Modifier.fillMaxWidth().padding(top = 12.dp), minLines = 2, maxLines = 20)
-            Button(onClick = actions.sendDraft, enabled = state.draft.isNotBlank()) { Text("Send") }
-            TextButton(onClick = actions.recordAgain) { Text("Record again") }
-        }
-        state.session.notice?.let {
-            Text(it, Modifier.padding(top = 16.dp).widthIn(max = 320.dp), style = MaterialTheme.typography.bodyMedium.copy(letterSpacing = 0.sp), color = if (state.remaining > 0) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.error, textAlign = TextAlign.Center)
-        }
-        state.session.recoveryAction?.let { action ->
-            TextButton(onClick = { actions.repair(action) }) { Text(voiceRepairLabel(action)) }
-            TextButton(onClick = actions.openVoiceConfiguration) { Text("Change voice configuration") }
-            TextButton(onClick = actions.listen, enabled = state.remaining == 0) { Text("Try microphone after repair") }
-        }
-        if (state.session.reply.isNotBlank() && state.session.phase in setOf(VoicePhase.PAUSED, VoicePhase.ERROR)) TextButton(onClick = actions.replay) { Text("Replay reply") }
-        if (state.waitingApproval || state.session.phase == VoicePhase.ERROR || !state.enabled || !state.recognitionReady) TextButton(onClick = actions.openChat) { Text("Continue in chat") }
-    }
-}
-
-private fun voiceListeningHint(state: VoiceState): String = when {
-    state.phase == VoicePhase.SPEAKING -> "Listening resumes after the reply"
-    state.phase == VoicePhase.LISTENING -> "Go ahead, I’m listening"
-    state.muted -> "Unmute when you’re ready to speak"
-    else -> "Use the microphone button when you are ready"
-}
-
-@Composable
-private fun VoiceTranscriptPreview(state: VoiceConversationUiState) {
-    if (!state.captions || state.session.transcript.isBlank() && state.session.reply.isBlank()) return
-    Surface(Modifier.padding(top = 24.dp).widthIn(max = 560.dp).fillMaxWidth(), shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh) {
-        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (state.session.transcript.isNotBlank()) Text(state.session.transcript, color = MaterialTheme.colorScheme.primary, maxLines = 4, overflow = TextOverflow.Ellipsis)
-            if (state.session.reply.isNotBlank()) Text(state.session.reply.take(12000), color = MaterialTheme.colorScheme.onSurface, maxLines = 7, overflow = TextOverflow.Ellipsis)
-        }
-    }
-}
-
-@Composable
-private fun VoiceMicrophoneControl(state: VoiceConversationUiState, toggle: () -> Unit) {
-    val listening = state.session.phase == VoicePhase.LISTENING
-    val speaking = state.session.phase == VoicePhase.SPEAKING
-    val colors = MaterialTheme.colorScheme
-    val fill = when {
-        listening -> colors.primary
-        speaking -> colors.tertiaryContainer
-        else -> colors.surfaceContainerHigh
-    }
-    val pulse = if (listening && android.animation.ValueAnimator.areAnimatorsEnabled()) {
-        rememberInfiniteTransition(label = "Microphone pulse").animateFloat(
-            initialValue = 0.2f,
-            targetValue = 0.7f,
-            animationSpec = infiniteRepeatable(tween(700), RepeatMode.Reverse),
-            label = "Microphone ring"
-        )
-    } else {
-        null
-    }
-    val (icon, label) = when {
-        speaking -> Icons.Rounded.Stop to "Stop speaking"
-        state.session.muted -> Icons.Rounded.MicOff to "Start listening"
-        state.session.phase == VoicePhase.ERROR -> Icons.Rounded.Mic to "Retry microphone"
-        state.session.phase == VoicePhase.PAUSED -> Icons.Rounded.Mic to "Start listening"
-        else -> Icons.Rounded.Mic to "Turn microphone off"
-    }
-    Box(Modifier.size(110.dp), contentAlignment = Alignment.Center) {
-        if (listening) {
-            Canvas(Modifier.matchParentSize()) {
-                drawCircle(colors.primary, radius = 52.dp.toPx(), alpha = pulse?.value ?: 0.55f, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
-            }
-        }
-        FilledIconButton(
-            onClick = toggle,
-            enabled = speaking || state.enabled && state.voiceReady && state.preferencesApplied && state.recognitionReady,
-            modifier = Modifier.size(96.dp).testTag("voice_microphone_toggle"),
-            colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = fill,
-                contentColor = when {
-                    listening -> colors.onPrimary
-                    speaking -> colors.onTertiaryContainer
-                    else -> colors.onSurface
-                }
-            )
-        ) { Icon(icon, label, Modifier.size(40.dp)) }
-    }
-}
-
 @Composable
 private fun VoiceTranscriptDialog(transcript: String, reply: String, dismiss: () -> Unit, openChat: () -> Unit) {
     dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog(
@@ -1055,52 +844,6 @@ private fun VoiceRouteDialog(
         },
         confirmButton = { TextButton(onClick = dismiss) { Text("Done") } }
     )
-}
-
-@Composable
-private fun VoiceControl(label: String, image: androidx.compose.ui.graphics.vector.ImageVector, click: () -> Unit, selected: Boolean) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledIconButton(onClick = click, modifier = Modifier.size(64.dp), colors = IconButtonDefaults.filledIconButtonColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh, contentColor = if (selected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface)) { Icon(image, label, Modifier.size(26.dp)) }
-        Text(label, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface)
-    }
-}
-
-@Composable
-internal fun VoiceWave(state: VoiceState, modifier: Modifier = Modifier) {
-    val active = state.phase in setOf(VoicePhase.LISTENING, VoicePhase.SPEAKING, VoicePhase.THINKING)
-    val animated = android.animation.ValueAnimator.areAnimatorsEnabled()
-    val transition = rememberInfiniteTransition(label = "Voice wave")
-    val phase = if (active && animated) transition.animateFloat(0f, 6.2831855f, infiniteRepeatable(tween(1800, easing = LinearEasing), RepeatMode.Restart), label = "Wave phase").value else 0f
-    val level by animateFloatAsState(
-        if (state.phase == VoicePhase.LISTENING) {
-            if (state.hasAudioLevel) state.level else .08f
-        } else if (state.phase == VoicePhase.SPEAKING) {
-            .30f
-        } else if (active) {
-            .06f
-        } else {
-            0f
-        },
-        tween(140),
-        label = "Microphone level"
-    )
-    val primary = MaterialTheme.colorScheme.primary
-    val secondary = MaterialTheme.colorScheme.secondary
-    Canvas(modifier.semantics { contentDescription = "Voice activity" }) {
-        val center = Offset(size.width / 2, size.height / 2)
-        drawCircle(Brush.radialGradient(listOf(primary.copy(alpha = .09f), primary.copy(alpha = 0f)), center, size.width * .48f), size.width * .48f, center)
-        val count = 33
-        val gap = size.width * .78f / count
-        val width = gap * .53f
-        val time = if (active && animated) phase else 0f
-        repeat(count) { index ->
-            val envelope = sin(Math.PI * (index + 1) / (count + 1)).toFloat()
-            val pulse = .35f + .65f * abs(sin(time + index * .48f))
-            val height = 7.dp.toPx() + size.height * .58f * level * envelope * pulse
-            val x = size.width * .11f + index * gap
-            drawRoundRect(Brush.verticalGradient(listOf(primary, secondary)), Offset(x, center.y - height / 2), Size(width, height), CornerRadius(width / 2), alpha = if (active) 1f else .45f)
-        }
-    }
 }
 
 @Composable

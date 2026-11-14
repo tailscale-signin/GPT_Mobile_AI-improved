@@ -87,6 +87,7 @@ internal fun AppAuditControls(
                     Text("Include configured service read checks", Modifier.weight(1f))
                 }
                 Text("Optional reads use configured connections with bounded requests. This audit does not generate model answers or run tools that change external data.", style = MaterialTheme.typography.bodySmall)
+                Text("GitHub reads use up to two saved connections and their selected workspace repository/ref, with six checks per connection and at most 36 requests. Select the intended repository in GitHub mode before starting.", style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = { showTargets = !showTargets }) {
                     Text(if (showTargets) "Hide optional model targets" else "Optional model targets (${selectedProfileIds.size} selected)")
                 }
@@ -172,6 +173,7 @@ internal fun AppAuditResultCard(
             Text(presentation.coverageNotice, style = MaterialTheme.typography.bodySmall)
             Text("The score is 100 × passing weight / measured weight for eligible named checks. Configuration, cached information and untested checks do not earn points. It is separate from model quality and performance scores.", style = MaterialTheme.typography.bodySmall)
             Text(presentation.countsText, style = MaterialTheme.typography.bodySmall)
+            AppAuditGitHubContent(run)
             appAuditReasonCodeMessage(run.stopReasonCode)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             if (active && summary.planned > 0) {
                 LinearProgressIndicator(progress = { (summary.accounted.toFloat() / summary.planned).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
@@ -217,10 +219,13 @@ internal fun LazyListScope.appAuditEvidenceContent(
             Text("An attempt consumes the conservative probe budget before a request outcome is known. It does not by itself prove that the server received a request.", style = MaterialTheme.typography.bodySmall)
         }
     }
+    item(key = "audit.${batch.id}.github") {
+        AppAuditGitHubContent(run, showCategories = true)
+    }
     presentation.components.forEach { component ->
         item(key = "audit.${batch.id}.component.${component.id}") {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(run.sourceAreas.firstOrNull { it.id == component.id }?.label ?: component.id.replace('_', ' ').replace('.', ' '), style = MaterialTheme.typography.titleMedium)
+                Text(dev.chungjungsoo.gptmobile.data.audit.AppAuditGitHubCategory.entries.firstOrNull { it.id == component.id }?.title ?: run.sourceAreas.firstOrNull { it.id == component.id }?.label ?: component.id.replace('_', ' ').replace('.', ' '), style = MaterialTheme.typography.titleMedium)
                 Text("${component.summary.exercised}/${component.summary.planned} checks exercised · ${component.summary.verified} verified passes · ${component.summary.failed} failed · ${component.summary.blocked} blocked · ${component.summary.unavailable} unavailable · ${component.summary.untested} untested or pending", style = MaterialTheme.typography.bodySmall)
             }
         }

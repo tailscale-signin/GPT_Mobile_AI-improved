@@ -90,6 +90,46 @@ class GitHubIntegrationReportTest {
         }
     }
 
+    @Test fun progressAndFinalReportShareTheRequiredDenominatorWhenLifecycleStatusIsConditional() {
+        val request = "Test all authorized GitHub integration tools read only."
+        val available = listOf(tool("github_context", "status"), tool("github_repository", "status"))
+        val receipts = mapOf("source" to source())
+        val checkpoint = GitHubTestChecklist.checkpoint(request, receipts, available, 200)
+        val capabilities = (checkpoint.getValue("capabilities") as JsonArray).map { it.jsonObject }
+        val lifecycle = capabilities.single { it.text("id") == "github_repository:status" }
+        assertEquals(JsonPrimitive(false), lifecycle["required"])
+        assertEquals(JsonPrimitive("CONDITIONAL"), lifecycle["status"])
+
+        val progress = GitHubTestChecklist.progressSummary(checkpoint, null)
+        assertTrue(progress.startsWith("Checks: 1/1 verified"))
+        assertFalse(progress.contains("need fixture approval"))
+        assertTrue(progress.contains("All requested criteria are verified"))
+        val report = GitHubIntegrationReport.render(request, receipts, available, 200, checkpoint = checkpoint)
+        assertTrue(report.contains("1/1 required API capabilities verified"))
+        assertTrue(report.contains("0 required and 1 conditional outside the required scope"))
+        assertEquals(JsonPrimitive(0), checkpoint.getValue("preparation").jsonObject["required_pending_capability_count"])
+        assertEquals(JsonPrimitive(1), checkpoint.getValue("preparation").jsonObject["conditional_pending_capability_count"])
+        assertEquals(JsonPrimitive("ACCEPTANCE_COMPLETE"), GitHubIntegrationReport.stopReason(request, receipts, available, 200, checkpoint)["code"])
+    }
+
+    @Test fun requiredFixtureApprovalRemainsInTheProgressDenominatorAndCannotLookComplete() {
+        val available = listOf(tool("github_context", "status"), tool("github_commit", "branch", "delete_branch"), tool("github_repository", "status"))
+        val receipts = mapOf("source" to source())
+        val approval = GitHubTestChecklist.fixtureApprovalPreflight(GitHubDecisionMode.ASK, "accepted-task", "owner/repo", "main", json("{}"))
+        val checkpoint = GitHubTestChecklist.checkpoint(task, receipts, available, 200, approval)
+        val progress = GitHubTestChecklist.progressSummary(checkpoint, null)
+        assertTrue(progress.startsWith("Checks: 1/3 verified; 2 need fixture approval"))
+        assertFalse(progress.contains("All requested criteria are verified"))
+        val preparation = checkpoint.getValue("preparation").jsonObject
+        assertEquals(JsonPrimitive(2), preparation["required_pending_capability_count"])
+        assertEquals(JsonPrimitive(1), preparation["conditional_pending_capability_count"])
+        val fixture = preparation.getValue("blockers").let { it as JsonArray }.map { it.jsonObject }.single { it.text("code") == "FIXTURE_APPROVAL_MODE_REQUIRED" }
+        assertEquals(JsonArray(listOf(JsonPrimitive("github_commit:branch"), JsonPrimitive("github_commit:delete_branch"))), fixture["required_capability_ids"])
+        assertEquals(JsonArray(emptyList()), fixture["conditional_capability_ids"])
+        assertEquals(JsonPrimitive("CAPABILITY_PREREQUISITES_MISSING"), GitHubIntegrationReport.stopReason(task, receipts, available, 200, checkpoint)["code"])
+        assertEquals(1, receipts.size)
+    }
+
     @Test fun remainingBudgetAndMissingPrerequisitesStaySeparateForEachCheckpoint() {
         val receipts = mapOf("source" to source())
         for (remaining in listOf(204, 48)) {

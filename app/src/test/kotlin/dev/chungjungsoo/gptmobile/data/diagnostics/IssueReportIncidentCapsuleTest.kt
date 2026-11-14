@@ -237,19 +237,27 @@ class IssueReportIncidentCapsuleTest {
                 "unmet_criterion_id_hashes" to List(8) { "b".repeat(64) }, "unmet_criterion_reason_hashes" to List(8) { "c".repeat(64) },
                 "unmet_criterion_categories" to List(8) { "BUILD_REVISION_BINDING" }, "unmet_criterion_states" to List(8) { "NOT_TESTED" },
                 "unmet_criterion_blockers" to List(8) { "WORKFLOW_RUN_OR_JOB_REQUIRED" }, "unmet_criterion_count" to 11, "unmet_criterion_omitted_count" to 3,
+                "evidence_ref_hashes" to List(8) { "d".repeat(64) },
                 "effective_call_limit" to 256, "used_calls" to 82, "remaining_calls" to 174, "pending_continuations" to 16,
                 "required_capability_count" to 53, "verified_capability_count" to 44, "blocked_capability_count" to 2, "untested_capability_count" to 7,
+                "acceptance_capability_scope" to "FULL_CATALOG", "acceptance_pagination_mode" to "COMPLETE_INVENTORY_REQUESTED",
                 "changed_policy_fields" to IssueReportIncidentCapsule.policyFieldNames.toList()
             )
         )
         val snapshot = requireNotNull(context.diagnostics)
         val retained = (snapshot.values.getValue("unmet_criterion_id_hashes") as JsonArray).size
-        assertTrue(retained in 1..8)
+        assertTrue(retained in 1..7)
         assertEquals(retained, (snapshot.values.getValue("unmet_criterion_states") as JsonArray).size)
         assertEquals(JsonPrimitive(11 - retained), snapshot.values["unmet_criterion_omitted_count"])
         assertEquals(8, (snapshot.values["changed_policy_fields"] as JsonArray).size)
         assertEquals(JsonPrimitive(67), snapshot.values["changed_policy_field_count"])
         assertEquals(JsonPrimitive(59), snapshot.values["changed_policy_omitted_count"])
+        assertEquals(JsonPrimitive("FULL_CATALOG"), snapshot.values["acceptance_capability_scope"])
+        assertEquals(JsonPrimitive("COMPLETE_INVENTORY_REQUESTED"), snapshot.values["acceptance_pagination_mode"])
+        assertTrue("ACCEPTANCE_SCOPE_EVIDENCE_V1" in snapshot.requiredServiceFeatures())
+        assertFalse("acceptance_capability_scope" in snapshot.omittedFields)
+        assertFalse("acceptance_pagination_mode" in snapshot.omittedFields)
+        assertTrue(snapshot.isValid())
         assertTrue(IssueReport.json.encodeToString(IssueReportDiagnostics.serializer(), snapshot).encodeToByteArray().size <= IssueReportDiagnostics.MAX_BYTES)
         assertTrue(report(context).approvedPayload().encodeToByteArray().size <= IssueReport.MAX_PAYLOAD_BYTES)
     }

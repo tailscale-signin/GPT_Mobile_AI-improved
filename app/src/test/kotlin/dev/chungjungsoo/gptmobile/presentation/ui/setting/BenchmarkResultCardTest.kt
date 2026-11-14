@@ -92,7 +92,7 @@ class BenchmarkResultCardTest {
         val sample = BenchmarkSample("case", "Case", "task", BenchmarkOutcome.PASSED, outputCharacters = 1, preview = "1", runtimeExecutions = listOf(receipt), requestDispatched = true, terminalReceived = true)
         show(presentation(listOf(run("current", 2000).copy(samples = listOf(sample)))))
         compose.onNodeWithText("Actual executed backend: CPU").assertExists()
-        compose.onNodeWithText("1/5 planned cases observed executing · 1 cases accounted for").assertExists()
+        compose.onNodeWithText("Planned 5 · executed 1 · passed 1 · failed 0 · skipped 0").assertExists()
         scrollToDetails()
         compose.onNodeWithText("Advanced evidence").assertIsDisplayed().performClick()
         compose.onNodeWithText("Requested engine/backend: GPU · profile accelerator GPU").assertExists()

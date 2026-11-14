@@ -104,6 +104,24 @@ class GatewayAdmissionClientTest {
         assertEquals(GatewayAdmissionReason.UNSUPPORTED_CONTRACT, gatewayAdmissionFailure(405, GatewayAdmissionSurface.COMMAND, null).reason)
     }
 
+    @Test fun commandReceiptCodeIsOnlyTrustedOnTheGatewayCommand404() {
+        val body = """{"error":{"code":"command_receipt_unavailable"}}"""
+        val command = GatewayAdmissionSurface.COMMAND
+        val missing = gatewayAdmissionFailure(404, command, null, body)
+        assertEquals("command_receipt_unavailable", missing.wireCode)
+        assertEquals(GatewayAdmissionDispatchState.UNKNOWN, missing.dispatchState)
+
+        val direct = gatewayAdmissionFailure(404, command, null, body, directModelServer = true)
+        assertNull(direct.wireCode)
+        assertEquals(GatewayAdmissionDispatchState.UNKNOWN, direct.dispatchState)
+
+        val rejected = gatewayAdmissionFailure(503, command, "command_receipt_unavailable", """{"error":{"code":"conversation_storage_unavailable"}}""")
+        assertEquals(GatewayAdmissionReason.STORAGE_UNAVAILABLE, rejected.reason)
+        assertEquals("conversation_storage_unavailable", rejected.wireCode)
+        assertEquals(GatewayAdmissionRetryability.RECONCILE_ORIGINAL_COMMAND, rejected.retryability)
+        assertNull(gatewayAdmissionFailure(404, GatewayAdmissionSurface.IDENTITY, null, body).wireCode)
+    }
+
     @Test fun explicitRemoteSurfaceDenialKeepsItsRepairAndNeverRequestsAnApiTokenOrRetries() = runBlocking {
         var calls = 0
         HttpClient(

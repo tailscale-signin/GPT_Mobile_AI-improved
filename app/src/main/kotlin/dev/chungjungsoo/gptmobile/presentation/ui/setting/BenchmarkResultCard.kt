@@ -43,7 +43,11 @@ internal fun BenchmarkResultCard(result: BenchmarkResultPresentation) {
             if (run != null) {
                 val coverage = benchmarkCoverage(run)
                 val planned = if (coverage.plannedKnown) coverage.planned.toString() else "unknown"
-                Text("${coverage.executed}/$planned planned cases observed executing · ${coverage.accounted} cases accounted for", style = MaterialTheme.typography.bodySmall)
+                Text("Planned $planned · executed ${coverage.executed} · passed ${coverage.passed} · failed ${coverage.failed} · skipped ${coverage.skipped}", style = MaterialTheme.typography.bodySmall)
+                val delivery = result.attemptMetrics.firstOrNull { it.id == "delivery_completion" }
+                if (delivery != null && delivery.denominator > 0) {
+                    Text("Delivery: ${delivery.numerator}/${delivery.denominator} requests · $planned planned cases", style = MaterialTheme.typography.bodySmall)
+                }
             } else {
                 Text("Attempt coverage: not recorded", style = MaterialTheme.typography.bodySmall)
             }
@@ -98,6 +102,7 @@ private fun BenchmarkResultDetails(result: BenchmarkResultPresentation) {
     Text("Answer accuracy ${ratio("answer_correctness")} · delivery ${ratio("delivery_completion")} · planned task success ${ratio("planned_task_success")}", style = MaterialTheme.typography.bodySmall)
     Text("Answer accuracy here follows the retained fixture grade policy. Per-question semantic intelligence is reported separately.", style = MaterialTheme.typography.labelSmall)
     Text("Raw reference decode rate: ${benchmarkMetricText(metrics["raw_reference_decode_rate"]?.value, "reference text units/s", 1)} · first visible text ${benchmarkMetricText(metrics["raw_first_visible_text"]?.value, "ms", 0)}", style = MaterialTheme.typography.bodySmall)
+    Text("Provider-reported decode rate: ${benchmarkMetricText(metrics["raw_reported_provider_decode_rate"]?.value, "provider tokens/s", 1)}", style = MaterialTheme.typography.bodySmall)
     Text("Raw native rate (model tokenizer): ${benchmarkMetricText(metrics["raw_native_decode_rate"]?.value, "tokens/s", 1)}", style = MaterialTheme.typography.bodySmall)
     val qualified = result.attemptScore?.takeIf { it.verified }
     Text("Qualified timing for this attempt: ${qualified?.speed?.let { benchmarkMetricText(it, "reference text units/s", 1) } ?: "Not qualified"}", style = MaterialTheme.typography.bodySmall)
@@ -114,6 +119,16 @@ private fun BenchmarkResultDetails(result: BenchmarkResultPresentation) {
         val last = it.samples.lastOrNull()
         last?.let { sample ->
             Text("Latest recorded case: ${sample.label} · ${sample.outcome.name.lowercase()}", style = MaterialTheme.typography.titleSmall)
+            Text(
+                "HTTP request sent: ${if (sample.physicalRequestIds.isNotEmpty() || sample.providerHttpStatus != null) {
+                    "observed"
+                } else if (sample.requestDispatched == false) {
+                    "no"
+                } else {
+                    "unknown"
+                }} · HTTP ${sample.providerHttpStatus ?: "unknown"} · cache ${sample.cacheRegime.replace('_', ' ')}",
+                style = MaterialTheme.typography.labelSmall
+            )
             sample.validation?.let { validation ->
                 fun observation(value: Boolean?) = when (value) {
                     true -> "pass"

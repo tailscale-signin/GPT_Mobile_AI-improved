@@ -455,6 +455,9 @@ class GitHubWorkspaceClient(
                 val perPage = args["per_page"]?.jsonPrimitive?.intOrNull ?: 30
                 require(perPage in 1..100) { "per_page must be between 1 and 100." }
                 val result = request("$root/commits/${segment(ref)}?per_page=$perPage&page=$page").jsonObject
+                if (currentCoroutineContext()[GitHubDispatchAccounting]?.requireReadInventory == true) {
+                    require(result["files"] is JsonArray) { "GitHub commit response did not contain a file inventory." }
+                }
                 GitHubCommitDetail.present(result, page, perPage, args["include_patches"]?.jsonPrimitive?.booleanOrNull == true)
             }
             "get_commit_status_summary" -> {
@@ -509,7 +512,15 @@ class GitHubWorkspaceClient(
             "get_pull_request_comments" -> pullRequestComments(root, required("pull_number").toInt().also { require(it > 0) }, page)
             "pr_context" -> prContext(root, required("pull_number").toInt().also { require(it > 0) }, args, page)
             "ci_failure_digest" -> ciFailureDigest(root, ref, args)
-            "get_commit_checks" -> compactChecks(request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject, page, perPage)
+            "get_commit_checks" -> {
+                val result = request("$root/commits/${segment(required("ref"))}/check-runs?$pagination").jsonObject
+                if (currentCoroutineContext()[GitHubDispatchAccounting]?.requireReadInventory == true) {
+                    val runs = result["check_runs"] as? JsonArray
+                    val total = (result["total_count"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                    require(runs != null && total != null && total >= runs.size) { "GitHub check response did not contain a valid inventory." }
+                }
+                compactChecks(result, page, perPage)
+            }
             "compare_refs" -> compactCompare(request("$root/compare/${segment(required("base"))}...${segment(required("head"))}?$pagination").jsonObject)
             "changed_since" -> {
                 val head = field("head").ifBlank { ref.ifBlank { "HEAD" } }

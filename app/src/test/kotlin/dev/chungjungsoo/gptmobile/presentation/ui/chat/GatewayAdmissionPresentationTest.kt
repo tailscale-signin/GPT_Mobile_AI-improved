@@ -49,4 +49,33 @@ class GatewayAdmissionPresentationTest {
         assertEquals("Gateway worker needs attention", gatewayAdmissionPresentation(unsent.copy(category = "GATEWAY_ENGINEERING_WORKER_UNAVAILABLE"))?.title)
         assertEquals("Gateway is not ready", gatewayAdmissionPresentation(unsent.copy(category = "GATEWAY_ENGINEERING_DRAINING"))?.title)
     }
+
+    @Test fun validationPolicyExplainsTheRequiredSetupAndOnlyAllowsKnownUnsentRetry() {
+        val failure = unsent.copy(category = "VALIDATION_POLICY_REQUIRED", phase = "admission", recoveryActions = listOf("CONFIGURE_VALIDATION_POLICY"))
+        val presentation = requireNotNull(gatewayAdmissionPresentation(failure))
+        assertEquals("Validation policy required", presentation.title)
+        assertTrue(presentation.guidance.contains("Configure the validation policy"))
+        assertTrue(presentation.canRetryAfterRepair)
+        assertFalse(requireNotNull(gatewayAdmissionPresentation(failure.copy(dispatched = null, remoteAcceptance = RemoteRequestAcceptance.UNKNOWN))).canRetryAfterRepair)
+        assertFalse(requireNotNull(gatewayAdmissionPresentation(failure.copy(dispatched = true, remoteAcceptance = RemoteRequestAcceptance.YES))).canRetryAfterRepair)
+    }
+
+    @Test fun remainingPrerequisitesNameTheirActualRepair() {
+        val titles = mapOf(
+            "VALIDATION_CHECKS_REQUIRED" to "Validation checks need configuration",
+            "VALIDATION_CHECK_UNSUPPORTED" to "Validation checks need configuration",
+            "ACCEPTANCE_CONTRACT_REQUIRED" to "Acceptance requirements need configuration",
+            "ACCEPTANCE_PRODUCER_REQUIRED" to "Acceptance requirements need configuration",
+            "SOURCE_REVISION_REQUIRED" to "Source revision needs refreshing",
+            "SOURCE_REVISION_CHANGED" to "Source revision needs refreshing",
+            "VALIDATION_REVISION_UNAVAILABLE" to "Validation source is unavailable",
+            "VALIDATION_RUNTIME_UNAVAILABLE" to "Validation runtime is unavailable",
+            "ENGINEERING_REPOSITORY_ACCESS_REQUIRED" to "Repository access needs attention"
+        )
+        for ((category, title) in titles) {
+            val presentation = requireNotNull(gatewayAdmissionPresentation(unsent.copy(category = category, phase = "admission")))
+            assertEquals(title, presentation.title)
+            assertTrue(presentation.canRetryAfterRepair)
+        }
+    }
 }

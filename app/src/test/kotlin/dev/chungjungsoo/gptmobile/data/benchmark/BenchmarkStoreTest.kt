@@ -78,7 +78,7 @@ class BenchmarkStoreTest {
         try {
             store.load()
             rejectSnapshotWrites(context)
-            val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Name", model = "model")
+            val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Name", model = "model", apiUrl = "https://example.org/private", token = "private-credential")
             val batch = BenchmarkBatch("batch", BenchmarkMode.QUICK, 1, listOf(BenchmarkQueueItem(0, profile, "run", "key", BenchmarkQueueState.COMPLETED)), state = BenchmarkBatchState.COMPLETED)
             val sample = BenchmarkSample("instruction", "Instruction", "task", BenchmarkOutcome.PASSED, preview = "READY", canonicalAnswer = "READY", outputCharacters = 5, requestDispatched = true)
             val run = BenchmarkRun("run", profile.uid, profile.name, "OPENAI", "model", "key", false, BenchmarkMode.QUICK, System.currentTimeMillis(), listOf(sample), suiteVersion = 8, measurementVersion = 3, batchId = batch.id)
@@ -225,8 +225,111 @@ class BenchmarkStoreTest {
             val restored = checkNotNull(store.batch(batch.id))
             assertEquals(BenchmarkBatchState.INTERRUPTED, restored.state)
             assertEquals(listOf("profile", "next"), restored.items.map { it.profile.uid })
+            assertTrue(restored.items.all { it.profile.apiUrl.isEmpty() && it.profile.token == null })
+            assertEquals(BenchmarkQueueState.INTERRUPTED, restored.items.first().state)
             assertEquals(listOf("next"), restored.pending.map { it.profile.uid })
             assertTrue(restored.canResume)
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test fun canonicalBackupRetainsEndpointsAndInterruptsDispatchedAttempts() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE).edit().clear().commit()
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Name", model = "model", apiUrl = "https://private.example/custom-provider", batchMode = true)
+        val primary = profile.copy(uid = "primary", systemPrompt = "Private saved instructions")
+        val reviewer = profile.copy(uid = "reviewer", batchApiUrl = "https://private.example/batch")
+        val batch = BenchmarkBatch("canonical-backup", BenchmarkMode.QUICK, 1, listOf(BenchmarkQueueItem(0, profile, "run", "key", state = BenchmarkQueueState.RUNNING), BenchmarkQueueItem(1, profile.copy(uid = "next"), "next-run", "key")), state = BenchmarkBatchState.RUNNING, activeOrdinal = 0, delegationPrimary = primary, delegationReviewer = reviewer)
+        val store = BenchmarkStore(context)
+        try {
+            store.checkpoint(batch, attempts = listOf(BenchmarkAttempt("attempt", batch.id, 0, "run", "case", 0, 1, 90_001, requestDispatched = true)))
+            store.importBackupJson(store.exportJson())
+            val restored = checkNotNull(store.batch(batch.id))
+            assertEquals(BenchmarkBatchState.INTERRUPTED, restored.state)
+            assertEquals(listOf("profile", "next"), restored.items.map { it.profile.uid })
+            assertEquals(profile, restored.items.first().profile)
+            assertEquals(primary, restored.delegationPrimary)
+            assertEquals(reviewer, restored.delegationReviewer)
+            assertTrue(restored.redactedEndpointProfileUids.isEmpty())
+            assertEquals(listOf("next"), restored.pending.map { it.profile.uid })
+            val restoredPayload = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<BenchmarkBackupPayload>(store.exportJson())
+            assertEquals("INTERRUPTED", restoredPayload.attempts.single().state)
+            assertTrue(restoredPayload.attempts.single().dispatchUncertain)
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test fun redactedQueueAndDelegationEndpointsStayMarkedThroughCompleteBackup() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE).edit().clear().commit()
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "target", name = "Name", model = "model", apiUrl = "https://private.example/custom-provider", batchMode = true, batchApiUrl = "https://private.example/batch", token = "private-token", secretRef = "private-vault-reference", systemPrompt = "Private saved instructions")
+        val batch = BenchmarkBatch("redacted-backup", BenchmarkMode.QUICK, 1, listOf(BenchmarkQueueItem(0, profile, "run", "key")), delegationPrimary = profile.copy(uid = "primary"), delegationReviewer = profile.copy(uid = "reviewer"))
+        val store = BenchmarkStore(context)
+        try {
+            store.checkpoint(batch)
+            val report = benchmarkExport(store.exportJson(), false)
+            listOf("private.example", "private-token", "private-vault-reference", "Private saved instructions").forEach { assertTrue(!report.contains(it)) }
+            store.importBackupJson(report)
+            val restored = checkNotNull(store.batch(batch.id))
+            assertEquals(setOf("target", "primary", "reviewer"), restored.redactedEndpointProfileUids)
+            assertEquals(BenchmarkBatchState.INTERRUPTED, restored.state)
+            val restoredProfiles = listOf(restored.items.single().profile, checkNotNull(restored.delegationPrimary), checkNotNull(restored.delegationReviewer))
+            assertTrue(restoredProfiles.all { it.apiUrl.isEmpty() && it.batchApiUrl == null && it.token == null && it.secretRef == null && it.systemPrompt == null })
+            store.importBackupJson(store.exportJson())
+            assertEquals(restored.redactedEndpointProfileUids, checkNotNull(store.batch(batch.id)).redactedEndpointProfileUids)
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test fun malformedBackupsCannotMutateHistoryOrExposeTheirPayloadInErrors() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE).edit().clear().commit()
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Name", model = "model")
+        val batch = BenchmarkBatch("preserved", BenchmarkMode.QUICK, 1, listOf(BenchmarkQueueItem(0, profile, "run", "key")))
+        val run = BenchmarkRun("run", profile.uid, profile.name, "OPENAI", profile.model, "key", false, BenchmarkMode.QUICK, 1)
+        val store = BenchmarkStore(context)
+        try {
+            store.checkpoint(batch, run)
+            val malformed = listOf("{\"private-diagnostic-marker\":", "{\"runs\":[{\"id\":null,\"profileUid\":\"private-diagnostic-marker\"}]}", "[{\"id\":null,\"profileUid\":\"private-diagnostic-marker\"}]")
+            for (payload in malformed) {
+                val failures = listOf(runCatching { store.validateBackupJson(payload) }.exceptionOrNull(), runCatching { store.importBackupJson(payload) }.exceptionOrNull())
+                for (failure in failures) {
+                    assertTrue(failure is IllegalArgumentException)
+                    // Coroutine stack-trace recovery can retain the already-sanitized
+                    // exception as a cause when import crosses withContext(IO).
+                    // Every reachable error must still be sanitized, including that cause.
+                    val visited = mutableSetOf<Throwable>()
+                    var current = failure
+                    while (current != null) {
+                        assertTrue("Backup errors must not contain causal cycles", visited.add(current))
+                        assertEquals(IllegalArgumentException::class.java, current.javaClass)
+                        assertEquals("Invalid benchmark backup data. The JSON structure does not match a supported benchmark backup.", current.message)
+                        assertTrue("Backup errors must not attach suppressed failures", current.suppressed.isEmpty())
+                        current = current.cause
+                    }
+                    assertTrue(!checkNotNull(failure).stackTraceToString().contains("private-diagnostic-marker"))
+                }
+                assertEquals(listOf(run), store.history.value)
+                assertEquals(batch, store.batch(batch.id))
+            }
+        } finally {
+            store.close()
+        }
+    }
+
+    @Test fun redactedActiveBatchEndpointIsMarkedWhenThePrimaryEndpointIsRetained() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        context.getSharedPreferences("profile_benchmarks_v1", Context.MODE_PRIVATE).edit().clear().commit()
+        val report = """{"format":"gptmobile.benchmarks.v2","schemaVersion":2,"storageSchemaVersion":3,"batches":[{"id":"batch-route","mode":"QUICK","createdAt":1,"items":[{"ordinal":0,"profile":{"uid":"profile","name":"Name","apiUrl":"https://example.org/v1","batchMode":true,"batchApiUrl":null},"runId":"run","configKey":"key"}]}]}"""
+        val store = BenchmarkStore(context)
+        try {
+            store.importBackupJson(report)
+            val restored = checkNotNull(store.batch("batch-route"))
+            assertEquals("https://example.org/v1", restored.items.single().profile.apiUrl)
+            assertEquals(setOf("profile"), restored.redactedEndpointProfileUids)
         } finally {
             store.close()
         }

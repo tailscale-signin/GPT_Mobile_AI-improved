@@ -60,6 +60,17 @@ internal object ToolReportDiagnostics {
             receipt?.get(key)?.let { put(key, it) }
         }
         if (event.modelToolName.substringBefore("__").startsWith("github_")) {
+            if (result.errorCode in setOf("GITHUB_TRANSIENT_NETWORK", "GITHUB_TRANSIENT_SERVER", "GITHUB_CIRCUIT_OPEN") &&
+                receipt?.get("schema") == JsonPrimitive("github.dispatch.v1")
+            ) {
+                for ((source, target) in listOf(
+                    "read_requests" to "github_transport_read_attempts",
+                    "unobserved_read_requests" to "github_transport_unanswered_reads",
+                    "read_response_observations" to "github_transport_http_responses"
+                )) {
+                    receipt[source]?.let { put(target, it) }
+                }
+            }
             (arguments?.get("per_page") as? JsonPrimitive)?.takeUnless { it.isString }?.content?.toIntOrNull()
                 ?.takeIf { it in 0..16_000_000 }?.let { put("argument_page_size", it) }
         }

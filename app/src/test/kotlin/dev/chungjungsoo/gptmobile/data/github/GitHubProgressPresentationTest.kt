@@ -71,4 +71,13 @@ class GitHubProgressPresentationTest {
         ).forEach { assertEquals(it, GitHubProgressPresentation.preview(it)) }
         assertEquals("Reviewing read before request", GitHubProgressPresentation.preview("Reviewing github_read before dispatch"))
     }
+
+    @Test fun onlyExactApplicationStagingLinesAreTransient() {
+        listOf("Putting the response together.", "  PREPARING   the requested repository checks... ", "Locating the relevant repository evidence").forEach {
+            org.junit.Assert.assertTrue(it, GitHubProgressPresentation.isTransientActivity(it))
+        }
+        listOf("Waiting for your approval", "Checks: 47/70 verified", "The source read failed", "Putting the response together after reading Reader.kt", "The model is preparing the requested repository checks.").forEach {
+            org.junit.Assert.assertFalse(it, GitHubProgressPresentation.isTransientActivity(it))
+        }
+    }
 }

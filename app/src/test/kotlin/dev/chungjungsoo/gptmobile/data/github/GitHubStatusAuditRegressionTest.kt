@@ -206,7 +206,7 @@ class GitHubStatusAuditRegressionTest {
     @Test fun compactProgressCountsEvaluatedChecksAndSurvivesPresentationFiltering() {
         val checkpoint = json("""{"capabilities":[{"status":"PASSED"},{"status":"RECOVERED"},{"status":"FAILED"},{"status":"BLOCKED"},{"status":"UNTESTED"}]}""")
         val summary = GitHubTestChecklist.progressSummary(checkpoint, null)
-        assertTrue(summary.startsWith("Checks: 2/5 complete; 1 failed; 1 blocked."))
+        assertTrue(summary.startsWith("Checks: 2/5 verified; 1 failed; 1 blocked."))
         assertEquals(summary, GitHubProgressPresentation.preview(summary))
     }
 

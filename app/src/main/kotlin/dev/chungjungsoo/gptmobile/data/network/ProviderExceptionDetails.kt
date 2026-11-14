@@ -6,7 +6,12 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
-internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, nowMillis: Long = System.currentTimeMillis()): ErrorDetail? {
+internal fun providerExceptionDetails(
+    error: Exception,
+    partialOutput: Boolean,
+    nowMillis: Long = System.currentTimeMillis(),
+    monotonicMillis: Long = System.nanoTime() / 1_000_000
+): ErrorDetail? {
     if (error is dev.chungjungsoo.gptmobile.data.agent.CombinedBudgetExceeded && !partialOutput) {
         return ErrorDetail(
             message = "The Combined turn could not admit another provider attempt within its saved limits.",
@@ -44,9 +49,16 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 error.outputTokens?.let { put("admission_output_tokens", it) }
                 error.capacityTokens?.let { put("admission_capacity_tokens", it) }
                 put("admission_measurement", error.measurement.name)
-                error.budget?.dominantComponent?.let {
-                    put("admission_dominant_component", it.name)
-                    put("admission_dominant_tokens", it.tokens)
+                capacityAdmissionEvidence(error, monotonicMillis).forEach { (key, value) -> put(key, value) }
+                error.budget?.let { budget ->
+                    put("admission_tool_result_reserve_tokens", budget.toolResultReserveTokens)
+                    put("admission_attachment_reserve_tokens", budget.attachmentReserveTokens)
+                    put("admission_tool_schema_tokens", budget.components.firstOrNull { it.name == "tool_schemas" }?.tokens ?: 0)
+                    budget.dominantComponent?.let {
+                        val component = if (it.name == "attachment_reserve") "attachments" else it.name
+                        put("admission_dominant_component", component)
+                        put("admission_dominant_tokens", it.tokens)
+                    }
                 }
                 put("partial_output_preserved", partialOutput)
                 // A rejected continuation cannot prove that an earlier physical

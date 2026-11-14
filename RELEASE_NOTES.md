@@ -4,6 +4,26 @@ Android build 141. Scoped reliability release covering the changes since [0.9.66
 
 This release brings together persistent gateway conversations and jobs, more reliable GitHub task recovery and acceptance evidence, application audits, safer diagnostics, and the November 7–9 integration repairs. The latest repair also addresses the Gateway conversations crash and the Android method-size and regression failures found while reviewing PR #815.
 
+## November 14 chat, voice, and benchmark follow-up
+
+Increase the GitHub header fade, retain preview activation order, reattach chat follow at the user-reached bottom, and pace new rendered GitHub text at 1.5 seconds per line. Refresh voice presentation with theme-aware captions and observed playback-start feedback. Preserve schema constraints in benchmark requests, select reasoning modes from frozen cases, and distinguish request dispatch, admission and model execution. The [repair audit](docs/repairs/chat-voice-and-report-audit-2026-11-14.md) accounts for the complete supplied diagnostic and benchmark exports.
+
+Move turn-presentation scans out of the large chat composable and enforce the Android compiler's method-size boundary against actual packaged chat and voice methods. Retain a small APK-bound measurement report in CI. Restore redacted benchmark history without recovering credentials or substituting an endpoint, and keep malformed-backup errors free of private payloads.
+
+For reports #1090 and #1091, retain capacity provenance and numeric input components before admission rejects, preserve the resolved output allowance, and show guidance based on remaining context headroom. Preserve explicit conversation rejection evidence and add bounded pending-tool state, identity hash and handoff sequence without granting ownership or replay authority.
+
+For report #1092, preserve the retained capability scope and pagination mode so an incomplete task report distinguishes full catalog requirements from observed capabilities and complete inventory requests from bounded sampling. Keep those two closed values through bounded criterion-sample trimming, without changing approvals or completion requirements.
+
+The November 14 chat and voice follow-up requires physical-device gesture, layout, audio and frame-time acceptance. Preparing-voice reports require a hosted reporter advertising VOICE_PLAYBACK_PHASE_V1. Private gateway/model availability and historical incidents with missing receipts remain dependent on live evidence; host and CI checks do not establish those outcomes.
+
+The November 14 capacity/conflict follow-up requires matching gateway and hosted reporter capabilities CAPACITY_ADMISSION_EVIDENCE_V1 and CONVERSATION_CONFLICT_EVIDENCE_V1. The original private requests and affected-device performance are not qualified by diagnostic or host regressions.
+
+Acceptance-scope reports require a hosted reporter advertising ACCEPTANCE_SCOPE_EVIDENCE_V1. Older approved reports remain unchanged and cannot reveal scope that was never captured; the historical task is not established as completed by the diagnostic enhancement.
+
+For reports #1093–#1096, allow voice downloads over internet-capable VPNs, reconcile real scheduler state and bind progress/cancellation to each install attempt. Add a report action with bounded scheduler and transfer observations. Keep the expanded GitHub header inset live through retained navigation and share the anchored generation indicator across chat modes. Add eight GitHub audit categories with separate local/live scores, sixteen production contracts and explicitly enabled bounded read-only probes.
+
+Voice-install evidence requires a hosted reporter advertising VOICE_INSTALL_EVIDENCE_V1. The GitHub audit separates local contracts from explicitly enabled bounded live reads; write/approval cleanup, protected merge/workflow execution, artifact installation/device checks and interruption recovery remain untested without their own execution evidence. Historical device download causality and physical gesture, audio and frame-time outcomes are not established by host or emulator tests.
+
 ## November 13 interface, voice, and audit updates
 
 Improve GitHub chat scrolling and progress, Gateway conversation navigation, background voice plugin installation, and bounded app audit modes. Add safe observations for URL-reader DNS cooldowns, saved-view recovery, and fixture approval.

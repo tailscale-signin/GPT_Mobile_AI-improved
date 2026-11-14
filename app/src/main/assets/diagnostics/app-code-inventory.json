@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "0219b9fdc705ad4afed7dec6ac469a27cc72474ef38e61c229358f4a82145813",
-  "file_count": 2535,
-  "indexed_line_count": 406849,
+  "source_digest": "096ca3a18412bef30ff1388cb602f3c5edeacfff67e7238bbc7a00ec2e36fe30",
+  "file_count": 2566,
+  "indexed_line_count": 410377,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -34,13 +34,13 @@
       "id": "android_shell",
       "label": "Android application and lifecycle",
       "file_count": 73,
-      "indexed_line_count": 8479
+      "indexed_line_count": 8509
     },
     {
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
-      "file_count": 526,
-      "indexed_line_count": 93610
+      "file_count": 544,
+      "indexed_line_count": 94639
     },
     {
       "id": "accessibility_and_localization",
@@ -52,7 +52,7 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 225,
-      "indexed_line_count": 37886
+      "indexed_line_count": 37997
     },
     {
       "id": "agent_tools",
@@ -75,8 +75,8 @@
     {
       "id": "model_providers",
       "label": "Model providers and adapters",
-      "file_count": 62,
-      "indexed_line_count": 9022
+      "file_count": 63,
+      "indexed_line_count": 9072
     },
     {
       "id": "models_and_profiles",
@@ -94,19 +94,19 @@
       "id": "gateway_client",
       "label": "Android gateway client",
       "file_count": 35,
-      "indexed_line_count": 5645
+      "indexed_line_count": 5702
     },
     {
       "id": "network",
       "label": "Networking and readiness",
-      "file_count": 96,
-      "indexed_line_count": 9619
+      "file_count": 98,
+      "indexed_line_count": 9707
     },
     {
       "id": "github",
       "label": "GitHub and engineering workspace",
-      "file_count": 222,
-      "indexed_line_count": 36923
+      "file_count": 223,
+      "indexed_line_count": 37197
     },
     {
       "id": "research",
@@ -130,13 +130,13 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 12491
+      "indexed_line_count": 12666
     },
     {
       "id": "benchmark",
       "label": "Benchmarks and app audit",
-      "file_count": 110,
-      "indexed_line_count": 16491
+      "file_count": 118,
+      "indexed_line_count": 17609
     },
     {
       "id": "auth_and_security",
@@ -147,8 +147,8 @@
     {
       "id": "voice_and_media",
       "label": "Voice and media",
-      "file_count": 23,
-      "indexed_line_count": 4853
+      "file_count": 24,
+      "indexed_line_count": 5349
     },
     {
       "id": "portable_domain",
@@ -166,13 +166,13 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 118,
-      "indexed_line_count": 64350
+      "indexed_line_count": 64382
     },
     {
       "id": "authentication_service",
       "label": "Authentication broker software",
       "file_count": 9,
-      "indexed_line_count": 2198
+      "indexed_line_count": 2266
     },
     {
       "id": "external_integrations",
@@ -794,15 +794,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentContracts.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "44ce34c29108eeda86e34eb611643199cde5b3ba04be5a44e9b0a95e8d9998a9",
-      "indexed_lines": 245
+      "sha256": "cab6d17fd04137c627b88ee6078f7fcced3326d782d286c4bc4f6bcf1474c349",
+      "indexed_lines": 246
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidence.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "d9e08d40cf741c9b04618222368f1fb4ca8a33221ebfb6074262c677fd250ebf",
-      "indexed_lines": 97
+      "sha256": "02ab33561493e97b55d7ef7265c8bd7e279adbf53b2230552593d92b10557436",
+      "indexed_lines": 129
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunCoordinator.kt",
@@ -815,8 +815,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunTerminalDiagnostics.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "c6e1bef5a0da5e9ccb9454615bb55f39913cc5bcc1092a9f4c238e49d6036434",
-      "indexed_lines": 107
+      "sha256": "56ada6e157c14c18d1342a8e59ba39c794511cda810c17724deaabf40ffa92fc",
+      "indexed_lines": 109
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
@@ -1725,8 +1725,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProfileFailureRecord.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "c934a45880ee02a285f55447ec432d6515f039b4caa5049e8168d5532317ca81",
-      "indexed_lines": 353
+      "sha256": "bdba562e16af3f683adfe52a42bf1b5d13520291b492ee49d78891670ed22836",
+      "indexed_lines": 357
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProgressWatchdogSession.kt",
@@ -2005,8 +2005,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "d70812666a6d1b9fd1d3c852b0f49cda7fac76d2e54a8fe1bc7650dbbd26bbd3",
-      "indexed_lines": 179
+      "sha256": "bd283da08a69a973c8522fa97edc3fcc794b7c8518dfca5dbd675160f402b167",
+      "indexed_lines": 183
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogDiagnostics.kt",
@@ -2208,8 +2208,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "5f8dabb8d8b291c3547e19609a72410fa6945e0906676968daa18fb9489abe60",
-      "indexed_lines": 1872
+      "sha256": "2bdb2a44f71a0d1da3a5ff32b57ff2503d46d587a85f578d42c0dfcf9b4ce90a",
+      "indexed_lines": 1871
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAttachmentEncoder.kt",
@@ -2233,11 +2233,18 @@
       "indexed_lines": 29
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderResponseFormatPolicy.kt",
+      "area_id": "model_providers",
+      "kind": "source",
+      "sha256": "7b6a01ce6edb0529b5d00b632f4ff337ba4bdbc97d9f870fcaca98b6a1edd702",
+      "indexed_lines": 37
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "adf104353f5139b7acbd9d67ec735b57f0ee0dfb0dca3655fe24c0aee0964b23",
-      "indexed_lines": 25
+      "sha256": "6c09bf88d3a0b86e42489e0c6e0102b1cfeabcdc08be07ca427ffd1a043f6ebb",
+      "indexed_lines": 39
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderToolBatchPolicy.kt",
@@ -3468,8 +3475,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditExport.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "69c70b2a42c8bbbfd18cd170a0028a8526dcd77f95f6ee3604165011c58f12f3",
-      "indexed_lines": 532
+      "sha256": "a1586d53aa0993f11eee8caf4fad6340b9c121f9288e790af99b541840c19227",
+      "indexed_lines": 534
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditFixtureSource.kt",
@@ -3477,6 +3484,48 @@
       "kind": "source",
       "sha256": "1ab9a5bcbcbbb0e7bbbfd471d6b6aa935486be8a7dbe02c4935c36e3f25ce9eb",
       "indexed_lines": 69
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubCatalog.kt",
+      "area_id": "benchmark",
+      "kind": "source",
+      "sha256": "f1114c08ad600315c350c5c3c1d9771b6238f11b47133c4747895d768f5213ef",
+      "indexed_lines": 76
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubContractSource.kt",
+      "area_id": "benchmark",
+      "kind": "source",
+      "sha256": "d2d073e59973324d95e7ff8b73307262e8c93316f50ef23995f78aacfa037d23",
+      "indexed_lines": 178
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubProbeSource.kt",
+      "area_id": "benchmark",
+      "kind": "source",
+      "sha256": "1f1ec3c0d92c96fd75161fb17cff104edb6614a09818e17b6c8571b50c524d88",
+      "indexed_lines": 126
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubRead.kt",
+      "area_id": "benchmark",
+      "kind": "source",
+      "sha256": "0086899af2bfbf481fdee32a54d9967f4662e36e162b42c37ef1562c97145d37",
+      "indexed_lines": 116
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubServices.kt",
+      "area_id": "benchmark",
+      "kind": "source",
+      "sha256": "190cf5873461fd5db8b053a3b87cf896b4d048002b06c572b5821a27d86ed1ff",
+      "indexed_lines": 147
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditGitHubSummary.kt",
+      "area_id": "benchmark",
+      "kind": "source",
+      "sha256": "666eef8cdf21477281965061ccc3810e81152c3d1c4e378a7e2250c806c1f76b",
+      "indexed_lines": 87
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/audit/AppAuditHarnessCatalog.kt",
@@ -3769,15 +3818,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchModels.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "cfcee9895933c67fa229bb1c434d32f7a63687360ea51e09e23c316fd421fc76",
-      "indexed_lines": 130
+      "sha256": "c8a9eaf36e72249da01aad082d6c6c52f51ed827aad298d7f99f56f17e00da49",
+      "indexed_lines": 132
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkBatchRunner.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "85d2f83394a2bb9fe8de404970b07478521b74d3da9f9f7ab33bec64b3ecf496",
-      "indexed_lines": 728
+      "sha256": "e46f9aa688b1fda8fff2c4948933e0546d239bef1ec81620d8d86335d4535f58",
+      "indexed_lines": 750
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCapabilitySuite.kt",
@@ -3797,8 +3846,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCaseExecution.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "94d020f2e18ee93d1fbee55b931b7f320340fb964831d457731e7871084d9fa1",
-      "indexed_lines": 452
+      "sha256": "b29f7180de3df0aad2e6ca307d67907c21a3e264d92fc3f59e967dfe64498dd4",
+      "indexed_lines": 497
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkColdExport.kt",
@@ -3825,7 +3874,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkCoverage.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "f6ea5f046a730e03c053cdf41fa14bbee2b10f7c34e6f031d3ab45013f42a14e",
+      "sha256": "80a20f5d0278854d661a348d4b3d3db0f71f943239461a8363671b29a76f2b54",
       "indexed_lines": 51
     },
     {
@@ -3853,22 +3902,22 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExecutionPolicy.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "28eab9684bb8bd98ac899201bf5bf724c2107473b641a52d1b405f3dc05fb2a7",
-      "indexed_lines": 162
+      "sha256": "9b226815e88a1adb737ef0bfe52821f789e6fb43c53b62bdf1d28ba166781b0a",
+      "indexed_lines": 163
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkExport.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "d1daa6c3fb1e696676a30497e06d123e92cb62f2d0b4210ce159f8228538c654",
-      "indexed_lines": 345
+      "sha256": "a7a5bb9dc7fade14c415268083f6d632f41a415a04dd317c090324122cae642a",
+      "indexed_lines": 366
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkFailurePolicy.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "2f34acd2df695bfe71542a97afe77e0665a4b2b267f0e62fae80c0e614bf35d2",
-      "indexed_lines": 118
+      "sha256": "2e2c0ab108d6212e628076344c9d0a48ce49ae0103dba8f4a5395c1f1a693ba7",
+      "indexed_lines": 133
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkInspectionAttribution.kt",
@@ -3892,6 +3941,13 @@
       "indexed_lines": 83
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkLlamaReasoning.kt",
+      "area_id": "benchmark",
+      "kind": "source",
+      "sha256": "d367a6175771edce70364972ce0a4f5dda657d259e1f69d93533626fbcedeed0",
+      "indexed_lines": 16
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMeasurement.kt",
       "area_id": "benchmark",
       "kind": "source",
@@ -3902,15 +3958,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkMetrics.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "13297cde212bc6465254688471dd364271bca42eaae895025ce11fd805e18b9d",
-      "indexed_lines": 118
+      "sha256": "71de978da27c5ec4291ec1dc8c9d10c7ce84887e81b336635ebece90d0db12f8",
+      "indexed_lines": 121
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkModels.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "d6667a238efc08e510bee62ba92ee4b4578b1371549724a34b89f702e480ab65",
-      "indexed_lines": 405
+      "sha256": "d9d4f5001bb703be5d0296027d0a05118b213399e64af12fe6df58eb60e5a561",
+      "indexed_lines": 412
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkNativeLoadObservation.kt",
@@ -3972,8 +4028,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkRuntimeObservation.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "2317170ea1e5c4277bc78b470090a7fdc34d115706e312874f7355221a3b8722",
-      "indexed_lines": 125
+      "sha256": "e46ee4b5f122095b27c60c2217f834f528956ea4a4dcb13df043da12a82623af",
+      "indexed_lines": 130
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkScoreboard.kt",
@@ -3986,15 +4042,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStore.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "5473c94f334389edc164aae276524f55161c24ba8ede00773f8e75fa31397a22",
-      "indexed_lines": 820
+      "sha256": "3bcd46c7ed1ce598a003d1b3cc8515731e4386f3f56ec00c63dcb6205c818015",
+      "indexed_lines": 872
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkStreamingExport.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "f52c2c0613481a58009be275eb12809bbb9c0d2424951b25ca61594a355d8a47",
-      "indexed_lines": 76
+      "sha256": "5fa5198ad887d7fee161f934c47cfca07858daf6db1d49c2f53d43124387a992",
+      "indexed_lines": 79
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkSuite7.kt",
@@ -4042,8 +4098,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkValidation.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "367ecc3c3baee89d2e789c55ff325283799fa5edbac5f081d07a3664e4c72ef4",
-      "indexed_lines": 121
+      "sha256": "0062092ad15523c0f6376bb830690d7447498015b2aecf60d5da5db7f8650379",
+      "indexed_lines": 128
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkWorkloadPlanner.kt",
@@ -4263,6 +4319,13 @@
       "indexed_lines": 53
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CapacityAdmissionObservation.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "51eea57a0eab17ad16dc7f718e0268d7fcff4a02e0dcc140ca868a128343d160",
+      "indexed_lines": 13
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/CapturedProviderAuthority.kt",
       "area_id": "chat_ui",
       "kind": "source",
@@ -4476,8 +4539,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReasoningCapabilityRepository.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "90bfccc1cf97dd55e8336cbb45b7aa8bf7763d36003193269cad4d6ff62bc515",
-      "indexed_lines": 195
+      "sha256": "97faf75a894a786656da6a9314b65a081037ab2b1da472791b4bb811d187b4a5",
+      "indexed_lines": 199
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReasoningPolicy.kt",
@@ -4497,8 +4560,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "10d6b8495574fadfbf5f2efd07c73a80e887aec64a2a8262a910ce42fd290f27",
-      "indexed_lines": 139
+      "sha256": "7952d52a5da4703d8100a8d4862e20576339018b5c291b23e25f75426ef67d60",
+      "indexed_lines": 141
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAuthorizationGuard.kt",
@@ -4511,8 +4574,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestCapacityException.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c91ebee47babf31a2bf17c3d59a9f3d5040cc86fcb19663fb06e74454f464bc5",
-      "indexed_lines": 21
+      "sha256": "b5005b559e6d7307dc726d56589e06d370a7fcfa36989d7a07863c5fcaaf35ee",
+      "indexed_lines": 36
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestDeadlineReceipt.kt",
@@ -5274,8 +5337,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClassification.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "678d07038d6e40e5d102efad1926c68bff13a0d709fba5a792fa9521cead5d82",
-      "indexed_lines": 245
+      "sha256": "83221a5ba34ad97751f17d2e5988cdf0fbad07807f8def21591ee1a5bf65d83c",
+      "indexed_lines": 253
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/DiagnosticClockReconciliation.kt",
@@ -5477,8 +5540,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GatewayReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "8c200238dc1bbe5c30cc603169a0d6db7cb5b91980f8774866d769d88929fd76",
-      "indexed_lines": 123
+      "sha256": "571f1d8b7cf73cb8e813f8ef9ae5abcad4288aefb3956be288d25e0aabee83b4",
+      "indexed_lines": 145
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/GroupedAppLog.kt",
@@ -5498,8 +5561,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "8755c54587c63d1c7fcf953dc061e45fa4eae3c9ad90736cca969a61cfd3a8dc",
-      "indexed_lines": 267
+      "sha256": "774d5498df4a2114112e590365214ee214312af6b3f59f324f4fe39bcadf258a",
+      "indexed_lines": 268
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportContext.kt",
@@ -5519,8 +5582,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "2b04536670210789cd3d93b2e88541e2e0fcdd88c00f17c3ee59d7f468a8f3c6",
-      "indexed_lines": 400
+      "sha256": "f9d916134f51bbddc57a23f93ebcd74535e6d7f008fec1881155dbe7e738c93f",
+      "indexed_lines": 473
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportGitHubSubmission.kt",
@@ -5540,8 +5603,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "c5d9d92ed8465a92bef7bba001ec512661c4da53d61db950a57ffbed8ac517b1",
-      "indexed_lines": 415
+      "sha256": "9ef8840d0e6aa4566435515f586c911c9414d4804bc2cb3cbc7c0bfd83a49f5a",
+      "indexed_lines": 423
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportManualCapture.kt",
@@ -5575,8 +5638,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "5716e1db3b9e44ed68e16fa4398b5d2421a7bc063476baeccb0c686fd5480dd4",
-      "indexed_lines": 174
+      "sha256": "089643f6f89200906c65fdea0281ba0d054db276ae005bc9145a20ff08d2ef82",
+      "indexed_lines": 175
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportWorker.kt",
@@ -5666,15 +5729,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "d56b689973c60ca422e4bb1dc94942d850896d6d6f06636397938429834ffd29",
-      "indexed_lines": 243
+      "sha256": "58e6b4091551640f8203fd3462c0b17f1501aaa7d0691bc2894b1c71a95ad190",
+      "indexed_lines": 248
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "64780b22cbc102482a0aee920d4984f32c3d2333d1ebcb0e503c0ee0624951a1",
-      "indexed_lines": 104
+      "sha256": "dffd2d3741f8d73dca8c1b3d0f0e50d396e0e2199d2e2539c65455a196f72cfa",
+      "indexed_lines": 150
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RenderingEffectDiagnostics.kt",
@@ -5736,8 +5799,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "02d7c1998d0f4211b7df9c4fd9c52539697ceaf6b087441c74b957a6635dea43",
-      "indexed_lines": 154
+      "sha256": "d05637165d347e0701bb69634b07688376f9ba3402f9696735a9d59e5e8f2671",
+      "indexed_lines": 165
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/dto/APIModel.kt",
@@ -6205,8 +6268,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayAdmissionException.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "3cef0e9ef9454ebd09b79a691ca74e85b9e320522545be0be3e884e46f68a7a2",
-      "indexed_lines": 175
+      "sha256": "a950ea8355816f913a19a7f15a22afb1933d859fdf3c8da67f4c66b69bc2609a",
+      "indexed_lines": 181
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayChatCreator.kt",
@@ -6261,8 +6324,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClient.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "844b5f237b7d42fbad5ecf637249efad48695e372c12b1f834fc21253844ec34",
-      "indexed_lines": 455
+      "sha256": "e5cccbcb644d3136fd50b7ab804ede6c3179ba78093ce74cbab7de357d646c01",
+      "indexed_lines": 462
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringModels.kt",
@@ -6270,6 +6333,13 @@
       "kind": "source",
       "sha256": "5fb7cfab20fbabbbb49296b474e389eabad0db4f6269011dc88621daa867b027",
       "indexed_lines": 332
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteRejected.kt",
+      "area_id": "github",
+      "kind": "source",
+      "sha256": "785aeecaf6a2ec06c6fa22b0bdae3a8d5f29ca5e42a88c414323ad87c77f3421",
+      "indexed_lines": 81
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt",
@@ -6359,7 +6429,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayJobClient.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "ca69c8734280855a24cb425dae91791695bba1137f83452001ddd9dd43559beb",
+      "sha256": "a72fd076c4c289c62763c0210703d811dc48d19b20ecae9818908cd69d66c16d",
       "indexed_lines": 366
     },
     {
@@ -6450,8 +6520,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "2fb0a849f190f0ad73b4dc40324cf6d9a9c6ee5b930b0bf8a147ea65d2a788e5",
-      "indexed_lines": 123
+      "sha256": "24ca3571d2a42308297bfffc5d4236af921e22d34b5f36ec87fbaa95a9830e96",
+      "indexed_lines": 135
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubActionIdentity.kt",
@@ -6604,8 +6674,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubChatProgress.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "62f747c9820e821e3ba7f996c541c5f9a5a77a60d6c428423caf7ff03e9e6b0e",
-      "indexed_lines": 322
+      "sha256": "adf3d7084192b8800e4604f642d48b25e0e0480b589d3d58debe7692b943670e",
+      "indexed_lines": 427
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCheckSummary.kt",
@@ -6758,8 +6828,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "123ef54927778f42fda95e45d0ed3516811759c45409055a9aac046541818279",
-      "indexed_lines": 297
+      "sha256": "ec163dae1f212adf6bdd0fe502e6af607ea18e6b3c5937b5aff3a78c1beae332",
+      "indexed_lines": 306
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDownloadCredential.kt",
@@ -6919,15 +6989,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparation.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "5c1a255407dd0b9e312c206f2bc7075a7d3e75c25383be90b0c2ce04451584e8",
-      "indexed_lines": 113
+      "sha256": "38a3881ef887dbc50993b5a5c056bb921c4a5bc53d18f64cad2e12e4ad257ac8",
+      "indexed_lines": 117
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReport.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "f7a330b050f3655a1177f9809b329bf9450fed2527da8f873aec34b2bf7df414",
-      "indexed_lines": 233
+      "sha256": "814fb2d205159bcd40f74bc4f9d6a36e44240701265a41dade8c0c16da19dcdb",
+      "indexed_lines": 238
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryObservation.kt",
@@ -7080,15 +7150,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressNarrator.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "60510568f89919acfd16c72e1688d7b1f0e6bc99a9fb69ab5595ca1d54f6bdef",
-      "indexed_lines": 163
+      "sha256": "c5f7fac7850c39a52618fee18275e4c1c157a37c47d0f43f052db254a0cc8a64",
+      "indexed_lines": 173
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressPresentation.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "7e02ec009ebd4147d59f779ffceedf54869f7594ae6161e305702103b7b63be5",
-      "indexed_lines": 86
+      "sha256": "871d25e5026dbca46ef13f2c8690f52b352ffdd821776b0120031d107b843a5b",
+      "indexed_lines": 93
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPublicAuthClient.kt",
@@ -7472,15 +7542,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "3b12600d30f68da581d28ad56cad6449e76ae10d70cde19e690c0ac81144e854",
-      "indexed_lines": 1165
+      "sha256": "3feef8d61565eb3a62001ed93555eb8c42f56c338f9a7e1e910f6ef2e3ef5a0f",
+      "indexed_lines": 1173
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTransportRecovery.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "4f4c378d9e6b36a97853202144d1ad073b4d6f7e2c0b4d19e2fb3d5b61871487",
-      "indexed_lines": 67
+      "sha256": "c09a7951ca6de48826cae7b92d60552ae89b2673a1db362ecfe0637f15718d19",
+      "indexed_lines": 74
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerificationCatalog.kt",
@@ -7507,8 +7577,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "bfe7be306a5936b2f2ab3f8133d026695b3214dd794324bd532a3627b15ea1e2",
-      "indexed_lines": 1218
+      "sha256": "1650eef5ab7fe8438fa1818bbbb18454dd0e2779103947213e5959366b27da7c",
+      "indexed_lines": 1220
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWatchBackoff.kt",
@@ -7605,8 +7675,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "dbea39f982002e8632cc0beae819ae0d12ed0f3e520f7ac0322015d31bdd5bc8",
-      "indexed_lines": 2750
+      "sha256": "f2c679f516c2da9f134d774780a69dbb82dc7eefdbf6e8d4c06445c57842efa1",
+      "indexed_lines": 2761
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStore.kt",
@@ -9135,6 +9205,13 @@
       "indexed_lines": 20
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/CapacityAdmissionEvidence.kt",
+      "area_id": "network",
+      "kind": "source",
+      "sha256": "03fe4722a34be4b13fd01aaeecfab2bbae342d4a0a13bca31eed951068b82e8b",
+      "indexed_lines": 36
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/FreeAiRequestLimiter.kt",
       "area_id": "network",
       "kind": "source",
@@ -9299,8 +9376,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ModelRequestPreparation.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "c1df083be186dc8e82235de56faa4ea748ae97de3df6f3b0ab380940908d12a2",
-      "indexed_lines": 251
+      "sha256": "c02bfc6c0aae8b813727311b94701e74c73497b30d50b7bdedec1658e9f4ab5a",
+      "indexed_lines": 260
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/NetworkClient.kt",
@@ -9366,6 +9443,13 @@
       "indexed_lines": 12
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderConflictEvidence.kt",
+      "area_id": "network",
+      "kind": "source",
+      "sha256": "5b040519deadbaf736d7f13ba861e50e9eb3daecd309b5fb694ce4945c81f543",
+      "indexed_lines": 28
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderConnectivityPreflight.kt",
       "area_id": "network",
       "kind": "source",
@@ -9404,15 +9488,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderErrorDiagnostics.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "bfc04b00ad6758e4df59cb556633d2a8bfdadd1d54c0987bb0d1858fb73dfa9f",
-      "indexed_lines": 162
+      "sha256": "7203f761cfabd4259690e4cf96fe6e79f72361bad99c508655c54af44da35c79",
+      "indexed_lines": 165
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "5a2de3591f75d278a3fa5383e7eddfe58268b71df2134cda05e30a76b569252c",
-      "indexed_lines": 323
+      "sha256": "3a1b500de2c032c486d24fa8f4e65b74301a61157771bbb1bfaa1293af9aa1e8",
+      "indexed_lines": 335
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderLimitDecision.kt",
@@ -9614,8 +9698,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAPIImpl.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "d2427bf2fc4940f845a957ff6021664078052581dedc3e4f8f41e11e22374a4b",
-      "indexed_lines": 399
+      "sha256": "b2debd471e921abb182b5b98f44dd066ff03a8a47ccd7f733768089407236656",
+      "indexed_lines": 422
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayAppDiagnosticProjection.kt",
@@ -9656,8 +9740,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayClientDiagnostics.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "cb2b547803be74f8981a2a928f0338bddadbf592ab021c9dc73f0ba7ec7d53b0",
-      "indexed_lines": 530
+      "sha256": "ad6d416058e339c3bdb405fcc9730e7479814920b75a34b2fb73bca9b34606cd",
+      "indexed_lines": 539
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayClientExchange.kt",
@@ -9775,8 +9859,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayJobPollCoordinator.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "0c16f66a9963a34640a75ac644369415bb33217460c6719ec8dc7ef76830fea0",
-      "indexed_lines": 198
+      "sha256": "bd0efc51b620239d0fe604d1828bca2fcebeb9aa06e671901f072fdf1fe64acf",
+      "indexed_lines": 213
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayModelPreparationAPI.kt",
@@ -9831,8 +9915,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayResultRecovery.kt",
       "area_id": "gateway_client",
       "kind": "source",
-      "sha256": "c8e237ea40e84c0aa7d2455335594c6292b42aae15ff330b333974aad4d5c18b",
-      "indexed_lines": 194
+      "sha256": "e558f6b11cf085c3136da72ce1b5b75219722f0d5b33aec1ed6ceab0d4b60294",
+      "indexed_lines": 204
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayRunDiagnosticInventory.kt",
@@ -10524,8 +10608,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "07e87bfe7510f39673300ce8511beca45fe333bdefcbf84554af9b182c8cd10f",
-      "indexed_lines": 7710
+      "sha256": "c0d2fe26abb748dffc39aff0d146a91d388da5d41c6f312fc74732acc230b996",
+      "indexed_lines": 7778
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/CombinedSettingsSaveJournal.kt",
@@ -11567,14 +11651,14 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/AndroidVoiceAudio.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "c8e93bc6bc101e5f149332a90d289af90f61573b09aab4301149986d50143139",
-      "indexed_lines": 949
+      "sha256": "99f7ee40c6f7fc2a1d8ea92c1abe2d5c90295a726d675d5c8cf60578939f8c55",
+      "indexed_lines": 960
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroModelPack.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "f20ba03e620989181b599b9848f5dab372869e284eac169c2b1d0cdb0c7f1ff9",
+      "sha256": "2446d4c8de10cf0a92bf20f1220f642d935a0b4e76f7511a0ed64acff5455e9c",
       "indexed_lines": 80
     },
     {
@@ -11588,15 +11672,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "c9688bbe36caf9d3f82d084c4403259f2176b8dd443583687fd010f7b27d2a5c",
-      "indexed_lines": 621
+      "sha256": "25c97da0e14ae1a4eaadddcb1d906a7a338a29e076a99378d0fb8432837ae853",
+      "indexed_lines": 642
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "ffbb567c826ac2e70eacafad2f16850020c7ac4d9ac5478d6413bef05c833ac6",
-      "indexed_lines": 437
+      "sha256": "461dd33140c5beb0e905e29bdab01087589fe40965c989865891758cf5cee538",
+      "indexed_lines": 462
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/MoonshineVoiceRecognizer.kt",
@@ -11634,6 +11718,13 @@
       "indexed_lines": 208
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceInstallObservation.kt",
+      "area_id": "voice_and_media",
+      "kind": "source",
+      "sha256": "92f03b7166e1d274392f0242758f5ead0841d044adb7c5afaa51d2556b05ff40",
+      "indexed_lines": 138
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceMicrophoneLease.kt",
       "area_id": "voice_and_media",
       "kind": "source",
@@ -11651,15 +11742,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginAudio.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "cc6bc99c3d49bcdd9864320649fe8d62efb4c379d9e1ae799cdaa13ed26303df",
-      "indexed_lines": 166
+      "sha256": "ba21130f568adb792d318eeae0ed072ccf11d2ed183821dda23bd78ab3fd9047",
+      "indexed_lines": 189
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePluginInstall.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "9ad0820577a22b0e9eb0d2b469ec247155ba38a52a2834382c23a1e25fa6df9d",
-      "indexed_lines": 255
+      "sha256": "c6c5b76a37f2c58295126ce143605df78e43bc0a5531bf7d281f816b0cc80056",
+      "indexed_lines": 516
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoicePreferenceWriter.kt",
@@ -11693,8 +11784,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSession.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "d5566faf2fb41a4b0f6f63488ba4f6eea597ecc018c2dc4c2f7f6915b381def5",
-      "indexed_lines": 624
+      "sha256": "f7c2a7c03ee3a352cc7c9713cedec330de7849287552a73cc06816e55f5fd8d7",
+      "indexed_lines": 641
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
@@ -11798,8 +11889,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/di/AppAuditContractModule.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "b767bbed02be5f31777be2611efb7e112e56b92e1a318034ad081be6554851d8",
-      "indexed_lines": 28
+      "sha256": "678aad1d4f3926d43d0615b8e400dcf4a5dc2c0c21d7ade11c4b85e694b725f7",
+      "indexed_lines": 32
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/di/AppAuditCoreModule.kt",
@@ -11812,8 +11903,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/di/AppAuditPluginModule.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "b60802ae2742f3289a6cadb33a9139dee9ae2f7b428a00951bb8e43f8da19885",
-      "indexed_lines": 27
+      "sha256": "a3b059d532625f131515e645a56def33d899ad2666c7a648cd3c28fa08c49083",
+      "indexed_lines": 34
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/di/ChatRepositoryModule.kt",
@@ -12141,8 +12232,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/NavigationGraph.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "0fb2b690522b2e414d7988b7c34f497d0ef4aee50ec2f8d8fb88fa5770d5cfd2",
-      "indexed_lines": 907
+      "sha256": "a403568b391c43e59a37d8aef9bf9161d673955909865962484392438276232f",
+      "indexed_lines": 909
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/common/NavigationMotion.kt",
@@ -12558,6 +12649,13 @@
       "indexed_lines": 37
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBottomIndicator.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "550fe9b61b3503606ee093e6c2e1076ff8bcb4ddd8b3296f543aef5b781de393",
+      "indexed_lines": 108
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatBubble.kt",
       "area_id": "chat_ui",
       "kind": "source",
@@ -12600,6 +12698,13 @@
       "indexed_lines": 24
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatFadeGeometry.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "787054bf6cb0adc2d663416d6abc61e9e9ccd3b33e4c1d04e01dfd9931099aac",
+      "indexed_lines": 25
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatGenerationProgress.kt",
       "area_id": "chat_ui",
       "kind": "source",
@@ -12624,8 +12729,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdown.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "ce6834aa6a187574284ac442b8475775b6e34a76aa7c47bba605a5f02ece729c",
-      "indexed_lines": 1151
+      "sha256": "6338b0d01a7b8458e72ec40ab93aac562e45d34fdbb2a280e17763a38a18cd3a",
+      "indexed_lines": 1168
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatMarkdownParser.kt",
@@ -12687,8 +12792,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c65150a264248a9201b08b570f5db39226747e3216f24b3eceaeffd09d6a4aa8",
-      "indexed_lines": 3125
+      "sha256": "3c80b1bc9b5e8970e5f6921854c018dc47fb9dac06e25801ba5f1b097c45c70b",
+      "indexed_lines": 2998
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatScrollInput.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "6b56430986ec83906213c3f5ca0778b6eb9903a674797ca3fb85b0f24e38cdc3",
+      "indexed_lines": 91
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ChatSourceBrand.kt",
@@ -12995,8 +13107,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayAdmissionPresentation.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "db06e763cefcff378b834cca6cc59a259f26063c7cda6356cec95aa64b4c7439",
-      "indexed_lines": 30
+      "sha256": "e3b47a6186bb0a0ffe8e83c346f0f5955fe1d1e46a9168f4992ec7bdffa12345",
+      "indexed_lines": 51
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GatewayEngineeringPanel.kt",
@@ -13030,15 +13142,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubActivityLines.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c99f68a41f6983efe201f495b598446b9dba564f2ae8a5ccb7ba9f1a500738cd",
-      "indexed_lines": 165
+      "sha256": "067c7aa58b478c55d11aad2343a1127ea59616e576e2f59b143382b6fdce4855",
+      "indexed_lines": 184
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubActivityPreview.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "857b03403ec4302270fdb44bcd49f1522dc9b8a291cbecf81f2cf3509fe12abe",
-      "indexed_lines": 148
+      "sha256": "ead9b2a0e28d11b8f121e16279ddaabe68cc8c55d89d2db6b8482a34ff7f553d",
+      "indexed_lines": 154
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubApprovalRetry.kt",
@@ -13065,8 +13177,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubChatScrollMotion.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "628ea94fa179e1b6462319161d57432311632c204ea619639e7237cbdc5e1224",
-      "indexed_lines": 131
+      "sha256": "e149678811b30c126975ecb8eb7e4f63cea6e42db26b340379d7d16729b5c13a",
+      "indexed_lines": 133
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubConversationExport.kt",
@@ -13086,8 +13198,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubDecisionCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "72364d0f25d756e8462dbac75bfa10cba669393d4122498696624f72cb23e033",
-      "indexed_lines": 174
+      "sha256": "1381aa78c000d2ed834000d82bd992333ce26ff8eae32dad18d78d4749941f62",
+      "indexed_lines": 182
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubEvidencePanel.kt",
@@ -13102,6 +13214,20 @@
       "kind": "source",
       "sha256": "02681d48606daa33bec0dd8b1e14f8b68f72c607509a19627d0316e918cc3d65",
       "indexed_lines": 90
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLineAutoScroller.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "05bec3311be394332e230b8f0abb3c01643fffaa3c8f63effb35482ab779a41c",
+      "indexed_lines": 100
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLinePacingQueue.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "c4a8d2a287be1bd62a32ebb21d08e9c07d16a7cf74831c2009f493bdf13b6946",
+      "indexed_lines": 43
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLoadingHeader.kt",
@@ -13125,11 +13251,46 @@
       "indexed_lines": 57
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLineLedger.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "518c4132ccef2d147eaed196f3ceace9186ca1c4f6f3976be6b134d78dab4950",
+      "indexed_lines": 41
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLines.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "fdb5ab79654860b2cdbf3c9f38367f45058314d33df6c7a3c126716095d82a8d",
+      "indexed_lines": 104
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubSearchActivity.kt",
       "area_id": "chat_ui",
       "kind": "source",
       "sha256": "973c51b6d5ea2be08febc87e6614824f567024148ed4dc736bc678db98764dd6",
       "indexed_lines": 68
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTableLineObserver.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "1f261dfa750ad20461539e0c61a298dbd3de1043d8084c1400158536e9a2dca9",
+      "indexed_lines": 41
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTopFadeGeometry.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "bb06d939aa2182d20c400a140ce8c47274154adc94f66e7b47db649b294d92d4",
+      "indexed_lines": 4
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTurnPresentation.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "b209562e6a0c7686e7d8a77e966e5195e784de970eb6b718d455605b50ef7ed9",
+      "indexed_lines": 53
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubWorkflowButton.kt",
@@ -13193,6 +13354,13 @@
       "kind": "source",
       "sha256": "efa1e77bdbd1360976f66879ff156ae713bc742fe4c11a6021d5940252d46b80",
       "indexed_lines": 87
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/MeasuredMarkdownTableRow.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "9848e899fee826ced97651763392e547187df12bc5e874d0c50ab4ad07cc4037",
+      "indexed_lines": 65
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/MessageQueueIndicatorBanner.kt",
@@ -13751,8 +13919,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/main/MainActivity.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "2e117433cf1696a1846e8b51e16410e22432f216aa0124d958bd33b0db8a1909",
-      "indexed_lines": 223
+      "sha256": "e333c518474cef208b9d035392ed76e908051fdb334c56c1147d52a97363819d",
+      "indexed_lines": 224
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/main/MainViewModel.kt",
@@ -13926,8 +14094,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditContent.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "e59568b5502333214776aaef772050770e46ed0130ea64e51878676083876604",
-      "indexed_lines": 349
+      "sha256": "ec3a51cd46b47d278f78172b58d4ec813e920e5f99a8c9a836bcf5490e268bf9",
+      "indexed_lines": 354
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditGitHubContent.kt",
+      "area_id": "benchmark",
+      "kind": "source",
+      "sha256": "91a4b77f8ba08470a6ebf6c23d1b6e82250d4d38217aa118baefad7a054690d9",
+      "indexed_lines": 47
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditModelBenchmarkPreparation.kt",
@@ -13940,8 +14115,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppAuditPresentation.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "953908848877a147880e06cfd14a5211ca6f07e939311771064769ea66935dc2",
-      "indexed_lines": 258
+      "sha256": "2ea9400b3947f1ee707d5db9d40f6402bf8f0d570e97485b8861a2bca8510a23",
+      "indexed_lines": 270
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/AppLogDetailPage.kt",
@@ -14045,8 +14220,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkExportArtifactStore.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "100855685a3bc20c0d2d4075a8687d7ae095b85edf814c2d6d7b184301978821",
-      "indexed_lines": 250
+      "sha256": "3fa0b91ec8b497903d695f8cb925548461d615d2f0ef71d6433fec862cb04c4e",
+      "indexed_lines": 256
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkExportDestination.kt",
@@ -14066,22 +14241,22 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkQueueCard.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "fc48cd20b3b46654316394d133f3e233a3a55a70b9f104e4afbcee622256366c",
-      "indexed_lines": 106
+      "sha256": "85cceabbd603c9d8e4feee4d9b2c0a8aa4cf0ad82ed164ad608e102ba0d3cd8f",
+      "indexed_lines": 111
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkQueueProgress.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "9083df9ed9ee705d4add6f5bd65d633bf0bd5d7e09b0a1f813bc4a5f3b5a55c1",
-      "indexed_lines": 17
+      "sha256": "18e02a5b681cf2afb07030ab8eabd2df35a02618993372f35cde2c4da4aa4eee",
+      "indexed_lines": 37
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkResultCard.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "b6fe5248576e1d71dbe4f32d1208c5ddeef1da3847950417045609763caace7b",
-      "indexed_lines": 176
+      "sha256": "1a38e8bfba65198318aa6810410a00daea54b0cf7d785ec19cf9e6515989560a",
+      "indexed_lines": 191
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/BenchmarkResultPresentation.kt",
@@ -14367,8 +14542,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatConversation.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "bec27d0655ba02e30b76217f49767ee0e5becd0cacfc1e93ed223f21186d6bb9",
-      "indexed_lines": 168
+      "sha256": "af5013243e232ec8598ac887c049333b2fe9faf8ad2cbf433cc98346fa8bae4d",
+      "indexed_lines": 149
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatNavigation.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "4d6bb9429ca854aa1cd852681dd7ec432207a5991420d346c08cd74f1e4f0f39",
+      "indexed_lines": 41
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubChatProgressProjection.kt",
@@ -14542,8 +14724,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c82361cad1861bd250b66248b192a15607ac1e58c699dc925471133ff9f9e81f",
-      "indexed_lines": 298
+      "sha256": "6650114d42e917302ca1e71600dcc6939edc7ad38c1bb0a0dce0a5aa7cec0718",
+      "indexed_lines": 315
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/KnowledgeSourceActivity.kt",
@@ -14822,15 +15004,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkScreen.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "0403a6289741db2e05420636ad3613ece6b7986c193326625f7b074323a23d71",
-      "indexed_lines": 962
+      "sha256": "0cb5e214281f61c403bab118a0ae5edf129efd51f825d1b33dedf5d43db6a562",
+      "indexed_lines": 1008
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfileBenchmarkViewModel.kt",
       "area_id": "benchmark",
       "kind": "source",
-      "sha256": "6eca3ce9729129c6f46a735d23188f961704c1146cbaca7511e935178e66a60d",
-      "indexed_lines": 582
+      "sha256": "4f542be8f51ecbc4bc837d49200a6108e82fd1970febc61575b98bf36e890b29",
+      "indexed_lines": 602
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/ProfilePerformance.kt",
@@ -15137,14 +15319,14 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/KokoroPlaybackCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "fe780f4ad39943155eb7ef07baaf4e362c2db35a3676ca65c746f442c88dc719",
-      "indexed_lines": 92
+      "sha256": "672fa2b14d8eb003dfb727bee88caef2dcbb5b7adfc561228ebf7cab2b8b0077",
+      "indexed_lines": 84
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/LocalVoiceSetupCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "ca51f731231b5442c4746de67c92a7ef7e5e22b8bfa306adce0a52104a17f30d",
+      "sha256": "89945e4911c728eef5246d605d52ef737901e9cae681c8b6ae8cd92a16cab340",
       "indexed_lines": 73
     },
     {
@@ -15155,11 +15337,25 @@
       "indexed_lines": 51
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceCaption.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "0633f5e3a40c8ae62377d3175a4119a1e5ec5042574c3cc47376a7f3c1da7bb7",
+      "indexed_lines": 22
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c1f53d5314819783e322bbca98437029cf3ecfe5ea68bdaf9d610d9c3dca22f0",
-      "indexed_lines": 1127
+      "sha256": "3d0b85270661ef38ff8afcd5b72591ceda7f12bf92becee4405ae4acbfac4e04",
+      "indexed_lines": 870
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "ef5b44db86a0a4e7b3658ddfb694e2a207acf7ff12751cd438bb04c36cdc6e08",
+      "indexed_lines": 312
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceEntryViewModel.kt",
@@ -15169,11 +15365,18 @@
       "indexed_lines": 107
     },
     {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceLiveCaptions.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "5859ffe9b51b34dcefaece30ed94c974fed24f61cff129532792dc939358f6f6",
+      "indexed_lines": 111
+    },
+    {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceNavigation.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "d2e37f13a946ab05bf5cf494e54bd8f3f2c4ed7877865157082a6fcf1e7662f1",
-      "indexed_lines": 109
+      "sha256": "9e6be06a523e8b4dcfa076d87055936c09dcc3c743268612c1d5a5f92e669ecb",
+      "indexed_lines": 136
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoicePreferenceStore.kt",
@@ -15195,6 +15398,20 @@
       "kind": "source",
       "sha256": "9b8b5d5d85b92ad9e6dc55cc9e3f285e9eb4a107ab47d60ecc9a668cebb633a2",
       "indexed_lines": 26
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTransferProgress.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "d6f9963b3ebd4db4a2343da6c05347945d0146d33947b0af1976dfa5bc2b7e45",
+      "indexed_lines": 29
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceWave.kt",
+      "area_id": "chat_ui",
+      "kind": "source",
+      "sha256": "bee6eb84cc7885a9dc11c338475bbef756a96689d0852414170a8858f5de67a9",
+      "indexed_lines": 96
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/workspace/GitHubChatApprovalCard.kt",
@@ -15361,8 +15578,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensions.kt",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "375bb938d11b9602ee7d75b8664eaa3d52da712bb2cf8f9eecb728b5f0929f1d",
-      "indexed_lines": 876
+      "sha256": "666e66e4a893a556cb86453a744eb58fa74c03951548074a340916d75ad4e144",
+      "indexed_lines": 906
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/AssistantMessageUtils.kt",
@@ -16845,22 +17062,22 @@
       "path": "authentication/issue_report_app.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "7d6d99566a8ce73b0437aef4d6f98a5c1bf64cf97e3bc68cf9c94a62bbd93301",
+      "sha256": "dd1b05896d7ddc58091241cbc44b0562d167eae1ed02f5e2124a6f9de6200ab2",
       "indexed_lines": 80
     },
     {
       "path": "authentication/issue_report_diagnostics.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "2d96803eddf8d7d7907c55db09a1ab5f25f6d30aa92f2a536398c72d23ec47c3",
-      "indexed_lines": 247
+      "sha256": "2fe20bd9cde89834535d0a249a6df808dcd8c865e6d60915b2dbc4e750c89805",
+      "indexed_lines": 314
     },
     {
       "path": "authentication/issue_reports.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "11f5dec208fb39f69668acd35c26581b15ba66f4af04af37df58319e61a2a493",
-      "indexed_lines": 719
+      "sha256": "23f39f0ebf6934990d3911f933ae17d36bc41ae6a5d384eaaec739f437755bfc",
+      "indexed_lines": 720
     },
     {
       "path": "authentication/ticket_broker.py",
@@ -17314,8 +17531,8 @@
       "path": "gateway/v14/conversations.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "f2d6007fee9f7589a2fc5b952a6d88d2ab513f3b8723c5604e8e1686fb8477d8",
-      "indexed_lines": 721
+      "sha256": "a0d08928740376efc53b5638fc27c8ec0e50f28d3f03b1ef62deadff56951f7c",
+      "indexed_lines": 753
     },
     {
       "path": "gateway/v14/deadlines.py",
@@ -17566,7 +17783,7 @@
       "path": "gateway/v14/job_catalog.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "9641ac4bb1fe3de965ae21b0d3234ee9ecdfea6be59305117682ca70e2b8fd34",
+      "sha256": "23bbd829e837ed929e8ec03cb019ef6b4e1abd9aea387a15e4b786b441afb561",
       "indexed_lines": 214
     },
     {

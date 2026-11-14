@@ -3,7 +3,9 @@ package dev.chungjungsoo.gptmobile.data.github
 import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
 import kotlinx.coroutines.flow.flowOf
@@ -63,7 +65,7 @@ class GitHubChatProgressTest {
         assertTrue(first.text.contains("Next"))
         clock = 44_999
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
-        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read")))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_read", toolArgs = json("""{"path":"src/Reader.kt"}"""))))
         clock = 45_000
         val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
         assertEquals(1, progress.summarySnapshot().completed)
@@ -72,7 +74,7 @@ class GitHubChatProgressTest {
         assertTrue(summary.split(Regex("\\s+")).size >= 20)
     }
 
-    @Test fun previewBurstsCoalesceAndNeverRepeatAcrossInterveningLines() {
+    @Test fun previewBurstsCoalesceButActualActivityCanReactivateAfterAnotherStage() {
         var clock = 0L
         val progress = GitHubChatProgress { clock }
         progress.tick()
@@ -88,6 +90,8 @@ class GitHubChatProgressTest {
         assertEquals(1, progress.tick().size)
         progress.observe(ApiState.ProgressCheckpoint("Reading files."))
         clock = 9000
+        assertEquals("Reading files.", (progress.tick().single() as ApiState.ProgressCheckpoint).text)
+        clock = 12000
         assertTrue(progress.tick().isEmpty())
     }
 
@@ -159,7 +163,7 @@ class GitHubChatProgressTest {
         val completed = ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", jobId = "job", sequence = 7, toolName = "github_read"))
         repeat(3) { progress.observe(completed) }
         clock = 45_000
-        assertTrue(progress.tick().any { it is ApiState.ActivitySummary })
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
         assertEquals(1, progress.summarySnapshot().completed)
     }
 
@@ -172,7 +176,7 @@ class GitHubChatProgressTest {
             progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_finished", jobId = job, sequence = 2, toolCallId = "call", toolName = "github_read")))
         }
         clock = 45_000
-        assertTrue(progress.tick().any { it is ApiState.ActivitySummary })
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
         assertEquals(2, progress.summarySnapshot().completed)
     }
 
@@ -330,4 +334,131 @@ class GitHubChatProgressTest {
         assertTrue(preview.contains("Reader.kt"))
         assertFalse(preview.contains("tool calls") || preview.contains("10"))
     }
+
+    @Test fun existingSemanticFactsReplaceLabelOnlyProgressWithoutExposingRawBodies() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Test the GitHub integration") { clock }
+        progress.tick()
+        val checks = ProviderEvent.ToolCall("checks", "github_context", json("""{"action":"checks","pull_number":1089}"""))
+        val facts = json("""{"schema":"github.semantic-summary.v1","operation":"github_context","check_counts":{"successful":8,"skipped":1,"in_progress":9,"failed":0,"other_completed":0},"check_inventory_complete":false}""")
+        val result = AgentToolResult("checks", ToolResultContent.Text("Private body: all tests passed and task completed"), false, executionReceipt = kotlinx.serialization.json.JsonObject(mapOf("semantic_summary" to facts)))
+        val preview = progress.observeResult(checks, result).orEmpty()
+        assertTrue(preview.contains("8 successful") && preview.contains("9 in progress") && preview.contains("PR #1089"))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = checks.name, toolCallId = checks.callId, toolArgs = checks.arguments)))
+        val workflows = ProviderEvent.ToolCall("workflows", "github_ci", json("""{"action":"workflows"}"""))
+        val workflowFacts = json("""{"semantic_summary":{"schema":"github.semantic-summary.v1","operation":"github_ci","workflow_definitions_observed":55,"workflow_inventory_complete":true}}""")
+        assertTrue(progress.observeResult(workflows, AgentToolResult("workflows", ToolResultContent.Json(workflowFacts), false)).orEmpty().contains("55"))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = workflows.name, toolCallId = workflows.callId, toolArgs = workflows.arguments)))
+        clock = 45_000
+        val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
+        assertTrue(summary.contains("8 successful") && summary.contains("incomplete captured list"))
+        assertTrue(summary.contains("55 definitions") && summary.contains("does not execute validation"))
+        assertTrue(summary.contains("integration criteria"))
+        assertFalse(summary.contains("Private body") || summary.contains("all tests passed") || summary.contains("available for review"))
+        assertEquals(2, progress.summarySnapshot().completed)
+    }
+
+    @Test fun resultObservationRejectsUnboundMalformedAndPagedEvidence() {
+        val progress = GitHubChatProgress { 0L }
+        val call = ProviderEvent.ToolCall("status", "github_context", json("""{"action":"status"}"""))
+        val facts = json("""{"semantic_summary":{"schema":"github.semantic-summary.v1","operation":"github_context","open_issue_count":2,"open_pull_request_count":1}}""")
+        val result = AgentToolResult("status", ToolResultContent.Json(facts), false)
+        assertEquals(null, progress.observeResult(call, result.copy(callId = "another")))
+        assertEquals(null, progress.observeResult(call, result.copy(isError = true)))
+        assertEquals(null, progress.observeResult(call.copy(arguments = json("""{"view_cursor":"next"}""")), result))
+        assertEquals(null, progress.observeResult(call.copy(name = "github_ci"), result))
+        assertEquals(null, progress.observeResult(call, result.copy(content = ToolResultContent.Text(facts.toString()))))
+        assertEquals(null, progress.observeResult(call, result.copy(content = ToolResultContent.Json(json("""{"open_issue_count":2}""")))))
+        assertEquals(null, progress.observeResult(call, result.copy(content = ToolResultContent.Json(json("""{"semantic_summary":{"schema":"unknown","operation":"github_context","open_issue_count":2}}""")))))
+        assertEquals(null, progress.observeResult(call, result.copy(content = ToolResultContent.Json(json("""{"semantic_summary":{"schema":"github.semantic-summary.v1","operation":"github_context","open_issue_count":-2}}""")))))
+        assertEquals("Repository status: 2 open issues and 1 open pull request", progress.observeResult(call, result))
+    }
+
+    @Test fun savedResultsAndUnknownPolicyKeepTheirVerificationLimits() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Review the PR") { clock }
+        progress.tick()
+        val call = ProviderEvent.ToolCall("saved", "github_context", json("""{"action":"status"}"""))
+        val facts = json("""{"semantic_summary":{"schema":"github.semantic-summary.v1","operation":"github_context","open_issue_count":2,"open_pull_request_count":1}}""")
+        val preview = progress.observeResult(call, AgentToolResult("saved", ToolResultContent.Json(facts), false, sharedResult = true))
+        assertTrue(preview.orEmpty().startsWith("Saved results"))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = call.name, toolCallId = call.callId)))
+        val policy = ProviderEvent.ToolCall("policy", "github_pr", json("""{"action":"inspect","pull_number":1089}"""))
+        val policyFacts = json("""{"semantic_summary":{"schema":"github.semantic-summary.v1","operation":"github_pr","required_checks_state":"UNKNOWN"}}""")
+        progress.observeResult(policy, AgentToolResult("policy", ToolResultContent.Json(policyFacts), false))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = policy.name, toolCallId = policy.callId, toolArgs = policy.arguments)))
+        clock = 45_000
+        val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
+        assertTrue(summary.contains("From saved results") && summary.contains("Current state still needs verification"))
+        assertTrue(summary.contains("merge readiness cannot be established"))
+        assertFalse(summary.contains("ready to merge") || summary.contains("all checks passed"))
+    }
+
+    @Test fun responseAndTerminalEventsStopTickerWhileAnActualNewRoundCanResume() {
+        var clock = 0L
+        val progress = GitHubChatProgress { clock }
+        progress.tick()
+        progress.observe(ApiState.ProgressCheckpoint("Reading files"))
+        progress.forward(ApiState.Success("The captured findings are available."))
+        clock = 45_000
+        assertTrue(progress.tick().isEmpty())
+        assertEquals(null, progress.forward(ApiState.ActivitySummary("A delayed update must not interrupt the response.", modelAuthored = true)))
+        assertEquals(null, progress.forward(ApiState.ProgressCheckpoint("Check 2/8")))
+        progress.forward(ApiState.GitHubRoundStarted)
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_read", toolCallId = "next")))
+        clock = 48_000
+        val resumed = progress.tick()
+        assertTrue(resumed.any { it is ApiState.ProgressCheckpoint })
+        assertFalse(resumed.filterIsInstance<ApiState.ActivitySummary>().any { it.text.contains("delayed update") })
+        listOf(ApiState.Done, ApiState.Error("The task remains incomplete")).forEach { terminal ->
+            val ended = GitHubChatProgress { clock }
+            ended.tick()
+            ended.forward(terminal)
+            ended.forward(ApiState.GitHubRoundStarted)
+            ended.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_started", toolName = "github_read", toolCallId = "late")))
+            clock += 45_000
+            assertTrue(ended.tick().isEmpty())
+            assertEquals(null, ended.forward(ApiState.ActivitySummary("A late summary")))
+        }
+    }
+
+    @Test fun unfocusedSuccessfulReadsDoNotCreateRecurringNarrativeOrDisplaceFacts() {
+        var clock = 0L
+        val progress = GitHubChatProgress("Test the GitHub integration") { clock }
+        progress.tick()
+        repeat(8) { index ->
+            progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_release", toolCallId = "read-$index")))
+            clock += 45_000
+            assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        }
+        assertEquals(8, progress.summarySnapshot().completed)
+        assertTrue(progress.summarySnapshot().recentSteps.isEmpty())
+        assertTrue(progress.summarySnapshot().next.contains("integration criteria"))
+        val call = ProviderEvent.ToolCall("facts", "github_context", json("""{"action":"status"}"""))
+        progress.observeResult(call, AgentToolResult("facts", ToolResultContent.Json(json("""{"semantic_summary":{"schema":"github.semantic-summary.v1","operation":"github_context","open_issue_count":2}}""")), false))
+        progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = call.name, toolCallId = call.callId)))
+        clock += 45_000
+        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text.contains("2 open issues"))
+        repeat(9) { index -> progress.observe(ApiState.GatewayProgressChanged(GatewayProgress(event = "tool_completed", toolName = "github_release", toolCallId = "later-$index"))) }
+        clock += 45_000
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+        assertTrue(progress.summarySnapshot().recentSteps.single().contains("2 open issues"))
+    }
+
+    @Test fun anUnchangedCounterCanReactivateAfterAnotherActivity() {
+        var clock = 0L
+        val progress = GitHubChatProgress { clock }
+        progress.tick()
+        val counter = ApiState.ProgressCheckpoint("Checks: 2/8 verified")
+        assertEquals(counter, progress.forward(counter))
+        assertEquals(null, progress.forward(counter))
+        progress.observe(ApiState.ProgressCheckpoint("Reading source"))
+        clock = 3000
+        assertEquals("Reading source", (progress.tick().single() as ApiState.ProgressCheckpoint).text)
+        assertEquals(counter, progress.forward(counter))
+        assertEquals(null, progress.forward(counter))
+        assertTrue(progress.tick().isEmpty())
+    }
+
+    private fun json(value: String) = kotlinx.serialization.json.Json.parseToJsonElement(value) as kotlinx.serialization.json.JsonObject
 }

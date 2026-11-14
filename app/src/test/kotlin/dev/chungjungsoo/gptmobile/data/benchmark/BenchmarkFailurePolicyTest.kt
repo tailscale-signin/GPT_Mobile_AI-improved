@@ -12,6 +12,18 @@ import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class BenchmarkFailurePolicyTest {
+    @Test fun unsupportedReasoningRemainsAnAdmissionBlockerAndStopsTheProfile() {
+        for (code in listOf("REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED")) {
+            val failure = benchmarkFailure(BenchmarkProviderFailureException("Choose Auto or a qualified model", code))
+            assertEquals(code, failure.code)
+            assertEquals("admission", failure.stage)
+            assertEquals(false, failure.retryable)
+            assertEquals(BenchmarkOutcome.UNSUPPORTED, failure.outcome())
+            val sample = BenchmarkSample("id", "Test", "speed", failure.outcome(), failure = failure)
+            assertEquals(BenchmarkRecoveryAction.STOP_PROFILE, sample.recoveryAction())
+        }
+    }
+
     @Test fun typedRetryDeadlineWinsOverProseAndSurvivesCauseWrapping() {
         val deadline = Instant.parse("2026-10-25T02:47:00.750Z").toEpochMilli()
         val decision = ProviderLimitDecision("LLM7", "profile", "model", deadline, "daily", "PROVIDER_RATE_LIMITED", true)

@@ -1,12 +1,10 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -14,11 +12,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.GitHubNativeApprovalProgress
@@ -45,78 +38,66 @@ internal fun GitHubChatConversation(
     nativeDecisions: List<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt> = emptyList(),
     bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
-    key(chatId) {
-        val controller = rememberNavController()
-        NavHost(controller, startDestination = "conversation/$chatId/$profileUid", modifier = Modifier.fillMaxSize()) {
-            composable(
-                "conversation/{chatRoomId}/{enabledPlatforms}",
-                arguments = listOf(
-                    navArgument("chatRoomId") { type = NavType.IntType },
-                    navArgument("enabledPlatforms") { type = NavType.StringType },
-                    navArgument("conversationMode") { defaultValue = "STANDARD" }
+    GitHubChatNavigation(chatId, profileUid, headerHeight) { currentHeaderHeight ->
+        val model: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
+        val room by model.chatRoom.collectAsStateWithLifecycle()
+        val grouped by model.groupedMessages.collectAsStateWithLifecycle()
+        val savedRuns by model.agentRunsById.collectAsStateWithLifecycle()
+        androidx.compose.runtime.DisposableEffect(model, approvalPending) {
+            model.bindGitHubApprovalPending(approvalPending)
+            onDispose { model.bindGitHubApprovalPending(false) }
+        }
+        androidx.compose.runtime.LaunchedEffect(model, room.id, recoveryRequest, grouped, savedRuns) {
+            val request = recoveryRequest?.takeIf { it.chatId == chatId && it.chatId == room.id } ?: return@LaunchedEffect
+            val run = savedRuns[request.runId] ?: return@LaunchedEffect
+            if (grouped.userMessages.none { it.id == run.userMessageId }) return@LaunchedEffect
+            model.bindGitHubContext(context)
+            model.recoverGitHubRun(request.runId, request.action)
+            onRecoveryHandled()
+        }
+        androidx.compose.runtime.LaunchedEffect(model, room.id, context) {
+            if (room.id == chatId) model.bindGitHubContext(context)
+        }
+        androidx.compose.runtime.DisposableEffect(model) {
+            registerExit { done ->
+                model.checkpointComposer()
+                done()
+            }
+            onDispose {
+                model.checkpointComposer()
+                registerExit(null)
+            }
+        }
+        androidx.compose.runtime.CompositionLocalProvider(
+            dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true,
+            dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubApprovalPending provides approvalPending,
+            dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubNativeDecisions provides nativeDecisions
+        ) {
+            val typography = MaterialTheme.typography
+            fun larger(style: androidx.compose.ui.text.TextStyle) = style.copy(fontSize = (style.fontSize.value + 2).sp, lineHeight = (style.lineHeight.value + 2).sp)
+            MaterialTheme(
+                typography = typography.copy(
+                    bodySmall = larger(typography.bodySmall), bodyMedium = larger(typography.bodyMedium), bodyLarge = larger(typography.bodyLarge),
+                    titleSmall = larger(typography.titleSmall), titleMedium = larger(typography.titleMedium), titleLarge = larger(typography.titleLarge),
+                    labelSmall = larger(typography.labelSmall), labelMedium = larger(typography.labelMedium), labelLarge = larger(typography.labelLarge),
+                    headlineSmall = larger(typography.headlineSmall), headlineMedium = larger(typography.headlineMedium), headlineLarge = larger(typography.headlineLarge),
+                    displaySmall = larger(typography.displaySmall), displayMedium = larger(typography.displayMedium), displayLarge = larger(typography.displayLarge)
                 )
             ) {
-                val model: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
-                val room by model.chatRoom.collectAsStateWithLifecycle()
-                val grouped by model.groupedMessages.collectAsStateWithLifecycle()
-                val savedRuns by model.agentRunsById.collectAsStateWithLifecycle()
-                androidx.compose.runtime.DisposableEffect(model, approvalPending) {
-                    model.bindGitHubApprovalPending(approvalPending)
-                    onDispose { model.bindGitHubApprovalPending(false) }
-                }
-                androidx.compose.runtime.LaunchedEffect(model, room.id, recoveryRequest, grouped, savedRuns) {
-                    val request = recoveryRequest?.takeIf { it.chatId == chatId && it.chatId == room.id } ?: return@LaunchedEffect
-                    val run = savedRuns[request.runId] ?: return@LaunchedEffect
-                    if (grouped.userMessages.none { it.id == run.userMessageId }) return@LaunchedEffect
-                    model.bindGitHubContext(context)
-                    model.recoverGitHubRun(request.runId, request.action)
-                    onRecoveryHandled()
-                }
-                androidx.compose.runtime.LaunchedEffect(model, room.id, context) {
-                    if (room.id == chatId) model.bindGitHubContext(context)
-                }
-                androidx.compose.runtime.DisposableEffect(model) {
-                    registerExit { done ->
-                        model.checkpointComposer()
-                        done()
-                    }
-                    onDispose {
-                        model.checkpointComposer()
-                        registerExit(null)
-                    }
-                }
-                androidx.compose.runtime.CompositionLocalProvider(
-                    dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true,
-                    dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubApprovalPending provides approvalPending,
-                    dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubNativeDecisions provides nativeDecisions
-                ) {
-                    val typography = MaterialTheme.typography
-                    fun larger(style: androidx.compose.ui.text.TextStyle) = style.copy(fontSize = (style.fontSize.value + 2).sp, lineHeight = (style.lineHeight.value + 2).sp)
-                    MaterialTheme(
-                        typography = typography.copy(
-                            bodySmall = larger(typography.bodySmall), bodyMedium = larger(typography.bodyMedium), bodyLarge = larger(typography.bodyLarge),
-                            titleSmall = larger(typography.titleSmall), titleMedium = larger(typography.titleMedium), titleLarge = larger(typography.titleLarge),
-                            labelSmall = larger(typography.labelSmall), labelMedium = larger(typography.labelMedium), labelLarge = larger(typography.labelLarge),
-                            headlineSmall = larger(typography.headlineSmall), headlineMedium = larger(typography.headlineMedium), headlineLarge = larger(typography.headlineLarge),
-                            displaySmall = larger(typography.displaySmall), displayMedium = larger(typography.displayMedium), displayLarge = larger(typography.displayLarge)
-                        )
-                    ) {
-                        ChatScreen(
-                            chatViewModel = model,
-                            onBackAction = onBack,
-                            onOpenConversation = { id, _ -> onOpenConversation(id) },
-                            onReviewEvidenceAccess = onReviewEvidenceAccess,
-                            onProfileSettings = onProfileSettings,
-                            onNavigateToLocalModels = onNavigateToLocalModels,
-                            showTopBar = false,
-                            embeddedHeaderHeight = headerHeight,
-                            allowResearchPanels = false,
-                            exportRequestedForChatId = chatId.takeIf { exportRequested },
-                            onExportHandled = onExportHandled,
-                            bottomInteractionContent = bottomInteractionContent
-                        )
-                    }
-                }
+                ChatScreen(
+                    chatViewModel = model,
+                    onBackAction = onBack,
+                    onOpenConversation = { id, _ -> onOpenConversation(id) },
+                    onReviewEvidenceAccess = onReviewEvidenceAccess,
+                    onProfileSettings = onProfileSettings,
+                    onNavigateToLocalModels = onNavigateToLocalModels,
+                    showTopBar = false,
+                    embeddedHeaderHeight = currentHeaderHeight,
+                    allowResearchPanels = false,
+                    exportRequestedForChatId = chatId.takeIf { exportRequested },
+                    onExportHandled = onExportHandled,
+                    bottomInteractionContent = bottomInteractionContent
+                )
             }
         }
     }

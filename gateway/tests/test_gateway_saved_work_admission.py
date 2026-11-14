@@ -60,8 +60,11 @@ class SavedWorkAdmissionTests(unittest.TestCase):
                     self.assertEqual('no-store', response.headers['cache-control'])
                 missing = client.get(prefix + '/gateway/commands/original-command')
                 self.assertEqual(404, missing.status_code)
-                self.assertEqual('not_found', missing.json()['error']['code'])
+                self.assertEqual({'error': {'code': 'command_receipt_unavailable'}}, missing.json())
                 self.assertNotIn('x-gateway-admission-error', missing.headers)
+                unknown_conversation = client.get(prefix + '/gateway/conversations/unknown-conversation')
+                self.assertEqual(404, unknown_conversation.status_code)
+                self.assertEqual({'error': {'code': 'not_found'}}, unknown_conversation.json())
             model.assert_not_called()
             self.assertEqual({}, self.runtime.job_registry)
             with closing(sqlite3.connect(self.db)) as db:

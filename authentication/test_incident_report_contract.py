@@ -58,6 +58,204 @@ class IncidentReportContractTest(unittest.TestCase):
             _, issue = issue_from_report(report)
             self.assertIn(code, issue["title"])
 
+    def test_github_schema_budget_preserves_specific_code_and_bounded_counts(self):
+        code = "GITHUB_TOOL_CONTEXT_BUDGET"
+        counts = {"required_schema_tokens": 5000, "available_schema_tokens": 0}
+        capture = self.capture("PROVIDER", {"provider_failure_code": code, "causal_failure_code": code, **counts})
+        report = self.report(capture)
+        report.update(feature="chat", errorCode=code)
+        report["events"] = ["-0ms E chat " + code]
+        report["context"]["source"] = "CHAT_FAILURE"
+        _, issue = issue_from_report(report)
+        self.assertIn(code, issue["title"])
+        for key in counts:
+            self.assertIn(key, issue["body"])
+            for invalid in (-1, 16_000_001, True, "5000"):
+                bad = copy.deepcopy(capture)
+                bad["values"][key] = invalid
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(bad)
+
+    def test_session_recovery_diagnostics_validate_through_issue_submission(self):
+        samples = {
+            "PROVIDER": {"provider_failure_code": "CONVERSATION_CONFLICT", "conflict_active_job_kind": "generation",
+                         "conflict_conversation_revision": 7, "conflict_pending_tool_count": 1, "conflict_conversation_hash": "a" * 64},
+            "TOOL": {"github_transport_kind": "DNS", "github_transport_read_attempts": 3,
+                     "github_transport_unanswered_reads": 3, "github_transport_http_responses": 0},
+            "ACCEPTANCE": {"acceptance_pending_remote_continuations": 14},
+        }
+        for area, values in samples.items():
+            with self.subTest(area=area):
+                capture = self.capture(area, values)
+                original = copy.deepcopy(capture)
+                self.assertEqual(original, validate_diagnostics(capture))
+                report = self.report(capture)
+                if area != "TOOL":
+                    report["feature"] = "chat"
+                    report["errorCode"] = "CONVERSATION_CONFLICT" if area == "PROVIDER" else "GITHUB_TASK_INCOMPLETE"
+                    report["context"]["source"] = "CHAT_FAILURE"
+                _, issue = issue_from_report(report)
+                for key in values:
+                    self.assertIn(key, issue["body"])
+        bad = self.capture("PROVIDER", {"conflict_pending_tool_count": 129})
+        with self.assertRaises(ValueError):
+            validate_diagnostics(bad)
+
+    def test_capacity_components_and_route_provenance_survive_without_private_payloads(self):
+        values = {
+            "admission_prompt_tokens": 10461, "admission_safety_tokens": 2615,
+            "admission_output_tokens": 4096, "admission_capacity_tokens": 5632,
+            "admission_measurement": "UTF8_ESTIMATE", "configured_output_limit": 0,
+            "admission_system_tokens": 2000, "admission_history_tokens": 2500,
+            "admission_current_request_tokens": 500, "admission_tool_schema_tokens": 4414,
+            "admission_tool_result_tokens": 400, "admission_response_schema_tokens": 100,
+            "admission_envelope_tokens": 547, "admission_route_context_tokens": 5632,
+            "admission_configured_context_tokens": 8192, "admission_catalog_context_tokens": 32768,
+            "admission_input_ceiling_tokens": 5632, "admission_output_ceiling_tokens": 4096,
+            "admission_capacity_age_ms": 1000, "admission_capacity_provenance": "VERIFIED_ROUTE",
+        }
+        capture = self.capture("PROVIDER", values)
+        original = copy.deepcopy(capture)
+        report = self.report(capture)
+        report.update(feature="chat", errorCode="CONTEXT_CAPACITY_EXCEEDED")
+        report["context"]["source"] = "CHAT_FAILURE"
+        self.assertEqual(original, validate_diagnostics(capture))
+        _, issue = issue_from_report(report)
+        for key in values:
+            self.assertIn(key, issue["body"])
+        self.assertEqual(original, capture)
+        self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+        for key, value in (
+            ("admission_route_context_tokens", 0), ("admission_capacity_age_ms", 16_000_001),
+            ("admission_history_tokens", True), ("admission_history_tokens", "3"),
+            ("admission_capacity_provenance", "private endpoint"), ("admission_raw_prompt", "private prompt"),
+        ):
+            with self.subTest(key=key, value=value):
+                invalid = copy.deepcopy(capture)
+                invalid["values"][key] = value
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(invalid)
+
+    def test_conflict_handoff_evidence_does_not_claim_local_run_ownership(self):
+        values = {
+            "conflict_active_job_provenance": "CONVERSATION_ACTIVE_JOB",
+            "conflict_pending_tool_state": "IDENTIFIED", "conflict_pending_tool_count": 2,
+            "conflict_pending_tool_ids_hash": "a" * 64, "conflict_handoff_sequence": 3,
+            "conflict_stream_job_relation": "DIFFERS_VERIFIED_STREAM_JOB",
+        }
+        capture = self.capture("PROVIDER", values)
+        original = copy.deepcopy(capture)
+        self.assertEqual(original, validate_diagnostics(capture))
+        report = self.report(capture)
+        report.update(feature="chat", errorCode="CONVERSATION_CONFLICT")
+        report["context"]["source"] = "CHAT_FAILURE"
+        _, issue = issue_from_report(report)
+        for key in values:
+            self.assertIn(key, issue["body"])
+        self.assertEqual(original, capture)
+        validate_diagnostics(self.capture("PROVIDER", {"conflict_pending_tool_state": "EMPTY", "conflict_pending_tool_count": 0}))
+        for key, value in (
+            ("conflict_pending_tool_count", 129), ("conflict_handoff_sequence", 0),
+            ("conflict_pending_tool_ids_hash", "private-call-id"),
+            ("conflict_active_job_provenance", "OWNED_BY_THIS_ANDROID_RUN"),
+            ("conflict_stream_job_relation", "MATCHES_UNVERIFIED_BODY"),
+        ):
+            with self.subTest(key=key, value=value):
+                invalid = copy.deepcopy(capture)
+                invalid["values"][key] = value
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(invalid)
+
+    def test_retained_acceptance_scope_survives_issue_submission_without_promoting_coverage(self):
+        for capability_scope in ("FULL_CATALOG", "OBSERVED_CAPABILITIES"):
+            for pagination_mode in ("COMPLETE_INVENTORY_REQUESTED", "BOUNDED_SMOKE_SAMPLE"):
+                with self.subTest(capability_scope=capability_scope, pagination_mode=pagination_mode):
+                    capture = self.capture("ACCEPTANCE", {
+                        "acceptance_capability_scope": capability_scope,
+                        "acceptance_pagination_mode": pagination_mode,
+                        "acceptance_pending_remote_continuations": 13,
+                        "acceptance_continuation_blocked_total": 0,
+                        "acceptance_approval_blocked_total": 7,
+                        "acceptance_input_blocked_total": 16,
+                    })
+                    report = self.report(capture)
+                    report.update(feature="chat", errorCode="GITHUB_TASK_INCOMPLETE")
+                    report["context"]["source"] = "CHAT_FAILURE"
+                    approved = json.dumps(report, separators=(",", ":"))
+                    self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                    _, issue = issue_from_report(report)
+                    self.assertIn(capability_scope, issue["body"])
+                    self.assertIn(pagination_mode, issue["body"])
+                    self.assertIn("GITHUB_TASK_INCOMPLETE", issue["title"])
+                    self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                    self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+
+        legacy = self.capture("ACCEPTANCE", {"acceptance_pending_remote_continuations": 13})
+        self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        self.assertNotIn("acceptance_capability_scope", legacy["values"])
+        self.assertNotIn("acceptance_pagination_mode", legacy["values"])
+
+    def test_acceptance_scope_rejects_unknown_values_wrong_types_and_other_areas(self):
+        for key, value in (
+            ("acceptance_capability_scope", "GENERAL"),
+            ("acceptance_pagination_mode", "ALL_PAGES_VERIFIED"),
+            ("acceptance_capability_scope", "private task or repository"),
+            ("acceptance_pagination_mode", True),
+            ("acceptance_capability_scope", 1),
+            ("acceptance_pagination_mode", ["BOUNDED_SMOKE_SAMPLE"]),
+        ):
+            with self.subTest(key=key, value=value):
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("ACCEPTANCE", {key: value}))
+        for area in ("PROVIDER", "TOOL"):
+            with self.subTest(area=area):
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {"acceptance_capability_scope": "FULL_CATALOG"}))
+
+    def test_voice_install_queue_transfer_and_failure_evidence_survives_approved_submission(self):
+        values = {
+            "voice_install_state": "RUNNING", "voice_install_scheduler": "JOB_SCHEDULER",
+            "voice_install_pending_reason": "EXECUTING", "voice_install_elapsed_ms": 120_000,
+            "voice_install_pack": "MOONSHINE", "voice_install_transfer_stage": "FAILED",
+            "voice_install_failure_kind": "HTTP", "voice_install_http_status": 503,
+            "voice_install_downloaded_bytes": 2_000_000, "voice_install_total_bytes": 177_000_000,
+        }
+        capture = {"schemaVersion": 1, "area": "VOICE", "capturedAtMillis": 1_800_000_000_000,
+                   "captureMode": "INCIDENT", "values": values,
+                   "unavailableFields": sorted(CORE_FIELDS["VOICE"] - values.keys())}
+        report = self.report(capture)
+        report.update(feature="voice", errorCode="VOICE_MODEL_REQUIRED")
+        report["context"]["source"] = "VOICE_STATE"
+        report["context"]["schemaVersion"] = 5
+        approved = json.dumps(report, separators=(",", ":"))
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        _, issue = issue_from_report(report)
+        for key in values:
+            self.assertIn(key, issue["body"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+        missing = self.capture("VOICE", {"voice_install_failure": "WORK_NOT_FOUND"})
+        self.assertEqual(missing, validate_diagnostics(copy.deepcopy(missing)))
+        unknown = self.capture("VOICE", {"voice_install_pending_reason": "UNAVAILABLE"})
+        validate_diagnostics(unknown)
+        self.assertNotIn("voice_install_total_bytes", unknown["values"])
+        self.assertNotIn("voice_install_http_status", unknown["values"])
+
+    def test_voice_install_evidence_rejects_private_values_bad_types_and_excessive_bounds(self):
+        for key, value in (
+            ("voice_install_elapsed_ms", 16_000_001), ("voice_install_downloaded_bytes", -1),
+            ("voice_install_total_bytes", 1_000_000_001), ("voice_install_total_bytes", "177000000"),
+            ("voice_install_http_status", 600), ("voice_install_http_status", True),
+            ("voice_install_pack", "private model URL"), ("voice_install_transfer_stage", "private path"),
+            ("voice_install_failure_kind", "raw exception"), ("voice_install_pending_reason", "private network"),
+        ):
+            with self.subTest(key=key, value=value):
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("VOICE", {key: value}))
+        validate_diagnostics(self.capture("VOICE", {"voice_install_total_bytes": 1_000_000_000, "voice_install_http_status": 599}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"voice_install_pack": "KOKORO"}))
+
     def test_typed_capsule_validates_without_rewriting_approved_input(self):
         capture = self.capture(values={
             "native_tool_action": "create", "validation_field_names": ["issue_number"], "validation_path_hashes": ["b" * 64],

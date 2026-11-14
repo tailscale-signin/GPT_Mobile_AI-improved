@@ -24,6 +24,8 @@ class BenchmarkQueueProgressTest {
         val progress = benchmarkQueueProgress(item, run)
         assertEquals(2, progress.planned)
         assertEquals(1, progress.completed)
+        assertEquals(0, progress.executed)
+        assertEquals(1, progress.failed)
         assertEquals(1, progress.remaining)
         assertEquals("Second frozen case", progress.currentCase)
     }

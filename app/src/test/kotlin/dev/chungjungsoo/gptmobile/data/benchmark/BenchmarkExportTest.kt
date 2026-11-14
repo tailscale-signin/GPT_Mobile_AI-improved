@@ -70,7 +70,7 @@ class BenchmarkExportTest {
     }
 
     @Test fun queueExportsDeclareInProgressAndStripFrozenCredentials() {
-        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Profile", model = "model", token = "private-secret-token", secretRef = "private-vault-reference", apiUrl = "https://user:password@example.org/v1?api_key=private-query")
+        val profile = dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2(uid = "profile", name = "Profile", model = "model", token = "private-secret-token", secretRef = "private-vault-reference", apiUrl = "https://user:password@example.org/v1?api_key=private-query", batchApiUrl = "https://user:password@batch.example.net/private-path?api_key=private-batch-query", systemPrompt = "private instructions")
         val batch = BenchmarkBatch("batch", BenchmarkMode.QUICK, 1, listOf(BenchmarkQueueItem(0, profile, "run", "config")))
         val payload = BenchmarkBackupPayload(batches = listOf(batch))
         val json = Json { encodeDefaults = true }
@@ -84,7 +84,19 @@ class BenchmarkExportTest {
         assertFalse(output.contains("password"))
         assertFalse(output.contains("private-query"))
         val frozen = root.getValue("batches").jsonArray.single().jsonObject.getValue("items").jsonArray.single().jsonObject.getValue("profile").jsonObject
-        assertEquals("https://example.org/v1", frozen.getValue("apiUrl").jsonPrimitive.content)
+        assertFalse(output.contains("example.org"))
+        assertFalse(output.contains("batch.example.net"))
+        assertFalse(output.contains("private-path"))
+        assertFalse(output.contains("private instructions"))
+        assertEquals(kotlinx.serialization.json.JsonNull, frozen["apiUrl"])
+        assertEquals(kotlinx.serialization.json.JsonNull, frozen["batchApiUrl"])
+        assertEquals("OPENAI", frozen["routeLabel"]?.jsonPrimitive?.content)
+        assertEquals(benchmarkHash("private instructions"), frozen["systemPromptDigest"]?.jsonPrimitive?.content)
+        val private = redactBenchmarkExport(json.encodeToJsonElement(dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2.serializer(), profile), includePrivateProfileDetails = true).jsonObject
+        assertEquals("https://example.org/v1", private["apiUrl"]?.jsonPrimitive?.content)
+        assertEquals("https://batch.example.net/private-path", private["batchApiUrl"]?.jsonPrimitive?.content)
+        assertEquals("private instructions", private["systemPrompt"]?.jsonPrimitive?.content)
+        assertEquals(kotlinx.serialization.json.JsonNull, private["token"])
         assertEquals(kotlinx.serialization.json.JsonNull, frozen.getValue("token"))
         assertEquals(kotlinx.serialization.json.JsonNull, frozen.getValue("secretRef"))
     }

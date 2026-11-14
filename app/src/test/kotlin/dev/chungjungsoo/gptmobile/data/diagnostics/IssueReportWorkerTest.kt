@@ -38,6 +38,7 @@ import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withTimeout
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -159,6 +160,55 @@ class IssueReportWorkerTest {
             assertFalse(queued.mayHaveBeenSubmitted)
         } finally {
             unmockkObject(WorkManager.Companion)
+        }
+    }
+
+    @Test fun voiceDownloadReportUsesTheSelectedObservationAndKeepsPreviewApprovalAndPrivacyControls() = runBlocking {
+        withReportModel(listOf(route)) { model, _, manager ->
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val snapshot = requireNotNull(
+                IssueReportDiagnostics.fromFields(
+                    "MANUAL_REPORT",
+                    mapOf("diagnostic_area" to "VOICE", "voice_install_pending_reason" to "CONNECTIVITY", "voice_install_elapsed_ms" to 60_000),
+                    System.currentTimeMillis()
+                )
+            )
+            ReportDiagnosticSnapshots.retain(snapshot)
+
+            model.openVoiceDownloadReport()
+
+            assertTrue(model.manual.value)
+            assertEquals("Voice Chat plugin download problem", model.draft.value.title)
+            assertEquals("VOICE", model.draft.value.diagnosticArea)
+            assertTrue(model.draft.value.includeDiagnostics)
+            assertNull(model.draft.value.relatedIssueNumber)
+            val preview = requireNotNull(model.manualPreview.value)
+            assertEquals("SELECTED_CAPTURE", preview.context?.diagnostics?.captureMode)
+            assertEquals(snapshot.capturedAtMillis, preview.context?.diagnostics?.capturedAtMillis)
+            assertEquals(JsonPrimitive("CONNECTIVITY"), preview.context?.diagnostics?.values?.get("voice_install_pending_reason"))
+            assertTrue(IssueReportOutbox.forContext(context).entries().isEmpty())
+            verify(exactly = 0) { manager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) }
+
+            LocalDiagnosticsPolicy.setEnabled(false)
+            val unavailable = withTimeout(5000) { model.manualPreview.first { it?.context?.diagnostics?.captureMode == "NO_CAPTURE" } }
+            assertEquals(preview.reportId, unavailable?.reportId)
+            assertTrue(unavailable?.context?.diagnostics?.values?.isEmpty() == true)
+            assertTrue(unavailable?.events?.isEmpty() == true)
+        }
+    }
+
+    @Test fun voiceDownloadReportDoesNotEnableDisabledDiagnosticCaptureOrSendAReport() = runBlocking {
+        withReportModel(listOf(route)) { model, _, manager ->
+            assertFalse(LocalDiagnosticsPolicy.enabled)
+            model.openVoiceDownloadReport()
+            val preview = requireNotNull(model.manualPreview.value)
+            assertFalse(LocalDiagnosticsPolicy.enabled)
+            assertEquals("VOICE", preview.context?.diagnostics?.area)
+            assertEquals("NO_CAPTURE", preview.context?.diagnostics?.captureMode)
+            assertTrue(preview.context?.diagnostics?.values?.isEmpty() == true)
+            assertTrue(preview.events.isEmpty())
+            assertTrue(IssueReportOutbox.forContext(context).entries().isEmpty())
+            verify(exactly = 0) { manager.enqueueUniqueWork(any(), any(), any<OneTimeWorkRequest>()) }
         }
     }
 

@@ -90,6 +90,8 @@ internal data class AgentRunTerminalDiagnostics(
             reason: String?,
             acceptance: GitHubRunAcceptance.Assessment?
         ): String = when {
+            dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.recoveryAction(reason) != null ->
+                requireNotNull(dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.recoveryAction(reason))
             acceptance?.verification == "WAITING_FOR_APPROVAL" || reason == "WAITING_FOR_APPROVAL" -> "REVIEW_EXISTING_APPROVAL_CARD"
             acceptance?.taskOutcome == "REJECTED" || acceptance?.verification == "REJECTED" || reason == "APPROVAL_REJECTED" -> "RECONCILE_FIXTURE_AFTER_APPROVAL_REJECTION"
             reason == "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "RESUME_SAVED_BATCH_WITH_SMALLER_CLAIM_LIMIT"

@@ -31,14 +31,16 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkBatch
+import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkExecutionPolicy
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkQueueState
 import dev.chungjungsoo.gptmobile.data.benchmark.BenchmarkRun
+import dev.chungjungsoo.gptmobile.data.benchmark.retryCondition
 import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun BenchmarkQueueCard(batch: BenchmarkBatch, active: Boolean, onSkip: () -> Unit, onStop: () -> Unit, onResume: () -> Unit, onRetry: () -> Unit, onResults: () -> Unit, onExport: () -> Unit, runs: List<BenchmarkRun> = emptyList()) {
+internal fun BenchmarkQueueCard(batch: BenchmarkBatch, active: Boolean, onSkip: () -> Unit, onStop: () -> Unit, onResume: () -> Unit, onRetry: () -> Unit, onResults: () -> Unit, onExport: () -> Unit, runs: List<BenchmarkRun> = emptyList(), onRunWithProfileSettings: () -> Unit = {}) {
     var details by remember(batch.id) { mutableStateOf(false) }
     val now = rememberLiveClock(active)
     val runById = remember(runs) { runs.associateBy { it.id } }
@@ -62,7 +64,8 @@ internal fun BenchmarkQueueCard(batch: BenchmarkBatch, active: Boolean, onSkip: 
                     Column(Modifier.weight(1f)) {
                         Text("${item.ordinal + 1}. ${item.profile.name}")
                         Text(item.failure?.code?.lowercase()?.replace('_', ' ') ?: item.state.name.lowercase(), style = MaterialTheme.typography.labelSmall)
-                        Text("Completed ${progress.completed} / ${progress.planned ?: "unknown"} · remaining ${progress.remaining ?: "unknown"}", style = MaterialTheme.typography.labelSmall)
+                        Text("Planned ${progress.planned ?: "unknown"} · executed ${progress.executed ?: "unknown"} · passed ${progress.passed ?: "unknown"} · failed ${progress.failed ?: "unknown"} · skipped ${progress.skipped ?: "unknown"}", style = MaterialTheme.typography.labelSmall)
+                        item.failure?.let { Text(it.retryCondition(), style = MaterialTheme.typography.labelSmall) }
                         if (item.state == BenchmarkQueueState.RUNNING) {
                             Text("Current test: ${progress.currentCase ?: "Preparing or awaiting next case"}", style = MaterialTheme.typography.bodySmall)
                             progress.planned?.takeIf { it > 0 }?.let { planned ->
@@ -72,7 +75,6 @@ internal fun BenchmarkQueueCard(batch: BenchmarkBatch, active: Boolean, onSkip: 
                     }
                 }
             }
-            Text("Completed counts include failed, blocked and skipped cases. An unknown total means no frozen case plan is available.", style = MaterialTheme.typography.labelSmall)
             batch.storageWarning?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (active) {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -81,7 +83,10 @@ internal fun BenchmarkQueueCard(batch: BenchmarkBatch, active: Boolean, onSkip: 
                 }
             } else {
                 if (batch.canResume) FilledTonalButton(onClick = onResume) { Text("Resume remaining (${batch.pending.size})") }
-                if (batch.failed > 0) OutlinedButton(onClick = onRetry) { Text("Retry failed (${batch.failed})") }
+                if (batch.failed > 0) OutlinedButton(onClick = onRetry) { Text("Run failed profiles again (${batch.failed})") }
+                if (batch.executionPolicy != BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1 && batch.items.any { it.failure?.code?.startsWith("REASONING_") == true }) {
+                    TextButton(onClick = onRunWithProfileSettings) { Text("Run with saved profile settings") }
+                }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     TextButton(onClick = onResults) { Text("View results") }
                     TextButton(onClick = onExport) { Text("Export") }

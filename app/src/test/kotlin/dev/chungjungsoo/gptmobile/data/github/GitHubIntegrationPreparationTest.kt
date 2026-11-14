@@ -180,6 +180,26 @@ class GitHubIntegrationPreparationTest {
         assertEquals(JsonPrimitive(4), checkpoint.getValue("stage_budget").jsonObject["cleanup_reserve"])
     }
 
+    @Test fun advertisedPaginationCannotSpendTheOwnedFixtureCleanupReserve() {
+        val available = tools + tool("github_ci", "logs")
+        val receipts = active()
+        val next = json("""{"tool":"github_ci","arguments":{"action":"logs","job_id":7,"start_line":41,"end_line":80}}""")
+        receipts["logs"] = receipt("logs", "github_ci", """{"action":"logs","job_id":7,"start_line":1,"end_line":40}""", """{"continuation_call":$next}""")
+        val retained = receipts.toMap()
+        val request = "$task Complete pending pagination."
+        val reserved = GitHubTestChecklist.paginationResume(request, receipts, available, remainingToolCalls = 6)
+        assertEquals(JsonPrimitive(4), reserved["cleanup_reserve"])
+        assertEquals(JsonPrimitive(false), reserved["acquisition_allowed"])
+        assertFalse(reserved.containsKey("next_call"))
+        assertTrue(reserved.getValue("next_action").toString().contains("owned-fixture cleanup"))
+        assertEquals(JsonPrimitive("resolve"), GitHubTestChecklist.nextCall(request, available, receipts, remainingToolCalls = 6)?.arguments?.get("action"))
+
+        val resumed = GitHubTestChecklist.paginationResume(request, receipts, available, remainingToolCalls = 7)
+        assertEquals(JsonPrimitive(true), resumed["acquisition_allowed"])
+        assertEquals(next, resumed["next_call"])
+        assertEquals(retained, receipts)
+    }
+
     @Test fun cleanupReserveIsReleasedOnlyAfterExactOwnedAbsenceIsVerified() {
         val receipts = active()
         val deletion = receipt("cleanup", "github_commit", """{"action":"delete_branch","branch":"$fixture","expected_head_sha":"$sha"}""", """{"deleted":true,"absence_verified":true,"branch":"$fixture","observed_head_sha":"$sha"}""")

@@ -49,13 +49,21 @@ class ConversationJobStateTests(unittest.TestCase):
             db.row_factory = sqlite3.Row
             db.execute('CREATE TABLE gateway_jobs(job_id TEXT, status TEXT, public_json TEXT)')
             db.execute('CREATE TABLE engineering_jobs(id TEXT, state TEXT, principal TEXT)')
-            db.execute('INSERT INTO gateway_jobs VALUES(?,?,?)', ('generation', 'waiting_for_client_tool', '{"principal_id":"owner"}'))
+            public = {'principal_id': 'owner', 'pending_client_tool_call_ids': ['private-tool-call'], 'client_tool_handoff_sequence': 3}
+            db.execute('INSERT INTO gateway_jobs VALUES(?,?,?)', ('generation', 'waiting_for_client_tool', json.dumps(public)))
             db.execute('INSERT INTO engineering_jobs VALUES(?,?,?)', ('engineering', 'READ', 'owner'))
             conversation = dict(id='owned-conversation', revision=7, active_job='generation', active_kind='generation', principal='owner')
             error = Conversations.active_conflict(db, conversation).error_payload()
             self.assertEqual('return_client_tool_results', error['recovery_action'])
             self.assertEqual('generation', error['active_job_id'])
+            self.assertEqual('CONVERSATION_ACTIVE_JOB', error['active_job_provenance'])
             self.assertEqual('WAITING_FOR_CLIENT_TOOL', error['active_job_state'])
+            self.assertEqual(1, error['pending_client_tool_count'])
+            self.assertEqual('IDENTIFIED', error['pending_client_tool_state'])
+            self.assertRegex(error['pending_client_tool_ids_hash'], r'^[a-f0-9]{64}$')
+            self.assertEqual(3, error['client_tool_handoff_sequence'])
+            self.assertEqual('NO', error['remote_acceptance'])
+            self.assertNotIn('private-tool-call', json.dumps(error))
             self.assertNotIn('job_id', error)
             self.assertFalse(error['retryable_without_new_input'])
             db.execute("UPDATE gateway_jobs SET status='running'")
@@ -65,6 +73,54 @@ class ConversationJobStateTests(unittest.TestCase):
             for state in ('NEEDS_INPUT', 'MERGE_READY', 'CANCELLING'):
                 db.execute('UPDATE engineering_jobs SET state=?', (state,))
                 self.assertEqual('resolve_active_job', Conversations.active_conflict(db, engineering).error_payload()['recovery_action'])
+
+    def test_pending_tool_evidence_distinguishes_missing_empty_and_invalid_identity(self):
+        cases = [({}, 'MISSING', None), ({'pending_client_tool_call_ids': []}, 'EMPTY', 0)]
+        for pending in (None, True, 'call', ['duplicate', 'duplicate'], [''], ['   '], ['secret\ncall'], ['secret\x7fcall'], ['x' * 257], ['call'] * 129, [{}]):
+            cases.append(({'pending_client_tool_call_ids': pending}, 'INVALID', None))
+        with sqlite3.connect(':memory:') as db:
+            db.row_factory = sqlite3.Row
+            db.execute('CREATE TABLE gateway_jobs(job_id TEXT, status TEXT, public_json TEXT)')
+            conversation = dict(id='conversation', revision=8, active_job='job', active_kind='generation', principal='owner')
+            for fields, state, count in cases:
+                with self.subTest(state=state, fields=fields):
+                    public = dict(fields, principal_id='owner')
+                    db.execute('DELETE FROM gateway_jobs')
+                    db.execute('INSERT INTO gateway_jobs VALUES(?,?,?)', ('job', 'waiting_for_client_tool', json.dumps(public)))
+                    error = Conversations.active_conflict(db, conversation).error_payload()
+                    self.assertEqual(state, error['pending_client_tool_state'])
+                    self.assertEqual(count, error.get('pending_client_tool_count'))
+                    self.assertNotIn('pending_client_tool_ids_hash', error)
+                    self.assertNotIn('pending_client_tool_call_ids', error)
+                    self.assertNotIn('client_tool_handoff_sequence', error)
+                    self.assertNotIn('job_id', error)
+                    self.assertFalse(error['retryable'])
+
+    def test_pending_tool_fingerprint_is_order_independent_and_sequence_is_bounded(self):
+        first = Conversations._client_tool_conflict_evidence({'pending_client_tool_call_ids': ['private-a', 'private-b'], 'client_tool_handoff_sequence': 1})
+        reordered = Conversations._client_tool_conflict_evidence({'pending_client_tool_call_ids': ['private-b', 'private-a'], 'client_tool_handoff_sequence': 2})
+        changed = Conversations._client_tool_conflict_evidence({'pending_client_tool_call_ids': ['private-c', 'private-b']})
+        self.assertEqual(first['pending_client_tool_ids_hash'], reordered['pending_client_tool_ids_hash'])
+        self.assertNotEqual(first['pending_client_tool_ids_hash'], changed['pending_client_tool_ids_hash'])
+        self.assertEqual(2, reordered['client_tool_handoff_sequence'])
+        self.assertNotIn('private', json.dumps(first))
+        for sequence in (True, '1', 0, -1, 16_000_001):
+            evidence = Conversations._client_tool_conflict_evidence({'pending_client_tool_call_ids': ['call'], 'client_tool_handoff_sequence': sequence})
+            self.assertNotIn('client_tool_handoff_sequence', evidence)
+        self.assertEqual({'pending_client_tool_state': 'UNAVAILABLE'}, Conversations._client_tool_conflict_evidence(None))
+
+    def test_foreign_job_cannot_supply_client_tool_evidence(self):
+        with sqlite3.connect(':memory:') as db:
+            db.row_factory = sqlite3.Row
+            db.execute('CREATE TABLE gateway_jobs(job_id TEXT, status TEXT, public_json TEXT)')
+            public = {'principal_id': 'other-owner', 'pending_client_tool_call_ids': ['private-call'], 'client_tool_handoff_sequence': 4}
+            db.execute('INSERT INTO gateway_jobs VALUES(?,?,?)', ('job', 'waiting_for_client_tool', json.dumps(public)))
+            conversation = dict(id='conversation', revision=8, active_job='job', active_kind='generation', principal='owner')
+            error = Conversations.active_conflict(db, conversation).error_payload()
+            self.assertIsNone(error['active_job_state'])
+            self.assertNotEqual('return_client_tool_results', error['recovery_action'])
+            for key in ('pending_client_tool_count', 'pending_client_tool_ids_hash', 'client_tool_handoff_sequence'):
+                self.assertNotIn(key, error)
 
 
 class ConversationHTTPTests(unittest.TestCase):
@@ -671,6 +727,12 @@ class ConversationHTTPTests(unittest.TestCase):
             self.assertEqual(job_id, error['active_job_id'])
             self.assertEqual('generation', error['active_job_kind'])
             self.assertEqual('WAITING_FOR_CLIENT_TOOL', error['active_job_state'])
+            self.assertEqual('CONVERSATION_ACTIVE_JOB', error['active_job_provenance'])
+            self.assertEqual('IDENTIFIED', error['pending_client_tool_state'])
+            self.assertEqual(1, error['pending_client_tool_count'])
+            self.assertEqual(1, error['client_tool_handoff_sequence'])
+            self.assertRegex(error['pending_client_tool_ids_hash'], r'^[a-f0-9]{64}$')
+            self.assertNotIn('pending-client-read', json.dumps(error))
             self.assertEqual(conversation_id, error['conversation_id'])
             self.assertEqual('return_client_tool_results', error['recovery_action'])
             self.assertNotIn('queue_instruction', error['allowed_recovery_actions'])

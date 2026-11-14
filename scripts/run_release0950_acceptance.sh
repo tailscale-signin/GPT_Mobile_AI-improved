@@ -125,6 +125,8 @@ timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.d
 secret_vault_status=${PIPESTATUS[0]}
 timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/local-voice-instrumentation.txt"
 local_voice_status=${PIPESTATUS[0]}
+timeout 180s adb shell am instrument -w -r -e class dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest dev.melo.gptmobile.improved.test/androidx.test.runner.AndroidJUnitRunner | tee "$acceptance_output/voice-conversation-instrumentation.txt"
+voice_conversation_status=${PIPESTATUS[0]}
 set -e
 timeout 10s adb logcat -d > "$acceptance_output/logcat.txt"
 settings_home_artifact_status=0
@@ -149,6 +151,7 @@ for conversation_theme in light dark; do
 done
 if [ "$secret_vault_status" -ne 0 ]; then exit "$secret_vault_status"; fi
 if [ "$local_voice_status" -ne 0 ]; then exit "$local_voice_status"; fi
+if [ "$voice_conversation_status" -ne 0 ]; then exit "$voice_conversation_status"; fi
 if [ "$model_source_status" -ne 0 ]; then exit "$model_source_status"; fi
 if [ "$swipe_status" -ne 0 ]; then exit "$swipe_status"; fi
 if [ "$audit_status" -ne 0 ]; then exit "$audit_status"; fi
@@ -186,6 +189,12 @@ from pathlib import Path
 sys.path.insert(0, 'scripts')
 from check_native_memory_smoke import check_instrumentation
 folder = Path('app/build/acceptance-0950')
+for test in (
+    'longCaptionsAndLargeTextKeepTheMicrophoneVisibleAndFixed',
+    'theProfilePickerChangesProfileOnlyBetweenTurns',
+    'accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing',
+):
+    check_instrumentation(folder / 'voice-conversation-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceConversationInstrumentedTest', test)
 for test in (
     'packagedNativeSpeechRuntimeMatchesItsJavaApi',
     'kokoroPlaybackClassVerifiesBeforeAnyModelIsInstalled',

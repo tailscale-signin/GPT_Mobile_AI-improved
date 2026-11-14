@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent.provider
 
 import dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,6 +20,11 @@ class LocalToolContextFailureTest {
         assertEquals(JsonPrimitive(false), details["retryable"])
         assertEquals(JsonPrimitive(5000), details["required_schema_tokens"])
         assertEquals(JsonPrimitive(1000), details["available_schema_tokens"])
+        val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", details, 1_000).diagnostics)
+        assertEquals("PROVIDER", diagnostic.area)
+        assertEquals(JsonPrimitive("GITHUB_TOOL_CONTEXT_BUDGET"), diagnostic.values["provider_failure_code"])
+        assertEquals(JsonPrimitive(5000), diagnostic.values["required_schema_tokens"])
+        assertEquals(JsonPrimitive(1000), diagnostic.values["available_schema_tokens"])
     }
 
     @Test fun laterGithubRejectionDoesNotClaimEarlierGenerationOrToolWorkWasUnsent() {

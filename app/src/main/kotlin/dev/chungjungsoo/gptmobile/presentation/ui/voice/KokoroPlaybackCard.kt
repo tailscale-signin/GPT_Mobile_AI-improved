@@ -8,7 +8,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -49,15 +48,8 @@ internal fun KokoroPlaybackCard(
             when (state.status) {
                 LocalVoiceModelStatus.CHECKING -> Text("Checking for the voice pack…", style = MaterialTheme.typography.bodySmall)
                 LocalVoiceModelStatus.DOWNLOADING -> {
-                    LinearProgressIndicator(progress = { (state.downloadedBytes.toFloat() / state.totalBytes).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
-                    Text(
-                        if (state.downloadedBytes == state.totalBytes) {
-                            "Verifying and preparing the voice pack…"
-                        } else {
-                            "${state.downloadedBytes / 1_048_576} / $downloadMiB MiB downloaded"
-                        },
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    VoiceTransferProgress(state.transferStage, state.downloadedBytes, state.totalBytes)
+                    Text("${state.downloadedBytes / 1_048_576} / $downloadMiB MiB downloaded", style = MaterialTheme.typography.bodySmall)
                     TextButton(onClick = cancel) { Text("Cancel download") }
                 }
                 LocalVoiceModelStatus.READY -> Text("Installed", color = MaterialTheme.colorScheme.primary)

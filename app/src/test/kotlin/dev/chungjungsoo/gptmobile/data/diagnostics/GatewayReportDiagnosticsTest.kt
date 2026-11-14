@@ -93,6 +93,22 @@ class GatewayReportDiagnosticsTest {
         assertNull(GatewayReportDiagnostics.admission(null, null, capturedAtMillis = 1_000_000))
     }
 
+    @Test fun savedResultTransportFailureCanBeIncludedWithoutClaimingJobOutcome() {
+        val snapshot = requireNotNull(
+            GatewayReportDiagnostics.savedResultReadFailure("private-profile", "private-job", "NETWORK_TIMEOUT", "connect_timeout", 1_000_000)
+        )
+        assertEquals("SELECTED_CAPTURE", snapshot.captureMode)
+        assertEquals(JsonPrimitive("gateway_recovery"), snapshot.values["gateway_failure_phase"])
+        assertEquals(JsonPrimitive("connect_timeout"), snapshot.values["gateway_failure_category"])
+        assertEquals(JsonPrimitive(false), snapshot.values["transport_complete"])
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("job", "private-job")), snapshot.values["job_id_hash"])
+        assertNull(snapshot.values["gateway_state"])
+        assertNull(snapshot.values["request_replay_allowed"])
+        assertNull(snapshot.values["gateway_http_status"])
+        assertTrue(snapshot.isValid())
+        assertFalse(Json.encodeToString(IssueReportDiagnostics.serializer(), snapshot).contains("private-"))
+    }
+
     @Test fun ownedRecoveryPreservesRemoteStateAndCheckpointWithoutInventingReplayAuthority() {
         val snapshot = requireNotNull(GatewayReportDiagnostics.recovery(run, "private-owned-job", "completed", 1_000_000))
         assertEquals("GATEWAY", snapshot.area)

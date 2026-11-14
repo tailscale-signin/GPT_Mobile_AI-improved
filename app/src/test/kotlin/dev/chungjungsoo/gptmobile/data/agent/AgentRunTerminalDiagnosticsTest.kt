@@ -5,6 +5,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AgentRunTerminalDiagnosticsTest {
+    @Test fun legacyValidationFailurePointsToHostRepairWithoutInventingDispatch() {
+        val failure = ProfileFailureRecord.classify("VALIDATION_POLICY_REQUIRED: validation is not configured")
+        val result = AgentRunTerminalDiagnostics.from(AgentRunStatus.BLOCKED, failure)
+        assertEquals("VALIDATION_POLICY_REQUIRED", result.reason)
+        assertEquals("CONFIGURE_VALIDATION_POLICY", result.recoveryAction)
+        assertEquals(null, result.dispatched)
+        assertEquals(RemoteRequestAcceptance.UNKNOWN, result.remoteAcceptance)
+    }
+
     @Test fun lastProgressEvidenceIsKeptSeparateFromAnUnprovenFailureStage() {
         val result = AgentRunTerminalDiagnostics.from(
             AgentRunStatus.PARTIAL,

@@ -33,7 +33,9 @@ data class ReasoningCapabilityObservation(
     val safeReasonCode: String?,
     val routeVerified: Boolean,
     val supportVerified: Boolean,
-    val detailMessage: String? = null
+    val detailMessage: String? = null,
+    /** Exact-model route metadata from this same fresh qualification, never a profile default. */
+    val verifiedContextTokens: Int? = null
 ) {
     val permitsRequest: Boolean get() = status == ReasoningCapabilityStatus.SUPPORTED && supportVerified
 }
@@ -45,7 +47,8 @@ internal data class ReasoningCapabilityProbe(
     val safeReasonCode: String? = null,
     /** Missing proof is not a conclusive unsupported-template result. */
     val controlStatus: ReasoningCapabilityStatus? = null,
-    val detailMessage: String? = null
+    val detailMessage: String? = null,
+    val contextTokens: Long? = null
 )
 
 /** Shared read/template-only preflight. It never loads a model, creates a job or generates text. */
@@ -122,7 +125,8 @@ class ReasoningCapabilityRepository internal constructor(
                 },
                 result.routeVerified,
                 supported,
-                result.detailMessage
+                result.detailMessage,
+                result.contextTokens?.takeIf { result.routeVerified && it > 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
             ).also { entry.flow.value = it }
         }
     }
@@ -180,7 +184,7 @@ class ReasoningCapabilityRepository internal constructor(
             } else {
                 null
             }
-            return ReasoningCapabilityProbe(verified, control, revision, controlStatus = controlStatus)
+            return ReasoningCapabilityProbe(verified, control, revision, controlStatus = controlStatus, contextTokens = snapshot.contextTokens)
         }
     }
 

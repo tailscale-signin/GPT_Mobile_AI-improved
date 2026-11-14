@@ -43,8 +43,11 @@ class AndroidVoiceAudioTest {
         }
         audio.allowOnlineSpeech = true
         audio.bindDiagnostics(probe)
+        var playbackStarts = 0
+        audio.bindPlaybackStarted { playbackStarts++ }
         try {
             audio.speak("Measured words.", {}, { error(it) })
+            assertEquals(0, playbackStarts)
             time = 130
             requireNotNull(initialized).onInit(TextToSpeech.SUCCESS)
             shadowOf(Looper.getMainLooper()).idle()
@@ -56,6 +59,11 @@ class AndroidVoiceAudioTest {
             callbacks.value.onBeginSynthesis(utterance.value, 24000, 2, 1)
             time = 400
             callbacks.value.onStart(utterance.value)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1, playbackStarts)
+            callbacks.value.onStart(utterance.value)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1, playbackStarts)
             assertEquals(100L, trace.incidentFields()["voice_warmup_ms"])
             assertEquals(170L, trace.incidentFields()["voice_queue_to_synthesis_ms"])
             assertEquals(200L, trace.incidentFields()["voice_synthesis_to_first_audio_ms"])
@@ -66,6 +74,8 @@ class AndroidVoiceAudioTest {
             time = 900
             callbacks.value.onStart(utterance.value)
             callbacks.value.onBeginSynthesis(utterance.value, 24000, 2, 1)
+            shadowOf(Looper.getMainLooper()).idle()
+            assertEquals(1, playbackStarts)
             assertEquals(stopped, trace.incidentFields())
         } finally {
             audio.close()

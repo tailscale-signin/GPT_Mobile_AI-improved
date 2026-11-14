@@ -496,9 +496,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             } else {
                 null
             },
-            responseFormat = constraints.finalResponseSchemaJson
-                ?.takeIf { isOpenRouter || isLlama }
-                ?.let { runCatching { json.parseToJsonElement(it) as? kotlinx.serialization.json.JsonObject }.getOrNull() },
+            responseFormat = ProviderResponseFormatPolicy.chatCompletions(platform.compatibleType, constraints.finalResponseSchemaJson),
             sessionId = openRouterSessionId,
             options = parsedOllamaOptions?.let { if (constraints.githubSampling == null) it else it.copy(temperature = effectiveTemperature, topP = null) }
         ).let { baseRequest ->
@@ -810,16 +808,16 @@ class OpenAICompatibleAdapter @Inject constructor(
                         effectiveOutputTokens = minOf(effectiveOutputTokens ?: 4_096, 4_096)
                     }
                     var ceilingRetryUsed = false
-                    if (constraints.maxOutputTokens != null) {
-                        emit(
-                            ProviderEvent.RequestConfigured(
-                                configuredProfileOutputTokens = effectiveMaxTokens,
-                                requestedOutputTokens = constraints.maxOutputTokens,
-                                effectiveOutputTokens = effectiveOutputTokens,
-                                providerOutputCeiling = ProviderRouteCapacity.ceiling(platform)
-                            )
+                    // Ordinary chat can reject during admission too. Retain its actual
+                    // profile setting even when no per-request restriction was supplied.
+                    emit(
+                        ProviderEvent.RequestConfigured(
+                            configuredProfileOutputTokens = effectiveMaxTokens,
+                            requestedOutputTokens = constraints.maxOutputTokens,
+                            effectiveOutputTokens = effectiveOutputTokens,
+                            providerOutputCeiling = ProviderRouteCapacity.ceiling(platform)
                         )
-                    }
+                    )
                     // The desktop gateway has its own intermediate-generation ceiling.
                     // Keep it aligned with the delegated provider cap so a 128/256-token
                     // worker cannot silently expand to the gateway default (for example 1024).
@@ -957,7 +955,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                 }
                                 // A saved-result binding must precede historical observations and failures.
                                 chunk.gatewayMetadata?.let { metadata ->
-                                    if (metadata.jobId != null) {
+                                    if (metadata.jobId != null && (constraints.requestRole?.startsWith("benchmark") != true || metadata.transportVerified)) {
                                         capturedGatewayJobId = metadata.jobId
                                     }
                                     emit(ProviderEvent.GatewayMetadataCaptured(metadata))
@@ -989,7 +987,8 @@ class OpenAICompatibleAdapter @Inject constructor(
                                             decodeTokensPerSecond = chunk.timings?.decodeTokensPerSecond,
                                             reasoningTokens = (usage.completionTokensDetails?.get("reasoning_tokens") as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 },
                                             phase = if (terminalReceived || lastFinishReason != null || chunk.choices.orEmpty().any { it.finishReason != null }) ProviderUsagePhase.FINAL else ProviderUsagePhase.INTERIM,
-                                            writerObservationKey = writerObservationKey
+                                            writerObservationKey = writerObservationKey,
+                                            cachedPromptTokens = usage.promptTokensDetails?.get("cached_tokens")?.let { it as? JsonPrimitive }?.intOrNull?.takeIf { it >= 0 }
                                         )
                                     )
                                 }
@@ -999,7 +998,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     }
                                 }
                                 chunk.gatewayProgress?.let { progress ->
-                                    if (progress.jobId != null) {
+                                    if (progress.jobId != null && constraints.requestRole?.startsWith("benchmark") != true) {
                                         capturedGatewayJobId = progress.jobId
                                     }
                                     emit(ProviderEvent.GatewayProgressUpdate(progress))

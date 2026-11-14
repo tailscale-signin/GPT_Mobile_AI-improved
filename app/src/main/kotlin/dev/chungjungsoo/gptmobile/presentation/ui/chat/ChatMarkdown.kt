@@ -48,6 +48,7 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
@@ -69,8 +70,6 @@ import com.mikepenz.markdown.compose.components.markdownComponents
 import com.mikepenz.markdown.compose.elements.MarkdownCodeBlock
 import com.mikepenz.markdown.compose.elements.MarkdownCodeFence
 import com.mikepenz.markdown.compose.elements.MarkdownTable
-import com.mikepenz.markdown.compose.elements.MarkdownTableHeader
-import com.mikepenz.markdown.compose.elements.MarkdownTableRow
 import com.mikepenz.markdown.compose.elements.MarkdownText
 import com.mikepenz.markdown.m3.Markdown
 import com.mikepenz.markdown.m3.markdownTypography
@@ -179,8 +178,10 @@ fun ChatMarkdown(
     onContentDrawn: (() -> Unit)? = null,
     adaptiveAnswerLength: Int? = null
 ) {
-    AdaptiveAnswerTypography(content, adaptiveAnswerLength) {
-        ChatMarkdownContent(content = content, contentIdentity = contentIdentity, memoryValues = memoryValues, highlightSentence = highlightSentence, highlightProgress = highlightProgress, streaming = streaming, animateStreaming = animateStreaming && !(streaming && wording != null), proseColor = proseColor, provenance = provenance, wording = wording, outputTrace = outputTrace, modifier = modifier, minimumPendingHeight = minimumPendingHeight, onContentDrawn = onContentDrawn)
+    GitHubLineDocument(contentIdentity, content) {
+        AdaptiveAnswerTypography(content, adaptiveAnswerLength) {
+            ChatMarkdownContent(content = content, contentIdentity = contentIdentity, memoryValues = memoryValues, highlightSentence = highlightSentence, highlightProgress = highlightProgress, streaming = streaming, animateStreaming = animateStreaming && !(streaming && wording != null), proseColor = proseColor, provenance = provenance, wording = wording, outputTrace = outputTrace, modifier = modifier, minimumPendingHeight = minimumPendingHeight, onContentDrawn = onContentDrawn)
+        }
     }
 }
 
@@ -507,6 +508,15 @@ private fun ChatMarkdownContent(
         }
 
         markdownComponents(
+            text = { DefaultParagraph(it.content, it.node, it.typography.text, annotator) },
+            heading1 = { MeasuredMarkdownHeading(it, it.typography.h1, annotator) },
+            heading2 = { MeasuredMarkdownHeading(it, it.typography.h2, annotator) },
+            heading3 = { MeasuredMarkdownHeading(it, it.typography.h3, annotator) },
+            heading4 = { MeasuredMarkdownHeading(it, it.typography.h4, annotator) },
+            heading5 = { MeasuredMarkdownHeading(it, it.typography.h5, annotator) },
+            heading6 = { MeasuredMarkdownHeading(it, it.typography.h6, annotator) },
+            setextHeading1 = { MeasuredMarkdownHeading(it, it.typography.h1, annotator, MarkdownTokenTypes.SETEXT_CONTENT) },
+            setextHeading2 = { MeasuredMarkdownHeading(it, it.typography.h2, annotator, MarkdownTokenTypes.SETEXT_CONTENT) },
             table = { model ->
                 // Long evidence tables compose a bounded page until the reader expands it.
                 // Stable content keeps the page and layout inputs across progress updates.
@@ -514,6 +524,7 @@ private fun ChatMarkdownContent(
                 val tableLines = remember(tableSource) { tableSource.lines() }
                 var visibleRows by remember(tableSource, model.node.startOffset) { mutableIntStateOf(12) }
                 val visibleEnd = remember(tableLines, visibleRows, model.node.startOffset) { model.node.startOffset + tableLines.take(visibleRows + 2).sumOf { it.length + 1 } }
+                val firstPageEnd = remember(tableLines, model.node.startOffset) { model.node.startOffset + tableLines.take(14).sumOf { it.length + 1 } }
                 val remainingRows = (tableLines.count { it.isNotBlank() } - 2 - visibleRows).coerceAtLeast(0)
                 val settings = annotatorSettings(
                     LocalMarkdownTypography.current.textLink,
@@ -530,27 +541,11 @@ private fun ChatMarkdownContent(
                         style = model.typography.table,
                         annotatorSettings = settings,
                         headerBlock = { tableContent, header, tableWidth, style ->
-                            MarkdownTableHeader(
-                                tableContent,
-                                header,
-                                tableWidth,
-                                style,
-                                maxLines = Int.MAX_VALUE,
-                                overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-                                annotatorSettings = settings
-                            )
+                            MeasuredMarkdownTableRow(tableContent, header, tableWidth, style, settings, header = true)
                         },
                         rowBlock = { tableContent, row, tableWidth, style ->
                             if (row.startOffset < visibleEnd) {
-                                MarkdownTableRow(
-                                    tableContent,
-                                    row,
-                                    tableWidth,
-                                    style,
-                                    maxLines = Int.MAX_VALUE,
-                                    overflow = androidx.compose.ui.text.style.TextOverflow.Clip,
-                                    annotatorSettings = settings
-                                )
+                                MeasuredMarkdownTableRow(tableContent, row, tableWidth, style, settings, firstAppearanceAddsLines = row.startOffset < firstPageEnd)
                             }
                         }
                     )
@@ -579,7 +574,8 @@ private fun ChatMarkdownContent(
                                     code = code,
                                     language = language,
                                     style = style,
-                                    isDarkTheme = isDarkTheme
+                                    isDarkTheme = isDarkTheme,
+                                    sourceOffset = it.node.startOffset
                                 )
                             }
                         }
@@ -607,7 +603,8 @@ private fun ChatMarkdownContent(
                                     code = code,
                                     language = language,
                                     style = style,
-                                    isDarkTheme = isDarkTheme
+                                    isDarkTheme = isDarkTheme,
+                                    sourceOffset = it.node.startOffset
                                 )
                             }
                         }
@@ -721,9 +718,10 @@ private fun ChatMarkdownContent(
                     val fallbackPages = remember(fallbackContent) { paragraphPages(AnnotatedString(fallbackContent)) }
                     var visibleFallbackPages by remember(contentIdentity) { mutableIntStateOf(1) }
                     Column(modifier) {
-                        fallbackPages.take(visibleFallbackPages).forEach { page ->
+                        fallbackPages.take(visibleFallbackPages).forEachIndexed { index, page ->
                             Text(
                                 page,
+                                onTextLayout = rememberGitHubTextLayout("fallback:$index", fallbackPages.take(index).sumOf { it.length }, firstAppearanceAddsLines = index == 0),
                                 style = answerBodyStyle(),
                                 color = normalTextColor,
                                 modifier = Modifier.drawWithContent {
@@ -861,7 +859,8 @@ private fun HighlightedCodeContent(
     code: String,
     language: String?,
     style: TextStyle,
-    isDarkTheme: Boolean
+    isDarkTheme: Boolean,
+    sourceOffset: Int
 ) {
     val cacheKey = "$isDarkTheme:$language:$code"
     val cached = codeHighlightCache.get(cacheKey)
@@ -886,6 +885,7 @@ private fun HighlightedCodeContent(
 
     Text(
         text = highlightedCode,
+        onTextLayout = rememberGitHubTextLayout("source:$sourceOffset:0", sourceOffset),
         style = style,
         softWrap = false,
         modifier = Modifier
@@ -1096,11 +1096,25 @@ private fun chatMarkdownTypography(proseColor: Color? = null, linkColor: Color? 
 }
 
 @Composable
+private fun MeasuredMarkdownHeading(
+    model: com.mikepenz.markdown.compose.components.MarkdownComponentModel,
+    style: TextStyle,
+    annotator: MarkdownAnnotator,
+    contentType: IElementType = MarkdownTokenTypes.ATX_CONTENT
+) {
+    val node = model.node.children.firstOrNull { it.type == contentType } ?: model.node
+    Column(Modifier.semantics { heading() }) {
+        DefaultParagraph(model.content, node, style, annotator, lineOffset = model.node.startOffset)
+    }
+}
+
+@Composable
 private fun DefaultParagraph(
     content: String,
     node: org.intellij.markdown.ast.ASTNode,
     style: TextStyle,
-    annotator: MarkdownAnnotator
+    annotator: MarkdownAnnotator,
+    lineOffset: Int = node.startOffset
 ) {
     val linkStyle = LocalMarkdownTypography.current.textLink
     val inlineCodeStyle = LocalMarkdownTypography.current.inlineCode.toSpanStyle()
@@ -1135,7 +1149,10 @@ private fun DefaultParagraph(
     var visiblePages by remember(node.startOffset) { mutableIntStateOf(1) }
     Column {
         pages.take(visiblePages).forEachIndexed { index, page ->
-            key(index) { MarkdownText(page, node, Modifier, style, sourceContent = content) }
+            key(index) {
+                val reportLayout = rememberGitHubTextLayout("source:$lineOffset:$index", lineOffset + pages.take(index).sumOf { it.length }, firstAppearanceAddsLines = index == 0)
+                MarkdownText(page, node, Modifier, style, onTextLayout = { result, _ -> reportLayout(result) }, sourceContent = content)
+            }
         }
         if (visiblePages < pages.size) {
             TextButton(onClick = { visiblePages++ }) {

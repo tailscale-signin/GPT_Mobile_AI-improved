@@ -24,6 +24,53 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayEngineeringClientTest {
+    @Test fun preflightBlockersRetainSafeTypedRepairOnSuccessAndRejectionResponses() = runTest {
+        val payload = GatewayEngineeringRequest("owner/repo", "feature", "main", "Repair build", "local", chatId = 1, requestId = "setup-block", sourceSha = "a".repeat(40))
+        val preflight = GatewayEngineeringPreflight(
+            "github.engineering-admission.v1",
+            false,
+            blockers = listOf(GatewayEngineeringBlocker("validation_policy", "VALIDATION_POLICY_REQUIRED", "admission", "private policy path", "PRIVATE_REMOTE_COMMAND")),
+            objectiveSha256 = GitHubRepositoryStateStore.digest(payload.objective),
+            sourceSha = payload.sourceSha,
+            validationPolicyState = "NOT_CONFIGURED"
+        )
+        for (status in listOf(HttpStatusCode.OK, HttpStatusCode.PreconditionFailed)) {
+            var calls = 0
+            http(
+                MockEngine {
+                    calls++
+                    val response = if (status == HttpStatusCode.OK) Json.encodeToString(preflight) else """{"error":{"code":"VALIDATION_POLICY_REQUIRED","message":"private exception"},"preflight":${Json.encodeToString(preflight)}}"""
+                    respond(response, status)
+                }
+            ).use { http ->
+                val rejected = runCatching { GatewayEngineeringClient(http).preflight(config, payload) }.exceptionOrNull() as GatewayEngineeringPrerequisiteRejected
+                assertEquals("VALIDATION_POLICY_REQUIRED", rejected.errorCode)
+                assertEquals("admission", rejected.failedStage)
+                assertEquals("CONFIGURE_VALIDATION_POLICY", rejected.recoveryAction)
+                assertEquals("NOT_CONFIGURED", rejected.validationPolicyState)
+                assertFalse(rejected.message.orEmpty().contains("private"))
+                assertFalse(rejected.message.orEmpty().contains("PRIVATE_REMOTE_COMMAND"))
+                assertFalse(rejected.commandOutcomeUnknown)
+                assertEquals(1, calls)
+            }
+        }
+    }
+
+    @Test fun directPrerequisiteRejectionKeepsEarlierUnknownCommandOutcome() = runTest {
+        http(
+            MockEngine {
+                respond("""{"error":{"code":"VALIDATION_RUNTIME_UNAVAILABLE","failed_stage":"admission","command_outcome_unknown":true,"message":"private runtime details"}}""", HttpStatusCode.PreconditionFailed)
+            }
+        ).use { http ->
+            val payload = GatewayEngineeringRequest("owner/repo", "feature", "main", "Repair build", "local", chatId = 1, requestId = "uncertain-setup")
+            val rejected = runCatching { GatewayEngineeringClient(http).preflight(config, payload) }.exceptionOrNull() as GatewayEngineeringPrerequisiteRejected
+            assertTrue(rejected.commandOutcomeUnknown)
+            assertEquals("PROVISION_VALIDATION_RUNTIME", rejected.recoveryAction)
+            assertEquals("GATEWAY_OUTCOME_UNKNOWN", dev.chungjungsoo.gptmobile.data.agent.AgentFailureEvidence.exception(rejected)?.errorCode)
+            assertFalse(rejected.message.orEmpty().contains("private"))
+        }
+    }
+
     @Test fun defaultImplementationScopeReachesPreflightJobAndConversationAdmission() = runTest {
         // The Python validator consumes this same wire contract, including its
         // derived working branch. Do not fill the default taskScope explicitly.

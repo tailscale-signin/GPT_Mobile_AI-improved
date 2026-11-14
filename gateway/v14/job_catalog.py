@@ -115,13 +115,13 @@ def install_routes(app, conversations, engineering, service, ownership):
         allowed = engineering_allowed(request) if value and value['active_job_kind'] == 'engineering' else request.state.principal.local_admin or 'jobs' in request.state.principal.scopes
         return value if value and allowed else None
 
-    async def execute(action):
+    async def execute(action, missing_code='not_found'):
         try:
             if not conversations.runtime.GATEWAY_DURABLE_JOBS:
                 return JSONResponse({'error': {'code': 'conversation_storage_disabled', 'retryable': False}}, status_code=503)
             value = await asyncio.to_thread(action)
             if value is None:
-                return JSONResponse({'error': {'code': 'not_found'}}, status_code=404)
+                return JSONResponse({'error': {'code': missing_code}}, status_code=404)
             return value
         except ExecutionBindingError as error:
             return JSONResponse({'error': error.error_payload(),
@@ -176,7 +176,7 @@ def install_routes(app, conversations, engineering, service, ownership):
             receipt = conversations.command(request.state.principal.id, command_id, include_outcome=request.query_params.get('include_outcome') == 'true')
             allowed = engineering_allowed(request) if receipt and receipt['job_kind'] == 'engineering' else request.state.principal.local_admin or 'jobs' in request.state.principal.scopes
             return receipt if receipt and allowed else None
-        return await execute(read)
+        return await execute(read, 'command_receipt_unavailable')
 
     @app.post('/gateway/conversations/{conversation_id}/messages')
     @app.post('/v1/gateway/conversations/{conversation_id}/messages')

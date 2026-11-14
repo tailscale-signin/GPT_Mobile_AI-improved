@@ -53,15 +53,15 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
         } else if (id == "answer_correctness") {
             "evaluable answers only"
         } else if (id == "delivery_completion") {
-            "requests known to have been dispatched"
+            "requests that reached the physical dispatch boundary or produced a provider response; not proof of model execution"
         } else {
             "planned supported trials"
         }
     )
     val graded = samples.filter { it.completed && it.category !in setOf("speed", "performance", IntelligenceBenchmark.CATEGORY) && (it.outputCharacters > 0 || it.preview.isNotBlank()) && it.failureCategory != "FIXTURE_INVALID" }
-    val dispatched = samples.filter { it.requestDispatched == true || it.requestDispatched == null && (it.outputCharacters > 0 || it.chunks > 0 || it.rounds.isNotEmpty()) }
-    val eligibleProfiles = runs.filter { it.cancellationOrigin !in setOf(BenchmarkStopOrigin.USER_SKIP, BenchmarkStopOrigin.USER_STOP) && it.samples.any { sample -> sample.requestDispatched != null || sample.chunks > 0 || sample.rounds.isNotEmpty() } }
-    val admitted = eligibleProfiles.count { run -> run.samples.any { it.requestDispatched == true || it.chunks > 0 || it.rounds.isNotEmpty() } }
+    val dispatched = samples.filter { it.requestDispatched == true || it.physicalRequestIds.isNotEmpty() || it.providerHttpStatus != null || it.knownExecuted() }
+    val eligibleProfiles = runs.filter { it.cancellationOrigin !in setOf(BenchmarkStopOrigin.USER_SKIP, BenchmarkStopOrigin.USER_STOP) && it.samples.any { sample -> sample.requestAdmitted != null || sample.requestDispatched == false || sample.knownExecuted() } }
+    val admitted = eligibleProfiles.count { run -> run.samples.any { it.requestAdmitted == true || it.knownExecuted() } }
     val qualifiedSamples = runs.filter { benchmarkTimingExecutionExclusion(it) == null }.flatMap { it.samples }.filterNot { it.warmup }
     val contextExclusions = runs.mapNotNull(::benchmarkTimingExecutionExclusion).groupingBy { it }.eachCount()
     val speed = qualifiedSamples.filter { it.category == "speed" && it.outcome == BenchmarkOutcome.PASSED && it.timingEligible != false && it.referenceSpeed != null }
@@ -86,6 +86,7 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
     val nativeExecutions = all.flatMap { it.runtimeExecutions }.filter { it.knownDispatched }.distinctBy { listOf(it.workerGenerationId, it.runtimeRequestId, it.nativeOperationId, it.nativeGenerationId).joinToString("|") }
     val rawArrival = samples.filter { it.category == "speed" && it.firstTextMs != null }
     val rawReference = samples.filter { it.category == "speed" && it.rawReferenceSpeed != null }
+    val reportedBackend = samples.filter { it.category == "speed" && it.providerDecodeTokensPerSecond?.let { rate -> rate.isFinite() && rate > 0 } == true }
     val rawNative = samples.filter { it.category == "speed" }.flatMap { sample -> sample.localSegments.mapNotNull { segment -> segment.native?.takeIf { it.decodeTokens >= 0 && (it.decodeDurationMs ?: 0) > 0 }?.let { sample to it } } }
     val reportedSegments = samples.filter { it.category in setOf("speed", "performance") }.flatMap { sample -> sample.localSegments.mapNotNull { segment -> segment.native?.let { sample to it } } }
     fun reportedNativeRate(id: String, prefill: Boolean): BenchmarkMetricResult {
@@ -109,6 +110,8 @@ internal fun benchmarkMetricResults(runs: List<BenchmarkRun>, operationalContext
         ratio("physical_generation_terminal_receipt", nativeExecutions.count { it.hasNativeTerminal }, nativeExecutions.size, all.filter { it.runtimeExecutions.any { receipt -> receipt.knownDispatched } }).copy(policyVersion = "benchmark-native-receipts-v1", population = "distinct native generations with confirmed native entry; all native terminal kinds count as returned, not as correct answers; physical generation count is not planned in advance", planned = 0, plannedKnown = false),
         timing("raw_first_visible_text", rawArrival, rawArrival.mapNotNull { it.firstTextMs?.toDouble() }, "ms").copy(policyVersion = "benchmark-raw-timing-v1", population = "observed non-warmup timing answers, including failed validation and partial delivery; diagnostic only"),
         timing("raw_reference_decode_rate", rawReference, rawReference.mapNotNull { it.rawReferenceSpeed }, "reference text units/s").copy(policyVersion = "benchmark-raw-timing-v1", population = "observed non-warmup streaming intervals, including failed validation and partial delivery; diagnostic only"),
+        timing("raw_reported_provider_decode_rate", reportedBackend, reportedBackend.mapNotNull { it.providerDecodeTokensPerSecond }, "provider tokens/s")
+            .copy(policyVersion = "benchmark-provider-timing-v1", population = "provider-reported rates; separate from observed streaming delivery and excluded from normalized speed scoring"),
         reportedNativeRate("raw_reported_native_prefill_rate", true),
         reportedNativeRate("raw_reported_native_decode_rate", false),
         ratio("raw_native_decode_rate", rawNative.size, rawNative.size, rawNative.map { it.first }.distinct()).copy(policyVersion = "benchmark-raw-timing-v1", value = if (nativeDuration > 0) nativeTokens * 1000.0 / nativeDuration else null, unit = "native tokens/s", aggregation = "sum of segment tokens / sum of measured decode durations", population = "captured non-warmup native timing segments, including failed validation; model tokenizer dependent and not a normalized model score")

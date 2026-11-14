@@ -23,11 +23,11 @@ data class BenchmarkCoverage(
     val plannedKnown: Boolean = true
 )
 
-internal fun BenchmarkSample.knownExecuted(): Boolean = requestDispatched == true ||
-    runtimeExecutions.any { it.knownDispatched } ||
+internal fun BenchmarkSample.knownExecuted(): Boolean = runtimeExecutions.any { it.knownDispatched } ||
     phaseIntervals.any { it.nativeStage == "NATIVE_ENTRY" && (it.nativeOperationId ?: 0) > 0 } ||
-    requestDispatched == null &&
-    (outputCharacters > 0 || chunks > 0 || rounds.isNotEmpty())
+    requestAdmitted != false &&
+    requestDispatched != false &&
+    (outputCharacters > 0 || chunks > 0 || rounds.isNotEmpty() || requestDispatched == true && providerHttpStatus == null)
 
 fun benchmarkCoverage(run: BenchmarkRun): BenchmarkCoverage {
     val samples = run.samples.distinctBy { it.testId }
@@ -44,7 +44,7 @@ fun benchmarkCoverage(run: BenchmarkRun): BenchmarkCoverage {
         samples.count { it.outcome in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED) },
         (planned - samples.size).coerceAtLeast(0),
         samples.count { it.requestAdmitted == null && !it.knownExecuted() && it.outcome !in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED) },
-        samples.count { it.requestDispatched == null && !it.knownExecuted() && it.outcome !in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED) },
+        samples.count { it.requestDispatched != false && it.requestAdmitted != false && !it.knownExecuted() && it.outcome !in setOf(BenchmarkOutcome.SKIPPED, BenchmarkOutcome.UNSUPPORTED) },
         samples.count { it.knownExecuted() && it.terminalReceived == null },
         plannedKnown = run.plannedTrials > 0
     )

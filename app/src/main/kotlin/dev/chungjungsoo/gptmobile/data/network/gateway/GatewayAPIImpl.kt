@@ -1,10 +1,15 @@
 package dev.chungjungsoo.gptmobile.data.network.gateway
 
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots
 import dev.chungjungsoo.gptmobile.data.network.LocalEndpointConnectionPolicy
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.SseUtils
 import dev.chungjungsoo.gptmobile.data.network.boundedMetadata
+import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
 import dev.chungjungsoo.gptmobile.util.applyPlatformStreamingTimeout
 import io.ktor.client.call.body
 import io.ktor.client.plugins.timeout
@@ -288,7 +293,25 @@ class GatewayAPIImpl internal constructor(
         } catch (cancellation: CancellationException) {
             throw cancellation
         } catch (failure: Exception) {
-            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Gateway", "SAVED_RESULT_READ_OUTCOME · jobId=$jobId · outcome=READ_FAILED · reason=${failure.javaClass.simpleName}", "W")
+            val kind = networkFailureKind(failure)
+            val category = when (kind) {
+                NetworkFailureKind.TIMEOUT -> {
+                    val connect = generateSequence<Throwable>(failure) { it.cause }.take(8).any { it.javaClass.simpleName == "ConnectTimeoutException" }
+                    if (connect) "connect_timeout" else "read_timeout"
+                }
+                NetworkFailureKind.DNS -> "dns"
+                NetworkFailureKind.DISCONNECTED -> "connection"
+                NetworkFailureKind.ABORTED -> "connection_closed"
+                NetworkFailureKind.TLS -> "tls"
+                else -> null
+            }
+            AppLogRecorder.recordEvent(
+                "Gateway",
+                "SAVED_RESULT_READ_OUTCOME",
+                mapOf("jobId" to jobId, "outcome" to "READ_FAILED", "reason" to kind.code, "failure_category" to category),
+                "W"
+            )
+            GatewayReportDiagnostics.savedResultReadFailure(config.profileUid, jobId, kind.code, category)?.let(ReportDiagnosticSnapshots::retain)
             null
         }
     }

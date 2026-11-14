@@ -57,7 +57,7 @@ ENUMS = {
     },
     "acceptance_evidence_scope": {"CURRENT_VERDICT", "RETAINED_VERDICT"},
     "voice_engine": {"SYSTEM", "LOCAL", "KOKORO"},
-    "voice_phase": {"PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "SPEAKING", "ERROR", "CLOSED"},
+    "voice_phase": {"PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"},
     "voice_focus_result": {"GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"},
     "voice_first_audio_basis": {"UTTERANCE_START", "PLAYBACK_HEAD"},
     "gateway_reason_code": ENGINEERING_REASONS | MODEL_PREPARATION_REASONS,
@@ -139,6 +139,63 @@ FIELDS_BY_AREA["PROVIDER"].update({"reasoning_capability_age_ms", "reasoning_mod
 FIELDS_BY_AREA["GATEWAY"].update({"queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason"})
 FIELDS_BY_AREA["ACCEPTANCE"].update({"status_policy_recovery", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
 
+# Bounded evidence from the owning request and the exact retained verdict.
+ENUMS["provider_failure_code"].update({"CONVERSATION_CONFLICT", "GITHUB_CIRCUIT_OPEN", "REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED"})
+ENUMS["conflict_active_job_kind"] = {"generation", "engineering"}
+ENUMS["github_cooldown_stop"] = {"WAIT_ALREADY_USED", "WAIT_LIMIT", "TASK_DEADLINE"}
+HASH_FIELDS.add("conflict_conversation_hash")
+TRANSPORT_FIELDS = {"github_transport_read_attempts", "github_transport_unanswered_reads", "github_transport_http_responses"}
+GITHUB_SCHEMA_BUDGET_FIELDS = {"required_schema_tokens", "available_schema_tokens"}
+ENUMS["provider_failure_code"].add("GITHUB_TOOL_CONTEXT_BUDGET")
+COUNTS.update(GITHUB_SCHEMA_BUDGET_FIELDS)
+FIELDS_BY_AREA["PROVIDER"].update(GITHUB_SCHEMA_BUDGET_FIELDS)
+CAPACITY_DETAIL_FIELDS = {"admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens"}
+COUNTS.update(TRANSPORT_FIELDS | CAPACITY_DETAIL_FIELDS | {"conflict_conversation_revision", "acceptance_pending_remote_continuations"})
+FIELDS_BY_AREA["PROVIDER"].update({"conflict_active_job_kind", "conflict_conversation_revision", "conflict_pending_tool_count", "conflict_conversation_hash", "github_cooldown_stop"})
+FIELDS_BY_AREA["PROVIDER"].update(CAPACITY_DETAIL_FIELDS)
+FIELDS_BY_AREA["TOOL"].update(TRANSPORT_FIELDS)
+FIELDS_BY_AREA["ACCEPTANCE"].add("acceptance_pending_remote_continuations")
+
+# Numeric request components and actual capacity provenance. No raw prompt,
+# endpoint, model name or provider payload is part of this contract.
+CAPACITY_CEILING_FIELDS = {
+    "admission_route_context_tokens", "admission_configured_context_tokens", "admission_catalog_context_tokens",
+    "admission_input_ceiling_tokens", "admission_output_ceiling_tokens",
+}
+CAPACITY_EVIDENCE_COUNTS = CAPACITY_CEILING_FIELDS | {
+    "admission_system_tokens", "admission_history_tokens", "admission_current_request_tokens",
+    "admission_tool_result_tokens", "admission_response_schema_tokens", "admission_envelope_tokens", "admission_capacity_age_ms",
+}
+COUNTS.update(CAPACITY_EVIDENCE_COUNTS)
+ENUMS["admission_capacity_provenance"] = {"VERIFIED_ROUTE", "DECLARED", "CONSERVATIVE_POLICY", "UNKNOWN"}
+FIELDS_BY_AREA["PROVIDER"].update(CAPACITY_EVIDENCE_COUNTS | {"admission_capacity_provenance"})
+
+CONFLICT_EVIDENCE_FIELDS = {
+    "conflict_active_job_provenance", "conflict_pending_tool_state", "conflict_pending_tool_ids_hash",
+    "conflict_handoff_sequence", "conflict_stream_job_relation",
+}
+ENUMS["conflict_active_job_provenance"] = {"CONVERSATION_ACTIVE_JOB", "UNREPORTED"}
+ENUMS["conflict_pending_tool_state"] = {"IDENTIFIED", "MISSING", "EMPTY", "INVALID", "UNAVAILABLE", "NOT_REPORTED"}
+ENUMS["conflict_stream_job_relation"] = {"MATCHES_VERIFIED_STREAM_JOB", "DIFFERS_VERIFIED_STREAM_JOB", "NO_VERIFIED_STREAM_JOB", "ACTIVE_JOB_NOT_REPORTED"}
+HASH_FIELDS.add("conflict_pending_tool_ids_hash")
+FIELDS_BY_AREA["PROVIDER"].update(CONFLICT_EVIDENCE_FIELDS)
+
+ENUMS["acceptance_capability_scope"] = {"FULL_CATALOG", "OBSERVED_CAPABILITIES"}
+ENUMS["acceptance_pagination_mode"] = {"COMPLETE_INVENTORY_REQUESTED", "BOUNDED_SMOKE_SAMPLE"}
+FIELDS_BY_AREA["ACCEPTANCE"].update({"acceptance_capability_scope", "acceptance_pagination_mode"})
+
+VOICE_INSTALL_EVIDENCE_FIELDS = {
+    "voice_install_pending_reason", "voice_install_elapsed_ms", "voice_install_pack", "voice_install_transfer_stage",
+    "voice_install_failure_kind", "voice_install_http_status", "voice_install_downloaded_bytes", "voice_install_total_bytes",
+}
+ENUMS["voice_install_failure"].add("WORK_NOT_FOUND")
+ENUMS["voice_install_pending_reason"] = {"UNDEFINED", "APP_STATE", "APP_STANDBY", "BACKGROUND_RESTRICTION", "CONNECTIVITY", "DEVICE_STATE", "SCHEDULER_OPTIMIZATION", "QUOTA", "USER", "OTHER_CONSTRAINT", "EXECUTING", "MISSING", "UNAVAILABLE"}
+ENUMS["voice_install_pack"] = {"MOONSHINE", "KOKORO"}
+ENUMS["voice_install_transfer_stage"] = {"CHECKING", "CONNECTING", "TRANSFERRING", "VERIFYING", "EXTRACTING", "READY", "FAILED"}
+ENUMS["voice_install_failure_kind"] = {"DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK_IO", "INTEGRITY", "STORAGE", "MODEL_IN_USE", "UNKNOWN"}
+COUNTS.add("voice_install_elapsed_ms")
+FIELDS_BY_AREA["VOICE"].update(VOICE_INSTALL_EVIDENCE_FIELDS)
+
 CORE_FIELDS = {
     "PROVIDER": {"profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"},
     "TOOL": {"tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "missing_field_count", "invalid_field_count"},
@@ -179,12 +236,22 @@ def _valid_value(key, value):
         return 100 <= value <= 599
     if key == "model_preparation_load_requests":
         return 0 <= value <= 1
+    if key == "conflict_pending_tool_count":
+        return 0 <= value <= 128
+    if key == "conflict_handoff_sequence":
+        return 1 <= value <= 16_000_000
+    if key in CAPACITY_CEILING_FIELDS:
+        return 1 <= value <= 16_000_000
     if key in ATTEMPTS:
         return 0 <= value <= 10_000
     if key in DURATIONS:
         return 0 <= value <= 86_400_000
     if key == "voice_install_progress_percent":
         return 0 <= value <= 100
+    if key in {"voice_install_downloaded_bytes", "voice_install_total_bytes"}:
+        return 0 <= value <= 1_000_000_000
+    if key == "voice_install_http_status":
+        return 100 <= value <= 599
     return key in COUNTS and 0 <= value <= 16_000_000
 
 

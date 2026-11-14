@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -127,6 +128,7 @@ class ReasoningCapabilityRepositoryTest {
         try {
             val initial = repository.check(profile, ReasoningMode.OFF)
             assertTrue(initial.permitsRequest)
+            assertEquals(8192, initial.verifiedContextTokens)
             assertEquals(1, metadataReads)
             assertEquals(2, templateReads)
             assertEquals(initial, repository.check(profile, ReasoningMode.OFF))
@@ -135,6 +137,7 @@ class ReasoningCapabilityRepositoryTest {
             val changedModel = repository.check(profile, ReasoningMode.OFF)
             assertEquals(ReasoningCapabilityStatus.UNVERIFIED, changedModel.status)
             assertFalse(changedModel.routeVerified)
+            assertNull(changedModel.verifiedContextTokens)
             assertEquals(2, metadataReads)
             assertEquals(2, templateReads)
             reported = "exact-model"
@@ -143,6 +146,7 @@ class ReasoningCapabilityRepositoryTest {
             val changedTemplate = repository.check(profile, ReasoningMode.OFF)
             assertEquals(ReasoningCapabilityStatus.UNSUPPORTED, changedTemplate.status)
             assertFalse(changedTemplate.permitsRequest)
+            assertEquals(8192, changedTemplate.verifiedContextTokens)
             assertEquals(3, metadataReads)
             assertEquals(2, templateReads)
             io.mockk.coVerify(exactly = 3) { gateway.getCapabilities(any(), forceRefresh = true) }
@@ -189,6 +193,33 @@ class ReasoningCapabilityRepositoryTest {
         val auto = repository.check(profile, ReasoningMode.AUTO)
         assertTrue(auto.permitsRequest)
         assertFalse(auto.routeVerified)
+    }
+
+    @Test fun verifiedPlanningCapacityUsesTheFreshCredentialBoundObservation() = runTest {
+        var probes = 0
+        var verified = true
+        var tokens = 5632L
+        val repository = ReasoningCapabilityRepository({ _, _ ->
+            probes++
+            ReasoningCapabilityProbe(verified, runtimeRevision = "selected-runtime", contextTokens = tokens)
+        }, { 100L })
+        val initial = repository.check(profile, ReasoningMode.AUTO)
+        assertEquals(5632, initial.verifiedContextTokens)
+        assertEquals(initial, repository.check(profile, ReasoningMode.AUTO))
+        assertEquals(1, probes)
+
+        tokens = 4096L
+        val changed = repository.check(profile.copy(token = "replacement-secret"), ReasoningMode.AUTO)
+        assertEquals(4096, changed.verifiedContextTokens)
+        assertNotEquals(initial.configurationRevision, changed.configurationRevision)
+        assertEquals(2, probes)
+
+        verified = false
+        val unverified = repository.check(profile.copy(model = "replacement-model"), ReasoningMode.AUTO)
+        assertTrue(unverified.permitsRequest)
+        assertFalse(unverified.routeVerified)
+        assertNull(unverified.verifiedContextTokens)
+        assertEquals(3, probes)
     }
 
     @Test fun modelCredentialAndModeChangesCannotReuseEarlierQualification() = runTest {

@@ -133,13 +133,23 @@ internal class GitHubProgressNarrator(
             fun line(value: String) = GitHubProgressPresentation.preview(value).lineSequence().firstOrNull().orEmpty().trim().take(320).trimEnd('.', '…')
             val available = snapshot.recentSteps.map(::line).filter(String::isNotBlank)
                 .filterNot(GitHubProgressPresentation::isGenericProgress).distinctBy(GitHubProgressPresentation::lineKey)
-            val problem = available.lastOrNull { Regex("(?i)\\b(?:failed|skipped|blocked|needs attention)\\b").containsMatchIn(it) }
+            fun priority(value: String): Int {
+                val nonzero = value.replace(Regex("(?i)\\b0\\s+(?:failed|skipped|blocked)\\b"), "")
+                return when {
+                    Regex("(?i)\\b(?:failed|blocked|needs attention)\\b|policy.*unavailable").containsMatchIn(nonzero) -> 2
+                    Regex("(?i)\\bskipped\\b").containsMatchIn(nonzero) -> 1
+                    else -> 0
+                }
+            }
+            val severity = available.maxOfOrNull(::priority) ?: 0
+            val problem = available.lastOrNull { severity > 0 && priority(it) == severity }
             val observations = if (problem != null && problem !in available.takeLast(2)) listOf("Earlier, ${problem.replaceFirstChar(Char::lowercase)}") + available.takeLast(1) else available.takeLast(2)
             val activity = line(snapshot.activity).takeUnless(GitHubProgressPresentation::isGenericProgress).orEmpty()
             val next = line(snapshot.next)
+            if (observations.isEmpty() && snapshot.completed > 0 && snapshot.pending == 0) return ""
             return buildString {
                 observations.forEach { append(it).append(". ") }
-                if (activity.isNotBlank() && (observations.isEmpty() || snapshot.pending > 0) && observations.none { GitHubProgressPresentation.lineKey(it) == GitHubProgressPresentation.lineKey(activity) }) {
+                if (activity.isNotBlank() && observations.isEmpty()) {
                     append(activity).append(". ")
                 }
                 if (next.isNotBlank()) append("Next, I’ll ").append(next.replaceFirstChar(Char::lowercase)).append('.')

@@ -52,13 +52,13 @@ class GitHubRateLimitManager {
 
     fun requireAvailable(resource: String = "core", nowEpochSeconds: Long = System.currentTimeMillis() / 1000) {
         val secondary = ceilingSeconds(ProviderRetryPolicy.remainingMillis(secondaryUntil.get(), secondsToMillis(nowEpochSeconds)))
-        check(secondary == 0L) { "GitHub secondary rate limit: retry after $secondary seconds." }
+        if (secondary > 0) throw GitHubRateLimitAdmissionException("GITHUB_SECONDARY_RATE_LIMITED", secondsToMillis(secondary))
         val state = resources[resource] ?: return
         val delay = maxOf(
             retryAfterRemaining(state, nowEpochSeconds),
             if (state.remaining == 0L) ((state.resetEpochSeconds ?: nowEpochSeconds) - nowEpochSeconds).coerceAtLeast(0) else 0
         )
-        check(delay == 0L) { "GitHub is cooling down for $resource. Retry after $delay seconds; use results already collected." }
+        if (delay > 0) throw GitHubRateLimitAdmissionException("GITHUB_PRIMARY_RATE_LIMITED", secondsToMillis(delay))
     }
 
     fun snapshot(): Snapshot = latest
@@ -111,3 +111,6 @@ class GitHubRateLimitManager {
         )
     }
 }
+
+/** A cached rate observation prevented the current GitHub request from dispatching. */
+internal class GitHubRateLimitAdmissionException(val code: String, val retryAfterMillis: Long) : IllegalStateException("$code: GitHub is cooling down. Wait for the recorded deadline before resuming saved work.")

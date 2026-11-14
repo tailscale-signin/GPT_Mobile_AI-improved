@@ -13,7 +13,11 @@ class GitHubRateLimitManagerTest {
         limits.cooldown(172_800, 1000)
         assertEquals(86_400_000L, limits.retryDelayMillis(86_401))
         assertTrue(limits.shouldBackOff(86_401))
-        assertThrows(IllegalStateException::class.java) { limits.requireAvailable(nowEpochSeconds = 86_401) }
+        val blocked = assertThrows(GitHubRateLimitAdmissionException::class.java) {
+            limits.requireAvailable(nowEpochSeconds = 86_401)
+        }
+        assertEquals("GITHUB_SECONDARY_RATE_LIMITED", blocked.code)
+        assertEquals(86_400_000L, blocked.retryAfterMillis)
         assertEquals(0L, limits.retryDelayMillis(172_801))
         limits.cooldown(Long.MAX_VALUE, 10_000)
         assertTrue(limits.retryDelayMillis(10) > 0)
@@ -34,6 +38,25 @@ class GitHubRateLimitManagerTest {
         limits.record(headersOf("X-RateLimit-Remaining" to listOf("0"), "X-RateLimit-Reset" to listOf(Long.MAX_VALUE.toString())), nowMillis = 1000)
         assertTrue(limits.retryDelayMillis(1) > 0)
         assertTrue(limits.shouldBackOff(1))
+    }
+
+    @Test fun primaryLimitIdentifiesTheBlockedBucketAndDeadline() {
+        val limits = GitHubRateLimitManager()
+        limits.record(
+            headersOf(
+                "X-RateLimit-Resource" to listOf("search"),
+                "X-RateLimit-Remaining" to listOf("0"),
+                "X-RateLimit-Reset" to listOf("11")
+            ),
+            nowMillis = 1000
+        )
+        limits.requireAvailable("core", 1)
+        val blocked = assertThrows(GitHubRateLimitAdmissionException::class.java) {
+            limits.requireAvailable("search", 1)
+        }
+        assertEquals("GITHUB_PRIMARY_RATE_LIMITED", blocked.code)
+        assertEquals(10_000L, blocked.retryAfterMillis)
+        limits.requireAvailable("search", 11)
     }
 
     @Test fun invalidRetryAfterUsesTheBounded429Default() {

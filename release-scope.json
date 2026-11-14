@@ -2740,6 +2740,8 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubHandoffReconciliationEvidence.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubHandoffReconciliationEvidenceTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ChatFlowDeliveryObservation.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ChatFlowDeliveryReportTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ChatFlowDeliveryReportTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidence.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt"
   ]
 }

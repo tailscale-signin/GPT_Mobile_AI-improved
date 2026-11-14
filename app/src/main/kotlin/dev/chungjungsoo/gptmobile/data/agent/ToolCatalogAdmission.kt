@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
+import dev.chungjungsoo.gptmobile.data.context.ContextCostBreakdown
 import dev.chungjungsoo.gptmobile.data.context.ContextPlan
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
@@ -15,14 +16,21 @@ import kotlinx.serialization.json.put
 internal class GitHubToolContextBudgetException(
     val requiredSchemaTokens: Long,
     val availableSchemaTokens: Long,
-    private val budget: GitHubSchemaBudget? = null
+    private val budget: GitHubSchemaBudget? = null,
+    private val admissionEvidence: JsonObject? = null
 ) : IllegalArgumentException(
     "GITHUB_TOOL_CONTEXT_BUDGET: Required GitHub, recovery and discovery schemas need approximately $requiredSchemaTokens tokens, but $availableSchemaTokens remain. Use a larger context or reduce the output allowance, attachments, or instructions. This provider request was not dispatched."
 ) {
+    val admissionCapacityTokens: Int? get() = budget?.capacity
+
+    fun withAdmissionEvidence(evidence: JsonObject): GitHubToolContextBudgetException =
+        GitHubToolContextBudgetException(requiredSchemaTokens, availableSchemaTokens, budget, evidence).also { it.initCause(this) }
+
     fun providerFailure() = ProviderEvent.Failed(
         message.orEmpty(),
         errorCode = "GITHUB_TOOL_CONTEXT_BUDGET",
         failureDetails = buildJsonObject {
+            admissionEvidence?.forEach { (key, value) -> put(key, value) }
             put("failed_stage", "provider_admission")
             put("diagnostic_area", "PROVIDER")
             put("provider_failure_code", "GITHUB_TOOL_CONTEXT_BUDGET")
@@ -39,12 +47,22 @@ internal class GitHubToolContextBudgetException(
                 put("admission_safety_tokens", evidence.safety)
                 evidence.toolResults?.let { put("admission_tool_result_reserve_tokens", it) }
                 put("admission_measurement", "UTF8_ESTIMATE")
+                evidence.promptCosts?.let { costs ->
+                    for ((key, value) in listOf(
+                        "admission_system_tokens" to costs.system,
+                        "admission_current_request_tokens" to costs.currentMessage,
+                        "admission_history_tokens" to costs.history,
+                        "admission_attachment_reserve_tokens" to costs.attachments
+                    )) {
+                        value.takeIf { it in 0..16_000_000 }?.let { put(key, it) }
+                    }
+                }
             }
         }
     )
 }
 
-internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val output: Int, val safety: Int, val toolResults: Int? = null) {
+internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val output: Int, val safety: Int, val toolResults: Int? = null, val promptCosts: ContextCostBreakdown? = null) {
     val available: Long get() = (capacity.toLong() - input - output - safety - (toolResults ?: 0)).coerceAtLeast(0)
 }
 
@@ -153,8 +171,8 @@ internal fun planAuthorizedToolContext(
     var admittedGitHubBudget: GitHubSchemaBudget? = null
     if ((requiredGitHubSchemas.isNotEmpty() || requiredDiscovery != null) && normalized.contextTokens != Int.MAX_VALUE) {
         val output = normalized.outputTokens.takeIf { it > 0 } ?: minOf(4096, normalized.contextTokens / 4)
-        val currentCost = ContextBudgetService.breakdown(turns.filter { it.isCurrentTurn }, prompt, emptyList()).total.toLong()
-        val requestedBudget = GitHubSchemaBudget(normalized.contextTokens, currentCost, output, minOf(256, normalized.contextTokens / 16), minOf(8192, normalized.contextTokens / 8))
+        val currentCosts = ContextBudgetService.breakdown(turns.filter { it.isCurrentTurn }, prompt, emptyList())
+        val requestedBudget = GitHubSchemaBudget(normalized.contextTokens, currentCosts.total.toLong(), output, minOf(256, normalized.contextTokens / 16), minOf(8192, normalized.contextTokens / 8), currentCosts)
         val requiredTokens = pinnedSchemas.sumOf { providerSchemaTokens(it, githubMode = true) }
         val minimumOutput = minOf(output, 512)
         val smallerBudget = requestedBudget.copy(output = minimumOutput)

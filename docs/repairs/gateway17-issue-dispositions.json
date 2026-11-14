@@ -15,11 +15,12 @@
     "b279eddfe41edd23602aacd811c881defa3b1aea",
     "b1a0ea71ce748a04d50b0d85fa4c301032c57107",
     "aad56e7f6b9bbac05ca905907cdd627e2bb36244",
-    "2c18d55b17c443105966c4a4d08147cf6e30734e"
+    "2c18d55b17c443105966c4a4d08147cf6e30734e",
+    "9ce9808f593ab2a50f3d4658a4baf10485475303"
   ],
   "prepared_at_utc_date": "2026-11-14",
-  "intent": "Audit all 44 open non-PR reports through #1145, preserve existing fixes and concurrent source changes, improve missing diagnosis, and provide honest per-issue closure evidence. Each disposition remains conditional on the complete composed source and final-head qualification.",
-  "issue_count": 44,
+  "intent": "Audit all 47 open non-PR reports through #1148, preserve existing fixes and concurrent source changes, improve missing diagnosis, and provide honest per-issue closure evidence. Each disposition remains conditional on the complete composed source and final-head qualification.",
+  "issue_count": 47,
   "remote_mutations_performed_by_this_audit": true,
   "closure_policy": "The requested closure may include diagnostic resolutions. Each note must preserve its remaining qualification; issue closure is not a declaration of full live/device acceptance.",
   "privacy": "No original prompts, private endpoints, repository names from report payloads, identifiers, credentials, raw tool arguments or raw logs are stored in this audit.",
@@ -133,6 +134,48 @@
       "local_skipped": 0,
       "host_boundary": "Actual current ToolFailureMetadata, ToolResultEnvelope, GitHubDispatchAccounting, NetworkFailureKind, ErrorClassification and ToolAuthorizationRejected compiled; exact current result/exception declarations extracted. Current cached report/capsule/context hashes verified. Established Android/network/storage boundary substitutes documented in sources.json; no Android or ToolEventRecorder runtime execution claimed.",
       "execution_qualification": "required_final_head_ci_before_merge_and_issue_closure"
+    },
+    "current_graph_discovery_followup": {
+      "status": "source_component_integrated_and_independently_reviewed",
+      "source_base_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
+      "execution_qualification": "required_complete_final_head_ci_before_merge_and_issue_closure",
+      "component_commit": "22f529d45690bbb756f446b6f99683e0ad71d5ba",
+      "patch_sha256": "934ae67ff5d9789d95667cbdf748d61ae4cec11a76cc3eb99360adbbfa6df3c2",
+      "local_actual_host_methods": 4,
+      "local_failures": 0,
+      "local_skipped": 0,
+      "host_scope": "Current full GitHubVerifiedSession, AgentContracts, ProgressiveToolCatalog and transitive planner/evidence/report sources; four verbatim test methods plus helper. Inert platform/DTO and storage ports are explicit boundaries; not Android/device/network acceptance.",
+      "baseline_result": "Exact unmodified 9ce session overlay: 4 tests run, expected 2 missing-discovery failures; authorization/lookalike and reserve negatives pass.",
+      "pinned_ktlint": "1.3.1, owned two files, passed"
+    },
+    "current_capacity_admission_followup": {
+      "status": "source_component_integrated_and_independently_reviewed",
+      "source_base_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
+      "execution_qualification": "required_complete_final_head_ci_before_merge_and_issue_closure",
+      "component_commit": "d3842baa72aeb1b75d716387bcbfb69f2acf0e43",
+      "component_parent_tree": "8065be2f985457e0eb2eb36e3a5f4cbc6bdc1a67",
+      "local_projection_route_tests": 12,
+      "local_actual_planner_tests": 1,
+      "local_failures": 0,
+      "local_skipped": 0,
+      "projection_route_host_scope": "8 current GitHubSchemaAdmissionEvidence tests,4 current ProviderRouteCapacity methods. Complete helper/decision/projection and approved report sources; exact current exception/budget declarations plus exact GitHub schema branch of ProviderExceptionDetails. Other exception branches not compiled; cached surrounding platform/storage/model dependencies. The old history-window integration method needs Android LangChain4j and remains final CI.",
+      "planner_host_scope": "Complete current ToolCatalogAdmission and ProgressiveToolCatalog plus actual current budget/cost sources and current declarations. Cached surrounding unrelated platform dependencies; rejects before history-window execution or dispatch.",
+      "planner_baseline_expected_failure": "Same unchanged repo method with9ce ToolCatalogAdmission lacks admission_system_tokens (expected9,actualnull).",
+      "pinned_ktlint": "All8 changed/new handwritten Kotlin files pass pinned ktlint1.3.1",
+      "final_planner_receipt_sha256": "10036f3a83cdcf25d7b92c27dbc82769975289aa9e4f0cf28d10a931ed260117",
+      "final_planner_dependency": "Frozen helper JAR 802337199cfe3fcfe2e68f576589ed042e63b2cb2f3f014775a5ce582b79f98d; current and baseline rerun with zero manifest hash mismatches."
+    },
+    "combined_47_local_validation": {
+      "status": "passed_local_exact_composition_final_ci_pending",
+      "parent_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
+      "canonical_fast_tests": 510,
+      "canonical_fast_failures": 0,
+      "changed_kotlin_paths_ktlint_1_3_1": 11,
+      "generated_inventory_files": 2602,
+      "generated_inventory_areas": 26,
+      "generators": "app inventory, architecture and diagnostic schemas are current",
+      "diff_check": "passed",
+      "qualification": "Local checks qualify the complete graph/capacity composition only within their stated host scope. Full Android compilation/unit/heap/emulator, lint, CodeQL, packaging, Gateway/Windows, Marketplace and aggregate verification remain required on the final published head and current main."
     }
   },
   "reporter_contract": {
@@ -1369,14 +1412,193 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderCooldownPreflightTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ProviderWaitRecoveryTest.kt"
       ]
+    },
+    {
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_and_independently_reviewed",
+      "execution_qualification": "All applicable checks on the complete final PR head and current main must pass before merge and individual issue closure. Component and earlier-head results are not substitutes.",
+      "issue": 1146,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1146",
+      "disposition": "code_fix_and_explicit_prerequisites",
+      "observed_problem": "The current-production-tree build 141 report records 46 of 70 capabilities verified, 16 blocked and eight untested; graph observation is UNOBSERVED, 16 graph-input blockers and seven fixture-approval blockers remain, with zero failed operations, zero unresolved outcomes and 192 calls left. Three of five criteria are verified. Fourteen bounded-sample continuations do not establish exhausted required work.",
+      "resolution": "Source review found a reachable authorized-tool discovery omission: the complete inventory contains exact repository_graph or its current authorized alias, while the missing-schema discovery predicate accepts only github_* definitions. The narrow repair makes an absent exact authorized graph definition discoverable under the existing current-round/prior-observation checks and 12-tool bound. The original selected binding, repository/revision, acquisition limits, graph prerequisites and ASK/CONDITIONAL fixture restrictions remain authoritative. Existing approved preparation, graph and prerequisite evidence records the resulting state.",
+      "remaining_qualification": "The capsule omits the actual authorized/current catalog names, so it does not prove this omission caused the historical run. UNOBSERVED does not mean NOT_INDEXED or a failed index. Available call budget does not authorize fixture creation, cleanup or head advancement. Existing initial graph-status recipes are retained; stale-status suppression was not independently reproduced. No full 70-capability verification or completion of the original private task is claimed.",
+      "closure_basis": "A source-proven discovery defect is repaired and the observed prerequisite disposition remains explicit, with historical causality unproved.",
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSession.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAuthorizedCatalog.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraph.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubVerifiedSessionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestPrerequisitesTest.kt"
+      ],
+      "validation_refs": [
+        "current_graph_discovery_followup"
+      ],
+      "pending_source_followup": false,
+      "component_commit": "22f529d45690bbb756f446b6f99683e0ad71d5ba",
+      "regression_methods": [
+        "compactAuthorizedGraphSchemaIsDiscoveredBeforeStatusAndIndexPreparation",
+        "graphDiscoveryDoesNotInventAuthorizationOrMatchOtherGraphPrefixes",
+        "graphDiscoveryIsNotRepeatedWhenItsSchemaRemainsOutsideTheRound",
+        "graphDiscoveryPreservesTheVerificationCallReserve"
+      ]
+    },
+    {
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_and_independently_reviewed",
+      "execution_qualification": "All applicable checks on the complete final PR head and current main must pass before merge and individual issue closure. Component and earlier-head results are not substitutes.",
+      "issue": 1147,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1147",
+      "disposition": "capacity_constraint_and_diagnostic_resolution",
+      "observed_problem": "This distinct current-production-tree build 141 LLAMA request was rejected before dispatch with GITHUB_TOOL_CONTEXT_BUDGET, retryable=false and remote acceptance NO. The UTF8_ESTIMATE arithmetic records capacity 5,632, current-only prompt 2,485, required schemas 2,481, available schemas 1,675, tool-result reserve 704, safety 256 and output 512: a 806-token shortfall. Selected profile/model hashes and the source of the enforced context ceiling are absent.",
+      "resolution": "Capture the typed capacity decision at preparePrimaryAdmission from the same selected profile, normalized configuration, catalog observation and freshness-checked route readiness used by primaryContext. Carry the immutable decision through both context-preparation paths to the exact schema-budget exception; retain hashed identity, separate configured/verified-route/catalog ceilings and closed winning provenance. Retain the current-only numeric system/request/history/attachment breakdown measured by the rejecting allocator. A later smaller explicit or engineering planning limit cannot be relabeled as verified remote capacity; missing or mismatched observations remain unavailable/UNKNOWN. Projection uses the existing approved CAPACITY_ADMISSION_EVIDENCE_V1 contract without enlarging readiness or collecting raw prompts/model names/endpoints. Admission, reserves, authorized schemas, output limits, final request measurement and replay/permission rules remain unchanged.",
+      "remaining_qualification": "The historical request and selected model/capacity source are unavailable. The report does not establish an unnecessary required schema, a larger supported context, or a lossless fitting transformation. Old history and optional catalog entries are outside this initial required-cost guard. Removing one reserve does not prove the later replay allocator and final physical request would fit. The original provider request is not replayed, and no live model or quota repair is claimed. Hosted submission of these fields requires the existing GITHUB_SCHEMA_BUDGET_EVIDENCE_V1 and CAPACITY_ADMISSION_EVIDENCE_V1 capabilities; native authenticated GitHub delivery remains independent. The recorded 512-token output origin is not inferred from the historical capsule.",
+      "closure_basis": "The observed capacity rejection remains valid and safely pre-dispatch; the requested diagnostic fallback preserves the missing admission-time identity and ceiling evidence for a recurrence.",
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacityTest.kt"
+      ],
+      "validation_refs": [
+        "current_capacity_admission_followup"
+      ],
+      "pending_source_followup": false,
+      "component_commit": "d3842baa72aeb1b75d716387bcbfb69f2acf0e43",
+      "regression_methods": {
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt": [
+          "preparationFailureKeepsExactAdmissionAndOwningIdentityThroughTheApprovedReport",
+          "aSmallerLocalPlanningLimitDoesNotRelabelItAsTheVerifiedRemoteCapacity",
+          "missingAndUnboundedObservationsAreAbsentWhileMeasuredZeroRemainsZero",
+          "aLaterRejectionDoesNotProveEarlierGenerationWasUnsentOrReplayable",
+          "successfulPlansAndUnrelatedFailuresAreReturnedUnchanged",
+          "laterCapacityChangesCannotRelabelTheCapturedPlanningDecision",
+          "aFailureWithoutTheSameMeasuredPlanningBoundaryCannotInheritVerifiedProvenance",
+          "aChangedOrOversizedObservationCannotInventAVerifiedCapacity"
+        ],
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt": [
+          "initialAdmissionBreakdownExcludesOldHistoryAndRetainsNoPromptText",
+          "recoveryReaderIsAdmittedBeforeOptionalSchemasOnEveryGithubRound",
+          "savedRecoveryReaderIsRequiredWithoutTreatingSavedInstructionsAsNewUserAuthority",
+          "discoveryRemainsAvailableWhenAnOptionalSchemaWouldConsumeItsBudget",
+          "warmDiscoveryAlsoRespectsTheRemainingRoundBudgetAndPreservesPriority",
+          "existingResolverCatalogControlsPlanningAndNeverChargesTheHiddenLegacySchema",
+          "engineeringGoalFitsSmallContextWithoutPreloadingEveryGitHubSchema",
+          "providerRoundDefersLargeOptionalGithubSchema",
+          "defaultReplyReserveYieldsToRequiredSchemasWhileExplicitReserveStaysPinned",
+          "initialGithubDiscoverySurvivesByBorrowingOnlyADefaultReplyAllowance",
+          "initialGithubDiscoveryRejectsWhenEvenTheMinimumReplyCannotPreserveIt",
+          "coldGithubDiscoveryReachesTheNextProviderRequestAndExecutesOnce",
+          "coldGithubDiscoveryCannotOverrunRemainingContextOrPromiseAnUnavailableTool",
+          "discoveryReceiptAccountsForItsOwnReplayBeforeAdvertisingTheNextRequest",
+          "wireInventoryUsesActualProviderNamesIncludingGroupedGeminiDeclarations"
+        ],
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacityTest.kt": [
+          "verifiedSmallRouteBoundsToolAndHistoryPlanningBeforeSerialization",
+          "unverifiedOrDifferentSelectionCannotSupplyAPlanningCapacity",
+          "verifiedCapacityNeverExpandsConfiguredCeilingsOrChangesTheSelectedProfile",
+          "planningDecisionRetainsTheConsumedRouteAndTheConfiguredCeilingSeparately",
+          "absentOrForeignRouteCapacityRemainsUnobservedInTheDecisionEvidence"
+        ]
+      }
+    },
+    {
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_and_independently_reviewed",
+      "execution_qualification": "All applicable checks on the complete final PR head and current main must pass before merge and individual issue closure. Component and earlier-head results are not substitutes.",
+      "issue": 1148,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1148",
+      "disposition": "capacity_constraint_and_diagnostic_resolution",
+      "observed_problem": "This distinct current-production-tree build 141 LLAMA request was rejected before dispatch with GITHUB_TOOL_CONTEXT_BUDGET, retryable=false and remote acceptance NO. The UTF8_ESTIMATE arithmetic records capacity 5,632, current-only prompt 3,481, required schemas 1,014, available schemas 679, tool-result reserve 704, safety 256 and output 512: a 335-token shortfall. Selected profile/model hashes and the source of the enforced context ceiling are absent.",
+      "resolution": "Capture the typed capacity decision at preparePrimaryAdmission from the same selected profile, normalized configuration, catalog observation and freshness-checked route readiness used by primaryContext. Carry the immutable decision through both context-preparation paths to the exact schema-budget exception; retain hashed identity, separate configured/verified-route/catalog ceilings and closed winning provenance. Retain the current-only numeric system/request/history/attachment breakdown measured by the rejecting allocator. A later smaller explicit or engineering planning limit cannot be relabeled as verified remote capacity; missing or mismatched observations remain unavailable/UNKNOWN. Projection uses the existing approved CAPACITY_ADMISSION_EVIDENCE_V1 contract without enlarging readiness or collecting raw prompts/model names/endpoints. Admission, reserves, authorized schemas, output limits, final request measurement and replay/permission rules remain unchanged.",
+      "remaining_qualification": "The historical request and selected model/capacity source are unavailable. The report does not establish an unnecessary required schema, a larger supported context, or a lossless fitting transformation. Old history and optional catalog entries are outside this initial required-cost guard. Removing one reserve does not prove the later replay allocator and final physical request would fit. The original provider request is not replayed, and no live model or quota repair is claimed. Hosted submission of these fields requires the existing GITHUB_SCHEMA_BUDGET_EVIDENCE_V1 and CAPACITY_ADMISSION_EVIDENCE_V1 capabilities; native authenticated GitHub delivery remains independent. The recorded 512-token output origin is not inferred from the historical capsule.",
+      "closure_basis": "The observed capacity rejection remains valid and safely pre-dispatch; the requested diagnostic fallback preserves the missing admission-time identity and ceiling evidence for a recurrence.",
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacityTest.kt"
+      ],
+      "validation_refs": [
+        "current_capacity_admission_followup"
+      ],
+      "pending_source_followup": false,
+      "component_commit": "d3842baa72aeb1b75d716387bcbfb69f2acf0e43",
+      "regression_methods": {
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt": [
+          "preparationFailureKeepsExactAdmissionAndOwningIdentityThroughTheApprovedReport",
+          "aSmallerLocalPlanningLimitDoesNotRelabelItAsTheVerifiedRemoteCapacity",
+          "missingAndUnboundedObservationsAreAbsentWhileMeasuredZeroRemainsZero",
+          "aLaterRejectionDoesNotProveEarlierGenerationWasUnsentOrReplayable",
+          "successfulPlansAndUnrelatedFailuresAreReturnedUnchanged",
+          "laterCapacityChangesCannotRelabelTheCapturedPlanningDecision",
+          "aFailureWithoutTheSameMeasuredPlanningBoundaryCannotInheritVerifiedProvenance",
+          "aChangedOrOversizedObservationCannotInventAVerifiedCapacity"
+        ],
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt": [
+          "initialAdmissionBreakdownExcludesOldHistoryAndRetainsNoPromptText",
+          "recoveryReaderIsAdmittedBeforeOptionalSchemasOnEveryGithubRound",
+          "savedRecoveryReaderIsRequiredWithoutTreatingSavedInstructionsAsNewUserAuthority",
+          "discoveryRemainsAvailableWhenAnOptionalSchemaWouldConsumeItsBudget",
+          "warmDiscoveryAlsoRespectsTheRemainingRoundBudgetAndPreservesPriority",
+          "existingResolverCatalogControlsPlanningAndNeverChargesTheHiddenLegacySchema",
+          "engineeringGoalFitsSmallContextWithoutPreloadingEveryGitHubSchema",
+          "providerRoundDefersLargeOptionalGithubSchema",
+          "defaultReplyReserveYieldsToRequiredSchemasWhileExplicitReserveStaysPinned",
+          "initialGithubDiscoverySurvivesByBorrowingOnlyADefaultReplyAllowance",
+          "initialGithubDiscoveryRejectsWhenEvenTheMinimumReplyCannotPreserveIt",
+          "coldGithubDiscoveryReachesTheNextProviderRequestAndExecutesOnce",
+          "coldGithubDiscoveryCannotOverrunRemainingContextOrPromiseAnUnavailableTool",
+          "discoveryReceiptAccountsForItsOwnReplayBeforeAdvertisingTheNextRequest",
+          "wireInventoryUsesActualProviderNamesIncludingGroupedGeminiDeclarations"
+        ],
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacityTest.kt": [
+          "verifiedSmallRouteBoundsToolAndHistoryPlanningBeforeSerialization",
+          "unverifiedOrDifferentSelectionCannotSupplyAPlanningCapacity",
+          "verifiedCapacityNeverExpandsConfiguredCeilingsOrChangesTheSelectedProfile",
+          "planningDecisionRetainsTheConsumedRouteAndTheConfiguredCeilingSeparately",
+          "absentOrForeignRouteCapacityRemainsUnobservedInTheDecisionEvidence"
+        ]
+      }
     }
   ],
   "late_intake_base_sha": "007b29d2a7581c0acfd5474f7bc01ba768c57bae",
   "handoff_intake_base_sha": "2c18d55b17c443105966c4a4d08147cf6e30734e",
   "remote_mutation_scope": "Shared PR source updates and coordination comments; individual issue closures remain conditional on final-head qualification and merge.",
-  "intake_open_issue_count": 44,
-  "composed_from_remote_sha": "bfffe227c5657fffc27bf3085f32453e26296879",
+  "intake_open_issue_count": 47,
+  "composed_from_remote_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
   "final_execution_policy": "Source integration and local component receipts are distinct from execution qualification. Merge and individual issue closure require successful applicable checks on the final published PR head and its current main base; historical/component results are not substitutes.",
-  "reconciled_remote_parent_sha": "cba074f1e9951829a377574be9003e1bdb88eb91",
-  "remote_parent_reconciliation": "The later one-file timeout-fixture helper relocation is covered by the independently reviewed combined runtime fixture. The final published tree preserves its intended correction and all prior remote ancestry."
+  "reconciled_remote_parent_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
+  "remote_parent_reconciliation": "The complete successor preserves the published 9ce ancestry and its corrected real Ollama capability-discovery fixture. The graph component is a child of 9ce; the capacity component parent has exactly the 9ce tree. Only reviewed handwritten capacity files are applied; shared inventories are regenerated over the complete combined source.",
+  "current_production_intake": {
+    "issues": [
+      1146,
+      1147,
+      1148
+    ],
+    "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+    "equivalent_production_head": "047c34545fa546f0dbf2ce843d69e4a2ad08e99a",
+    "component_base_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
+    "qualification": "These reports came from the composed production tree, unlike the older b5ab42bf report checkpoint. The graph omission is source-proven but historical causality remains unproved; capacity failures receive admission-time diagnostic evidence."
+  }
 }

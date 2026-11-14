@@ -238,7 +238,11 @@ internal class GitHubVerifiedSession(
                 Triple(
                     GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, planningRemaining, fixturePreflight, planningBudget),
                     GitHubTestChecklist.nextCall(task, tools, receipts, planningRemaining, fixturePreflight),
-                    authorizedTools.filter { definition -> definition.name.startsWith("github_") && tools.none { it.name == definition.name } && receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) } }.take(12)
+                    authorizedTools.filter { definition ->
+                        (definition.name.startsWith("github_") || definition.name.substringBefore("__") == "repository_graph") &&
+                            tools.none { it.name == definition.name } &&
+                            receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) }
+                    }.take(12)
                 )
             }
             val discovery = tools.firstOrNull { it.name == "discover_available_tools" }

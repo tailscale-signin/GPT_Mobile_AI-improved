@@ -739,3 +739,93 @@ the eventual exact head and current main. Earlier candidate successes remain
 discovery evidence. The coordinator's final PR record and each issue closure
 must state the final qualification and the applicable historical/device/provider
 limitations from the disposition ledger.
+
+## Current-production intake through #1148
+
+The complete intake now contains 47 unique issue reports, #1101–#1148 excluding
+PR #1122. Reports #1146–#1148 identify build 141, version 0.9.66.7, commit
+`cd2162725f303108b22d7b5f3678e32e23b65abd`, whose production tree matches
+`047c34545fa546f0dbf2ce843d69e4a2ad08e99a`. These reports are distinguished
+from the earlier installed `b5ab42bf` reports. Their source follow-up is based
+on `9ce9808f593ab2a50f3d4658a4baf10485475303`, which corrected the prior
+candidate's direct-Ollama capability-discovery test fixture without changing
+production behavior.
+
+### Authorized graph discovery
+
+#1146 records 46 of 70 capabilities verified, 16 blocked and eight untested;
+three of five criteria are verified. Graph state is `UNOBSERVED`, with 16
+graph-input blockers and seven fixture-approval blockers. No failed operation,
+unresolved outcome or unresolved claim is recorded. The remaining 192 calls
+and 14 bounded-sample continuations do not establish that required work was
+admissible or that fixture creation was authorized.
+
+Source review found a reachable discovery omission: the complete authorized
+inventory includes exact `repository_graph` definitions and their current
+aliases, but the missing-schema discovery predicate accepts only `github_*`
+definitions. An absent authorized graph definition therefore cannot reach the
+existing initial status recipe through that discovery path. The narrow repair
+includes the exact authorized graph definition while preserving current-round
+absence, prior-observation checks, selected binding/revision, the 12-tool
+discovery bound and the existing acquisition and approval rules.
+
+The capsule does not include the actual authorized/current catalog, so this
+source defect is not declared the historical cause. `UNOBSERVED` does not mean
+`NOT_INDEXED` or a failed indexing operation. Existing graph-status recipes
+remain in place; a separate stale-status hypothesis was not reproduced. Owned
+fixtures, cleanup authority and live evidence remain real prerequisites.
+
+### Admission-time capacity evidence
+
+| Report | Capacity | Current-only prompt | Required schemas | Available schemas | Shortfall |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| #1147 | 5,632 | 2,485 | 2,481 | 1,675 | 806 |
+| #1148 | 5,632 | 3,481 | 1,014 | 679 | 335 |
+
+Both distinct requests also reserve 704 tool-result tokens, 256 safety tokens
+and 512 output tokens. The reported measurement is `UTF8_ESTIMATE`. They were
+rejected before dispatch, with `retryable=false` and remote acceptance `NO`.
+The capsules omit the selected profile/model hashes and the source of the
+enforced context ceiling. Old history and optional catalog entries are outside
+this initial required-cost guard. Borrowing a reserve at that guard would not
+establish that the later replay allocator or the final physical request fits.
+
+The diagnostic follow-up retains the decision from the same
+`preparePrimaryAdmission` calculation that consumes the selected profile,
+normalized configuration, catalog observation and freshness-checked route
+readiness. Both context-preparation paths carry that immutable decision to the
+exact schema-budget rejection. The approved report retains hashed identity,
+separate configured/verified-route/catalog ceilings, closed winning provenance
+and the measured system/current-request/history/attachment breakdown. A later
+smaller explicit or engineering planning ceiling cannot be reported as a
+verified remote limit. Missing or mismatched observations remain unavailable
+or `UNKNOWN`; later settings/cache changes cannot rewrite the original facts.
+
+Only existing `CAPACITY_ADMISSION_EVIDENCE_V1` fields are used. No reporter
+schema/readiness enlargement or raw prompt, model name or endpoint capture is
+needed. Admission limits, authorized schemas, output/replay reserves, final
+request measurement and permission rules are preserved. The original private
+requests and their supported capacity remain unproved; no historical replay
+or provider repair is claimed.
+
+### Combined qualification
+
+The graph component `22f529d45690bbb756f446b6f99683e0ad71d5ba` passed four
+focused current-source session/catalog tests. The same tests against the exact
+old session produced the expected two missing-discovery failures; authorization
+and reserve negatives remained green. The capacity component
+`d3842baa72aeb1b75d716387bcbfb69f2acf0e43` passed 12 projection/route tests and
+one complete initial-planner regression. The planner regression fails against
+the old source specifically because its numeric breakdown is absent. Both
+components passed pinned Kotlin formatting and independent source review.
+These JVM hosts retain documented platform/storage boundaries; they do not
+compile the complete Android application or establish physical-provider results.
+The coordinator verified each frozen handwritten file hash before composition.
+
+The per-issue ledger records these component receipts separately from final
+execution. The complete successor must regenerate
+its inventories, preserve the existing scope and pass every applicable Android,
+emulator, packaging, Gateway, Marketplace, analysis and required-verification
+gate on its final head and current main. The preceding candidate's results
+remain discovery evidence. Individual closures follow that qualification and
+merge, retaining each report's remaining environment and historical limits.

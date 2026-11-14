@@ -96,6 +96,31 @@ class IssueReportGitHubSubmissionTest {
         assertEquals(payload, entry.payload)
     }
 
+    @Test fun newCaptureBoundariesPublishThroughTheNativeRouteWithoutHostedCapabilities() {
+        for (site in listOf(IssueReportIncidentCapsule.ExceptionCaptureSite.PROVIDER_ADAPTER_STREAM_CATCH, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)) {
+            val fields = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", IssueReportIncidentCapsule.boundaryFields(site))
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+            assertTrue("CAPTURE_BOUNDARY_EVIDENCE_V1" in requireNotNull(context.diagnostics).requiredServiceFeatures())
+            val enriched = report.copy(context = context)
+            val payload = enriched.approvedPayload()
+            val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+            val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+            val requests = mutableListOf<Request>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                requests += request
+                assertEquals("POST", request.method)
+                assertEquals("api.github.com", request.url.host)
+                assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                assertTrue(rendered.getValue("body").toString().contains(site.name))
+                response(request, 201, receipt(body = rendered.getValue("body")).toString())
+            }.build()
+            assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") {})
+            assertEquals(1, requests.size)
+            assertEquals(payload, entry.payload)
+        }
+    }
+
     @Test fun explicitApprovalPayloadAndNativeRouteRejectUnknownPrivateDiagnosticFields() {
         val enriched = report.copy(context = IssueReportContext.fromFields("TOOL_RESULT", mapOf("diagnostic_area" to "TOOL", "tool_schema_hash" to "a".repeat(64)), 1_000L))
         val raw = IssueReport.json.parseToJsonElement(enriched.approvedPayload()).jsonObject

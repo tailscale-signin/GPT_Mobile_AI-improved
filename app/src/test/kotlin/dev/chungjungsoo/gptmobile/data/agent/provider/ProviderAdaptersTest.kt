@@ -51,10 +51,13 @@ import dev.chungjungsoo.gptmobile.data.network.AnthropicAPI
 import dev.chungjungsoo.gptmobile.data.network.GoogleAPI
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
 import dev.chungjungsoo.gptmobile.data.network.NetworkClient
+import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata
+import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.userMessage
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterCatalogLimits
 import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterModelItem
 import dev.chungjungsoo.gptmobile.llama.AdvancedSettings
@@ -297,6 +300,27 @@ class ProviderAdaptersTest {
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, api.configs.size)
         assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
+    }
+
+    @Test fun ollamaUnframedConnectionFailurePreservesEmulatorFallback() = kotlinx.coroutines.test.runTest {
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow { throw java.net.ConnectException("Connection refused") },
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop"))))
+                )
+            )
+        )
+        val profile = platform(ClientType.OLLAMA).copy(apiUrl = "http://127.0.0.1:11434/v1")
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = false))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(listOf(profile.apiUrl, "http://10.0.2.2:11434/v1"), api.configs.map { it.apiUrl })
+        assertEquals(2, api.chatRequests.size)
+        assertTrue(api.chatRequests.all { it.model == profile.model })
+        assertEquals(1_000L, testScheduler.currentTime)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
     }
 
     @Test fun unknownGatewayOutcomeDoesNotRotateCredentialsOrRetryAReportedCeiling() = runBlocking {
@@ -1006,6 +1030,301 @@ class ProviderAdaptersTest {
         for (key in listOf("failed_stage", "dispatched", "http_status", "remote_acceptance", "retryable", "request_replay_allowed", "invocation_id")) assertNull(details[key])
         assertFalse(details.toString().contains("PRIVATE_"))
         assertFalse(details.toString().contains("private.invalid"))
+    }
+
+    @Test
+    fun `Ollama Groq and Gemini preserve bounded exception evidence at their actual catches`() = runBlocking {
+        val error = IllegalStateException("PRIVATE_UPSTREAM https://private.invalid/token", IllegalArgumentException("PRIVATE_INNER"))
+        error.stackTrace = arrayOf(StackTraceElement("dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAdapters", "fixture", "private-file", 42))
+        val ollama = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow<ChatCompletionChunk> { throw error })))
+        val groq = FakeGroqAPI(ArrayDeque(listOf(flow<GroqChatCompletionChunk> { throw error })))
+        val google = FakeGoogleAPI(ArrayDeque(listOf(flow<GenerateContentResponse> { throw error })))
+        val sessions = listOf(
+            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)),
+            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)),
+            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE))
+        )
+        for (session in sessions) {
+            val events = session.streamRound(emptyList(), emptyList()).toList()
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertFalse(events.any { it == ProviderEvent.Completed })
+            val details = requireNotNull(failure.failureDetails)
+            assertEquals(JsonPrimitive("PROVIDER_ADAPTER_STREAM_CATCH"), details["incident_capture_site"])
+            assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), details["incident_phase_provenance"])
+            assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.exceptionFingerprint(error)), details["exception_fingerprint"])
+            assertEquals(JsonArray(listOf(JsonPrimitive("java.lang.IllegalStateException"), JsonPrimitive("java.lang.IllegalArgumentException"))), details["cause_types"])
+            assertEquals(JsonPrimitive("IllegalStateException"), details["exception_report_type"])
+            assertTrue(details.getValue("exception_application_frames").jsonArray.contains(JsonPrimitive("dev.chungjungsoo.gptmobile.data.agent.provider.ProviderAdapters.fixture:42")))
+            for (key in listOf("failed_stage", "dispatched", "http_status", "remote_acceptance", "retryable", "request_replay_allowed", "invocation_id")) assertNull(details[key])
+            assertFalse(details.toString().contains("PRIVATE_"))
+            assertFalse(details.toString().contains("private.invalid"))
+            assertFalse(details.toString().contains("private-file"))
+        }
+        assertEquals(1, ollama.chatRequests.size)
+        assertEquals(1, groq.requests.size)
+        assertEquals(1, google.requests.size)
+    }
+
+    @Test
+    fun `message only remote errors do not invent adapter exception evidence`() = runBlocking {
+        val ollama = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Remote rejection"))))))
+        val groq = FakeGroqAPI(ArrayDeque(listOf(flowOf(NetworkClient.json.decodeFromString<GroqChatCompletionChunk>("""{"error":{"message":"Remote rejection"}}""")))))
+        val google = FakeGoogleAPI(ArrayDeque(listOf(flowOf(GenerateContentResponse(error = dev.chungjungsoo.gptmobile.data.dto.google.response.ErrorDetail(message = "Remote rejection"))))))
+        val sessions = listOf(
+            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)),
+            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)),
+            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE))
+        )
+        for (session in sessions) {
+            val failure = session.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals("Remote rejection", failure.message)
+            assertNull(failure.failureDetails)
+            assertNull(failure.invocationId)
+        }
+    }
+
+    @Test
+    fun `Ollama typed rejection stays authoritative after a trailing exception`() = runBlocking {
+        val typed = buildJsonObject {
+            put("failed_stage", "backend_template")
+            put("http_status", 400)
+            put("dispatched", false)
+            put("retryable", false)
+        }
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow {
+                        emit(ChatCompletionChunk(error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(message = "Typed rejection", code = "BACKEND_TEMPLATE_INVALID", failureDetails = typed)))
+                        throw java.net.ConnectException("PRIVATE_LATE_FAILURE")
+                    }
+                )
+            )
+        )
+        val failure = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA))
+            .streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("BACKEND_TEMPLATE_INVALID", failure.errorCode)
+        assertEquals(typed, failure.failureDetails)
+        assertEquals(1, api.chatRequests.size)
+        assertNull(failure.failureDetails?.get("exception_fingerprint"))
+    }
+
+    @Test
+    fun `Ollama typed transport replay authority preserves bounded pre-output recovery`() = kotlinx.coroutines.test.runTest {
+        val transport = replayableOllamaTimeout()
+        assertEquals(JsonPrimitive("UNKNOWN"), transport.failureDetails?.get("remote_acceptance"))
+        assertNull(transport.failureDetails?.get("requires_reconciliation"))
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flowOf(ChatCompletionChunk(error = transport)),
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop"))))
+                )
+            )
+        )
+        val profile = platform(ClientType.OLLAMA)
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = true))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, api.chatRequests.size)
+        assertTrue(api.chatRequests.all { it.model == profile.model })
+        assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
+        assertEquals(2_000L, testScheduler.currentTime)
+        assertEquals("Recovered", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+    }
+
+    @Test
+    fun `Ollama typed timeout owns recovery route despite trailing connection exception`() = kotlinx.coroutines.test.runTest {
+        val transport = replayableOllamaTimeout()
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flow {
+                        emit(ChatCompletionChunk(error = transport))
+                        throw java.net.ConnectException("PRIVATE_TRAILING_DISCONNECT")
+                    },
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop"))))
+                )
+            )
+        )
+        val profile = platform(ClientType.OLLAMA).copy(apiUrl = "http://127.0.0.1:11434/v1")
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = false))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, api.chatRequests.size)
+        assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
+        assertTrue(api.chatRequests.all { it.model == profile.model })
+        assertEquals(2_000L, testScheduler.currentTime)
+        assertEquals("Recovered", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+    }
+
+    @Test
+    fun `Ollama typed disconnect text cannot select the emulator fallback route`() = kotlinx.coroutines.test.runTest {
+        val transport = replayableOllamaTransport(java.net.ConnectException("PRIVATE_DISCONNECT_FAILURE"))
+            .copy(message = "Connection refused")
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flowOf(ChatCompletionChunk(error = transport)),
+                    flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered"), finishReason = "stop"))))
+                )
+            )
+        )
+        val profile = platform(ClientType.OLLAMA).copy(apiUrl = "http://127.0.0.1:11434/v1")
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), profile, RequestConstraints(lockSelectedRoute = false))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(2, api.chatRequests.size)
+        assertTrue(api.configs.all { it.apiUrl == profile.apiUrl })
+        assertTrue(api.chatRequests.all { it.model == profile.model })
+        assertEquals(2_000L, testScheduler.currentTime)
+        assertEquals("Recovered", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        assertFalse(events.any { it is ProviderEvent.Failed })
+        assertEquals(1, events.count { it == ProviderEvent.Completed })
+    }
+
+    @Test
+    fun `Ollama producer typed DNS disconnect and EOF retain explicit replay authority`() = kotlinx.coroutines.test.runTest {
+        val causes = listOf(
+            java.net.UnknownHostException("PRIVATE_DNS_FAILURE"),
+            java.net.ConnectException("PRIVATE_DISCONNECT_FAILURE"),
+            java.io.EOFException("PRIVATE_EOF_FAILURE")
+        )
+        val expectedCodes = listOf("DNS_RESOLUTION_FAILED", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED")
+        for ((index, cause) in causes.withIndex()) {
+            val transport = replayableOllamaTransport(cause)
+            assertEquals(expectedCodes[index], transport.code)
+            val api = FakeOpenAIAPI(
+                chatRounds = ArrayDeque(
+                    listOf(
+                        flowOf(ChatCompletionChunk(error = transport)),
+                        flowOf(ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "Recovered ${transport.code}"), finishReason = "stop"))))
+                    )
+                )
+            )
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+                .openSession(turns(), platform(ClientType.OLLAMA), RequestConstraints(lockSelectedRoute = true))
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(2, api.chatRequests.size)
+            assertEquals("Recovered ${transport.code}", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+            assertFalse(events.any { it is ProviderEvent.Failed })
+            assertEquals(1, events.count { it == ProviderEvent.Completed })
+        }
+        assertEquals(6_000L, testScheduler.currentTime)
+    }
+
+    @Test
+    fun `Ollama typed failures without transport replay authority stay authoritative after disconnect`() = runBlocking {
+        val transport = replayableOllamaTimeout()
+        val details = requireNotNull(transport.failureDetails)
+        val failures = listOf(
+            transport.copy(retryable = false),
+            transport.copy(retryable = null),
+            transport.copy(failureDetails = null),
+            transport.copy(failureDetails = JsonObject(details + ("retryable" to JsonPrimitive(false)))),
+            transport.copy(failureDetails = JsonObject(details + ("request_replay_allowed" to JsonPrimitive(false)))),
+            transport.copy(failureDetails = JsonObject(details - "request_replay_allowed")),
+            transport.copy(failureDetails = JsonObject(details + ("requires_reconciliation" to JsonPrimitive(true)))),
+            transport.copy(failureDetails = JsonObject(details + ("outcome" to JsonPrimitive("unknown")))),
+            transport.copy(code = "GATEWAY_OUTCOME_UNKNOWN"),
+            transport.copy(message = "GATEWAY_OUTCOME_UNKNOWN: endpoint timed out"),
+            transport.copy(code = "BACKEND_TEMPLATE_INVALID"),
+            transport.copy(providerLimit = dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision("OLLAMA", "profile", "model", 1_000L, "route", "PROVIDER_RATE_LIMITED", true))
+        )
+        for (rejection in failures) {
+            val api = FakeOpenAIAPI(
+                chatRounds = ArrayDeque(
+                    listOf(
+                        flow {
+                            emit(ChatCompletionChunk(error = rejection))
+                            throw java.net.ConnectException("PRIVATE_TRAILING_DISCONNECT")
+                        }
+                    )
+                )
+            )
+            val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA))
+                .streamRound(emptyList(), emptyList()).toList()
+            val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(1, api.chatRequests.size)
+            assertEquals(rejection.message, failure.message)
+            assertEquals(rejection.code, failure.errorCode)
+            assertEquals(rejection.failureDetails, failure.failureDetails)
+            assertEquals(rejection.providerLimit, failure.providerLimit)
+            assertFalse(events.any { it == ProviderEvent.Completed })
+        }
+    }
+
+    @Test
+    fun `Ollama typed replay permission cannot replay delivered output`() = runBlocking {
+        val transport = replayableOllamaTimeout()
+        val api = FakeOpenAIAPI(
+            chatRounds = ArrayDeque(
+                listOf(
+                    flowOf(
+                        ChatCompletionChunk(choices = listOf(Choice(delta = Delta(content = "partial")))),
+                        ChatCompletionChunk(error = transport)
+                    )
+                )
+            )
+        )
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA))
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, api.chatRequests.size)
+        assertEquals("partial", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(transport.code, failure.errorCode)
+        assertEquals(transport.failureDetails, failure.failureDetails)
+        assertFalse(events.any { it == ProviderEvent.Completed })
+    }
+
+    private fun replayableOllamaTimeout() = replayableOllamaTransport(java.net.SocketTimeoutException("PRIVATE_TRANSPORT_FAILURE"))
+
+    private fun replayableOllamaTransport(error: Throwable): dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail {
+        val kind = networkFailureKind(error)
+        require(kind != NetworkFailureKind.UNKNOWN && kind.retryable)
+        return dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(
+            message = kind.userMessage(partialOutput = false),
+            code = kind.code,
+            retryable = true,
+            failureDetails = dev.chungjungsoo.gptmobile.data.network.providerTransportFailureDetails(
+                details = buildJsonObject {
+                    put("failed_stage", "transport")
+                    put("retryable", true)
+                },
+                error = error,
+                timing = null,
+                dispatched = true,
+                receivedPayload = false,
+                receivedVisibleText = false,
+                generationCompleted = false,
+                replayAllowed = true,
+                requiresReconciliation = false
+            )
+        )
+    }
+
+    @Test
+    fun `adapter exception capture preserves upstream cancellation without emitting failure`() = runBlocking {
+        val cancelled = CancellationException("PRIVATE_CANCELLED")
+        val ollama = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow<ChatCompletionChunk> { throw cancelled })))
+        val groq = FakeGroqAPI(ArrayDeque(listOf(flow<GroqChatCompletionChunk> { throw cancelled })))
+        val google = FakeGoogleAPI(ArrayDeque(listOf(flow<GenerateContentResponse> { throw cancelled })))
+        val sessions = listOf(
+            OpenAICompatibleAdapter(ollama, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.OLLAMA)),
+            OpenAICompatibleAdapter(FakeOpenAIAPI(), groq, attachmentEncoder()).openSession(turns(), platform(ClientType.GROQ)),
+            GeminiAdapter(google, attachmentEncoder()).openSession(turns(), platform(ClientType.GOOGLE))
+        )
+        for (session in sessions) {
+            val observed = mutableListOf<ProviderEvent>()
+            val failure = runCatching { session.streamRound(emptyList(), emptyList()).collect { observed += it } }.exceptionOrNull()
+            assertTrue(failure is CancellationException)
+            assertTrue(generateSequence(failure) { it.cause }.any { it === cancelled })
+            assertFalse(observed.any { it is ProviderEvent.Failed || it == ProviderEvent.Completed })
+        }
     }
 
     @Test

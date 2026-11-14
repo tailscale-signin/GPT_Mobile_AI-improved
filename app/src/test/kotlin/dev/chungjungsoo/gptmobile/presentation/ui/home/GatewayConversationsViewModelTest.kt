@@ -18,6 +18,8 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayJobRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayKnownProfileStore
 import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScope
 import dev.chungjungsoo.gptmobile.data.github.GatewayVerifiedScopeStore
+import dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.github.gatewayIdentityKey
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ClientType
@@ -33,6 +35,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -72,12 +75,14 @@ class GatewayConversationsViewModelTest {
         knownUids: Set<String> = emptySet(),
         rooms: List<ChatRoomV2> = emptyList(),
         creator: GatewayChatCreator = mockk(),
-        attachedRecords: List<GatewayConversationRecord> = emptyList()
+        attachedRecords: List<GatewayConversationRecord> = emptyList(),
+        allRooms: Flow<List<ChatRoomV2>> = flowOf(rooms),
+        features: Flow<AppFeatureSettings> = flowOf(AppFeatureSettings())
     ): GatewayConversationsViewModel {
         val settings = mockk<SettingRepository>()
         every { settings.observePlatformV2s() } returns flowOf(profiles)
         coEvery { settings.fetchPlatformV2s() } returns profiles
-        every { settings.observeFeatureSettings() } returns flowOf(AppFeatureSettings())
+        every { settings.observeFeatureSettings() } returns features
         val scopes = mockk<GatewayVerifiedScopeStore>()
         every { scopes.changes } returns MutableStateFlow(0L)
         coEvery { scopes.verified(any()) } returns null
@@ -86,6 +91,7 @@ class GatewayConversationsViewModelTest {
         every { known.changes } returns MutableStateFlow(0L)
         coEvery { known.remembered(any()) } answers { firstArg<PlatformV2>().uid in knownUids }
         val database = mockk<ChatDatabaseV2>()
+        every { database.chatRoomDao().observeUnarchivedChats() } returns allRooms
         every { database.chatRoomDao().observeGatewayChats() } returns flowOf(rooms)
         every { database.gatewayJobDao().observeAttachedConversations() } returns flowOf(attachedRecords)
         every { database.agentRunDao().observeActive() } returns flowOf(emptyList())
@@ -101,6 +107,138 @@ class GatewayConversationsViewModelTest {
         val completions = mockk<dev.chungjungsoo.gptmobile.data.chat.GenerationCompletionStore>()
         every { completions.items } returns MutableStateFlow(emptyList())
         return GatewayConversationsViewModel(SavedStateHandle(), settings, jobs, conversations, scopes, monitor, known, creator, database, queue, completions)
+    }
+
+    @Test fun githubChatUsingVerifiedGatewayAppearsBeforeItsFirstAcceptedJobAndKeepsItsMode() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = gatewayProfile("engineering")
+            val room = ChatRoomV2(id = 301, title = "GitHub task", enabledPlatform = listOf(profile.uid))
+            val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), profile.uid)
+            val features = MutableStateFlow(AppFeatureSettings(conversationGitHub = mapOf(room.id to context)))
+            val allRooms = MutableStateFlow(listOf(room))
+            val creator = mockk<GatewayChatCreator>()
+            val model = viewModel(
+                profiles = listOf(profile),
+                knownUids = setOf(profile.uid),
+                creator = creator,
+                allRooms = allRooms,
+                features = features
+            ).also { store.put("browser", it) }
+            model.state.first { it.localChats.isNotEmpty() }
+            assertEquals(listOf(room), model.state.value.localChats)
+            assertEquals(setOf(room.id), model.state.value.gitHubChatIds)
+            val opened = CompletableDeferred<ChatRoomV2>()
+            model.openLocalChat(room) { opened.complete(it) }
+            assertEquals(ConversationMode.STANDARD, opened.await().conversationMode)
+            coVerify(exactly = 0) { creator.adopt(any(), any()) }
+            coVerify(exactly = 0) { jobs.listConversations(any(), any()) }
+            coVerify(exactly = 0) { conversations.openConversation(any(), any(), any(), any()) }
+
+            allRooms.value = listOf(room.copy(activePlatform = listOf("ordinary-provider")))
+            model.state.first { it.localChats.isEmpty() }
+            assertTrue(model.state.value.localChats.isEmpty())
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun profileOnlyStandardResearchAndMultiChatsOpenLocallyWithoutAdoption() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val profile = gatewayProfile("gateway")
+            val standard = ChatRoomV2(id = 401, title = "Standard", enabledPlatform = listOf(profile.uid), draftText = "keep this draft")
+            val research = standard.copy(id = 402, title = "Research")
+            val multi = standard.copy(id = 403, title = "Multi", enabledPlatform = listOf(profile.uid, "other"), activePlatform = listOf(profile.uid, "other"))
+            val rooms = listOf(standard, research, multi)
+            val creator = mockk<GatewayChatCreator>()
+            val model = viewModel(
+                profiles = listOf(profile),
+                knownUids = setOf(profile.uid),
+                creator = creator,
+                allRooms = flowOf(rooms),
+                features = flowOf(AppFeatureSettings(researchChatIds = setOf(research.id)))
+            ).also { store.put("browser", it) }
+            model.state.first { it.localChats.size == 3 }
+            val opened = mutableListOf<ChatRoomV2>()
+            rooms.forEach { model.openLocalChat(it, opened::add) }
+            assertEquals(rooms, opened)
+            assertEquals(setOf(research.id), model.state.value.researchChatIds)
+            assertTrue(model.state.value.gatewayBoundaryChatIds.isEmpty())
+            coVerify(exactly = 0) { creator.adopt(any(), any()) }
+            coVerify(exactly = 0) { creator.hasQueueBoundary(any()) }
+            coVerify(exactly = 0) { jobs.listConversations(any(), any()) }
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun githubBoundToADifferentVerifiedGatewayAppearsBeforeSubmissionAndTracksBindingChanges() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val inference = gatewayProfile("inference").copy(apiUrl = "http://192.168.1.8:8080")
+            val gateway = gatewayProfile("engineering-host")
+            val unsupported = inference.copy(uid = "cloud", compatibleType = ClientType.OPENROUTER)
+            val room = ChatRoomV2(id = 501, title = "Bound GitHub task", enabledPlatform = listOf(inference.uid))
+            val cloudRoom = ChatRoomV2(id = 502, title = "Unsupported cloud binding", enabledPlatform = listOf(unsupported.uid))
+            val context = GitHubConversationContext("github", "owner", "repo", "feature", "a".repeat(40), inference.uid)
+            val overrides = mapOf(inference.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = gateway.uid), unsupported.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = gateway.uid))
+            val features = MutableStateFlow(AppFeatureSettings(conversationGitHub = mapOf(room.id to context, cloudRoom.id to context.copy(mainProfileUid = unsupported.uid)), githubProfileOverrides = overrides))
+            val creator = mockk<GatewayChatCreator>()
+            val model = viewModel(
+                profiles = listOf(inference, gateway, unsupported),
+                knownUids = setOf(gateway.uid),
+                creator = creator,
+                allRooms = flowOf(listOf(room, cloudRoom)),
+                features = features
+            ).also { store.put("browser", it) }
+            assertEquals(listOf(room), model.state.first { it.localChats.isNotEmpty() }.localChats)
+            val opened = mutableListOf<ChatRoomV2>()
+            model.openLocalChat(room) { opened += it }
+            assertEquals(listOf(room), opened)
+            assertEquals(context, features.value.conversationGitHub[room.id])
+            coVerify(exactly = 0) { creator.adopt(any(), any()) }
+            coVerify(exactly = 0) { jobs.listConversations(any(), any()) }
+
+            features.value = features.value.copy(githubProfileOverrides = mapOf(inference.uid to GitHubChatProfileOverride(engineeringGatewayProfileUid = "missing-host")))
+            model.state.first { it.localChats.isEmpty() }
+            features.value = features.value.copy(githubProfileOverrides = overrides)
+            assertEquals(listOf(room), model.state.first { it.localChats.isNotEmpty() }.localChats)
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun savedGatewaySelectionRemainsVisibleOfflineAndUnverifiedProfilesStayOut() = runTest {
+        Dispatchers.setMain(StandardTestDispatcher(testScheduler))
+        val store = ViewModelStore()
+        try {
+            val candidate = gatewayProfile("ordinary-llama")
+            val saved = ChatRoomV2(id = 9, title = "Queued offline", enabledPlatform = listOf("removed-profile"))
+            val ordinary = ChatRoomV2(id = 10, title = "Llama chat", enabledPlatform = listOf(candidate.uid))
+            val features = MutableStateFlow(AppFeatureSettings())
+            val model = viewModel(
+                profiles = listOf(candidate),
+                allRooms = flowOf(listOf(saved, ordinary)),
+                features = features
+            ).also { store.put("browser", it) }
+            model.state.first { it.profileChoicesLoaded }
+            runCurrent()
+            assertTrue(model.state.value.localChats.isEmpty())
+            features.value = AppFeatureSettings(conversationGateway = mapOf(saved.id to GatewayQueuedSelection.capture(candidate.copy(uid = "removed-profile"), candidate.model)))
+            assertEquals(listOf(saved), model.state.first { it.localChats.isNotEmpty() }.localChats)
+            features.value = AppFeatureSettings()
+            model.state.first { it.localChats.isEmpty() }
+        } finally {
+            store.clear()
+            Dispatchers.resetMain()
+        }
     }
 
     @Test fun visibleObserverCoalescesManualRefreshAndStopsWithItsLifecycle() = runTest {

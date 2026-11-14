@@ -9,6 +9,7 @@ import time
 import uuid
 from pathlib import Path
 from urllib.parse import urlsplit
+from desktop.validation_policy import SETTING as VALIDATION_POLICY_SETTING, selected_policy_path
 
 DEFAULTS = dict(schema=1, port=8090, backend='http://127.0.0.1:8080', workers=2,
                 active_chats=8, shutdown_seconds=30, update_mode='notify',
@@ -144,6 +145,17 @@ def environment(root, cfg, management_token=''):
     # principal, consent or durable-state overrides from an earlier manual install.
     github_settings = {'GATEWAY_ENGINEERING_GITHUB_SERVER', 'GATEWAY_ENGINEERING_GITHUB_TOKEN'}
     env = {k: v for k, v in os.environ.items() if not k.startswith('GATEWAY_') or k in github_settings}
+    # This is an explicit host policy selection, not a listener/consent override.
+    # Reapply it at both supervisor spawn and frozen engine initialization.
+    try:
+        policy_path = selected_policy_path(root)
+    except (OSError, ValueError):
+        # A broken optional selection must not stop chat or the Settings repair
+        # path. Its env key was already stripped, so never inherit a different
+        # policy after a saved preference fails validation.
+        policy_path = ''
+    if policy_path:
+        env[VALIDATION_POLICY_SETTING] = policy_path
     env.update(GATEWAY_HOST=cfg['bind_host'], GATEWAY_PORT=str(cfg['port']), LLAMA_BASE=cfg['backend'],
                GATEWAY_AUTH_MODE='open_network' if cfg['access'] == 'network' else 'loopback',
                GATEWAY_ALLOWED_HOSTS=json.dumps(hosts),

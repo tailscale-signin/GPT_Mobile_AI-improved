@@ -5,12 +5,13 @@ import json
 import re
 import time
 import posixpath
+import math
 import zlib
 from urllib.parse import quote
 
 from v14.engineering_crypto import EngineeringCipher
 from . import SCHEMA_VERSION, EXTRACTOR_VERSION
-from .extract import identity
+from .extract import identity, compact_fragment
 
 MAX_GRAPH_BYTES = 128 * 1024 * 1024
 
@@ -30,14 +31,16 @@ class GraphStore:
     @staticmethod
     def schema(db):
         db.execute('CREATE TABLE IF NOT EXISTS code_graph_snapshots (scope TEXT NOT NULL, sha TEXT NOT NULL, updated REAL NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,sha))')
+        db.execute('CREATE TABLE IF NOT EXISTS code_graph_snapshot_summaries (scope TEXT NOT NULL, sha TEXT NOT NULL, updated REAL NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,sha))')
         db.execute('CREATE TABLE IF NOT EXISTS code_graph_notes (scope TEXT NOT NULL, id TEXT NOT NULL, created REAL NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(scope,id))')
         db.execute('CREATE TABLE IF NOT EXISTS code_graph_metrics (scope TEXT NOT NULL, operation TEXT NOT NULL, count INTEGER NOT NULL, total_ms REAL NOT NULL, output_bytes INTEGER NOT NULL, PRIMARY KEY(scope,operation))')
 
-    def load(self, namespace, sha=None):
+    def load(self, namespace, sha=None, exclude_sha=None):
         def read(db):
             self.schema(db)
-            row = db.execute('SELECT sha,payload FROM code_graph_snapshots WHERE scope=?' + (' AND sha=?' if sha else '') + ' ORDER BY updated DESC LIMIT 1',
-                             (namespace, sha) if sha else (namespace,)).fetchone()
+            selectors = ((' AND sha=?', sha) if sha else (' AND sha<>?', exclude_sha) if exclude_sha else ('', None))
+            row = db.execute('SELECT sha,payload,updated FROM code_graph_snapshots WHERE scope=?' + selectors[0] + ' ORDER BY updated DESC LIMIT 1',
+                             (namespace, selectors[1]) if selectors[0] else (namespace,)).fetchone()
             if not row:
                 return None
             decoded = json.loads(EngineeringCipher.decrypt(db, 'graph:' + namespace + ':' + row[0], row[1]))
@@ -54,10 +57,37 @@ class GraphStore:
             # A parser change invalidates old fragments even at the same commit.
             value['fragments'] = {path: fragment for path, fragment in value['fragments'].items()
                                   if fragment.get('version') == EXTRACTOR_VERSION}
+            self._save_summary(db, namespace, value, row[2])
             return value
         return self.store.tx(read)
 
+    @staticmethod
+    def _save_summary(db, namespace, snapshot, updated):
+        snapshot = dict(snapshot, fragments={p: f for p, f in snapshot['fragments'].items() if f.get('version') == EXTRACTOR_VERSION})
+        remaining = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
+        value = {'extractor_version': EXTRACTOR_VERSION, 'snapshot_fingerprint': snapshot_fingerprint(snapshot), 'graph': snapshot_metadata(snapshot),
+                 'has_more': bool(remaining), 'index_cursor': identity(namespace, snapshot['sha'], *remaining) if remaining else None,
+                 'issues': [{'path': p, 'status': f['status'], 'warnings': f['warnings']} for p, f in snapshot['fragments'].items() if f['status'] != 'indexed'][:50]}
+        payload = EngineeringCipher.encrypt(db, 'graph-summary:' + namespace + ':' + snapshot['sha'], encoded(value))
+        db.execute('INSERT OR REPLACE INTO code_graph_snapshot_summaries VALUES(?,?,?,?)', (namespace, snapshot['sha'], updated, payload))
+
+    def summary(self, namespace, sha):
+        def read(db):
+            self.schema(db)
+            row = db.execute('SELECT s.payload FROM code_graph_snapshot_summaries s JOIN code_graph_snapshots g '
+                             'ON g.scope=s.scope AND g.sha=s.sha AND g.updated=s.updated WHERE s.scope=? AND s.sha=?', (namespace, sha)).fetchone()
+            if not row:
+                return None
+            value = json.loads(EngineeringCipher.decrypt(db, 'graph-summary:' + namespace + ':' + sha, row[0]))
+            return value if value.get('extractor_version') == EXTRACTOR_VERSION else None
+        value = self.store.tx(read)
+        if value is None and self.load(namespace, sha) is not None:
+            value = self.store.tx(read)
+        return value
+
     def save(self, namespace, snapshot):
+        for fragment in snapshot['fragments'].values():
+            compact_fragment(fragment)
         raw = encoded(snapshot)
         if len(raw.encode()) > MAX_GRAPH_BYTES:
             raise ValueError('Graph storage limit reached; narrow the repository scope')
@@ -65,13 +95,16 @@ class GraphStore:
             self.schema(db)
             compressed = encoded({'compression': 'zlib', 'data': base64.b64encode(zlib.compress(raw.encode())).decode()})
             payload = EngineeringCipher.encrypt(db, 'graph:' + namespace + ':' + snapshot['sha'], compressed)
-            db.execute('INSERT OR REPLACE INTO code_graph_snapshots VALUES(?,?,?,?)', (namespace, snapshot['sha'], time.time(), payload))
+            updated = time.time()
+            db.execute('INSERT OR REPLACE INTO code_graph_snapshots VALUES(?,?,?,?)', (namespace, snapshot['sha'], updated, payload))
+            self._save_summary(db, namespace, snapshot, updated)
             db.execute('DELETE FROM code_graph_snapshots WHERE scope=? AND sha NOT IN (SELECT sha FROM code_graph_snapshots WHERE scope=? ORDER BY updated DESC LIMIT 4)', (namespace, namespace))
             if namespace.startswith('public:'):
                 db.execute("""DELETE FROM code_graph_snapshots WHERE scope GLOB 'public:*' AND (scope,sha) NOT IN (
                     SELECT scope,sha FROM code_graph_snapshots WHERE scope GLOB 'public:*' ORDER BY updated DESC LIMIT 4)""")
                 db.execute("""DELETE FROM code_graph_metrics WHERE scope GLOB 'public:*' AND scope NOT IN (
                     SELECT scope FROM code_graph_snapshots WHERE scope GLOB 'public:*')""")
+            db.execute('DELETE FROM code_graph_snapshot_summaries WHERE (scope,sha) NOT IN (SELECT scope,sha FROM code_graph_snapshots)')
         self.store.tx(write)
 
     def note(self, namespace, value):
@@ -123,6 +156,38 @@ class GraphStore:
         return self.store.tx(read)
 
 
+def snapshot_metadata(snapshot):
+    counts = collections.Counter(f['status'] for f in snapshot['fragments'].values())
+    pending = max(0, len(snapshot['manifest']) - len(snapshot['fragments']))
+    complete = not pending and not any(counts[k] for k in ('partial', 'failed', 'unsupported'))
+    return {'schema_version': SCHEMA_VERSION, 'repository': snapshot['repository'], 'branch': snapshot['branch'],
+            'commit_sha': snapshot['sha'], 'expected_files': len(snapshot['manifest']),
+            'processed_files': len(snapshot['fragments']), 'file_statuses': dict(counts), 'pending_files': pending,
+            'complete': complete, 'processing_complete': not pending, 'coverage_complete': complete,
+            'retryable_files': sum(f['status'] == 'failed' or f.get('retryable') is True for f in snapshot['fragments'].values()),
+            'retryable_unsupported_files': sum(f['status'] == 'unsupported' and f.get('retryable') is True for f in snapshot['fragments'].values()),
+            'excluded_files': snapshot.get('excluded_files', 0), 'nodes': None, 'edges': None,
+            'unresolved_references': None, 'relationship_status': 'NOT_MEASURED',
+            'source_level_only': True, 'runtime_verified': False,
+            'limitations': ['Dynamic dispatch and reflection may be unresolved', 'An empty result is not proof of absence',
+                            'Processed files are not proof of complete relationship coverage',
+                            'Graph links and suggested tests do not establish runtime correctness'],
+            'index_metrics': snapshot.get('index_metrics', {})}
+
+
+def snapshot_fingerprint(snapshot):
+    return identity(snapshot['sha'], EXTRACTOR_VERSION,
+                    [(p, snapshot['manifest'][p]['sha'], f.get('version'), f['status'], len(f['nodes']), len(f['references']))
+                     for p, f in sorted(snapshot['fragments'].items())])
+
+
+def search_terms(text):
+    split = re.sub(r'([a-z0-9])([A-Z])', r'\1 \2', text).replace('_', ' ')
+    stop = {'the', 'and', 'for', 'all', 'are', 'this', 'that', 'with', 'from', 'then', 'them', 'its',
+            'please', 'fix', 'find', 'examine', 'issues', 'issue', 'problem', 'problems', 'working', 'make', 'can', 'our'}
+    return {word for word in re.findall(r'[A-Za-z][A-Za-z0-9]{2,}', split.lower()) if word not in stop}
+
+
 class Graph:
     def __init__(self, snapshot):
         self.snapshot = snapshot
@@ -130,6 +195,8 @@ class Graph:
         by_name = collections.defaultdict(list)
         file_nodes = {}
         modules = collections.defaultdict(set)
+        declarations = collections.defaultdict(list)
+        packages = collections.defaultdict(set)
         for path, fragment in sorted(snapshot['fragments'].items()):
             for original in fragment['nodes']:
                 node = dict(original, path=path, repository=snapshot['repository'], commit_sha=snapshot['sha'],
@@ -137,6 +204,10 @@ class Graph:
                 node['url'] = 'https://github.com/' + snapshot['repository'] + '/blob/' + snapshot['sha'] + '/' + quote(path, safe='/') + '#L' + str(node['line'])
                 self.nodes[node['id']] = node
                 by_name[node['name']].append(node)
+                package = fragment.get('package', '')
+                if package and node['kind'] != 'file':
+                    declarations[package + '.' + node['qualified']].append(node)
+                    packages[package].add(path)
                 if node['kind'] == 'file':
                     file_nodes[path] = node
                     parts = path.rsplit('.', 1)[0].split('/')
@@ -155,36 +226,60 @@ class Graph:
                         targets = {p for p in file_nodes if p.rsplit('.', 1)[0] in {parent, parent + '/__init__'}}
                 elif name.startswith('./') or name.startswith('../'):
                     target = posixpath.normpath(posixpath.join(posixpath.dirname(path), name))
+                    if target.rsplit('.', 1)[-1] in {'js', 'mjs', 'jsx', 'ts', 'tsx', 'py'}:
+                        target = target.rsplit('.', 1)[0]
                     targets = modules.get(target.replace('/', '.'), set()) | modules.get((target + '/index').replace('/', '.'), set())
                 else:
-                    targets = modules.get(name, set()) or modules.get(name.rpartition('.')[0], set())
+                    targets = ({n['path'] for n in declarations.get(name, [])} or
+                               (packages.get(name[:-2], set()) if name.endswith('.*') else set()) or
+                               modules.get(name, set()) or modules.get(name.rpartition('.')[0], set()))
+                    if not targets and ('/' in name or name.endswith(('.h', '.hpp'))):
+                        candidates = {posixpath.normpath(posixpath.join(posixpath.dirname(path), name)), name}
+                        targets = {p for p in file_nodes if p in candidates}
                 import_targets[(path, name)] = targets
         imported_paths = {path: set().union(*(import_targets[(path, i['name'])] for i in f['imports'])) if f['imports'] else set()
                           for path, f in snapshot['fragments'].items()}
         # Always resolve against the full current snapshot, including unchanged callers.
         # A changed declaration therefore invalidates old inferred edges automatically.
         for path, fragment in sorted(snapshot['fragments'].items()):
-            for ref in fragment['references']:
+            for original_ref in fragment['references']:
+                ref = dict(original_ref, path=path)
                 source = self.nodes.get(ref['source'])
                 if not source:
                     continue
                 target_name = ref['name'].rsplit('.', 1)[-1]
-                candidates = [n for n in by_name.get(target_name, []) if n['kind'] in {'function', 'class', 'interface'}]
+                aliases = [i for i in fragment['imports'] if i.get('alias') == target_name and i.get('symbol') not in {None, '*'}]
+                names = {i['symbol'] for i in aliases} or {target_name}
+                candidates = [n for name in names for n in by_name.get(name, []) if n['kind'] in {'function', 'class', 'interface'}]
+                if 'default' in names:
+                    candidates.extend(n for n in self.nodes.values() if n.get('default_export'))
                 receiver = ref.get('receiver')
                 if receiver in {'self', 'this', 'cls'}:
                     parent = source['qualified'].rsplit('.', 1)[0]
                     candidates = [n for n in candidates if n['path'] == path and n['qualified'].rsplit('.', 1)[0] == parent]
                 elif receiver:
-                    # Explicit class receivers can resolve; arbitrary values and dynamic dispatch cannot.
-                    classes = [n for n in by_name.get(receiver, []) if n['kind'] in {'class', 'interface'}]
-                    candidates = [n for n in candidates if any(n['path'] == c['path'] and n['qualified'].startswith(c['qualified'] + '.') for c in classes)]
+                    namespace_imports = [i for i in fragment['imports'] if i.get('namespace') and receiver in {i.get('alias'), i.get('module'), i['name']}]
+                    if namespace_imports:
+                        allowed = set().union(*(import_targets[(path, i['name'])] for i in namespace_imports))
+                        candidates = [n for n in candidates if n['path'] in allowed and '.' not in n['qualified']]
+                    else:
+                        receiver_names = {i.get('symbol', receiver) for i in fragment['imports'] if i.get('alias') == receiver} or {receiver}
+                        classes = [n for name in receiver_names for n in by_name.get(name, []) if n['kind'] in {'class', 'interface'}]
+                        classes = [n for n in classes if n['path'] == path or n['path'] in imported_paths[path] or
+                                   fragment.get('package') and snapshot['fragments'][n['path']].get('package') == fragment['package']]
+                        candidates = [n for n in candidates if any(n['path'] == c['path'] and n['qualified'].startswith(c['qualified'] + '.') for c in classes)]
                 else:
-                    local = [n for n in candidates if n['path'] == path]
+                    owners = {'.'.join(source['qualified'].split('.')[:i]) for i in range(1, len(source['qualified'].split('.')) + 1)} | {''}
+                    local = [n for n in candidates if n['path'] == path and n['qualified'].rpartition('.')[0] in owners]
                     if local:
                         candidates = local
                     else:
-                        candidates = [n for n in candidates if n['path'] in imported_paths[path] and
-                                      any(import_matches(path, i['name'], n['path'], n['name']) for i in fragment['imports'])]
+                        candidates = [n for n in candidates if (
+                            fragment.get('language') in {'kotlin', 'java'} and fragment.get('package') and
+                            snapshot['fragments'][n['path']].get('package') == fragment['package'] and '.' not in n['qualified']) or
+                            any(n['path'] in import_targets[(path, i['name'])] and
+                                (i.get('alias') == target_name and i.get('symbol') in {n['name'], 'default'} or
+                                 i.get('wildcard') or import_matches(path, i['name'], n['path'], n['name'])) for i in fragment['imports'])]
                 if len(candidates) == 1:
                     self.edges.append({'source': ref['source'], 'target': candidates[0]['id'], 'relation': ref['relation'],
                                        'confidence': 'INFERRED', 'path': path, 'line': ref['line'], 'method': 'unique_static_candidate'})
@@ -204,17 +299,8 @@ class Graph:
                 self.incoming[edge['target']].append(edge)
 
     def metadata(self):
-        counts = collections.Counter(f['status'] for f in self.snapshot['fragments'].values())
-        return {'schema_version': SCHEMA_VERSION, 'repository': self.snapshot['repository'], 'branch': self.snapshot['branch'],
-                'commit_sha': self.snapshot['sha'], 'expected_files': len(self.snapshot['manifest']),
-                'processed_files': len(self.snapshot['fragments']), 'file_statuses': dict(counts),
-                'pending_files': max(0, len(self.snapshot['manifest']) - len(self.snapshot['fragments'])),
-                'complete': len(self.snapshot['manifest']) == len(self.snapshot['fragments']) and not any(counts[k] for k in ('partial', 'failed', 'unsupported')),
-                'excluded_files': self.snapshot.get('excluded_files', 0), 'nodes': len(self.nodes), 'edges': len(self.edges),
-                'unresolved_references': len(self.unresolved), 'source_level_only': True, 'runtime_verified': False,
-                'limitations': ['Dynamic dispatch and reflection may be unresolved', 'An empty result is not proof of absence',
-                                'Graph links and suggested tests do not establish runtime correctness'],
-                'index_metrics': self.snapshot.get('index_metrics', {})}
+        return dict(snapshot_metadata(self.snapshot), nodes=len(self.nodes), edges=len(self.edges),
+                    unresolved_references=len(self.unresolved), relationship_status='MEASURED_SOURCE_RELATIONSHIPS')
 
     def resolve(self, label):
         if label in self.nodes:
@@ -228,17 +314,53 @@ class Graph:
             return None, {'status': 'AMBIGUOUS' if matches else 'NOT_FOUND_IN_INDEX', 'candidates': matches[:20]}
         return matches[0], None
 
-    def query(self, question, limit=30, depth=1):
-        terms = set(re.findall(r'[A-Za-z_][A-Za-z_0-9]{2,}', question.lower()))
-        scored = []
+    def ranked(self, question, paths=None):
+        terms = search_terms(question)
+        aliases = {'pronunciation': {'speech', 'tts', 'lexicon'}, 'speaking': {'speech', 'tts'},
+                   'microphone': {'capture', 'recorder'}, 'scrolling': {'scroll', 'anchor'},
+                   'repository': {'repo'}, 'map': {'graph'}}
+        expanded = set().union(*(aliases.get(term, set()) for term in terms)) if terms else set()
+        expanded -= terms
+        frequencies = collections.defaultdict(set)
+        matches = []
         for node in self.nodes.values():
             haystack = (node['qualified'] + ' ' + node['path'] + ' ' + node['excerpt']).lower()
-            score = sum(3 if term in node['name'].lower() else 1 for term in terms if term in haystack)
-            if question in {node['id'], node['qualified']}:
-                score += 100
+            matched = {term for term in terms | expanded if term in haystack}
+            for term in matched:
+                frequencies[term].add(node['path'])
+            matches.append((node, matched))
+        total_files = max(1, len(self.snapshot['fragments']))
+        weights = {term: (1 + math.log((total_files + 1) / (len(paths) + 1))) * (0.75 if term in expanded else 1)
+                   for term, paths in frequencies.items()}
+        exact = question.strip().lower()
+        requested_paths = set(paths or [])
+        scored = []
+        prefer_docs = bool(terms & {'documentation', 'document', 'design', 'requirements', 'decision', 'architecture'})
+        for node, matched in matches:
+            name_terms = search_terms(node['name'] if node['kind'] != 'file' else node['path'].rsplit('/', 1)[-1])
+            score = sum(weights[term] * (8 if term in name_terms else 3 if term in node['path'].lower() else 1) for term in matched)
+            if (exact in {node['id'].lower(), node['name'].lower(), node['qualified'].lower(), node['path'].lower()} and
+                    (node['kind'] != 'documentation' or prefer_docs)):
+                score += 1000
+            if node['path'] in requested_paths:
+                score += 80
             if score:
+                if node['path'].endswith(('.md', '.mdx', '.json')) and not prefer_docs:
+                    score *= 0.25
+                if is_test(node['path']) and 'test' not in terms and 'tests' not in terms:
+                    score *= 0.55
                 scored.append((score, node))
-        seeds = [n['id'] for _, n in sorted(scored, key=lambda row: (-row[0], row[1]['path'], row[1]['line']))[:limit]]
+        ranked = sorted(scored, key=lambda row: (-row[0], row[1]['path'], row[1]['line']))
+        # A file with many same-scoring methods must not consume the whole retrieval window.
+        counts, first, remainder = collections.Counter(), [], []
+        for _, node in ranked:
+            counts[node['path']] += 1
+            (first if counts[node['path']] <= 3 else remainder).append(node)
+        return first + remainder
+
+    def query(self, question, limit=30, depth=1, paths=None):
+        ranked = self.ranked(question, paths)
+        seeds = [n['id'] for n in ranked[:limit]]
         selected = set(seeds)
         frontier = set(seeds)
         for _ in range(min(depth, 3)):
@@ -250,7 +372,7 @@ class Graph:
             frontier = following - selected
             selected.update(sorted(frontier)[:max(0, limit * 2 - len(selected))])
         ids = seeds + sorted(selected - set(seeds))
-        return {'status': 'FOUND' if ids else 'NOT_FOUND_IN_INDEX', 'nodes': [self.nodes[key] for key in ids],
+        return {'status': 'FOUND' if ids else 'NOT_FOUND_IN_INDEX', 'nodes': [self.nodes[key] for key in ids], 'total_matches': len(ranked),
                 'edges': [e for e in self.edges if e['source'] in selected and e['target'] in selected]}
 
     def neighbors(self, label, direction='both', relation=None):
@@ -392,8 +514,8 @@ class Graph:
     def contracts(self, producer, consumer):
         if producer not in self.snapshot['fragments'] or consumer not in self.snapshot['fragments']:
             raise ValueError('Index both explicitly selected contract files first')
-        writes = [f for f in self.snapshot['fragments'][producer]['fields'] if f['direction'] in {'writes', 'declares'}]
-        reads = [f for f in self.snapshot['fragments'][consumer]['fields'] if f['direction'] == 'reads']
+        writes = [dict(f, path=producer) for f in self.snapshot['fragments'][producer]['fields'] if f['direction'] in {'writes', 'declares'}]
+        reads = [dict(f, path=consumer) for f in self.snapshot['fragments'][consumer]['fields'] if f['direction'] == 'reads']
         available = {f['name'] for f in writes}
         return {'producer': producer, 'consumer': consumer, 'matched_fields': sorted(available & {f['name'] for f in reads}),
                 'consumer_fields_without_producer': [f for f in reads if f['name'] not in available],
@@ -460,6 +582,8 @@ def import_matches(source_path, imported, target_path, symbol=None):
         return module in {target, target + '/__init__'} or module in {parent, parent + '/__init__'} and (symbol is None or name == symbol)
     if imported.startswith('./') or imported.startswith('../'):
         target = posixpath.normpath(posixpath.join(posixpath.dirname(source_path), imported))
+        if target.rsplit('.', 1)[-1] in {'js', 'mjs', 'jsx', 'ts', 'tsx', 'py'}:
+            target = target.rsplit('.', 1)[0]
         return module == target or module == target + '/index'
     dotted = module.replace('/', '.')
     if dotted == imported or dotted.endswith('.' + imported):
@@ -485,6 +609,8 @@ def bounded(value, maximum=16000):
                 for key, child in item.items():
                     if isinstance(child, list) and child:
                         candidates.append((len(encoded(child)), item, key, 'list'))
+                    elif isinstance(child, dict) and len(child) > 1 and key not in {'graph', 'retrieval'}:
+                        candidates.append((len(encoded(child)), item, key, 'dict'))
                     elif isinstance(child, str) and len(child) > 400 and key not in {'id', 'url'}:
                         candidates.append((len(child), item, key, 'text'))
                     else:
@@ -494,10 +620,14 @@ def bounded(value, maximum=16000):
                     visit(child)
         visit(result)
         if not candidates:
-            return {'status': 'RESULT_EXCEEDS_BUDGET', 'truncated': True, 'unbounded_bytes': original}
+            metadata = value.get('graph', {})
+            return {'status': 'RESULT_EXCEEDS_BUDGET', 'truncated': True, 'unbounded_bytes': original,
+                    'graph': {k: metadata[k] for k in ('schema_version', 'repository', 'branch', 'commit_sha') if k in metadata}}
         _, owner, key, kind = max(candidates, key=lambda row: row[0])
         if kind == 'list':
             owner[key] = owner[key][:len(owner[key]) // 2]
+        elif kind == 'dict':
+            owner[key] = dict(list(owner[key].items())[:len(owner[key]) // 2])
         else:
             owner[key] = owner[key][:max(400, len(owner[key]) // 2)]
     # Edges without displayed endpoints cannot be rendered as an intact subgraph.

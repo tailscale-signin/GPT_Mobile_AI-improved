@@ -35,10 +35,15 @@ internal class VoicePluginAudio(
     private val releaseSystemRecognition: () -> Unit
 ) : VoiceAudio {
     private var closed = false
+    var requireLocalOutput: Boolean = false
     private var playbackGeneration = 0L
     private var playbackStarted: (() -> Unit)? = null
     override fun bindPlaybackStarted(started: (() -> Unit)?) {
         playbackStarted = started
+    }
+
+    override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
+        system.bindSpokenRange(spoken)
     }
 
     // offlineSpeech belongs to the same Android output and shares its start observer.
@@ -82,7 +87,7 @@ internal class VoicePluginAudio(
         }
         val reply = output.openReply(voice, complete = { if (current()) complete() }, error = { message, canFallback ->
             if (current()) {
-                if (canFallback) {
+                if (canFallback && !requireLocalOutput) {
                     useFallback = true
                     if (finished) finishFallback()
                 } else {
@@ -131,10 +136,18 @@ internal class VoicePluginAudio(
         system.bindPlaybackStarted { if (current()) started?.invoke() }
         val voice = kokoroVoice
         if (voice == null) {
+            if (requireLocalOutput) {
+                error("Choose a Kokoro voice in Voice settings to read this response.")
+                return
+            }
             system.speak(text, { if (current()) complete() }, { if (current()) error(it) })
             return
         }
         if (kokoro == null || !LocalVoiceModelStore.supportsLanguage(local.languageTag)) {
+            if (requireLocalOutput) {
+                error("Local voice playback is unavailable. Check Kokoro in Voice settings; your response is kept in chat.")
+                return
+            }
             offlineSpeech(text, { if (current()) complete() }, { if (current()) error(it) })
             return
         }
@@ -149,7 +162,7 @@ internal class VoicePluginAudio(
             if (!closed && ticket == playbackGeneration) {
                 val fallbackTicket = ++playbackGeneration
                 fun fallbackCurrent() = !closed && fallbackTicket == playbackGeneration
-                if (canFallback) {
+                if (canFallback && !requireLocalOutput) {
                     system.bindPlaybackStarted { if (fallbackCurrent()) started?.invoke() }
                     offlineSpeech(text, { if (fallbackCurrent()) complete() }, { if (fallbackCurrent()) error(it) })
                 } else {

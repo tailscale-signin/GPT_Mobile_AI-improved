@@ -18,6 +18,7 @@ from v14.engineering_memory import EngineeringMemory
 from v14.execution_binding import ExecutionBindings, ExecutionBindingError, fingerprint
 from v14.inference_capabilities import InferenceCapabilities
 from v14.inference_scheduler import install_scheduler
+from v14.graph_context import public_graph_receipt
 from v14.engineering_artifacts import EngineeringArtifacts
 from v14.engineering_operations import EngineeringOperations
 from v14.engineering_defaults import EXECUTION_BUDGET_LIMITS, new_request_defaults, retained_request_defaults, effective_execution_budget
@@ -584,6 +585,9 @@ class EngineeringService:
         if public_repository_maps:
             from v14.code_graph.public_github import PublicGitHubReader
             self.public_graph = GraphService(store, PublicGitHubReader(), public=True)
+        self.graph.public_service = self.public_graph
+        self.graph.cancelled = lambda job: (self.stop.is_set() or
+            getattr(backend, 'cancelled', lambda identifier: False)(job['id']) or time.time() >= job.get('deadline', float('inf')))
         backend.record_evidence = lambda job, payload: self.evidence.append(job, 'github_api', payload)
         backend.recall_memory = self.memory.recall
         backend.recall_graph = self.graph.recall
@@ -1090,6 +1094,9 @@ class EngineeringService:
             return
         self.store.recover()
         self.stop.clear()
+        for graph in (self.graph, self.public_graph):
+            if graph is not None:
+                graph.start_jobs()
         def work():
             recovery_pending = False
             while not self.stop.is_set():
@@ -1126,6 +1133,10 @@ class EngineeringService:
                     self.backend.cancel()
                     if self.thread:
                         await asyncio.to_thread(self.thread.join, 15)
+                    for graph in (self.graph, self.public_graph):
+                        jobs = getattr(graph, '_index_jobs', None)
+                        if jobs is not None:
+                            await asyncio.to_thread(jobs.close)
                     if self.public_graph is not None:
                         self.public_graph.backend.close()
         return lifecycle
@@ -1165,5 +1176,6 @@ def public_job(job):
             'execution_binding_id': job['request'].get('execution_binding_id'),
             'execution_binding': job.get('execution_binding'),
             'latest_execution_receipt': data.get('latest_execution_receipt'),
+            'graph_retrieval': public_graph_receipt(data.get('graph_retrieval')),
             'blocked_reason': data.get('blocked_reason'), 'latest_operation': data.get('latest_operation'),
             'final_report': data.get('final_report')}

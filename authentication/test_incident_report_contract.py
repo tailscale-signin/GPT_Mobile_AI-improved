@@ -24,6 +24,51 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_acceptance_recovery_evidence_preserves_unknown_policy_and_prerequisites(self):
+        values = {
+            "acceptance_preparation_state": "PREREQUISITES_REQUIRED",
+            "acceptance_ready_read_count": 0, "acceptance_additional_ready_read_count": 0,
+            "acceptance_fixture_creation_admissible": False,
+            "acceptance_blocked_operation_families": ["github_ci", "github_read"],
+            "status_policy_protection_http_status": 404,
+            "status_policy_rules_http_status": 403,
+            "status_branch_protected": False, "status_policy_complete": False,
+            "status_policy_recovery_hint": "CHECK_POLICY_READ_PERMISSIONS",
+        }
+        capture = self.capture("ACCEPTANCE", values)
+        original = copy.deepcopy(capture)
+        validate_diagnostics(capture)
+        self.assertEqual(original, capture)
+        self.assertFalse(capture["values"]["status_policy_complete"])
+        self.assertFalse(capture["values"]["acceptance_fixture_creation_admissible"])
+        for key, bad in (
+            ("status_policy_protection_http_status", "404"),
+            ("status_policy_rules_http_status", 600),
+            ("status_branch_protected", "false"),
+            ("status_policy_complete", 0),
+            ("acceptance_fixture_creation_admissible", "true"),
+            ("acceptance_ready_read_count", -1),
+            ("acceptance_preparation_state", "private repository path"),
+            ("acceptance_blocked_operation_families", ["private-owner/private-repo"]),
+            ("status_policy_recovery_hint", "BYPASS_POLICY"),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {key: bad}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("VOICE", values))
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt").read_text()
+        from authentication import issue_report_diagnostics as contract
+        for name, expected in (("preparationStates", contract.ENUMS["acceptance_preparation_state"]),
+                               ("operationFamilies", contract.ENUM_LISTS["acceptance_blocked_operation_families"]),
+                               ("policyRecoveryHints", contract.ENUMS["status_policy_recovery_hint"]),
+                               ("fields", contract.ACCEPTANCE_RECOVERY_FIELDS)):
+            match = re.search(r"val " + name + r" = setOf\((.*?)\n?    \)", source, re.S)
+            if name != "fields":
+                match = re.search(r"val " + name + r" = setOf\(([^\n]*)\)", source)
+            self.assertIsNotNone(match, name)
+            self.assertEqual(expected, set(re.findall(r'"([^"\n]+)"', match.group(1))), name)
+
     def test_admission_diagnostics_preserve_typed_capacity_queue_and_preflight(self):
         samples = {
             "PROVIDER": {"admission_prompt_tokens": 9639, "admission_safety_tokens": 2409,
@@ -57,6 +102,64 @@ class IncidentReportContractTest(unittest.TestCase):
             report.update(feature="chat", errorCode=code)
             _, issue = issue_from_report(report)
             self.assertIn(code, issue["title"])
+
+    def test_graph_prerequisites_and_separate_policy_endpoint_statuses_survive_submission(self):
+        values = {"status_policy_recovery": "CHECK_RULES_READ_PERMISSION", "branch_protection_http_status": 200,
+                  "branch_rules_http_status": 403, "branch_protection_observation": "OBSERVED", "branch_rules_observation": "ACCESS_DENIED",
+                  "unmet_criterion_blockers": ["GRAPH_INDEX_REQUIRED", "GRAPH_INPUT_REQUIRED", "GRAPH_INDEX_UNCONFIRMED"]}
+        capture = self.capture("ACCEPTANCE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        report.update(feature="chat", errorCode="GITHUB_TASK_INCOMPLETE")
+        _, issue = issue_from_report(report)
+        for key in values:
+            self.assertIn(key, issue["body"])
+        for key in ("branch_protection_http_status", "branch_rules_http_status"):
+            for invalid in (99, 600, True, "403", "private endpoint detail"):
+                with self.subTest(key=key, value=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("ACCEPTANCE", {key: invalid}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"branch_rules_http_status": 403}))
+
+    def test_voice_capture_and_playback_evidence_is_bounded_and_area_specific(self):
+        values = {"voice_playback_failure": "AUDIO_FOCUS_DENIED", "voice_playback_focus_attempts": 2,
+                  "voice_capture_silenced_stage": "CAPTURE_READ", "voice_caption_alignment": "NO_TIMING",
+                  "voice_install_recognition_status": "CHECKING", "voice_install_playback_status": "READY"}
+        validate_diagnostics(self.capture("VOICE", values))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", values))
+        for key in values:
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {key: "raw recorder or speech text"}))
+
+    def test_github_prerequisite_evidence_is_typed_and_keeps_policy_unknown(self):
+        values = {"repository_graph_observation": "NOT_INDEXED", "graph_input_blocked_count": 16,
+                  "workflow_dependency_observation": "MISSING_EXECUTED_JOB",
+                  "branch_protection_observation": "NOT_FOUND_OR_INACCESSIBLE", "branch_rules_observation": "OBSERVED"}
+        sample = self.capture("ACCEPTANCE", values)
+        original = copy.deepcopy(sample)
+        validate_diagnostics(sample)
+        self.assertEqual(original, sample)
+        for key in values:
+            invalid = dict(values, **{key: -1 if key == "graph_input_blocked_count" else "private repository or run"})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", invalid))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", values))
+
+    def test_completion_and_composer_report_fields(self):
+        validate_diagnostics(self.capture("PROVIDER", {
+            "provider_failure_code": "TOOL_PROTOCOL_INVALID_FRAME",
+            "empty_completion_observed_attempts": 2, "empty_completion_reasoning_only_attempts": 1,
+        }))
+        validate_diagnostics(self.capture("APP", {
+            "composer_focus_transitions": 1, "composer_ime_transitions": 2,
+            "composer_focused": True, "composer_ime_visible": False,
+        }))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("APP", {"composer_focus_transitions": 256}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("APP", {"composer_focused": "draft text"}))
 
     def test_github_schema_budget_preserves_specific_code_and_bounded_counts(self):
         code = "GITHUB_TOOL_CONTEXT_BUDGET"
@@ -460,7 +563,7 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(67, len(capsule.POLICY_FIELD_NAMES))
 
     def test_exception_capture_survives_validation_without_claiming_provider_dispatch(self):
-        for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH"):
+        for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH", "PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE"):
             with self.subTest(site=site):
                 capture = self.capture("INCIDENT", {
                     "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",
@@ -484,6 +587,22 @@ class IncidentReportContractTest(unittest.TestCase):
                     invalid["context"]["diagnostics"]["values"][key] = value
                     with self.assertRaises(ReportError):
                         issue_from_report(invalid)
+
+    def test_error_value_boundary_preserves_unknown_cause_without_exception_metadata(self):
+        capture = self.capture("INCIDENT", {
+            "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",
+            "causal_failure_code": "CHAT_FAILED", "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+            "incident_capture_site": "CHAT_REPOSITORY_ERROR_VALUE", "incident_phase_provenance": "CAPTURE_BOUNDARY_ONLY",
+        })
+        del capture["values"]["causal_id_hash"]
+        capture["unavailableFields"] = sorted((CORE_FIELDS["INCIDENT"] | capsule.CORE) - capture["values"].keys())
+        report = self.report(capture)
+        approved = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("CHAT_REPOSITORY_ERROR_VALUE", issue["body"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        self.assertNotIn("exception_type_hashes", capture["values"])
+        self.assertTrue({"stage", "httpStatus", "dispatched", "retryable", "remoteAcceptance", "exceptionFingerprint"}.issubset(report["context"]["unavailableFields"]))
 
     def test_exception_capture_vocabulary_matches_native_contract(self):
         source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()

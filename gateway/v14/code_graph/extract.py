@@ -4,14 +4,17 @@ import hashlib
 import importlib
 import json
 import re
+import tomllib
+import xml.parsers.expat
 from pathlib import PurePosixPath
 
 from . import EXTRACTOR_VERSION
 
 LANGUAGES = {'.py': 'python', '.kt': 'kotlin', '.kts': 'kotlin', '.java': 'java',
-             '.js': 'javascript', '.jsx': 'javascript', '.ts': 'typescript', '.tsx': 'tsx'}
-SUPPORTED = frozenset(LANGUAGES) | {'.json', '.md', '.mdx'}
+             '.js': 'javascript', '.mjs': 'javascript', '.jsx': 'javascript', '.ts': 'typescript', '.tsx': 'tsx'}
+SUPPORTED = frozenset(LANGUAGES) | {'.json', '.md', '.mdx', '.xml', '.yaml', '.yml', '.toml', '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp'}
 MAX_FILE_BYTES = 256 * 1024
+MAX_SOURCE_BYTES = 2 * 1024 * 1024
 MAX_NODES = 4000
 
 
@@ -23,24 +26,53 @@ def permitted(path):
     parts = PurePosixPath(path).parts
     return (bool(parts) and not path.startswith('/') and '\\' not in path and
             not any(part in {'.', '..', '.git', 'node_modules', 'build', 'dist', '.gradle', '__pycache__'} for part in parts) and
-            not any(part.startswith('.env') or part.lower() in {'credentials.json', 'secrets.json', 'mcp_config.json'} for part in parts) and
+            not any(part.lower().startswith('.env') or
+                    PurePosixPath(part).stem.lower() in {'credentials', 'secrets', 'mcp_config'} and
+                    PurePosixPath(part).suffix.lower() in {'.json', '.xml', '.yaml', '.yml', '.toml'} for part in parts) and
             PurePosixPath(path).suffix.lower() in SUPPORTED)
+
+
+def metadata_fragment(path, warning, size=0):
+    fragment = extract(path, '')
+    fragment.update(status='unsupported', parser='file.metadata', warnings=[warning], source_bytes=0,
+                    declared_bytes=size, retryable=False)
+    return fragment
+
+
+def compact_fragment(fragment):
+    """The manifest owns each row's path; retain locations without repeating it."""
+    for collection in ('nodes', 'edges', 'references', 'imports', 'fields'):
+        for row in fragment.get(collection, []):
+            row.pop('path', None)
+            if collection == 'nodes':
+                row['excerpt'] = row.get('excerpt', '')[:320]
+            elif collection == 'references':
+                receiver = row.get('receiver')
+                if receiver and (len(receiver) > 200 or not re.fullmatch(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*){0,8}', receiver)):
+                    row['receiver'] = '<dynamic>'
+                if len(row.get('name', '')) > 256:
+                    row['name'] = '<dynamic>'
+    return fragment
 
 
 def extract(path, text):
     """Return a cacheable file fragment. Unresolved names are retained, never guessed."""
-    if not permitted(path) or len(text.encode()) > MAX_FILE_BYTES or '\0' in text:
+    if not permitted(path) or len(text.encode()) > MAX_SOURCE_BYTES or '\0' in text:
         raise ValueError('Source is outside the graph inspection boundary')
     lines = text.splitlines()
     result = {'version': EXTRACTOR_VERSION, 'nodes': [], 'edges': [], 'references': [], 'imports': [],
-              'fields': [], 'warnings': [], 'status': 'indexed', 'source_bytes': len(text.encode())}
+              'fields': [], 'warnings': [], 'status': 'indexed', 'source_bytes': len(text.encode()),
+              'language': LANGUAGES.get(PurePosixPath(path).suffix.lower(), 'metadata'), 'package': '', 'retryable': False}
+    large_source = result['source_bytes'] > MAX_FILE_BYTES
+    if large_source:
+        result['warnings'].append('Large source indexed structurally with bounded excerpts; fetch cited ranges for implementation')
 
     def node(name, kind, line, end, parent=None, signature=''):
         qualified = (parent['qualified'] + '.' if parent and parent['kind'] != 'file' else '') + name
         key = identity(path, qualified, kind, signature, line)
         value = {'id': key, 'name': name, 'qualified': qualified, 'kind': kind, 'path': path,
                  'line': line, 'end_line': end, 'signature': signature[:400],
-                 'excerpt': '\n'.join(lines[max(0, line - 1):min(end, line + 5)])[:1600]}
+                 'excerpt': '\n'.join(lines[max(0, line - 1):min(end, line + 5)])[:180 if large_source else 1600]}
         if len(result['nodes']) >= MAX_NODES:
             raise ValueError('File symbol limit exceeded')
         result['nodes'].append(value)
@@ -78,6 +110,9 @@ def extract(path, text):
                     for alias in current.names:
                         module = '.' * current.level + '.'.join(filter(None, (current.module, alias.name))) if isinstance(current, ast.ImportFrom) else alias.name
                         result['imports'].append({'name': module, 'alias': alias.asname or alias.name.split('.')[0],
+                                                  'module': '.' * current.level + (current.module or '') if isinstance(current, ast.ImportFrom) else alias.name,
+                                                  'symbol': alias.name if isinstance(current, ast.ImportFrom) else None,
+                                                  'namespace': isinstance(current, ast.Import),
                                                   'line': current.lineno, 'source': root['id'], 'path': path})
                 if isinstance(current, ast.Call):
                     called = current.func
@@ -118,19 +153,57 @@ def extract(path, text):
             def walk(current, owner):
                 kind = current.type
                 line = current.start_point[0] + 1
+                if kind in {'package_header', 'package_declaration'}:
+                    match = re.search(r'\bpackage\s+([\w.]+)', value(current))
+                    if match:
+                        result['package'] = match.group(1)
+                if kind == 'variable_declarator' and current.child_by_field_name('value') is not None and current.child_by_field_name('value').type in {'arrow_function', 'function_expression', 'generator_function'}:
+                    name = current.child_by_field_name('name')
+                    if name and name.type == 'identifier':
+                        owner = node(value(name), 'function', line, current.end_point[0] + 1, owner, lines[line - 1].strip())
+                if kind == 'property_declaration' and any(child.type == 'lambda_literal' for child in current.named_children):
+                    declared = next((child for child in current.named_children if child.type == 'variable_declaration'), None)
+                    name = next((child for child in declared.named_children if child.type == 'identifier'), None) if declared else None
+                    if name:
+                        owner = node(value(name), 'function', line, current.end_point[0] + 1, owner, lines[line - 1].strip())
                 if kind in declarations:
                     name = current.child_by_field_name('name')
                     if name:
                         owner = node(value(name), declarations[kind], line, current.end_point[0] + 1,
                                      owner, lines[line - 1].strip())
+                        if current.parent and current.parent.type == 'export_statement' and re.match(r'export\s+default\b', value(current.parent)):
+                            owner['default_export'] = True
                         for child in current.named_children:
                             if child.type in {'superclass', 'super_interfaces', 'delegation_specifiers', 'extends_clause', 'class_heritage'}:
                                 for match in re.finditer(r'\b[A-Z][\w.]*', value(child)):
                                     reference(owner, match.group(), 'inherits', line)
                 if kind in {'import', 'import_header', 'import_declaration', 'import_statement'}:
                     content = value(current)
-                    for match in re.finditer(r'(?:import\s+(?:static\s+)?|from\s+)["\']?([\w./]+)', content):
-                        result['imports'].append({'name': match.group(1), 'source': root['id'], 'path': path, 'line': line})
+                    if language_name in {'javascript', 'typescript', 'tsx'}:
+                        imported_source = current.child_by_field_name('source')
+                        module = value(imported_source).strip('\"\'')
+                        if module:
+                            clause = next((c for c in current.named_children if c.type == 'import_clause'), None)
+                            records = []
+                            if clause:
+                                for item in clause.named_children:
+                                    if item.type == 'identifier':
+                                        records.append({'alias': value(item), 'symbol': 'default'})
+                                    elif item.type == 'namespace_import':
+                                        records.append({'alias': value(item.named_children[-1]), 'namespace': True})
+                                    elif item.type == 'named_imports':
+                                        for spec in item.named_children:
+                                            symbol = value(spec.child_by_field_name('name'))
+                                            records.append({'alias': value(spec.child_by_field_name('alias')) or symbol, 'symbol': symbol})
+                            for record in records or [{}]:
+                                result['imports'].append(dict(record, name=module, module=module, source=root['id'], path=path, line=line))
+                    else:
+                        match = re.search(r'import\s+(?:static\s+)?([\w.]+(?:\*)?)(?:\s+as\s+(\w+))?', content)
+                        if match:
+                            imported = match.group(1)
+                            result['imports'].append({'name': imported, 'alias': match.group(2) or imported.rsplit('.', 1)[-1],
+                                                      'symbol': imported.rsplit('.', 1)[-1], 'wildcard': imported.endswith('.*'),
+                                                      'source': root['id'], 'path': path, 'line': line})
                 if kind in {'call_expression', 'method_invocation', 'object_creation_expression'}:
                     fn = current.child_by_field_name('function') or current.child_by_field_name('name')
                     if fn is None and current.named_children:
@@ -151,6 +224,44 @@ def extract(path, text):
                 for child in current.named_children:
                     walk(child, owner)
             walk(tree.root_node, root)
+        elif extension == '.xml':
+            result['parser'] = 'xml.expat.structure'
+            parser = xml.parsers.expat.ParserCreate()
+            def deny(*args):
+                raise ValueError('XML document type and entities are outside the graph inspection boundary')
+            parser.StartDoctypeDeclHandler = deny
+            parser.EntityDeclHandler = deny
+            parser.ExternalEntityRefHandler = deny
+            def element(tag, attrs):
+                name = attrs.get('android:name') or attrs.get('name') or attrs.get('android:id')
+                if name:
+                    line = parser.CurrentLineNumber
+                    child = node(name, 'resource', line, line, root, tag)
+                    for key in attrs:
+                        field(child, key, 'declares', line)
+                    if tag in {'activity', 'service', 'receiver', 'provider', 'application'}:
+                        reference(child, name, 'configures', line)
+            parser.StartElementHandler = element
+            parser.Parse(text, True)
+        elif extension in {'.yaml', '.yml', '.toml', '.c', '.cc', '.cpp', '.cxx', '.h', '.hpp'}:
+            result['status'] = 'partial'
+            result['parser'] = 'bounded.config.structure' if extension in {'.yaml', '.yml', '.toml'} else 'bounded.native.structure'
+            result['warnings'].append('Structural metadata only; types, macros, configuration expansion and runtime wiring require source review')
+            if extension == '.toml':
+                tomllib.loads(text)
+            for number, line in enumerate(lines, 1):
+                if extension in {'.yaml', '.yml', '.toml'}:
+                    match = re.match(r'\s*([A-Za-z_][\w.-]*)\s*[:=]', line)
+                    if match:
+                        child = node(match.group(1), 'configuration', number, number, root, line.strip())
+                        field(child, match.group(1), 'declares', number)
+                else:
+                    included = re.match(r'\s*#\s*include\s*[<"]([^>"]+)[>"]', line)
+                    if included:
+                        result['imports'].append({'name': included.group(1), 'source': root['id'], 'path': path, 'line': number})
+                    match = re.match(r'\s*(?:[\w:*&<>]+\s+)+([A-Za-z_]\w*)\s*\([^;]*\)\s*(?:\{|;)', line)
+                    if match:
+                        node(match.group(1), 'function', number, number, root, line.strip())
         elif extension == '.json':
             document = json.loads(text)
             result['parser'] = 'json'
@@ -180,9 +291,10 @@ def extract(path, text):
             result['warnings'].append('Documents indexed structurally; semantic extraction is not enabled')
     except ImportError:
         result['status'] = 'unsupported'
+        result['retryable'] = True
         result['parser'] = 'unavailable'
         result['warnings'].append('Install the bundled graph parser dependencies to index this language')
-    except (SyntaxError, ValueError, RecursionError) as failure:
-        result['status'] = 'failed'
+    except (SyntaxError, ValueError, RecursionError, xml.parsers.expat.ExpatError) as failure:
+        result['status'] = 'partial' if len(result['nodes']) > 1 else 'failed'
         result['warnings'].append(type(failure).__name__ + ': source could not be fully parsed')
     return result

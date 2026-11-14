@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -51,6 +54,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
@@ -112,8 +117,13 @@ internal class VoiceConversationActions(
 
 @Composable
 internal fun VoiceConversationScreen(state: VoiceConversationUiState, actions: VoiceConversationActions) {
+    val colors = MaterialTheme.colorScheme
     Column(
-        Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).safeDrawingPadding()
+        Modifier.fillMaxSize().background(
+            Brush.verticalGradient(
+                listOf(colors.background, colors.primary.copy(alpha = .045f).compositeOver(colors.background), colors.background)
+            )
+        ).safeDrawingPadding()
             .padding(horizontal = 16.dp, vertical = 8.dp).testTag("voice_chat_screen"),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -129,7 +139,7 @@ internal fun VoiceConversationScreen(state: VoiceConversationUiState, actions: V
 @Composable
 private fun VoiceConversationHeader(state: VoiceConversationUiState, actions: VoiceConversationActions) {
     Row(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = actions.end) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats") }
+        IconButton(onClick = actions.end) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats", tint = MaterialTheme.colorScheme.onSurface) }
         VoiceProfilePicker(state, actions.selectProfile, Modifier.weight(1f))
         IconButton(onClick = actions.openTranscript) {
             Icon(Icons.Rounded.Subtitles, "Open full transcript", tint = MaterialTheme.colorScheme.primary)
@@ -150,9 +160,9 @@ private fun VoiceProfilePicker(state: VoiceConversationUiState, select: (String)
             enabled = enabled,
             modifier = Modifier.fillMaxWidth().testTag("voice_profile_picker")
                 .semantics { contentDescription = "AI profile: ${state.profileName}" },
-            shape = RoundedCornerShape(20.dp),
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f))
+            shape = RoundedCornerShape(22.dp),
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = .2f))
         ) {
             Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -184,20 +194,34 @@ private fun VoiceConversationStatus(state: VoiceConversationUiState, actions: Vo
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        VoiceWave(state.session, Modifier.widthIn(max = 520.dp).fillMaxWidth().height(if (compact) 96.dp else 160.dp).clearAndSetSemantics {})
-        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primary.copy(alpha = .09f)) {
+        VoiceWave(state.session, Modifier.widthIn(max = 520.dp).fillMaxWidth().height(if (compact) 112.dp else 192.dp).clearAndSetSemantics {})
+        VoiceStatusChip(state)
+        Text(voiceListeningHint(state.session), Modifier.padding(top = 10.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
+        VoiceConversationSetup(state, actions)
+        if (state.captions) VoiceLiveCaptions(state.session, compact, Modifier.padding(top = 16.dp).widthIn(max = 560.dp).fillMaxWidth())
+        VoiceConversationRecovery(state, actions)
+    }
+}
+
+@Composable
+private fun VoiceStatusChip(state: VoiceConversationUiState) {
+    val colors = MaterialTheme.colorScheme
+    val accent = if (state.session.phase == VoicePhase.ERROR) colors.error else colors.primary
+    Surface(shape = CircleShape, color = accent.copy(alpha = .08f), border = BorderStroke(1.dp, accent.copy(alpha = .12f))) {
+        Row(
+            Modifier.padding(horizontal = 18.dp, vertical = 9.dp),
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(Modifier.size(6.dp).background(accent, CircleShape))
             Text(
                 state.status,
-                Modifier.padding(horizontal = 20.dp, vertical = 10.dp).semantics { if (state.remaining == 0) liveRegion = LiveRegionMode.Polite },
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.primary,
+                Modifier.semantics { if (state.remaining == 0) liveRegion = LiveRegionMode.Polite },
+                style = MaterialTheme.typography.titleSmall,
+                color = accent,
                 textAlign = TextAlign.Center
             )
         }
-        Text(voiceListeningHint(state.session), Modifier.padding(top = 10.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
-        VoiceConversationSetup(state, actions)
-        if (state.captions) VoiceLiveCaptions(state.session, actions.openTranscript, compact, Modifier.padding(top = 16.dp).widthIn(max = 560.dp).fillMaxWidth())
-        VoiceConversationRecovery(state, actions)
     }
 }
 
@@ -255,7 +279,13 @@ private fun VoiceConversationControls(state: VoiceConversationUiState, actions: 
         Modifier.padding(top = 8.dp).widthIn(max = 480.dp).fillMaxWidth(),
         shape = RoundedCornerShape(36.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .35f))
+        border = BorderStroke(
+            1.dp,
+            Brush.horizontalGradient(
+                listOf(MaterialTheme.colorScheme.primary.copy(alpha = .12f), MaterialTheme.colorScheme.primary.copy(alpha = .34f), MaterialTheme.colorScheme.tertiary.copy(alpha = .12f))
+            )
+        ),
+        tonalElevation = 2.dp
     ) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, false, Modifier.weight(1f))
@@ -270,6 +300,13 @@ private fun VoiceMicrophoneControl(state: VoiceConversationUiState, toggle: () -
     val listening = state.session.phase == VoicePhase.LISTENING
     val playing = state.session.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)
     val colors = MaterialTheme.colorScheme
+    val active = listening || playing
+    val animated = voiceMotionEnabled()
+    val container by animateColorAsState(
+        if (active) colors.primary else colors.primaryContainer,
+        animationSpec = if (animated) tween(240) else snap(),
+        label = "Voice microphone state"
+    )
     val (icon, label) = when {
         playing -> Icons.Rounded.Stop to "Stop reply"
         state.session.muted -> Icons.Rounded.MicOff to "Start listening"
@@ -290,12 +327,24 @@ private fun VoiceMicrophoneControl(state: VoiceConversationUiState, toggle: () -
                 enabled = playing || state.enabled && state.voiceReady && state.preferencesApplied && state.recognitionReady,
                 modifier = Modifier.size(96.dp).testTag("voice_microphone_toggle"),
                 colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = if (listening || playing) colors.primary else colors.primaryContainer,
-                    contentColor = if (listening || playing) colors.onPrimary else colors.onPrimaryContainer
+                    containerColor = container,
+                    contentColor = if (active) colors.onPrimary else colors.onPrimaryContainer
                 )
             ) { Icon(icon, label, Modifier.size(36.dp)) }
         }
-        Text(if (playing) "Stop reply" else "Microphone", Modifier.widthIn(max = 128.dp), style = MaterialTheme.typography.labelMedium, color = colors.onSurface, textAlign = TextAlign.Center)
+        Text(
+            if (playing) {
+                "Stop reply"
+            } else if (listening) {
+                "Listening"
+            } else {
+                "Microphone"
+            },
+            Modifier.widthIn(max = 128.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = colors.onSurface,
+            textAlign = TextAlign.Center
+        )
     }
 }
 

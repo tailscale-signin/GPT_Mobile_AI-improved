@@ -37,7 +37,7 @@ def main():
         '--icon', str(GATEWAY / 'desktop/assets/gateway.ico'),
         '--name', 'Gateway', '--distpath', str(output), '--workpath', str(ROOT / 'build' / 'pyinstaller'),
         '--specpath', str(ROOT / 'build'), '--paths', str(GATEWAY), '--add-data', str(staging) + os.pathsep + '.',
-        '--collect-submodules', 'desktop', '--hidden-import', 'gateway_v14', '--collect-submodules', 'v14', '--collect-submodules', 'uvicorn',
+        '--collect-submodules', 'desktop', '--hidden-import', 'gateway_v14', '--collect-submodules', 'v14', '--collect-submodules', 'benchmarks', '--collect-submodules', 'uvicorn',
         '--hidden-import', 'gateway_v13_runtime', '--hidden-import', 'gateway_v13_transport',
         '--collect-all', 'tree_sitter', '--collect-all', 'tree_sitter_kotlin', '--collect-all', 'tree_sitter_java',
         '--collect-all', 'tree_sitter_javascript', '--collect-all', 'tree_sitter_typescript',

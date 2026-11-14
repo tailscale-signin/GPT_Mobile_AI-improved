@@ -273,7 +273,7 @@ internal object GitHubTestChecklist {
     }
 
     /** Consume issued local fragments while their bounded cache entry is still live. */
-    private fun continuation(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, localOnly: Boolean): ProviderEvent.ToolCall? {
+    private fun continuation(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, localOnly: Boolean, workflowDependencyOnly: Boolean = false): ProviderEvent.ToolCall? {
         val observations = trusted(receipts)
         fun same(receipt: JsonObject, recipe: JsonObject) = sameCall(receipt, recipe)
         fun permitted(recipe: JsonObject): Boolean {
@@ -294,6 +294,7 @@ internal object GitHubTestChecklist {
         observations.forEachIndexed { index, receipt -> recoverySource(receipt)?.let { lastAttempts[it] = index } }
         val considered = mutableSetOf<Pair<String, JsonObject>>()
         for ((index, failed) in observations.withIndex()) {
+            if (workflowDependencyOnly) continue
             val recovery = savedReadRecovery(failed) ?: continue
             val source = recoverySource(recovery) ?: continue
             if (!considered.add(source)) continue
@@ -309,6 +310,13 @@ internal object GitHubTestChecklist {
             if (localOnly && "view_cursor" !in args || !permitted(page)) continue
             val priorIndex = observations.indexOfLast { same(it, page) }
             if (priorIndex >= 0) continue
+            val workflowDependency = observations.any { issuer ->
+                page in issuedPages(issuer) && GitHubSelfTestWorkflowJobs.dependencyPage(page, tools, observations, issuer)
+            }
+            if (workflowDependencyOnly && !workflowDependency) continue
+            // This independently bounded selected-SHA acquisition finds an
+            // executed job, without expanding unrelated inventory or the budget.
+            if (workflowDependency) return call(page.text("tool"), args)
             // Required local fragments and issue dependencies are never stopped by
             // an unrelated inventory's sampling allowance.
             val issueDependency = page.text("tool").substringBefore("__") == "github_issue" &&
@@ -333,7 +341,7 @@ internal object GitHubTestChecklist {
             // sampled run-history page must not strand an issued definition page.
             if (definitionPage && (exhaustive || definitionPagesRead < 31)) return call(page.text("tool"), args)
             val required = "view_cursor" in args || issueDependency
-            // A missing issue dependency must not trigger unbounded remote inventory traversal.
+            // Missing resource dependencies must not trigger unbounded remote inventory traversal.
             // Preserve local view fragments, but cap sampled remote pages for ordinary tests.
             if (!exhaustive && "view_cursor" !in args && sampled >= 8) continue
             if (!exhaustive && !required && sampled >= 2) continue
@@ -440,6 +448,7 @@ internal object GitHubTestChecklist {
         // dependencies are observed, finish an admissible fixture while its
         // cleanup allowance still fits instead of spending it on more samples.
         if (read != null && GitHubSelfTestReads.isDependency(read)) return read
+        continuation(task, tools, receipts, localOnly = false, workflowDependencyOnly = true)?.let { return it }
         // A fixture is bounded and must leave capacity for its verification and
         // cleanup; optional inventory sampling runs only after this decision.
         val fixtureAllowed = (remaining == null || remaining >= GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE) &&
@@ -522,6 +531,7 @@ internal object GitHubTestChecklist {
         val selected = if (observedOnly) coverage.cumulative.filter { capability -> historical.any { matches(it, capability) } } else coverage.cumulative
         if (selected.isEmpty()) return JsonArray(emptyList())
         val allTrusted = trusted(receipts)
+        val graphObservation = GitHubSelfTestPrerequisites.graphObservation(allTrusted)
         val readyReads = GitHubSelfTestReads.available(tools, allTrusted).associateBy { it.name.substringBefore("__") to it.arguments.text("action") }
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()
         val integrationCoverage = integration(task)
@@ -562,14 +572,16 @@ internal object GitHubTestChecklist {
                     successes.any { GitHubEvidenceOrigin.of(it) == "MOCKED" } -> "MOCKED"
                     else -> "NOT_TESTED"
                 }
-                val incomplete = latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
+                val graphIncomplete = capability.tool == "repository_graph" && latest?.let { GitHubSelfTestGraph.incomplete(capability.action, it) } == true
+                val incomplete = graphIncomplete || latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
                 val excluded = capability.tool == "github_context" && capability.action == "repositories"
                 val unsupportedFixture = !readOnly(capability) && !GitHubSelfTestFixtures.supports(capability.tool, capability.action)
                 val ciActionWithoutRun = capability.tool == "github_ci" && capability.action in setOf("dispatch", "rerun", "cancel") && eligible.isEmpty() && observed.isEmpty()
                 val repositoryPrerequisites = if (capability.tool == "github_repository") GitHubRepositoryReadiness.read(capability.action, tools, allTrusted) else null
+                val graphPrerequisites = if (capability.tool == "repository_graph") GitHubSelfTestGraph.requiredInputs(capability.action, allTrusted) else emptyList()
                 val repositoryStatusWithoutOperation = repositoryPrerequisites?.conditional == true && eligible.isEmpty() && observed.isEmpty()
                 val notRequested = GitHubChecklistScope.readOnly(task) && !readOnly(capability) || GitHubChecklistScope.supportedFixturePlan(task) && unsupportedFixture || ciActionWithoutRun
-                val readyCall = if (authorized && readOnly(capability) && eligible.isEmpty()) readyReads[capability.tool to capability.action] else null
+                val readyCall = if (authorized && readOnly(capability) && (eligible.isEmpty() || graphIncomplete)) readyReads[capability.tool to capability.action] else null
                 val conditionalDecision = capability.tool == "github_decide" && observed.isEmpty()
                 val awaitingFixtureStart = !readOnly(capability) &&
                     GitHubSelfTestFixtures.supports(capability.tool, capability.action) &&
@@ -581,7 +593,7 @@ internal object GitHubTestChecklist {
                 val fixtureApprovalConditional = awaitingFixtureStart && fixturePreflight?.text("state") == "CONDITIONAL"
                 val blocker = when {
                     fixtureApprovalUnknown -> "Fixture approval mode is unavailable. Recheck the effective approval policy for this task before creating a fixture."
-                    fixtureApprovalConditional -> "The effective approval mode requires an explicit fixture approval decision. Enable fixture-only auto approval for codex-self-test/* or run the approval interaction harness."
+                    fixtureApprovalConditional -> "The effective approval mode requires an explicit fixture approval decision. In GitHub workspace > Settings > Chat decisions, choose Fixture-only auto-approval for codex-self-test/*, or use the existing Approve & Commit interaction. This task retains its original approval preflight; changing settings does not approve an already staged patch."
                     awaitingFixtureStart -> "Fixture-only approval is available. The owned fixture still needs execution and verified cleanup within the remaining budget."
                     ciActionWithoutRun -> "No workflow run or job ID was supplied or deliberately created for this task. This CI mutation is conditional and was not requested."
                     repositoryStatusWithoutOperation -> "No repository creation, fork, import or clone was started in this task. This status read is conditional on a retained lifecycle receipt: operation_id for a gateway transfer, or expected_repository_id and the exact original destination for native creation. A selected revision or source path cannot supply that identity; no unrelated repository is created just to exercise status."
@@ -590,16 +602,19 @@ internal object GitHubTestChecklist {
                     eligible.isEmpty() && observed.isNotEmpty() -> "Current catalog excludes the historical receipts; reauthorize this operation before using them as proof."
                     waitingApproval -> "The exact staged patch is waiting for its existing Approve & Commit card. Generic continuation cannot grant approval; preserve the task and fixture."
                     transportMissing -> "Saved, local or mocked responses cannot qualify this remote operation; an authorized live read or verified mutation is still required."
+                    graphIncomplete -> "The graph response is incomplete. " + graphPrerequisites.joinToString("; ")
                     incomplete -> "The endpoint responded but traversal or log availability remains incomplete; follow the saved continuation or wait for the recorded state change."
                     failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + GitHubVerificationRecovery.advice(failures)
                     readyCall != null -> "Ready under the current authorized action schema; all required inputs are available. No qualifying execution has been observed."
                     repositoryPrerequisites?.requiredInputs?.isNotEmpty() == true -> "Repository lifecycle prerequisites: " + repositoryPrerequisites.requiredInputs.joinToString("; ")
+                    graphPrerequisites.isNotEmpty() -> "Graph prerequisite: $graphObservation. " + graphPrerequisites.joinToString("; ")
                     conditionalDecision -> "Conditional user-decision behavior has no genuine decision in this task. It remains untested; test it in the interaction harness."
                     capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run bound to the selected revision. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
                     !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
                     capability.tool == "github_issue" -> "No issue identifier observed from the issue inventory; a pull request number cannot satisfy this dependency."
                     capability.tool == "github_pr" -> "No pull request identifier observed from the pull request inventory."
                     capability.tool == "github_ci" -> "Requires an observed workflow/run and a completed job for logs or a failed completed run for failure analysis."
+                    capability.tool == "repository_graph" -> "Graph prerequisite: $graphObservation. Preparation has not executed this capability and does not change graph authorization."
                     capability.tool == "github_release" -> "Requires a tag or release observed in the repository inventory."
                     else -> "Requires an authorized tool and its observed repository revision or source path."
                 }
@@ -630,11 +645,13 @@ internal object GitHubTestChecklist {
                     awaitingFixtureStart && authorized -> GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
                     repositoryStatusWithoutOperation -> GitHubCriterionBlocker.REPOSITORY_LIFECYCLE_REQUIRED
                     transportMissing -> GitHubCriterionBlocker.LIVE_EVIDENCE_REQUIRED
+                    graphIncomplete -> GitHubSelfTestGraph.blocker(capability.action, allTrusted) ?: GitHubCriterionBlocker.CONTINUATION_REQUIRED
                     incomplete -> GitHubCriterionBlocker.CONTINUATION_REQUIRED
                     status == "PREFLIGHT_REJECTED" -> GitHubCriterionBlocker.PRECHECK_REJECTED
                     status == "FAILED" -> GitHubCriterionBlocker.OPERATION_FAILED
                     status == "UNTESTED" -> GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
                     repositoryPrerequisites?.requiredInputs?.isNotEmpty() == true -> if (capability.action == "status") GitHubCriterionBlocker.REPOSITORY_LIFECYCLE_REQUIRED else GitHubCriterionBlocker.OPERATION_IDENTITY_REQUIRED
+                    capability.tool == "repository_graph" && readOnly(capability) -> GitHubSelfTestGraph.blocker(capability.action, allTrusted) ?: GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
                     capability.tool == "github_decide" -> GitHubCriterionBlocker.USER_DECISION_REQUIRED
                     capability.tool == "github_watch_checks" -> GitHubCriterionBlocker.CHECK_SUBSCRIPTION_REQUIRED
                     !readOnly(capability) -> GitHubCriterionBlocker.OWNED_FIXTURE_REQUIRED
@@ -682,6 +699,10 @@ internal object GitHubTestChecklist {
                     put("acceptance_state", if (waitingApproval) "WAITING_FOR_APPROVAL" else GitHubAcceptanceLedger.state(status).name)
                     blockerCode?.let { put("blocker_code", it.name) }
                     repositoryPrerequisites?.requiredInputs?.takeIf { it.isNotEmpty() }?.let { put("required_inputs", JsonArray(it.map(::JsonPrimitive))) }
+                    if (graphPrerequisites.isNotEmpty() && status !in setOf("PASSED", "RECOVERED") && readyCall == null) put("required_inputs", JsonArray(graphPrerequisites.map(::JsonPrimitive)))
+                    if (capability.tool == "repository_graph" && blockerCode?.name in GitHubSelfTestPrerequisites.graphInputBlockerCodes) {
+                        put("repository_graph_observation", graphObservation)
+                    }
                     put("evidence_origins", JsonArray(successes.ifEmpty { eligible }.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     put("historical_evidence_origins", JsonArray(eligible.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     if (eligible.any { GitHubPendingApproval.publication(it, allTrusted) != null }) {
@@ -742,7 +763,7 @@ internal object GitHubTestChecklist {
                             put("successfully_tested", status in setOf("PASSED", "RECOVERED") && latestDispatch?.get("success") == JsonPrimitive(true))
                         }
                     )
-                    put("inventory_status", if (successes.any { data(it)?.get("complete") == JsonPrimitive(false) }) "PARTIAL" else "See independent inventory coverage")
+                    put("inventory_status", if (graphIncomplete || successes.any { data(it)?.get("complete") == JsonPrimitive(false) || (data(it)?.get("graph") as? JsonObject)?.get("complete") == JsonPrimitive(false) }) "PARTIAL" else "See independent inventory coverage")
                     put("evidence_scope", "Validated response for the exact action; origins identify LIVE, CACHED, LOCAL, MOCKED or NOT_TESTED execution. Fixture state, cleanup, application behavior and device health require separate evidence")
                     put("receipt_ids", JsonArray(observed.mapNotNull { it["receipt_id"] }))
                     put("successful_receipt_ids", JsonArray(successes.mapNotNull { it["receipt_id"] }))
@@ -910,7 +931,7 @@ internal object GitHubTestChecklist {
         )
         put("acceptance_ledger", GitHubAcceptanceLedger.snapshot(requirements = requirements, capabilities = capabilities, requestDigest = GitHubEvidenceBook.digest(task)))
         put("coverage_source", if (tools.isEmpty()) "BASELINE_CATALOG" else "AUTHORIZED_TOOL_ACTION_SCHEMAS")
-        put("pagination_policy", "Reuse complete persisted originals and their exact remote recipes; consume display fragments only when no complete original was retained; up to 32 definition pages per revision independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
+        put("pagination_policy", "Reuse complete persisted originals and their exact remote recipes; consume display fragments only when no complete original was retained; up to 32 definition pages per revision and eight exact-head executed-job continuation pages independently of two remote inventory samples, or eight while locating an issue dependency, unless complete inventory is explicitly requested; restore retained pages locally before one bounded read-only source recovery")
         val acceptance = if (integrationCoverage) {
             listOf("Each requested capability has a result or explicit untested/blocker reason", "Every claim cites matching branch/PR/SHA receipts", "Complete durable sources or required local fragments, and remote pages, consumed or explicitly pending", "Application test results bound to newly executed runs at tested SHA", "Coverage, measured score or limitation, failures and solutions retained", "Authorized isolated write fixtures verified and cleaned up")
         } else {
@@ -974,6 +995,11 @@ internal object GitHubTestChecklist {
             put("complete", pending.isEmpty())
             put("acquisition_allowed", acquisitionAllowed)
             put("cleanup_reserve", GitHubChecklistBudget.cleanupReserve(receipts))
+            GitHubSelfTestWorkflowJobs.dependencyObservation(tools, observations)?.let { observed ->
+                val current = GitHubSelfTestPrerequisites.selected(observations)
+                val runPage = next?.name?.substringBefore("__") == "github_ci" && next.arguments.text("action") == "runs" && current != null && next.arguments["commit_sha"] == current.head
+                put("workflow_dependency_observation", if (observed == "MISSING_EXECUTED_JOB" && runPage) "RUN_PAGE_AVAILABLE" else observed)
+            }
             next?.let {
                 put(
                     "next_call",

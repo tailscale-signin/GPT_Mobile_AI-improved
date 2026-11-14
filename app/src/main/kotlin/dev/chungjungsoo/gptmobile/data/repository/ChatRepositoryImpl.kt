@@ -1820,7 +1820,7 @@ class ChatRepositoryImpl(
         val githubProfile = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.platform(platform, features, chatToolConfig?.github)
         val githubTools = dev.chungjungsoo.gptmobile.data.github.GitHubChatPolicy.tools(chatToolConfig, features, platform.uid)
         emitAll(preparedCompleteChat(userMessages, completeHistory, githubProfile, runId, githubTools, fence, boundStage))
-    }.withSystemOutputLineage(runId).flowOn(Dispatchers.Default)
+    }.withFailureBoundaryEvidence(runId, platform).withSystemOutputLineage(runId).flowOn(Dispatchers.Default)
 
     override suspend fun preflightAnswerPrivacy(platform: PlatformV2) = withContext(Dispatchers.Default) {
         // UI entry points share this preflight with generation. Metadata parsing
@@ -2716,6 +2716,27 @@ class ChatRepositoryImpl(
         }
     }.withGitHubApiDelivery(chatToolConfig?.github != null && chatToolConfig.combined == null, runId)
 
+    /** Error values do not enter catch; retain their observed owner without inventing an exception or dispatch. */
+    private fun Flow<ApiState>.withFailureBoundaryEvidence(runId: String, platform: PlatformV2): Flow<ApiState> = map { event ->
+        if (event !is ApiState.Error) return@map event
+        val original = event.failureDetails.orEmpty()
+        val boundary = if ("incident_capture_site" !in original && (event.errorCode.isNullOrBlank() || event.errorCode == "UNKNOWN" || original.isEmpty())) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.boundaryFields(
+                dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE
+            )
+        } else {
+            emptyMap()
+        }
+        event.copy(
+            failureDetails = kotlinx.serialization.json.JsonObject(
+                boundary + mapOf(
+                    "run_id" to kotlinx.serialization.json.JsonPrimitive(runId),
+                    "provider_kind" to kotlinx.serialization.json.JsonPrimitive(platform.compatibleType.name)
+                ) + original
+            )
+        )
+    }
+
     /** Includes admission failures that return before preparedCompleteChat is reached. */
     private fun Flow<ApiState>.withSystemOutputLineage(runId: String): Flow<ApiState> = onEach { event ->
         val output = when (event) {
@@ -3426,7 +3447,7 @@ class ChatRepositoryImpl(
                     toolOmissions = plan.toolOmissions + tools.filterNot { it.tool.definition.name in relevant }.associate { it.modelToolName to dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason.NOT_NEEDED }
                 )
             } else {
-                planPrimaryContext(turns, prompt, tools, admittedSettings, true, githubMode, requestedTask, requireToolExecution)
+                planPrimaryContext(turns, prompt, tools, admittedSettings, true, githubMode, requestedTask, requireToolExecution, allowOutputReduction = combined == null && features.tokenBudget.outputTokens <= 0)
             }
         }
     }
@@ -3867,7 +3888,7 @@ class ChatRepositoryImpl(
         }
     }
 
-    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean): dev.chungjungsoo.gptmobile.data.context.ContextPlan = dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(turns, prompt, tools, limits, externalTools, githubMode, requestedTask, requireToolExecution)
+    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean, allowOutputReduction: Boolean = false): dev.chungjungsoo.gptmobile.data.context.ContextPlan = dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(turns, prompt, tools, limits, externalTools, githubMode, requestedTask, requireToolExecution, allowOutputReduction)
 
     private fun withoutExcludedAttachments(messages: List<MessageV2>, excluded: Collection<String>) =
         messages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in excluded }) }

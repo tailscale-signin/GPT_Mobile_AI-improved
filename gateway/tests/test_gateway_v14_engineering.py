@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import sqlite3
@@ -7,6 +8,7 @@ import threading
 import unittest
 import requests
 from pathlib import Path
+from contextlib import asynccontextmanager
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -77,7 +79,45 @@ class DurableEngineeringTests(unittest.TestCase):
         self.request['execution_binding_id'] = result['binding']['binding_id']
 
     def tearDown(self):
+        for graph in (self.service.graph, self.service.public_graph):
+            jobs = getattr(graph, '_index_jobs', None)
+            if jobs is not None:
+                jobs.close()
         self.temp.cleanup()
+
+    def test_lifecycle_recovers_both_index_providers_and_closes_before_reader(self):
+        events = []
+        self.service = EngineeringService(self.store, self.backend, public_repository_maps=True)
+        for name, graph in [('authenticated', self.service.graph), ('public', self.service.public_graph)]:
+            graph._index_jobs = SimpleNamespace(start=lambda name=name: events.append('start:' + name),
+                                                close=lambda name=name: events.append('close:' + name))
+        self.service.public_graph.backend.close = lambda: events.append('reader:close')
+        self.backend.cancel = lambda: events.append('backend:cancel')
+        @asynccontextmanager
+        async def parent(app):
+            events.append('parent:start')
+            yield
+            events.append('parent:close')
+        async def run():
+            async with self.service.lifecycle(parent)(None):
+                self.assertEqual(['parent:start', 'start:authenticated', 'start:public'], events)
+                self.assertIs(self.service.graph.public_service, self.service.public_graph)
+        asyncio.run(run())
+        self.assertEqual(['parent:start', 'start:authenticated', 'start:public', 'backend:cancel',
+                          'close:authenticated', 'close:public', 'reader:close', 'parent:close'], events)
+        self.assertFalse(self.service.thread.is_alive())
+
+    def test_disabled_durable_lifecycle_does_not_create_index_workers_or_storage(self):
+        self.runtime.GATEWAY_DURABLE_JOBS = False
+        self.backend.cancel = lambda: None
+        @asynccontextmanager
+        async def parent(app):
+            yield
+        async def run():
+            async with self.service.lifecycle(parent)(None):
+                self.assertIsNone(self.service.graph._index_jobs)
+        asyncio.run(run())
+        self.assertIsNone(self.service.graph._index_jobs)
 
     def ready(self):
         job = self.store.create('owner', self.request)

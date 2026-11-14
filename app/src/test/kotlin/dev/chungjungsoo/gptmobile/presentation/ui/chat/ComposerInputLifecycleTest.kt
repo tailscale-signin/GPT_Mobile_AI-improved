@@ -91,7 +91,7 @@ class ComposerInputLifecycleTest {
         }
     }
 
-    @Test fun runStartReleasesThePreviousSessionButAllowsAFreshFollowUpWhileRunning() {
+    @Test fun backgroundRunStartKeepsTheCurrentDraftFocusedAndEditable() {
         var running by mutableStateOf(false)
         val input = TextFieldState("Saved draft")
         compose.setContent {
@@ -99,9 +99,9 @@ class ComposerInputLifecycleTest {
         }
         compose.onNodeWithContentDescription("Message input").performClick()
         compose.runOnIdle { running = true }
-        compose.onNodeWithContentDescription("Message input").assertIsNotFocused()
+        compose.onNodeWithContentDescription("Message input").assertIsFocused()
         compose.runOnIdle { assertEquals("Saved draft", input.text.toString()) }
-        compose.onNodeWithContentDescription("Message input").performClick().performTextInput(" after start")
+        compose.onNodeWithContentDescription("Message input").performTextInput(" after start")
         compose.onNodeWithContentDescription("Message input").assertIsFocused()
         compose.runOnIdle { assertEquals("Saved draft after start", input.text.toString()) }
     }
@@ -140,14 +140,13 @@ class ComposerInputLifecycleTest {
     }
 
     @Test fun releasedComposerDoesNotAddAKeyboardTraversalStop() {
-        var running by mutableStateOf(false)
         lateinit var focusManager: FocusManager
         compose.setContent {
             focusManager = LocalFocusManager.current
             MaterialTheme {
                 Column {
                     androidx.compose.foundation.text.BasicTextField(state = rememberTextFieldState("Other draft"), modifier = Modifier.testTag("other_editor"))
-                    ChatInputBox(inputState = rememberTextFieldState("Retained"), attachmentsEnabled = false, isRunning = running)
+                    ChatInputBox(inputState = rememberTextFieldState("Retained"), attachmentsEnabled = false)
                 }
             }
         }
@@ -155,7 +154,7 @@ class ComposerInputLifecycleTest {
         compose.runOnIdle { assertTrue(focusManager.moveFocus(FocusDirection.Previous)) }
         compose.onNodeWithTag("other_editor").assertIsFocused()
         compose.onNodeWithContentDescription("Message input").performClick()
-        compose.runOnIdle { running = true }
+        compose.onNodeWithTag("chat_send").performClick()
         compose.onNodeWithContentDescription("Message input").assertIsNotFocused()
         compose.onNodeWithContentDescription("Message input").performClick()
         compose.runOnIdle { assertTrue(focusManager.moveFocus(FocusDirection.Previous)) }

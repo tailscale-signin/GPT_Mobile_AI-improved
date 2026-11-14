@@ -153,6 +153,48 @@ class IssueReportDiagnosticsTest {
         assertTrue(rejected.values.isEmpty())
     }
 
+    @Test fun githubPrerequisiteEvidenceIsClosedAndRequiresItsMatchingServiceFeature() {
+        val values = mapOf("repository_graph_observation" to "NOT_INDEXED", "graph_input_blocked_count" to 16, "workflow_dependency_observation" to "MISSING_EXECUTED_JOB")
+        val snapshot = capture("ACCEPTANCE", values)
+        assertEquals(values.keys, snapshot.values.keys)
+        assertTrue("GITHUB_PREREQUISITE_EVIDENCE_V1" in snapshot.requiredServiceFeatures())
+        assertTrue(snapshot.isValid())
+        val omitted = capture("ACCEPTANCE", emptyMap()).copy(omittedFields = values.keys.toList())
+        assertTrue(omitted.isValid())
+        assertTrue("GITHUB_PREREQUISITE_EVIDENCE_V1" in omitted.requiredServiceFeatures())
+        for ((key, value) in listOf(
+            "repository_graph_observation" to JsonPrimitive("private/path"),
+            "workflow_dependency_observation" to JsonPrimitive("private-run-id"),
+            "graph_input_blocked_count" to JsonPrimitive(-1),
+            "graph_input_blocked_count" to JsonPrimitive("16")
+        )) {
+            assertNull(snapshot.copy(values = snapshot.values + (key to value)).validated())
+        }
+        assertNull(snapshot.copy(area = "PROVIDER").validated())
+    }
+
+    @Test fun graphPolicyFieldsAndNewEnumValuesRequireTheirExplicitReporterFeature() {
+        val feature = "GITHUB_GRAPH_POLICY_EVIDENCE_V1"
+        val evidence = listOf(
+            mapOf("branch_protection_http_status" to 404),
+            mapOf("branch_rules_http_status" to 403),
+            mapOf("status_policy_recovery" to "CHECK_RULES_READ_PERMISSION")
+        ) + listOf("GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED").map {
+            mapOf("unmet_criterion_blockers" to listOf(it))
+        }
+        for (fields in evidence) {
+            val snapshot = capture("ACCEPTANCE", fields)
+            assertEquals(fields.keys, snapshot.values.keys)
+            assertTrue(snapshot.isValid())
+            assertTrue(feature in snapshot.requiredServiceFeatures())
+        }
+        val omitted = capture("ACCEPTANCE", emptyMap()).copy(omittedFields = listOf("branch_protection_http_status", "branch_rules_http_status"))
+        assertTrue(omitted.isValid())
+        assertTrue(feature in omitted.requiredServiceFeatures())
+        val legacy = capture("ACCEPTANCE", mapOf("status_policy_recovery" to "CHECK_PROTECTION_READ_PERMISSION", "unmet_criterion_blockers" to listOf("REPOSITORY_INPUT_REQUIRED")))
+        assertFalse(feature in legacy.requiredServiceFeatures())
+    }
+
     @Test fun toolBudgetEvidenceCanBeCapturedAndNegotiated() {
         val context = IssueReportContext.fromFields(
             "TOOL_RESULT",

@@ -539,10 +539,14 @@ class OpenAICompatibleAdapter @Inject constructor(
             var emulatorFallbackTried = false
             var currentConfig = config
             val assistantSegment = StringBuilder()
+            var caughtEvidence: kotlinx.serialization.json.JsonObject? = null
 
             while ((System.nanoTime() - startTime) / 1_000_000 < maxRetryDurationMs) {
                 var chunkError: String? = null
+                var chunkFailure: ProviderEvent.Failed? = null
+                var chunkTransportReplayAllowed = false
                 var caughtThrowable: Throwable? = null
+                caughtEvidence = null
 
                 val elapsedBeforeAttemptMs = (System.nanoTime() - startTime) / 1_000_000
                 val remainingAttemptMs = (maxRetryDurationMs - elapsedBeforeAttemptMs).coerceAtLeast(1L)
@@ -568,6 +572,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                             .catch { error ->
                                 if (error is CancellationException || error is ToolDefinitionsRejectedException) throw error
                                 caughtThrowable = error
+                                if (chunkFailure == null) caughtEvidence = providerAdapterExceptionEvidence(error)
                             }
                             .collect { chunk ->
                                 chunk.applicationNotice?.let { emit(ProviderEvent.Notice(it, persistent = true)) }
@@ -609,6 +614,8 @@ class OpenAICompatibleAdapter @Inject constructor(
 
                                 chunk.error?.let { err ->
                                     chunkError = err.message
+                                    chunkFailure = ProviderEvent.Failed(err.message, errorCode = err.code, providerLimit = err.providerLimit, failureDetails = err.failureDetails)
+                                    chunkTransportReplayAllowed = allowsOllamaTransportReplay(err)
                                 } ?: chunk.choices.orEmpty().forEach { choice ->
                                     val delta = choice.effectiveDelta
                                     if (!delta.content.isNullOrEmpty() || !delta.effectiveReasoning.isNullOrEmpty() || !delta.toolCalls.isNullOrEmpty()) {
@@ -636,14 +643,22 @@ class OpenAICompatibleAdapter @Inject constructor(
                     caughtThrowable = java.net.SocketTimeoutException("Ollama recovery deadline exceeded")
                 }
 
+                // A typed frame also owns recovery classification and endpoint selection.
+                val effectiveThrowable = caughtThrowable.takeIf { chunkFailure == null }
+                val rawError = chunkError ?: effectiveThrowable?.message
+                val isTimeoutOrConnection = chunkTransportReplayAllowed || isOllamaTimeoutOrNetworkGlitch(rawError, effectiveThrowable)
+                // A later exception cannot override a rejection. Only explicit
+                // transport replay authority may enter the existing recovery loop.
+                val authoritativeFailure = chunkFailure?.takeUnless { chunkTransportReplayAllowed && isTimeoutOrConnection && !hasReceivedTokens }
+                if (authoritativeFailure != null) {
+                    emit(authoritativeFailure)
+                    return null
+                }
                 assembler.discardIncomplete().forEach { emit(it) }
                 if (attemptCompleted == null) {
                     emit(ProviderEvent.Failed("Ollama recovery deadline exceeded after 2 minutes."))
                     return null
                 }
-                val rawError = chunkError ?: caughtThrowable?.message
-                val isTimeoutOrConnection = isOllamaTimeoutOrNetworkGlitch(rawError, caughtThrowable)
-
                 if (chunkError == null && caughtThrowable == null) {
                     ollamaSucceeded = true
                     break
@@ -651,13 +666,16 @@ class OpenAICompatibleAdapter @Inject constructor(
                     // Restarting after delivering output or a tool call can duplicate
                     // content/actions. Let the parent handle this incomplete attempt.
                     if (hasReceivedTokens) {
-                        emit(ProviderEvent.Failed(rawError ?: "Ollama stream interrupted after output"))
+                        emit(chunkFailure ?: ProviderEvent.Failed(rawError ?: "Ollama stream interrupted after output", failureDetails = caughtEvidence))
                         return null
                     }
                     // If connecting to localhost or 127.0.0.1 fails immediately, try switching to 10.0.2.2 for Android emulator
-                    val connectionFailed = caughtThrowable is java.net.ConnectException ||
-                        rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
-                        rawError.orEmpty().contains("failed to connect", ignoreCase = true)
+                    val connectionFailed = chunkFailure == null &&
+                        (
+                            effectiveThrowable is java.net.ConnectException ||
+                                rawError.orEmpty().contains("connection refused", ignoreCase = true) ||
+                                rawError.orEmpty().contains("failed to connect", ignoreCase = true)
+                            )
                     if (!constraints.lockSelectedRoute && !emulatorFallbackTried && connectionFailed && isLocalLoopbackUrl(currentConfig.apiUrl)) {
                         val fallbackUrl = rewriteLoopbackForEmulator(currentConfig.apiUrl)
                         if (fallbackUrl != currentConfig.apiUrl) {
@@ -680,13 +698,13 @@ class OpenAICompatibleAdapter @Inject constructor(
                     }
                 } else {
                     // Non-timeout error (e.g. invalid model, bad JSON, unauthorized)
-                    emit(ProviderEvent.Failed(rawError ?: "Ollama request failed"))
+                    emit(chunkFailure ?: ProviderEvent.Failed(rawError ?: "Ollama request failed", failureDetails = caughtEvidence))
                     return null
                 }
             }
 
             if (ollamaSucceeded) return lastFinishReason to assistantSegment.toString()
-            emit(ProviderEvent.Failed("Ollama recovery deadline exceeded after 2 minutes."))
+            emit(ProviderEvent.Failed("Ollama recovery deadline exceeded after 2 minutes.", failureDetails = caughtEvidence))
             return null
         }
 
@@ -1120,6 +1138,7 @@ class OpenAICompatibleAdapter @Inject constructor(
         var canRotate = false
         var lastFailedMessage: String? = null
         var localCircuitRejection: ProviderEvent.Failed? = null
+        var caughtEvidence: kotlinx.serialization.json.JsonObject? = null
         var limit: dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision? = null
         val effectiveOutputTokens = ProviderRouteCapacity.output(platform, constraints.outputLimit(platform.maxTokens))
         if (constraints.maxOutputTokens != null) {
@@ -1172,6 +1191,7 @@ class OpenAICompatibleAdapter @Inject constructor(
                 streamInterrupted = true
                 limit = (error as? Exception)?.let { dev.chungjungsoo.gptmobile.data.network.providerLimitDecision(config, platform.model, deliveredPayload, it) }
                 localCircuitRejection = providerCircuitRejection(error, deliveredPayload)
+                if (localCircuitRejection == null) caughtEvidence = providerAdapterExceptionEvidence(error)
                 lastFailedMessage = if (limit != null) "Groq rejected this request at its rate limit. Check the saved retry time." else providerFailureMessage(error, "Groq stream request failed")
                 protocolErrorCode = when {
                     limit != null -> "PROVIDER_RATE_LIMITED"
@@ -1234,7 +1254,7 @@ class OpenAICompatibleAdapter @Inject constructor(
             return true
         } else {
             val completeOutputLimit = terminalReceived && !streamInterrupted && protocolErrorCode == null && lastFailedMessage == GROQ_OUTPUT_LIMIT_MESSAGE
-            emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit, providerLimit = limit))
+            emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", errorCode = protocolErrorCode ?: "OUTPUT_LIMIT".takeIf { completeOutputLimit }, transportComplete = completeOutputLimit, providerLimit = limit, failureDetails = caughtEvidence))
             return false
         }
     }
@@ -1276,6 +1296,18 @@ class OpenAICompatibleAdapter @Inject constructor(
     private fun rewriteLoopbackForEmulator(url: String): String =
         url.replace("://localhost", "://10.0.2.2")
             .replace("://127.0.0.1", "://10.0.2.2")
+
+    private fun allowsOllamaTransportReplay(error: dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail): Boolean {
+        val details = error.failureDetails ?: return false
+        return error.retryable == true &&
+            (details["retryable"] == null || details["retryable"] == JsonPrimitive(true)) &&
+            details["request_replay_allowed"] == JsonPrimitive(true) &&
+            (details["requires_reconciliation"] == null || details["requires_reconciliation"] == JsonPrimitive(false)) &&
+            !(details["outcome"] as? JsonPrimitive)?.content.equals("unknown", ignoreCase = true) &&
+            error.providerLimit == null &&
+            !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) &&
+            dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind.entries.any { it.retryable && it.code == error.code }
+    }
 
     private fun isOllamaTimeoutOrNetworkGlitch(errorMsg: String?, throwable: Throwable?): Boolean {
         if (throwable != null) {
@@ -1707,6 +1739,7 @@ class GeminiAdapter @Inject constructor(
                     val roundParts = mutableListOf<Pair<String?, Part>>()
                     val roundCallIds = mutableListOf<String>()
                     var localCircuitRejection: ProviderEvent.Failed? = null
+                    var caughtEvidence: kotlinx.serialization.json.JsonObject? = null
 
                     api.streamGenerateContent(request, platform.model, platform.timeout, config)
                         .transformWhile { response ->
@@ -1719,6 +1752,7 @@ class GeminiAdapter @Inject constructor(
                             terminalReceived = false
                             localCircuitRejection = providerRateLimitRejection(error, config, platform.model, deliveredPayload)
                                 ?: providerCircuitRejection(error, deliveredPayload)
+                            if (localCircuitRejection == null) caughtEvidence = providerAdapterExceptionEvidence(error)
                             lastFailedMessage = providerFailureMessage(error, "Gemini stream request failed")
                             canRotate = localCircuitRejection == null && ApiCredentialRotator.isRotatableError(error)
                         }
@@ -1770,7 +1804,7 @@ class GeminiAdapter @Inject constructor(
                     } else if (canRotate && !deliveredPayload && attempt < attempts - 1) {
                         continue
                     } else {
-                        emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", transportComplete = terminalReceived && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(lastFailedMessage.orEmpty())))
+                        emit(localCircuitRejection ?: ProviderEvent.Failed(lastFailedMessage ?: "Provider request failed", transportComplete = terminalReceived && dev.chungjungsoo.gptmobile.data.agent.tool.isProviderOutputLimitFailure(lastFailedMessage.orEmpty()), failureDetails = caughtEvidence))
                         return@flow
                     }
                 }
@@ -1778,6 +1812,13 @@ class GeminiAdapter @Inject constructor(
         }
     }
 }
+
+/** The observed adapter catch does not establish a provider dispatch or remote cause. */
+internal fun providerAdapterExceptionEvidence(error: Throwable): kotlinx.serialization.json.JsonObject =
+    dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.exceptionFields(
+        error,
+        dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.PROVIDER_ADAPTER_STREAM_CATCH
+    )
 
 private fun dev.chungjungsoo.gptmobile.data.dto.ApiState.toProviderEvent(): ProviderEvent? = when (this) {
     is dev.chungjungsoo.gptmobile.data.dto.ApiState.Success -> ProviderEvent.TextDelta(textChunk, lineage)

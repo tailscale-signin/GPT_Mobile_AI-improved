@@ -50,11 +50,17 @@ class GitHubStatusCatalogTest {
         }
     }
 
-    @Test fun repairSourceAuditAndIntegrationRequestsKeepTheirFullGithubSchemas() {
+    @Test fun repairSourceAuditAndIntegrationRequestsKeepAuthorizedSchemasDiscoverable() = runTest {
         for (task in listOf("Inspect the repository code and fix the failures", "Audit repository security and current status", "status\n[github-workflow-preset:test_integration]")) {
             val catalog = ProgressiveToolCatalog(definitions, task, githubMode = true)
             assertFalse(catalog.scopedGitHubStatus)
-            assertEquals(definitions.map { it.name }.toSet(), catalog.selected(definitions).map { it.name }.toSet())
+            val initial = catalog.selected(definitions + catalog.definition)
+            assertTrue(task, initial.any { GitHubOperationTool.operationName(it.name) == "github_context" })
+            assertTrue(task, initial.size < definitions.size + 1)
+            val deferred = definitions.first { GitHubOperationTool.operationName(it.name) == "github_write" }
+            assertFalse(task, initial.any { it.name == deferred.name })
+            assertFalse(catalog.execute("discover-write", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(deferred.name)))) }).isError)
+            assertTrue(task, catalog.selected(definitions + catalog.definition).any { it.name == deferred.name })
         }
     }
 

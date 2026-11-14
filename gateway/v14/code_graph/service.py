@@ -1,6 +1,7 @@
 """Repository-authorized graph operations using the existing GitHub connection."""
 import base64
 import concurrent.futures
+import collections
 import json
 import os
 import re
@@ -12,8 +13,9 @@ from pathlib import Path
 from urllib.parse import quote
 
 from . import EXTRACTOR_VERSION, SCHEMA_VERSION
-from .engine import Graph, GraphStore, bounded, encoded, scope, import_matches
-from .extract import extract, identity, permitted, MAX_FILE_BYTES
+from .engine import Graph, GraphStore, bounded, encoded, scope, import_matches, snapshot_metadata, snapshot_fingerprint
+from .extract import extract, identity, permitted, MAX_SOURCE_BYTES, metadata_fragment
+from .paging import graph_page
 from v14.engineering_backend import blob_sha
 from v14.memory import local_model_destination
 
@@ -42,6 +44,12 @@ def validate(request):
     for name in ('query', 'symbol', 'source', 'target', 'producer', 'consumer', 'base_sha'):
         if name in request and (not isinstance(request[name], str) or len(request[name]) > 2000):
             raise ValueError('Invalid graph selector')
+    for name in ('index_cursor', 'result_cursor'):
+        if name in request and (not isinstance(request[name], str) or len(request[name]) > 512):
+            raise ValueError('Invalid graph cursor')
+    for name in ('retry_failed', 'background'):
+        if name in request and type(request[name]) is not bool:
+            raise ValueError('Invalid graph option')
     if 'paths' in request and (not isinstance(request['paths'], list) or len(request['paths']) > 100 or any(not isinstance(p, str) or len(p) > 400 for p in request['paths'])):
         raise ValueError('Invalid impact paths')
     return request
@@ -53,6 +61,54 @@ class GraphService:
         self.public = public
         self.lock = threading.RLock()
         self.admission = threading.BoundedSemaphore(2)
+        self.graph_cache = collections.OrderedDict()
+        self.public_service = None
+        self.cancelled = lambda job: False
+        self.authorized = lambda principal: True
+        self._index_jobs = None
+        self._cancellation = threading.local()
+
+    @property
+    def index_jobs(self):
+        if self._index_jobs is None:
+            with self.lock:
+                if self._index_jobs is None:
+                    from .index_jobs import GraphIndexJobs
+                    self._index_jobs = GraphIndexJobs(self)
+        return self._index_jobs
+
+    def start_jobs(self):
+        self.index_jobs.start()
+
+    def resolved(self, namespace, snapshot):
+        key = (namespace, snapshot['sha'], snapshot_fingerprint(snapshot))
+        with self.lock:
+            graph = self.graph_cache.get(key)
+            hit = graph is not None
+            if graph is None:
+                graph = Graph(snapshot)
+                self.graph_cache[key] = graph
+                while len(self.graph_cache) > 2:
+                    self.graph_cache.popitem(last=False)
+            else:
+                self.graph_cache.move_to_end(key)
+        return graph, hit
+
+    def reuse_fragments(self, namespace, snapshot):
+        if len(snapshot['fragments']) == len(snapshot['manifest']):
+            return snapshot
+        prior = self.store.load(namespace, exclude_sha=snapshot['sha'])
+        reused = 0
+        if prior:
+            for path, fragment in prior['fragments'].items():
+                if (path not in snapshot['fragments'] and path in snapshot['manifest'] and
+                        prior['manifest'][path]['sha'] == snapshot['manifest'][path]['sha'] and
+                        fragment.get('version') == EXTRACTOR_VERSION and fragment['status'] not in {'failed', 'unsupported'}):
+                    snapshot['fragments'][path] = fragment
+                    reused += 1
+        if reused and 'index_metrics' in snapshot:
+            snapshot['index_metrics']['cache_hits'] = snapshot['index_metrics'].get('cache_hits', 0) + reused
+        return snapshot
 
     def authorize(self, principal, request):
         root = '/repos/' + request['repository']
@@ -76,7 +132,7 @@ class GraphService:
     def snapshot(self, namespace, request, root):
         previous = self.store.load(namespace, request['commit_sha'])
         if previous:
-            return previous
+            return self.reuse_fragments(namespace, previous)
         tree = self.backend.api(root + '/git/trees/' + request['commit_sha'] + '?recursive=1')
         if tree.get('truncated') is not False:
             raise ValueError('Repository tree is incomplete; graph indexing did not start')
@@ -84,7 +140,7 @@ class GraphService:
                     if item.get('type') == 'blob' and item.get('mode') in {'100644', '100755'} and permitted(item['path'])}
         if len(manifest) > 8000:
             raise ValueError('Repository exceeds the 8000-file graph limit')
-        prior = self.store.load(namespace)
+        prior = self.store.load(namespace, exclude_sha=request['commit_sha'])
         fragments = {}
         if prior:
             fragments = {p: f for p, f in prior['fragments'].items() if p in manifest and
@@ -99,7 +155,7 @@ class GraphService:
         snapshot = self.snapshot(namespace, request, root)
         snapshot.setdefault('index_metrics', {'cache_hits': len(snapshot['fragments']), 'parsed_files': 0, 'read_bytes': 0, 'index_ms': 0.0})
         if request.get('retry_failed') is True and not request.get('index_cursor'):
-            snapshot['fragments'] = {p: f for p, f in snapshot['fragments'].items() if f['status'] not in {'unsupported', 'failed'}}
+            snapshot['fragments'] = {p: f for p, f in snapshot['fragments'].items() if f['status'] != 'failed' and not f.get('retryable')}
         pending = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
         expected_cursor = identity(namespace, snapshot['sha'], *pending)
         if request.get('index_cursor') and request['index_cursor'] != expected_cursor:
@@ -109,27 +165,29 @@ class GraphService:
         batch_size = 24
         if self.public and pending and self.backend.prepare_sources(request['repository'], snapshot['sha']):
             batch_size = 1024
-        batch = pending[:batch_size]
+        preferred = set(request.get('paths', []))
+        batch = sorted(pending, key=lambda p: (p not in preferred, p))[:batch_size]
+        cancelled = getattr(self._cancellation, 'check', lambda: False)
 
         def read(path):
+            if cancelled():
+                raise InterruptedError('Graph preparation cancelled')
             entry = snapshot['manifest'][path]
-            if entry.get('size', 0) > MAX_FILE_BYTES:
-                return path, {'version': EXTRACTOR_VERSION, 'nodes': [], 'edges': [], 'references': [], 'imports': [], 'fields': [],
-                              'status': 'unsupported', 'warnings': ['File exceeds the 256 KiB graph limit'], 'source_bytes': 0}
+            if entry.get('size', 0) > MAX_SOURCE_BYTES:
+                return path, metadata_fragment(path, 'File exceeds the 2 MiB structural parsing limit; file identity retained', entry['size'])
             if self.public:
                 raw = self.backend.source(request['repository'], snapshot['sha'], path, entry['sha'])
             else:
                 blob = self.backend.api(root + '/git/blobs/' + entry['sha'])
-                if blob.get('encoding') != 'base64' or blob.get('size', MAX_FILE_BYTES + 1) > MAX_FILE_BYTES:
+                if blob.get('encoding') != 'base64' or blob.get('size', MAX_SOURCE_BYTES + 1) > MAX_SOURCE_BYTES:
                     raise ValueError('Invalid graph source blob')
                 raw = base64.b64decode(blob['content'].replace('\n', ''), validate=True)
-            if len(raw) > MAX_FILE_BYTES:
+            if len(raw) > MAX_SOURCE_BYTES:
                 raise ValueError('Graph source blob exceeds its bound')
             try:
                 content = raw.decode('utf-8')
             except UnicodeDecodeError:
-                return path, {'version': EXTRACTOR_VERSION, 'nodes': [], 'edges': [], 'references': [], 'imports': [], 'fields': [],
-                              'status': 'unsupported', 'warnings': ['Source is not UTF-8'], 'source_bytes': len(raw)}
+                return path, metadata_fragment(path, 'Source is not UTF-8; file identity retained', len(raw))
             if blob_sha(content) != entry['sha']:
                 raise ValueError('Graph source blob digest mismatch')
             fragment = extract(path, content)
@@ -144,7 +202,7 @@ class GraphService:
             return path, fragment
 
         def read_isolated(path):
-            if self.public and time.monotonic() >= deadline:
+            if time.monotonic() >= deadline:
                 return path, None
             try:
                 return read(path)
@@ -158,8 +216,9 @@ class GraphService:
                 pass
             # Keep successful siblings and a bounded failure marker, never exception
             # bodies (which can contain source, credentials or signed URLs).
-            return path, {'version': EXTRACTOR_VERSION, 'nodes': [], 'edges': [], 'references': [], 'imports': [], 'fields': [],
-                          'status': 'failed', 'warnings': ['Source read or integrity validation failed; retry_failed is required'], 'source_bytes': 0}
+            fragment = metadata_fragment(path, 'Source read or integrity validation failed; retry_failed is required')
+            fragment.update(status='failed', retryable=True)
+            return path, fragment
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             for path, fragment in pool.map(read_isolated, batch):
@@ -169,46 +228,82 @@ class GraphService:
                 snapshot['index_metrics']['parsed_files'] += 1
                 snapshot['index_metrics']['read_bytes'] += fragment['source_bytes']
         snapshot['index_metrics']['index_ms'] += round((time.perf_counter() - started) * 1000, 2)
+        if cancelled():
+            raise InterruptedError('Graph preparation cancelled')
         self.store.save(namespace, snapshot)
         remaining = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
         return snapshot, {'has_more': bool(remaining), 'index_cursor': identity(namespace, snapshot['sha'], *remaining) if remaining else None,
                           'processed_files': len(snapshot['fragments']), 'expected_files': len(snapshot['manifest'])}
 
-    def execute(self, principal, request):
+    def execute(self, principal, request, *, expected_scope=None):
         request = validate(request)
         if self.public and request['action'] not in PUBLIC_ACTIONS:
             raise PermissionError('This operation requires a connected GitHub account')
         if not isinstance(principal, str) or not principal or principal == 'unowned':
             raise PermissionError('A scoped gateway principal is required')
+        if not self.authorized(principal):
+            raise PermissionError('Repository map access was revoked')
+        if request['action'] == 'index' and (request.get('background') or request.get('job_action')):
+            return self.index_jobs.handle(principal, request)
         if not self.admission.acquire(blocking=False):
             raise TimeoutError('Graph analysis capacity is occupied')
         try:
-            return self._execute(principal, request)
+            return self._execute(principal, request, expected_scope=expected_scope)
         finally:
             self.admission.release()
 
-    def _execute(self, principal, request):
+    def _execute(self, principal, request, *, expected_scope=None):
         started = time.perf_counter()
         namespace, root, head, actor = self.authorize(principal, request)
+        if expected_scope is not None and namespace != expected_scope:
+            raise PermissionError('Repository graph scope changed during the operation')
         action = request['action']
+        if action in {'status', 'metrics'}:
+            saved = self.store.summary(namespace, request['commit_sha'])
+            if saved is None:
+                result = {'status': 'NOT_INDEXED', 'next_action': 'index', 'repository': request['repository'], 'commit_sha': request['commit_sha']}
+                metadata = {'repository': request['repository'], 'branch': request['branch'], 'commit_sha': request['commit_sha'],
+                            'processing_complete': False, 'coverage_complete': False, 'complete': False}
+            else:
+                metadata = saved['graph']
+                result = {key: value for key, value in saved.items() if key not in {'graph', 'extractor_version', 'snapshot_fingerprint'}}
+            if action == 'metrics':
+                result = {'measurements': self.store.metrics(namespace), 'accuracy': 'Not measured', 'token_savings': 'Not measured',
+                          'actual_token_counts': 'Not available', 'measurement_scope': 'This principal, account, repository and branch'}
+            elif self._index_jobs is not None:
+                result['index_job'] = self.index_jobs.status(principal, request)
+            result = bounded(dict(result, graph=metadata, stale=head != request['commit_sha'], observed_branch_head=head), request.get('budget_bytes', 16000))
+            if not self.public and self.backend.api('/user')['id'] != actor:
+                raise PermissionError('GitHub account changed during graph retrieval')
+            self.store.measure(namespace, action, round((time.perf_counter() - started) * 1000, 2), len(encoded(result).encode()))
+            return result
         if action == 'index':
             with self.lock:
                 snapshot, result = self.index(namespace, request, root)
         else:
             snapshot = self.store.load(namespace, request['commit_sha'])
             if not snapshot:
-                return {'status': 'NOT_INDEXED', 'repository': request['repository'], 'commit_sha': request['commit_sha'],
-                        'next_action': 'index', 'stale': head != request['commit_sha']}
-            graph = Graph(snapshot)
+                result = {'status': 'NOT_INDEXED', 'repository': request['repository'], 'commit_sha': request['commit_sha'],
+                        'next_action': 'index', 'stale': head != request['commit_sha'],
+                        'graph': {'repository': request['repository'], 'branch': request['branch'], 'commit_sha': request['commit_sha'],
+                                  'processing_complete': False, 'coverage_complete': False, 'complete': False}}
+                if action == 'status' and self._index_jobs is not None:
+                    result['index_job'] = self.index_jobs.status(principal, request)
+                return result
+            graph = None if action in {'status', 'metrics'} else self.resolved(namespace, snapshot)[0]
             notes = lambda: self.store.notes(namespace, snapshot, request.get('query', ''))
             symbol = request.get('symbol', '')
             if action == 'status':
                 remaining = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
                 result = {'has_more': bool(remaining), 'index_cursor': identity(namespace, snapshot['sha'], *remaining) if remaining else None,
                           'issues': [{'path': p, 'status': f['status'], 'warnings': f['warnings']} for p, f in snapshot['fragments'].items() if f['status'] != 'indexed'][:50]}
+                if self._index_jobs is not None:
+                    result['index_job'] = self.index_jobs.status(principal, request)
             elif action == 'query':
-                result = graph.query(request.get('query', ''), request.get('limit', 30), request.get('depth', 1))
-                result['related_memory'] = notes()[:4]
+                related = [{**{key: note[key] for key in ('id', 'kind', 'sha', 'review_required', 'historical', 'same_commit') if key in note},
+                            'content_preview': note.get('content', '')[:200], 'full_content_action': 'notes'} for note in notes()[:4]]
+                result = graph_page(graph, namespace, request, {'graph': graph.metadata(), 'stale': head != snapshot['sha'],
+                                                                 'observed_branch_head': head, 'related_memory': related})
             elif action in {'node', 'callers', 'callees'}:
                 result = graph.neighbors(symbol, {'node': 'both', 'callers': 'incoming', 'callees': 'outgoing'}[action], None if action == 'node' else 'calls')
             elif action == 'path':
@@ -222,7 +317,7 @@ class GraphService:
                     paths = list(set(paths) | {selected['path']})
                 result = graph.impact(paths, request.get('depth', 2))
             elif action == 'architecture':
-                result = graph.architecture()
+                result = graph_page(graph, namespace, request, {'graph': graph.metadata(), 'stale': head != snapshot['sha'], 'observed_branch_head': head})
             elif action == 'diff':
                 base_sha = request.get('base_sha', '')
                 if not re.fullmatch('[a-f0-9]{40}', base_sha):
@@ -230,7 +325,7 @@ class GraphService:
                 previous = self.store.load(namespace, base_sha)
                 if not previous:
                     raise ValueError('Index the requested comparison commit first')
-                result = graph.compare(Graph(previous))
+                result = graph.compare(self.resolved(namespace, previous)[0])
             elif action == 'diagnose':
                 log = request.get('log', '')
                 if not isinstance(log, str) or len(log) > 24000:
@@ -270,13 +365,7 @@ class GraphService:
                 result = self.provider(request)
             else:
                 raise ValueError('Unsupported graph action')
-        if action == 'index':
-            # Avoid rebuilding a large graph after every batch. Queries construct it on demand.
-            metadata = {'repository': snapshot['repository'], 'branch': snapshot['branch'], 'commit_sha': snapshot['sha'],
-                        'processed_files': len(snapshot['fragments']), 'expected_files': len(snapshot['manifest']),
-                        'index_metrics': snapshot['index_metrics'], 'source_level_only': True, 'runtime_verified': False}
-        else:
-            metadata = graph.metadata()
+        metadata = snapshot_metadata(snapshot) if action in {'index', 'status', 'metrics'} else graph.metadata()
         result = bounded(dict(result, graph=metadata, stale=head != snapshot['sha'], observed_branch_head=head), request.get('budget_bytes', 16000))
         # Do not publish cached source if the host switches accounts during the read.
         if not self.public and self.backend.api('/user')['id'] != actor:
@@ -410,9 +499,12 @@ class GraphService:
             with self.lock:
                 snapshot = self.store.load(namespace, sha) or {'schema_version': SCHEMA_VERSION, 'repository': job['request']['repository'],
                     'branch': job['request']['branch'], 'sha': sha, 'manifest': {p: v for p, v in output['tree'].items() if permitted(p) and v.get('mode', '100644') in {'100644', '100755'}}, 'fragments': {}}
+                self.reuse_fragments(namespace, snapshot)
                 for path, value in output['files'].items():
                     if path in snapshot['manifest'] and blob_sha(value['content']) == snapshot['manifest'][path]['sha']:
-                        snapshot['fragments'][path] = extract(path, value['content'])
+                        size = len(value['content'].encode())
+                        snapshot['fragments'][path] = (extract(path, value['content']) if size <= MAX_SOURCE_BYTES else
+                                                       metadata_fragment(path, 'File exceeds structural parsing bound; file identity retained', size))
                 self.store.save(namespace, snapshot)
         elif phase in {'PLAN', 'CI', 'REVIEW'}:
             kind = {'PLAN': 'requirement', 'CI': 'repair', 'REVIEW': 'decision'}[phase]
@@ -422,13 +514,82 @@ class GraphService:
                 'sources': {p: job['data']['files'][p]['sha'] for p in paths}, 'source_job': job['id'],
                 'source_receipt': job['data'].get('latest_evidence'), 'confidence': 'HISTORICAL_OBSERVATION'})
 
-    def recall(self, job, query):
-        if (job['request'].get('memory_mode') == 'SESSION_ONLY' or not job['data'].get('actor_id') or
-                not local_model_destination(getattr(self.store.store.runtime, 'LLAMA_BASE', ''))):
-            return {'status': 'DISABLED'}
-        namespace = scope(job['principal'], job['data']['actor_id'], job['request']['repository'], job['request']['branch'])
-        snapshot = self.store.load(namespace, job['data'].get('head_sha'))
-        if not snapshot or snapshot['sha'] != job['data'].get('head_sha'):
-            return {'status': 'NOT_INDEXED'}
-        graph = Graph(snapshot)
-        return bounded(dict(graph.query(query, 12, 1), graph=graph.metadata()), 10000)
+    def ensure_recall_index(self, job, paths=None):
+        """Prepare one bounded batch; retain exact revision and actor isolation."""
+        if self.cancelled(job):
+            raise InterruptedError('Repository context preparation cancelled')
+        request = {'action': 'index', 'repository': job['request']['repository'], 'branch': job['request']['branch'],
+                   'commit_sha': job['data']['head_sha'], 'paths': list(paths or [])[:100]}
+        validate(request)
+        principal = job['principal']
+        if not self.authorized(principal):
+            raise PermissionError('Repository map access was revoked')
+        namespace, root, _, actor = self.authorize(principal, request)
+        if actor != job['data']['actor_id']:
+            raise PermissionError('GitHub account changed before graph retrieval')
+        provider = 'authenticated'
+        with self.lock:
+            saved = self.store.summary(namespace, request['commit_sha'])
+            cached = self.graph_cache.get((namespace, request['commit_sha'], saved.get('snapshot_fingerprint'))) if saved else None
+            if cached:
+                pending = set(cached.snapshot['manifest']) - cached.snapshot['fragments'].keys()
+                requested = set(request['paths']) & cached.snapshot['manifest'].keys()
+                if not pending or requested and not requested.intersection(pending):
+                    return namespace, cached.snapshot, provider, 0
+            snapshot = self.snapshot(namespace, request, root)
+            before = len(snapshot['fragments'])
+            if self.public_service:
+                metadata = self.backend.api(root)
+                if metadata.get('private') is False and metadata.get('visibility', 'public') == 'public':
+                    public_namespace = 'public:' + scope(principal, 'anonymous-public', request['repository'], request['branch'])
+                    public_snapshot = self.public_service.store.load(public_namespace, request['commit_sha'])
+                    if public_snapshot:
+                        for path, fragment in public_snapshot['fragments'].items():
+                            if (path not in snapshot['fragments'] and path in snapshot['manifest'] and
+                                    public_snapshot['manifest'][path]['sha'] == snapshot['manifest'][path]['sha'] and
+                                    fragment.get('version') == EXTRACTOR_VERSION and
+                                    fragment['status'] not in {'failed', 'unsupported'}):
+                                snapshot['fragments'][path] = fragment
+                                provider = 'public_cache'
+            snapshot.setdefault('index_metrics', {'cache_hits': len(snapshot['fragments']), 'parsed_files': 0, 'read_bytes': 0, 'index_ms': 0.0})
+            if self.cancelled(job):
+                raise InterruptedError('Repository context preparation cancelled')
+            if saved is None or len(snapshot['fragments']) != saved['graph']['processed_files']:
+                self.store.save(namespace, snapshot)
+            pending = set(snapshot['manifest']) - snapshot['fragments'].keys()
+            requested = set(request['paths']) & snapshot['manifest'].keys()
+            if pending and (not snapshot['fragments'] or not requested or requested.intersection(pending)):
+                self._cancellation.check = lambda: self.cancelled(job)
+                try:
+                    snapshot, _ = self.index(namespace, request, root)
+                finally:
+                    self._cancellation.check = lambda: False
+        return namespace, snapshot, provider, max(0, len(snapshot['fragments']) - before)
+
+    def recall(self, job, query, *, role=None, paths=None):
+        started = time.perf_counter()
+        disabled = ('SESSION_ONLY' if job['request'].get('memory_mode') == 'SESSION_ONLY' else
+                    'IDENTITY_UNAVAILABLE' if not job['data'].get('actor_id') else
+                    'LOCAL_MODEL_REQUIRED' if not local_model_destination(getattr(self.store.store.runtime, 'LLAMA_BASE', '')) else None)
+        if disabled:
+            return {'status': 'DISABLED', 'retrieval': {'status': 'DISABLED', 'reason': disabled, 'selected_nodes': 0, 'selected_paths': 0}}
+        namespace, snapshot, provider, prepared = self.ensure_recall_index(job, paths)
+        graph, hit = self.resolved(namespace, snapshot)
+        if self.cancelled(job):
+            raise InterruptedError('Repository context retrieval cancelled')
+        if self.backend.api('/user')['id'] != job['data']['actor_id']:
+            raise PermissionError('GitHub account changed during graph retrieval')
+        result = dict(graph.query(query, 12, 1, paths), graph=graph.metadata())
+        result['retrieval'] = {'status': result['status'], 'reason': 'MATCHES_FOUND' if result['nodes'] else 'NO_MATCH_IN_INDEX',
+                               'provider': provider, 'commit_sha': snapshot['sha'], 'indexed_sha': snapshot['sha'],
+                               'role': (role or 'unspecified')[:64], 'coverage_complete': result['graph']['coverage_complete'],
+                               'processing_complete': result['graph']['processing_complete'], 'prepared_files': prepared,
+                               'selected_nodes': 0, 'selected_paths': 0, 'byte_budget': 10000, 'returned_bytes': 0,
+                               'cache_hit': hit, 'elapsed_ms': round((time.perf_counter() - started) * 1000, 2)}
+        result = bounded(result, 9900)
+        if 'retrieval' in result:
+            result['retrieval']['selected_nodes'] = len(result.get('nodes', []))
+            result['retrieval']['selected_paths'] = len({n['path'] for n in result.get('nodes', [])})
+            for _ in range(2):
+                result['retrieval']['returned_bytes'] = len(encoded(result).encode())
+        return result

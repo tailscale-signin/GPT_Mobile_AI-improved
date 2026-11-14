@@ -60,7 +60,7 @@ internal object ProviderFailureReport {
             )
         }
         if (receipt.errorCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
-            for (key in IssueReportDiagnostics.githubSchemaBudgetFields) {
+            for (key in IssueReportDiagnostics.githubSchemaBudgetFields + "admission_tool_result_reserve_tokens") {
                 failure.failureDetails?.get(key)?.let { put(key, it) }
             }
         }
@@ -78,6 +78,9 @@ internal object ProviderFailureReport {
         put("provider_failure_stage", receipt.stage.name)
         put("provider_failure_domain", receipt.failureDomain.name)
         put("provider_failure_code", receipt.errorCode)
+        receipt.httpStatus?.let { put("http_status", it) }
+        receipt.dispatched?.let { put("dispatched", it) }
+        if (receipt.remoteAcceptance != dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN) put("remote_acceptance", receipt.remoteAcceptance.name)
         if (receipt.errorCode == "GITHUB_CIRCUIT_OPEN") {
             failure.failureDetails?.get("github_cooldown_stop")?.let { put("github_cooldown_stop", it) }
         }
@@ -127,6 +130,14 @@ internal object ProviderFailureReport {
         listOf("attempts" to "backend_attempts", "completed_attempts" to "backend_completed_attempts", "failed_attempt" to "backend_failed_attempt")
             .forEach { (source, target) -> backend?.number(source)?.let { put(target, it) } }
         val lastAttempt = (backend?.get("attempt_receipts") as? JsonArray)?.lastOrNull() as? JsonObject
+        if (receipt.errorCode == "EMPTY_COMPLETION") {
+            val attempts = (backend?.get("attempt_receipts") as? JsonArray).orEmpty().mapNotNull { it as? JsonObject }
+            val reasoningOnly = attempts.count { it.number("visible_output_bytes") == 0 && (it.number("reasoning_output_bytes") ?: 0) > 0 }
+            if (attempts.isNotEmpty()) {
+                put("empty_completion_observed_attempts", attempts.size)
+                put("empty_completion_reasoning_only_attempts", reasoningOnly)
+            }
+        }
         if (lastAttempt != null) {
             put("output_byte_scope", "LAST_BACKEND_ATTEMPT")
             lastAttempt.number("visible_output_bytes")?.let { put("visible_output_bytes", it) }

@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -13,8 +14,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
@@ -75,6 +78,20 @@ class ComposerControlsInstrumentedTest {
         } finally {
             pixels.recycle()
         }
+    }
+
+    @Test
+    fun backgroundRunStartingDoesNotTakeFocusFromADraft() {
+        val running = mutableStateOf(false)
+        composeRule.setContent {
+            MaterialTheme {
+                ChatInputBox(inputState = rememberTextFieldState("Draft"), isRunning = running.value)
+            }
+        }
+        val editor = composeRule.onNodeWithContentDescription("Message input")
+        editor.performClick().assertIsFocused()
+        composeRule.runOnIdle { running.value = true }
+        editor.assertIsFocused()
     }
 
     @Test

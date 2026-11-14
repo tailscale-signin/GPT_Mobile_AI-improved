@@ -420,15 +420,15 @@ internal class GitHubVerifiedSession(
     private suspend fun FlowCollector<ProviderEvent>.deliverDraftRound(round: DraftRound, tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) {
         val (draft, calls, completed, failed, providerFailure) = round
         if (failed || !completed) {
-            // The runner owns retries and protocol repair. Do not turn a transient
-            // failure into completion before that policy has had a chance to run.
-            if (!calls && providerFailure?.let(::reviewOriginFailure) == true) {
-                // A review failure retains its provider code. Publish directly
-                // verified receipt observations without spending another model
-                // request extracting claims from the still-private candidate.
-                emitAll(retainedFailureResponse(requireNotNull(providerFailure)))
+            if (providerFailure != null && reviewOriginFailure(providerFailure)) {
+                emitAll(retainedFailureResponse(providerFailure))
                 return
             }
+            // The runner owns retries and protocol repair. Do not turn a transient
+            // failure into completion before that policy has had a chance to run.
+            // Failure prose is published by retainedFailureResponse after the
+            // runner's recovery decision. Publishing it here as well duplicates
+            // the same terminal report when that failure reaches the runner.
             emit(providerFailure ?: ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
             return
         }

@@ -425,6 +425,39 @@ class GitHubVerifiedSessionTest {
         assertEquals(JsonPrimitive(false), failure.failureDetails?.get("requires_reconciliation"))
     }
 
+    @Test fun failedCompatibilityWithoutRepositoryReceiptsPublishesOneTerminalExplanation() = runTest {
+        for (outcome in listOf(null, "BLOCKED", "PARTIAL")) {
+            var providerRounds = 0
+            val failure = ProviderEvent.Failed(
+                "The bounded answer repair exhausted its allowance.",
+                errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED",
+                invocationId = "preflight-final",
+                taskOutcome = outcome,
+                failureDetails = buildJsonObject {
+                    put("review_stage", "review_compatibility")
+                    put("repository_operations_started", false)
+                    put("request_replay_allowed", false)
+                }
+            )
+            val provider = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    providerRounds++
+                    emit(failure)
+                }
+            }
+            val gate = GitHubVerifiedSession(provider, GitHubEvidenceBook("b", "o/r", "main", emptySet()), "Explain repository findings", { 8192 }, { error("Failed compatibility must not open extraction") }, {}, {})
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, emptyList()).toList()
+                .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertEquals(1, providerRounds)
+            val visible = events.filterIsInstance<ProviderEvent.TextDelta>().single()
+            assertEquals(OutputOrigin.SYSTEM_ERROR, visible.lineage.origin)
+            assertEquals("preflight-final", visible.lineage.invocationId)
+            assertTrue(visible.text.contains("The answer review could not finish"))
+            assertEquals(failure, events.filterIsInstance<ProviderEvent.Failed>().single())
+            assertFalse(events.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+        }
+    }
+
     @Test fun typedReviewFailuresDeliverReceiptFactsWithoutReopeningExtractionOrPublishingTheCandidate() = runBlocking {
         for (code in listOf("COMPLETION_REPAIR_BUDGET_EXHAUSTED", "CONTEXT_CAPACITY_EXCEEDED")) {
             val stored = linkedMapOf<String, JsonObject>()
@@ -444,6 +477,7 @@ class GitHubVerifiedSessionTest {
                 errorCode = code,
                 invocationId = "reviewer",
                 transportComplete = true,
+                taskOutcome = if (code == "CONTEXT_CAPACITY_EXCEEDED") "BLOCKED" else "PARTIAL",
                 failureDetails = buildJsonObject {
                     put("failed_stage", if (code == "CONTEXT_CAPACITY_EXCEEDED") "provider_admission" else "provider_generation")
                     put("review_stage", "answer_review")
@@ -460,7 +494,8 @@ class GitHubVerifiedSessionTest {
                 provider, book, task, { 8192 }, { error("Failed review must not dispatch claim extraction") }, {}, {}, now = { 1000L },
                 privateReviewCandidate = { candidate }, onPublication = { report = it }, openExecutionContinuation = { error("No tool or generation replay after failed review") }
             )
-            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, emptyList()).toList()
+                .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
             val text = events.filterIsInstance<ProviderEvent.TextDelta>().single()
             assertEquals(OutputOrigin.APPLICATION_REPORT, text.lineage.origin)
             assertTrue(text.text.contains(sha))
@@ -498,7 +533,8 @@ class GitHubVerifiedSessionTest {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(failure)
         }
         val gate = GitHubVerifiedSession(provider, book, "Inspect repository findings and explain the evidence.", { 8192 }, { error("No verification generation while outcome is unknown") }, {}, {}, now = { 1000L })
-        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, emptyList()).toList()
+            .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         assertTrue(events.any { it is ProviderEvent.TextDelta })
         assertTrue(events.none { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
         val terminal = events.last() as ProviderEvent.Failed

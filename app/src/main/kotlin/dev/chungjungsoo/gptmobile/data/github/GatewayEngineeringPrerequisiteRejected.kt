@@ -57,7 +57,7 @@ internal object GatewayEngineeringPrerequisites {
 
     fun message(code: String, stage: String): String {
         val guidance = when (code) {
-            "VALIDATION_POLICY_REQUIRED" -> "Configure the repository's host-approved validation policy on the selected gateway before trying again."
+            "VALIDATION_POLICY_REQUIRED" -> "Configure the repository's host-approved validation policy on the selected gateway before trying again. In the desktop gateway, open Settings → Advanced → Repository validation policy, choose and check the approved file, then save and restart."
             "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED" -> "Configure the repository's supported CI check mappings on the selected gateway before trying again."
             "ACCEPTANCE_CONTRACT_REQUIRED" -> "Define testable acceptance requirements for this request before trying again."
             "ACCEPTANCE_PRODUCER_REQUIRED" -> "Configure approved evidence producers for the repository's acceptance requirements before trying again."

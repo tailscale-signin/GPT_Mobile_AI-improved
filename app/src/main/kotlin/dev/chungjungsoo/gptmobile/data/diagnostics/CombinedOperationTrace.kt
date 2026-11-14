@@ -51,6 +51,29 @@ internal data class TextLayoutDiagnosticContext(
     }
 }
 
+/** Per remembered modifier: equal constraints do not establish equal text or redundant work. */
+internal class UiMeasureHistory {
+    private var previous: TextLayoutDiagnosticContext? = null
+    private var sequence = 0L
+    private var consecutiveEqualConstraints = 0L
+
+    fun observe(inputs: TextLayoutDiagnosticContext): UiMeasureObservation {
+        sequence++
+        consecutiveEqualConstraints = if (previous == inputs) consecutiveEqualConstraints + 1 else 0
+        previous = inputs
+        return UiMeasureObservation(sequence, consecutiveEqualConstraints, inputs)
+    }
+}
+
+internal data class UiMeasureObservation(val sequence: Long, val consecutiveEqualConstraints: Long, val inputs: TextLayoutDiagnosticContext) {
+    fun fields(): JsonObject = buildJsonObject {
+        put("scope", "MODIFIER_INSTANCE_CONSTRAINTS_ONLY")
+        put("sequence", sequence)
+        put("consecutiveEqualConstraints", consecutiveEqualConstraints)
+        put("inputs", inputs.fields())
+    }
+}
+
 /** Structural identity only; source text and prompts never enter performance records. */
 internal data class CombinedOperationOwner(
     val screen: String = "Chat",
@@ -61,7 +84,8 @@ internal data class CombinedOperationOwner(
     val digest: String? = null,
     val profileUid: String? = null,
     val uiContext: UiOperationContext? = null,
-    val textLayoutContext: TextLayoutDiagnosticContext? = null
+    val textLayoutContext: TextLayoutDiagnosticContext? = null,
+    val uiMeasure: UiMeasureObservation? = null
 ) {
     /** Formats only for an aggregate window report, not for each sampled operation. */
     fun frameContext(): JsonObject = buildJsonObject {
@@ -76,6 +100,7 @@ internal data class CombinedOperationOwner(
         identity("profile", profileUid)
         uiContext?.let { put("ui", it.fields()) }
         textLayoutContext?.let { put("textLayout", it.fields()) }
+        uiMeasure?.let { put("uiMeasure", it.fields()) }
     }
 }
 
@@ -93,6 +118,8 @@ internal object CombinedOperationTrace {
         }.getOrDefault(false)
     }
     private val highFrequency = setOf("protocol_decode", "text_measure", "text_layout", "document_block_read", "source_block_read")
+
+    internal fun hasObservers(): Boolean = AppLogRecorder.operationCaptureEpoch() != null || platformAvailable && runCatching { Trace.isEnabled() }.getOrDefault(false)
 
     internal data class Token(
         val operation: String,
@@ -141,7 +168,8 @@ internal object CombinedOperationTrace {
                 "CombinedTiming",
                 "OPERATION_TIMING · operation=${token.operation} · traceId=${token.cookie} · durationNs=$duration · logThresholdNs=$threshold · screen=${value(owner.screen)} · message=${owner.messageId ?: "unknown"} · run=${value(owner.runId)} · revision=${value(owner.revisionId)} · block=${value(owner.blockId)} · digest=${value(owner.digest?.takeIf { it.length == 64 && it.all { c -> c in '0'..'9' || c in 'a'..'f' } })} · profile=${value(owner.profileUid)} · startThread=${value(token.startThread)} · endThread=${value(Thread.currentThread().name)}" +
                     owner.uiContext?.let { " · uiContext=${it.fields()}" }.orEmpty() +
-                    owner.textLayoutContext?.let { " · textLayoutContext=${it.fields()}" }.orEmpty()
+                    owner.textLayoutContext?.let { " · textLayoutContext=${it.fields()}" }.orEmpty() +
+                    owner.uiMeasure?.let { " · uiMeasure=${it.fields()}" }.orEmpty()
             )
         }
     }

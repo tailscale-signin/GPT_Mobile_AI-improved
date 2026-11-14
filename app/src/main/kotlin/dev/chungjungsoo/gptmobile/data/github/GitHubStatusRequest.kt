@@ -165,6 +165,12 @@ internal object GitHubStatusRequest {
         val next = nextCall(tools, receipts, now, epoch, task, acceptedRepository)
         val remaining = (budget["remaining_calls"] as? JsonPrimitive)?.intOrNull
         val complete = report["completion_verified"] == JsonPrimitive(true)
+        val policy = (report["status_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .firstOrNull { it["item"] == JsonPrimitive("Required-check policy") && it["observed"] != JsonPrimitive(true) }
+        val policyAccessRequired = policy != null &&
+            listOf("branch_protection_observation", "branch_rules_observation").any {
+                policy[it] in setOf(JsonPrimitive("ACCESS_DENIED"), JsonPrimitive("NOT_FOUND_OR_INACCESSIBLE"))
+            }
         val code = when {
             complete -> "STATUS_OBSERVATIONS_COMPLETE"
             next != null && remaining == 0 -> "TOOL_BUDGET_EXHAUSTED"
@@ -177,6 +183,9 @@ internal object GitHubStatusRequest {
             put("read_only", true)
             put("plan_complete", complete)
             put("remaining_requirement_ids", JsonArray((report["remaining_requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().mapNotNull { it["id"] }))
+            policy?.let { observation ->
+                put("policy_observation", JsonObject(observation.filterKeys { it in setOf("item", "observed", "reason", "receipt_ids", "branch_protection_observation", "branch_rules_observation", "branch_protection_http_status", "branch_rules_http_status") }))
+            }
             next?.let { call ->
                 put(
                     "next_read",
@@ -193,11 +202,27 @@ internal object GitHubStatusRequest {
                     put("code", code)
                     put("source", "STATUS_READ_PLAN")
                     put(
+                        "recovery_action",
+                        when {
+                            complete -> "NONE"
+                            code == "TOOL_BUDGET_EXHAUSTED" -> "REVIEW_REMAINING_SCOPE_AND_BUDGET"
+                            next != null -> "RESUME_UNVERIFIED_REQUIREMENTS"
+                            policyAccessRequired -> "REFRESH_REPOSITORY_ACCESS"
+                            else -> "RESOLVE_CAPABILITY_PREREQUISITE"
+                        }
+                    )
+                    if (next == null && policyAccessRequired) put("automatic_retry_allowed", false)
+                    put(
                         "detail",
                         when (code) {
                             "TOOL_BUDGET_EXHAUSTED" -> "The accepted tool allowance is exhausted. The next read and unmet criteria are retained; further reads require a new allowance."
                             "STATUS_READ_PENDING" -> "An authorized read remains in the status plan. Completed observations and their exact revisions are retained."
-                            "STATUS_OBSERVATION_UNAVAILABLE" -> "No further authorized status read is available. Unobserved policy, checks or review decisions remain unknown; inspect the retained gaps and read failures."
+                            "STATUS_OBSERVATION_UNAVAILABLE" -> (policy?.get("reason") as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() }
+                                ?: if (policyAccessRequired) {
+                                    "The selected connection could not observe the complete required-check policy. Retain the observed policy source and restore access to the unavailable endpoint before refreshing this branch at its current head. Missing or inaccessible protection does not prove the absence of requirements; repeating the unchanged read does not close this gap."
+                                } else {
+                                    "No further authorized status read is available. Unobserved policy, checks or review decisions remain unknown; inspect the retained gaps and read failures."
+                                }
                             else -> "All accepted status observations are complete within their recorded scope."
                         }
                     )

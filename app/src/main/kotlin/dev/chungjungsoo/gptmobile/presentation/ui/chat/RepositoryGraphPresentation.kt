@@ -8,7 +8,12 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 /** The architecture endpoint returns file dependencies, while symbol queries return nodes and edges. */
-internal data class RepositoryGraphPresentation(val nodes: List<JsonObject>, val edges: List<JsonObject>) {
+internal data class RepositoryGraphPresentation(
+    val nodes: List<JsonObject>,
+    val edges: List<JsonObject>,
+    val externalConnections: Int = 0,
+    val omittedNodes: Int = 0
+) {
     fun search(query: String): RepositoryGraphPresentation {
         val term = query.trim()
         if (term.isEmpty()) return this
@@ -18,11 +23,37 @@ internal data class RepositoryGraphPresentation(val nodes: List<JsonObject>, val
 
     fun relationships(id: String): List<JsonObject> = edges.filter { it.graphText("source") == id || it.graphText("target") == id }
 
+    /** Put the inspected source beside its actual neighbors, retaining explicit off-diagram counts. */
+    fun neighborhood(centerId: String?, size: Int = 12): RepositoryGraphPresentation {
+        require(size > 0)
+        if (nodes.isEmpty()) return this
+        val byId = nodes.associateBy { it.graphText("id") }
+        val center = centerId?.takeIf { it in byId } ?: nodes.first().graphText("id")
+        val selected = linkedSetOf(center)
+        val pending = ArrayDeque<String>().apply { add(center) }
+        while (pending.isNotEmpty() && selected.size < size) {
+            val current = pending.removeFirst()
+            for (edge in relationships(current)) {
+                val other = if (edge.graphText("source") == current) edge.graphText("target") else edge.graphText("source")
+                if (other in byId && selected.add(other)) pending.add(other)
+                if (selected.size == size) break
+            }
+        }
+        nodes.forEach { if (selected.size < size) selected.add(it.graphText("id")) }
+        return window(selected.mapNotNull(byId::get))
+    }
+
+    private fun window(visible: List<JsonObject>): RepositoryGraphPresentation {
+        val ids = visible.mapTo(mutableSetOf()) { it.graphText("id") }
+        val shown = edges.filter { it.graphText("source") in ids && it.graphText("target") in ids }
+        val outside = edges.count { (it.graphText("source") in ids) xor (it.graphText("target") in ids) }
+        return RepositoryGraphPresentation(visible, shown, outside, nodes.size - visible.size)
+    }
+
     fun page(index: Int, size: Int = 12): RepositoryGraphPresentation {
         require(size > 0)
         val visible = nodes.drop(index.coerceAtLeast(0) * size).take(size)
-        val ids = visible.mapTo(mutableSetOf()) { it.graphText("id") }
-        return RepositoryGraphPresentation(visible, edges.filter { it.graphText("source") in ids && it.graphText("target") in ids })
+        return window(visible)
     }
 }
 

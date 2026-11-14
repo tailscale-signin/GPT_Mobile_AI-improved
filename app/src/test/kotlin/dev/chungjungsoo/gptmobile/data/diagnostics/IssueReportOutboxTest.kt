@@ -4,6 +4,14 @@ import android.app.Application
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
+import okio.Buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
@@ -51,6 +59,54 @@ class IssueReportOutboxTest {
         assertEquals(742, receipt.issueNumber)
         assertEquals(IssueReportDelivery.Result.CONFIRMED, IssueReportDelivery.attempt(outbox, report.reportId, { _, _ -> error("Already confirmed report must not dispatch") }))
         assertThrows(IllegalStateException::class.java) { outbox.approve(report.copy(description = "Changed after approval")) }
+    }
+
+    @Test fun newCaptureSitesRemainSavedUntilTheHostedReporterSupportsTheirExactApprovedBytes() = runTest {
+        for (site in listOf(IssueReportIncidentCapsule.ExceptionCaptureSite.PROVIDER_ADAPTER_STREAM_CATCH, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)) {
+            val fields = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", IssueReportIncidentCapsule.boundaryFields(site))
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+            val enriched = report.copy(context = context)
+            val payload = enriched.approvedPayload()
+            val directory = files.newFolder()
+            var outbox = IssueReportOutbox(directory)
+            outbox.approve(enriched, payload)
+            var supported = false
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                val body = if (request.method == "GET") {
+                    val features = requireNotNull(context.diagnostics).requiredServiceFeatures() + setOf("RUN_FAILURE_EVIDENCE_V1", "INCIDENT_FAILURE_DETAILS_V1")
+                    val advertised = JsonArray(features.filter { supported || it != "CAPTURE_BOUNDARY_EVIDENCE_V1" }.map(::JsonPrimitive))
+                    """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$advertised}"""
+                } else {
+                    posted += Buffer().also { request.body!!.writeTo(it) }.readUtf8()
+                    """{"reportId":"${report.reportId}","number":742}"""
+                }
+                Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(200).message("Fixture")
+                    .body(body.toResponseBody("application/json".toMediaType())).build()
+            }.build()
+            val submission = IssueReportSubmission("https://reports.example.invalid", client)
+            val send: (String, String) -> IssueReportSubmission.Outcome = { id, approved -> submission.send(id, approved) { outbox.dispatching(id) } }
+            assertEquals(IssueReportDelivery.Result.FAILED, IssueReportDelivery.attempt(outbox, report.reportId, send))
+            outbox = IssueReportOutbox(directory)
+            val retained = requireNotNull(outbox.load(report.reportId))
+            assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", retained.failureCode)
+            assertEquals(IssueReportOutbox.State.FAILED, retained.state)
+            assertEquals(IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED, retained.deliveryEvidence)
+            assertEquals(payload, retained.payload)
+            assertEquals(listOf("GET"), methods)
+            assertTrue(posted.isEmpty())
+            assertTrue(retained.retryable)
+            supported = true
+            outbox.queue(report.reportId, manualRetry = true)
+            assertEquals(IssueReportDelivery.Result.CONFIRMED, IssueReportDelivery.attempt(outbox, report.reportId, send))
+            assertEquals(listOf("GET", "GET", "POST"), methods)
+            assertEquals(listOf(payload), posted)
+            assertEquals(payload, outbox.load(report.reportId)?.payload)
+            assertEquals(IssueReportOutbox.State.SENT, outbox.load(report.reportId)?.state)
+        }
     }
 
     @Test fun processDeathAtTheAttemptCeilingRequiresAnExplicitSameReportRetry() = runTest {

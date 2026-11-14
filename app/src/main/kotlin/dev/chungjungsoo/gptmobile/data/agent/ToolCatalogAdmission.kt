@@ -12,10 +12,13 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
-internal class GitHubToolContextBudgetException(val requiredSchemaTokens: Long, val availableSchemaTokens: Long) :
-    IllegalArgumentException(
-        "GITHUB_TOOL_CONTEXT_BUDGET: Required GitHub and recovery schemas need approximately $requiredSchemaTokens tokens, but $availableSchemaTokens remain. Increase the context budget or reduce attached history and instructions before continuing; this provider request was not dispatched."
-    ) {
+internal class GitHubToolContextBudgetException(
+    val requiredSchemaTokens: Long,
+    val availableSchemaTokens: Long,
+    private val budget: GitHubSchemaBudget? = null
+) : IllegalArgumentException(
+    "GITHUB_TOOL_CONTEXT_BUDGET: Required GitHub, recovery and discovery schemas need approximately $requiredSchemaTokens tokens, but $availableSchemaTokens remain. Use a larger context or reduce the output allowance, attachments, or instructions. This provider request was not dispatched."
+) {
     fun providerFailure() = ProviderEvent.Failed(
         message.orEmpty(),
         errorCode = "GITHUB_TOOL_CONTEXT_BUDGET",
@@ -29,8 +32,20 @@ internal class GitHubToolContextBudgetException(val requiredSchemaTokens: Long, 
             put("retryable", false)
             put("required_schema_tokens", requiredSchemaTokens)
             put("available_schema_tokens", availableSchemaTokens)
+            budget?.let { evidence ->
+                put("admission_capacity_tokens", evidence.capacity)
+                put("admission_prompt_tokens", evidence.input)
+                put("admission_output_tokens", evidence.output)
+                put("admission_safety_tokens", evidence.safety)
+                evidence.toolResults?.let { put("admission_tool_result_reserve_tokens", it) }
+                put("admission_measurement", "UTF8_ESTIMATE")
+            }
         }
     )
+}
+
+internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val output: Int, val safety: Int, val toolResults: Int? = null) {
+    val available: Long get() = (capacity.toLong() - input - output - safety - (toolResults ?: 0)).coerceAtLeast(0)
 }
 
 internal fun providerSchemaTokens(tool: AgentToolDefinition, githubMode: Boolean): Long = ProgressiveToolCatalog.schemaTokens(tool).toLong() + if (githubMode) 16 else 0
@@ -40,17 +55,15 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val visible = definitions.filter { it.modelVisible }
     if (limits.contextTokens == Int.MAX_VALUE) return visible
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
-    var remaining = (limits.contextTokens.toLong() - base - replayTokens - limits.finalResponseReserveTokens - minOf(256, limits.contextTokens / 16)).coerceAtLeast(0)
-    val github = visible.filter {
-        limits.githubMode &&
-            ProgressiveToolCatalog.isGitHubTool(it) ||
-            (limits.githubMode || limits.githubTask) &&
-            it.name == "read_recovery_context"
-    }
-    val requiredSchemaTokens = github.sumOf { providerSchemaTokens(it, limits.githubMode) }
-    if (requiredSchemaTokens > remaining) throw GitHubToolContextBudgetException(requiredSchemaTokens, remaining)
+    val budget = GitHubSchemaBudget(limits.contextTokens, base + replayTokens, limits.finalResponseReserveTokens, minOf(256, limits.contextTokens / 16))
+    var remaining = budget.available
+    // Only the recovery reader is mandatory every round. The full GitHub
+    // inventory remains authorized, but optional operations are staged on demand.
+    val required = visible.filter { (limits.githubMode || limits.githubTask) && it.name == "read_recovery_context" }
+    val requiredSchemaTokens = required.sumOf { providerSchemaTokens(it, limits.githubMode) }
+    if (requiredSchemaTokens > remaining) throw GitHubToolContextBudgetException(requiredSchemaTokens, remaining, budget)
     remaining -= requiredSchemaTokens
-    val requiredNames = github.mapTo(hashSetOf()) { it.name }
+    val requiredNames = required.mapTo(hashSetOf()) { it.name }
     // Preserve a path to the rest of the authorized catalog when a large optional
     // schema consumes the remaining round budget. The returned order stays stable.
     val discovery = visible.firstOrNull { it.name == ProgressiveToolCatalog.NAME }
@@ -69,6 +82,11 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
         }
     }
     ToolCatalogDiagnostics.recordOmissions("provider_round", omitted)
+    if ((limits.githubMode || limits.githubTask) && !discoveryFits && visible.any { it.name in omitted && ProgressiveToolCatalog.isGitHubTool(it) }) {
+        val needed = visible.filter { ProgressiveToolCatalog.isGitHubTool(it) || it.name in requiredNames }
+            .sumOf { providerSchemaTokens(it, limits.githubMode) }
+        throw GitHubToolContextBudgetException(needed, budget.available, budget)
+    }
     return selected
 }
 
@@ -81,7 +99,8 @@ internal fun planAuthorizedToolContext(
     externalTools: Boolean,
     githubMode: Boolean = false,
     requestedTask: String? = null,
-    requireToolExecution: Boolean = true
+    requireToolExecution: Boolean = true,
+    allowOutputReduction: Boolean = false
 ): ContextPlan {
     // Saved receipts and prepared evidence can contain tool names and imperatives.
     // They remain context, never new requirements attributed to the user.
@@ -104,48 +123,62 @@ internal fun planAuthorizedToolContext(
         } + recovery
         ).distinctBy { it.name }
     val catalog = if (externalTools) existingCatalog ?: if (limits.adaptiveToolCatalog || scopedGitHubStatus) ProgressiveToolCatalog.create(definitions, task, githubMode = effectiveGitHubMode) else null else null
-    val githubSchemas = if (fullGitHubCatalog) definitions.filter { it.modelVisible && ProgressiveToolCatalog.isGitHubTool(it) } else emptyList()
-    val advertised = (githubSchemas + required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
-    val requestedGitHubOperations = if (requireToolExecution) dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task) else emptySet()
-    val requiredGitHubSchemas = if (fullGitHubCatalog) {
-        githubSchemas
+    val advertised = (required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
+    // Pin the immediate status/context read, not every operation mentioned in
+    // a multi-step engineering task. Remaining schemas are discoverable later.
+    val requestedGitHubOperations = if (requireToolExecution) {
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
     } else {
-        advertised.filter { definition ->
+        emptySet()
+    }
+    val requiredGitHubSchemas = when {
+        !requireToolExecution -> emptyList()
+        scopedGitHubStatus -> advertised.filter {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in setOf("github_context", "github_pr")
+        }
+        fullGitHubCatalog -> advertised.filter {
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_context"
+        }.take(1)
+        else -> advertised.filter { definition ->
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
         }
     }
-    if (fullGitHubCatalog && githubSchemas.isNotEmpty()) {
-        val normalized = limits.normalized()
-        if (normalized.contextTokens != Int.MAX_VALUE) {
-            val output = normalized.outputTokens.takeIf { it > 0 } ?: minOf(4096, normalized.contextTokens / 4)
-            val currentCost = ContextBudgetService.breakdown(turns.filter { it.isCurrentTurn }, prompt, emptyList()).total
-            val available = (normalized.contextTokens.toLong() - output - minOf(8192, normalized.contextTokens / 8) - minOf(256, normalized.contextTokens / 16) - currentCost).coerceAtLeast(0)
-            val requiredTokens = githubSchemas.sumOf { providerSchemaTokens(it, true) }
-            if (requiredTokens > available) throw GitHubToolContextBudgetException(requiredTokens, available)
+    // The staged inventory is still authorized only while its discovery path
+    // survives initial planning. Charge that path before optional schemas rather
+    // than silently reducing executable authority to the schemas that happen to fit.
+    val requiredDiscovery = catalog?.definition?.takeIf { effectiveGitHubMode || requiredGitHubSchemas.isNotEmpty() }
+    val pinnedSchemas = (requiredGitHubSchemas + required + listOfNotNull(requiredDiscovery)).distinctBy { it.name }
+    val normalized = limits.normalized()
+    var effectiveLimits = normalized
+    var admittedGitHubBudget: GitHubSchemaBudget? = null
+    if ((requiredGitHubSchemas.isNotEmpty() || requiredDiscovery != null) && normalized.contextTokens != Int.MAX_VALUE) {
+        val output = normalized.outputTokens.takeIf { it > 0 } ?: minOf(4096, normalized.contextTokens / 4)
+        val currentCost = ContextBudgetService.breakdown(turns.filter { it.isCurrentTurn }, prompt, emptyList()).total.toLong()
+        val requestedBudget = GitHubSchemaBudget(normalized.contextTokens, currentCost, output, minOf(256, normalized.contextTokens / 16), minOf(8192, normalized.contextTokens / 8))
+        val requiredTokens = pinnedSchemas.sumOf { providerSchemaTokens(it, githubMode = true) }
+        val minimumOutput = minOf(output, 512)
+        val smallerBudget = requestedBudget.copy(output = minimumOutput)
+        admittedGitHubBudget = requestedBudget
+        if (requiredTokens > requestedBudget.available) {
+            if (!allowOutputReduction || requiredTokens > smallerBudget.available) {
+                val budget = if (allowOutputReduction) smallerBudget else requestedBudget
+                throw GitHubToolContextBudgetException(requiredTokens, budget.available, budget)
+            }
+            val recoveredOutput = minimumOutput + minOf((output - minimumOutput).toLong(), smallerBudget.available - requiredTokens).toInt()
+            effectiveLimits = normalized.copy(outputTokens = recoveredOutput)
+            admittedGitHubBudget = requestedBudget.copy(output = recoveredOutput)
         }
     }
-    val prioritized = (githubSchemas + required + advertised.filter { it.name == ProgressiveToolCatalog.NAME } + requiredGitHubSchemas + advertised).distinctBy { it.name }
-    val plan = ContextBudgetService.plan(turns, prompt, prioritized, limits)
-    val omittedRequired = required.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
+    val prioritized = (pinnedSchemas + advertised.filter { it.name == ProgressiveToolCatalog.NAME } + advertised).distinctBy { it.name }
+    val plan = ContextBudgetService.plan(turns, prompt, prioritized, effectiveLimits)
+    val omittedRequired = pinnedSchemas.filterNot { wanted -> plan.tools.any { it.name == wanted.name } }
     if (omittedRequired.isNotEmpty()) {
+        admittedGitHubBudget?.let { budget ->
+            throw GitHubToolContextBudgetException(pinnedSchemas.sumOf { providerSchemaTokens(it, githubMode = true) }, budget.available, budget)
+        }
         val names = omittedRequired.joinToString { it.name }
         AppLogRecorder.record("ToolCatalog", "REQUIRED_TOOL_BLOCKED · names=$names · reason=CONTEXT_BUDGET · dispatched=false", "W")
         throw IllegalArgumentException("REQUIRED_TOOL_CONTEXT_BUDGET: The required tools ($names) do not fit the selected context allowance. Increase the context budget or reduce attached history before starting; no model or tool request was dispatched.")
-    }
-    val omittedRequiredGitHubSchemas = requiredGitHubSchemas.filterNot { required -> plan.tools.any { it.name == required.name } }
-    if (omittedRequiredGitHubSchemas.isNotEmpty()) {
-        if (fullGitHubCatalog) throw GitHubToolContextBudgetException(githubSchemas.sumOf { providerSchemaTokens(it, true) }, plan.tools.filter(ProgressiveToolCatalog::isGitHubTool).sumOf { providerSchemaTokens(it, true) })
-        val operations = omittedRequiredGitHubSchemas.mapNotNull { definition ->
-            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name)
-        }.distinct()
-        AppLogRecorder.record(
-            "ToolCatalog",
-            "GITHUB_REQUIRED_SCHEMA_BLOCKED · operations=${operations.joinToString()} · reason=CONTEXT_BUDGET · contextTokens=${limits.normalized().contextTokens} · dispatched=false",
-            "W"
-        )
-        throw IllegalArgumentException(
-            "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET: This request requires GitHub operation schemas (${operations.joinToString()}), but they do not fit the selected context budget. Increase this profile's context size or reduce the attached history and instructions; no GitHub write was dispatched."
-        )
     }
     ToolCatalogDiagnostics.recordOmissions("initial_context", advertised.filterNot { candidate -> plan.tools.any { it.name == candidate.name } }.associate { it.name to "CONTEXT_BUDGET" })
     // Authorization stays discoverable only if the discovery schema itself fits.

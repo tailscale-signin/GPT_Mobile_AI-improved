@@ -1,10 +1,10 @@
-# Gateway 16 for Windows
+# Gateway 17 for Windows
 
 Gateway connects GPT Mobile to your model backend and approved PC tools. The Windows x64 installer bundles Python and the pinned gateway dependencies. The model server is a separate prerequisite. No Tailscale installation is needed.
 
 ## Install and connect
 
-1. Run `Gateway-16.0.0-windows-x64-setup.exe` under your normal Windows account. Choose the installation folder, backend origin, port, worker/chat limits, shutdown grace, MCP configuration, listen address, optional LAN firewall rule, startup preference and update policy.
+1. Run `Gateway-17.0.0-windows-x64-setup.exe` under your normal Windows account. Choose the installation folder and keep Recommended setup for the default local model connection. Advanced setup exposes backend, concurrency and network controls; the same controls are available later in Settings.
 2. Start your model server. Default backend: `http://127.0.0.1:8080`. Gateway listens only on `127.0.0.1:8090` by default. Backend origins must omit `/v1`; remote backends require HTTPS. MCP commands run with your Windows account permissions: use configuration from sources you trust.
 3. Open **Gateway Settings** from the Start menu to check status, edit settings, restart, stop, check updates or install an available update. Notify is the default; select Auto for unattended updates. Restart applies saved connection/concurrency changes after work finishes.
 4. For phone access, set **Listen address** to the PC interface IP or `0.0.0.0` (all IPv4 interfaces), save and restart. On Android, use a LLAMA connection with `http://<PC-IP-or-hostname>:8090/v1` and leave the API key empty. `0.0.0.0` is a listener setting, not the phone's destination. The PC hostname is admitted automatically; add custom aliases in **Additional hostnames** if needed.
@@ -55,9 +55,13 @@ For private maps or saved GitHub jobs, select **Open GitHub settings for private
 
 On a LAN listener, **Allow network devices to run GitHub engineering tasks** grants connected devices access to private maps and saved engineering operations through this PC's GitHub connection. Enable it only for your intended network, save settings, and restart after active work finishes.
 
+Implementation jobs also require a host-approved repository validation policy. In **Settings → Advanced → Repository validation policy**, choose the JSON policy file, use **Check policy**, save settings, and restart. The file maps lowercase `owner/repository` names to their approved local mirror, digest-pinned container image, command list and any acceptance mappings. Checking the file validates configuration; source availability, runtime readiness and actual test results are verified separately when a job starts.
+
+The selected path is retained in `data/validation-settings.json` so updates and restarts preserve it without changing the legacy settings schema. Before a selection is saved, an explicitly configured `GATEWAY_ENGINEERING_VALIDATION_POLICY` is preserved through both desktop launcher stages. Clearing and saving the selection disables that fallback. A removed or invalid policy continues to block implementation with its recorded prerequisite; the gateway never invents a policy or grants extra execution rights.
+
 ## General, Advanced and Add-ons
 
-Open each section directly from the dashboard sidebar or from Gateway Settings. General exposes the backend, listener address, hostnames, startup/update preferences and explicit firewall actions. Advanced exposes worker/chat limits and shutdown grace. Add-ons shows the enabled services in the selected MCP JSON configuration. Saving add-ons preserves commands, arguments and credentials, and refuses a save if the configuration changed externally. Save the selected file path in settings and restart when work finishes to apply it. The gateway service allowlist remains authoritative.
+Open Settings from the dashboard. General, Add-ons and GitHub are available there; select Show advanced settings for worker limits, batch controls, benchmark setup and repository validation policy. General exposes the backend, listener address, hostnames, startup/update preferences and explicit firewall actions. Advanced exposes worker/chat limits and shutdown grace. Add-ons shows the enabled services in the selected MCP JSON configuration. Saving add-ons preserves commands, arguments and credentials, and refuses a save if the configuration changed externally. Save the selected file path in settings and restart when work finishes to apply it. The gateway service allowlist remains authoritative.
 
 The token graph uses provider completion usage or llama.cpp timing receipts, including reasoning when counted by the backend. Missing measurements remain unavailable and partial coverage is disclosed. Counters start with this update, persist in `data/usage.sqlite3`, and exclude cached deliveries. These are measurements for this installation, without inferred per-phone attribution. Old logs are not estimated. A single background observer delivers both usage and activity without blocking generation; stale data is visibly marked.
 
@@ -69,3 +73,7 @@ Open **Settings → Advanced**, enable **Debug mode**, save and restart after ac
 ### Benchmarks
 
 In the dashboard, open **Benchmarks**, select an advertised model, and run the suite. The latest result for each exact model and backend is saved on this PC. The score measures correct answers across five fixtures. Select a result to see Gateway round-trip latency, time to first text, total time, stream gaps, and model throughput when the backend reports it. A transport or stream failure leaves the run incomplete.
+
+## Chat, saved messages and benchmarks
+
+The dashboard now has Overview, Chat, Saved, Jobs and Benchmarks. New prompt opens the selected-model composer; Ctrl+Enter sends. Saved offers history search, bookmarks, favorites and archiving. Advanced setup is optional. See [Gateway 17 contracts](../V17_DESKTOP.md) for conversation identity, benchmark scope, safe recovery and upgrade behavior.

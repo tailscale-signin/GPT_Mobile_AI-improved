@@ -20,16 +20,46 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ResponsesStreamEvent
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.GroqAPI
+import dev.chungjungsoo.gptmobile.data.network.NetworkFailureKind
 import dev.chungjungsoo.gptmobile.data.network.OpenAIAPI
 import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import dev.chungjungsoo.gptmobile.data.network.UploadedProviderFile
+import dev.chungjungsoo.gptmobile.data.network.networkFailureKind
+import dev.chungjungsoo.gptmobile.data.network.providerTransportFailureDetails
+import dev.chungjungsoo.gptmobile.data.network.userMessage
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+
+private fun replayableTransport(error: Throwable): ErrorDetail {
+    val kind = networkFailureKind(error)
+    require(kind != NetworkFailureKind.UNKNOWN && kind.retryable)
+    return ErrorDetail(
+        message = kind.userMessage(partialOutput = false),
+        code = kind.code,
+        retryable = true,
+        failureDetails = providerTransportFailureDetails(
+            details = buildJsonObject {
+                put("failed_stage", "transport")
+                put("retryable", true)
+            },
+            error = error,
+            timing = null,
+            dispatched = true,
+            receivedPayload = false,
+            receivedVisibleText = false,
+            generationCompleted = false,
+            replayAllowed = true,
+            requiresReconciliation = false
+        )
+    )
+}
 
 class OllamaTimeoutResilienceTest {
 
@@ -45,10 +75,7 @@ class OllamaTimeoutResilienceTest {
             if (callCount == 1) {
                 emit(
                     ChatCompletionChunk(
-                        error = ErrorDetail(
-                            message = "Request timed out.",
-                            type = "network_error"
-                        )
+                        error = replayableTransport(java.net.SocketTimeoutException("private timeout"))
                     )
                 )
             } else {
@@ -172,7 +199,7 @@ class OllamaTimeoutResilienceTest {
     }
 
     @Test
-    fun `ollama stream continues after HTTP 502 bad gateway and succeeds on retry`() = runBlocking {
+    fun `ollama stream does not replay an HTTP 502 without typed transport authority`() = runBlocking {
         val fakeApi = Gateway502ThenSuccessOpenAIAPI()
         val dummyGroqApi = DummyGroqAPI()
         val dummyEncoder = MockAttachmentEncoder()
@@ -195,9 +222,9 @@ class OllamaTimeoutResilienceTest {
         val session = adapter.openSession(listOf(turn), platform)
         val events = session.streamRound(emptyList(), emptyList()).toList()
 
-        // Verify that retry notice was emitted after HTTP 502, followed by recovered text and Completed
-        assertTrue(events.any { it is ProviderEvent.Notice })
-        assertTrue(events.any { it is ProviderEvent.TextDelta && it.text == "Recovered after 502 gateway error" })
-        assertEquals(ProviderEvent.Completed, events.last())
+        assertTrue(events.none { it is ProviderEvent.Notice })
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        assertEquals("502", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
+        assertTrue(events.last() is ProviderEvent.Failed)
     }
 }

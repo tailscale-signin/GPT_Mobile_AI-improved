@@ -1,0 +1,43 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
+  "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
+  "source_sha": "d2f2d71d0276621656eaecb3fd8e29d87fe9bba7",
+  "pull_request": 1122,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "gateway17-redesign-and-issue-resolution-2026-11-14",
+  "state": "READY_FOR_CI",
+  "intent": [
+    "Implement Gateway v17 clean native Chat, Saved and benchmark experience",
+    "Audit every open issue and attachment; repair or collect missing diagnostic evidence",
+    "Reconcile active branches on existing PR1122; validate current revision and merge only when all required gates pass"
+  ],
+  "intake": {
+    "remote_branches": 748,
+    "open_issues": 27,
+    "active_unmerged_prs": [
+      1122
+    ]
+  },
+  "required_checks": [
+    "Required verification",
+    "Analyze (java-kotlin)"
+  ],
+  "validation": {
+    "physical_device": "NOT_RUN",
+    "windows_installer": "PENDING_EXACT_HEAD_CI",
+    "reporter_and_authentication_host": "105 passed after final reporter reconciliation",
+    "focused_kotlin_host": "61 passed; not full Android qualification",
+    "android_local": "BLOCKED: Gradle distribution network unavailable",
+    "model_and_docker_execution": "NOT_RUN",
+    "gateway17_android_capabilities_host": "9 passed; not full Android qualification",
+    "repository_fast": "PASS: 508 host tests and resource/schema/policy checks",
+    "gateway_full_host": "PASS: 79 Python suites, 1084 tests including 5 expected environment/platform skips; 7 browser tests passed",
+    "gateway_affected_final": "77 passed after capability/lifecycle/receipt fixes",
+    "native_host_skips": "5 expected environment/platform-specific skips in full Gateway suite",
+    "git_diff_check": "PASS after binary icon attributes and EOF normalization",
+    "combined_gateway_host": "PASS after repository-map reconciliation; hosted current-revision CI still required",
+    "expanded_kotlin_host": "92 passed; one pre-existing integration fixture blocked by cached host ABI"
+  }
+}

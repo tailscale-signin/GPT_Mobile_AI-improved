@@ -80,6 +80,7 @@ ENUM_LISTS = {
         "OUT_OF_SCOPE", "REPOSITORY_SCOPE_EXCLUDED", "OPERATION_IDENTITY_REQUIRED", "AUTHORIZATION_REQUIRED", "HISTORICAL_CONTRACT_CHANGED", "APPROVAL_REQUIRED", "FIXTURE_APPROVAL_MODE_REQUIRED", "FIXTURE_APPROVAL_STATE_UNKNOWN",
         "LIVE_EVIDENCE_REQUIRED", "CONTINUATION_REQUIRED", "PRECHECK_REJECTED", "OPERATION_FAILED", "USER_DECISION_REQUIRED", "CHECK_SUBSCRIPTION_REQUIRED", "OWNED_FIXTURE_REQUIRED",
         "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "REPOSITORY_INPUT_REQUIRED", "REPOSITORY_LIFECYCLE_REQUIRED",
+        "GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED",
         "EXECUTION_NOT_EXERCISED", "BLOCKER_DETAIL_NOT_RECORDED", "NONE", "VERIFICATION_FAILED", "REQUIRED_OPERATION_BLOCKED", "DEVICE_EXECUTION_NOT_OBSERVED", "CATALOG_NOT_EXHAUSTED",
         "FIXTURE_PROOF_INCOMPLETE", "GRAPH_QUALIFICATION_INCOMPLETE", "REPOSITORY_OPERATION_UNVERIFIED", "MATCHING_EVIDENCE_MISSING",
     },
@@ -129,7 +130,7 @@ FIELDS_BY_AREA["ACCEPTANCE"].update({"acceptance_unresolved_claim_count", "accep
 COUNTS.update({"reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
 ENUMS["admission_measurement"] = {"SERVING_TOKENIZER", "UTF8_ESTIMATE"}
 ENUMS["admission_dominant_component"] = {"tool_schemas", "system_instructions", "retained_history", "tool_results", "current_request", "response_schema", "serialization_and_template_estimate", "attachments"}
-ENUMS["status_policy_recovery"] = {"CHECK_PROTECTION_READ_PERMISSION"}
+ENUMS["status_policy_recovery"] = {"CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION"}
 ENUMS["reasoning_model_state"] = {"UNKNOWN", "UNAVAILABLE", "UNLOADED", "LOADING", "LOADED", "SLEEPING"}
 ENUMS["reasoning_recovery_action"] = {"CHOOSE_AUTO_OR_QUALIFIED_MODEL"}
 ENUMS["queue_blocker"] = {"ACTIVE_LEASE", "CHAT_BUSY", "DELIVERY_PENDING", "EXTERNAL_WORK", "GATEWAY_NOT_READY", "MODEL_PREPARATION", "CONFIGURATION", "NONE"}
@@ -137,7 +138,12 @@ ENUMS["gateway_validation_policy_state"] = {"NOT_CONFIGURED", "MISSING_OR_OVERSI
 ENUMS["gateway_preflight_reason"] = {"VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED", "VALIDATION_RUNTIME_UNAVAILABLE", "VALIDATION_REVISION_UNAVAILABLE", "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED"}
 FIELDS_BY_AREA["PROVIDER"].update({"reasoning_capability_age_ms", "reasoning_model_state", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action"})
 FIELDS_BY_AREA["GATEWAY"].update({"queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason"})
-FIELDS_BY_AREA["ACCEPTANCE"].update({"status_policy_recovery", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
+FIELDS_BY_AREA["ACCEPTANCE"].update({"status_policy_recovery", "branch_protection_http_status", "branch_rules_http_status", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
+
+COUNTS.add("graph_input_blocked_count")
+ENUMS["repository_graph_observation"] = {"NOT_INDEXED", "OBSERVED", "UNOBSERVED", "REVISION_MISMATCH", "UNAVAILABLE"}
+ENUMS["workflow_dependency_observation"] = {"UNOBSERVED", "READ_FAILED", "OBSERVED_EXECUTED_JOB", "RUN_READ_PENDING", "MISSING_EXECUTED_JOB", "RUN_PAGE_AVAILABLE"}
+FIELDS_BY_AREA["ACCEPTANCE"].update({"repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation"})
 
 # Bounded evidence from the owning request and the exact retained verdict.
 ENUMS["provider_failure_code"].update({"CONVERSATION_CONFLICT", "GITHUB_CIRCUIT_OPEN", "REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED"})
@@ -196,6 +202,36 @@ ENUMS["voice_install_failure_kind"] = {"DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK
 COUNTS.add("voice_install_elapsed_ms")
 FIELDS_BY_AREA["VOICE"].update(VOICE_INSTALL_EVIDENCE_FIELDS)
 
+VOICE_CAPTURE_PLAYBACK_FIELDS = {"voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment"}
+ENUMS["voice_playback_failure"] = {"AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED"}
+ENUMS["voice_capture_silenced_stage"] = {"CAPTURE_START", "CAPTURE_READ"}
+ENUMS["voice_caption_alignment"] = {"NO_TIMING", "EXACT_RANGE", "TEXT_UNMAPPED"}
+COMPOSER_EVIDENCE_FIELDS = {"composer_focus_transitions", "composer_ime_transitions", "composer_focused", "composer_ime_visible"}
+FLAGS.update({"composer_focused", "composer_ime_visible"})
+FIELDS_BY_AREA["APP"].update(COMPOSER_EVIDENCE_FIELDS)
+COMPLETION_EVIDENCE_FIELDS = {"empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts"}
+ATTEMPTS.update(COMPLETION_EVIDENCE_FIELDS)
+FIELDS_BY_AREA["PROVIDER"].update(COMPLETION_EVIDENCE_FIELDS)
+ENUMS["provider_failure_code"].add("TOOL_PROTOCOL_INVALID_FRAME")
+VOICE_PACK_STATUS_FIELDS = {"voice_install_recognition_status", "voice_install_playback_status"}
+for field in VOICE_PACK_STATUS_FIELDS:
+    ENUMS[field] = {"CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"}
+FIELDS_BY_AREA["VOICE"].update(VOICE_CAPTURE_PLAYBACK_FIELDS | VOICE_PACK_STATUS_FIELDS)
+
+# Exact retained prerequisite and policy-read observations; no names, IDs or raw errors.
+ACCEPTANCE_RECOVERY_FIELDS = {
+    "acceptance_preparation_state", "acceptance_ready_read_count", "acceptance_additional_ready_read_count",
+    "acceptance_fixture_creation_admissible", "acceptance_blocked_operation_families", "acceptance_additional_blocked_family_count",
+    "status_policy_protection_http_status", "status_policy_rules_http_status",
+    "status_branch_protected", "status_policy_complete", "status_policy_recovery_hint",
+}
+ENUMS["acceptance_preparation_state"] = {"CLEANUP_RESERVE_ACTIVE", "OWNED_FIXTURE_STEP_PREPARED", "BOUNDED_READS_PREPARED", "NO_PENDING_CAPABILITY_PREREQUISITES", "PREREQUISITES_REQUIRED"}
+ENUMS["status_policy_recovery_hint"] = {"CHECK_AUTHENTICATION", "CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION", "CHECK_POLICY_READ_PERMISSIONS", "WAIT_RATE_LIMIT", "REFRESH_POLICY_OBSERVATIONS"}
+ENUM_LISTS["acceptance_blocked_operation_families"] = {"github_context", "github_read", "github_search", "github_pr", "github_issue", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_decide", "github_review", "github_engineering", "github_repository", "repository_graph"}
+COUNTS.update({"acceptance_ready_read_count", "acceptance_additional_ready_read_count", "acceptance_additional_blocked_family_count"})
+FLAGS.update({"acceptance_fixture_creation_admissible", "status_branch_protected", "status_policy_complete"})
+FIELDS_BY_AREA["ACCEPTANCE"].update(ACCEPTANCE_RECOVERY_FIELDS)
+
 CORE_FIELDS = {
     "PROVIDER": {"profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"},
     "TOOL": {"tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "missing_field_count", "invalid_field_count"},
@@ -228,11 +264,15 @@ def _valid_value(key, value):
         return type(value) is bool
     if type(value) is not int:
         return False
+    if key in {"composer_focus_transitions", "composer_ime_transitions"}:
+        return 0 <= value <= 255
+    if key == "voice_playback_focus_attempts":
+        return 1 <= value <= 2
     if key == "voice_generation":
         return 0 <= value <= 9_223_372_036_854_775_807
     if key == "gateway_protocol_version":
         return 1 <= value <= 1000
-    if key in {"backend_terminal_status", "gateway_http_status", "gateway_upstream_status", "gateway_reconciliation_status"}:
+    if key in {"backend_terminal_status", "gateway_http_status", "gateway_upstream_status", "gateway_reconciliation_status", "branch_protection_http_status", "branch_rules_http_status", "status_policy_protection_http_status", "status_policy_rules_http_status"}:
         return 100 <= value <= 599
     if key == "model_preparation_load_requests":
         return 0 <= value <= 1

@@ -49,8 +49,9 @@ internal class IssueReportSubmission(
         } else {
             emptySet()
         }
-        val diagnosticFeatures = IssueReportDiagnostics.fromJson(context?.get("diagnostics"))?.requiredServiceFeatures().orEmpty()
-        val requiredFeatures = diagnosticFeatures + requiredCodeFeatures(parsed, context)
+        val diagnostics = IssueReportDiagnostics.fromJson(context?.get("diagnostics"))
+        val diagnosticFeatures = diagnostics?.requiredServiceFeatures().orEmpty()
+        val requiredFeatures = diagnosticFeatures + requiredCodeFeatures(parsed, context, diagnostics)
         if (context != null || requiredFeatures.isNotEmpty()) {
             contextSupport(requiredVersions, requiredFeatures)?.let { return it }
         }
@@ -111,21 +112,33 @@ internal class IssueReportSubmission(
     companion object {
         private const val MAX_RECEIPT_BYTES = 1024L
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
+        private val RECOVERY_CODES = setOf(
+            "TOOL_BUDGET_EXHAUSTED",
+            "VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED",
+            "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED",
+            "SOURCE_REVISION_REQUIRED", "SOURCE_REVISION_CHANGED",
+            "VALIDATION_REVISION_UNAVAILABLE", "VALIDATION_RUNTIME_UNAVAILABLE", "ENGINEERING_REPOSITORY_ACCESS_REQUIRED"
+        )
         private val REPORT_EVENT = Regex("-[0-9]{1,5}ms [DIWEF] (?:app|chat|voice|gateway|local|tools) ([A-Z][A-Z0-9_]{0,63})")
         private val JSON_MEDIA_TYPE = "application/json".toMediaType()
         private val defaultClient = OkHttpClient.Builder().followRedirects(false).followSslRedirects(false)
             .retryOnConnectionFailure(false).callTimeout(40, TimeUnit.SECONDS).build()
         private val ERROR_CODES = setOf("HTTPS_ORIGIN_REQUIRED", "JSON_REQUIRED", "REPORT_TOO_LARGE", "INVALID_REPORT", "GITHUB_REJECTED", "REPORT_ID_CONFLICT", "RATE_LIMITED", "GITHUB_UNAVAILABLE", "RETRY_LATER", "AWAITING_GITHUB_RECEIPT", "REPORT_STORE_UNAVAILABLE")
 
-        private fun requiredCodeFeatures(report: JsonObject, context: JsonObject?): Set<String> {
+        private fun requiredCodeFeatures(report: JsonObject, context: JsonObject?, diagnostics: IssueReportDiagnostics?): Set<String> {
             fun code(value: kotlinx.serialization.json.JsonElement?) = (value as? JsonPrimitive)?.takeIf { it.isString }?.content
             val codes = listOfNotNull(code(report["errorCode"]), code(context?.get("originalFailureCode"))) +
+                // Only validated code fields can extend the hosted service contract.
+                // A nested cause needs the same capability as a top-level failure.
+                listOf("provider_failure_code", "causal_failure_code", "voice_chat_failure_code").mapNotNull { code(diagnostics?.values?.get(it)) } +
                 (report["events"] as? JsonArray).orEmpty().take(IssueReport.EVENT_LIMIT).mapNotNull { event ->
                     code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
                 }
             return buildSet {
                 if (codes.any { it in REVIEW_CODES }) add("REVIEW_COMPARISON_V1")
+                if (codes.any { it in RECOVERY_CODES }) add("ISSUE_RECOVERY_CODES_V1")
                 if ("GITHUB_TOOL_CONTEXT_BUDGET" in codes) add("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1")
+                if ("TOOL_PROTOCOL_INVALID_FRAME" in codes) add("COMPLETION_EVIDENCE_V1")
                 if ("COMBINED_REQUIREMENTS_UNMET" in codes) add("EXECUTION_OUTCOME_DIAGNOSTICS_V1")
             }
         }

@@ -1,10 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubSelfTestWorkflowJobsTest {
@@ -106,5 +109,56 @@ class GitHubSelfTestWorkflowJobsTest {
         val unknown = job(1, 10, "")
         val skippedSteps = job(2, 10, steps = """, "steps":[{"status":"completed","conclusion":"skipped"}]""")
         assertNull(select(runs(10), jobs(10, "$unknown,$skippedSteps")).job)
+    }
+
+    @Test fun thirtySkippedRunsNeedOnlyOneJobsProbeBeforeDiscoveringAnotherPage() {
+        val skipped = receipt("runs", """{"workflow_runs":[${(1..30).joinToString(",") { run(it).replace("success", "skipped") }}]}""")
+        assertEquals(JsonPrimitive(1), select(skipped).nextRun?.get("id"))
+        assertNull(select(skipped, jobs(1, job(1, 1, "skipped", steps = """, "steps":[]"""))).nextRun)
+        assertEquals(JsonPrimitive(31), select(skipped, jobs(1), runs(31)).nextRun?.get("id"))
+    }
+
+    @Test fun cancelledNeutralAndUnknownRunsRemainInspectableAfterASkippedJobProbe() {
+        for (conclusion in listOf("\"cancelled\"", "\"neutral\"", "null")) {
+            val candidate = run(20).replace("\"success\"", conclusion)
+            val observed = receipt("runs", """{"workflow_runs":[${run(10).replace("success", "skipped")},$candidate]}""")
+            val skipped = jobs(10, job(1, 10, "skipped", steps = """, "steps":[]"""))
+            val pending = select(observed, skipped)
+            assertEquals("Run conclusion $conclusion must not hide its jobs", JsonPrimitive(20), pending.nextRun?.get("id"))
+            assertNull(pending.job)
+            val executed = job(2, 20, steps = """, "steps":[{"status":"completed","conclusion":"success"}]""")
+            val inspected = select(observed, skipped, jobs(20, executed))
+            assertEquals(JsonPrimitive(2), inspected.job?.get("id"))
+            assertEquals(JsonPrimitive(20), inspected.job?.get("run_id"))
+            assertNull(inspected.nextRun)
+        }
+    }
+
+    @Test fun jobDependencyPagesAreRevisionBoundDurableAndIndependentlyLimited() {
+        val tool = AgentToolDefinition("github_ci", "CI", json("""{"properties":{"action":{"enum":["runs","jobs","job","logs"]}}}"""))
+        fun page(number: Int, head: String = sha, extra: String = "") = json("""{"tool":"github_ci","arguments":{"action":"runs","commit_sha":"$head","page":$number$extra}}""")
+        val scopedRuns = JsonObject(runs(1) + ("arguments" to json("""{"action":"runs","commit_sha":"$sha"}""")))
+        val exhausted = listOf(status(), scopedRuns, jobs(1))
+        val issuer = exhausted[1]
+        assertTrue(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), exhausted, issuer))
+        assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2, "b".repeat(40)), listOf(tool), exhausted, issuer))
+        assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2, extra = """, "owner":"other","repo":"repo""""), listOf(tool), exhausted, issuer))
+        assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), emptyList(), exhausted, issuer))
+        assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), listOf(status(), runs(1, 2), jobs(1)), issuer))
+        assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), exhausted, JsonObject(issuer + ("binding" to JsonPrimitive("other-task")))))
+        assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), exhausted, JsonObject(issuer + ("repository" to JsonPrimitive("other/repo")))))
+        for (foreign in listOf(
+            JsonObject(issuer + ("tool" to JsonPrimitive("github_ci__other"))),
+            JsonObject(issuer + ("arguments" to json("""{"action":"workflows","commit_sha":"$sha"}"""))),
+            JsonObject(issuer + ("arguments" to json("""{"action":"runs","commit_sha":"${"b".repeat(40)}"}"""))),
+            JsonObject(issuer + ("arguments" to json("""{"action":"runs"}""")))
+        )) {
+            assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), listOf(status(), foreign, jobs(1)), foreign))
+        }
+        val failed = JsonObject(jobs(1) + ("success" to JsonPrimitive(false)))
+        assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(2), listOf(tool), listOf(status(), runs(1), failed), issuer))
+        val pages = (2..9).map { number -> receipt("runs", "{}", """, "commit_sha":"$sha", "page":$number""") }
+        assertTrue(GitHubSelfTestWorkflowJobs.dependencyPage(page(9), listOf(tool), exhausted + pages.dropLast(1), issuer))
+        assertFalse(GitHubSelfTestWorkflowJobs.dependencyPage(page(10), listOf(tool), exhausted + pages, issuer))
     }
 }

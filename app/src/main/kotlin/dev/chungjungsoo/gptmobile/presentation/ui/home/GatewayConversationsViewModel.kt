@@ -30,6 +30,9 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -47,6 +50,9 @@ internal data class GatewayConversationsState(
     val transcriptKey: String? = null,
     val cachedInventory: Boolean = false,
     val localChats: List<ChatRoomV2> = emptyList(),
+    val gitHubChatIds: Set<Int> = emptySet(),
+    val researchChatIds: Set<Int> = emptySet(),
+    val gatewayBoundaryChatIds: Set<Int> = emptySet(),
     val profileChoices: List<GatewayChatProfileChoice> = emptyList(),
     val profileChoicesLoaded: Boolean = false,
     val profilePickerVisible: Boolean = false,
@@ -100,7 +106,24 @@ internal class GatewayConversationsViewModel @Inject constructor(
             }
         }
         viewModelScope.launch {
-            database.chatRoomDao().observeGatewayChats().collect { rooms -> _state.update { it.copy(localChats = rooms) } }
+            val navigationFeatures = combine(settings.observePlatformV2s(), settings.observeFeatureSettings()) { profiles, features ->
+                gatewayNavigationFeatures(profiles, features)
+            }.distinctUntilChanged()
+            combine(
+                database.chatRoomDao().observeUnarchivedChats().distinctUntilChanged(),
+                database.chatRoomDao().observeGatewayChats().distinctUntilChanged(),
+                navigationFeatures,
+                state.map { snapshot -> snapshot.profileChoices.mapTo(mutableSetOf()) { it.profileUid } }.distinctUntilChanged()
+            ) { rooms, retained, features, profileUids ->
+                val boundaryIds = retained.mapTo(mutableSetOf()) { it.id } + features.savedSelectionChatIds
+                Triple(
+                    gatewayNavigationChats(rooms, boundaryIds, features.savedSelectionChatIds, profileUids, features.engineeringBindings),
+                    features,
+                    boundaryIds
+                )
+            }.flowOn(Dispatchers.Default).collect { (rooms, features, boundaryIds) ->
+                _state.update { it.copy(localChats = rooms, gitHubChatIds = features.gitHubChatIds, researchChatIds = features.researchChatIds, gatewayBoundaryChatIds = boundaryIds) }
+            }
         }
         viewModelScope.launch {
             database.gatewayJobDao().observeAttachedConversations().collect { records ->
@@ -352,7 +375,14 @@ internal class GatewayConversationsViewModel @Inject constructor(
     }
 
     fun openLocalChat(room: ChatRoomV2, onOpenLocal: (ChatRoomV2) -> Unit) {
-        if (_state.value.openingId != null) return
+        val current = _state.value
+        if (current.openingId != null) return
+        val visible = current.localChats.firstOrNull { it.id == room.id }
+        if (visible != null && visible.conversationMode != dev.chungjungsoo.gptmobile.data.database.entity.ConversationMode.GATEWAY && visible.id !in current.gatewayBoundaryChatIds) {
+            // Profile membership is navigation evidence, not authority to convert a workflow.
+            onOpenLocal(visible)
+            return
+        }
         refreshJob?.cancel()
         creationJob?.cancel()
         val requestGeneration = generation

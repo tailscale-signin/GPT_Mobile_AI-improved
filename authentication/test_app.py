@@ -372,9 +372,11 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
                          {key: response.json()[key] for key in ("service", "version")})
         self.assertEqual([1, 2, 3, 4, 5, 6, 7], response.json()["reportContextVersions"])
-        self.assertEqual(["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1", "INCIDENT_FAILURE_DETAILS_V1", "DISPATCH_POLICY_DIAGNOSTICS_V1", "CHANGED_POLICY_FIELDS_V1", "EXECUTION_OUTCOME_DIAGNOSTICS_V1", "RUN_FAILURE_EVIDENCE_V1", "RECOVERY_OBSERVATIONS_V1", "ISSUE_RECOVERY_DETAILS_V1", "ADMISSION_DIAGNOSTICS_V1", "SESSION_RECOVERY_DIAGNOSTICS_V1", "VOICE_PLAYBACK_PHASE_V1", "CAPACITY_ADMISSION_EVIDENCE_V1", "CONVERSATION_CONFLICT_EVIDENCE_V1", "ACCEPTANCE_SCOPE_EVIDENCE_V1", "VOICE_INSTALL_EVIDENCE_V1", "GITHUB_SCHEMA_BUDGET_EVIDENCE_V1"], response.json()["reportDiagnosticFeatures"])
+        self.assertEqual(["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1", "INCIDENT_FAILURE_DETAILS_V1", "DISPATCH_POLICY_DIAGNOSTICS_V1", "CHANGED_POLICY_FIELDS_V1", "EXECUTION_OUTCOME_DIAGNOSTICS_V1", "RUN_FAILURE_EVIDENCE_V1", "RECOVERY_OBSERVATIONS_V1", "ISSUE_RECOVERY_DETAILS_V1", "ADMISSION_DIAGNOSTICS_V1", "SESSION_RECOVERY_DIAGNOSTICS_V1", "VOICE_PLAYBACK_PHASE_V1", "CAPACITY_ADMISSION_EVIDENCE_V1", "CONVERSATION_CONFLICT_EVIDENCE_V1", "ACCEPTANCE_SCOPE_EVIDENCE_V1", "VOICE_INSTALL_EVIDENCE_V1", "GITHUB_SCHEMA_BUDGET_EVIDENCE_V1", "VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1", "COMPLETION_EVIDENCE_V1", "COMPOSER_IME_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1", "GITHUB_GRAPH_POLICY_EVIDENCE_V1", "ACCEPTANCE_RECOVERY_EVIDENCE_V1", "ISSUE_RECOVERY_CODES_V1", "CAPTURE_BOUNDARY_EVIDENCE_V1"], response.json()["reportDiagnosticFeatures"])
         self.assertEqual("no-store", response.headers["cache-control"])
         self.assertFalse(self.issued)
+        # The Android client bounds the readiness body before admitting a report.
+        self.assertLessEqual(len(response.content), 1024)
         # Old clients may continue posting their original reports without a
         # capability negotiation or a synthetic empty context object.
         self.assertEqual(200, self.submit(self.manual()).status_code)
@@ -827,6 +829,35 @@ class IssueReportHttpTest(unittest.TestCase):
                 self.assertIn(f"-023ms W tools {code}", issue["body"])
                 self.assertIn(f"-001ms E tools {code}", issue["body"])
                 self.assertIn(report["commit"], issue["body"])
+
+    def test_advertised_recovery_codes_preserve_nested_failure_identity(self):
+        from authentication import incident_report_contract as capsule
+
+        features = self.client.get("/health/ready").json()["reportDiagnosticFeatures"]
+        self.assertIn("ISSUE_RECOVERY_CODES_V1", features)
+        self.assertIn("COMPLETION_EVIDENCE_V1", features)
+        codes = ("TOOL_BUDGET_EXHAUSTED", "VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED",
+                 "VALIDATION_CHECK_UNSUPPORTED", "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED",
+                 "SOURCE_REVISION_REQUIRED", "SOURCE_REVISION_CHANGED", "VALIDATION_REVISION_UNAVAILABLE",
+                 "VALIDATION_RUNTIME_UNAVAILABLE", "ENGINEERING_REPOSITORY_ACCESS_REQUIRED", "TOOL_PROTOCOL_INVALID_FRAME")
+        for code in codes:
+            contexts = [self.context(schemaVersion=4, originalFailureCode=code)]
+            fields = [("INCIDENT", "causal_failure_code"), ("VOICE", "voice_chat_failure_code")]
+            if code == "TOOL_PROTOCOL_INVALID_FRAME":
+                fields.append(("PROVIDER", "provider_failure_code"))
+            for area, field in fields:
+                capture = self.diagnostics(area, {field: code})
+                capture["schemaVersion"] = 3
+                capture["unavailableFields"] = sorted((CORE_FIELDS[area] | capsule.CORE) - capture["values"].keys())
+                contexts.append(self.context(schemaVersion=7, diagnostics=capture))
+            for context in contexts:
+                with self.subTest(code=code, context=context):
+                    report = {**self.manual(), "context": context}
+                    approved = json.dumps(report, separators=(",", ":"))
+                    report_id, issue = issue_from_report(report)
+                    self.assertEqual(report["reportId"], report_id)
+                    self.assertIn(code, issue["body"])
+                    self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
 
     def test_typed_network_and_unknown_outcome_codes_survive_formatting(self):
         for code in ("DNS_RESOLUTION_FAILED", "NETWORK_DISCONNECTED", "CONNECTION_ABORTED", "NETWORK_TIMEOUT",

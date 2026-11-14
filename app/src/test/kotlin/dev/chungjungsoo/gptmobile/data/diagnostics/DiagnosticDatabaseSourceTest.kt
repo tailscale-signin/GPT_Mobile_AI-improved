@@ -71,6 +71,26 @@ class DiagnosticDatabaseSourceTest {
         research.close()
     }
 
+    @Test fun recoveryPagesRetainEveryRowAndReportOnlyMeasuredSourceLocation() = runBlocking {
+        val chat = createRun("bounded-recovery", null)
+        repeat(3) { index -> workspace.saveSynthesisCheckpoint("recovery-$index", chat, "bounded-recovery", buildJsonObject { put("value", "private fixture $index") }) }
+        val rows = mutableListOf<JsonObject>()
+        val locations = mutableListOf<DiagnosticSourceRecord>()
+        val coverage = mutableListOf<JsonObject>()
+        source.capture(
+            chat, "workspace", 4096, {}, { rows += it }, {}, metadata = { coverage += it },
+            sourceRecord = { it?.let(locations::add) }, sourcePageSize = 1
+        )
+        assertEquals(3, rows.size)
+        assertEquals(rows.map { it.getValue("rowId").jsonPrimitive.long }, locations.map { it.rowId })
+        assertEquals(3, locations.map { it.rowId }.distinct().size)
+        assertTrue(locations.all { it.table == "workspace_records" && it.sourceBytes > 0 && it.maximumBytes == 4096 })
+        assertFalse(locations.joinToString { it.json().toString() }.contains("private fixture"))
+        val workspaceCoverage = coverage.single { it["table"] == JsonPrimitive("workspace_records") }
+        assertEquals(JsonPrimitive(1), workspaceCoverage["pageSize"])
+        assertEquals(JsonPrimitive(3L), workspaceCoverage["emittedRows"])
+    }
+
     @Test fun fencedWaitRecoveryExplainsTerminalStateWhenWorkspaceStillHasTheOriginalInterruption() = runBlocking {
         val chat = createRun("wait-run", "PROVIDER_WAIT_CHECKPOINT_CHANGED")
         val run = requireNotNull(database.agentPersistenceDao().recoveryRun("wait-run"))

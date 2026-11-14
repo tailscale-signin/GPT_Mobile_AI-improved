@@ -69,6 +69,15 @@ class PrincipalResolver:
         return Principal("tailnet:" + grant["principalId"], frozenset(grant["scopes"]))
 
 
+def principal_can_graph(config, principal, devices):
+    """Recheck tools admission for a retained public-map indexing job."""
+    if config.mode == 'open_network':
+        return principal == 'network:shared'
+    if config.mode == 'loopback':
+        return principal == 'local:single-user' or bool(config.legacy_bearer and any(row[0] == principal and not row[2] for row in devices.list_devices()))
+    return any(principal == 'tailnet:' + grant['principalId'] and 'tools' in grant.get('scopes', []) for grant in config.trusted_users.values())
+
+
 def principal_can_chat(config, principal, devices):
     """Revalidate a retained admission immediately before first execution."""
     if config.mode == 'open_network':
@@ -131,7 +140,10 @@ class Admission:
         engineering_path = path.startswith("/gateway/engineering/")
         public_map_path = self.config.public_repository_maps and (
             (path, scope["method"]) in {('/gateway/engineering/capabilities', 'GET'), ('/gateway/engineering/graph', 'POST')})
-        conversation_path = path == '/gateway/conversations' or path.startswith('/gateway/conversations/')
+        conversation_path = path in {'/gateway/conversations', '/gateway/saved-messages'} or path.startswith('/gateway/conversations/')
+        metadata_write = path.startswith('/gateway/conversations/') and ((path.endswith('/metadata') and scope['method'] == 'PATCH') or ('/bookmarks/' in path and scope['method'] == 'PUT'))
+        benchmark_path = path == '/gateway/benchmarks' or path.startswith('/gateway/benchmarks/')
+        benchmark_write = (scope['method'] == 'POST' and (path == '/gateway/benchmarks' or path.startswith('/gateway/benchmarks/') and path.endswith('/cancel'))) or (scope['method'] == 'DELETE' and path.startswith('/gateway/benchmarks/') and len(path.strip('/').split('/')) == 3)
         catalog_path = path in {'/gateway/identity', '/gateway/job-catalog'} or path.startswith('/gateway/commands/')
         diagnostics_path = path in {"/gateway/debug/events", "/gateway/debug/export"}
         diagnostics_write = path == "/gateway/debug/events" and scope["method"] == "POST"
@@ -139,15 +151,15 @@ class Admission:
         if engineering_path and not principal.engineering_allowed and not (public_map_path and 'tools' in principal.scopes):
             return await deny("engineering_scope_required")
         if self.config.mode in {"trusted_proxy", "open_network"} and not principal.local_admin:
-            public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
+            public_reads = {"/models", "/gateway/capabilities", "/gateway/ready", "/gateway/live", "/gateway/v13", "/gateway/v14", "/gateway/v15", "/gateway/v16", "/gateway/v17", "/gateway/connections", "/gateway/tools", "/gateway/session", "/gateway/dashboard"}
             job_path = path == "/gateway/jobs" or path.startswith("/gateway/jobs/")
             if scope["method"] in {"GET", "HEAD"}:
                 landing_page = self.config.mode == "open_network" and request_path in LANDING_PATHS
-                if not landing_page and path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not conversation_path and not catalog_path:
+                if not landing_page and path not in public_reads and not job_path and not engineering_path and not diagnostics_path and not conversation_path and not catalog_path and not benchmark_path:
                     return await deny("remote_surface_not_admitted")
-            elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not diagnostics_write and not model_preparation_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
+            elif not engineering_path and not (conversation_path and path.endswith('/messages') and scope['method'] == 'POST') and not metadata_write and not benchmark_write and not diagnostics_write and not model_preparation_write and path != "/chat/completions" and not (job_path and path.endswith("/cancel") and scope["method"] == "POST"):
                 return await deny("local_admin_required")
-        required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") or conversation_path or catalog_path else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
+        required = "engineering" if engineering_path and not principal.local_admin else "jobs" if path.startswith("/gateway/jobs") or conversation_path or catalog_path or benchmark_path else "tools" if path.startswith(("/gateway/tools", "/gateway/mcp", "/tools")) else "chat"
         if public_map_path and not principal.engineering_allowed:
             required = 'tools'
         granted = required in principal.scopes or diagnostics_path and 'diagnostics' in principal.scopes

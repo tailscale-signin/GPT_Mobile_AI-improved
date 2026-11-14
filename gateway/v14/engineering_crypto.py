@@ -21,7 +21,7 @@ class EngineeringCipher:
             raise ValueError('Engineering key must not be a symbolic link')
         if not path.exists():
             # Never replace a lost key when ciphertext already exists.
-            for table in ('engineering_memory', 'engineering_evidence', 'code_graph_snapshots', 'code_graph_notes', 'engineering_artifact_chunks'):
+            for table in ('engineering_memory', 'engineering_evidence', 'code_graph_snapshots', 'code_graph_snapshot_summaries', 'code_graph_notes', 'code_graph_index_jobs', 'engineering_artifact_chunks'):
                 if db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", (table,)).fetchone() and db.execute('SELECT COUNT(*) FROM ' + table).fetchone()[0]:
                     raise ValueError('Engineering key is missing; restore the protected key before reading or appending')
             if not create:

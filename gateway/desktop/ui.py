@@ -6,6 +6,7 @@ import threading
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from desktop.configuration import atomic_json, load, public_repository_maps, save_public_repository_maps, validate
+from desktop.validation_policy import check_policy_file, save_policy_path, selected_policy_path
 from v14.engineering_batch_policy import load_policy as load_execution_policy, save_policy as save_execution_policy
 from desktop.manager import request, startup_registration
 from desktop.addons import load_addons, save_addons
@@ -56,6 +57,8 @@ def build_window(root, parent=None, section='General'):
     ttk.Label(header, textvariable=state_text, style='Muted.TLabel').pack(side='right')
     tabs = ttk.Notebook(window)
     tabs.pack(fill='both', expand=True, padx=20)
+    advanced_visible = tk.BooleanVar(value=section == 'Advanced')
+    advanced_shell = None
     scroll_surfaces = {}
     def page(name):
         shell = ttk.Frame(tabs)
@@ -85,12 +88,24 @@ def build_window(root, parent=None, section='General'):
     sections = {}
     for title in ('General', 'Advanced', 'Add-ons', 'GitHub'):
         canvas = page(title)
+        if title == 'Advanced':
+            advanced_shell = canvas.master
         frame = ttk.Frame(canvas, padding=24)
         attach(canvas, frame)
         frame.columnconfigure(1, weight=1)
         sections[title] = frame
         if title == section:
             tabs.select(canvas.master)
+    def toggle_advanced():
+        if advanced_visible.get():
+            tabs.insert(1, advanced_shell, text='Advanced')
+            tabs.select(advanced_shell)
+        else:
+            tabs.hide(advanced_shell)
+    ttk.Checkbutton(header, text='Show advanced settings', variable=advanced_visible,
+                    command=toggle_advanced).pack(side='right', padx=18)
+    if not advanced_visible.get():
+        tabs.hide(advanced_shell)
     values = {}
 
     def title(frame, text, detail):
@@ -172,6 +187,41 @@ def build_window(root, parent=None, section='General'):
                  values=['1', '2', '3', '4']).grid(row=15, column=0, columnspan=3, sticky='ew', pady=5)
     ttk.Label(advanced, text='One runs sequentially. Higher values parallelize only adjacent independent checks that the repository validation policy explicitly groups. Each check stays in its own offline sandbox. GitHub API requests remain serialized; native cloud-provider batching is unavailable.',
               style='Muted.TLabel', wraplength=600).grid(row=16, column=0, columnspan=3, sticky='w', pady=(4, 12))
+    ttk.Label(advanced, text='Repository validation policy', style='Section.TLabel').grid(row=17, column=0, columnspan=3, sticky='w', pady=(12, 8))
+    validation_policy_invalid = False
+    validation_policy_error = ''
+    try:
+        validation_policy_saved = selected_policy_path(root)
+    except (OSError, ValueError) as error:
+        validation_policy_saved = ''
+        validation_policy_invalid = True
+        validation_policy_error = f'Validation policy selection needs repair: {error}. Choose a policy or leave the field empty, then save settings.'
+    validation_policy = tk.StringVar(value=validation_policy_saved)
+    ttk.Entry(advanced, textvariable=validation_policy).grid(row=18, column=0, columnspan=3, sticky='ew', pady=5)
+    policy_buttons = ttk.Frame(advanced)
+    policy_buttons.grid(row=19, column=0, columnspan=3, sticky='w', pady=5)
+    policy_note = tk.StringVar(value=validation_policy_error or 'Choose the policy approved on this PC for repository builds and behavior tests. Save settings and restart to apply.')
+    ttk.Label(advanced, textvariable=policy_note, style='Muted.TLabel', wraplength=600).grid(row=20, column=0, columnspan=3, sticky='w', pady=(4, 12))
+
+    def browse_policy():
+        selected = filedialog.askopenfilename(parent=window, title='Choose repository validation policy', filetypes=[('JSON policy', '*.json'), ('All files', '*.*')])
+        if selected:
+            validation_policy.set(selected)
+
+    def inspect_policy():
+        try:
+            checked = check_policy_file(validation_policy.get())
+            policy_note.set(f"Policy file validated for {checked['repositories']} repositories. Runtime and source checks run when a job starts."
+                            if checked['state'] == 'VALIDATED' else 'No policy selected. Implementation jobs require a host-approved policy.')
+        except ValueError as error:
+            policy_note.set(str(error))
+
+    ttk.Button(policy_buttons, text='Choose policy…', command=browse_policy).pack(side='left', padx=(0, 8))
+    ttk.Button(policy_buttons, text='Check policy', command=inspect_policy).pack(side='left')
+    def benchmark_settings():
+        from desktop.benchmark_panel import open_benchmark_settings
+        open_benchmark_settings(window, root)
+    ttk.Button(advanced, text='Benchmark settings…', command=benchmark_settings).grid(row=22, column=0, columnspan=3, sticky='w', pady=(14, 6))
 
     addons = sections['Add-ons']
     title(addons, 'Extend your gateway', 'Manage configured PC tools.')
@@ -249,7 +299,7 @@ def build_window(root, parent=None, section='General'):
     busy = False
 
     def save():
-        nonlocal public_maps_saved
+        nonlocal public_maps_saved, validation_policy_saved, validation_policy_invalid
         try:
             updated = dict(cfg)
             for name, variable in values.items():
@@ -263,11 +313,20 @@ def build_window(root, parent=None, section='General'):
             # never receives the new policy fields.
             from v14.engineering_batch_policy import validate_policy as validate_execution_policy
             staged_batch = validate_execution_policy(staged_batch)
+            policy_changed = validation_policy_invalid or validation_policy.get() != validation_policy_saved or not (root / 'data' / 'validation-settings.json').exists()
+            if policy_changed:
+                check_policy_file(validation_policy.get())
             startup_registration(root, updated['start_at_login'])
             atomic_json(root / 'settings.json', updated)
             cfg.update(updated)
             save_execution_policy(batch_policy_path, staged_batch)
             batch_settings.update(staged_batch)
+            if policy_changed:
+                checked_policy = save_policy_path(root, validation_policy.get())
+                validation_policy_saved = validation_policy.get()
+                validation_policy_invalid = False
+                policy_note.set('Validation policy selection saved. Restart to apply.' if checked_policy['state'] == 'VALIDATED'
+                                else 'No policy selected. Implementation jobs remain blocked until a host-approved policy is selected.')
             if public_maps.get() != public_maps_saved:
                 save_public_repository_maps(root, public_maps.get())
                 public_maps_saved = public_maps.get()

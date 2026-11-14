@@ -1437,13 +1437,23 @@ class AgentToolResolverTest {
         assertFalse(catalog.execute("discover-write", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive("github_write__native")))) }).isError)
         assertTrue(catalog.selected(definitions).any { it.name == "github_write__native" })
 
-        // Other current requests retain the full engineering catalogue. The status
-        // optimization must not hide source, integration, or mutation capabilities.
+        // Other requests start with fitting schemas while retaining every authorized
+        // engineering operation for explicit discovery, including deferred mutations.
         for (task in listOf("Inspect the repository source code", "[github-workflow-preset:test_integration]\nTest GitHub integration", "Check repository status and delete the old branch")) {
             val tools = resolver.resolve(profile.uid, selection, dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = task, platformType = null))
             val engineering = requireNotNull(tools.firstNotNullOfOrNull { it.progressiveCatalog })
             assertFalse(task, engineering.scopedGitHubStatus)
-            assertEquals(task, authorizedNames, engineering.selected(tools.map { it.tool.definition }).map { it.name }.filter { GitHubOperationTool.operationName(it) != null }.toSet())
+            val available = tools.map { it.tool.definition }
+            val initialNames = engineering.selected(available).map { it.name }.toSet()
+            assertTrue(task, "github_context__native" in initialNames)
+            assertTrue(task, initialNames.intersect(authorizedNames).size < authorizedNames.size)
+            assertFalse(task, "github_write__native" in initialNames)
+            for (name in authorizedNames) {
+                val discovered = engineering.execute("discover-$name", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(name)))) })
+                assertFalse("$task: $name", discovered.isError)
+                assertFalse("$task: $name", discovered.dispatched)
+                assertTrue("$task: $name", engineering.selected(available).contains(available.single { it.name == name }))
+            }
         }
         val retained = statusTools.single { it.modelToolName == "github_context__native" }
         assertTrue(requireNotNull(retained.canReuseResult).invoke())

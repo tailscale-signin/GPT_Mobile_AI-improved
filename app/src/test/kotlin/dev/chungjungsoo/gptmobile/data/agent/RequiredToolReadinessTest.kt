@@ -40,7 +40,10 @@ class RequiredToolReadinessTest {
 
     @Test fun requiredSchemaCannotBeSilentlyDroppedForBudget() {
         val failure = runCatching { plan("Call github_pr.", listOf(resolved("github_pr", "Detailed contract ".repeat(4000)))) }.exceptionOrNull()
-        assertTrue(failure?.message.orEmpty().contains("REQUIRED_TOOL_CONTEXT_BUDGET"))
+        assertTrue(failure is GitHubToolContextBudgetException)
+        val budget = failure as GitHubToolContextBudgetException
+        assertTrue(budget.requiredSchemaTokens > budget.availableSchemaTokens)
+        assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", budget.providerFailure().errorCode)
     }
 
     @Test fun anExplicitOperationIsAttachedEvenWhenNormallyDeferredByTheCatalog() {

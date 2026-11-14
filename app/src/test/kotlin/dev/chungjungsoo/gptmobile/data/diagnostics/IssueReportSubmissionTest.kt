@@ -30,11 +30,21 @@ class IssueReportSubmissionTest {
             "CAPACITY_ADMISSION_EVIDENCE_V1" to mapOf("admission_capacity_provenance" to "VERIFIED_ROUTE"),
             "CONVERSATION_CONFLICT_EVIDENCE_V1" to mapOf("conflict_pending_tool_state" to "NOT_REPORTED"),
             "ACCEPTANCE_SCOPE_EVIDENCE_V1" to mapOf("acceptance_capability_scope" to "FULL_CATALOG", "acceptance_pagination_mode" to "BOUNDED_SMOKE_SAMPLE"),
+            "GITHUB_PREREQUISITE_EVIDENCE_V1" to mapOf("repository_graph_observation" to "NOT_INDEXED", "graph_input_blocked_count" to 16, "workflow_dependency_observation" to "MISSING_EXECUTED_JOB"),
+            "ACCEPTANCE_RECOVERY_EVIDENCE_V1" to mapOf("status_policy_protection_http_status" to 404, "status_policy_complete" to false),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("branch_protection_http_status" to 404),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("branch_rules_http_status" to 403),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("status_policy_recovery" to "CHECK_RULES_READ_PERMISSION"),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INDEX_REQUIRED")),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INDEX_UNCONFIRMED")),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INPUT_REQUIRED")),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_pending_reason" to "CONNECTIVITY"),
-            "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND")
+            "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND"),
+            "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "PROVIDER_ADAPTER_STREAM_CATCH", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY"),
+            "CAPTURE_BOUNDARY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_REPOSITORY_ERROR_VALUE", "incident_phase_provenance" to "CAPTURE_BOUNDARY_ONLY")
         )) {
             val area = when (feature) {
-                "ACCEPTANCE_SCOPE_EVIDENCE_V1" -> "ACCEPTANCE"
+                "ACCEPTANCE_SCOPE_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1", "GITHUB_GRAPH_POLICY_EVIDENCE_V1", "ACCEPTANCE_RECOVERY_EVIDENCE_V1" -> "ACCEPTANCE"
                 "VOICE_INSTALL_EVIDENCE_V1" -> "VOICE"
                 else -> "PROVIDER"
             }
@@ -123,6 +133,102 @@ class IssueReportSubmissionTest {
             assertEquals(IssueReportSubmission.Confirmed(941), submission.send(report.reportId, payload) { dispatched++ })
             assertEquals(listOf("GET", "GET", "POST"), methods)
             assertEquals(1, dispatched)
+            assertEquals(listOf(payload), posted)
+        }
+    }
+
+    @Test fun recoveryAndProtocolCodesWaitForServiceSupportInEveryAllowedReportLocation() {
+        val recoveryCodes = listOf(
+            "TOOL_BUDGET_EXHAUSTED",
+            "VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED",
+            "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED",
+            "SOURCE_REVISION_REQUIRED", "SOURCE_REVISION_CHANGED",
+            "VALIDATION_REVISION_UNAVAILABLE", "VALIDATION_RUNTIME_UNAVAILABLE", "ENGINEERING_REPOSITORY_ACCESS_REQUIRED"
+        )
+        val locations = listOf("errorCode", "originalFailureCode", "events", "provider_failure_code", "causal_failure_code", "voice_chat_failure_code")
+        var retainedFixtures = 0
+        for (code in recoveryCodes + "TOOL_PROTOCOL_INVALID_FRAME") {
+            val feature = if (code in recoveryCodes) "ISSUE_RECOVERY_CODES_V1" else "COMPLETION_EVIDENCE_V1"
+            for (location in locations) {
+                val context = when (location) {
+                    "errorCode", "events" -> null
+                    "originalFailureCode" -> IssueReportContext.fromFields(
+                        "CHAT_FAILURE",
+                        mapOf("failure_origin" to "local_recovery", "recovery_code" to "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "original_interruption" to mapOf("code" to code)),
+                        1_000L
+                    ).also { assertEquals(code, it.originalFailureCode) }
+                    else -> {
+                        val area = when (location) {
+                            "provider_failure_code" -> "PROVIDER"
+                            "voice_chat_failure_code" -> "VOICE"
+                            else -> "INCIDENT"
+                        }
+                        IssueReportContext.fromFields(if (area == "VOICE") "VOICE_STATE" else "CHAT_FAILURE", mapOf("diagnostic_area" to area, location to code), 1_000L)
+                    }
+                }
+                if (location == "provider_failure_code" && code in recoveryCodes) {
+                    assertFalse(requireNotNull(context?.diagnostics).values.containsKey(location))
+                    continue
+                }
+                if (location.endsWith("_failure_code")) assertEquals(JsonPrimitive(code), context?.diagnostics?.values?.get(location))
+                val approved = when (location) {
+                    "errorCode" -> report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = code)
+                    "events" -> report.copy(events = listOf("-1ms E tools $code"))
+                    else -> report.copy(context = context)
+                }
+                val payload = approved.approvedPayload()
+                val requiredFeatures = context?.diagnostics?.requiredServiceFeatures().orEmpty() + feature
+                var supported = false
+                var dispatched = 0
+                val methods = mutableListOf<String>()
+                val posted = mutableListOf<String>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    methods += request.method
+                    if (request.method == "GET") {
+                        val features = JsonArray(requiredFeatures.filter { supported || it != feature }.map(::JsonPrimitive))
+                        response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                    } else {
+                        posted += body(request)
+                        response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                    }
+                }.build()
+                val submission = IssueReportSubmission(origin, client)
+                val blocked = submission.send(report.reportId, payload) { dispatched++ }
+                assertTrue("$code at $location must wait before dispatch: $methods", blocked is IssueReportSubmission.Failure)
+                blocked as IssueReportSubmission.Failure
+                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+                assertTrue(blocked.retryable)
+                assertFalse(blocked.automaticRetry)
+                assertEquals(listOf("GET"), methods)
+                assertEquals(0, dispatched)
+                assertTrue(posted.isEmpty())
+                assertEquals(payload, approved.approvedPayload())
+                supported = true
+                assertEquals(IssueReportSubmission.Confirmed(941), submission.send(report.reportId, payload) { dispatched++ })
+                assertEquals(listOf("GET", "GET", "POST"), methods)
+                assertEquals(1, dispatched)
+                assertEquals(listOf(payload), posted)
+                retainedFixtures++
+            }
+        }
+        assertEquals(61, retainedFixtures)
+    }
+
+    @Test fun establishedFailureCodesRemainDeliverableWithoutNewServiceCapabilities() {
+        for (code in listOf("TOOL_FAILURE", "ENGINEERING_STATE_OR_INPUT_CHANGED")) {
+            val approved = report.copy(source = "debug", title = null, description = null, feature = "tools", errorCode = code, events = listOf("-1ms E tools $code"))
+            val payload = approved.approvedPayload()
+            val methods = mutableListOf<String>()
+            val posted = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                posted += body(request)
+                response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+            }.build()
+            assertEquals(IssueReportSubmission.Confirmed(941), IssueReportSubmission(origin, client).send(report.reportId, payload))
+            assertEquals(listOf("POST"), methods)
             assertEquals(listOf(payload), posted)
         }
     }

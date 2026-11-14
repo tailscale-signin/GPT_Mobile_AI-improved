@@ -46,6 +46,7 @@ interface VoiceAudio {
 
     /** Snapshot this observer for each operation; cancelled operations must never invoke it. */
     fun bindPlaybackStarted(started: (() -> Unit)?) = Unit
+    fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) = Unit
     val streamsReplies: Boolean get() = false
     fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? = null
     fun stop()
@@ -72,8 +73,14 @@ data class VoiceState(
     val hasAudioLevel: Boolean = false,
     val awaitingReply: Boolean = false,
     val hasDraft: Boolean = false,
-    val recoveryAction: VoiceRecoveryAction? = null
+    val recoveryAction: VoiceRecoveryAction? = null,
+    val spokenRange: IntRange? = null,
+    val submittedDraftRequestId: String? = null
 )
+
+/** A state callback may run before Compose delivers the dispatcher's latest admission event. */
+internal fun VoiceState.shouldCheckpointDraft(requestId: String?, stage: VoiceAdmissionStage?): Boolean =
+    hasDraft && !(submittedDraftRequestId != null && submittedDraftRequestId == requestId && stage in setOf(VoiceAdmissionStage.QUEUED, VoiceAdmissionStage.ACCEPTED))
 
 /** Main-thread, half-duplex session. Generation fencing rejects callbacks from cancelled capture/playback. */
 class VoiceSession(
@@ -82,7 +89,8 @@ class VoiceSession(
     private val changed: (VoiceState) -> Unit,
     private val now: () -> Long = { System.nanoTime() / 1_000_000 },
     private val awaitsAdmission: Boolean = false,
-    private val diagnosticTrace: VoiceDiagnosticTrace = VoiceDiagnosticTrace(now)
+    private val diagnosticTrace: VoiceDiagnosticTrace = VoiceDiagnosticTrace(now),
+    private val submittedRequestId: () -> String? = { null }
 ) {
     companion object {
         const val API_VERSION = 2
@@ -101,11 +109,20 @@ class VoiceSession(
     }
     private var waiting = false
     private var draftPending = false
+    private var draftGeneration = 0L
+    private data class SubmittedDraft(
+        val requestId: String?,
+        val draftGeneration: Long,
+        val probe: VoiceDiagnosticTrace.Probe?,
+        var queued: Boolean = false
+    )
+    private var submittedDraft: SubmittedDraft? = null
     private var engaged = false
     private var automaticRetry = false
     private var recognitionFailures = 0
     private var lastReply: String? = null
     private var streamId: String? = null
+    private var streamDiagnosticId: String? = null
     private var speechBuffer = VoiceSpeechBuffer()
     private val queuedSpeech = ArrayDeque<String>()
     private var chunkPlaying = false
@@ -113,9 +130,12 @@ class VoiceSession(
     private var streamAudio = true
     private var playbackSequence = 0L
     private var replyPlayback: VoiceReplyPlayback? = null
+    private var captionSearchFrom = 0
     private var playbackFinished = false
+    private var manualPlayback = false
     private fun resetStream() {
         streamId = null
+        streamDiagnosticId = null
         speechBuffer = VoiceSpeechBuffer()
         queuedSpeech.clear()
         chunkPlaying = false
@@ -123,11 +143,17 @@ class VoiceSession(
         streamAudio = true
         replyPlayback = null
         playbackFinished = false
+        manualPlayback = false
     }
     var editBeforeSend = false
     var autoContinue = false
+    private fun replaceDraft() {
+        draftGeneration++
+        submittedDraft = null
+    }
     fun editDraft(text: String) {
         if (state.phase != VoicePhase.REVIEWING || waiting) return
+        replaceDraft()
         draftPending = true
         update(state.copy(transcript = text.take(8000)))
     }
@@ -146,13 +172,15 @@ class VoiceSession(
     }
     fun discardDraft() {
         if (state.phase == VoicePhase.CLOSED || waiting) return
+        replaceDraft()
         draftPending = false
         update(state.copy(phase = VoicePhase.PAUSED, notice = null))
     }
     fun sendDraft(text: String = state.transcript) {
-        if (state.phase != VoicePhase.REVIEWING || !accessAllowed()) return
+        if (state.phase != VoicePhase.REVIEWING || !accessAllowed() || submittedDraft != null) return
         val prompt = text.trim().take(8000)
         if (prompt.isEmpty()) return
+        submittedDraft = null
         resetStream()
         diagnosticProbe = diagnosticTrace.beginReply(generation)
         audio.bindDiagnostics(diagnosticProbe)
@@ -160,27 +188,56 @@ class VoiceSession(
         draftPending = awaitsAdmission
         update(state.copy(phase = VoicePhase.THINKING, transcript = prompt, level = 0f))
         if (submit(prompt)) {
-            if (!awaitsAdmission) diagnosticProbe.requestAccepted()
+            if (awaitsAdmission) {
+                // The dispatcher publishes its request identity synchronously before returning.
+                // This ownership survives a manual replay, which has a separate audio generation.
+                submittedDraft = SubmittedDraft(submittedRequestId(), draftGeneration, diagnosticProbe)
+                update(state)
+            } else {
+                diagnosticProbe.requestAccepted()
+            }
         } else {
             draftPending = true
             fail("Could not send this turn. Open chat to review your profile and connection.")
         }
     }
-    fun admission(stage: VoiceAdmissionStage, reason: String? = null) {
-        if (!waiting || state.phase == VoicePhase.CLOSED) return
+    fun admission(stage: VoiceAdmissionStage, reason: String? = null, requestId: String? = null) {
+        val submitted = submittedDraft ?: return
+        if (state.phase == VoicePhase.CLOSED || requestId != submitted.requestId || draftGeneration != submitted.draftGeneration) return
         when (stage) {
-            VoiceAdmissionStage.CHECKING -> draftPending = true
+            VoiceAdmissionStage.CHECKING -> {
+                if (submitted.queued) return
+                draftPending = true
+            }
             VoiceAdmissionStage.QUEUED, VoiceAdmissionStage.ACCEPTED -> {
                 draftPending = false
-                if (stage == VoiceAdmissionStage.ACCEPTED) diagnosticProbe.requestAccepted()
+                if (stage == VoiceAdmissionStage.ACCEPTED) {
+                    submittedDraft = null
+                    // A replay invalidates this old probe; never borrow its diagnostic scope.
+                    submitted.probe?.requestAccepted()
+                } else {
+                    submitted.queued = true
+                }
             }
             VoiceAdmissionStage.FAILED -> {
+                submittedDraft = null
                 draftPending = true
-                fail("This message was not accepted. Your words are kept; open chat to review the connection or retry. ${reason.orEmpty()}")
+                val message = "This message was not accepted. Your words are kept; open chat to review the connection or retry. ${reason.orEmpty()}"
+                val ownsCaptureWait = waiting && streamId == null
+                if (submitted.probe === diagnosticProbe && ownsCaptureWait) {
+                    fail(message)
+                } else {
+                    // The owning chat request already retains the rejection. Preserve its draft
+                    // without cancelling unrelated audio or attributing a failure to that replay.
+                    if (ownsCaptureWait) waiting = false
+                    val phase = if (!waiting && state.phase in setOf(VoicePhase.THINKING, VoicePhase.PAUSED)) VoicePhase.REVIEWING else state.phase
+                    update(state.copy(phase = phase, notice = message))
+                }
                 return
             }
         }
-        update(state)
+        val settled = !draftPending && (state.phase == VoicePhase.REVIEWING || submittedDraft == null && !waiting && state.phase == VoicePhase.THINKING)
+        update(state.copy(phase = if (settled) VoicePhase.PAUSED else state.phase))
     }
 
     fun permissionDenied() {
@@ -189,20 +246,56 @@ class VoiceSession(
         update(state.copy(recoveryAction = VoiceRecoveryAction.MICROPHONE_PERMISSION))
     }
 
-    fun restore(transcript: String, reply: String, review: Boolean, pending: Boolean) {
+    fun restore(transcript: String, reply: String, review: Boolean, pending: Boolean, pendingRequestId: String? = null) {
         if (state.phase != VoicePhase.PAUSED || engaged) return
+        replaceDraft()
+        // Only an identity retained with this exact submitted draft can own a late admission.
+        // Restored requests have no live diagnostic probe and never resume old output.
+        submittedDraft = pendingRequestId?.let { SubmittedDraft(it, draftGeneration, probe = null, queued = !review) }
         waiting = pending
         draftPending = review
-        update(state.copy(transcript = transcript, reply = reply, phase = if (review) VoicePhase.REVIEWING else VoicePhase.PAUSED))
+        val phase = when {
+            pendingRequestId != null -> VoicePhase.THINKING
+            review -> VoicePhase.REVIEWING
+            else -> VoicePhase.PAUSED
+        }
+        update(state.copy(transcript = transcript, reply = reply, phase = phase))
     }
     fun replay() {
-        if (state.reply.isBlank() || !accessAllowed() || waiting) return
-        diagnosticProbe = diagnosticTrace.beginReply(generation)
-        audio.bindDiagnostics(diagnosticProbe)
+        val text = state.reply
+        if (text.isBlank() || !accessAllowed()) return
+        val id = "replay:${generation + 1}"
+        if (beginMessage(id, manual = true)) reply(id, text)
+    }
+
+    /** Adopt a typed or explicitly selected reply without acquiring microphone permission. */
+    fun beginMessage(id: String, manual: Boolean = false, diagnosticRunId: String = id, readAloud: Boolean = true): Boolean {
+        if (!accessAllowed()) return false
+        if (!manual && waiting && streamId == id) return true
+        if (!manual && waiting && streamId == null) {
+            // A captured prompt already owns its diagnostics and draft/admission state.
+            // Bind its first response without resetting capture-to-playback measurements.
+            streamId = id
+            streamDiagnosticId = diagnosticRunId
+            streamAudio = playbackAllowed() && state.speaker && readAloud
+            audio.bindReply(diagnosticRunId)
+            return true
+        }
+        if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
+        stopAudio(if (manual) "message_replay_selected" else "message_playback_started")
+        resetStream()
+        manualPlayback = manual
         waiting = true
         lastReply = null
         engaged = true
-        reply("replay:$generation", state.reply)
+        diagnosticProbe = diagnosticTrace.beginReply(generation)
+        audio.bindDiagnostics(diagnosticProbe)
+        streamId = id
+        streamDiagnosticId = diagnosticRunId
+        streamAudio = playbackAllowed() && (state.speaker || manualPlayback) && (readAloud || manualPlayback)
+        audio.bindReply(diagnosticRunId)
+        update(state.copy(phase = VoicePhase.THINKING, reply = "", notice = null, spokenRange = null, level = 0f))
+        return true
     }
     private fun update(next: VoiceState, errorCode: String = "VOICE_SESSION_FAILED", error: Throwable? = null, reportFailure: Boolean = true, failureFields: Map<String, Any?> = emptyMap()) {
         // Silence is a normal listening outcome. Preserve its cooldown and retry
@@ -212,7 +305,12 @@ class VoiceSession(
         if (reportFailure && !expectedSilence && next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
             IssueReportIncidents.failure(ReportFeature.VOICE, errorCode, error, voiceFailureFields() + failureFields, "VOICE_STATE")
         }
-        state = next.copy(awaitingReply = waiting, hasDraft = draftPending)
+        state = next.copy(
+            awaitingReply = waiting,
+            hasDraft = draftPending,
+            submittedDraftRequestId = submittedDraft?.requestId,
+            spokenRange = next.spokenRange?.takeIf { next.phase == VoicePhase.SPEAKING && next.reply.startsWith(state.reply) }
+        )
         diagnosticProbe.phase(state.phase)
         mutableState.value = state
         changed(state)
@@ -236,18 +334,20 @@ class VoiceSession(
         if (streamId != null) streamAudio = false
         audio.stop(reason)
         audio.bindPlaybackStarted(null)
+        audio.bindSpokenRange(null)
+        captionSearchFrom = 0
         audio.bindDiagnostics(diagnosticProbe)
     }
-    private fun accessAllowed() = enabled && permission && foreground && state.phase != VoicePhase.CLOSED
+    private fun accessAllowed() = enabled && foreground && state.phase != VoicePhase.CLOSED
     private fun playbackAllowed() = engaged && accessAllowed()
-    private fun captureAllowed() = playbackAllowed() && !state.muted
+    private fun captureAllowed() = playbackAllowed() && permission && !state.muted
 
     fun access(enabled: Boolean, permission: Boolean, foreground: Boolean) {
         this.enabled = enabled
         this.permission = permission
         this.foreground = foreground
         diagnosticProbe.access(permission, foreground, state.muted)
-        if (!accessAllowed() && state.phase != VoicePhase.CLOSED) pause()
+        if ((!accessAllowed() || !permission && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)) && state.phase != VoicePhase.CLOSED) pause()
     }
 
     fun resume() {
@@ -257,12 +357,22 @@ class VoiceSession(
             update(state.copy(phase = VoicePhase.THINKING, level = 0f))
             return
         }
+        if (submittedDraft != null) {
+            update(state.copy(phase = VoicePhase.THINKING, level = 0f))
+            return
+        }
         // Reviewing preserved text never touches the recognizer and must stay usable
         // during its cooldown, including after an error or session recreation.
         if (draftPending) {
             engaged = true
             automaticRetry = false
             update(state.copy(phase = VoicePhase.REVIEWING))
+            return
+        }
+        // Playback and typed turns remain available when recording permission is denied.
+        // Only an explicit microphone action requests permission in the presentation layer.
+        if (!permission) {
+            update(state.copy(phase = VoicePhase.PAUSED, level = 0f))
             return
         }
         val remaining = maxOf(audio.retryAfterMillis(), (state.retryAtMillis - now()).coerceAtLeast(0))
@@ -290,6 +400,7 @@ class VoiceSession(
         diagnosticProbe = diagnosticTrace.advance(generation, reset = true)
         diagnosticProbe.access(permission, foreground, state.muted)
         audio.bindDiagnostics(diagnosticProbe)
+        replaceDraft()
         update(state.copy(phase = VoicePhase.STARTING, transcript = "", level = 0f, hasAudioLevel = false, notice = null, retryAtMillis = 0, recoveryAction = null))
         fun valid() = ticket == generation && captureAllowed() && state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING)
         fun recognitionFailed(
@@ -385,14 +496,16 @@ class VoiceSession(
         if (text.isNotBlank()) diagnosticProbe.responseText()
         if (streamId == null) {
             streamId = id
+            streamDiagnosticId = id
             audio.bindDiagnostics(diagnosticProbe)
             audio.bindReply(id)
-            streamAudio = playbackAllowed() && state.speaker
+            streamAudio = playbackAllowed() && (state.speaker || manualPlayback)
         }
         update(state.copy(reply = text))
         streamComplete = complete
-        // Android can speak a stable first phrase without waiting for a complete sentence.
-        val chunks = speechBuffer.append(text, complete, earlyStart = true)
+        // While generating, start after a stable phrase. A completed response or explicit
+        // replay already has its full text and can retain natural sentence boundaries.
+        val chunks = speechBuffer.append(text, complete, earlyStart = !complete)
         if (chunks == null) {
             stopAudio("response_revised")
             update(state.copy(phase = VoicePhase.THINKING, notice = "The response was revised. The current answer is available in chat."))
@@ -404,7 +517,7 @@ class VoiceSession(
     }
     private fun pumpSpeech() {
         if (chunkPlaying || state.phase == VoicePhase.CLOSED) return
-        if (!streamAudio || !playbackAllowed() || !state.speaker) {
+        if (!streamAudio || !playbackAllowed() || !state.speaker && !manualPlayback) {
             queuedSpeech.clear()
             if (streamComplete) {
                 waiting = false
@@ -459,14 +572,40 @@ class VoiceSession(
 
     private fun preparePlayback(ticket: Long): Long {
         val sequence = ++playbackSequence
-        update(state.copy(phase = if (audio.reportsPlaybackStart) VoicePhase.PREPARING else VoicePhase.SPEAKING, level = 0f, notice = null))
+        var utteranceStart = -1
+        var activeUtterance = -1
+        var lastRangeStart = -1
+        update(state.copy(phase = if (audio.reportsPlaybackStart) VoicePhase.PREPARING else VoicePhase.SPEAKING, level = 0f, notice = null, spokenRange = null))
         audio.bindPlaybackStarted {
             if (ticket == generation && sequence == playbackSequence && state.phase == VoicePhase.PREPARING) {
                 update(state.copy(phase = VoicePhase.SPEAKING))
             }
         }
+        audio.bindSpokenRange { index, utterance, range ->
+            if (ticket == generation && sequence == playbackSequence && state.phase == VoicePhase.SPEAKING) {
+                if (index < activeUtterance || index == activeUtterance && range.first < lastRangeStart) return@bindSpokenRange
+                // Require an exact visible-text match. Pronunciation and Markdown transforms can change the source.
+                if (index != activeUtterance) {
+                    utteranceStart = state.reply.indexOf(utterance, startIndex = captionSearchFrom).takeIf {
+                        it >= captionSearchFrom && state.reply.substring(captionSearchFrom, it).all(Char::isWhitespace)
+                    } ?: -1
+                    activeUtterance = index
+                }
+                lastRangeStart = range.first
+                val mapped = if (utteranceStart >= 0 && !range.isEmpty() && range.first >= 0 && range.last < utterance.length) {
+                    (utteranceStart + range.first)..(utteranceStart + range.last)
+                } else {
+                    null
+                }
+                if (mapped != null) captionSearchFrom = utteranceStart + utterance.length
+                diagnosticProbe.captionAlignment(if (mapped == null) "TEXT_UNMAPPED" else "EXACT_RANGE")
+                update(state.copy(spokenRange = mapped))
+            }
+        }
+        diagnosticProbe.captionAlignment("NO_TIMING")
         return sequence
     }
+
     private fun playbackFailed(message: String) {
         // Audio can fail while the model is still streaming. Keep its turn and captions alive.
         val diagnosticFields = diagnosticTrace.incidentFields()
@@ -482,7 +621,7 @@ class VoiceSession(
     }
 
     fun stopSpeaking() {
-        if (state.phase !in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) return
+        if (state.phase !in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING) && !waiting) return
         stopAudio("user_stop_speaking")
         streamAudio = false
         if (waiting && !streamComplete) {
@@ -494,6 +633,17 @@ class VoiceSession(
         }
     }
 
+    /** Retire an old generation before its replacement, without resuming capture or reporting failure. */
+    fun supersedeMessage(id: String) {
+        if (state.phase == VoicePhase.CLOSED || streamId != id) return
+        engaged = false
+        automaticRetry = false
+        waiting = false
+        stopAudio("message_superseded")
+        resetStream()
+        update(state.copy(phase = VoicePhase.PAUSED, level = 0f, spokenRange = null))
+    }
+
     fun interrupt() {
         if (state.phase == VoicePhase.CLOSED) return
         waiting = false
@@ -503,7 +653,7 @@ class VoiceSession(
         resume()
     }
     fun reply(id: String, text: String, failed: Boolean = false, failure: ProfileFailureRecord? = null, terminalStatus: String? = null) {
-        if (!waiting || id == lastReply || state.phase == VoicePhase.CLOSED) return
+        if (!waiting || id == lastReply || state.phase == VoicePhase.CLOSED || (streamId != null && streamId != id)) return
         if (streamId == id && !failed && text.isNotBlank()) {
             lastReply = id
             streamReply(id, text, complete = true)
@@ -517,7 +667,7 @@ class VoiceSession(
         waiting = false
         lastReply = id
         if (failed || text.isBlank()) {
-            val replyEvidence = VoiceReplyFailureDiagnostics.fields(id, state.phase, failed, failure, terminalStatus) + buildMap {
+            val replyEvidence = VoiceReplyFailureDiagnostics.fields(streamDiagnosticId ?: id, state.phase, failed, failure, terminalStatus) + buildMap {
                 put("voice_reply_characters", text.length)
                 if (failure == null) put("voice_reply_state", if (failed) "FAILED_WITHOUT_DETAILS" else "EMPTY_REPLY")
             }
@@ -552,7 +702,7 @@ class VoiceSession(
             pause()
             return
         }
-        if (!state.speaker) {
+        if (!state.speaker && !manualPlayback) {
             continueTurn()
             return
         }
@@ -565,10 +715,10 @@ class VoiceSession(
         val ticket = generation
         preparePlayback(ticket)
         diagnosticProbe.queued()
-        audio.bindReply(id)
+        audio.bindReply(streamDiagnosticId ?: id)
         audio.speak(spoken, complete = {
             if (ticket == generation && playbackAllowed()) continueTurn()
-        }, error = { message -> if (ticket == generation) fail(message, "VOICE_PLAYBACK_FAILED") })
+        }, error = { message -> if (ticket == generation) playbackFailed(message) })
     }
 
     fun mute() {
@@ -587,11 +737,14 @@ class VoiceSession(
     fun speaker() {
         if (state.phase == VoicePhase.CLOSED) return
         update(state.copy(speaker = !state.speaker))
-        if (!state.speaker) stopSpeaking()
+        if (!state.speaker && !manualPlayback) stopSpeaking()
     }
     fun pause() {
         if (state.phase == VoicePhase.CLOSED) return
         if (state.phase in setOf(VoicePhase.STARTING, VoicePhase.LISTENING, VoicePhase.FINALIZING) && state.transcript.isNotBlank()) draftPending = true
+        // A completed model response may still be draining audio. Once that playback is
+        // cancelled, there is no later model event left to release its waiting ownership.
+        if (streamComplete) waiting = false
         engaged = false
         automaticRetry = false
         stopAudio("session_paused")
@@ -617,6 +770,7 @@ class VoiceSession(
     }
     fun close() {
         if (state.phase == VoicePhase.CLOSED) return
+        submittedDraft = null
         stopAudio("session_closed")
         waiting = false
         draftPending = false

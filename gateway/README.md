@@ -1,10 +1,10 @@
-# Local gateway 16.0.0
+# Local gateway 17.0.0
 
-Gateway 16 preserves the existing state schema, installation identity, accepted job IDs, conversations and explicit execution budgets. It adds linked diagnostic evidence, actual conversation job states, and compatibility-checked upgrades. `/gateway/v16` and `/v1/gateway/v16` advertise the current contract; v14/v15 aliases remain available.
+Gateway 17 preserves the existing state schema, installation identity, accepted job IDs, conversations and explicit execution budgets. It adds native Chat and Saved views, searchable message bookmarks, a graphical durable benchmark workspace, and paired request-scheduling comparisons. See [Gateway 17 desktop and benchmark contracts](V17_DESKTOP.md) for evidence scope and setup. `/gateway/v17` and `/v1/gateway/v17` advertise the current contract; v14/v15/v16 aliases remain available.
 
 For an existing v15 Windows installation, install the reviewed v16 package in the existing installation directory after accepted work reaches a safe stopping point. The already-installed v15 updater may filter out major 16; it cannot discover this change until its manager is upgraded. Keep the state directory. The managed trial backs it up, checks the new process and rolls back an unhealthy candidate; an unavailable model backend does not erase saved work. A source branch is not a published installer release.
 
-`gateway.py` is the stable launcher for Gateway 16 (the `v14/` module name is retained for compatibility). Install the complete reviewed package, including `manifest-v14.json`, the `v14/` package, the retained v13 runtime and transport modules, `gateway_multisearch.py`, `gateway_security.py`, and the pinned requirements. See [V14_UPGRADE.md](V14_UPGRADE.md) for installation, validation, upgrades and rollback. `gateway_v13.py` is a retained compatibility runtime, not the current launcher.
+`gateway.py` is the stable launcher for Gateway 17 (the `v14/` module name is retained for compatibility). Install the complete reviewed package, including `manifest-v14.json`, the `v14/` package, the retained v13 runtime and transport modules, `gateway_multisearch.py`, `gateway_security.py`, and the pinned requirements. See [V14_UPGRADE.md](V14_UPGRADE.md) for installation, validation, upgrades and rollback. `gateway_v13.py` is a retained compatibility runtime, not the current launcher.
 
 Use Python 3.12 or newer and an isolated environment:
 
@@ -34,7 +34,7 @@ To update dependencies, edit `requirements.in`, resolve in a clean environment, 
 
 ### Independent delegation retries and reviewer isolation
 
-Install the complete Gateway 16 package on the server, validate its manifest, then restart using `gateway.py`. The historical `gateway_v12.1.py` launcher still loads v12. Each new delegated generation sends an `X-Gateway-Attempt-ID`; reconnects within that attempt retain it, while retries and output repairs receive new IDs. Singleflight now includes the attempt ID, completion budget, reasoning configuration, and tool policy, so a failed 768-token completion cannot be replayed as the next inference or a larger repair.
+Install the complete Gateway 17 package on the server, validate its manifest, then restart using `gateway.py`. The historical `gateway_v12.1.py` launcher still loads v12. Each new delegated generation sends an `X-Gateway-Attempt-ID`; reconnects within that attempt retain it, while retries and output repairs receive new IDs. Singleflight now includes the attempt ID, completion budget, reasoning configuration, and tool policy, so a failed 768-token completion cannot be replayed as the next inference or a larger repair.
 
 The app sends worker isolation headers even when reasoning is enabled. Reviewer requests have no tool catalog and explicitly disable gateway-local tools. Page crawling is app-owned; reviewers assess completed delegate evidence only. External Perplexity authentication failures and MCP initialization 404s still require correcting the configured key or endpoint; the app stops automatic repeated attempts and reports those configuration errors.
 

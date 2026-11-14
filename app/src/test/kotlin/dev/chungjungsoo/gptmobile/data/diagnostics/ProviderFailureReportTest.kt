@@ -214,6 +214,90 @@ class ProviderFailureReportTest {
         assertEquals(approval, result)
     }
 
+    @Test fun owningPreflightFailureRetainsHeaderIdentityAcceptanceAndUsageBeforeDelivery() = runBlocking {
+        val timing = dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming(httpStatus = 200, serverRequestId = "request-observed", responseHeadersMs = 45)
+        val source = Session(
+            listOf(
+                ProviderEvent.GatewayMetadataCaptured(dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata(requestId = "request-observed", transportVerified = true)),
+                ProviderEvent.Usage(providerResponseTiming = timing),
+                ProviderEvent.Usage(outputTokens = 2048, outputSource = "gateway_reported", finishReason = "length"),
+                ProviderEvent.Failed("No visible verdict", errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED", failureDetails = buildJsonObject { put("failed_stage", "provider_generation") })
+            )
+        )
+        val failure = withContext(RequestDispatchContext(emptySet(), "run", "owned-probe")) {
+            withProviderFailureReceipts(source, "run", profile, "github-review-preflight-output-retry").streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        }
+        assertEquals("owned-probe", failure.invocationId)
+        assertEquals(JsonPrimitive(true), failure.failureDetails?.get("dispatched"))
+        assertEquals(JsonPrimitive("YES"), failure.failureDetails?.get("remote_acceptance"))
+        assertEquals(JsonPrimitive("request-observed"), failure.failureDetails?.get("server_request_id"))
+        assertEquals(JsonPrimitive(200), failure.failureDetails?.get("http_status"))
+        assertEquals(JsonPrimitive(2048), failure.failureDetails?.get("output_tokens"))
+        assertEquals(JsonPrimitive("REVIEW_COMPATIBILITY"), failure.failureDetails?.get("provider_failure_stage"))
+        assertFalse(failure.transportComplete)
+        assertNull(failure.failureDetails?.get("generation_completed"))
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", failure.failureDetails.orEmpty(), 1000)
+        assertEquals(true, context.dispatched)
+        assertEquals("YES", context.remoteAcceptance)
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("server-request", "request-observed")), context.diagnostics?.values?.get("server_request_id_hash"))
+        assertFalse(context.toString().contains("request-observed"))
+    }
+
+    @Test fun foreignOrUnverifiedMetadataCannotSupplyFailureAcceptanceOrIdentity() = runBlocking {
+        for (mode in listOf("foreign", "unverified", "delivery")) {
+            val source = Session(
+                listOf(
+                    ProviderEvent.GatewayMetadataCaptured(dev.chungjungsoo.gptmobile.data.network.gateway.GatewayResponseMetadata(requestId = "unrelated-request", transportVerified = mode != "unverified")),
+                    ProviderEvent.Usage(providerResponseTiming = dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming(httpStatus = 200, serverRequestId = "unrelated-request"), invocationId = "different-invocation"),
+                    ProviderEvent.Failed("Failed", errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED", invocationId = if (mode == "foreign") "foreign-invocation" else "owned-invocation")
+                )
+            )
+            val failure = withContext(RequestDispatchContext(emptySet(), "run", "owned-invocation")) {
+                withProviderFailureReceipts(source, "run", profile, if (mode == "delivery") "github-delivery" else "primary").streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+            }
+            assertNull(failure.failureDetails?.get("server_request_id"))
+            assertNull(failure.failureDetails?.get("http_status"))
+            assertNull(failure.failureDetails?.get("dispatched"))
+            assertNull(failure.failureDetails?.get("remote_acceptance"))
+        }
+    }
+
+    @Test fun explicitUnknownOutcomeIsNotConvertedToRejectedOrCompletedByLaterHeaders() = runBlocking {
+        val original = ProviderEvent.Failed(
+            "Uncertain earlier attempt",
+            errorCode = "GATEWAY_OUTCOME_UNKNOWN",
+            failureDetails = buildJsonObject {
+                put("requires_reconciliation", true)
+                put("remote_acceptance", "UNKNOWN")
+                put("request_replay_allowed", false)
+            }
+        )
+        val failure = withContext(RequestDispatchContext(emptySet(), "run", "owned-invocation")) {
+            withProviderFailureReceipts(Session(listOf(ProviderEvent.Usage(providerResponseTiming = dev.chungjungsoo.gptmobile.data.network.ProviderResponseTiming(httpStatus = 409)), original)), "run", profile, "primary")
+                .streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+        }
+        assertEquals(JsonPrimitive("UNKNOWN"), failure.failureDetails?.get("remote_acceptance"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
+        assertNull(failure.failureDetails?.get("generation_completed"))
+        assertFalse(failure.transportComplete)
+    }
+
+    @Test fun finishOnlyUsageDoesNotSuppressFailureAttachedMeasuredTokens() {
+        val failure = ProviderEvent.Failed(
+            "Probe exhausted",
+            errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED",
+            invocationId = "probe",
+            failureDetails = buildJsonObject {
+                put("gateway_recovery", Json.parseToJsonElement("""{"usage_origin":"PROVIDER_REPORTED","usage_estimated":false,"attempts":1,"attempt_usage":[{"prompt_tokens":509,"completion_tokens":2048}]}"""))
+            }
+        )
+        val receipt = ProviderFailureReceipt.from(profile, "github-review-preflight", failure, ProviderEvent.Usage(finishReason = "length", invocationId = "probe"))
+        assertEquals(2048, receipt.outputTokens)
+        assertEquals("gateway_reported", receipt.outputTokenSource)
+        assertEquals(ProviderFinishCategory.LENGTH, receipt.finishReason)
+        assertEquals("probe", receipt.usageInvocationId)
+    }
+
     private class Session(private val events: List<ProviderEvent>) : AgentProviderSession {
         var calls = 0
         override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): Flow<ProviderEvent> {

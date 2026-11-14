@@ -17,6 +17,7 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -87,6 +88,77 @@ class ProgressiveToolCatalogTest {
             val selected = catalog.selected(definitions)
             assertTrue(selected.map { it.name }.containsAll(writes))
             writes.forEach { name -> assertEquals(definitions.single { it.name == name }, selected.single { it.name == name }) }
+        }
+    }
+
+    @Test fun githubModeRetainsAuthorizedInventoryWithoutMountingEveryOperation() = runTest {
+        val operations = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) }
+        val catalog = ProgressiveToolCatalog(operations, "List GitHub issues and inspect PR checks", githubMode = true)
+        val initial = catalog.selected(operations + catalog.definition).map { it.name }
+        assertTrue("Initial GitHub context missing: $initial", "github_context" in initial)
+        assertFalse("Write schemas should be deferred: $initial", "github_write" in initial)
+        assertTrue(initial.size < operations.size + 1)
+        val discovery = catalog.execute(
+            "need-write",
+            buildJsonObject {
+                put("names", JsonArray(listOf(JsonPrimitive("github_write"))))
+            }
+        )
+        assertFalse(discovery.isError)
+        assertTrue(catalog.selected(operations + catalog.definition).any { it.name == "github_write" })
+    }
+
+    @Test fun githubGreetingFallbackKeepsMutationsDeferredAndAuthorizedReadsAvailable() = runTest {
+        val deferredOperations = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
+            .map { AgentToolDefinition(it, "Authorized operation", JsonObject(emptyMap())) }
+        val reader = AgentToolDefinition("mcp__team__get_file_contents", "Read a file", JsonObject(emptyMap()), capabilities = setOf(AgentToolCapability.GITHUB))
+        for (task in listOf("hello", "continue")) {
+            for (readers in listOf(emptyList(), listOf(reader))) {
+                val definitions = deferredOperations + readers
+                val catalog = ProgressiveToolCatalog(definitions, task, githubMode = true)
+                val allowed = definitions + catalog.definition
+                assertEquals(readers.map { it.name }.toSet() + ProgressiveToolCatalog.NAME, catalog.selected(allowed).map { it.name }.toSet())
+                val discovered = catalog.execute("discover-write", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive("github_write")))) })
+                assertFalse(discovered.isError)
+                assertFalse(discovered.dispatched)
+                assertTrue(catalog.selected(allowed).contains(deferredOperations.first()))
+            }
+        }
+    }
+
+    @Test fun explicitLargeGithubDiscoveryReachesHardAdmissionInStatusAndIntegrationCatalogs() = runTest {
+        val context = AgentToolDefinition("github_context", "Read repository context", JsonObject(emptyMap()))
+        val recovery = AgentToolDefinition("read_recovery_context", "Read retained task", JsonObject(emptyMap()))
+        val large = AgentToolDefinition("mcp__team__get_file_contents", "Read source ranges ".repeat(2000), JsonObject(emptyMap()), capabilities = setOf(AgentToolCapability.GITHUB))
+        val otherLarge = large.copy(name = "mcp__team__get_tree")
+        assertTrue(ProgressiveToolCatalog.schemaTokens(large) > ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
+        val definitions = listOf(context, recovery, large, otherLarge)
+        val requests = listOf(
+            "Inspect the repository" to true,
+            "check repo status" to true,
+            "[github-workflow-preset:test_integration]\nTest GitHub integration" to false
+        )
+        for ((task, githubMode) in requests) {
+            val catalog = ProgressiveToolCatalog(definitions, task, initialNames = setOf(context.name), githubMode = githubMode)
+            val allowed = definitions + catalog.definition
+            assertFalse(task, catalog.selected(allowed).contains(large))
+            val discovered = catalog.execute("discover-large", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(large.name), JsonPrimitive(otherLarge.name)))) })
+            assertFalse(task, discovered.isError)
+            assertFalse(task, discovered.dispatched)
+            val selected = catalog.selected(allowed)
+            assertTrue(task, selected.contains(large))
+            assertTrue(task, selected.contains(recovery))
+            assertFalse("Only one schema may exceed the soft window: $task", selected.contains(otherLarge))
+            assertFalse(task, catalog.selected(allowed - large).contains(large))
+            val ample = AgentRunLimits(githubMode = githubMode, githubTask = true, contextTokens = 65536, finalResponseReserveTokens = 1024)
+            assertTrue(task, fitProviderToolSchemas(selected, ample, 0, 0).contains(large))
+            val tight = ample.copy(contextTokens = 4096)
+            val deferred = fitProviderToolSchemas(selected, tight, 0, 0)
+            assertFalse(task, deferred.contains(large))
+            assertTrue(task, deferred.contains(catalog.definition))
+            assertThrows(GitHubToolContextBudgetException::class.java) {
+                fitProviderToolSchemas(selected - catalog.definition, tight, 0, 0)
+            }
         }
     }
 

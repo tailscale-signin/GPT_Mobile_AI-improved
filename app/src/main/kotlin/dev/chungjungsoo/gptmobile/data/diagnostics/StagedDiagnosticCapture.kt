@@ -49,7 +49,8 @@ data class DiagnosticCaptureOptions(
     val onSessionReady: (File) -> Unit = {},
     val traceStage: (String) -> (() -> Unit) = { {} },
     val resumable: Boolean = true,
-    val deferArchiveHandoff: Boolean = false
+    val deferArchiveHandoff: Boolean = false,
+    val cooperativeHeapRecovery: Boolean = false
 ) {
     init {
         require(bufferBytes in 1024..64 * 1024 && maxRecordBytes in 1..1024 * 1024)
@@ -68,6 +69,17 @@ data class DiagnosticCaptureResult(
 )
 
 private class DiagnosticCaptureLimit(val reason: String) : IOException(reason)
+
+/** Numeric source location only; record values and private identifiers never enter memory telemetry. */
+internal data class DiagnosticSourceRecord(val table: String, val rowId: Long, val sourceBytes: Long, val maximumBytes: Int) {
+    fun json(): JsonObject = buildJsonObject {
+        put("table", table)
+        put("rowId", rowId)
+        put("sourceBytes", sourceBytes)
+        put("sourceByteScope", "STORED_DATABASE_ROW")
+        put("maximumSourceBytes", maximumBytes)
+    }
+}
 
 /** No history-sized collection or encoded byte array is retained by this sink. */
 class DiagnosticStageSink internal constructor(
@@ -96,6 +108,23 @@ class DiagnosticStageSink internal constructor(
     var resumeCursor: JsonObject? = initialCursor ?: initialProgress?.get("cursor") as? JsonObject
         private set
     private var committed = progress()
+    private var sourceRecord: DiagnosticSourceRecord? = null
+    internal val sourcePageSize: Int get() = if (options.cooperativeHeapRecovery) 1 else 16
+    internal var heapDeferral: JsonObject? = null
+        private set
+    private var minimumObservedHeadroomBytes: Long? = null
+    private var budgetChecks = 0L
+
+    internal fun sourceRecord(value: DiagnosticSourceRecord?) {
+        sourceRecord = value
+    }
+
+    internal fun memoryGuardEvidence(): JsonObject = buildJsonObject {
+        put("minimumRequiredHeadroomBytes", minimumHeadroom)
+        put("minimumObservedHeadroomBytes", minimumObservedHeadroomBytes?.let(::JsonPrimitive) ?: JsonNull)
+        put("budgetChecks", budgetChecks)
+        put("scope", "Samples at this collector's budget checks. heapDeferral retains the rejecting sample; source collectors can defer independently.")
+    }
 
     /** The byte boundary and source cursor are committed together after a complete logical row. */
     fun checkpoint(cursor: JsonObject) {
@@ -157,7 +186,20 @@ class DiagnosticStageSink internal constructor(
     suspend fun checkBudget() {
         currentCoroutineContext().ensureActive()
         options.guard()
-        if (options.memorySampler().javaHeadroomBytes < minimumHeadroom) throw JavaHeapWorkDeferred()
+        val memory = options.memorySampler()
+        budgetChecks++
+        minimumObservedHeadroomBytes = minOf(minimumObservedHeadroomBytes ?: Long.MAX_VALUE, memory.javaHeadroomBytes)
+        if (memory.javaHeadroomBytes < minimumHeadroom) {
+            heapDeferral = buildJsonObject {
+                put("measurement", "AT_BUDGET_DEFERRAL")
+                put("memory", memory.json())
+                put("requiredHeadroomBytes", minimumHeadroom)
+                put("sourceRecord", sourceRecord?.json() ?: JsonNull)
+                put("committedBytes", committed["bytes"] ?: JsonPrimitive(0))
+                put("cooperativeRecovery", options.cooperativeHeapRecovery)
+            }
+            throw JavaHeapWorkDeferred()
+        }
         if (bytes >= maxBytes) throw DiagnosticCaptureLimit("STAGE_OR_ARCHIVE_BYTE_LIMIT")
     }
 
@@ -311,8 +353,7 @@ object StagedDiagnosticCapture {
         }
         // Heap pressure is often transient. Once cheap sections have completed, retry
         // each deferred collector at most once if measured headroom has recovered.
-        val retryThreshold = minOf(options.minimumHeadroomBytes, 8L * 1024 * 1024)
-        if (options.memorySampler().javaHeadroomBytes >= retryThreshold) {
+        run {
             for (index in receipts.indices) {
                 val prior = receipts[index]
                 val stage = stages.firstOrNull { it.id == prior.text("id") } ?: continue
@@ -321,15 +362,25 @@ object StagedDiagnosticCapture {
                 if (!safeToRetry) continue
                 currentCoroutineContext().ensureActive()
                 options.guard()
+                // Never start recovery below the same guard that just deferred the stage.
+                // Check each stage independently because another retry may consume headroom.
+                val retryThreshold = if (stage.critical || stage.lowMemorySafe) minOf(options.minimumHeadroomBytes, 1024L * 1024) else options.minimumHeadroomBytes
+                val retryMemory = options.memorySampler()
+                if (retryMemory.javaHeadroomBytes < retryThreshold) continue
                 val available = options.maxArchiveBytes - MANIFEST_LIMIT - receipts.sumOf { it.long("bytes") ?: 0 } + (prior.long("bytes") ?: 0)
                 val retryStarted = System.nanoTime()
-                val retried = captureStage(session, stage, options, available.coerceAtLeast(0), archivePart, previousArchive)
+                // Keep source/record limits unchanged. Smaller source pages and yielding
+                // between committed rows reduce bursts without omitting large records.
+                val retried = captureStage(session, stage, options.copy(cooperativeHeapRecovery = true), available.coerceAtLeast(0), archivePart, previousArchive)
                 stageElapsed[stage.id] = (stageElapsed[stage.id] ?: 0) + (System.nanoTime() - retryStarted).coerceAtLeast(0)
                 receipts[index] = JsonObject(
                     retried + buildJsonObject {
                         put("heapPressureRetry", true)
                         put("priorOmissionReason", "JAVA_HEAP_PRESSURE")
-                        put("retryHeadroomBytes", options.memorySampler().javaHeadroomBytes)
+                        put("retryHeadroomBytes", retryMemory.javaHeadroomBytes)
+                        put("retryRequiredHeadroomBytes", retryThreshold)
+                        put("priorHeapDeferral", prior["heapDeferral"] ?: JsonNull)
+                        put("priorMemoryGuard", prior["memoryGuard"] ?: JsonNull)
                     }
                 )
             }
@@ -681,6 +732,9 @@ object StagedDiagnosticCapture {
             put("sourceReference", sourceReference ?: JsonNull)
             put("memoryBefore", memoryBefore.json())
             put("memoryAfter", options.memorySampler().json())
+            put("heapDeferral", sink?.heapDeferral ?: JsonNull)
+            put("cooperativeHeapRecovery", options.cooperativeHeapRecovery)
+            put("memoryGuard", sink?.memoryGuardEvidence() ?: JsonNull)
         }
         atomicJson(receiptFile, receipt)
         if (failure is CancellationException) throw failure

@@ -118,6 +118,22 @@ class GitHubSelfTestWorkflowJobsTest {
         assertEquals(JsonPrimitive(31), select(skipped, jobs(1), runs(31)).nextRun?.get("id"))
     }
 
+    @Test fun cancelledNeutralAndUnknownRunsRemainInspectableAfterASkippedJobProbe() {
+        for (conclusion in listOf("\"cancelled\"", "\"neutral\"", "null")) {
+            val candidate = run(20).replace("\"success\"", conclusion)
+            val observed = receipt("runs", """{"workflow_runs":[${run(10).replace("success", "skipped")},$candidate]}""")
+            val skipped = jobs(10, job(1, 10, "skipped", steps = """, "steps":[]"""))
+            val pending = select(observed, skipped)
+            assertEquals("Run conclusion $conclusion must not hide its jobs", JsonPrimitive(20), pending.nextRun?.get("id"))
+            assertNull(pending.job)
+            val executed = job(2, 20, steps = """, "steps":[{"status":"completed","conclusion":"success"}]""")
+            val inspected = select(observed, skipped, jobs(20, executed))
+            assertEquals(JsonPrimitive(2), inspected.job?.get("id"))
+            assertEquals(JsonPrimitive(20), inspected.job?.get("run_id"))
+            assertNull(inspected.nextRun)
+        }
+    }
+
     @Test fun jobDependencyPagesAreRevisionBoundDurableAndIndependentlyLimited() {
         val tool = AgentToolDefinition("github_ci", "CI", json("""{"properties":{"action":{"enum":["runs","jobs","job","logs"]}}}"""))
         fun page(number: Int, head: String = sha, extra: String = "") = json("""{"tool":"github_ci","arguments":{"action":"runs","commit_sha":"$head","page":$number$extra}}""")

@@ -108,9 +108,10 @@ internal object GitHubSelfTestWorkflowJobs {
             // The caller retains the accepted call budget and cleanup reserve.
             // Do not strand an already-observed candidate behind a second sample cap.
             runs.firstOrNull { run ->
-                // One skipped run can qualify the jobs endpoint. Further skipped
-                // runs cannot supply an executed job; discover another run page.
-                (jobReads.isEmpty() || run.text("status") != "completed" || executed(run)) &&
+                // One skipped run can qualify the jobs endpoint. Only confirmed
+                // skipped runs are excluded; a cancelled or unknown run can
+                // still contain completed jobs whose execution must be inspected.
+                (jobReads.isEmpty() || run.text("status") != "completed" || run.text("conclusion") != "skipped") &&
                     jobReads.none { receipt ->
                         val args = receipt["arguments"] as? JsonObject
                         args?.get("run_id") == run["id"] &&

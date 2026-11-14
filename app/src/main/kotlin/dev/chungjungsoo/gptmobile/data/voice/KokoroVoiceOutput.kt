@@ -306,21 +306,29 @@ internal class KokoroVoiceOutput(
         playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error, diagnosticProbe, playbackStarted)
         active = playback
         playback.diagnostics?.engine(VoiceDiagnosticTrace.Engine.KOKORO)
-        val focusResult = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull()
-        playback.diagnostics?.focus(
-            when (focusResult) {
-                AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
-                null -> VoiceDiagnosticTrace.Focus.ERROR
-                else -> VoiceDiagnosticTrace.Focus.DENIED
+        fun acquireFocus(attempt: Int) {
+            if (active !== playback) return
+            val focusResult = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull()
+            playback.diagnostics?.playbackFocus(
+                when (focusResult) {
+                    AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
+                    null -> VoiceDiagnosticTrace.Focus.ERROR
+                    else -> VoiceDiagnosticTrace.Focus.DENIED
+                },
+                attempt
+            )
+            when {
+                focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
+                    playback.lastProgress = SystemClock.elapsedRealtime()
+                    main.postDelayed(watchdog, 1_000)
+                    synthesis.execute { synthesize(playback, speed, playbackAttributes) }
+                }
+                focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && attempt == 1 ->
+                    main.postDelayed({ acquireFocus(attempt + 1) }, 250)
+                else -> main.post { fail(playback, "audio_focus_denied", "Audio output is unavailable. Your answer remains in chat.", canFallback = false) }
             }
-        )
-        val focusGranted = focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        if (!focusGranted) {
-            main.post { fail(playback, "audio_focus_denied", "Audio output is unavailable. Your answer remains in chat.", canFallback = false) }
-        } else {
-            main.postDelayed(watchdog, 1_000)
-            synthesis.execute { synthesize(playback, speed, playbackAttributes) }
         }
+        acquireFocus(1)
         return object : VoiceReplyPlayback {
             override fun enqueue(text: String) {
                 if (active !== playback || playback.sealed || text.isBlank()) return
@@ -608,6 +616,7 @@ internal class KokoroVoiceOutput(
 
     private fun fail(playback: Playback, reason: String, message: String, canFallback: Boolean = !playback.queuedAudio) {
         if (active !== playback) return
+        playback.diagnostics?.playbackFailure(reason.uppercase(java.util.Locale.ROOT))
         end(playback, reason)
         playback.error(message, canFallback)
     }

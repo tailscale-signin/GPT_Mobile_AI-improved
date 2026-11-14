@@ -61,7 +61,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                 if (moonshine != null && kokoro != null) {
                     VoicePluginSetup(moonshine, kokoro, installation, { VoicePluginInstall.start(context) }, { VoicePluginInstall.cancel(context) }) {
                         VoicePluginInstall.refresh(context)
-                        VoicePluginInstall.captureReportObservation()
+                        VoicePluginInstall.captureReportObservation(moonshine.status, kokoro.status)
                         onReportDownload()
                     }
                 }
@@ -130,7 +130,7 @@ internal fun VoicePluginSetup(
             androidx.compose.material3.Text(if (message == null && installation.failure == null) "Download Voice Chat plugin" else "Resume download")
         }
     }
-    if (!ready && (installation.pending || installation.failure != null || downloading)) {
+    if (!ready && (installation.pending || installation.failure != null || downloading || installation.phase == "COMPLETED")) {
         androidx.compose.material3.TextButton(onClick = onReportDownload) { androidx.compose.material3.Text("Report download problem") }
     }
 }

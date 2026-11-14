@@ -41,6 +41,10 @@ internal class VoicePluginAudio(
         playbackStarted = started
     }
 
+    override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
+        system.bindSpokenRange(spoken)
+    }
+
     // offlineSpeech belongs to the same Android output and shares its start observer.
     override val reportsPlaybackStart: Boolean
         get() = system.reportsPlaybackStart && (kokoroVoice == null || kokoro == null || kokoro.reportsPlaybackStart)

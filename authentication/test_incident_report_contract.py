@@ -58,6 +58,17 @@ class IncidentReportContractTest(unittest.TestCase):
             _, issue = issue_from_report(report)
             self.assertIn(code, issue["title"])
 
+    def test_voice_capture_and_playback_evidence_is_bounded_and_area_specific(self):
+        values = {"voice_playback_failure": "AUDIO_FOCUS_DENIED", "voice_playback_focus_attempts": 2,
+                  "voice_capture_silenced_stage": "CAPTURE_READ", "voice_caption_alignment": "NO_TIMING",
+                  "voice_install_recognition_status": "CHECKING", "voice_install_playback_status": "READY"}
+        validate_diagnostics(self.capture("VOICE", values))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", values))
+        for key in values:
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {key: "raw recorder or speech text"}))
+
     def test_github_schema_budget_preserves_specific_code_and_bounded_counts(self):
         code = "GITHUB_TOOL_CONTEXT_BUDGET"
         counts = {"required_schema_tokens": 5000, "available_schema_tokens": 0}

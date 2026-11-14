@@ -196,7 +196,7 @@ private fun VoiceConversationStatus(state: VoiceConversationUiState, actions: Vo
         }
         Text(voiceListeningHint(state.session), Modifier.padding(top = 10.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
         VoiceConversationSetup(state, actions)
-        if (state.captions) VoiceLiveCaptions(state.session, actions.openTranscript, compact, Modifier.padding(top = 16.dp).widthIn(max = 560.dp).fillMaxWidth())
+        if (state.captions) VoiceLiveCaptions(state.session, compact, Modifier.padding(top = 16.dp).widthIn(max = 560.dp).fillMaxWidth())
         VoiceConversationRecovery(state, actions)
     }
 }

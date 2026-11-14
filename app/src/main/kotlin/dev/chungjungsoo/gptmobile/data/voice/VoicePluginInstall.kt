@@ -137,11 +137,14 @@ internal object VoicePluginInstall {
         }, androidx.core.content.ContextCompat.getMainExecutor(context))
     }
 
-    fun captureReportObservation() {
-        attempt.runIfCurrent(null) {
-            val current = state.value
-            observe(current.phase, current.failure, current.stopReason, current.progress, current.pendingReason, current.transfer)
-        }
+    fun captureReportObservation(recognition: LocalVoiceModelStatus, playback: LocalVoiceModelStatus) {
+        val scheduler = if (Build.VERSION.SDK_INT >= 34) "JOB_SCHEDULER" else "WORK_MANAGER"
+        val fields = state.value.diagnosticFields(scheduler) + mapOf(
+            "voice_install_recognition_status" to recognition.name,
+            "voice_install_playback_status" to playback.name
+        )
+        dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.fromFields("MANUAL_REPORT", fields, System.currentTimeMillis())
+            ?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
     }
 
     private fun observeScheduled(phase: String, reason: String?, owner: String) {

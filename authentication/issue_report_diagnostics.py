@@ -196,6 +196,16 @@ ENUMS["voice_install_failure_kind"] = {"DNS", "TIMEOUT", "TLS", "HTTP", "NETWORK
 COUNTS.add("voice_install_elapsed_ms")
 FIELDS_BY_AREA["VOICE"].update(VOICE_INSTALL_EVIDENCE_FIELDS)
 
+VOICE_CAPTURE_PLAYBACK_FIELDS = {"voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment"}
+ENUMS["voice_playback_failure"] = {"AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED"}
+ENUMS["voice_capture_silenced_stage"] = {"CAPTURE_START", "CAPTURE_READ"}
+ENUMS["voice_caption_alignment"] = {"NO_TIMING", "EXACT_RANGE", "TEXT_UNMAPPED"}
+COUNTS.add("voice_playback_focus_attempts")
+VOICE_PACK_STATUS_FIELDS = {"voice_install_recognition_status", "voice_install_playback_status"}
+for field in VOICE_PACK_STATUS_FIELDS:
+    ENUMS[field] = {"CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"}
+FIELDS_BY_AREA["VOICE"].update(VOICE_CAPTURE_PLAYBACK_FIELDS | VOICE_PACK_STATUS_FIELDS)
+
 CORE_FIELDS = {
     "PROVIDER": {"profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"},
     "TOOL": {"tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "missing_field_count", "invalid_field_count"},

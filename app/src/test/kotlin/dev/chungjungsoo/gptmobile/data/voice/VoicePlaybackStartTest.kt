@@ -24,6 +24,27 @@ class VoicePlaybackStartTest {
         }
     }
 
+    @Test fun captionsHighlightOnlyAnObservedRangeFromTheCurrentUtterance() {
+        val audio = ObservedAudio()
+        val session = session(audio)
+        audio.listeners.last().final("Read this")
+        session.reply("first", "These are the spoken words.")
+        val range = audio.ranges.single()
+        range(0, "These are the spoken words.", 6..8)
+        assertEquals(null, session.state.spokenRange)
+        audio.starts.last().invoke()
+        range(0, "These are the spoken words.", 6..8)
+        assertEquals(6..8, session.state.spokenRange)
+        range(0, "These are the spoken words.", 0..4)
+        assertEquals(6..8, session.state.spokenRange)
+        range(1, "A different utterance", 0..0)
+        assertEquals(null, session.state.spokenRange)
+        session.stopSpeaking()
+        range(0, "These are the spoken words.", 10..12)
+        assertEquals(null, session.state.spokenRange)
+        session.close()
+    }
+
     @Test fun cancelledPreparationCannotMarkTheNextTurnAsSpeaking() {
         for (streaming in listOf(false, true)) {
             val audio = ObservedAudio().apply { streamsReplies = streaming }
@@ -150,6 +171,10 @@ class VoicePlaybackStartTest {
         override var streamsReplies = false
         private var observer: (() -> Unit)? = null
         val listeners = mutableListOf<VoiceAudio.Listener>()
+        val ranges = mutableListOf<(Int, String, IntRange) -> Unit>()
+        override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
+            spoken?.let(ranges::add)
+        }
         val starts = mutableListOf<() -> Unit>()
         val completions = mutableListOf<() -> Unit>()
         val spoken = mutableListOf<String>()

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.GitHubSchemaBudget
 import dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException
 import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
 import dev.chungjungsoo.gptmobile.data.database.entity.effectiveContent
@@ -85,9 +86,10 @@ internal object LocalContextPlanner {
         // enforces the smaller result allowance on every tool callback. At least
         // 512 bytes are needed before executeBoundTool can dispatch any tool.
         val minimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 512, if (contextTokens >= 4096) 512 else 128)
-        val minimumSchemaAllowance = (contextTokens.toLong() - used - templateReserve - 256 - minimumReply - 1).coerceAtLeast(0)
+        val minimumBudget = GitHubSchemaBudget(contextTokens, used, minimumReply, templateReserve + 1, 256)
+        val minimumSchemaAllowance = minimumBudget.available
         if (githubRequiredNames.isNotEmpty() && requiredSchemaTokens > minimumSchemaAllowance) {
-            throw GitHubToolContextBudgetException(requiredSchemaTokens, minimumSchemaAllowance)
+            throw GitHubToolContextBudgetException(requiredSchemaTokens, minimumSchemaAllowance, minimumBudget)
         }
         val resultHeadroom = contextTokens.toLong() - used - requiredSchemaTokens - templateReserve - minimumReply - 1
         val toolResultReserve = if (relevantTools.isEmpty()) {
@@ -147,16 +149,9 @@ internal object LocalContextPlanner {
         protectedTools.forEach(::admitTool)
         val missingRequiredNames = requiredNames - selectedTools.map { it.name }.toSet()
         if (missingRequiredNames.isNotEmpty()) {
-            if (missingRequiredNames.intersect(githubRequiredNames).isNotEmpty()) {
-                throw GitHubToolContextBudgetException(requiredSchemaTokens, availableSchemaTokens)
-            }
-            val missingGitHubOperations = missingRequiredNames.mapNotNull { name ->
-                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
-            }.distinct()
-            if (missingGitHubOperations.isNotEmpty()) {
-                throw IllegalArgumentException(
-                    "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET: GitHub operation schemas (${missingGitHubOperations.joinToString()}) do not fit this local model's $contextTokens-token context. Select a larger-context model or shorten the request, system instructions, and attached history. No GitHub write was dispatched."
-                )
+            if (missingRequiredNames.any { it in githubRequiredNames || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it) != null }) {
+                val budget = GitHubSchemaBudget(contextTokens, minimumBudget.input, outputReserve, templateReserve + 1, toolResultReserve)
+                throw GitHubToolContextBudgetException(requiredSchemaTokens, availableSchemaTokens, budget)
             }
             throw IllegalArgumentException("Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them.")
         }

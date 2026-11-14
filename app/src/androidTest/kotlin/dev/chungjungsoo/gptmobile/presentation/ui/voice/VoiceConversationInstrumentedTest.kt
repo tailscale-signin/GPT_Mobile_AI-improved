@@ -72,7 +72,7 @@ class VoiceConversationInstrumentedTest {
     @Test fun accessibilityCaptionScrollingCanReadEarlierWordsAndResumeFollowing() {
         val session = mutableStateOf(VoiceState(phase = VoicePhase.THINKING, reply = (1..40).joinToString("\n") { "Caption line $it" }))
         compose.setContent {
-            MaterialTheme { VoiceLiveCaptions(session.value, {}, compact = false, Modifier.width(320.dp)) }
+            MaterialTheme { VoiceLiveCaptions(session.value, compact = false, Modifier.width(320.dp)) }
         }
         val caption = compose.onNodeWithTag("voice_caption_text")
         fun range() = caption.fetchSemanticsNode().config[SemanticsProperties.VerticalScrollAxisRange]

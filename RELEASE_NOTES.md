@@ -6,6 +6,10 @@ This release brings together persistent gateway conversations and jobs, more rel
 
 ## November 14 chat, voice, and benchmark follow-up
 
+Preserve typed GitHub schema admission and its token budget, retry transient voice audio handoffs once, and add per-pack, capture, playback and caption evidence to approved reports.
+
+Voice capture and playback report fields require a hosted reporter advertising VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1. Exact caption highlighting requires speech-engine timing for the displayed utterance. The affected phone and private gateway validation policy require live verification.
+
 Increase the GitHub header fade, retain preview activation order, reattach chat follow at the user-reached bottom, and pace new rendered GitHub text at 1.5 seconds per line. Refresh voice presentation with theme-aware captions and observed playback-start feedback. Preserve schema constraints in benchmark requests, select reasoning modes from frozen cases, and distinguish request dispatch, admission and model execution. The [repair audit](docs/repairs/chat-voice-and-report-audit-2026-11-14.md) accounts for the complete supplied diagnostic and benchmark exports.
 
 Move turn-presentation scans out of the large chat composable and enforce the Android compiler's method-size boundary against actual packaged chat and voice methods. Retain a small APK-bound measurement report in CI. Restore redacted benchmark history without recovering credentials or substituting an endpoint, and keep malformed-backup errors free of private payloads.

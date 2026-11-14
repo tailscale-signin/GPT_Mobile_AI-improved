@@ -77,10 +77,15 @@ class ToolCatalogAdmissionTest {
             ResolvedAgentTool(tool, null, "GitHub", tool.definition.name, tool.definition.name, progressiveCatalog = catalog.takeIf { tool === catalog })
         }
         val turns = listOf(ConversationTurn(MessageV2(content = "check repo status", platformType = null), null, true))
-        val blocked = assertThrows(IllegalArgumentException::class.java) {
-            planAuthorizedToolContext(turns, "Use current schemas.", resolved, TokenBudgetSettings(contextTokens = 4096, outputTokens = 1024), true)
+        val blocked = assertThrows(GitHubToolContextBudgetException::class.java) {
+            planAuthorizedToolContext(turns, "Use current schemas.", resolved, TokenBudgetSettings(contextTokens = 2048, outputTokens = 1024), true)
         }
-        assertTrue(blocked.message.orEmpty().startsWith("GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET:"))
+        val failure = blocked.providerFailure()
+        assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", failure.errorCode)
+        assertEquals(JsonPrimitive(2048), failure.failureDetails?.get("admission_capacity_tokens"))
+        assertEquals(JsonPrimitive(1024), failure.failureDetails?.get("admission_output_tokens"))
+        assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
+        assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", ProfileFailureRecord.classify("GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET: historical error").category)
         val plan = planAuthorizedToolContext(turns, "Use current schemas.", resolved, TokenBudgetSettings(contextTokens = 8192, outputTokens = 1024), true)
         assertEquals(setOf("github_context", "github_pr", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
         assertFalse(plan.tools.any { !it.modelVisible })
@@ -92,6 +97,23 @@ class ToolCatalogAdmissionTest {
         assertFalse(prompt.contains("Live mobile tool context"))
         assertFalse(prompt.contains("github_stage_patch"))
         assertTrue(prompt.contains("exact request"))
+    }
+
+    @Test fun defaultReplyReserveYieldsToRequiredSchemasWhileExplicitReserveStaysPinned() {
+        val github = GitHubTool().operations().filter { it.definition.name in setOf("github_context", "github_pr") }
+        val tools = github.map { ResolvedAgentTool(it, null, "GitHub", it.definition.name, it.definition.name) }
+        val turn = ConversationTurn(MessageV2(content = "check repo status", platformType = null), null, true)
+        val settings = TokenBudgetSettings(contextTokens = 8192, outputTokens = 4096)
+        val input = ContextBudgetService.breakdown(listOf(turn), "Read GitHub status.", emptyList()).total
+        val schema = github.sumOf { providerSchemaTokens(it.definition, true) }
+        val nearLimit = settings.copy(contextTokens = input + schema.toInt() + 2048)
+        val failure = assertThrows(GitHubToolContextBudgetException::class.java) {
+            planAuthorizedToolContext(listOf(turn), "Read GitHub status.", tools, nearLimit, true, githubMode = true)
+        }
+        assertEquals(JsonPrimitive(4096), failure.providerFailure().failureDetails?.get("admission_output_tokens"))
+        val recovered = planAuthorizedToolContext(listOf(turn), "Read GitHub status.", tools, nearLimit, true, githubMode = true, allowOutputReduction = true)
+        assertTrue(requireNotNull(recovered.outputTokens) in 512 until settings.outputTokens)
+        assertTrue(recovered.tools.containsAll(github.map { it.definition }))
     }
 
     @Test fun coldGithubDiscoveryReachesTheNextProviderRequestAndExecutesOnce() = runTest {

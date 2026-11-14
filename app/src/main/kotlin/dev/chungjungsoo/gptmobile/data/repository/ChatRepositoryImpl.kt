@@ -3426,7 +3426,7 @@ class ChatRepositoryImpl(
                     toolOmissions = plan.toolOmissions + tools.filterNot { it.tool.definition.name in relevant }.associate { it.modelToolName to dev.chungjungsoo.gptmobile.data.context.ToolOmissionReason.NOT_NEEDED }
                 )
             } else {
-                planPrimaryContext(turns, prompt, tools, admittedSettings, true, githubMode, requestedTask, requireToolExecution)
+                planPrimaryContext(turns, prompt, tools, admittedSettings, true, githubMode, requestedTask, requireToolExecution, allowOutputReduction = combined == null && features.tokenBudget.outputTokens <= 0)
             }
         }
     }
@@ -3867,7 +3867,7 @@ class ChatRepositoryImpl(
         }
     }
 
-    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean): dev.chungjungsoo.gptmobile.data.context.ContextPlan = dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(turns, prompt, tools, limits, externalTools, githubMode, requestedTask, requireToolExecution)
+    private fun planPrimaryContext(turns: List<ConversationTurn>, prompt: String, tools: List<ResolvedAgentTool>, limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings, externalTools: Boolean, githubMode: Boolean, requestedTask: String, requireToolExecution: Boolean, allowOutputReduction: Boolean = false): dev.chungjungsoo.gptmobile.data.context.ContextPlan = dev.chungjungsoo.gptmobile.data.agent.planAuthorizedToolContext(turns, prompt, tools, limits, externalTools, githubMode, requestedTask, requireToolExecution, allowOutputReduction)
 
     private fun withoutExcludedAttachments(messages: List<MessageV2>, excluded: Collection<String>) =
         messages.map { message -> message.copy(attachments = message.attachments.filterNot { it.filePathForDisplay in excluded }) }

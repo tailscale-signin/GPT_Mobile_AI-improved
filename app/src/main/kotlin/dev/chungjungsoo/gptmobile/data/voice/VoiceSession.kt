@@ -46,6 +46,7 @@ interface VoiceAudio {
 
     /** Snapshot this observer for each operation; cancelled operations must never invoke it. */
     fun bindPlaybackStarted(started: (() -> Unit)?) = Unit
+    fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) = Unit
     val streamsReplies: Boolean get() = false
     fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? = null
     fun stop()
@@ -72,7 +73,8 @@ data class VoiceState(
     val hasAudioLevel: Boolean = false,
     val awaitingReply: Boolean = false,
     val hasDraft: Boolean = false,
-    val recoveryAction: VoiceRecoveryAction? = null
+    val recoveryAction: VoiceRecoveryAction? = null,
+    val spokenRange: IntRange? = null
 )
 
 /** Main-thread, half-duplex session. Generation fencing rejects callbacks from cancelled capture/playback. */
@@ -113,6 +115,7 @@ class VoiceSession(
     private var streamAudio = true
     private var playbackSequence = 0L
     private var replyPlayback: VoiceReplyPlayback? = null
+    private var captionSearchFrom = 0
     private var playbackFinished = false
     private fun resetStream() {
         streamId = null
@@ -212,7 +215,11 @@ class VoiceSession(
         if (reportFailure && !expectedSilence && next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
             IssueReportIncidents.failure(ReportFeature.VOICE, errorCode, error, voiceFailureFields() + failureFields, "VOICE_STATE")
         }
-        state = next.copy(awaitingReply = waiting, hasDraft = draftPending)
+        state = next.copy(
+            awaitingReply = waiting,
+            hasDraft = draftPending,
+            spokenRange = next.spokenRange?.takeIf { next.phase == VoicePhase.SPEAKING && next.reply.startsWith(state.reply) }
+        )
         diagnosticProbe.phase(state.phase)
         mutableState.value = state
         changed(state)
@@ -236,6 +243,8 @@ class VoiceSession(
         if (streamId != null) streamAudio = false
         audio.stop(reason)
         audio.bindPlaybackStarted(null)
+        audio.bindSpokenRange(null)
+        captionSearchFrom = 0
         audio.bindDiagnostics(diagnosticProbe)
     }
     private fun accessAllowed() = enabled && permission && foreground && state.phase != VoicePhase.CLOSED
@@ -459,14 +468,40 @@ class VoiceSession(
 
     private fun preparePlayback(ticket: Long): Long {
         val sequence = ++playbackSequence
-        update(state.copy(phase = if (audio.reportsPlaybackStart) VoicePhase.PREPARING else VoicePhase.SPEAKING, level = 0f, notice = null))
+        var utteranceStart = -1
+        var activeUtterance = -1
+        var lastRangeStart = -1
+        update(state.copy(phase = if (audio.reportsPlaybackStart) VoicePhase.PREPARING else VoicePhase.SPEAKING, level = 0f, notice = null, spokenRange = null))
         audio.bindPlaybackStarted {
             if (ticket == generation && sequence == playbackSequence && state.phase == VoicePhase.PREPARING) {
                 update(state.copy(phase = VoicePhase.SPEAKING))
             }
         }
+        audio.bindSpokenRange { index, utterance, range ->
+            if (ticket == generation && sequence == playbackSequence && state.phase == VoicePhase.SPEAKING) {
+                if (index < activeUtterance || index == activeUtterance && range.first < lastRangeStart) return@bindSpokenRange
+                // Require an exact visible-text match. Pronunciation and Markdown transforms can change the source.
+                if (index != activeUtterance) {
+                    utteranceStart = state.reply.indexOf(utterance, startIndex = captionSearchFrom).takeIf {
+                        it >= captionSearchFrom && state.reply.substring(captionSearchFrom, it).all(Char::isWhitespace)
+                    } ?: -1
+                    activeUtterance = index
+                }
+                lastRangeStart = range.first
+                val mapped = if (utteranceStart >= 0 && !range.isEmpty() && range.first >= 0 && range.last < utterance.length) {
+                    (utteranceStart + range.first)..(utteranceStart + range.last)
+                } else {
+                    null
+                }
+                if (mapped != null) captionSearchFrom = utteranceStart + utterance.length
+                diagnosticProbe.captionAlignment(if (mapped == null) "TEXT_UNMAPPED" else "EXACT_RANGE")
+                update(state.copy(spokenRange = mapped))
+            }
+        }
+        diagnosticProbe.captionAlignment("NO_TIMING")
         return sequence
     }
+
     private fun playbackFailed(message: String) {
         // Audio can fail while the model is still streaming. Keep its turn and captions alive.
         val diagnosticFields = diagnosticTrace.incidentFields()
@@ -568,7 +603,7 @@ class VoiceSession(
         audio.bindReply(id)
         audio.speak(spoken, complete = {
             if (ticket == generation && playbackAllowed()) continueTurn()
-        }, error = { message -> if (ticket == generation) fail(message, "VOICE_PLAYBACK_FAILED") })
+        }, error = { message -> if (ticket == generation) playbackFailed(message) })
     }
 
     fun mute() {

@@ -262,6 +262,8 @@ internal object IssueReportIncidents {
             code == "BILLING_UNAVAILABLE" || rejection == "BILLING_UNAVAILABLE" && input.httpStatus in setOf(400, 402) -> "SOURCE_PAYMENT_REQUIRED"
             code == "OUTPUT_CONTINUATION_PENDING_TOOLS" && input.stage == "tool_reconciliation" && input.dispatched == false -> "RECONCILIATION_REQUIRED"
             code == "RATE_LIMIT" && input.provider != null -> "PROVIDER_RATE_LIMITED"
+            code == "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET" -> "GITHUB_TOOL_CONTEXT_BUDGET"
+            code in dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.codes -> code
             code == "tool_use_failed" && input.provider != null -> "PROVIDER_PAYLOAD_ERROR"
             else -> IssueReportCodes.known(code)?.takeUnless { it == "CHAT_FAILED" }
         } ?: "SOURCE_UNAVAILABLE".takeIf { input.provider != null && input.httpStatus == 410 }
@@ -280,7 +282,17 @@ internal object IssueReportIncidents {
         // A rejected provider attempt may lack a resumable checkpoint. Retain its
         // observed cause without treating the report as authorization to retry.
         val publicCode = if (localRecovery) "CHAT_FAILED" else specificCode ?: if (rateLimited || observedRateLimit) "PROVIDER_RATE_LIMITED" else "CHAT_FAILED"
-        val diagnosticFields = if (publicCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
+        val diagnosticFields = if (publicCode in dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisites.codes) {
+            fields + mapOf(
+                "diagnostic_area" to "GATEWAY",
+                "gateway_admission_ready" to false,
+                "gateway_preflight_reason" to publicCode,
+                "gateway_preflight_blocker_count" to fields["prerequisite_blocker_count"],
+                "gateway_validation_policy_state" to fields["validation_policy_state"],
+                "gateway_http_status" to input.httpStatus,
+                "gateway_failure_phase" to input.stage.takeIf { it in setOf("provider_admission", "connection_preflight") }
+            )
+        } else if (publicCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
             fields + mapOf(
                 "diagnostic_area" to "PROVIDER",
                 "diagnostic_capture_mode" to "INCIDENT",

@@ -51,7 +51,9 @@ class IncidentReportContractTest(unittest.TestCase):
                     with self.assertRaises(ValueError):
                         validate_diagnostics(bad)
         for code in ("CONTEXT_CAPACITY_EXCEEDED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CAPACITY_UNVERIFIED"):
-            report = self.report(self.capture("PROVIDER"))
+            capture = self.capture("PROVIDER", {"provider_failure_code": code})
+            validate_diagnostics(capture)
+            report = self.report(capture)
             report.update(feature="chat", errorCode=code)
             _, issue = issue_from_report(report)
             self.assertIn(code, issue["title"])

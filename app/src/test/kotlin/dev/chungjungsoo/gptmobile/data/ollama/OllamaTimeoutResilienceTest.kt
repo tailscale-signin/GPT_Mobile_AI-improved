@@ -37,6 +37,30 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
+private fun replayableTransport(error: Throwable): ErrorDetail {
+    val kind = networkFailureKind(error)
+    require(kind != NetworkFailureKind.UNKNOWN && kind.retryable)
+    return ErrorDetail(
+        message = kind.userMessage(partialOutput = false),
+        code = kind.code,
+        retryable = true,
+        failureDetails = providerTransportFailureDetails(
+            details = buildJsonObject {
+                put("failed_stage", "transport")
+                put("retryable", true)
+            },
+            error = error,
+            timing = null,
+            dispatched = true,
+            receivedPayload = false,
+            receivedVisibleText = false,
+            generationCompleted = false,
+            replayAllowed = true,
+            requiresReconciliation = false
+        )
+    )
+}
+
 class OllamaTimeoutResilienceTest {
 
     private class TimeoutOnceThenSuccessOpenAIAPI : OpenAIAPI {
@@ -202,29 +226,5 @@ class OllamaTimeoutResilienceTest {
         assertTrue(events.none { it is ProviderEvent.TextDelta })
         assertEquals("502", events.filterIsInstance<ProviderEvent.Failed>().single().errorCode)
         assertTrue(events.last() is ProviderEvent.Failed)
-    }
-
-    private fun replayableTransport(error: Throwable): ErrorDetail {
-        val kind = networkFailureKind(error)
-        require(kind != NetworkFailureKind.UNKNOWN && kind.retryable)
-        return ErrorDetail(
-            message = kind.userMessage(partialOutput = false),
-            code = kind.code,
-            retryable = true,
-            failureDetails = providerTransportFailureDetails(
-                details = buildJsonObject {
-                    put("failed_stage", "transport")
-                    put("retryable", true)
-                },
-                error = error,
-                timing = null,
-                dispatched = true,
-                receivedPayload = false,
-                receivedVisibleText = false,
-                generationCompleted = false,
-                replayAllowed = true,
-                requiresReconciliation = false
-            )
-        )
     }
 }

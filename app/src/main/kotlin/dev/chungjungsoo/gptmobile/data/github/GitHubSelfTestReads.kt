@@ -28,6 +28,7 @@ internal object GitHubSelfTestReads {
                 !retiredRead(it)
         }
         GitHubPolicyReadRecovery.next(tools, observations)?.let { ready += it }
+        ready += GitHubSelfTestGraph.available(tools, observations)
         // Old receipts may retain a count and only the first inventory row. Reacquire
         // their exact read once under today's authorization; never synthesize the lost rows.
         observations.forEachIndexed { index, receipt ->

@@ -273,7 +273,7 @@ internal object GitHubTestChecklist {
     }
 
     /** Consume issued local fragments while their bounded cache entry is still live. */
-    private fun continuation(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, localOnly: Boolean): ProviderEvent.ToolCall? {
+    private fun continuation(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, localOnly: Boolean, workflowDependencyOnly: Boolean = false): ProviderEvent.ToolCall? {
         val observations = trusted(receipts)
         fun same(receipt: JsonObject, recipe: JsonObject) = sameCall(receipt, recipe)
         fun permitted(recipe: JsonObject): Boolean {
@@ -294,6 +294,7 @@ internal object GitHubTestChecklist {
         observations.forEachIndexed { index, receipt -> recoverySource(receipt)?.let { lastAttempts[it] = index } }
         val considered = mutableSetOf<Pair<String, JsonObject>>()
         for ((index, failed) in observations.withIndex()) {
+            if (workflowDependencyOnly) continue
             val recovery = savedReadRecovery(failed) ?: continue
             val source = recoverySource(recovery) ?: continue
             if (!considered.add(source)) continue
@@ -309,6 +310,13 @@ internal object GitHubTestChecklist {
             if (localOnly && "view_cursor" !in args || !permitted(page)) continue
             val priorIndex = observations.indexOfLast { same(it, page) }
             if (priorIndex >= 0) continue
+            val workflowDependency = observations.any { issuer ->
+                page in issuedPages(issuer) && GitHubSelfTestWorkflowJobs.dependencyPage(page, tools, observations, issuer)
+            }
+            if (workflowDependencyOnly && !workflowDependency) continue
+            // This independently bounded selected-SHA acquisition finds an
+            // executed job, without expanding unrelated inventory or the budget.
+            if (workflowDependency) return call(page.text("tool"), args)
             // Required local fragments and issue dependencies are never stopped by
             // an unrelated inventory's sampling allowance.
             val issueDependency = page.text("tool").substringBefore("__") == "github_issue" &&
@@ -440,6 +448,7 @@ internal object GitHubTestChecklist {
         // dependencies are observed, finish an admissible fixture while its
         // cleanup allowance still fits instead of spending it on more samples.
         if (read != null && GitHubSelfTestReads.isDependency(read)) return read
+        continuation(task, tools, receipts, localOnly = false, workflowDependencyOnly = true)?.let { return it }
         // A fixture is bounded and must leave capacity for its verification and
         // cleanup; optional inventory sampling runs only after this decision.
         val fixtureAllowed = (remaining == null || remaining >= GitHubSelfTestFixtures.minimumCalls(tools) + GitHubChecklistBudget.VERIFICATION_RESERVE) &&
@@ -562,14 +571,16 @@ internal object GitHubTestChecklist {
                     successes.any { GitHubEvidenceOrigin.of(it) == "MOCKED" } -> "MOCKED"
                     else -> "NOT_TESTED"
                 }
-                val incomplete = latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
+                val graphIncomplete = capability.tool == "repository_graph" && latest?.let { GitHubSelfTestGraph.incomplete(capability.action, it) } == true
+                val incomplete = graphIncomplete || latest?.get("success") == JsonPrimitive(true) && data(latest)?.text("status") in setOf("PENDING_LOG_AVAILABILITY", "PENDING_CHECKS")
                 val excluded = capability.tool == "github_context" && capability.action == "repositories"
                 val unsupportedFixture = !readOnly(capability) && !GitHubSelfTestFixtures.supports(capability.tool, capability.action)
                 val ciActionWithoutRun = capability.tool == "github_ci" && capability.action in setOf("dispatch", "rerun", "cancel") && eligible.isEmpty() && observed.isEmpty()
                 val repositoryPrerequisites = if (capability.tool == "github_repository") GitHubRepositoryReadiness.read(capability.action, tools, allTrusted) else null
+                val graphPrerequisites = if (capability.tool == "repository_graph") GitHubSelfTestGraph.requiredInputs(capability.action, allTrusted) else emptyList()
                 val repositoryStatusWithoutOperation = repositoryPrerequisites?.conditional == true && eligible.isEmpty() && observed.isEmpty()
                 val notRequested = GitHubChecklistScope.readOnly(task) && !readOnly(capability) || GitHubChecklistScope.supportedFixturePlan(task) && unsupportedFixture || ciActionWithoutRun
-                val readyCall = if (authorized && readOnly(capability) && eligible.isEmpty()) readyReads[capability.tool to capability.action] else null
+                val readyCall = if (authorized && readOnly(capability) && (eligible.isEmpty() || graphIncomplete)) readyReads[capability.tool to capability.action] else null
                 val conditionalDecision = capability.tool == "github_decide" && observed.isEmpty()
                 val awaitingFixtureStart = !readOnly(capability) &&
                     GitHubSelfTestFixtures.supports(capability.tool, capability.action) &&
@@ -581,7 +592,7 @@ internal object GitHubTestChecklist {
                 val fixtureApprovalConditional = awaitingFixtureStart && fixturePreflight?.text("state") == "CONDITIONAL"
                 val blocker = when {
                     fixtureApprovalUnknown -> "Fixture approval mode is unavailable. Recheck the effective approval policy for this task before creating a fixture."
-                    fixtureApprovalConditional -> "The effective approval mode requires an explicit fixture approval decision. Enable fixture-only auto approval for codex-self-test/* or run the approval interaction harness."
+                    fixtureApprovalConditional -> "The effective approval mode requires an explicit fixture approval decision. In GitHub workspace > Settings > Chat decisions, choose Fixture-only auto-approval for codex-self-test/*, or use the existing Approve & Commit interaction. This task retains its original approval preflight; changing settings does not approve an already staged patch."
                     awaitingFixtureStart -> "Fixture-only approval is available. The owned fixture still needs execution and verified cleanup within the remaining budget."
                     ciActionWithoutRun -> "No workflow run or job ID was supplied or deliberately created for this task. This CI mutation is conditional and was not requested."
                     repositoryStatusWithoutOperation -> "No repository creation, fork, import or clone was started in this task. This status read is conditional on a retained lifecycle receipt: operation_id for a gateway transfer, or expected_repository_id and the exact original destination for native creation. A selected revision or source path cannot supply that identity; no unrelated repository is created just to exercise status."
@@ -590,10 +601,12 @@ internal object GitHubTestChecklist {
                     eligible.isEmpty() && observed.isNotEmpty() -> "Current catalog excludes the historical receipts; reauthorize this operation before using them as proof."
                     waitingApproval -> "The exact staged patch is waiting for its existing Approve & Commit card. Generic continuation cannot grant approval; preserve the task and fixture."
                     transportMissing -> "Saved, local or mocked responses cannot qualify this remote operation; an authorized live read or verified mutation is still required."
+                    graphIncomplete -> "The graph response is incomplete. " + graphPrerequisites.joinToString("; ")
                     incomplete -> "The endpoint responded but traversal or log availability remains incomplete; follow the saved continuation or wait for the recorded state change."
                     failures.isNotEmpty() && (successes.isEmpty() || latest?.get("success") == JsonPrimitive(false)) -> "Resolve recorded errors: " + failures.map { it.text("error_code") }.distinct().joinToString(", ") + ". " + GitHubVerificationRecovery.advice(failures)
                     readyCall != null -> "Ready under the current authorized action schema; all required inputs are available. No qualifying execution has been observed."
                     repositoryPrerequisites?.requiredInputs?.isNotEmpty() == true -> "Repository lifecycle prerequisites: " + repositoryPrerequisites.requiredInputs.joinToString("; ")
+                    graphPrerequisites.isNotEmpty() -> "Graph prerequisites: " + graphPrerequisites.joinToString("; ")
                     conditionalDecision -> "Conditional user-decision behavior has no genuine decision in this task. It remains untested; test it in the interaction harness."
                     capability.tool == "github_watch_checks" -> "Requires an observed pull request or workflow run bound to the selected revision. A bounded inline check can run without a background subscription; persistent subscription behavior requires a saved chat and a separate observation."
                     !readOnly(capability) -> GitHubSelfTestFixtures.prerequisite(capability.tool, capability.action)
@@ -682,6 +695,7 @@ internal object GitHubTestChecklist {
                     put("acceptance_state", if (waitingApproval) "WAITING_FOR_APPROVAL" else GitHubAcceptanceLedger.state(status).name)
                     blockerCode?.let { put("blocker_code", it.name) }
                     repositoryPrerequisites?.requiredInputs?.takeIf { it.isNotEmpty() }?.let { put("required_inputs", JsonArray(it.map(::JsonPrimitive))) }
+                    if (graphPrerequisites.isNotEmpty() && status !in setOf("PASSED", "RECOVERED") && readyCall == null) put("required_inputs", JsonArray(graphPrerequisites.map(::JsonPrimitive)))
                     put("evidence_origins", JsonArray(successes.ifEmpty { eligible }.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     put("historical_evidence_origins", JsonArray(eligible.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))
                     if (eligible.any { GitHubPendingApproval.publication(it, allTrusted) != null }) {
@@ -742,7 +756,7 @@ internal object GitHubTestChecklist {
                             put("successfully_tested", status in setOf("PASSED", "RECOVERED") && latestDispatch?.get("success") == JsonPrimitive(true))
                         }
                     )
-                    put("inventory_status", if (successes.any { data(it)?.get("complete") == JsonPrimitive(false) }) "PARTIAL" else "See independent inventory coverage")
+                    put("inventory_status", if (graphIncomplete || successes.any { data(it)?.get("complete") == JsonPrimitive(false) || (data(it)?.get("graph") as? JsonObject)?.get("complete") == JsonPrimitive(false) }) "PARTIAL" else "See independent inventory coverage")
                     put("evidence_scope", "Validated response for the exact action; origins identify LIVE, CACHED, LOCAL, MOCKED or NOT_TESTED execution. Fixture state, cleanup, application behavior and device health require separate evidence")
                     put("receipt_ids", JsonArray(observed.mapNotNull { it["receipt_id"] }))
                     put("successful_receipt_ids", JsonArray(successes.mapNotNull { it["receipt_id"] }))

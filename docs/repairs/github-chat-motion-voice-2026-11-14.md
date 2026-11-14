@@ -104,7 +104,7 @@ read fits but its discovery route does not.
 ### Report evidence
 
 The latest previously supplied archive, `diagnostics-a199704a-2fe7-4afd-9832-24d1035b97c6-part-1-e6fa218d-8b59-4aaa-8a91-7ce5bfdcab6e.zip`,
-was available locally; no additional attachment accompanied this request. All 20
+was available locally during the preceding pass. All 20
 stage digests matched. Its 11 retained runs comprise seven failures, two blocked
 runs and two completed runs. These are run outcomes, not a count of independent
 defects. Raw reports and private account, session, prompt, endpoint and model
@@ -154,3 +154,80 @@ Physical phone audio, microphone contention, private gateway connectivity and
 hosted report-service deployment require their respective environments. A
 diagnostic disposition records the evidence added for the next occurrence; it
 does not claim a historical external-service or device failure was reproduced.
+
+## Supplemental archive and all-issue follow-up
+
+The next pass starts from `1987683f8b560c6e1bae0d2a8ea22344980cdf9d` on the same
+PR and base. The new archive has SHA-256
+`ad7693bd0392b6b5fb5e003fecfb0b1dbbb5ba4823ada8d65984a648215b1d7c`.
+The concurrent voice-contrast and catalog-regression commit
+`6d56939a5811c7779e49a072d8d1e3c08cf8fdd3` was preserved by fast-forwarding
+the same branch and regenerating its source inventory before publication.
+All 20 stage digests and the recorded integrity chains matched. Its 8,825
+physical JSONL records parse, including 401 chunks representing 19 logical
+records. The capture is truthfully partial: the workspace stage includes 312
+of 370 source rows and retains its continuation cursor. The repair does not
+rewrite that historical capture or claim the missing rows were observed.
+
+The live intake now contains 27 reports, #1101–#1128 excluding PR #1122. There
+is still one active PR. The 748-ref branch inventory remains the one documented
+above; work continues only on the current PR, with no historical refs rewritten.
+
+### Confirmed failure paths and changes
+
+| Observed path | Change and acceptance boundary |
+| --- | --- |
+| Both synthetic review attempts exhausted 2,048 output tokens with reasoning but no visible verdict. | A distinct preflight retry role allows up to 4,096 tokens only if it actually exceeds the first allowance and the complete request still fits. Keep the selected profile, reasoning policy, explicit caps and unknown-outcome stop. No retry when the available allowance cannot grow. |
+| One terminal review paragraph appeared twice. | The verified-session wrapper retains the failure; the runner publishes the terminal response after its recovery decision. The regression checks one publication and one terminal failure. |
+| The producing invocation retained HTTP acceptance, request identity and usage, while its failure receipt lost them. | Merge only observations belonging to the producing invocation and retain failure-attached usage when a later frame contains only a finish reason. Delivery wrappers cannot borrow another invocation's metrics. HTTP acceptance is not generation completion. |
+| The integration run queried jobs for 30 skipped workflow runs and left the selected-revision continuation unused. | A single skipped-run probe can characterize the endpoint. Further skipped-only candidates yield to issued exact-SHA continuation pages under a separate bounded dependency allowance. No workflow dispatch is invented. |
+| Graph status reported that the exact repository revision needed indexing. | Prepare the graph through its existing index/checkpoint flow, then derive read selectors from actual returned records. Failed or uncertain indexing is not replayed. Missing baseline, node or diagnostic inputs remain explicit prerequisites. |
+| Desktop startup removed an explicitly configured validation-policy path. | Retain only the approved policy setting through both launcher stages; add an Advanced settings chooser/checker and separate durable preference. Invalid or missing configuration still blocks implementation. Unrelated execution and listener overrides remain excluded. |
+| A partial export retried a stage below that stage's original headroom threshold. | Recheck each original threshold, retry with one-row source pages and cooperative yielding, preserve atomic cursors, and reuse the row projector during protected-payload hydration. Keep the same record and archive limits. |
+
+The gateway policy chooser validates configuration without running commands or
+claiming runtime readiness. Saved preferences remain compatible with the legacy
+settings schema. A malformed saved selection must not prevent the settings
+screen from opening or enable inherited policy fallback; a new explicit selection
+repairs it.
+
+### Remaining report evidence
+
+Report #1127 follows the workflow/graph preparation changes above and retains
+specific unmet prerequisites. Fixture-only mutation tests continue to require
+the existing explicit Chat decisions setting and its owned-fixture checks.
+Report #1128 retains separate branch-protection and repository-rule observations:
+an inaccessible or not-found protection response cannot establish that no
+protection exists or that the required-check inventory is complete.
+
+The archive also contains measurable frame and layout stalls, but does not
+establish their root cause. Opted-in frame diagnostics now retain bounded layout
+constraints and repeated-measurement context scoped to one modifier instance.
+Equal constraints do not imply equal content or prove redundant layout work.
+No prompt, rendered text or chat-history scan is added to this evidence.
+
+Export receipts now retain memory at the actual deferral, the required headroom,
+committed output bytes, and numeric source-table/row/byte context. A successful
+retry retains the original deferral sample. The SQLite source byte count is
+labeled as stored-row size rather than decrypted-payload size. These observations
+help distinguish remaining allocation bursts, oversized source values and
+insufficient process headroom on the affected device.
+
+### Supplemental verification
+
+The focused production exporter/projection/frame-context host suite passes 71
+tests, with Android trace and entity boundaries stubbed. The authentication and
+approved-report contract suite passes 97 tests. The production GitHub planner,
+status and graph host suite passes 112 tests; preflight recovery passes nine;
+failure receipt/report propagation passes six. The desktop policy and existing
+validation tests pass 27 cases, including malformed preferences and Windows BOM
+files with non-ASCII paths. Canonical host validation passes 507 tests.
+The current request-constraints/reasoning suite passes another nine cases.
+The complete gateway checker reports 958 Python cases: 955 passed and three
+platform/environment cases skipped, with no failures; all seven browser-bridge
+tests pass. Pinned dependency hashes were checked without altering the lockfile.
+Database/Robolectric, Compose,
+full Android and exact-head hosted qualification remain required before merge.
+The checkpoint records the rest of the current validation and issue-closure
+dispositions. Physical microphone ownership, private endpoint behavior and phone
+frame/heap improvements have not been reproduced by these host suites.

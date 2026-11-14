@@ -17,6 +17,8 @@ class GitHubReasoningPolicyTest {
         assertTrue(preflight.allowReasoning)
         assertFalse(preflight.maximizeReasoning)
         assertEquals(128, primary.copy(maxOutputTokens = 128).forRole("github-review-preflight").maxOutputTokens)
+        assertEquals(4096, primary.forRole("github-review-preflight-output-retry").maxOutputTokens)
+        assertEquals(1024, primary.copy(maxOutputTokens = 1024).forRole("github-review-preflight-output-retry").maxOutputTokens)
         assertEquals(8192, primary.forRole("primary").maxOutputTokens)
     }
 
@@ -57,7 +59,7 @@ class GitHubReasoningPolicyTest {
     @Test fun helperRolesAndTextContinuationsRetainEachExplicitUserContract() {
         for (originalMode in ReasoningMode.entries) {
             val original = RequestConstraints(reasoningModeOverride = originalMode, maximizeReasoning = true, lockSelectedRoute = true, permissionRevision = "accepted", contextCeiling = 8192)
-            for (role in listOf("answer_contract_rewrite", "github-claim-extraction", "github-progress-summary", "github-review-preflight", "github-review-verdict")) {
+            for (role in listOf("answer_contract_rewrite", "github-claim-extraction", "github-progress-summary", "github-review-preflight", "github-review-preflight-output-retry", "github-review-verdict")) {
                 val helper = original.forRole(role).withoutTools()
                 assertTrue(helper.allowReasoning)
                 assertEquals(originalMode, helper.reasoningModeOverride)

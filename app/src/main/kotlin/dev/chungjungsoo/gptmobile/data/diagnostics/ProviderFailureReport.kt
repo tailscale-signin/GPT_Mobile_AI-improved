@@ -78,6 +78,9 @@ internal object ProviderFailureReport {
         put("provider_failure_stage", receipt.stage.name)
         put("provider_failure_domain", receipt.failureDomain.name)
         put("provider_failure_code", receipt.errorCode)
+        receipt.httpStatus?.let { put("http_status", it) }
+        receipt.dispatched?.let { put("dispatched", it) }
+        if (receipt.remoteAcceptance != dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance.UNKNOWN) put("remote_acceptance", receipt.remoteAcceptance.name)
         if (receipt.errorCode == "GITHUB_CIRCUIT_OPEN") {
             failure.failureDetails?.get("github_cooldown_stop")?.let { put("github_cooldown_stop", it) }
         }

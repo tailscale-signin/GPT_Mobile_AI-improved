@@ -130,6 +130,8 @@ class GitHubIntegrationPreparationTest {
         val blockers = preparation.getValue("blockers").jsonArray.map { it.jsonObject }
         val approval = blockers.single { it["code"] == JsonPrimitive("FIXTURE_APPROVAL_MODE_REQUIRED") }
         assertTrue(approval.getValue("capability_ids").jsonArray.contains(JsonPrimitive("github_commit:branch")))
+        assertTrue(approval.getValue("required_inputs").toString().contains("Chat decisions > Fixture-only auto-approval"))
+        assertTrue(approval.getValue("required_inputs").toString().contains("retained task approval preflight"))
         val owned = blockers.single { it["code"] == JsonPrimitive("OWNED_FIXTURE_REQUIRED") }
         assertTrue(owned.getValue("required_inputs").jsonArray.any { it.toString().contains("cleanup") })
         assertTrue(owned.getValue("supported_preparation_ids").jsonArray.isEmpty())

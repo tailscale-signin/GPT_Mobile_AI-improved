@@ -99,7 +99,7 @@ internal object GitHubIntegrationPreparation {
     private fun requiredInputs(code: String): List<String> = when (code) {
         "OWNED_FIXTURE_REQUIRED" -> listOf("Task/repository-bound ownership", "Exact current resource lease", "Authorized cleanup operation", "Remaining cleanup and verification allowance")
         "FIXTURE_APPROVAL_STATE_UNKNOWN" -> listOf("Effective task-bound approval decision")
-        "FIXTURE_APPROVAL_MODE_REQUIRED" -> listOf("Explicit fixture-only automatic approval or the existing native approval interaction")
+        "FIXTURE_APPROVAL_MODE_REQUIRED" -> listOf("GitHub workspace > Settings > Chat decisions > Fixture-only auto-approval for a new task, or the existing exact Approve & Commit interaction", "The retained task approval preflight and any staged patch approval remain unchanged")
         "APPROVAL_REQUIRED" -> listOf("Decision on the existing exact approval card")
         "ISSUE_ID_REQUIRED" -> listOf("Issue number from an authorized issue inventory; PR numbers cannot substitute")
         "PULL_REQUEST_ID_REQUIRED" -> listOf("Pull request number from an authorized PR inventory", "Observed head SHA")

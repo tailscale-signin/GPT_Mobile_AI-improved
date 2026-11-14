@@ -184,15 +184,16 @@ class ValidationPolicyError(ValueError):
         self.state = state
 
 
-def load_policy(repository):
+def load_policy(repository, *, policy_path=None):
     """One parser shared by admission and execution; host policy is never model-selected."""
-    policy_path = os.getenv('GATEWAY_ENGINEERING_VALIDATION_POLICY', '')
+    if policy_path is None:
+        policy_path = os.getenv('GATEWAY_ENGINEERING_VALIDATION_POLICY', '')
     if not policy_path:
         raise ValidationPolicyError('NOT_CONFIGURED', 'Configure an approved repository mirror, immutable container image and command list before admission')
     policy_file = Path(policy_path)
     if not policy_file.is_file() or policy_file.stat().st_size > 65536:
         raise ValidationPolicyError('MISSING_OR_OVERSIZED', 'Validation policy is missing or oversized')
-    document = json.loads(policy_file.read_text())
+    document = json.loads(policy_file.read_text(encoding='utf-8-sig'))
     if not isinstance(document, dict):
         raise ValidationPolicyError('INVALID_DOCUMENT', 'Validation policy must be a repository mapping')
     policy = document.get(repository.lower())

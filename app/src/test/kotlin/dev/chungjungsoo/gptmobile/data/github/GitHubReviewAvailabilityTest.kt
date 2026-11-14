@@ -123,7 +123,7 @@ class GitHubReviewAvailabilityTest {
         assertEquals(3, probes)
     }
 
-    @Test fun completedOutputLimitedPreflightGetsOneCompactSameProfileProbeBeforeWork() = runTest {
+    @Test fun completedOutputLimitedPreflightGetsOneLargerAdmittedSameProfileProbeBeforeWork() = runTest {
         var probes = 0
         var work = 0
         val delegate = object : AgentProviderSession {
@@ -134,7 +134,8 @@ class GitHubReviewAvailabilityTest {
         }
         val notices = mutableListOf<String>()
         val result = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Inspect the repository", 8192, { prompt, kind ->
-            assertEquals("github-review-preflight", kind)
+            assertEquals(if (probes == 0) GitHubReviewCompatibility.PREFLIGHT_ROLE else GitHubReviewCompatibility.OUTPUT_RETRY_ROLE, kind)
+            assertEquals(if (probes == 0) 2048 else 4096, outputAllowance(kind))
             assertEquals(0, work)
             probes++
             if (probes == 1) {
@@ -144,7 +145,7 @@ class GitHubReviewAvailabilityTest {
                 assertEquals(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, prompt)
                 session(ProviderEvent.TextDelta(verdict(listOf(GitHubReviewCompatibility.EVIDENCE_ID))), ProviderEvent.Completed)
             }
-        }, { notices += it }, compatibility = GitHubReviewCompatibility(), reviewerRevision = "same-selected-profile").streamRound(emptyList(), emptyList()).toList()
+        }, { notices += it }, compatibility = GitHubReviewCompatibility(), reviewerRevision = "same-selected-profile", outputLimitForPass = ::outputAllowance).streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, probes)
         assertEquals(1, work)
         assertTrue(notices.any { "once" in it })
@@ -161,7 +162,7 @@ class GitHubReviewAvailabilityTest {
         val result = GitHubReviewedSession(delegate, GitHubReviewEvidence(), "Inspect the repository", 8192, { _, _ ->
             probes++
             session(ProviderEvent.Failed("Bounded answer repair ended", errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED", invocationId = "probe-$probes"))
-        }, {}, compatibility = compatibility, reviewerRevision = "selected").streamRound(emptyList(), emptyList()).toList()
+        }, {}, compatibility = compatibility, reviewerRevision = "selected", outputLimitForPass = ::outputAllowance).streamRound(emptyList(), emptyList()).toList()
         assertEquals(2, probes)
         val failure = result.filterIsInstance<ProviderEvent.Failed>().single()
         assertEquals("COMPLETION_REPAIR_BUDGET_EXHAUSTED", failure.errorCode)
@@ -176,6 +177,52 @@ class GitHubReviewAvailabilityTest {
             }
         )
         assertTrue(rechecked)
+    }
+
+    private fun outputAllowance(role: String): Int = GitHubStageBudget.resolve(32768, null, role).output
+
+    @Test fun equalUnknownOrConstrainedPreflightAllowanceStopsWithoutAnIdenticalRetry() = runTest {
+        for (cap in listOf<Int?>(null, 1024, 2048)) {
+            var probes = 0
+            val failure = ProviderEvent.Failed("No visible verdict", errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED", invocationId = "accepted-probe")
+            val result = GitHubReviewedSession(session(ProviderEvent.Completed), GitHubReviewEvidence(), "Inspect repository findings", 8192, { _, _ ->
+                probes++
+                session(failure)
+            }, {}, compatibility = GitHubReviewCompatibility(), outputLimitForPass = { role -> cap?.let { GitHubStageBudget.resolve(32768, it, role).output } })
+                .streamRound(emptyList(), emptyList()).toList()
+            assertEquals(1, probes)
+            val terminal = result.filterIsInstance<ProviderEvent.Failed>().single()
+            assertEquals(failure.errorCode, terminal.errorCode)
+            assertEquals(failure.invocationId, terminal.invocationId)
+            assertEquals(JsonPrimitive(false), terminal.failureDetails?.get("repository_operations_started"))
+        }
+    }
+
+    @Test fun enlargedPreflightRejectsItsSmallerInputBudgetBeforeAnotherDispatch() = runTest {
+        var probes = 0
+        val failure = ProviderEvent.Failed("Initial probe exhausted", errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED", invocationId = "accepted-probe")
+        val result = GitHubReviewedSession(session(ProviderEvent.Completed), GitHubReviewEvidence(), "Inspect repository findings", 8192, { _, _ ->
+            probes++
+            session(failure)
+        }, {}, compatibility = GitHubReviewCompatibility(), measureInput = { 1500 }, inputLimitForPass = { role -> if (role == GitHubReviewCompatibility.OUTPUT_RETRY_ROLE) 1000 else 8192 }, outputLimitForPass = ::outputAllowance)
+            .streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, probes)
+        assertEquals(failure.invocationId, result.filterIsInstance<ProviderEvent.Failed>().single().invocationId)
+        assertFalse(result.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+    }
+
+    @Test fun unknownOrForbiddenContinuationNeverUsesTheLargerPreflightAllowance() = runTest {
+        for (field in listOf("requires_reconciliation", "logical_continuation_allowed")) {
+            var probes = 0
+            val failure = ProviderEvent.Failed("Probe outcome is unavailable", errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED", invocationId = "original-probe", failureDetails = buildJsonObject { put(field, field == "requires_reconciliation") })
+            val result = GitHubReviewedSession(session(ProviderEvent.Completed), GitHubReviewEvidence(), "Inspect repository findings", 8192, { _, _ ->
+                probes++
+                session(failure)
+            }, {}, compatibility = GitHubReviewCompatibility(), outputLimitForPass = ::outputAllowance).streamRound(emptyList(), emptyList()).toList()
+            assertEquals(1, probes)
+            assertEquals(failure.invocationId, result.filterIsInstance<ProviderEvent.Failed>().single().invocationId)
+            assertFalse(result.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+        }
     }
 
     @Test fun truncatedButInterruptedProbeCannotTriggerCompactFallback() = runTest {

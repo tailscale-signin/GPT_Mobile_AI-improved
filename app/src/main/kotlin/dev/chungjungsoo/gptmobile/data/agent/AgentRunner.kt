@@ -681,6 +681,21 @@ class AgentRunner(
         }
     }
 
+    private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.deliverTerminalFailure(session: AgentProviderSession, failure: ProviderEvent.Failed, noPendingCalls: Boolean) {
+        val reviewOrigin = failure.errorCode?.startsWith("GITHUB_REVIEW_") == true ||
+            failure.failureDetails?.get("review_stage") in setOf(JsonPrimitive("answer_review"), JsonPrimitive("review_compatibility"))
+        if (limits.githubTask && noPendingCalls && reviewOrigin) {
+            // A final review refusal still publishes its saved explanation once.
+            // This callback cannot dispatch a model request or replay an operation.
+            session.retainedFailureResponse(failure).collect { event ->
+                if (event is ProviderEvent.Completed) checkpoint?.finish()
+                emit(AgentRunEvent.Provider(event))
+            }
+        } else {
+            emit(AgentRunEvent.Provider(failure))
+        }
+    }
+
     private data class RoundRecovery(val definitions: List<AgentToolDefinition>, val restoreRound: Boolean, val finalize: Boolean)
 
     private suspend fun kotlinx.coroutines.flow.FlowCollector<AgentRunEvent>.recoverFailedRound(
@@ -696,7 +711,7 @@ class AgentRunner(
         if (GatewayOutcomeRecovery.requiresReconciliation(roundFailure, round.errorCode)) {
             // Even a tool-free repair can reach a gateway with server tools enabled.
             // Leave the terminal delivery boundary to report the retained failure without another model request.
-            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, GatewayOutcomeRecovery.ERROR_CODE, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId)))
+            deliverTerminalFailure(session, ProviderEvent.Failed(roundFailure, round.progressDeadline, GatewayOutcomeRecovery.ERROR_CODE, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId), round.calls.isEmpty())
             return null
         }
         if (round.errorCode in ToolFailureMetadata.authorityInvalidationCodes || round.taskOutcome == "CONFIGURATION_INVALIDATED") {
@@ -756,7 +771,7 @@ class AgentRunner(
             return null
         }
         if (round.providerLimit != null || round.taskOutcome in setOf("BLOCKED", "CONFIGURATION_INVALIDATED", "WAITING_FOR_APPROVAL") || round.errorCode == "WAITING_FOR_APPROVAL" || round.taskOutcome == "PARTIAL" && !recoverableConnection) {
-            emit(AgentRunEvent.Provider(ProviderEvent.Failed(roundFailure, round.progressDeadline, round.errorCode, round.failureTransportComplete, round.providerLimit, round.taskOutcome, round.failureDetails, round.invocationId)))
+            deliverTerminalFailure(session, typedFailure, round.calls.isEmpty())
             return null
         }
         val protocolFailure = round.errorCode?.startsWith("TOOL_PROTOCOL_") == true ||

@@ -7,7 +7,7 @@
   "pull_request": 1122,
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "github-chat-motion-voice-2026-11-14",
-  "state": "QUALIFYING_CONTEXT_DISCOVERY_BOUNDARIES",
+  "state": "READY_FOR_EXACT_HEAD_QUALIFICATION",
   "intent": [
     "Review all open issues and branch work",
     "Verify expanding top fade and +3% screen-height baseline",
@@ -106,5 +106,112 @@
     "Retain deferred mutations in generic catalog fallback",
     "Permit one explicitly selected large GitHub schema through the soft window, followed by hard admission",
     "Reserve the necessary discovery route before initial authorization narrowing"
-  ]
+  ],
+  "followup": {
+    "source_sha": "1987683f8b560c6e1bae0d2a8ea22344980cdf9d",
+    "intent": [
+      "Repair bounded review preflight, duplicate terminal publication and failure metadata",
+      "Repair desktop validation policy persistence and startup",
+      "Complete bounded workflow and graph integration prerequisites",
+      "Reduce export allocation pressure and capture remaining device evidence",
+      "Reconcile all open issues and active PR branches, qualify exact combined head, merge and close addressed reports"
+    ],
+    "issues": [
+      1101,
+      1102,
+      1103,
+      1104,
+      1105,
+      1106,
+      1107,
+      1108,
+      1109,
+      1110,
+      1111,
+      1112,
+      1113,
+      1114,
+      1115,
+      1116,
+      1117,
+      1118,
+      1119,
+      1120,
+      1121,
+      1123,
+      1124,
+      1125,
+      1126,
+      1127,
+      1128
+    ],
+    "validation": {
+      "state": "LOCAL_PASSED_HOSTED_PENDING",
+      "export_host": {
+        "passed": 71,
+        "failed": 0,
+        "scope": "Production exporter/projection/frame context; Android trace and entity boundary stubs"
+      },
+      "reporter_contracts": {
+        "passed": 97,
+        "failed": 0
+      },
+      "android": "PENDING_PUBLISHED_HEAD_CI",
+      "physical_device": "NOT_RUN",
+      "canonical_host": {
+        "passed": 507,
+        "failed": 0
+      },
+      "planner_host": {
+        "passed": 112,
+        "failed": 0,
+        "scope": "64 production GitHub classes plus real contracts/authorization/redactor; platform boundary substitutes"
+      },
+      "desktop_policy_and_validation": {
+        "passed": 27,
+        "failed": 0
+      },
+      "preflight_host": {
+        "passed": 9,
+        "failed": 0
+      },
+      "receipt_host": {
+        "passed": 6,
+        "failed": 0
+      },
+      "request_constraints_host": {
+        "passed": 9,
+        "failed": 0
+      },
+      "gateway": {
+        "failed": 0,
+        "browser_tests": 7,
+        "windows_credentials": "SKIPPED_ON_LINUX",
+        "scope": "Canonical gateway/check_gateway.py, pinned dependencies",
+        "cases": 958,
+        "passed": 955,
+        "skipped": 3,
+        "skipped_reasons": [
+          "Windows Credential Manager",
+          "Windows file-sharing semantics",
+          "No bindable LAN IPv4 interface"
+        ]
+      },
+      "kotlin_format": {
+        "files": 37,
+        "failed": 0
+      }
+    },
+    "archive_sha256": "ad7693bd0392b6b5fb5e003fecfb0b1dbbb5ba4823ada8d65984a648215b1d7c",
+    "reconciled_remote_heads": [
+      "6d56939a5811c7779e49a072d8d1e3c08cf8fdd3"
+    ],
+    "independent_review": {
+      "state": "REVIEWED",
+      "findings_fixed": [
+        "Corrupt policy preferences must leave Settings available",
+        "Blocked/partial and unknown review failures require exactly one retained terminal publication"
+      ]
+    }
+  }
 }

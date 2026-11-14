@@ -189,6 +189,32 @@ class GitHubChecklistPaginationTest {
         assertEquals(listOf(remote), GitHubTestChecklist.pendingPages(records))
     }
 
+    @Test fun skippedWorkflowInventoryFollowsItsExactRevisionDependencyAfterOrdinarySamplesAreSpent() {
+        val sha = "a".repeat(40)
+        val remote = json("""{"tool":"github_ci","arguments":{"action":"runs","commit_sha":"$sha","page":2}}""")
+        fun receipt(tool: String, args: String, result: String) = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"$tool","arguments":$args,"result":$result}""")
+        val skipped = (1..30).joinToString(",") { """{"id":$it,"run_attempt":1,"head_sha":"$sha","status":"completed","conclusion":"skipped"}""" }
+        val records = linkedMapOf(
+            "status" to receipt("github_context", """{"action":"status"}""", """{"commit_sha":"$sha"}"""),
+            "runs" to receipt("github_ci", """{"action":"runs","commit_sha":"$sha"}""", """{"workflow_runs":[$skipped],"continuation_call":$remote}"""),
+            "jobs" to receipt("github_ci", """{"action":"jobs","run_id":1,"run_attempt":1,"expected_head_sha":"$sha"}""", """{"jobs":[]}""")
+        )
+        repeat(2) { i -> records["history$i"] = receipt("github_context", """{"action":"commits","page":${i + 2}}""", "{}") }
+        val ci = AgentToolDefinition("github_ci", "CI", json("""{"properties":{"action":{"enum":["runs","jobs","job","logs"]}}}"""))
+        val next = GitHubTestChecklist.nextCall("test all tools", listOf(ci), records)
+        assertEquals(remote["arguments"], next?.arguments)
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(ci), records, remainingToolCalls = 2))
+        val foreignIssuer = JsonObject(records.getValue("runs") + ("binding" to JsonPrimitive("other-task")))
+        assertEquals(null, GitHubTestChecklist.nextCall("test all tools", listOf(ci), records + ("runs" to foreignIssuer)))
+        val job = """{"id":31,"run_attempt":1,"head_sha":"$sha","status":"completed","conclusion":"success"}"""
+        records["page2"] = receipt("github_ci", remote["arguments"].toString(), """{"workflow_runs":[$job]}""")
+        assertEquals(json("""{"action":"jobs","run_id":31,"run_attempt":1,"expected_head_sha":"$sha"}"""), GitHubTestChecklist.nextCall("test all tools", listOf(ci), records)?.arguments)
+        records["jobs31"] = receipt("github_ci", """{"action":"jobs","run_id":31,"run_attempt":1,"expected_head_sha":"$sha"}""", """{"jobs":[{"id":310,"run_id":31,"run_attempt":1,"head_sha":"$sha","status":"completed","conclusion":"success","steps":[{"status":"completed","conclusion":"success"}]}]}""")
+        val log = GitHubSelfTestReads.available(listOf(ci), records.values.toList()).single { it.arguments["action"] == JsonPrimitive("logs") }
+        assertEquals(JsonPrimitive(310), log.arguments["job_id"])
+        assertEquals(JsonPrimitive(sha), log.arguments["expected_head_sha"])
+    }
+
     @Test fun localFragmentsFinishBeforePendingCheckWatch() {
         val sha = "a".repeat(40)
         val records = mapOf(

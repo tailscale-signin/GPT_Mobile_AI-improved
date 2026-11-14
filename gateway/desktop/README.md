@@ -55,6 +55,10 @@ For private maps or saved GitHub jobs, select **Open GitHub settings for private
 
 On a LAN listener, **Allow network devices to run GitHub engineering tasks** grants connected devices access to private maps and saved engineering operations through this PC's GitHub connection. Enable it only for your intended network, save settings, and restart after active work finishes.
 
+Implementation jobs also require a host-approved repository validation policy. In **Settings → Advanced → Repository validation policy**, choose the JSON policy file, use **Check policy**, save settings, and restart. The file maps lowercase `owner/repository` names to their approved local mirror, digest-pinned container image, command list and any acceptance mappings. Checking the file validates configuration; source availability, runtime readiness and actual test results are verified separately when a job starts.
+
+The selected path is retained in `data/validation-settings.json` so updates and restarts preserve it without changing the legacy settings schema. Before a selection is saved, an explicitly configured `GATEWAY_ENGINEERING_VALIDATION_POLICY` is preserved through both desktop launcher stages. Clearing and saving the selection disables that fallback. A removed or invalid policy continues to block implementation with its recorded prerequisite; the gateway never invents a policy or grants extra execution rights.
+
 ## General, Advanced and Add-ons
 
 Open each section directly from the dashboard sidebar or from Gateway Settings. General exposes the backend, listener address, hostnames, startup/update preferences and explicit firewall actions. Advanced exposes worker/chat limits and shutdown grace. Add-ons shows the enabled services in the selected MCP JSON configuration. Saving add-ons preserves commands, arguments and credentials, and refuses a save if the configuration changed externally. Save the selected file path in settings and restart when work finishes to apply it. The gateway service allowlist remains authoritative.

@@ -124,7 +124,8 @@
     "Preserve accepted status criteria and immutable receipt provenance, bind target-repository and exact-SHA pagination evidence, reject mixed page sizes, and render complete integration prerequisites within existing authority and call ceilings.",
     "Repair built-in head/base review parsing, preserve original provider tool identities through routing and durable continuation, align issue presentation arguments and add negotiated bounded incident-failure diagnostics for issues #891\u2013#921.",
     "Repair the November 13 diagnostic workflow failures with exact provider-tool replay, bounded argument correction, review baseline parsing, task-aware status budgets, separate ordinary and engineering conversation bindings, native integration routing, and immutable context-v7 incident evidence; retain unconfirmed historical causes as diagnostic follow-up.",
-    "Preserve retained acceptance capability scope and pagination mode in bounded approved reports for issue #1092, negotiate matching reporter support, and retain CI source-generation phase metrics without changing completion policy or build limits."
+    "Preserve retained acceptance capability scope and pagination mode in bounded approved reports for issue #1092, negotiate matching reporter support, and retain CI source-generation phase metrics without changing completion policy or build limits.",
+    "Repair bounded GitHub review output recovery, terminal failure publication, workflow and repository-graph preparation, desktop validation-policy persistence, diagnostic export memory recovery, and targeted report evidence from the supplemental November 14 archive."
   ],
   "limitations": [
     "The new keyboard and completion diagnostics require a hosted reporter advertising COMPOSER_IME_EVIDENCE_V1 and COMPLETION_EVIDENCE_V1. Confirm keyboard behavior on the affected Android device and empty model responses on the original route.",
@@ -190,7 +191,8 @@
     "Diagnostic capture 62a4cb28 repairs require matching gateway and hosted reporting rollout, complete hosted Android validation and separate private-service/device qualification; host regressions and source inventory do not establish those outcomes or promote Unified Reliability v2 acceptance.",
     "The November 14 chat and voice follow-up requires physical-device gesture, layout, audio and frame-time acceptance. Preparing-voice reports require a hosted reporter advertising VOICE_PLAYBACK_PHASE_V1. Private gateway/model availability and historical incidents with missing receipts remain dependent on live evidence; host and CI checks do not establish those outcomes.",
     "Acceptance-scope reports require a hosted reporter advertising ACCEPTANCE_SCOPE_EVIDENCE_V1. Older approved reports remain unchanged and cannot reveal scope that was never captured; the historical task is not established as completed by the diagnostic enhancement.",
-    "Voice-install evidence requires a hosted reporter advertising VOICE_INSTALL_EVIDENCE_V1. The GitHub audit separates local contracts from explicitly enabled bounded live reads; write/approval cleanup, protected merge/workflow execution, artifact installation/device checks and interruption recovery remain untested without their own execution evidence. Historical device download causality and physical gesture, audio and frame-time outcomes are not established by host or emulator tests."
+    "Voice-install evidence requires a hosted reporter advertising VOICE_INSTALL_EVIDENCE_V1. The GitHub audit separates local contracts from explicitly enabled bounded live reads; write/approval cleanup, protected merge/workflow execution, artifact installation/device checks and interruption recovery remain untested without their own execution evidence. Historical device download causality and physical gesture, audio and frame-time outcomes are not established by host or emulator tests.",
+    "The supplemental November 14 archive repair requires an updated app and desktop gateway where applicable. Physical-device heap/frame improvements, microphone ownership, private-provider behavior and host policy/runtime readiness still require their own live evidence; diagnostic follow-ups do not establish the historical cause of an unreproduced report."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -2601,6 +2603,10 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayChatNavigation.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/home/GatewayChatNavigationTest.kt",
     "docs/repairs/github-chat-motion-voice-2026-11-14-task.json",
-    "docs/repairs/github-chat-motion-voice-2026-11-14.md"
+    "docs/repairs/github-chat-motion-voice-2026-11-14.md",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraph.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
+    "gateway/desktop/validation_policy.py",
+    "gateway/tests/test_gateway_desktop_validation_policy.py"
   ]
 }

@@ -14,6 +14,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolReportIncidentProjectionTest {
+    @Test fun transportAndSavedCursorRejectionsKeepTypedReasonsWithoutArgumentValues() {
+        val event = event("""{"action":"status","per_page":101,"view_cursor":"private-cursor"}""").copy(modelToolName = "github_context")
+        val result = AgentToolResult(
+            event.callId,
+            ToolResultContent.Text("private error"),
+            true,
+            errorCode = "INVALID_ARGUMENTS",
+            executionReceipt = buildJsonObject {
+                put("reason_code", "SAVED_VIEW_CONTEXT_MISMATCH")
+                put("github_transport_kind", "DNS")
+                put("github_transport_wait_ms", 30000)
+            }
+        )
+        val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(event, result), 1_800_000_000_000))
+        assertEquals(JsonPrimitive("SAVED_VIEW_CONTEXT_MISMATCH"), snapshot.values["tool_reason_code"])
+        assertEquals(JsonPrimitive("DNS"), snapshot.values["github_transport_kind"])
+        assertEquals(JsonPrimitive(101), snapshot.values["argument_page_size"])
+        assertFalse(snapshot.toString().contains("private"))
+    }
+
     @Test fun persistedCallAndTypedResolvedReceiptProvideSafeActionShapesWithoutPrivateValues() {
         val arguments = buildJsonObject {
             put("action", "create")

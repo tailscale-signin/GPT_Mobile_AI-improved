@@ -82,8 +82,18 @@ internal object ConfiguredDispatchAuthority {
             val changed = (capturedFields.keys + currentFields.keys).filter { capturedFields[it] != currentFields[it] }.filterNot {
                 it == "budget" && allowsAcceptedTokenPlan(capturedFeatures.tokenBudget, currentFeatures.tokenBudget, platform.uid)
             }.sorted()
-            if (changed.isNotEmpty()) throw DispatchPolicyChangedException(changed)
+            if (changed.isNotEmpty()) {
+                throw DispatchPolicyChangedException(changed + githubOverrideChanges(capturedFields, currentFields))
+            }
         }
+    }
+
+    /** Fixed subfield names diagnose a policy stop without exporting either setting value. */
+    internal fun githubOverrideChanges(before: JsonObject, after: JsonObject): List<String> {
+        val previous = (before["githubProfileOverride"] as? JsonObject).orEmpty()
+        val current = (after["githubProfileOverride"] as? JsonObject).orEmpty()
+        return listOf("webSearch", "githubTools", "engineeringMode", "maximumContext", "engineeringMemory", "allowCloudEngineeringMemory", "workflowPreset", "quickWorkflows", "engineeringGatewayProfileUid", "executionBatchMode", "sampling")
+            .filter { previous[it] != current[it] }.map { "githubProfileOverride.$it" }
     }
 
     internal fun profileRevision(profile: PlatformV2): String = researchHash(Json.encodeToString(profile.copy(name = "", labels = "", isFavorite = false)))

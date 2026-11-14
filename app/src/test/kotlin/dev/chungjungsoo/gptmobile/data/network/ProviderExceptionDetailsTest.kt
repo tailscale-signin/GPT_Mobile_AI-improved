@@ -150,6 +150,8 @@ class ProviderExceptionDetailsTest {
     @Test fun typedReasoningAdmissionRetainsItsPhaseWithoutErasingEarlierUncertainty() {
         val failure = requireNotNull(providerExceptionDetails(dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException(dev.chungjungsoo.gptmobile.data.context.ReasoningMode.OFF), partialOutput = false))
         assertEquals("REASONING_OFF_UNSUPPORTED", failure.code)
+        assertEquals(JsonPrimitive("OFF"), failure.failureDetails?.get("reasoning_requested_mode"))
+        assertEquals(JsonPrimitive("NO_VERIFIED_CONTROL"), failure.failureDetails?.get("reasoning_admission_basis"))
         assertEquals(false, failure.retryable)
         assertEquals(JsonPrimitive("provider_admission"), failure.failureDetails?.get("failed_stage"))
         assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("attempt_dispatch_state"))

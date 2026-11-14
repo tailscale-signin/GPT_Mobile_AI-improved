@@ -10,6 +10,14 @@ import org.junit.Test
 class GitHubOperationArgumentsTest {
     private fun args(value: String) = Json.parseToJsonElement(value) as JsonObject
 
+    @Test fun lineWindowDiagnosticsDistinguishCorrectableConstraints() {
+        fun range(value: String) = kotlinx.serialization.json.Json.parseToJsonElement(value) as kotlinx.serialization.json.JsonObject
+        org.junit.Assert.assertEquals(setOf("BAD_START", "CONFLICTING_LIMITS", "BAD_MAX_LINES"), GitHubOperationArguments.readWindowFailures(range("""{"start_line":0,"end_line":-1,"max_lines":2001}""")))
+        org.junit.Assert.assertEquals(setOf("BAD_END"), GitHubOperationArguments.readWindowFailures(range("""{"start_line":1,"end_line":2001}""")))
+        org.junit.Assert.assertTrue(GitHubOperationArguments.readWindowFailures(range("""{"start_line":2001,"end_line":4000}""")).isEmpty())
+        org.junit.Assert.assertTrue(GitHubOperationArguments.readWindowFailures(range("""{"start_line":1,"end_line":-1}""")).isEmpty())
+    }
+
     @Test fun boundedCountAndEofReadsNeedNoPreviouslyDiscoveredLineCount() {
         for (range in listOf("""{"path":"README.md","start_line":20,"max_lines":40}""", """{"path":"README.md","start_line":20,"end_line":-1}""", """{"path":"README.md"}""")) {
             val input = args("""{"ranges":[$range]}""")

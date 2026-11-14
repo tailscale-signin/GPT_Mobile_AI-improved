@@ -23,6 +23,9 @@ internal object ProviderFailureReport {
         metadata: GatewayResponseMetadata? = null
     ): JsonObject = buildJsonObject {
         put("diagnostic_area", "PROVIDER")
+        for (key in listOf("reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash")) {
+            failure.failureDetails?.get(key)?.let { put(key, it) }
+        }
         put("diagnostic_capture_mode", "INCIDENT")
         IssueReportContext.identifierHash("run", runId)?.let { put("run_id_hash", it) }
         IssueReportContext.identifierHash("invocation", receipt.invocationId)?.let { put("invocation_id_hash", it) }

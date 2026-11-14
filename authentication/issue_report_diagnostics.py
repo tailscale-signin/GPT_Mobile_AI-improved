@@ -104,6 +104,27 @@ FIELDS_BY_AREA = {
     "APP": COMMON_HASHES | {"original_error_code_hash", "app_exit_kind", "chat_failure_code_state"},
     "INCIDENT": COMMON_HASHES | {"original_error_code_hash", "chat_failure_code_state"},
 }
+# Bounded diagnostic additions for open issue recovery.
+ENUMS["tool_reason_code"].add("SAVED_VIEW_CONTEXT_MISMATCH")
+ENUMS.update({'voice_install_state': {'IDLE', 'QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'WAITING_NETWORK'}, 'voice_install_scheduler': {'JOB_SCHEDULER', 'WORK_MANAGER'}, 'voice_install_failure': {'SCHEDULE_REJECTED', 'SCHEDULE_EXCEPTION', 'ASSET_FAILURE', 'WORKER_EXCEPTION'}, 'github_transport_kind': {'DNS', 'DISCONNECTED', 'ABORTED', 'TIMEOUT', 'TLS', 'CANCELLED', 'UNKNOWN', 'CIRCUIT_OPEN', 'HTTP'}, 'reasoning_requested_mode': {'AUTO', 'ON', 'OFF'}, 'reasoning_admission_basis': {'NO_VERIFIED_CONTROL'}})
+COUNTS.update(['voice_install_stop_reason', 'voice_install_progress_percent', 'read_range_count', 'read_invalid_window_count', 'argument_page_size', 'repository_input_blocked_count', 'workflow_input_blocked_count', 'live_evidence_blocked_count', 'acceptance_failed_operation_count'])
+DURATIONS.add("github_transport_wait_ms")
+FIELDS_BY_AREA['VOICE'].update(['voice_install_state', 'voice_install_scheduler', 'voice_install_failure', 'voice_install_stop_reason', 'voice_install_progress_percent'])
+FIELDS_BY_AREA['TOOL'].update(['github_transport_kind', 'github_transport_wait_ms', 'read_range_count', 'read_invalid_window_count', 'argument_page_size'])
+FIELDS_BY_AREA['PROVIDER'].update(['reasoning_requested_mode', 'reasoning_admission_basis'])
+FIELDS_BY_AREA['ACCEPTANCE'].update(['repository_input_blocked_count', 'workflow_input_blocked_count', 'live_evidence_blocked_count', 'acceptance_failed_operation_count'])
+
+ENUMS.update({"reasoning_route_kind": {"GATEWAY", "DIRECT"}, "reasoning_control_state": {"VERIFIED", "UNSUPPORTED", "UNVERIFIED"}})
+HASH_FIELDS.add("reasoning_template_hash")
+FIELDS_BY_AREA["PROVIDER"].update({"reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash"})
+
+ENUM_LISTS["read_window_rejections"] = {"BAD_START", "CONFLICTING_LIMITS", "BAD_MAX_LINES", "BAD_END"}
+FIELDS_BY_AREA["TOOL"].add("read_window_rejections")
+
+COUNTS.add("acceptance_unresolved_claim_count")
+ENUM_LISTS["acceptance_claim_failure_reasons"] = {'EXACT_RECEIPT_MATCH', 'CLAIM_VALUE_MISSING', 'OPERATION_FAILED', 'POINTER_NOT_IN_EVIDENCE', 'RECEIPT_NOT_FOUND', 'OBSERVATION_TIME_UNKNOWN', 'AUTHORIZATION_REVALIDATION_REQUIRED', 'UNTRUSTED_RECEIPT', 'VALUE_MISMATCH', 'FIELD_SEMANTICS_MISMATCH', 'HISTORICAL_OBSERVATION', 'MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED'}
+FIELDS_BY_AREA["ACCEPTANCE"].update({"acceptance_unresolved_claim_count", "acceptance_claim_failure_reasons"})
+
 CORE_FIELDS = {
     "PROVIDER": {"profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"},
     "TOOL": {"tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "missing_field_count", "invalid_field_count"},
@@ -148,6 +169,8 @@ def _valid_value(key, value):
         return 0 <= value <= 10_000
     if key in DURATIONS:
         return 0 <= value <= 86_400_000
+    if key == "voice_install_progress_percent":
+        return 0 <= value <= 100
     return key in COUNTS and 0 <= value <= 16_000_000
 
 

@@ -111,6 +111,9 @@ internal class ModelRequestPreparation(client: NetworkClient) {
                     control
                 )
             } catch (rejected: dev.chungjungsoo.gptmobile.data.context.ReasoningAdmissionException) {
+                rejected.gatewayObservation = gatewayObservation
+                rejected.templateRevision = discovered?.fingerprint?.templateRevision
+                rejected.gatewayRoute = discovered?.fingerprint?.templateRevision?.startsWith("gateway:")
                 // This precedes both the optional schema inference probe and physical request
                 // admission. Metadata/template HTTP exchanges are not inference dispatches.
                 val reason = when (rejected.requested) {

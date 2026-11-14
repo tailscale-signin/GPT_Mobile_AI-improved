@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.ViewModelStore
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.WorkInfo
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import kotlinx.coroutines.Dispatchers
@@ -24,6 +25,34 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
 class VoicePreferenceStoreTest {
+    @Test
+    fun durableWorkManagerStatesRestoreVisibleInstallPhase() {
+        val install = dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall
+        assertEquals("QUEUED", install.phaseForWorkStates(listOf(WorkInfo.State.ENQUEUED)))
+        assertEquals("QUEUED", install.phaseForWorkStates(listOf(WorkInfo.State.BLOCKED)))
+        assertEquals("RUNNING", install.phaseForWorkStates(listOf(WorkInfo.State.ENQUEUED, WorkInfo.State.RUNNING)))
+        assertNull(install.phaseForWorkStates(listOf(WorkInfo.State.SUCCEEDED)))
+    }
+
+    @Test fun bundleDownloadShowsQueuedStateAndKeepsOneDurableJob() {
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        if (runCatching { androidx.work.WorkManager.getInstance(context) }.isFailure) {
+            androidx.work.WorkManager.initialize(context, androidx.work.Configuration.Builder().build())
+        }
+        val scheduler = context.getSystemService(android.app.job.JobScheduler::class.java)
+        dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.cancel(context)
+        try {
+            dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.start(context)
+            assertEquals("QUEUED", dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.state.value.phase)
+            dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.start(context)
+            assertEquals(1, scheduler.allPendingJobs.count { it.id == dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.JOB_ID })
+        } finally {
+            dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.cancel(context)
+        }
+        assertEquals("CANCELLED", dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.state.value.phase)
+        assertFalse(dev.chungjungsoo.gptmobile.data.voice.VoicePluginInstall.state.value.pending)
+    }
+
     @Test fun malformedFieldsDoNotDiscardValidChoicesOrGrantOnlineSpeech() {
         val value = readVoicePreferences(
             mapOf(

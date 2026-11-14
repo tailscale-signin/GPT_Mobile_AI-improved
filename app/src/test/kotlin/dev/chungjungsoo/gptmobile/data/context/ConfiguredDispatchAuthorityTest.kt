@@ -20,6 +20,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfiguredDispatchAuthorityTest {
+    @Test fun githubPolicyDiagnosticsNameOnlyChangedKnownSubfields() {
+        fun fields(value: String) = Json.parseToJsonElement(value) as JsonObject
+        val before = fields("""{"githubProfileOverride":{"githubTools":true,"engineeringGatewayProfileUid":"private-old"}}""")
+        val after = fields("""{"githubProfileOverride":{"githubTools":false,"engineeringGatewayProfileUid":"private-new","private-key":"secret"}}""")
+        assertEquals(listOf("githubProfileOverride.githubTools", "githubProfileOverride.engineeringGatewayProfileUid"), ConfiguredDispatchAuthority.githubOverrideChanges(before, after))
+        assertTrue(ConfiguredDispatchAuthority.githubOverrideChanges(before, before).isEmpty())
+    }
+
     @Test fun githubSelectionChangeRevokesQueuedRequestsAndRejectsAnotherModel() = runTest {
         val settings = mockk<SettingRepository>()
         val profile = PlatformV2(uid = "selected", name = "Selected", model = "accepted-model")

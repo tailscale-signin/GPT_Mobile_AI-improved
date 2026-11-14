@@ -23,6 +23,29 @@ class FailureDetailsTest(unittest.TestCase):
             sample = self.snapshot(area, values)
             self.assertEqual(sample, validate_diagnostics(sample))
 
+    def test_recovery_fields_round_trip_and_reject_private_or_invalid_data(self):
+        for area, values in [
+            ("VOICE", {"voice_install_state": "QUEUED", "voice_install_scheduler": "JOB_SCHEDULER", "voice_install_progress_percent": 30}),
+            ("PROVIDER", {"reasoning_requested_mode": "OFF", "reasoning_admission_basis": "NO_VERIFIED_CONTROL"}),
+            ("TOOL", {"github_transport_kind": "DNS", "github_transport_wait_ms": 30000, "tool_reason_code": "SAVED_VIEW_CONTEXT_MISMATCH", "argument_page_size": 101}),
+            ("ACCEPTANCE", {"workflow_input_blocked_count": 2, "repository_input_blocked_count": 16, "acceptance_failed_operation_count": 1, "acceptance_unresolved_claim_count": 1, "acceptance_claim_failure_reasons": ["POINTER_NOT_IN_EVIDENCE"]}),
+        ]:
+            self.assertEqual(self.snapshot(area, values), validate_diagnostics(self.snapshot(area, values)))
+        for area, values in [
+            ("TOOL", {"github_transport_kind": "private exception"}),
+            ("TOOL", {"github_transport_wait_ms": -1}),
+            ("PROVIDER", {"reasoning_requested_mode": "private-model"}),
+            ("VOICE", {"voice_install_failure": "https://private-host"}),
+            ("VOICE", {"argument_page_size": 1}),
+        ]:
+            with self.subTest(area=area, values=values), self.assertRaises(ValueError):
+                validate_diagnostics(self.snapshot(area, values))
+
+    def test_changed_github_subfields_are_closed_vocabulary(self):
+        from authentication.incident_report_contract import valid_value
+        self.assertTrue(valid_value("changed_policy_fields", ["githubProfileOverride", "githubProfileOverride.sampling"]))
+        self.assertFalse(valid_value("changed_policy_fields", ["githubProfileOverride.private-token"]))
+
     def test_unknown_values_and_wrong_area_are_rejected(self):
         for area, values in [
             ("TOOL", {"tool_action": "private/path"}),

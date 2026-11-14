@@ -288,6 +288,9 @@ internal class GitHubDispatchAccounting(
                 lastStatus?.let { put("http_status", it) }
                 result.errorCode?.let { put("error_code", it) }
                 result.executionReceipt?.get("retry_not_before_ms")?.let { put("retry_not_before_ms", it) }
+                for (key in listOf("github_transport_kind", "github_transport_wait_ms")) {
+                    result.executionReceipt?.get(key)?.let { put(key, it) }
+                }
             }
         )
     }

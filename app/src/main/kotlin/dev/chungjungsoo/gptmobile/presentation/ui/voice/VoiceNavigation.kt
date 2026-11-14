@@ -32,6 +32,8 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
         val kokoro = stores?.kokoro?.state?.collectAsStateWithLifecycle()?.value
         val modelsReady = moonshine?.status == LocalVoiceModelStatus.READY && kokoro?.status == LocalVoiceModelStatus.READY
         val context = LocalContext.current
+        val installation by VoicePluginInstall.state.collectAsStateWithLifecycle()
+        LaunchedEffect(Unit) { VoicePluginInstall.refresh(context) }
         VoiceEntryScreen(
             state,
             origin(),
@@ -44,7 +46,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
             modelsReady = modelsReady,
             setup = {
                 if (moonshine != null && kokoro != null) {
-                    VoicePluginSetup(moonshine, kokoro, { VoicePluginInstall.start(context) }, { VoicePluginInstall.cancel(context) })
+                    VoicePluginSetup(moonshine, kokoro, installation, { VoicePluginInstall.start(context) }, { VoicePluginInstall.cancel(context) })
                 }
             }
         )
@@ -67,6 +69,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
 private fun VoicePluginSetup(
     recognition: dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState,
     playback: dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelState,
+    installation: dev.chungjungsoo.gptmobile.data.voice.VoiceInstallState,
     onStart: () -> Unit,
     onCancel: () -> Unit
 ) {
@@ -76,14 +79,28 @@ private fun VoicePluginSetup(
     val checking = recognition.status == LocalVoiceModelStatus.CHECKING || playback.status == LocalVoiceModelStatus.CHECKING
     val downloading = recognition.status == LocalVoiceModelStatus.DOWNLOADING || playback.status == LocalVoiceModelStatus.DOWNLOADING
     val message = recognition.message ?: playback.message
-    if (downloading) {
-        androidx.compose.material3.Text(if (received >= total) "Checking voice files…" else "Downloading voice files…")
-        androidx.compose.material3.LinearProgressIndicator(progress = { (received.toFloat() / total).coerceIn(0f, 1f) })
+    val accent = androidx.compose.material3.MaterialTheme.colorScheme.primary
+    val ready = recognition.status == LocalVoiceModelStatus.READY && playback.status == LocalVoiceModelStatus.READY
+    if (ready) {
+        androidx.compose.material3.Text("Voice Chat plugin ready", color = accent)
+    } else if (installation.pending && !downloading || checking) {
+        androidx.compose.material3.LinearProgressIndicator(color = accent)
+        androidx.compose.material3.Text(
+            if (checking) "Checking voice files…" else "Download queued · waiting for Android and a network connection…",
+            color = accent
+        )
+        if (installation.pending) androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text("Cancel download") }
+    } else if (downloading) {
+        androidx.compose.material3.Text(if (received >= total) "Checking voice files…" else "Downloading voice files…", color = accent)
+        androidx.compose.material3.LinearProgressIndicator(progress = { (received.toFloat() / total.coerceAtLeast(1)).coerceIn(0f, 1f) })
         androidx.compose.material3.Text("${android.text.format.Formatter.formatShortFileSize(context, received)} of ${android.text.format.Formatter.formatShortFileSize(context, total)}")
         androidx.compose.material3.TextButton(onClick = onCancel) { androidx.compose.material3.Text("Cancel download") }
     } else {
         val remaining = listOf(recognition, playback).filter { it.status != LocalVoiceModelStatus.READY }.sumOf { it.totalBytes }
-        androidx.compose.material3.Text("English · ${android.text.format.Formatter.formatShortFileSize(context, remaining)}")
+        androidx.compose.material3.Text("English · ${android.text.format.Formatter.formatShortFileSize(context, remaining)}", color = accent)
+        if (installation.failure != null && message == null) {
+            androidx.compose.material3.Text("Voice download could not start or finish. Tap to try again.", color = androidx.compose.material3.MaterialTheme.colorScheme.error)
+        }
         message?.let { androidx.compose.material3.Text(it, color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
         androidx.compose.material3.Button(onClick = onStart, enabled = !checking) {
             androidx.compose.material3.Text(if (message == null) "Download Voice Chat plugin" else "Resume download")

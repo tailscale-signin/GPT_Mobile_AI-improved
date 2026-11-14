@@ -228,6 +228,12 @@ internal fun providerExceptionDetails(error: Exception, partialOutput: Boolean, 
                 put("failed_stage", "provider_admission")
                 put("attempt_dispatch_state", "NOT_DISPATCHED")
                 put("retryable", false)
+                put("reasoning_requested_mode", error.requested.name)
+                put("reasoning_admission_basis", "NO_VERIFIED_CONTROL")
+                error.gatewayRoute?.let { put("reasoning_route_kind", if (it) "GATEWAY" else "DIRECT") }
+                error.gatewayObservation?.reasoningControlState?.let { put("reasoning_control_state", it) }
+                dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("reasoning-template", error.templateRevision)
+                    ?.let { put("reasoning_template_hash", it) }
                 put("repair", "CHANGE_REASONING_SETTINGS")
                 put("partial_output_preserved", partialOutput)
                 // This exception qualifies this preflight only. Invocation accounting owns

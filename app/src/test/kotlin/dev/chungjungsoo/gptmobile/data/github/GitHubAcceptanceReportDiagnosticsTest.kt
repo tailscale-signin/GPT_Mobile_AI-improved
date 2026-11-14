@@ -15,6 +15,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubAcceptanceReportDiagnosticsTest {
+    @Test fun unsupportedClaimReportExplainsMissingEvidenceWithoutExportingClaimText() {
+        val fields = GitHubAcceptanceReportDiagnostics.fields(
+            buildJsonObject {
+                put("acceptance_ledger", buildJsonObject {})
+                put(
+                    "unresolved_claims",
+                    JsonArray(
+                        listOf(
+                            buildJsonObject {
+                                put("reason", "POINTER_NOT_IN_EVIDENCE")
+                                put("value", "private-claim")
+                            }
+                        )
+                    )
+                )
+            },
+            false
+        )
+        val diagnostic = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive(1), diagnostic.values["acceptance_unresolved_claim_count"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("POINTER_NOT_IN_EVIDENCE"))), diagnostic.values["acceptance_claim_failure_reasons"])
+        assertFalse(diagnostic.toString().contains("private-claim"))
+    }
+
     @Test fun deliveredVerdictPublishesExactUnmetCriterionAndRetainedBudgetWithoutClaimingDispatch() {
         val ledger = GitHubAcceptanceLedger.snapshot(
             JsonArray(

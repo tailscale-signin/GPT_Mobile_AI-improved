@@ -17,6 +17,30 @@ class IssueReportDiagnosticsTest {
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 
+    @Test fun githubSubfieldPolicyEvidenceRequiresTheUpdatedService() {
+        val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "DISPATCH_POLICY_CHANGED", mapOf("changed_policy_fields" to listOf("githubProfileOverride", "githubProfileOverride.sampling"))), time).diagnostics)
+        assertTrue(diagnostic.requiredServiceFeatures().contains("ISSUE_RECOVERY_DETAILS_V1"))
+        assertTrue(diagnostic.values["changed_policy_fields"].toString().contains("githubProfileOverride.sampling"))
+    }
+
+    @Test fun recoveryDetailsAreBoundedAndRequireMatchingServiceSupport() {
+        for ((area, values) in listOf(
+            "VOICE" to mapOf("voice_install_state" to "QUEUED", "voice_install_scheduler" to "JOB_SCHEDULER"),
+            "PROVIDER" to mapOf("reasoning_requested_mode" to "OFF", "reasoning_admission_basis" to "NO_VERIFIED_CONTROL"),
+            "TOOL" to mapOf("github_transport_kind" to "DNS", "github_transport_wait_ms" to 30000, "read_invalid_window_count" to 3),
+            "ACCEPTANCE" to mapOf("repository_input_blocked_count" to 16, "workflow_input_blocked_count" to 2)
+        )) {
+            val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("MANUAL_REPORT", values + ("diagnostic_area" to area), time))
+            assertEquals(values.keys, snapshot.values.keys)
+            assertTrue("ISSUE_RECOVERY_DETAILS_V1" in snapshot.requiredServiceFeatures())
+            assertTrue(snapshot.isValid())
+            val invalid = snapshot.copy(values = snapshot.values + ("private_endpoint" to JsonPrimitive("secret")))
+            assertNull(invalid.validated())
+        }
+        val rejected = requireNotNull(IssueReportDiagnostics.fromFields("MANUAL_REPORT", mapOf("diagnostic_area" to "TOOL", "github_transport_kind" to "private-error", "github_transport_wait_ms" to -1), time))
+        assertTrue(rejected.values.isEmpty())
+    }
+
     @Test fun toolBudgetEvidenceCanBeCapturedAndNegotiated() {
         val context = IssueReportContext.fromFields(
             "TOOL_RESULT",

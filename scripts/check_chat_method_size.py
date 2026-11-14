@@ -76,8 +76,12 @@ def dex_methods(data, dex_name):
         if count and (offset < 112 or offset % 4):
             raise ValueError('Invalid DEX table offset')
         region(offset, count * width)
-    if any(word(header) > 65535 for header in (64, 72, 80, 88, 96)):
-        raise ValueError('DEX identifier table exceeds its 16-bit index space')
+    if word(64) > 65535 or word(72) > 65535:
+        raise ValueError('DEX type or prototype table exceeds the format limit')
+    # Field and method indices can use every unsigned 16-bit value. Class
+    # definitions are instead bounded by the number of distinct types.
+    if word(80) > 65536 or word(88) > 65536 or word(96) > word(64):
+        raise ValueError('DEX member or class table exceeds its identifier space')
 
     @lru_cache(maxsize=8192)
     def string(index):

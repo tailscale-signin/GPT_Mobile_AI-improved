@@ -32,8 +32,9 @@ def executable_fixture(definitions, references=()):
     """
     classes = {owner: {'methods': [(name, '()V', 9) for name in methods]}
                for owner, methods in definitions.items()}
-    declared = {owner: {'methods': [(name, '()V', 9) for o, name in references if o == owner]}
-                for owner, _ in references}
+    declared = {}
+    for owner, name in references:
+        declared.setdefault(owner, {'methods': []})['methods'].append((name, '()V', 9))
     data = bytearray(dex_fixture(classes, declared))
     # With a single shared prototype, DEX method identifiers sort by owner/name.
     method_ids = {row: index for index, row in enumerate(sorted({
@@ -137,6 +138,13 @@ class ChatMethodSizeTest(unittest.TestCase):
                 report = self.report(*dexes)
                 self.assertEqual('ERROR', report['status'], report)
                 self.assertTrue(report['errors'])
+
+    def test_full_method_identifier_table_is_valid_in_multidex_apk(self):
+        # R8 can fill a DEX with exactly 65,536 referenced methods.
+        references = tuple((VOICE, f'reference{index:05d}') for index in range(65534))
+        report = self.report(executable_fixture(primary_definitions(), references))
+        self.assertEqual('PASS', report['status'], report)
+        self.assertEqual(2, report['method_count'])
 
     def test_dex_payload_is_bounded_before_decompression(self):
         valid = executable_fixture(primary_definitions())

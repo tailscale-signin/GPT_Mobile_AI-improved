@@ -124,7 +124,17 @@ class GatewayEngineeringClient internal constructor(
                         if (path == "graph" && code == "graph_connection_required" && response.status.value in setOf(412, 503)) {
                             val readiness = runCatching { error?.get("readiness")?.let { json.decodeFromJsonElement(GatewayEngineeringReadiness.serializer(), it) } }.getOrNull()
                             val missing = GatewayGraphPrerequisite.missing(GatewayEngineeringCapabilities("engineering-gateway", 1, readiness = readiness))
-                            throw GatewayGraphUnavailableException("The selected gateway graph prerequisites changed before this request.", missing)
+                            throw GatewayGraphUnavailableException(
+                                "The selected gateway graph prerequisites changed before this request.",
+                                missing,
+                                httpStatus = response.status.value,
+                                retryAfterMillis = GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"])
+                            )
+                        }
+                        if (path == "graph") {
+                            // Preserve the response observation without retaining its body or
+                            // replaying a POST whose index outcome may still be uncertain.
+                            throw GatewayGraphHttpFailure.fromResponse(response.status.value, GitHubReadRetry.retryAfterMillis(response.headers["Retry-After"]), detail)
                         }
                         val preflight = runCatching { error?.get("preflight")?.let { json.decodeFromJsonElement(GatewayEngineeringPreflight.serializer(), it) } }.getOrNull()
                         if (preflight != null && !preflight.ready && preflight.blockers.isNotEmpty()) {

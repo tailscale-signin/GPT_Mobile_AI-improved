@@ -1,0 +1,200 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
+  "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
+  "source_sha": "2b2d6276bceb5d3e2428ff52aad3b8e6bd9c791e",
+  "pull_request": 1122,
+  "task_store": "Versioned development checkpoint; installed Android Room engineering task store is not running in this host. No runtime receipt is fabricated.",
+  "state": "SOURCE_REVIEWED_GATEWAY_CANONICAL_RUNNING_FINAL_CI_PENDING",
+  "intent": [
+    "Analyze all records in the supplied 21c055de diagnostic archive",
+    "Reconcile all 68 open issues and current branch inventory",
+    "Repair source-proven causes and add bounded approved diagnostic evidence for unreproduced causes",
+    "Keep all source changes on existing PR 1122",
+    "Qualify final head with current main and all applicable checks, merge, then close individually supported issues"
+  ],
+  "intake": {
+    "open_issue_count": 68,
+    "new_issue_range": "1149-1169",
+    "archive_reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+    "attachment": "diagnostics-21c055de-4a3b-4382-9cc0-490aa8041cd6-part-1-b6156d06-8a94-4a61-83a8-38fe77527fe0.zip",
+    "archive_integrity": {
+      "zip_crc_ok": true,
+      "stage_sha256_matches": 20,
+      "stage_count": 20,
+      "record_chunks_reassembled_and_verified": true,
+      "capture_completed": true,
+      "external_parts_required": false,
+      "missing_evidence_stages": [],
+      "fully_retained_source_history": false
+    },
+    "captured_build": {
+      "version": "0.9.66.7",
+      "build": 141,
+      "variant": "debug",
+      "commit": "cd2162725f303108b22d7b5f3678e32e23b65abd"
+    },
+    "run_observations": {
+      "first_run_start_utc": "2026-11-14T22:13:09+00:00",
+      "last_run_completion_utc": "2026-11-14T23:05:39+00:00",
+      "count": 10,
+      "outcomes": {
+        "CANCELED": 1,
+        "PARTIAL": 2,
+        "FAILED": 7
+      },
+      "failed_during_rate_limit_cooldown": 7,
+      "model_invocation_rows": 0,
+      "first_run_duration_seconds": 2161
+    },
+    "tool_observations": {
+      "receipt_count": 180,
+      "states": {
+        "COMPLETED": 169,
+        "FAILED": 10,
+        "CANCELED": 1
+      },
+      "graph_index_calls": 111,
+      "graph_status_calls": 4,
+      "total_graph_index_observed_seconds": 1993,
+      "last_confirmed_graph_processed_files": 2616,
+      "graph_expected_files": 5281,
+      "graph_pending_files": 2665,
+      "graph_file_statuses": {
+        "indexed": 2573,
+        "partial": 43
+      }
+    },
+    "final_acceptance": {
+      "outcome": "PARTIAL",
+      "required_task_criteria": 5,
+      "verified_task_criteria": 3,
+      "required_api_capabilities": 70,
+      "verified_api_capabilities": 40,
+      "excluded_capability_rows": 54,
+      "mutation_requests": 0,
+      "fixture_approval_state": "CONDITIONAL",
+      "remaining_tool_calls": 76,
+      "catalog_complete": true
+    },
+    "remote_branches": 748,
+    "branch_heads_reachable_from_main": 384,
+    "active_open_prs": [
+      1122
+    ],
+    "historical_divergent_refs": 363
+  },
+  "merge_rules": {
+    "ruleset": 27005122,
+    "required_checks": [
+      "Required verification",
+      "Analyze (java-kotlin)"
+    ],
+    "strict": true,
+    "required_approvals": 0,
+    "bypass_actors": []
+  },
+  "privacy": "Raw archive, prompts, endpoints, credentials, report payloads, private source and local machine data are not committed.",
+  "validation": {
+    "final_head_ci": "NOT_RUN",
+    "physical_device": "NOT_RUN",
+    "live_provider": "NOT_RUN",
+    "acceptance_report_host": {
+      "passed": 19,
+      "failed": 0
+    },
+    "graph_native_report_host": {
+      "passed": 41,
+      "failed": 0
+    },
+    "rate_http_host": {
+      "passed": 18,
+      "failed": 0
+    },
+    "rate_typed_guard_host": {
+      "passed": 25,
+      "failed": 0,
+      "scope": "Final absolute-deadline tie correction included."
+    },
+    "coordinator_host": {
+      "passed": 6,
+      "failed": 0
+    },
+    "report_submission_host": {
+      "passed": 68,
+      "failed": 0
+    },
+    "python_report_contracts": {
+      "passed": 94,
+      "failed": 0
+    },
+    "reporter_readiness": {
+      "bytes": 1022,
+      "limit_bytes": 1024,
+      "features": 30
+    },
+    "host_boundary": "Actual changed producers with explicit cached/platform substitutes; counts overlap and must not be summed as unique cases. Final full Android and CI required.",
+    "graph_replay_authorization_host": {
+      "passed": 57,
+      "failed": 0
+    },
+    "focused_gateway_host": {
+      "passed": 117,
+      "failed": 0,
+      "scope": "Earlier controlled governor/backend/service/job/routes component receipt; final canonical suite supersedes this overlapping count."
+    },
+    "canonical_fast": {
+      "passed": 510,
+      "failed": 0,
+      "status": "passed",
+      "command": "bash scripts/validate-local.sh fast"
+    },
+    "authentication_canonical": {
+      "passed": 119,
+      "failed": 0,
+      "status": "passed",
+      "scope": "All five authentication test modules, including failure details."
+    },
+    "changed_kotlin_format": {
+      "status": "passed",
+      "version": "1.3.1",
+      "paths": 56,
+      "qualification": "All changed Kotlin paths passed; the final two-file rate correction also passed afterward."
+    },
+    "independent_review": {
+      "status": "passed",
+      "remaining_blockers": 0,
+      "followups": [
+        "Exact absolute cooldown deadline selection",
+        "Finite extreme wait conversion",
+        "Durable wake at job budget without losing server retry deadline",
+        "Graph-only rate response preserves non-graph unknown admission outcome"
+      ]
+    },
+    "post_review_gateway_http": {
+      "passed": 24,
+      "failed": 0,
+      "scope": "Final graph-only rate mapping, extreme waits and accepted command recovery."
+    },
+    "post_review_gateway_bounds": {
+      "passed": 49,
+      "failed": 0,
+      "scope": "Job/HTTP bounds receipt before the final graph-only route correction; overlaps other suites."
+    },
+    "gateway_canonical": {
+      "status": "RUNNING",
+      "command": "/tmp/pr1122-gateway-venv/bin/python gateway/check_gateway.py",
+      "dependencies": "gateway/requirements.txt installed with --require-hashes",
+      "qualification": "Final result will be recorded with exact published head in the PR qualification comment."
+    }
+  },
+  "limitations": [
+    "No gateway-side journal or wire capture in archive; cannot prove exact origin of IllegalStateException or attribute entire account quota consumption to this app",
+    "No model_invocations rows for this deterministic preset; not evidence of model generation failure",
+    "27 public issue correlations span other chats; earlier context/reasoning failures are retained app history, not all attributed to chat 3",
+    "Historical live CI reads are not current-device tests; target observed SHA is distinct from app build SHA",
+    "Archive capture completed all selected stages; retained ring/database history is bounded, not all historical activity",
+    "Exact new HTTP-header response evidence is wired to REST requestUntracked; GraphQL retains typed cached-admission causes but does not gain that response-evidence helper."
+  ]
+}

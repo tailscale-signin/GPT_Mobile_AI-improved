@@ -143,6 +143,104 @@ class IssueReportSubmissionTest {
         }
     }
 
+    @Test fun githubCooldownValuesAndOmittedFieldsWaitWithoutChangingApprovedBytes() {
+        val feature = "GH_COOLDOWN_V1"
+        val samples = mapOf(
+            "github_cooldown_resource" to JsonPrimitive("CORE"),
+            "github_cooldown_basis" to JsonPrimitive("RESOURCE_RESET"),
+            "github_cooldown_delay_ms" to JsonPrimitive(Long.MAX_VALUE),
+            "github_cooldown_deadline_ms" to JsonPrimitive(Long.MAX_VALUE),
+            "github_cooldown_observed_at_ms" to JsonPrimitive(100_000L),
+            "github_cooldown_remaining_requests" to JsonPrimitive(0L)
+        )
+        assertEquals(IssueReportDiagnostics.githubCooldownFields, samples.keys)
+        for (area in listOf("PROVIDER", "TOOL")) {
+            val empty = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to area), 1_000L)
+            val base = requireNotNull(empty.diagnostics)
+            for ((key, value) in samples) {
+                for (capture in listOf(base.copy(values = base.values + (key to value)), base.copy(omittedFields = listOf(key)))) {
+                    assertTrue(capture.isValid())
+                    val enriched = report.copy(context = empty.withDiagnostics(capture))
+                    val payload = enriched.approvedPayload()
+                    val features = capture.requiredServiceFeatures()
+                    assertTrue(feature in features)
+                    var supported = false
+                    var dispatched = 0
+                    val methods = mutableListOf<String>()
+                    val posted = mutableListOf<String>()
+                    val client = OkHttpClient.Builder().addInterceptor { chain ->
+                        val request = chain.request()
+                        methods += request.method
+                        if (request.method == "GET") {
+                            val advertised = JsonArray(features.filter { supported || it != feature }.map(::JsonPrimitive))
+                            response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$advertised}""")
+                        } else {
+                            posted += body(request)
+                            response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                        }
+                    }.build()
+                    val service = IssueReportSubmission(origin, client)
+                    val blocked = service.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+                    assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+                    assertFalse(blocked.automaticRetry)
+                    assertEquals(listOf("GET"), methods)
+                    assertEquals(0, dispatched)
+                    assertTrue(posted.isEmpty())
+                    assertEquals(payload, enriched.approvedPayload())
+                    supported = true
+                    assertEquals(IssueReportSubmission.Confirmed(941), service.send(report.reportId, payload) { dispatched++ })
+                    assertEquals(listOf("GET", "GET", "POST"), methods)
+                    assertEquals(1, dispatched)
+                    assertEquals(listOf(payload), posted)
+                }
+            }
+        }
+    }
+
+    @Test fun profileSelectionValuesAndOmittedFieldsWaitForTheirOwnServiceCapability() {
+        val feature = "PROFILE_SELECTION_EVIDENCE_V1"
+        val empty = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "PROVIDER"), 1_000L)
+        val base = requireNotNull(empty.diagnostics)
+        for (key in IssueReportDiagnostics.profileSelectionFields) {
+            val value = if (key.endsWith("_hash")) JsonPrimitive("a".repeat(64)) else JsonPrimitive(false)
+            for (capture in listOf(base.copy(values = base.values + (key to value)), base.copy(omittedFields = listOf(key)))) {
+                assertTrue(capture.isValid())
+                val enriched = report.copy(context = empty.withDiagnostics(capture))
+                val payload = enriched.approvedPayload()
+                val features = capture.requiredServiceFeatures()
+                assertTrue(feature in features)
+                var supported = false
+                var dispatched = 0
+                val methods = mutableListOf<String>()
+                val posted = mutableListOf<String>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    methods += request.method
+                    if (request.method == "GET") {
+                        val advertised = JsonArray(features.filter { supported || it != feature }.map(::JsonPrimitive))
+                        response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$advertised}""")
+                    } else {
+                        posted += body(request)
+                        response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                    }
+                }.build()
+                val service = IssueReportSubmission(origin, client)
+                val blocked = service.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+                assertFalse(blocked.automaticRetry)
+                assertEquals(listOf("GET"), methods)
+                assertEquals(0, dispatched)
+                assertTrue(posted.isEmpty())
+                assertEquals(payload, enriched.approvedPayload())
+                supported = true
+                assertEquals(IssueReportSubmission.Confirmed(941), service.send(report.reportId, payload) { dispatched++ })
+                assertEquals(listOf("GET", "GET", "POST"), methods)
+                assertEquals(1, dispatched)
+                assertEquals(listOf(payload), posted)
+            }
+        }
+    }
+
     @Test fun schemaBudgetCodeRequiresServiceSupportEvenWithoutCountEvidence() {
         val payload = report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = "GITHUB_TOOL_CONTEXT_BUDGET").approvedPayload()
         val methods = mutableListOf<String>()
@@ -208,11 +306,19 @@ class IssueReportSubmissionTest {
             "SOURCE_REVISION_REQUIRED", "SOURCE_REVISION_CHANGED",
             "VALIDATION_REVISION_UNAVAILABLE", "VALIDATION_RUNTIME_UNAVAILABLE", "ENGINEERING_REPOSITORY_ACCESS_REQUIRED"
         )
-        val locations = listOf("errorCode", "originalFailureCode", "events", "provider_failure_code", "causal_failure_code", "voice_chat_failure_code")
+        val locations = listOf("errorCode", "originalFailureCode", "events", "provider_failure_code", "causal_failure_code", "voice_chat_failure_code", "tool_error_code")
         var retainedFixtures = 0
-        for (code in recoveryCodes + "TOOL_PROTOCOL_INVALID_FRAME") {
-            val feature = if (code in recoveryCodes) "ISSUE_RECOVERY_CODES_V1" else "COMPLETION_EVIDENCE_V1"
+        val legacyRateCodes = setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED")
+        for (code in recoveryCodes + listOf("TOOL_PROTOCOL_INVALID_FRAME", "GITHUB_PROFILE_LOCKED", "GITHUB_COOLDOWN_ACTIVE") + legacyRateCodes) {
+            val feature = when (code) {
+                "GITHUB_COOLDOWN_ACTIVE", in legacyRateCodes -> "GH_COOLDOWN_V1"
+                "GITHUB_PROFILE_LOCKED" -> "PROFILE_SELECTION_EVIDENCE_V1"
+                "TOOL_PROTOCOL_INVALID_FRAME" -> "COMPLETION_EVIDENCE_V1"
+                else -> "ISSUE_RECOVERY_CODES_V1"
+            }
             for (location in locations) {
+                if (code in legacyRateCodes && location != "provider_failure_code") continue
+                if (location == "tool_error_code" && code != "GITHUB_COOLDOWN_ACTIVE") continue
                 val context = when (location) {
                     "errorCode", "events" -> null
                     "originalFailureCode" -> IssueReportContext.fromFields(
@@ -224,6 +330,7 @@ class IssueReportSubmissionTest {
                         val area = when (location) {
                             "provider_failure_code" -> "PROVIDER"
                             "voice_chat_failure_code" -> "VOICE"
+                            "tool_error_code" -> "TOOL"
                             else -> "INCIDENT"
                         }
                         IssueReportContext.fromFields(if (area == "VOICE") "VOICE_STATE" else "CHAT_FAILURE", mapOf("diagnostic_area" to area, location to code), 1_000L)
@@ -275,7 +382,56 @@ class IssueReportSubmissionTest {
                 retainedFixtures++
             }
         }
-        assertEquals(61, retainedFixtures)
+        assertEquals(76, retainedFixtures)
+    }
+
+    @Test fun legacyGitHubRateCodesKeepTheirExistingHostedCompatibility() {
+        for (code in listOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED")) {
+            for (location in listOf("errorCode", "originalFailureCode", "events", "causal_failure_code", "voice_chat_failure_code", "tool_error_code")) {
+                val context = when (location) {
+                    "errorCode", "events" -> null
+                    "originalFailureCode" -> IssueReportContext.fromFields(
+                        "CHAT_FAILURE",
+                        mapOf("failure_origin" to "local_recovery", "recovery_code" to "PROVIDER_WAIT_EVIDENCE_UNAVAILABLE", "original_interruption" to mapOf("code" to code)),
+                        1_000L
+                    ).also { assertEquals(code, it.originalFailureCode) }
+                    else -> IssueReportContext.fromFields(
+                        if (location == "voice_chat_failure_code") "VOICE_STATE" else "CHAT_FAILURE",
+                        mapOf(
+                            "diagnostic_area" to when (location) {
+                                "voice_chat_failure_code" -> "VOICE"
+                                "tool_error_code" -> "TOOL"
+                                else -> "INCIDENT"
+                            },
+                            location to code
+                        ),
+                        1_000L
+                    ).also { assertEquals(JsonPrimitive(code), it.diagnostics?.values?.get(location)) }
+                }
+                val enriched = when (location) {
+                    "errorCode" -> report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = code)
+                    "events" -> report.copy(events = listOf("-1ms E tools $code"))
+                    else -> report.copy(context = context)
+                }
+                val features = context?.diagnostics?.requiredServiceFeatures().orEmpty()
+                assertFalse("GH_COOLDOWN_V1" in features)
+                val payload = enriched.approvedPayload()
+                val methods = mutableListOf<String>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    methods += request.method
+                    if (request.method == "GET") {
+                        response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":${JsonArray(features.map(::JsonPrimitive))}}""")
+                    } else {
+                        assertEquals(payload, body(request))
+                        response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                    }
+                }.build()
+                assertEquals("$code at $location", IssueReportSubmission.Confirmed(941), IssueReportSubmission(origin, client).send(report.reportId, payload))
+                assertEquals(if (context == null) listOf("POST") else listOf("GET", "POST"), methods)
+                assertEquals(payload, enriched.approvedPayload())
+            }
+        }
     }
 
     @Test fun establishedFailureCodesRemainDeliverableWithoutNewServiceCapabilities() {

@@ -9,6 +9,94 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class GitHubDispatchAccountingTest {
+    @Test fun cooldownObservationsNeverReplaceEarlierAcceptedOrUnknownMutationAccounting() = runTest {
+        val cooldown = GitHubCooldownActive(GitHubCooldownActive.Resource.CORE, GitHubCooldownActive.Basis.RESOURCE_RESET, 30_000, 1_800_000_030_000, 1_800_000_000_000, 0)
+        for (accepted in listOf(false, true)) {
+            val accounting = GitHubDispatchAccounting(record = {})
+            withContext(accounting) {
+                val id = GitHubDispatchAccounting.started(true)
+                if (accepted) GitHubDispatchAccounting.responded(true, 201, id)
+            }
+            val result = accounting.finish(
+                AgentToolResult(
+                    "compound",
+                    ToolResultContent.Text("local cooldown"),
+                    true,
+                    errorCode = "GITHUB_COOLDOWN_ACTIVE",
+                    dispatched = false,
+                    executionReceipt = kotlinx.serialization.json.JsonObject(
+                        cooldown.failureFields() + kotlinx.serialization.json.buildJsonObject {
+                            put("retry_after_ms", JsonPrimitive(30_000))
+                            put("failed_stage", JsonPrimitive("tool_precheck"))
+                            put("requires_reconciliation", JsonPrimitive(false))
+                            put("dispatched", JsonPrimitive(false))
+                            put("recovery_action", JsonPrimitive("RETRY_REQUEST"))
+                        }
+                    )
+                ),
+                true
+            )
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals(true, result.dispatched)
+            assertEquals(if (accepted) "GITHUB_COOLDOWN_ACTIVE" else "RECONCILIATION_REQUIRED", result.errorCode)
+            assertEquals(JsonPrimitive(if (accepted) "PARTIAL_ACCEPTED" else "OUTCOME_UNKNOWN"), receipt["phase"])
+            assertEquals(JsonPrimitive(true), receipt["requires_reconciliation"])
+            assertEquals(JsonPrimitive(if (accepted) 1 else 0), receipt["accepted_mutations"])
+            assertEquals(JsonPrimitive(if (accepted) 0 else 1), receipt["unknown_mutations"])
+            assertEquals(null, receipt["failed_stage"])
+            assertEquals(null, receipt["recovery_action"])
+            cooldown.failureFields().forEach { (key, value) -> assertEquals(key, value, receipt[key]) }
+            assertEquals(JsonPrimitive(30_000), receipt["retry_after_ms"])
+        }
+    }
+
+    @Test fun exceptionEvidenceCannotOverwriteMeasuredDispatchOrReconciliationFacts() = runTest {
+        val failure = IllegalStateException("private token", UnsupportedOperationException("private cause"))
+        val evidence = dev.chungjungsoo.gptmobile.data.agent.ToolExceptionEvidence.fields(failure)
+        assertEquals(setOf("cause_types", "exception_fingerprint"), evidence.keys)
+        for (observedRead in listOf(false, true)) {
+            val accounting = GitHubDispatchAccounting(record = {})
+            if (observedRead) {
+                withContext(accounting) {
+                    val id = GitHubDispatchAccounting.started(false)
+                    GitHubDispatchAccounting.responded(false, 200, id)
+                }
+            }
+            val candidate = AgentToolResult(
+                "call",
+                ToolResultContent.Text("private operation detail"),
+                true,
+                errorCode = "GITHUB_OPERATION_FAILED",
+                dispatched = false,
+                executionReceipt = kotlinx.serialization.json.JsonObject(
+                    evidence + kotlinx.serialization.json.buildJsonObject {
+                        put("schema", JsonPrimitive("invented"))
+                        put("phase", JsonPrimitive("OUTCOME_UNKNOWN"))
+                        put("dispatched", JsonPrimitive(true))
+                        put("read_requests", JsonPrimitive(99))
+                        put("accepted_mutations", JsonPrimitive(99))
+                        put("requires_reconciliation", JsonPrimitive(true))
+                        put("retryable", JsonPrimitive(true))
+                        put("remote_acceptance", JsonPrimitive("YES"))
+                    }
+                )
+            )
+            val result = accounting.finish(candidate, false)
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals("GITHUB_OPERATION_FAILED", result.errorCode)
+            assertEquals(observedRead, result.dispatched)
+            assertEquals(JsonPrimitive("github.dispatch.v1"), receipt["schema"])
+            assertEquals(JsonPrimitive(if (observedRead) "READ_FAILED" else "PREFLIGHT_REJECTED"), receipt["phase"])
+            assertEquals(JsonPrimitive(if (observedRead) 1 else 0), receipt["read_requests"])
+            assertEquals(JsonPrimitive(0), receipt["accepted_mutations"])
+            assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
+            assertEquals(null, receipt["remote_acceptance"])
+            assertEquals(null, receipt["retryable"])
+            assertEquals(evidence["cause_types"], receipt["cause_types"])
+            assertEquals(evidence["exception_fingerprint"], receipt["exception_fingerprint"])
+        }
+    }
+
     @Test fun transportDiagnosticsSurviveAccountingWithoutChangingDispatchTruth() = runTest {
         val accounting = GitHubDispatchAccounting(record = {})
         withContext(accounting) { GitHubDispatchAccounting.started(false) }

@@ -294,7 +294,11 @@ internal class GitHubDispatchAccounting(
                 lastStatus?.let { put("http_status", it) }
                 result.errorCode?.let { put("error_code", it) }
                 result.executionReceipt?.get("retry_not_before_ms")?.let { put("retry_not_before_ms", it) }
-                for (key in listOf("github_transport_kind", "github_transport_wait_ms")) {
+                for (key in listOf(
+                    "github_transport_kind", "github_transport_wait_ms", "cause_types", "exception_fingerprint",
+                    "github_cooldown_resource", "github_cooldown_basis", "github_cooldown_delay_ms", "github_cooldown_deadline_ms",
+                    "github_cooldown_observed_at_ms", "github_cooldown_remaining_requests", "retry_after_ms"
+                )) {
                     result.executionReceipt?.get(key)?.let { put(key, it) }
                 }
             }

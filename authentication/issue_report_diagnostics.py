@@ -155,6 +155,22 @@ GITHUB_SCHEMA_BUDGET_FIELDS = {"required_schema_tokens", "available_schema_token
 ENUMS["provider_failure_code"].add("GITHUB_TOOL_CONTEXT_BUDGET")
 COUNTS.update(GITHUB_SCHEMA_BUDGET_FIELDS)
 FIELDS_BY_AREA["PROVIDER"].update(GITHUB_SCHEMA_BUDGET_FIELDS)
+PROFILE_SELECTION_FLAGS = {"github_selection_profile_match", "github_selection_registered_profile", "github_selection_model_match"}
+PROFILE_SELECTION_HASHES = {"github_selection_profile_hash", "github_selection_registered_model_hash"}
+PROFILE_SELECTION_FIELDS = PROFILE_SELECTION_FLAGS | PROFILE_SELECTION_HASHES
+FLAGS.update(PROFILE_SELECTION_FLAGS)
+HASH_FIELDS.update(PROFILE_SELECTION_HASHES)
+ENUMS["provider_failure_code"].add("GITHUB_PROFILE_LOCKED")
+FIELDS_BY_AREA["PROVIDER"].update(PROFILE_SELECTION_FIELDS)
+GITHUB_COOLDOWN_LONGS = {"github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_observed_at_ms"}
+GITHUB_COOLDOWN_FIELDS = GITHUB_COOLDOWN_LONGS | {"github_cooldown_resource", "github_cooldown_basis", "github_cooldown_remaining_requests"}
+ENUMS["github_cooldown_resource"] = {"CORE", "SEARCH", "GRAPHQL", "OTHER"}
+ENUMS["github_cooldown_basis"] = {"SECONDARY_DEADLINE", "RESOURCE_RESET", "RESOURCE_RETRY_AFTER", "RESOURCE_RESET_AND_RETRY_AFTER"}
+ENUMS["provider_failure_code"].update({"GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED"})
+ENUMS["tool_error_code"].add("GITHUB_COOLDOWN_ACTIVE")
+COUNTS.add("github_cooldown_remaining_requests")
+FIELDS_BY_AREA["PROVIDER"].update(GITHUB_COOLDOWN_FIELDS)
+FIELDS_BY_AREA["TOOL"].update(GITHUB_COOLDOWN_FIELDS)
 CAPACITY_DETAIL_FIELDS = {"admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens"}
 COUNTS.update(TRANSPORT_FIELDS | CAPACITY_DETAIL_FIELDS | {"conflict_conversation_revision", "acceptance_pending_remote_continuations"})
 FIELDS_BY_AREA["PROVIDER"].update({"conflict_active_job_kind", "conflict_conversation_revision", "conflict_pending_tool_count", "conflict_conversation_hash", "github_cooldown_stop"})
@@ -268,7 +284,7 @@ def _valid_value(key, value):
         return 0 <= value <= 255
     if key == "voice_playback_focus_attempts":
         return 1 <= value <= 2
-    if key == "voice_generation":
+    if key == "voice_generation" or key in GITHUB_COOLDOWN_LONGS:
         return 0 <= value <= 9_223_372_036_854_775_807
     if key == "gateway_protocol_version":
         return 1 <= value <= 1000

@@ -503,7 +503,11 @@ internal object GitHubTestChecklist {
         else -> tool.startsWith("github_")
     }
 
-    private fun readOnly(capability: Capability): Boolean = dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(capability.tool, buildJsonObject { if (capability.action.isNotBlank()) put("action", capability.action) })
+    private fun readOnly(capability: Capability): Boolean {
+        val arguments = buildJsonObject { if (capability.action.isNotBlank()) put("action", capability.action) }
+        return dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(capability.tool, arguments) ||
+            dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isLocalGraphIndexing(capability.tool, arguments)
+    }
 
     private data class CoverageCatalog(val active: List<Capability>, val historical: List<JsonObject>, val cumulative: List<Capability>)
 

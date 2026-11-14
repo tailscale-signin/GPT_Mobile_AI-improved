@@ -129,7 +129,36 @@ class GatewayGraphTest {
                 assertEquals(JsonPrimitive("NOT_QUALIFIED"), revision["qualification"])
                 assertEquals(JsonPrimitive(false), diagnostic["graph_complete"])
                 assertFalse(diagnostic.toString().contains("secret-token"))
+                assertEquals(JsonPrimitive(expected), result.executionReceipt?.get("reason_code"))
+                assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+                val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 0, result.callId, null, null, "repository_graph", "repository_graph", """{"action":"status"}""", null, null, "FAILED")
+                val fields = dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(event, result)
+                assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("tool-reason-code", expected), fields["original_reason_code_hash"])
             }
+        }
+    }
+
+    @Test fun wrappedPolicyTlsAndGenericFailuresNeverAcquireNativeFallbackOrPriorCheckpointEvidence() = runTest {
+        for (cause in listOf(
+            GatewayGraphAdmissionException("PERMISSION_DENIED", "private grant restriction"),
+            javax.net.ssl.SSLException("private certificate error"),
+            GatewayGraphIntegrityException("GRAPH_REVISION_MISMATCH", "private revision"),
+            IllegalStateException("GRAPH_INDEX_OUTCOME_UNKNOWN: private message is not a checkpoint")
+        )) {
+            var nativeReads = 0
+            val tool = RepositoryGraphTool(
+                "repository_graph__selected",
+                nativeStatus = {
+                    nativeReads++
+                    dev.chungjungsoo.gptmobile.data.agent.AgentToolResult(it, ToolResultContent.Text("native"), false)
+                }
+            ) { throw GatewayGraphOperationException(cause, "host", "private host", null, false) }
+            val result = tool.execute("status", buildJsonObject { put("action", "status") })
+            assertTrue(result.isError)
+            assertEquals(JsonPrimitive(false), result.executionReceipt?.get("index_outcome_unknown"))
+            assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+            assertEquals(0, nativeReads)
+            assertFalse(result.content.toString().contains("CHECK_SAVED_INDEX"))
         }
     }
 
@@ -142,6 +171,102 @@ class GatewayGraphTest {
             val failure = runCatching { GatewayEngineeringClient(http).graph(ProviderRequestConfig("http://127.0.0.1:8090/v1", null), GatewayGraphRepository.boundRequest(context, buildJsonObject { put("action", "status") })) }.exceptionOrNull()
             assertTrue(failure is GatewayGraphUnavailableException)
             assertEquals(listOf(GatewayGraphPrerequisite.HOST_GITHUB_CONNECTION_MISSING), (failure as GatewayGraphUnavailableException).prerequisites)
+            assertEquals(412, failure.httpStatus)
+            assertEquals(412, failure.atRevision(context).httpStatus)
         }
+    }
+
+    @Test fun graphHttpFailuresKeepObservedStatusAndRetryDelayWithoutPayloadOrReplay() = runTest {
+        for (status in listOf(HttpStatusCode.Forbidden, HttpStatusCode.TooManyRequests, HttpStatusCode.ServiceUnavailable)) {
+            var requests = 0
+            var nativeReads = 0
+            HttpClient(
+                MockEngine {
+                    requests++
+                    respond(
+                        """{"error":{"code":"private-backend-error","message":"secret-token https://private.example/repository"}}""",
+                        status,
+                        headersOf("Content-Type" to listOf("application/json"), "Retry-After" to listOf("7"))
+                    )
+                }
+            ) { install(HttpTimeout) }.use { http ->
+                val client = GatewayEngineeringClient(http)
+                val tool = RepositoryGraphTool("repository_graph", nativeStatus = {
+                    nativeReads++
+                    error("An HTTP rejection is not fallback authority")
+                }) { arguments ->
+                    client.graph(ProviderRequestConfig("http://127.0.0.1:8090/v1", null), GatewayGraphRepository.boundRequest(context, arguments))
+                }
+                val result = tool.execute("http-status", buildJsonObject { put("action", "status") })
+                assertTrue(result.isError)
+                assertEquals("REPOSITORY_GRAPH_UNAVAILABLE", result.errorCode)
+                assertEquals(JsonPrimitive(status.value), result.executionReceipt?.get("http_status"))
+                assertEquals(JsonPrimitive(7000L), result.executionReceipt?.get("retry_after_ms"))
+                assertEquals(JsonPrimitive(false), result.executionReceipt?.get("retryable"))
+                assertEquals(1, requests)
+                assertEquals(0, nativeReads)
+                for (secret in listOf("private-backend-error", "secret-token", "private.example")) {
+                    assertFalse(secret, result.content.toString().contains(secret))
+                    assertFalse(secret, result.executionReceipt.toString().contains(secret))
+                }
+                val report = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.fromFields("TOOL_RESULT", requireNotNull(result.executionReceipt), 1_800_000_000_000)
+                assertEquals(status.value, report.httpStatus)
+                assertEquals(7000L, report.retryAfterMillis)
+            }
+        }
+    }
+
+    @Test fun gatewayRateEvidenceDistinguishesLocalCapacityFromObservedUpstreamHttpWithoutChangingGraphDispatch() = runTest {
+        val observations = listOf(
+            """{"code":"GRAPH_CAPACITY_RESERVED","rate_limit_origin":"LOCAL_ADMISSION","upstream_request_dispatched":false}""",
+            """{"code":"GITHUB_RATE_LIMIT_WAIT","rate_limit_origin":"LOCAL_ADMISSION","upstream_request_dispatched":false}""",
+            """{"code":"GITHUB_PRIMARY_RATE_LIMITED","rate_limit_origin":"GITHUB_RESPONSE","upstream_request_dispatched":true,"upstream_http_status":403}""",
+            """{"code":"GITHUB_SECONDARY_RATE_LIMITED","rate_limit_origin":"GITHUB_RESPONSE","upstream_request_dispatched":true,"upstream_http_status":429}"""
+        ).map { Json.parseToJsonElement(it) as JsonObject }
+        for (observation in observations) {
+            var requests = 0
+            HttpClient(
+                MockEngine {
+                    requests++
+                    val detail = JsonObject(observation + mapOf("private_detail" to JsonPrimitive("private-body"), "retryable" to JsonPrimitive(true)))
+                    respond(buildJsonObject { put("error", detail) }.toString(), HttpStatusCode.TooManyRequests, headersOf("Retry-After", "7"))
+                }
+            ) { install(HttpTimeout) }.use { http ->
+                val tool = RepositoryGraphTool("repository_graph") { arguments ->
+                    GatewayEngineeringClient(http).graph(ProviderRequestConfig("http://127.0.0.1:8090/v1", null), GatewayGraphRepository.boundRequest(context, arguments))
+                }
+                val result = tool.execute("rate-response", buildJsonObject { put("action", "status") })
+                val receipt = requireNotNull(result.executionReceipt)
+                assertTrue(result.dispatched)
+                assertEquals(JsonPrimitive(true), receipt["dispatched"])
+                assertEquals(JsonPrimitive(false), receipt["retryable"])
+                assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
+                assertEquals(JsonPrimitive(429), receipt["http_status"])
+                assertEquals(JsonPrimitive(7000L), receipt["retry_after_ms"])
+                assertEquals(observation, receipt["graph_rate_limit"])
+                assertEquals(observation, ((result.content as ToolResultContent.Json).value as JsonObject)["rate_limit"])
+                assertFalse(result.content.toString().contains("private-body"))
+                assertEquals(1, requests)
+                val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("event", "run", 0, result.callId, null, null, "repository_graph", "repository_graph", """{"action":"status"}""", null, null, "FAILED")
+                val fields = dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(event, result)
+                assertEquals(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("tool-reason-code", (observation["code"] as JsonPrimitive).content), fields["original_reason_code_hash"])
+                val report = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.fromFields("TOOL_RESULT", receipt + fields, 1_800_000_000_000)
+                assertEquals(429, report.httpStatus)
+                assertEquals(true, report.dispatched)
+                assertEquals(false, report.retryable)
+            }
+        }
+        for (invalid in listOf(
+            """{"code":"GRAPH_CAPACITY_RESERVED","rate_limit_origin":"LOCAL_ADMISSION","upstream_request_dispatched":false,"upstream_http_status":403}""",
+            """{"code":"GITHUB_PRIMARY_RATE_LIMITED","rate_limit_origin":"GITHUB_RESPONSE","upstream_request_dispatched":false,"upstream_http_status":403}""",
+            """{"code":"GITHUB_PRIMARY_RATE_LIMITED","rate_limit_origin":"GITHUB_RESPONSE","upstream_request_dispatched":true,"upstream_http_status":"403"}""",
+            """{"code":"private-code","rate_limit_origin":"private-origin","upstream_request_dispatched":true,"upstream_http_status":403}"""
+        )) {
+            val failure = GatewayGraphHttpFailure.fromResponse(429, 7000, Json.parseToJsonElement(invalid) as JsonObject)
+            assertEquals(null, failure.rateLimitObservation)
+            assertEquals("GRAPH_HTTP_REJECTED", failure.code)
+            assertFalse(failure.message.orEmpty().contains("private-"))
+        }
+        assertEquals(null, GatewayGraphHttpFailure.fromResponse(503, 7000, observations.first()).rateLimitObservation)
     }
 }

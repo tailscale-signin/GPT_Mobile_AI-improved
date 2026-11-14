@@ -48,7 +48,15 @@ internal object ConfiguredDispatchAuthority {
         val capturedFeatures = settings.getFeatureSettings()
         chatId?.let { capturedFeatures.conversationGitHub[it] }?.let { github ->
             if (github.mainProfileUid != platform.uid || registered == null || registered.model != platform.model) {
-                throw GitHubProfileLockedException()
+                throw GitHubProfileSelectionRejected(
+                    profileMatches = github.mainProfileUid == platform.uid,
+                    registeredProfilePresent = registered != null,
+                    modelMatches = registered?.let { it.model == platform.model },
+                    requestedProfileHash = researchHash(platform.uid),
+                    requestedModelHash = researchHash(platform.model),
+                    selectedProfileHash = researchHash(github.mainProfileUid),
+                    registeredModelHash = registered?.model?.let(::researchHash)
+                )
             }
         }
         val capturedFields = policyFields(capturedFeatures, platform.uid, chatId)

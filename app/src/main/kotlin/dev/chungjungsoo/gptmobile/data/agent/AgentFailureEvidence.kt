@@ -50,6 +50,19 @@ internal object AgentFailureEvidence {
     /** A typed binding rejection preserves server facts without logging its response body. */
     fun exception(error: Throwable, partialOutput: Boolean = false): ProviderEvent.Failed? {
         if (error is ProviderRecoveryFailure) return error.event()
+        if (error is dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected ||
+            error is dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive ||
+            error is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected
+        ) {
+            val detail = dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error as Exception, partialOutput)
+                ?: return null
+            return ProviderEvent.Failed(
+                message = detail.message.orEmpty(),
+                errorCode = detail.code,
+                taskOutcome = if (partialOutput) "PARTIAL" else "BLOCKED",
+                failureDetails = detail.failureDetails
+            )
+        }
         when (error) {
             is GitHubRateLimitAdmissionException -> return localGitHubRejection(
                 error,

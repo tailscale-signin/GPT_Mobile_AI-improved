@@ -4,13 +4,19 @@ import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import dev.chungjungsoo.gptmobile.data.agent.ProviderRecoveryFailure
+import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
+import dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager
+import dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitResponseEvidence
+import dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorCategory
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure
+import io.ktor.http.headersOf
 import java.io.File
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -36,6 +42,214 @@ class IssueReportIncidentsTest {
         IssueReportIncidents.privacyChanged(false)
         IssueReportIncidents.debugPreferenceChanged(false)
         IssueReportIncidents.clearRecent()
+    }
+
+    private fun selectionError() = dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected(
+        profileMatches = false,
+        registeredProfilePresent = true,
+        modelMatches = false,
+        requestedProfileHash = "a".repeat(64),
+        requestedModelHash = "b".repeat(64),
+        selectedProfileHash = "c".repeat(64),
+        registeredModelHash = "d".repeat(64)
+    )
+
+    private fun assertCollectedSelectionDispatchUnavailable(report: IssueReport) {
+        val context = requireNotNull(report.context)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals("GITHUB_PROFILE_LOCKED", report.errorCode)
+        assertEquals("provider_admission", context.stage)
+        assertNull(context.dispatched)
+        assertNull(context.remoteAcceptance)
+        assertTrue("dispatched" in context.unavailableFields)
+        assertTrue("remoteAcceptance" in context.unavailableFields)
+        assertEquals(false, context.retryable)
+        assertEquals("RETRY_AFTER_CONFIGURATION_CHANGE", context.recoveryAction)
+        assertEquals("PROVIDER", diagnostic.area)
+        assertEquals(JsonPrimitive("ADMISSION"), diagnostic.values["provider_failure_stage"])
+        assertEquals(JsonPrimitive("GITHUB_PROFILE_LOCKED"), diagnostic.values["provider_failure_code"])
+        assertEquals(JsonPrimitive("APPLICATION"), diagnostic.values["incident_origin"])
+        assertEquals(JsonPrimitive(false), diagnostic.values["request_replay_allowed"])
+        for ((key, value) in selectionError().failureFields()) assertEquals(key, value, diagnostic.values[key])
+        assertTrue("PROFILE_SELECTION_EVIDENCE_V1" in diagnostic.requiredServiceFeatures())
+        assertFalse(diagnostic.values.containsKey("chat_failure_code_state"))
+        val payload = report.approvedPayload()
+        val serialized = IssueReport.json.parseToJsonElement(payload).jsonObject.getValue("context").jsonObject
+        assertFalse(serialized.containsKey("dispatched"))
+        assertFalse(serialized.containsKey("remoteAcceptance"))
+        assertTrue(setOf("attempt_dispatch_state", "dispatch_state", "execution_dispatch_state", "dispatched", "remote_acceptance", "partial_output_preserved").none { it in diagnostic.values })
+        assertFalse(payload.contains("PRIVATE_"))
+    }
+
+    @Test fun actualProfileSelectionProjectionKeepsDispatchUnavailableForBothInputs() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (partial in listOf(false, true)) {
+            val error = selectionError()
+            val detail = requireNotNull(dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, partial))
+            val fields = requireNotNull(detail.failureDetails)
+            assertTrue(setOf("attempt_dispatch_state", "dispatch_state", "dispatchState", "executionState", "dispatched", "inference_dispatched", "remote_acceptance", "remoteAcceptance", "partial_output_preserved").none { it in fields })
+            IssueReportIncidents.chatFailure(
+                detail.code,
+                false,
+                error,
+                fields + mapOf("provider_kind" to "LLAMA", "run_id" to "selection-$partial", "raw_profile_uid" to "PRIVATE_PROFILE", "raw_model" to "PRIVATE_MODEL")
+            )
+            assertCollectedSelectionDispatchUnavailable(IssueReportIncidents.pending.value.last())
+        }
+    }
+
+    @Test fun resumedSelectionCollectorKeepsEarlierZeroOutput429ReportSeparateFromFreshFence() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val earlierFence = dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence()
+        earlierFence.dispatched()
+        IssueReportIncidents.chatFailure(
+            "PROVIDER_RATE_LIMITED",
+            true,
+            null,
+            mapOf("run_id" to "retained-run", "provider_kind" to "LLAMA", "diagnostic_area" to "PROVIDER", "failed_stage" to "provider_generation", "http_status" to 429, "dispatched" to earlierFence.hasAttempted, "remote_acceptance" to "NO", "output_tokens" to 0)
+        )
+        val earlier = IssueReportIncidents.pending.value.single()
+        val approvedEarlier = earlier.approvedPayload()
+        val resumedFence = dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence()
+        assertTrue(earlierFence.hasAttempted)
+        assertFalse(resumedFence.hasAttempted)
+        val error = selectionError()
+        val detail = requireNotNull(dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, resumedFence.hasAttempted))
+        IssueReportIncidents.chatFailure(detail.code, false, error, requireNotNull(detail.failureDetails) + mapOf("run_id" to "retained-run", "provider_kind" to "LLAMA"))
+        assertEquals(2, IssueReportIncidents.pending.value.size)
+        assertCollectedSelectionDispatchUnavailable(IssueReportIncidents.pending.value.last())
+        val retained = IssueReportIncidents.pending.value.first()
+        assertEquals(earlier, retained)
+        assertEquals(approvedEarlier, retained.approvedPayload())
+        assertEquals(true, retained.context?.dispatched)
+        assertEquals("NO", retained.context?.remoteAcceptance)
+        assertEquals(429, retained.context?.httpStatus)
+        assertEquals(JsonPrimitive(0), retained.context?.diagnostics?.values?.get("output_tokens"))
+    }
+
+    private fun cooldownError(secondary: Boolean = false): GitHubCooldownActive {
+        val manager = GitHubRateLimitManager()
+        manager.record(headersOf("X-RateLimit-Resource" to listOf("core"), "X-RateLimit-Remaining" to listOf("0"), "X-RateLimit-Reset" to listOf("130")), nowMillis = 100_000L)
+        if (secondary) manager.cooldown(30L, 100_000L)
+        return runCatching { manager.requireAvailable(if (secondary) "search" else "core", 110L) }.exceptionOrNull() as GitHubCooldownActive
+    }
+
+    private fun assertCollectedCooldownDispatchUnavailable(report: IssueReport, error: GitHubCooldownActive) {
+        val context = requireNotNull(report.context)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals("GITHUB_COOLDOWN_ACTIVE", report.errorCode)
+        assertEquals("repository_admission", context.stage)
+        assertNull(context.dispatched)
+        assertNull(context.remoteAcceptance)
+        assertNull(context.httpStatus)
+        assertTrue(context.unavailableFields.containsAll(listOf("dispatched", "remoteAcceptance", "httpStatus")))
+        assertEquals(false, context.retryable)
+        assertEquals(20_000L, context.retryAfterMillis)
+        assertEquals("RETRY_AFTER_BACKOFF", context.recoveryAction)
+        assertEquals("PROVIDER", diagnostic.area)
+        assertEquals(JsonPrimitive("ADMISSION"), diagnostic.values["provider_failure_stage"])
+        assertEquals(JsonPrimitive("GITHUB_COOLDOWN_ACTIVE"), diagnostic.values["provider_failure_code"])
+        assertEquals(JsonPrimitive("APPLICATION"), diagnostic.values["incident_origin"])
+        assertEquals(JsonPrimitive(false), diagnostic.values["request_replay_allowed"])
+        for (key in IssueReportDiagnostics.githubCooldownFields) assertEquals(key, error.failureFields()[key], diagnostic.values[key])
+        assertTrue("GH_COOLDOWN_V1" in diagnostic.requiredServiceFeatures())
+        assertFalse(diagnostic.values.containsKey("chat_failure_code_state"))
+        val payload = report.approvedPayload()
+        val serialized = IssueReport.json.parseToJsonElement(payload).jsonObject.getValue("context").jsonObject
+        assertTrue(listOf("dispatched", "remoteAcceptance", "httpStatus").none { it in serialized })
+        assertTrue(setOf("attempt_dispatch_state", "dispatch_state", "execution_dispatch_state", "dispatched", "remote_acceptance", "partial_output_preserved").none { it in diagnostic.values })
+        assertFalse(payload.contains("PRIVATE_"))
+    }
+
+    @Test fun actualCooldownCollectorKeepsOptionalSnapshotAndAggregateFactsUnavailable() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (secondary in listOf(false, true)) {
+            val error = cooldownError(secondary)
+            for ((wrapped, captured) in listOf(error, GitHubRequestRejected(0, "PRIVATE_WRAPPER").apply { initCause(error) }).withIndex()) {
+                for (partial in listOf(false, true)) {
+                    val detail = requireNotNull(dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(captured, partial))
+                    val fields = requireNotNull(detail.failureDetails)
+                    assertTrue(setOf("attempt_dispatch_state", "dispatch_state", "dispatchState", "executionState", "dispatched", "inference_dispatched", "remote_acceptance", "remoteAcceptance", "partial_output_preserved", "http_status").none { it in fields })
+                    IssueReportIncidents.chatFailure(
+                        detail.code,
+                        false,
+                        captured,
+                        fields + mapOf("provider_kind" to "LLAMA", "run_id" to "cooldown-$secondary-$wrapped-$partial", "raw_resource" to "PRIVATE_RESOURCE", "raw_headers" to "PRIVATE_HEADERS_TOKEN")
+                    )
+                    assertCollectedCooldownDispatchUnavailable(IssueReportIncidents.pending.value.last(), error)
+                }
+            }
+        }
+    }
+
+    @Test fun resumedCooldownCollectorKeepsEarlierZeroOutput429SeparateFromFreshFence() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val earlierFence = dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence()
+        earlierFence.dispatched()
+        IssueReportIncidents.chatFailure(
+            "PROVIDER_RATE_LIMITED",
+            true,
+            null,
+            mapOf("run_id" to "retained-run", "provider_kind" to "LLAMA", "diagnostic_area" to "PROVIDER", "failed_stage" to "provider_generation", "http_status" to 429, "dispatched" to earlierFence.hasAttempted, "remote_acceptance" to "NO", "output_tokens" to 0)
+        )
+        val earlier = IssueReportIncidents.pending.value.single()
+        val approvedEarlier = earlier.approvedPayload()
+        val resumedFence = dev.chungjungsoo.gptmobile.data.context.PreparationReplayFence()
+        assertTrue(earlierFence.hasAttempted)
+        assertFalse(resumedFence.hasAttempted)
+        val error = cooldownError()
+        val detail = requireNotNull(dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, resumedFence.hasAttempted))
+        IssueReportIncidents.chatFailure(detail.code, false, error, requireNotNull(detail.failureDetails) + mapOf("run_id" to "retained-run", "provider_kind" to "LLAMA"))
+        assertEquals(2, IssueReportIncidents.pending.value.size)
+        assertCollectedCooldownDispatchUnavailable(IssueReportIncidents.pending.value.last(), error)
+        val retained = IssueReportIncidents.pending.value.first()
+        assertEquals(earlier, retained)
+        assertEquals(approvedEarlier, retained.approvedPayload())
+        assertEquals(true, retained.context?.dispatched)
+        assertEquals("NO", retained.context?.remoteAcceptance)
+        assertEquals(429, retained.context?.httpStatus)
+        assertEquals(JsonPrimitive(0), retained.context?.diagnostics?.values?.get("output_tokens"))
+    }
+
+    @Test fun actualGitHubRateResponseCollectorKeepsItsHttpSourceAndMissingDeadlineDistinct() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for (code in listOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED")) {
+            val status = if (code == "GITHUB_PRIMARY_RATE_LIMITED") 403 else 429
+            for (measured in listOf(false, true)) {
+                val headers = if (measured) headersOf("X-RateLimit-Resource" to listOf("core"), "X-RateLimit-Remaining" to listOf("0"), "X-RateLimit-Reset" to listOf("130")) else headersOf()
+                val responseEvidence = requireNotNull(GitHubRateLimitResponseEvidence.fromResponse(status, code, headers, 100_000L))
+                val error = GitHubRequestRejected(status, "PRIVATE_HTTP_BODY_TOKEN", responseEvidence)
+                for (partial in listOf(false, true)) {
+                    val detail = requireNotNull(dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, partial, nowMillis = 999_000L))
+                    IssueReportIncidents.chatFailure(detail.code, false, error, requireNotNull(detail.failureDetails) + mapOf("run_id" to "$code-$measured-$partial", "provider_kind" to "LLAMA"))
+                    val report = IssueReportIncidents.pending.value.last()
+                    val context = requireNotNull(report.context)
+                    val capture = requireNotNull(context.diagnostics)
+                    assertEquals(code, report.errorCode)
+                    assertEquals("LLAMA", context.provider)
+                    assertEquals("tool_execution", context.stage)
+                    assertEquals(status, context.httpStatus)
+                    assertNull(context.dispatched)
+                    assertNull(context.remoteAcceptance)
+                    assertTrue(context.unavailableFields.containsAll(listOf("dispatched", "remoteAcceptance")))
+                    assertEquals(false, context.retryable)
+                    assertEquals("RETRY_AFTER_BACKOFF", context.recoveryAction)
+                    assertEquals(if (measured) 30_000L else null, context.retryAfterMillis)
+                    assertEquals(JsonPrimitive(code), capture.values["provider_failure_code"])
+                    assertEquals(JsonPrimitive("TOOL_EXECUTION"), capture.values["provider_failure_domain"])
+                    assertEquals(JsonPrimitive("TOOL"), capture.values["incident_origin"])
+                    assertEquals(JsonPrimitive(false), capture.values["request_replay_allowed"])
+                    for (key in IssueReportDiagnostics.githubCooldownFields) assertEquals(key, responseEvidence[key], capture.values[key])
+                    assertTrue("GH_COOLDOWN_V1" in capture.requiredServiceFeatures())
+                    val payload = report.approvedPayload()
+                    val serialized = IssueReport.json.parseToJsonElement(payload).jsonObject.getValue("context").jsonObject
+                    assertFalse(serialized.containsKey("dispatched"))
+                    assertFalse(serialized.containsKey("remoteAcceptance"))
+                    assertTrue(setOf("attempt_dispatch_state", "dispatch_state", "execution_dispatch_state", "dispatched", "remote_acceptance", "partial_output_preserved").none { it in capture.values })
+                    assertFalse(payload.contains("PRIVATE_"))
+                }
+            }
+        }
     }
 
     @Test

@@ -3,9 +3,11 @@ import asyncio
 import hashlib
 import hmac
 import json
+import math
 import os
 import requests
 import sqlite3
+import time
 from pathlib import Path
 from v14 import VERSION
 from fastapi import Request
@@ -23,6 +25,7 @@ from v14.conversations import FEATURES, QueueFull, ConversationConflict, Command
 from v14.conversation_policy import verify_mutation_identity, MUTATION_IDENTITY_HEADERS
 from v14.repository_lifecycle import RepositoryLifecycle, RepositoryLifecycleError
 from v14.code_graph.public_github import PublicGitHubRateLimited, PublicRepositoryUnavailable
+from v14.github_api_governor import GitHubApiGovernor, GitHubApiRateWait
 
 
 def install_engineering_routes(app, service):
@@ -64,7 +67,7 @@ def install_engineering_routes(app, service):
             raise ValueError('Expected a JSON object')
         return value
 
-    async def execute(action, *, stage=None):
+    async def execute(action, *, stage=None, graph_rate_response=False):
         try:
             return await action()
         except EngineeringPreflightError as error:
@@ -88,6 +91,36 @@ def install_engineering_routes(app, service):
             return JSONResponse({'error': {'code': 'engineering_scope_required'}}, status_code=403)
         except (ValueError, KeyError, TypeError) as error:
             return JSONResponse({'error': state_or_input_rejection(error, stage)}, status_code=409)
+        except requests.HTTPError as error:
+            if not graph_rate_response:
+                # Job admission may already have committed elsewhere. Without a
+                # durable rejection fence, preserve its existing unknown outcome
+                # response; a graph quota receipt cannot reject that command.
+                return JSONResponse({'error': {'code': 'engineering_connection_unavailable'}}, status_code=503)
+            response = error.response
+            observed_at = time.time()
+            wait = GitHubApiGovernor.retry_delay(response.status_code, response.headers, observed_at) if response is not None else None
+            if wait is None:
+                return JSONResponse({'error': {'code': 'engineering_connection_unavailable'}}, status_code=503)
+            local = isinstance(error, GitHubApiRateWait)
+            if local:
+                code = 'GRAPH_CAPACITY_RESERVED' if error.reason == 'FOREGROUND_RESERVE' else 'GITHUB_RATE_LIMIT_WAIT'
+            else:
+                headers = GitHubApiGovernor._headers(response.headers)
+                code = 'GITHUB_PRIMARY_RATE_LIMITED' if str(headers.get('x-ratelimit-remaining')) == '0' else 'GITHUB_SECONDARY_RATE_LIMITED'
+            # Convert before multiplying: a finite server wait can overflow a
+            # floating-point millisecond value. Integer arithmetic preserves the
+            # full wait (bounded by the accepted finite float), never an early retry.
+            wait_seconds = math.ceil(wait)
+            details = {'code': code, 'retryable': True, 'retry_after_ms': wait_seconds * 1000,
+                       'retry_at_epoch_seconds': math.ceil(observed_at) + wait_seconds,
+                       'rate_limit_origin': 'LOCAL_ADMISSION' if local else 'GITHUB_RESPONSE',
+                       'upstream_request_dispatched': not local}
+            if not local:
+                details['upstream_http_status'] = response.status_code
+            # The gateway's response status is distinct from the upstream
+            # observation. A local reserve never invents a GitHub HTTP 429.
+            return JSONResponse({'error': details}, status_code=429, headers={'Retry-After': str(wait_seconds)})
         except (requests.RequestException, TimeoutError):
             return JSONResponse({'error': {'code': 'engineering_connection_unavailable'}}, status_code=503)
 
@@ -219,7 +252,7 @@ def install_engineering_routes(app, service):
                 graph_readiness['graph_ready'] = False
                 graph_readiness['checks']['graph_host_github_connection'] = 'missing'
                 return graph_unavailable(graph_readiness, True)
-        return await execute(run)
+        return await execute(run, graph_rate_response=True)
 
     @app.post('/gateway/engineering/preflight')
     @app.post('/v1/gateway/engineering/preflight')

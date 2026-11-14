@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.permissions
 
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import java.net.URI
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 
@@ -23,12 +24,8 @@ internal object GitHubAuthorizationBoundary {
     /** Native reviewed reads may be repeated with a fresh invocation after a timeout.
      * This is replay classification, never a grant of permission. */
     fun isReplayableRead(tool: String, arguments: JsonObject): Boolean {
-        val graphAction = if (tool.substringBefore("__") == "repository_graph") {
-            arguments["action"]
-        } else {
-            arguments["graph_action"].takeIf { tool == "github" && arguments["action"] == JsonPrimitive("repository_graph") }
-        }
-        if (graphAction != null) return (graphAction as? JsonPrimitive)?.content in setOf("status", "index", "query", "node", "callers", "callees", "path", "impact", "architecture", "diff", "diagnose", "contracts", "prs", "notes", "requirements", "wiki", "metrics")
+        val graphAction = graphAction(tool, arguments)
+        if (graphAction != null) return (graphAction as? JsonPrimitive)?.content in setOf("status", "query", "node", "callers", "callees", "path", "impact", "architecture", "diff", "diagnose", "contracts", "prs", "notes", "requirements", "wiki", "metrics")
         val native = if (tool == "github") {
             arguments
         } else {
@@ -41,6 +38,15 @@ internal object GitHubAuthorizationBoundary {
                 "get_issue", "get_pull_request", "list_pull_requests", "list_workflow_runs", "list_workflows",
                 "get_workflow_run", "list_workflow_jobs", "get_workflow_job", "list_workflow_artifacts", "get_job_logs"
             )
+    }
+
+    /** Local graph preparation may use a read grant; its saved state never authorizes a replay. */
+    fun isLocalGraphIndexing(tool: String, arguments: JsonObject): Boolean = graphAction(tool, arguments) == JsonPrimitive("index")
+
+    private fun graphAction(tool: String, arguments: JsonObject): JsonElement? = if (tool.substringBefore("__") == "repository_graph") {
+        arguments["action"]
+    } else {
+        arguments["graph_action"].takeIf { tool == "github" && arguments["action"] == JsonPrimitive("repository_graph") }
     }
 
     /** Selecting a mutable branch changes subsequent engineering destinations. */

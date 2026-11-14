@@ -44,10 +44,18 @@ class GatewayGraphRepository @Inject constructor(
         "The selected gateway repository graph readiness check could not complete. Check its connection and engineering service status."
     }
 
-    suspend fun execute(context: GitHubConversationContext, arguments: JsonObject): JsonObject = try {
-        executeForMap(context, arguments, refreshReadiness = false).result
-    } catch (failure: GatewayGraphOperationException) {
-        throw requireNotNull(failure.cause)
+    suspend fun execute(context: GitHubConversationContext, arguments: JsonObject): JsonObject {
+        val response = executeForMap(context, arguments, refreshReadiness = false)
+        // This observation belongs to the local checkpoint, not the gateway payload.
+        // A successful status read need not acknowledge an earlier index request.
+        return JsonObject(
+            response.result + (
+                "index_checkpoint" to buildJsonObject {
+                    put("index_outcome_unknown", response.indexOutcomeUnknown)
+                    if (response.indexOutcomeUnknown) put("repair_action", "CHECK_SAVED_INDEX")
+                }
+                )
+        )
     }
 
     internal suspend fun executeForMap(
@@ -167,6 +175,7 @@ class GatewayGraphRepository @Inject constructor(
                 failure is java.io.IOException && failure !is javax.net.ssl.SSLException -> GatewayGraphUnavailableException("The selected gateway graph connection is unavailable.", listOf(GatewayGraphPrerequisite.TRANSPORT_UNAVAILABLE)).atRevision(context)
                 else -> failure
             }
+            if (unavailable !== failure) unavailable.initCause(failure)
             val unknown = checkpoint?.unresolved() == true
             val repair = when (unavailable) {
                 is GatewayGraphUnavailableException -> unavailable.prerequisites.firstOrNull()?.nextAction

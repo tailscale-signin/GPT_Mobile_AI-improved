@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.context
 
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
 import dev.chungjungsoo.gptmobile.data.model.ToolPluginId
 import dev.chungjungsoo.gptmobile.data.network.ProviderLimitDecision
@@ -8,18 +9,159 @@ import dev.chungjungsoo.gptmobile.data.network.bindAuthority
 import dev.chungjungsoo.gptmobile.data.repository.SettingRepository
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.mockk
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ConfiguredDispatchAuthorityTest {
+    @Test fun matchingGithubSelectionRetainsTheExistingCaptureAndValidationReads() = runTest {
+        val profile = PlatformV2(id = 7, uid = "private-requested-profile", name = "Selected", model = "private-requested-model")
+        val settings = selectionSettings({ listOf(profile) }, { selectionFeatures(profile.uid) })
+        val authority = requireNotNull(ConfiguredDispatchAuthority.capture(settings, profile, 7).authority)
+        assertEquals(profile.uid, authority.profileUid)
+        assertEquals(profile.model, authority.model)
+        verifySelectionReads(settings, 2)
+    }
+
+    @Test fun githubProfileMismatchRetainsTheOriginalReadWithoutRetriesOrLaterSettings() = runTest {
+        val profile = PlatformV2(id = 7, uid = "private-requested-profile", name = "Selected", model = "private-requested-model")
+        var profiles = listOf(profile)
+        var features = selectionFeatures("private-selected-profile")
+        val settings = selectionSettings({ profiles }, { features })
+        var inheritedValidations = 0
+        val failure = withContext(RequestAuthorizationGuard("inherited") { inheritedValidations++ }) {
+            selectionFailure(settings, profile)
+        }
+        val observed = failure.failureFields()
+        assertEquals(JsonPrimitive(false), observed["github_selection_profile_match"])
+        assertEquals(JsonPrimitive(true), observed["github_selection_registered_profile"])
+        assertEquals(JsonPrimitive(true), observed["github_selection_model_match"])
+        assertEquals(JsonPrimitive(researchHash(profile.uid)), observed["profile_hash"])
+        assertEquals(JsonPrimitive(researchHash(profile.model)), observed["model_hash"])
+        assertEquals(JsonPrimitive(researchHash("private-selected-profile")), observed["github_selection_profile_hash"])
+        assertEquals(JsonPrimitive(researchHash(profile.model)), observed["github_selection_registered_model_hash"])
+        features = selectionFeatures(profile.uid)
+        profiles = listOf(profile.copy(model = "later-private-model"))
+        assertEquals(observed, failure.failureFields())
+        assertEquals(0, inheritedValidations)
+        verifySelectionReads(settings, 1)
+        for (privateValue in listOf(profile.uid, profile.model, "private-selected-profile", "later-private-model")) {
+            assertFalse(failure.message.orEmpty().contains(privateValue))
+            assertFalse(observed.toString().contains(privateValue))
+        }
+    }
+
+    @Test fun githubModelMismatchKeepsRequestedAndRegisteredModelIdentitiesSeparate() = runTest {
+        val requested = PlatformV2(id = 7, uid = "selected", name = "Selected", model = "private-requested-model")
+        val registered = requested.copy(model = "private-registered-model")
+        val settings = selectionSettings({ listOf(registered) }, { selectionFeatures(requested.uid) })
+        val failure = selectionFailure(settings, requested)
+        assertTrue(failure.profileMatches)
+        assertTrue(failure.registeredProfilePresent)
+        assertEquals(false, failure.modelMatches)
+        assertEquals(researchHash(requested.model), failure.requestedModelHash)
+        assertEquals(researchHash(registered.model), failure.registeredModelHash)
+        verifySelectionReads(settings, 1)
+    }
+
+    @Test fun missingEphemeralGithubProfileDoesNotInventAModelComparison() = runTest {
+        val requested = PlatformV2(id = 0, uid = "ephemeral", name = "Ephemeral", model = "private-requested-model")
+        val settings = selectionSettings({ emptyList() }, { selectionFeatures(requested.uid) })
+        val failure = selectionFailure(settings, requested)
+        assertTrue(failure.profileMatches)
+        assertFalse(failure.registeredProfilePresent)
+        assertNull(failure.modelMatches)
+        assertNull(failure.registeredModelHash)
+        assertFalse("github_selection_model_match" in failure.failureFields())
+        assertFalse("github_selection_registered_model_hash" in failure.failureFields())
+        verifySelectionReads(settings, 1)
+    }
+
+    @Test fun missingPersistedProfileKeepsTheEarlierRemovalGuardWithoutSelectionEvidence() = runTest {
+        val requested = PlatformV2(id = 7, uid = "removed", name = "Removed", model = "model")
+        val settings = selectionSettings({ emptyList() }, { selectionFeatures("other") })
+        val failure = requireNotNull(runCatching { ConfiguredDispatchAuthority.capture(settings, requested, 7) }.exceptionOrNull())
+        assertFalse(failure is GitHubProfileSelectionRejected)
+        assertTrue(failure.message.orEmpty().startsWith("PROFILE_REMOVED:"))
+        verifySelectionReads(settings, 1, featureReads = 0)
+    }
+
+    @Test fun earlierProfileAndPrivacyGuardsDoNotReadOrMisclassifyGithubSelection() = runTest {
+        val requested = PlatformV2(id = 7, uid = "selected", name = "Selected", model = "model", token = "private-token")
+        for ((registered, expected) in listOf(
+            listOf(requested, requested.copy(name = "Duplicate")) to "PROFILE_IDENTITY_AMBIGUOUS:",
+            listOf(requested.copy(enabled = false)) to "PROFILE_DISABLED:",
+            listOf(requested.copy(token = "private-replacement-token")) to "PROFILE_CONFIGURATION_CHANGED:"
+        )) {
+            val settings = selectionSettings({ registered }, { selectionFeatures("other") })
+            val failure = requireNotNull(runCatching { ConfiguredDispatchAuthority.capture(settings, requested, 7) }.exceptionOrNull())
+            assertFalse(failure is GitHubProfileSelectionRejected)
+            assertTrue(expected, failure.message.orEmpty().startsWith(expected))
+            verifySelectionReads(settings, 1, featureReads = 0)
+        }
+        val privacy = selectionSettings({ listOf(requested) }, { selectionFeatures("other") })
+        coEvery { privacy.providerActivationRequired(any()) } returns true
+        val failure = requireNotNull(runCatching { ConfiguredDispatchAuthority.capture(privacy, requested, 7) }.exceptionOrNull())
+        assertFalse(failure is GitHubProfileSelectionRejected)
+        assertTrue(failure.message.orEmpty().startsWith("PROVIDER_ACTIVATION_REQUIRED:"))
+        coVerify(exactly = 1) { privacy.providerActivationRequired(any()) }
+        coVerify(exactly = 0) { privacy.providerPermissionRevision(any()) }
+        coVerify(exactly = 0) { privacy.fetchPlatformV2s() }
+        coVerify(exactly = 0) { privacy.getFeatureSettings() }
+    }
+
+    @Test fun nonGithubEphemeralProfileKeepsItsExistingAuthorizationBehavior() = runTest {
+        val requested = PlatformV2(id = 0, uid = "ephemeral", name = "Ephemeral", model = "model")
+        val settings = selectionSettings({ emptyList() }, { AppFeatureSettings() })
+        assertNull(ConfiguredDispatchAuthority.capture(settings, requested, 7).authority)
+        verifySelectionReads(settings, 2)
+    }
+
+    @Test fun configurationReadCancellationIsNotRetriedOrConvertedIntoSelectionFailure() = runTest {
+        val requested = PlatformV2(id = 7, uid = "selected", name = "Selected", model = "model")
+        val settings = selectionSettings({ listOf(requested) }, { selectionFeatures("other") })
+        val cancelled = CancellationException("The configuration read was cancelled")
+        coEvery { settings.fetchPlatformV2s() } throws cancelled
+        assertSame(cancelled, runCatching { ConfiguredDispatchAuthority.capture(settings, requested, 7) }.exceptionOrNull())
+        verifySelectionReads(settings, 1, featureReads = 0)
+    }
+
+    private fun selectionFeatures(selectedUid: String) = AppFeatureSettings(
+        conversationGitHub = mapOf(7 to GitHubConversationContext("connection", "owner", "repo", "main", "a".repeat(40), selectedUid))
+    )
+
+    private fun selectionSettings(profiles: () -> List<PlatformV2>, features: () -> AppFeatureSettings): SettingRepository = mockk<SettingRepository>().also { settings ->
+        coEvery { settings.fetchPlatformV2s() } answers { profiles() }
+        coEvery { settings.getFeatureSettings() } answers { features() }
+        coEvery { settings.providerActivationRequired(any()) } returns false
+        coEvery { settings.providerPermissionRevision(any()) } returns "accepted"
+    }
+
+    private suspend fun selectionFailure(settings: SettingRepository, requested: PlatformV2): GitHubProfileSelectionRejected {
+        val failure = runCatching { ConfiguredDispatchAuthority.capture(settings, requested, 7) }.exceptionOrNull()
+        assertTrue("Expected the actual typed selection guard, got $failure", failure is GitHubProfileSelectionRejected)
+        return failure as GitHubProfileSelectionRejected
+    }
+
+    private fun verifySelectionReads(settings: SettingRepository, reads: Int, featureReads: Int = reads) {
+        coVerify(exactly = reads) { settings.providerActivationRequired(any()) }
+        coVerify(exactly = reads) { settings.providerPermissionRevision(any()) }
+        coVerify(exactly = reads) { settings.fetchPlatformV2s() }
+        coVerify(exactly = featureReads) { settings.getFeatureSettings() }
+    }
+
     @Test fun githubPolicyDiagnosticsNameOnlyChangedKnownSubfields() {
         fun fields(value: String) = Json.parseToJsonElement(value) as JsonObject
         val before = fields("""{"githubProfileOverride":{"githubTools":true,"engineeringGatewayProfileUid":"private-old"}}""")

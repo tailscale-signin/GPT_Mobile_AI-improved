@@ -9,11 +9,14 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import requests
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.code_graph.engine import GraphStore
 from v14.code_graph.index_jobs import GraphIndexJobs
 from v14.engineering import EngineeringStore
 from v14.engineering_crypto import EngineeringCipher
+from v14.github_api_governor import GitHubApiRateWait
 
 
 class IndexJobTests(unittest.TestCase):
@@ -181,6 +184,99 @@ class IndexJobTests(unittest.TestCase):
         self.assertEqual('INDEX_CONNECTION_UNAVAILABLE', result['error_code'])
         self.assertNotIn('private source', json.dumps(result))
         self.assertIsNone(self.jobs._take())
+
+    def test_rate_wait_survives_restart_and_reconciles_progress_at_the_reset(self):
+        self.enqueue()
+        self.step()
+        job = self.jobs._take()
+        self.jobs._failure(job, GitHubApiRateWait(900, reason='FOREGROUND_RESERVE'))
+        waiting = self.jobs.status('principal', self.request)
+        self.assertEqual('QUEUED', waiting['state'])
+        self.assertEqual('INDEX_CAPACITY_RESERVED', waiting['error_code'])
+        self.assertEqual(self.clock + 900, waiting['retry_at'])
+        self.assertEqual(1, waiting['completed_files'])
+        self.assertIsNone(self.jobs._take())
+        replacement = GraphIndexJobs(self.service, now=lambda: self.clock)
+        self.assertIsNone(replacement._take())
+        self.clock += 899
+        self.assertIsNone(replacement._take())
+        self.clock += 1
+        resumed = replacement._take()
+        self.assertEqual(0, resumed['attempts'])
+        replacement._step(resumed)
+        finished = replacement.status('principal', self.request)
+        self.assertEqual('COMPLETED', finished['state'])
+        self.assertIsNone(finished['retry_at'])
+        self.assertEqual(2, self.batches)
+        replacement.close()
+
+    def test_primary_rate_limit_uses_reset_but_bare_forbidden_is_terminal(self):
+        self.clock = 1_800_000_000
+        self.enqueue()
+        error = requests.HTTPError('private endpoint must not be retained')
+        error.response = SimpleNamespace(status_code=403, headers={'X-RateLimit-Remaining': '0',
+                                                                  'X-RateLimit-Reset': '1800001800'})
+        self.jobs._failure(self.jobs._take(), error)
+        waiting = self.jobs.status('principal', self.request)
+        self.assertEqual('INDEX_RATE_LIMIT_WAIT', waiting['error_code'])
+        self.assertEqual(1_800_001_800, waiting['retry_at'])
+        self.assertNotIn('private endpoint', json.dumps(waiting))
+        self.clock = waiting['retry_at']
+        error.response = SimpleNamespace(status_code=403, headers={})
+        self.jobs._failure(self.jobs._take(), error)
+        self.assertEqual('FAILED', self.jobs.status('principal', self.request)['state'])
+
+    def test_control_requests_cannot_erase_an_unexpired_rate_wait_after_restart(self):
+        self.enqueue()
+        self.jobs._failure(self.jobs._take(), GitHubApiRateWait(900, reason='FOREGROUND_RESERVE'))
+        replacement = GraphIndexJobs(self.service, now=lambda: self.clock)
+        with patch.object(replacement, 'start'):
+            for control, restart in (('pause', 'resume'), ('cancel', 'start')):
+                observed = replacement.status('principal', self.request)
+                changed = replacement.handle('principal', dict(self.request, job_action=control,
+                    job_id=observed['id'], job_generation=observed['generation'], request_id=control))['index_job']
+                self.assertEqual('PAUSED' if control == 'pause' else 'CANCELLED', changed['state'])
+                queued = replacement.handle('principal', dict(self.request, job_action=restart,
+                    job_id=changed['id'], job_generation=changed['generation'], request_id=restart))['index_job']
+                self.assertEqual('QUEUED', queued['state'])
+                self.assertEqual('INDEX_CAPACITY_RESERVED', queued['error_code'])
+                self.assertEqual(self.clock + 900, queued['retry_at'])
+                self.assertIsNone(replacement._take())
+        self.assertEqual(0, self.batches)
+        self.clock += 900
+        self.assertIsNotNone(replacement._take())
+        replacement.close()
+
+    def test_rate_wait_beyond_budget_pauses_at_deadline_without_early_dispatch(self):
+        self.enqueue()
+        job = self.jobs._take()
+        server_wait = 3 * 24 * 3600
+        retry_at = self.clock + server_wait
+        self.jobs._failure(job, GitHubApiRateWait(server_wait, reason='FOREGROUND_RESERVE'))
+        saved = self.jobs._transaction(lambda db: self.jobs._read(db, job['id']))
+        self.assertEqual(retry_at, saved['retry_at'])
+        self.assertEqual(job['deadline'], saved['next_at'])
+        replacement = GraphIndexJobs(self.service, now=lambda: self.clock)
+        self.clock = job['deadline'] - 1
+        self.assertIsNone(replacement._take())
+        self.clock += 1
+        self.assertIsNone(replacement._take())
+        paused = replacement.status('principal', self.request)
+        self.assertEqual('PAUSED', paused['state'])
+        self.assertEqual('INDEX_BUDGET_REACHED', paused['error_code'])
+        self.assertEqual(retry_at, paused['retry_at'])
+        self.assertEqual(0, self.batches)
+        with patch.object(replacement, 'start'):
+            resumed = replacement.handle('principal', dict(self.request, job_action='resume',
+                job_id=paused['id'], job_generation=paused['generation'], request_id='resume-wait'))['index_job']
+        self.assertEqual('QUEUED', resumed['state'])
+        self.assertEqual(retry_at, resumed['retry_at'])
+        renewed = replacement._transaction(lambda db: replacement._read(db, job['id']))
+        self.assertEqual(renewed['deadline'], renewed['next_at'])
+        self.assertLess(renewed['next_at'], retry_at)
+        self.assertIsNone(replacement._take())
+        self.assertEqual(0, self.batches)
+        replacement.close()
 
     def test_missing_encryption_key_does_not_create_a_replacement_over_saved_jobs(self):
         self.enqueue()

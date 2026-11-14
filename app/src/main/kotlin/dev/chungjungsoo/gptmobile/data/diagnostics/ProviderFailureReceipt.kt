@@ -98,7 +98,7 @@ data class ProviderFailureReceipt(
             "GITHUB_REVIEW_INCOMPATIBLE", "GITHUB_REVIEW_INVALID_VERDICT", "GITHUB_REVIEW_INDETERMINATE",
             "GITHUB_REVIEW_REQUIRED", "GITHUB_REVIEW_BLOCKED", "GITHUB_REVIEW_UNAVAILABLE", "GITHUB_REVIEW_CAPACITY",
             "GITHUB_REVIEW_BUDGET_EXHAUSTED",
-            "GITHUB_CIRCUIT_OPEN", "GITHUB_PROFILE_LOCKED", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE",
+            "GITHUB_CIRCUIT_OPEN", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE",
             "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_EXTRACTION_OUTPUT_LIMIT",
             "GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_OPERATION_BLOCKED", "GITHUB_RUN_INTERRUPTED", "GITHUB_TASK_INCOMPLETE", "GITHUB_UNEXPECTED_RESPONSE",
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
@@ -132,7 +132,18 @@ data class ProviderFailureReceipt(
             ) ?: retainedUsage
             val attemptEvidence = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromDetails(failure.failureDetails)
                 ?: dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(correlatedUsage?.gatewayRecovery)
+            val profileSelectionRejected = code == "GITHUB_PROFILE_LOCKED" &&
+                failedStage == "provider_admission" &&
+                classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
+            val githubCooldownActive = code == "GITHUB_COOLDOWN_ACTIVE" &&
+                failedStage == "repository_admission" &&
+                classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
+            val githubRateResponse = code in setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED") &&
+                failedStage == "tool_execution" &&
+                status in setOf(403, 429) &&
+                classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
             val stage = when {
+                profileSelectionRejected || githubCooldownActive -> ProviderFailureStage.ADMISSION
                 classified.isUserInputRequired || classified.isEngineeringSetup || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD
@@ -178,6 +189,8 @@ data class ProviderFailureReceipt(
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
                 causeTypes = classified.causeTypes,
                 failureDomain = when {
+                    profileSelectionRejected || githubCooldownActive -> FailureDomain.APPLICATION_VERIFICATION
+                    githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
                     code == "GITHUB_TASK_INCOMPLETE" || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION

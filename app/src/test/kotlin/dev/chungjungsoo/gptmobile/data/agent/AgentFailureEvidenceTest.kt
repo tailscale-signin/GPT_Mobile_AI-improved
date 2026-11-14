@@ -2,9 +2,16 @@ package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation
 import dev.chungjungsoo.gptmobile.data.context.GitHubProfileLockedException
+import dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayExecutionRejected
+import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
 import dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitAdmissionException
+import dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager
+import io.ktor.http.headersOf
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -12,9 +19,75 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class AgentFailureEvidenceTest {
+    @Test fun typedGitHubGuardsRetainTheirEvidenceWithoutWholeRunDispatchAliases() {
+        for (error in listOf(cooldown(), profileLock())) {
+            for (partial in listOf(false, true)) {
+                val event = requireNotNull(AgentFailureEvidence.exception(error, partial))
+                val fields = requireNotNull(event.failureDetails)
+                assertEquals(if (error is GitHubCooldownActive) "GITHUB_COOLDOWN_ACTIVE" else "GITHUB_PROFILE_LOCKED", event.errorCode)
+                assertEquals(JsonPrimitive(false), fields["request_replay_allowed"])
+                assertEquals(JsonPrimitive(false), fields["retryable"])
+                if (error is GitHubCooldownActive) {
+                    assertEquals(JsonPrimitive(130_000L), fields["github_cooldown_deadline_ms"])
+                } else {
+                    assertEquals(JsonPrimitive(false), fields["github_selection_profile_match"])
+                }
+                for (key in listOf("dispatched", "dispatch_state", "attempt_dispatch_state", "remote_acceptance", "partial_output_preserved", "http_status")) {
+                    assertFalse("Unexpected inferred $key", fields.containsKey(key))
+                }
+            }
+        }
+    }
+
+    @Test fun aPriorToolTimelineWithNoTextCannotBecomeAnUnsentRun() {
+        val message = MessageV2(
+            content = "",
+            thoughts = "",
+            platformType = "profile",
+            timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.TOOL, toolSequence = 0))
+        )
+        for (error in listOf(cooldown(), profileLock())) {
+            for (gatewayPreflight in listOf(false, true)) {
+                val failure = requireNotNull(coordinatorFailureRecord(message, error, gatewayPreflight))
+                assertNull(failure.dispatched)
+                assertEquals(RemoteRequestAcceptance.UNKNOWN, failure.remoteAcceptance)
+                assertEquals(false, failure.requestReplayAllowed)
+                assertFalse(failure.retryAllowed)
+            }
+        }
+    }
+
+    @Test fun aLaterGitHubGuardCannotErasePriorUnknownOrDispatchedOutcomes() {
+        val prior = ProfileFailureRecord("TOOL_OUTCOME_UNKNOWN", false, dispatched = true, remoteAcceptance = RemoteRequestAcceptance.UNKNOWN, phase = "tool_execution")
+        val message = MessageV2(content = "", platformType = "profile", timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, profileFailure = prior)))
+        for (error in listOf(cooldown(), profileLock())) {
+            val unknown = requireNotNull(coordinatorFailureRecord(message, error, false))
+            assertEquals("TOOL_OUTCOME_UNKNOWN", unknown.category)
+            assertEquals(true, unknown.dispatched)
+            assertEquals(RemoteRequestAcceptance.UNKNOWN, unknown.remoteAcceptance)
+            assertFalse(unknown.retryAllowed)
+            val rejected = prior.copy(category = "RATE_LIMIT", remoteAcceptance = RemoteRequestAcceptance.NO, requestReplayAllowed = false)
+            val retained = message.copy(timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, profileFailure = rejected)))
+            val result = requireNotNull(coordinatorFailureRecord(retained, error, false))
+            assertEquals(true, result.dispatched)
+            assertEquals(RemoteRequestAcceptance.NO, result.remoteAcceptance)
+            assertEquals(false, result.requestReplayAllowed)
+        }
+    }
+
+    private fun cooldown(): GitHubCooldownActive {
+        val limits = GitHubRateLimitManager()
+        limits.record(headersOf("X-RateLimit-Remaining" to listOf("0"), "X-RateLimit-Reset" to listOf("130")), nowMillis = 100_000)
+        return assertThrows(GitHubCooldownActive::class.java) { limits.requireAvailable("core", 110) }
+    }
+
+    private fun profileLock() = GitHubProfileSelectionRejected(false, true, true, "a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64))
+
     @Test fun localGitHubCooldownPreservesTheDelayWithoutClaimingAnHttpResponse() {
         val error = GitHubRateLimitAdmissionException("GITHUB_PRIMARY_RATE_LIMITED", 12_000)
         val event = requireNotNull(AgentFailureEvidence.exception(error))

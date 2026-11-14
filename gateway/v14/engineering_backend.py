@@ -103,6 +103,8 @@ def prepare_changes(proposal, files, tree):
 
 class ReadOnlyGraphGitHub:
     """Graph source access shares the selected host identity, never its write surface."""
+    SOURCE_REQUEST_RESERVE = 100
+
     def __init__(self, backend):
         self.backend = backend
 
@@ -116,7 +118,11 @@ class ReadOnlyGraphGitHub:
     def api(self, path, method='GET', body=None, job=None, text=False):
         if method not in {'GET', 'HEAD'} or body is not None or job is not None:
             raise PermissionError('Repository graph access cannot dispatch GitHub mutations or engineering jobs')
-        return self.backend.api(path, method=method, text=text, read_only=True)
+        # Leave observed capacity for interactive status, CI and repository work.
+        # Identity/status reads still work while large source batches are deferred.
+        source_read = '/git/blobs/' in path or '/git/trees/' in path
+        return self.backend.api(path, method=method, text=text, read_only=True,
+                                capacity_reserve=self.SOURCE_REQUEST_RESERVE if source_read else 0)
 
     def paged(self, path, key=None, job=None, maximum=1000):
         # The common paginator calls this adapter's guarded GET path on every page.
@@ -268,7 +274,7 @@ class GitHubEngineeringBackend:
         owner, repo = job['request']['repository'].split('/')
         return '/repos/' + quote(owner, safe='') + '/' + quote(repo, safe='')
 
-    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False):
+    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False, capacity_reserve=0):
         if read_only and (method not in {'GET', 'HEAD'} or body is not None):
             raise PermissionError('Read-only GitHub access cannot dispatch a mutation')
         started = time.monotonic()
@@ -315,7 +321,9 @@ class GitHubEngineeringBackend:
                 return self.operations.service.artifacts.json_value(job, operation['response_ref'])
             # Physical intent is recorded only after API admission succeeds.
         try:
-            with self.github_governor.lease(token, mutating=mutating, cancelled=admission_stopped):
+            resource = 'search' if path.startswith('/search/') else 'graphql' if path == '/graphql' else 'core'
+            with self.github_governor.lease(token, mutating=mutating, cancelled=admission_stopped,
+                                           resource=resource, reserve=capacity_reserve):
                 if operation:
                     self.operations.dispatch(job, operation)
                 with requests.request(method, 'https://api.github.com' + path, headers=headers, json=body,

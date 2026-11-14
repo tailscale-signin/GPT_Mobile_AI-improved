@@ -15,9 +15,10 @@ import requests
 
 
 class GitHubApiRateWait(requests.HTTPError):
-    def __init__(self, seconds):
+    def __init__(self, seconds, *, reason='RATE_LIMIT_COOLDOWN'):
         super().__init__('GitHub API capacity is temporarily unavailable')
         self.dispatched = False
+        self.reason = reason
         self.response = SimpleNamespace(status_code=429, headers={
             'Retry-After': str(max(1, math.ceil(seconds)))})
 
@@ -40,7 +41,7 @@ class GitHubApiGovernor:
                                               'next_mutation': 0.0})
 
     @contextmanager
-    def lease(self, token, *, mutating=False, cancelled=lambda: False):
+    def lease(self, token, *, mutating=False, cancelled=lambda: False, resource='core', reserve=0):
         key = self._identity(token)
         with self.condition:
             while True:
@@ -51,8 +52,20 @@ class GitHubApiGovernor:
                 if record['cooldown_until'] > now:
                     # Hand the authoritative wait back to the durable job journal.
                     raise GitHubApiRateWait(record['cooldown_until'] - now)
+                # Source indexing shares the credential with foreground work.
+                # A reserve is local policy, never an assumed GitHub quota. Only
+                # an observed core remaining/reset pair can defer a source read.
+                if resource == 'core' and record.get('core_reset_at', 0) > now:
+                    remaining = record.get('core_remaining')
+                    if remaining is not None and remaining <= reserve:
+                        reason = 'FOREGROUND_RESERVE' if reserve and remaining > 0 else 'OBSERVED_QUOTA_EXHAUSTED'
+                        raise GitHubApiRateWait(record['core_reset_at'] - now, reason=reason)
                 if not record['active'] and (not mutating or now >= record['next_mutation']):
                     record['active'] = True
+                    if resource == 'core' and record.get('core_reset_at', 0) > now and record.get('core_remaining') is not None:
+                        # Spend the admission atomically even if the next response
+                        # lacks quota headers or its connection is interrupted.
+                        record['core_remaining'] = max(0, record['core_remaining'] - 1)
                     break
                 self.condition.wait(timeout=.1)
         try:
@@ -80,35 +93,56 @@ class GitHubApiGovernor:
                 return max(0.0, value)
         return None
 
-    def observe(self, token, status, headers, *, mutating=False):
+    @staticmethod
+    def _headers(headers):
         # Response test doubles and adapter-specific responses may not expose a
         # mapping. Treat absent metadata as an ordinary response instead of
         # breaking the request path after a successful HTTP exchange.
         items = headers.items() if callable(getattr(headers, 'items', None)) else ()
         try:
-            headers = {str(key).lower(): value for key, value in items}
+            return {str(key).lower(): value for key, value in items}
         except TypeError:
-            headers = {}
+            return {}
+
+    @staticmethod
+    def _reset(headers):
+        try:
+            reset = float(headers.get('x-ratelimit-reset'))
+            if reset >= 1_000_000_000_000:
+                reset /= 1000
+            return reset if 1_000_000_000 <= reset < 100_000_000_000 else None
+        except (TypeError, ValueError, OverflowError):
+            return None
+
+    @classmethod
+    def retry_delay(cls, status, headers, wall_now):
+        """Bounded metadata-only classification; a bare forbidden response is not throttling."""
+        headers = cls._headers(headers)
         limited = status == 429 or status == 403 and (
-            'retry-after' in headers or headers.get('x-ratelimit-remaining') == '0')
+            'retry-after' in headers or str(headers.get('x-ratelimit-remaining')) == '0')
         if not limited:
-            return
-        cooldown = self._retry_after(headers, self.wall())
+            return None
+        cooldown = cls._retry_after(headers, wall_now)
         if cooldown is None:
             cooldown = 60.0
-        reset = headers.get('x-ratelimit-reset')
-        if reset is not None:
-            try:
-                reset_epoch = float(reset)
-                if reset_epoch >= 1_000_000_000_000:
-                    reset_epoch /= 1000
-                if 1_000_000_000 <= reset_epoch < 100_000_000_000:
-                    cooldown = max(cooldown, reset_epoch - self.wall())
-            except (TypeError, ValueError, OverflowError):
-                pass
+        reset = cls._reset(headers)
+        if reset is not None and str(headers.get('x-ratelimit-remaining')) == '0':
+            cooldown = max(cooldown, reset - wall_now)
+        return max(1.0, cooldown)
+
+    def observe(self, token, status, headers, *, mutating=False):
+        headers = self._headers(headers)
+        wall_now = self.wall()
+        cooldown = self.retry_delay(status, headers, wall_now)
         with self.condition:
             record = self._record(token)
-            record['cooldown_until'] = max(record['cooldown_until'], self.clock() + max(1.0, cooldown))
+            now = self.clock()
+            reset = self._reset(headers)
+            remaining = str(headers.get('x-ratelimit-remaining', ''))
+            if headers.get('x-ratelimit-resource') == 'core' and 1 <= len(remaining) <= 12 and remaining.isascii() and remaining.isdecimal() and reset is not None and reset > wall_now:
+                record.update(core_remaining=int(remaining), core_reset_at=now + reset - wall_now)
+            if cooldown is not None:
+                record['cooldown_until'] = max(record['cooldown_until'], now + cooldown)
             self.condition.notify_all()
 
 

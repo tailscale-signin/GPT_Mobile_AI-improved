@@ -381,6 +381,144 @@ class IncidentReportContractTest(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     validate_diagnostics(bad)
 
+    def test_github_cooldown_preserves_full_long_range_closed_types_and_exact_report(self):
+        from authentication.issue_report_diagnostics import GITHUB_COOLDOWN_LONGS, GITHUB_COOLDOWN_FIELDS
+        longs = {"github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_observed_at_ms"}
+        fields = longs | {"github_cooldown_resource", "github_cooldown_basis", "github_cooldown_remaining_requests"}
+        self.assertEqual(longs, GITHUB_COOLDOWN_LONGS)
+        self.assertEqual(fields, GITHUB_COOLDOWN_FIELDS)
+        code = "GITHUB_COOLDOWN_ACTIVE"
+        sample = {"github_cooldown_resource": "CORE", "github_cooldown_basis": "RESOURCE_RESET",
+                  "github_cooldown_delay_ms": 20_000, "github_cooldown_deadline_ms": 130_000,
+                  "github_cooldown_observed_at_ms": 100_000, "github_cooldown_remaining_requests": 0}
+        for area, code_field in (("PROVIDER", "provider_failure_code"), ("TOOL", "tool_error_code")):
+            values = {**sample, code_field: code, "causal_failure_code": code}
+            for boundary in (0, 86_400_001, 9_223_372_036_854_775_807):
+                capture = self.capture(area, {**values, **dict.fromkeys(longs, boundary)})
+                original = copy.deepcopy(capture)
+                self.assertEqual(original, validate_diagnostics(capture))
+                report = self.report(capture)
+                report.update(feature="chat", errorCode=code, events=["-0ms E chat " + code])
+                report["context"]["source"] = "CHAT_FAILURE"
+                approved = copy.deepcopy(report)
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, report)
+                self.assertIn(code, issue["title"])
+                for key in fields:
+                    self.assertIn(key, issue["body"])
+                self.assertIn(str(boundary), issue["body"])
+                self.assertNotIn("dispatched", report["context"])
+                self.assertNotIn("remoteAcceptance", report["context"])
+            for resource in ("CORE", "SEARCH", "GRAPHQL", "OTHER"):
+                for basis in ("SECONDARY_DEADLINE", "RESOURCE_RESET", "RESOURCE_RETRY_AFTER", "RESOURCE_RESET_AND_RETRY_AFTER"):
+                    validate_diagnostics(self.capture(area, {**values, "github_cooldown_resource": resource,
+                        "github_cooldown_basis": basis, "github_cooldown_remaining_requests": 16_000_000}))
+            for key in fields:
+                invalid = ("PRIVATE_RESOURCE", "core", 1, False) if key in {"github_cooldown_resource", "github_cooldown_basis"} else (
+                    -1, "20000", 1.0, False, 9_223_372_036_854_775_808)
+                if key == "github_cooldown_remaining_requests":
+                    invalid += (16_000_001,)
+                for value in invalid + (None, [], {}):
+                    with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                        validate_diagnostics(self.capture(area, {**values, key: value}))
+        for key in fields:
+            for area in ("VOICE", "APP", "INCIDENT", "GATEWAY", "ACCEPTANCE"):
+                with self.subTest(key=key, area=area), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {key: sample[key]}))
+
+    def test_github_cooldown_optional_snapshot_values_and_code_only_reports_stay_absent(self):
+        from authentication.issue_report_diagnostics import GITHUB_COOLDOWN_FIELDS
+        code = "GITHUB_COOLDOWN_ACTIVE"
+        for area, code_field in (("PROVIDER", "provider_failure_code"), ("TOOL", "tool_error_code")):
+            secondary = self.capture(area, {"github_cooldown_resource": "SEARCH", "github_cooldown_basis": "SECONDARY_DEADLINE",
+                "github_cooldown_delay_ms": 20_000, "github_cooldown_deadline_ms": 130_000})
+            validate_diagnostics(secondary)
+            self.assertNotIn("github_cooldown_observed_at_ms", secondary["values"])
+            self.assertNotIn("github_cooldown_remaining_requests", secondary["values"])
+            omitted = self.capture(area, {code_field: code})
+            omitted["omittedFields"] = sorted(GITHUB_COOLDOWN_FIELDS)
+            validate_diagnostics(omitted)
+        for area, field in (("PROVIDER", "provider_failure_code"), ("INCIDENT", "causal_failure_code"), ("VOICE", "voice_chat_failure_code"), ("TOOL", "tool_error_code")):
+            capture = self.capture(area, {field: code})
+            report = self.report(capture)
+            report.update(feature="chat", errorCode=code, events=["-0ms E chat " + code])
+            report["context"]["source"] = "CHAT_FAILURE"
+            approved = copy.deepcopy(report)
+            _, issue = issue_from_report(report)
+            self.assertEqual(approved, report)
+            self.assertIn(code, issue["body"])
+            self.assertTrue(GITHUB_COOLDOWN_FIELDS.isdisjoint(report["context"]["diagnostics"]["values"]))
+
+    def test_github_http_rate_report_keeps_response_status_separate_from_model_provider(self):
+        for code, status in (("GITHUB_PRIMARY_RATE_LIMITED", 403), ("GITHUB_SECONDARY_RATE_LIMITED", 429)):
+            for measured in (False, True):
+                values = {"provider_failure_code": code, "provider_failure_stage": "GENERATION", "provider_failure_domain": "TOOL_EXECUTION",
+                          "github_cooldown_resource": "CORE", "github_cooldown_observed_at_ms": 100_000,
+                          "request_replay_allowed": False}
+                if measured:
+                    values.update(github_cooldown_basis="RESOURCE_RETRY_AFTER", github_cooldown_delay_ms=20_000,
+                                  github_cooldown_deadline_ms=120_000, github_cooldown_remaining_requests=0)
+                report = self.report(self.capture("PROVIDER", values))
+                report.update(feature="chat", errorCode=code)
+                report["context"].update(source="CHAT_FAILURE", provider="LLAMA", stage="tool_execution", httpStatus=status,
+                                         retryable=False, recoveryAction="RETRY_AFTER_BACKOFF")
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = copy.deepcopy(report)
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, report)
+                self.assertIn(code, issue["title"])
+                self.assertIn("TOOL_EXECUTION", issue["body"])
+                self.assertIn("tool_execution", issue["body"])
+                self.assertNotIn("dispatched", report["context"])
+                self.assertNotIn("remoteAcceptance", report["context"])
+                if not measured:
+                    self.assertTrue({"github_cooldown_basis", "github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_remaining_requests"}.isdisjoint(values))
+                for area, field in (("INCIDENT", "causal_failure_code"), ("VOICE", "voice_chat_failure_code")):
+                    validate_diagnostics(self.capture(area, {field: code}))
+
+    def test_profile_selection_preserves_closed_comparisons_hashes_and_exact_report(self):
+        from authentication.issue_report_diagnostics import PROFILE_SELECTION_FLAGS, PROFILE_SELECTION_HASHES, PROFILE_SELECTION_FIELDS
+        flags = {"github_selection_profile_match", "github_selection_registered_profile", "github_selection_model_match"}
+        hashes = {"github_selection_profile_hash", "github_selection_registered_model_hash"}
+        self.assertEqual(flags, PROFILE_SELECTION_FLAGS)
+        self.assertEqual(hashes, PROFILE_SELECTION_HASHES)
+        self.assertEqual(flags | hashes, PROFILE_SELECTION_FIELDS)
+        code = "GITHUB_PROFILE_LOCKED"
+        values = {**{key: key == "github_selection_registered_profile" for key in flags},
+                  **{key: "a" * 64 for key in hashes}, "provider_failure_code": code, "causal_failure_code": code}
+        capture = self.capture("PROVIDER", values)
+        original = copy.deepcopy(capture)
+        validate_diagnostics(capture)
+        self.assertEqual(original, capture)
+        report = self.report(capture)
+        report.update(feature="chat", errorCode=code)
+        report["events"] = ["-0ms E chat " + code]
+        report["context"]["source"] = "CHAT_FAILURE"
+        approved = copy.deepcopy(report)
+        _, issue = issue_from_report(report)
+        self.assertEqual(approved, report)
+        self.assertIn(code, issue["title"])
+        for key in PROFILE_SELECTION_FIELDS:
+            self.assertIn(key, issue["body"])
+        omitted = self.capture("PROVIDER", {"provider_failure_code": code})
+        omitted["omittedFields"] = sorted(PROFILE_SELECTION_FIELDS)
+        validate_diagnostics(omitted)
+        unregistered = self.capture("PROVIDER", {"github_selection_profile_match": False,
+                                               "github_selection_registered_profile": False,
+                                               "github_selection_profile_hash": "b" * 64})
+        validate_diagnostics(unregistered)
+        self.assertNotIn("github_selection_model_match", unregistered["values"])
+        self.assertNotIn("github_selection_registered_model_hash", unregistered["values"])
+        for key in PROFILE_SELECTION_FIELDS:
+            invalid = ("false", 0, 1, None, [], {}, "PRIVATE_TOKEN") if key in flags else (
+                "A" * 64, "a" * 63, "a" * 65, False, 1, None, [], "PRIVATE_MODEL")
+            for value in invalid:
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", {**values, key: value}))
+            for area in ("TOOL", "VOICE", "APP", "INCIDENT", "GATEWAY", "ACCEPTANCE"):
+                with self.subTest(key=key, area=area), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {key: values[key]}))
+
     def test_session_recovery_diagnostics_validate_through_issue_submission(self):
         samples = {
             "PROVIDER": {"provider_failure_code": "CONVERSATION_CONFLICT", "conflict_active_job_kind": "generation",

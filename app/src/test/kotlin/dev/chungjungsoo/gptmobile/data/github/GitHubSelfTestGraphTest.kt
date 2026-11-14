@@ -37,6 +37,26 @@ class GitHubSelfTestGraphTest {
         assertTrue(calls(missing(), graph("index", """"has_more":true""")).isEmpty())
     }
 
+    @Test fun localGraphIndexingStaysOutsideFixtureMutationsAndCanCompleteItsCapability() {
+        val indexTool = AgentToolDefinition(tool.name, tool.description, json("""{"type":"object","required":["action"],"properties":{"action":{"enum":["status","index"]},"options":{"type":"object"}}}"""))
+        val contextTool = AgentToolDefinition("github_context__selected", "Selected context", json("""{"properties":{"action":{"enum":["status"]}}}"""))
+        val tools = listOf(contextTool, indexTool)
+        val receipts = linkedMapOf("selected" to status(), "graph" to missing())
+        fun row() = GitHubTestChecklist.rows(receipts, tools, "test all tools").filterIsInstance<JsonObject>()
+            .single { it["id"] == JsonPrimitive("repository_graph:index") }
+        val pending = row()
+        assertEquals(JsonPrimitive("NOT_APPLICABLE"), pending["fixture_state"])
+        assertFalse(pending["applicability"] == JsonPrimitive("OWNED_FIXTURE_REQUIRED"))
+        assertFalse(pending["blocker_code"] == JsonPrimitive("OWNED_FIXTURE_REQUIRED"))
+        assertEquals(json("""{"action":"index"}"""), (pending["next_call"] as JsonObject)["arguments"])
+        assertFalse(GitHubTestChecklist.capabilitiesComplete("test all tools", receipts, tools))
+        receipts["index"] = indexed()
+        assertEquals(JsonPrimitive("PASSED"), row()["status"])
+        assertEquals(JsonPrimitive("NOT_APPLICABLE"), row()["fixture_state"])
+        assertTrue(GitHubTestChecklist.capabilitiesComplete("test all tools", receipts, tools))
+        assertFalse(dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(tool.name, json("""{"action":"index"}""")))
+    }
+
     @Test fun failedOrUnconfirmedIndexNeverReplaysAndSelectorsNeverCrossRepositoryRevisionOrGateway() {
         val attempt = graph("index", """"has_more":true,"index_cursor":"next-1"""")
         val failed = JsonObject(attempt + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("GRAPH_INDEX_OUTCOME_UNKNOWN")))
@@ -70,6 +90,43 @@ class GitHubSelfTestGraphTest {
         assertEquals(GitHubCriterionBlocker.GRAPH_INDEX_UNCONFIRMED, GitHubSelfTestGraph.blocker("query", listOf(status(), missing(), failed, missing())))
         val complete = graph("status", """"has_more":false""")
         assertEquals(JsonPrimitive("architecture"), calls(missing(), failed, complete).first().arguments["action"])
+    }
+
+    @Test fun independentReadsAndSourceDependenciesPrecedeEveryIndexBatch() {
+        val context = AgentToolDefinition(
+            "github_context__selected",
+            "Repository",
+            json("""{"type":"object","properties":{"action":{"enum":["status","repository"]},"verify_live":{"type":"boolean"}},"required":["action"],"additionalProperties":false}""")
+        )
+        val workflow = AgentToolDefinition(
+            "github_ci__selected",
+            "Workflow definitions",
+            json("""{"type":"object","properties":{"action":{"enum":["definitions"]},"commit_sha":{"type":"string"},"verify_live":{"type":"boolean"}},"required":["action","commit_sha"],"additionalProperties":false}""")
+        )
+        val tools = listOf(tool, context, workflow)
+        val repository = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"${context.name}","arguments":{"action":"repository","verify_live":true},"result":{}}""")
+        val definitions = json("""{"binding":"task","repository":"owner/repo","trusted":true,"success":true,"tool":"${workflow.name}","arguments":{"action":"definitions","commit_sha":"$sha","verify_live":true},"result":{}}""")
+        val preparations = listOf(missing(), graph("index", """"has_more":true,"index_cursor":"next-page""""))
+        for (preparation in preparations) {
+            val receipts = listOf(status(), preparation)
+            assertEquals(context.name, GitHubSelfTestReads.next(tools, receipts)?.name)
+            assertEquals(workflow.name, GitHubSelfTestReads.next(tools, receipts + repository)?.name)
+            val index = GitHubSelfTestReads.next(tools, receipts + repository + definitions)
+            assertEquals(tool.name, index?.name)
+            assertEquals(JsonPrimitive("index"), index?.arguments?.get("action"))
+            assertEquals(GitHubSelfTestGraph.available(tools, receipts).single(), index)
+        }
+        // Restoring many unfinished batches must not restore their old priority.
+        val restored = listOf(status(), missing()) + (1..110).map { page ->
+            graph("index", """"has_more":true,"index_cursor":"page-$page"""", """, "options":{"index_cursor":"page-${page - 1}"}""")
+        }
+        assertEquals(context.name, GitHubSelfTestReads.next(tools, restored)?.name)
+        assertEquals(json("""{"action":"index","options":{"index_cursor":"page-110"}}"""), GitHubSelfTestReads.next(tools, restored + repository + definitions)?.arguments)
+        val failed = JsonObject(graph("index", """"has_more":true""") + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("GRAPH_INDEX_OUTCOME_UNKNOWN")))
+        val reconciliation = GitHubSelfTestReads.next(tools, listOf(status(), missing(), failed))
+        assertEquals(tool.name, reconciliation?.name)
+        assertEquals(JsonPrimitive("status"), reconciliation?.arguments?.get("action"))
+        assertTrue(GitHubSelfTestReads.isDependency(requireNotNull(reconciliation)))
     }
 
     @Test fun graphPreparationRequiresTaskBindingAndReportsMapPrerequisitesInsteadOfRepositoryInputs() {

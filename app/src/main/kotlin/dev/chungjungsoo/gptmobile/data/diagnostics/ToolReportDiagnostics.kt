@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import java.security.MessageDigest
 import kotlinx.serialization.json.Json
@@ -15,9 +16,33 @@ import kotlinx.serialization.json.contentOrNull
 /** Only the persisted call supplies identity and argument shape; result prose never supplies either. */
 internal object ToolReportDiagnostics {
     private val actions = setOf("status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch")
-    private val errors = setOf("APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED")
+    private val errors = setOf("APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_COOLDOWN_ACTIVE")
     private val reasons = setOf("BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH")
     private val phases = setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED")
+
+    /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */
+    fun reportCode(event: ToolEvent?, result: AgentToolResult): String? {
+        val receipt = result.executionReceipt
+        val savedIndexPrecheck = event != null &&
+            event.callId == result.callId &&
+            event.modelToolName.substringBefore("__") == "repository_graph" &&
+            event.arguments.length <= MAX_ARGUMENT_CHARS &&
+            runCatching { (Json.parseToJsonElement(event.arguments) as? JsonObject)?.get("action") }.getOrNull() == JsonPrimitive("index") &&
+            result.isError &&
+            !result.dispatched &&
+            result.errorCode == "GRAPH_INDEX_OUTCOME_UNKNOWN" &&
+            receipt?.get("schema") == JsonPrimitive(RepositoryGraphTool.RECEIPT_SCHEMA) &&
+            receipt["call_id"] == JsonPrimitive(result.callId) &&
+            receipt["error_code"] == JsonPrimitive(result.errorCode) &&
+            receipt["phase"] == JsonPrimitive("PRECHECK_REJECTED") &&
+            receipt["dispatched"] == JsonPrimitive(false) &&
+            receipt["retryable"] == JsonPrimitive(false) &&
+            receipt["index_outcome_unknown"] == JsonPrimitive(true) &&
+            receipt["requires_reconciliation"] == JsonPrimitive(true) &&
+            receipt["repair_action"] == JsonPrimitive("CHECK_SAVED_INDEX") &&
+            receipt["recovery_action"] == JsonPrimitive("RECONCILE_OUTCOME")
+        return if (savedIndexPrecheck) "RECONCILIATION_REQUIRED" else IssueReportCodes.toolResult(result.errorCode)
+    }
 
     fun fields(event: ToolEvent?, result: AgentToolResult, precheckReason: String? = null): Map<String, Any?> = buildMap {
         if (event == null || event.callId != result.callId) return@buildMap

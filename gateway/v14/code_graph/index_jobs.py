@@ -13,6 +13,7 @@ import uuid
 import requests
 
 from v14.engineering_crypto import EngineeringCipher
+from v14.github_api_governor import GitHubApiGovernor
 from .extract import identity
 
 
@@ -91,7 +92,7 @@ class GraphIndexJobs:
             return None
         fields = ('id', 'state', 'generation', 'request_id', 'accepted_request_ids', 'created_at', 'updated_at',
                   'completed_files', 'total_files', 'failed_files', 'unsupported_files', 'partial_files',
-                  'coverage_complete', 'processing_complete', 'batches', 'error_code')
+                  'coverage_complete', 'processing_complete', 'batches', 'error_code', 'retry_at')
         return {name: job.get(name) for name in fields}
 
     def status(self, principal, request):
@@ -120,6 +121,9 @@ class GraphIndexJobs:
 
         def mutate(db):
             job = self._read(db, key)
+            retry_at = (job or {}).get('retry_at')
+            rate_wait = {'retry_at': retry_at, 'rate_wait_code': job.get('rate_wait_code', job.get('error_code'))} \
+                if retry_at is not None and retry_at > now else None
             if job and request_id in job.get('request_digests', {}):
                 if job['request_digests'][request_id] != request_digest:
                     raise ValueError('Index request identity was reused for a different operation')
@@ -135,7 +139,7 @@ class GraphIndexJobs:
                     job.update(state='PAUSED', lease=None, lease_until=0)
                 elif action == 'resume' and job['state'] in {'PAUSED', 'INTERRUPTED', 'FAILED'}:
                     job.update(state='QUEUED', lease=None, lease_until=0, next_at=now, error_code=None, attempts=0,
-                               deadline=now + 24 * 3600, batches=0, generation=job['generation'] + 1)
+                               deadline=now + 24 * 3600, batches=0, generation=job['generation'] + 1, retry_at=None)
             elif not job or job['state'] in TERMINAL or job['state'] in {'PAUSED', 'INTERRUPTED'}:
                 if not job and db.execute('SELECT COUNT(*) FROM code_graph_index_jobs').fetchone()[0] >= MAX_JOBS:
                     raise ValueError('Saved repository index job capacity reached')
@@ -149,7 +153,11 @@ class GraphIndexJobs:
                        'retry_outcome_unknown': False, 'retry_baseline': None,
                        'request_digests': {}, 'completed_files': None, 'total_files': None, 'failed_files': None,
                        'unsupported_files': None, 'partial_files': None, 'processing_complete': False,
-                       'coverage_complete': None, 'error_code': None}
+                       'coverage_complete': None, 'error_code': None, 'retry_at': None, 'rate_wait_code': None}
+            if rate_wait and job['state'] == 'QUEUED':
+                # Control requests may renew the work budget, but cannot erase an
+                # observed rate deadline after the in-memory governor restarts.
+                job.update(rate_wait, next_at=min(retry_at, job['deadline']), error_code=rate_wait['rate_wait_code'])
             job['request_digests'][request_id] = request_digest
             job['request_digests'] = dict(list(job['request_digests'].items())[-16:])
             job.update(request_id=request_id, accepted_request_ids=list(job['request_digests']), updated_at=now)
@@ -279,7 +287,8 @@ class GraphIndexJobs:
             self._finish(job, state='FAILED', error_code='INDEX_RETRY_OUTCOME_UNKNOWN', processing_complete=False)
             return
         if status.get('has_more') is False and not job['retry_pending']:
-            self._finish(job, state='COMPLETED', error_code=None, retry_outcome_unknown=False, **self._progress(status))
+            self._finish(job, state='COMPLETED', error_code=None, retry_at=None, rate_wait_code=None,
+                         retry_outcome_unknown=False, **self._progress(status))
             return
         arguments = dict(request, action='index', budget_bytes=4096)
         if job['retry_pending']:
@@ -314,11 +323,26 @@ class GraphIndexJobs:
         if more and (not result.get('index_cursor') or result.get('index_cursor') == arguments.get('index_cursor')):
             raise ValueError('Index batch did not advance')
         self._finish(job, state='QUEUED' if more else 'COMPLETED', next_at=self.now(), retry_pending=False,
-                     retry_outcome_unknown=False, batches=job['batches'] + 1, attempts=0, error_code=None, **self._progress(result))
+                     retry_outcome_unknown=False, batches=job['batches'] + 1, attempts=0, error_code=None,
+                     retry_at=None, rate_wait_code=None, **self._progress(result))
 
     def _failure(self, job, error):
         if isinstance(error, InterruptedError) or self.stop.is_set():
             self._finish(job, state='INTERRUPTED', next_at=self.now(), error_code=None)
+            return
+        response = error.response if isinstance(error, requests.HTTPError) else None
+        wait = GitHubApiGovernor.retry_delay(response.status_code, response.headers, self.now()) if response is not None else None
+        if wait is not None:
+            # Keep the durable revision/cursor and release the worker until the
+            # observed reset. A rate wait does not spend transport retry attempts
+            # or revoke access; the next step reconciles status before indexing.
+            retry_at = self.now() + wait
+            code = 'INDEX_CAPACITY_RESERVED' if getattr(error, 'reason', None) == 'FOREGROUND_RESERVE' else 'INDEX_RATE_LIMIT_WAIT'
+            # Wake at the budget boundary even if the server wait is longer.
+            # _take pauses expired jobs without dispatching; retry_at remains the
+            # full observed wait so an explicit resume cannot bypass it.
+            self._finish(job, state='QUEUED', next_at=min(retry_at, job['deadline']),
+                         retry_at=retry_at, rate_wait_code=code, error_code=code)
             return
         transient = isinstance(error, (requests.RequestException, TimeoutError, OSError))
         if isinstance(error, requests.HTTPError) and error.response is not None and error.response.status_code in {401, 403}:

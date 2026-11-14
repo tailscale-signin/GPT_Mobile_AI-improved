@@ -2148,7 +2148,11 @@ class GitHubWorkspaceClient(
                 check(!credential.authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
                 rateLimits.requireAvailable("graphql")
             } catch (rejected: IllegalStateException) {
-                if (!readOnlyQuery) throw GitHubRequestRejected(0, rejected.message ?: "GraphQL admission failed before dispatch")
+                if (!readOnlyQuery) {
+                    throw GitHubRequestRejected(0, rejected.message ?: "GraphQL admission failed before dispatch").apply {
+                        if (rejected is GitHubCooldownActive) initCause(rejected)
+                    }
+                }
                 throw rejected
             }
             scheduler.recordRequest()
@@ -2619,7 +2623,11 @@ class GitHubWorkspaceClient(
                     if (method == HttpMethod.Get && !expectedOwnedRefAbsence) credential.refAvailability.requireAvailable(path)
                     if (path != "/rate_limit") rateLimits.requireAvailable(if (path.startsWith("/search/")) "search" else "core")
                 } catch (rejected: IllegalStateException) {
-                    if (method != HttpMethod.Get) throw GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch.")
+                    if (method != HttpMethod.Get) {
+                        throw GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch.").apply {
+                            if (rejected is GitHubCooldownActive) initCause(rejected)
+                        }
+                    }
                     throw rejected
                 }
                 scheduler.recordRequest()
@@ -2638,7 +2646,8 @@ class GitHubWorkspaceClient(
                     }
                 }
                 GitHubDispatchAccounting.responded(method != HttpMethod.Get, response.status.value, observationId, response.headers["X-GitHub-Request-Id"], expectedAbsence = expectedOwnedRefAbsence)
-                rateLimits.record(response.headers, response.status.value)
+                var responseObservedAtMillis = System.currentTimeMillis()
+                rateLimits.record(response.headers, response.status.value, responseObservedAtMillis)
                 if (response.status.value == 304 && cached == null && method == HttpMethod.Get) {
                     // A validator without its body is unusable. One unconditional
                     // read recovers an evicted body; a repeated 304 is an error.
@@ -2652,7 +2661,8 @@ class GitHubWorkspaceClient(
                         if (credential.token.isNotBlank()) header(HttpHeaders.Authorization, "Bearer ${credential.token}")
                     }
                     GitHubDispatchAccounting.responded(false, response.status.value, recoveryObservationId, response.headers["X-GitHub-Request-Id"])
-                    rateLimits.record(response.headers, response.status.value)
+                    responseObservedAtMillis = System.currentTimeMillis()
+                    rateLimits.record(response.headers, response.status.value, responseObservedAtMillis)
                     check(response.status.value != 304) { "GITHUB_CACHE_BODY_MISSING: unconditional revalidation returned no body." }
                 }
                 if (response.status.value == 304 && cached != null) {
@@ -2713,7 +2723,7 @@ class GitHubWorkspaceClient(
                                 acceptedOAuthScopes = response.headers["X-Accepted-OAuth-Scopes"]
                             )
                         } else {
-                            null
+                            GitHubRateLimitResponseEvidence.fromResponse(response.status.value, category, response.headers, responseObservedAtMillis)
                         }
                     )
                 }

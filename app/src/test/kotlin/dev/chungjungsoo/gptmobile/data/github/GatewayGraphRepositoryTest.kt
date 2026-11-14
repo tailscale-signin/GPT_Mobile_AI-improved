@@ -1,5 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
+import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolConnection
 import dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings
@@ -26,6 +30,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -310,6 +315,144 @@ class GatewayGraphRepositoryTest {
             val observed = restored.executeForMap(context, action("status"), host.uid)
             assertFalse(observed.indexOutcomeUnknown)
             assertEquals(JsonPrimitive("next-page"), observed.result["index_cursor"])
+        }
+    }
+
+    @Test fun toolCallbackRetainsUnresolvedIndexAcrossBlockedIndexAndSuccessfulUnchangedStatus() = runTest {
+        var saved = notIndexed
+        var writes = 0
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(ready, HttpStatusCode.OK, headers)
+                } else {
+                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    if (body["action"] == JsonPrimitive("index")) {
+                        writes++
+                        throw IOException("private lost index response")
+                    }
+                    respond(saved, HttpStatusCode.OK, headers)
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val repo = repository(http)
+            val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
+            assertTrue(tool.execute("first-index", action("index")).isError)
+            val blocked = tool.execute("fresh-index", action("index"))
+            assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", blocked.errorCode)
+            assertFalse(blocked.dispatched)
+            assertEquals("PRECHECK_REJECTED", ToolResultEnvelope.executionState(blocked))
+            assertEquals(JsonPrimitive(true), blocked.executionReceipt?.get("requires_reconciliation"))
+            assertEquals(JsonPrimitive(false), blocked.executionReceipt?.get("retryable"))
+            val recovery = (blocked.content as ToolResultContent.Json).value.jsonObject.getValue("recovery_call").jsonObject
+            assertEquals(JsonPrimitive("repository_graph__selected"), recovery["tool"])
+            assertEquals(action("status"), recovery["arguments"])
+
+            val unchanged = tool.execute("unchanged-status", action("status"))
+            assertFalse(unchanged.isError)
+            assertEquals("COMPLETED", ToolResultEnvelope.executionState(unchanged))
+            assertEquals(JsonPrimitive(true), unchanged.executionReceipt?.get("requires_reconciliation"))
+            assertEquals(JsonPrimitive(true), (unchanged.content as ToolResultContent.Json).value.jsonObject.getValue("index_checkpoint").jsonObject["index_outcome_unknown"])
+            assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", tool.execute("still-blocked", action("index")).errorCode)
+            assertEquals(1, writes)
+
+            saved = status("acknowledged-next-page")
+            val observed = tool.execute("reconciled-status", action("status"))
+            assertFalse(observed.isError)
+            assertEquals(JsonPrimitive(false), (observed.content as ToolResultContent.Json).value.jsonObject.getValue("index_checkpoint").jsonObject["index_outcome_unknown"])
+            assertEquals(null, observed.executionReceipt)
+            assertEquals(1, writes)
+        }
+    }
+
+    @Test fun toolCallbackKeepsPriorIndexUncertaintyAndTypedStatusFallbackEligibility() = runTest {
+        var failedStatus = false
+        var writes = 0
+        var nativeReads = 0
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(ready, HttpStatusCode.OK, headers)
+                } else {
+                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    if (body["action"] == JsonPrimitive("index")) {
+                        writes++
+                        failedStatus = true
+                        throw IOException("private lost index response")
+                    }
+                    if (failedStatus) {
+                        respond("""{"error":{"code":"graph_connection_required","reason":"HOST_GITHUB_CONNECTION_REQUIRED"},"readiness":{"schema_version":1,"graph_ready":false,"checks":{"journal":"ready","host_github_connection":"missing"}}}""", HttpStatusCode.PreconditionFailed, headers)
+                    } else {
+                        respond(notIndexed, HttpStatusCode.OK, headers)
+                    }
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val repo = repository(http)
+            val tool = RepositoryGraphTool(
+                "repository_graph__selected",
+                nativeStatus = {
+                    nativeReads++
+                    AgentToolResult(it, ToolResultContent.Text("independent native status"), false)
+                }
+            ) { repo.execute(context, it) }
+            assertTrue(tool.execute("first-index", action("index")).isError)
+            assertEquals(0, nativeReads)
+            val result = tool.execute("failed-status", action("status"))
+            assertTrue(result.isError)
+            assertEquals("REPOSITORY_GRAPH_UNAVAILABLE", result.errorCode)
+            assertEquals(JsonPrimitive("HOST_GITHUB_CONNECTION_MISSING"), result.executionReceipt?.get("reason_code"))
+            assertEquals(JsonPrimitive(true), result.executionReceipt?.get("requires_reconciliation"))
+            val body = (result.content as ToolResultContent.Json).value.jsonObject
+            assertEquals(JsonPrimitive("DEGRADED"), body["state"])
+            assertEquals(JsonPrimitive("CHECK_SAVED_INDEX"), body["repair_action"])
+            assertEquals(JsonPrimitive("repository_graph__selected"), body.getValue("recovery_call").jsonObject["tool"])
+            assertEquals(JsonPrimitive(true), body.getValue("native_fallback").jsonObject["success"])
+            assertEquals(JsonPrimitive(false), body["graph_complete"])
+            assertEquals(1, nativeReads)
+            assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", tool.execute("blocked-index", action("index")).errorCode)
+            assertEquals(1, writes)
+        }
+    }
+
+    @Test fun normalizedGraphTransportRetainsActualCauseEvidenceInTheApprovedReport() = runTest {
+        var nativeReads = 0
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(ready, HttpStatusCode.OK, headers)
+                } else {
+                    throw IOException("private token and https://private.example/owner/repo")
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val repo = repository(http)
+            val tool = RepositoryGraphTool(
+                "repository_graph__selected",
+                nativeStatus = {
+                    nativeReads++
+                    AgentToolResult(it, ToolResultContent.Text("independent native status"), false)
+                }
+            ) { repo.execute(context, it) }
+            val result = tool.execute("private-call", action("status"))
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals(1, nativeReads)
+            assertEquals(JsonPrimitive("TRANSPORT_UNAVAILABLE"), receipt["reason_code"])
+            assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
+            assertTrue((receipt["cause_types"] as kotlinx.serialization.json.JsonArray).contains(JsonPrimitive(IOException::class.java.name)))
+            val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("private-event", "private-run", 0, result.callId, null, null, "repository_graph", tool.definition.name, action("status").toString(), null, null, "FAILED")
+            val fields = receipt + dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(event, result) + mapOf("run_id" to event.runId, "call_id" to event.callId, "tool" to event.modelToolName)
+            val capsule = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fields(dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature.TOOLS, "TOOL_RESULT", "REPOSITORY_GRAPH_UNAVAILABLE", fields)
+            val reportContext = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.fromFields("TOOL_RESULT", capsule, 1_800_000_000_000)
+            val values = requireNotNull(reportContext.diagnostics).values
+            assertEquals(receipt["exception_fingerprint"]?.jsonPrimitive?.content, reportContext.exceptionFingerprint)
+            assertTrue(!reportContext.exceptionFingerprint.isNullOrBlank())
+            assertTrue((values["exception_type_hashes"] as kotlinx.serialization.json.JsonArray).contains(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("exception-type", IOException::class.java.name))))
+            assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("tool-reason-code", "TRANSPORT_UNAVAILABLE")), values["original_reason_code_hash"])
+            assertEquals(null, reportContext.remoteAcceptance)
+            assertEquals(null, reportContext.httpStatus)
+            val approved = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport("33333333-3333-4333-8333-333333333333", "debug", "1.0", 1, "abcdef0", "16", 36, "Fixture", feature = "tools", errorCode = "REPOSITORY_GRAPH_UNAVAILABLE", context = reportContext).approvedPayload()
+            for (secret in listOf("private", "IOException", "TRANSPORT_UNAVAILABLE", "cause_types")) assertFalse(secret, approved.contains(secret))
         }
     }
 

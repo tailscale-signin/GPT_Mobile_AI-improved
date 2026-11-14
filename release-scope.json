@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Repair the November 14 21c055de diagnostic intake: preserve typed GitHub cooldown/profile and graph uncertainty evidence, prevent graph-index replay and preparation starvation, retain failed acceptance rows, and pause durable source indexing at observed quota deadlines with a foreground reserve.",
     "Restore bounded Ollama typed transport recovery only under explicit producer retry and replay authority, retain terminal rejection and uncertain-outcome evidence, and disclose the remaining Kokoro word-timing limitation for #1114.",
     "Address late reports #1129 and #1130 with safe provider-catch and repository error-value boundary evidence, separately negotiated hosted reporter compatibility, and explicit capability-test prerequisites. Preserve known failure details and cancellation without inventing dispatch or causal proof.",
     "Correct one-line and multiline GitHub follow timing, reattach deliberate bottom-edge input, redesign theme-aware voice presentation with stable observed-range captions, and include gateway-backed chat modes before a successful submission. Preserve bounded sanitized application frames and exception type across terminal Flow failure reporting.",
@@ -153,7 +154,7 @@
     "External Graphify execution, compiler-resolved navigation, and physical-device graph, speech and UI performance remain unqualified; host and emulator evidence does not establish those outcomes.",
     "External Graphify server behavior and physical-device graph, speech and scrolling performance have not been qualified by these host and emulator checks.",
     "Gateway continuity requires matching Android and gateway versions. Physical-phone force-stop/reopen, production queue contention, private model availability and measured rendering performance remain deployment qualification; host and CI evidence are recorded separately.",
-    "Gateway publication requires an operator-provisioned GATEWAY_ENGINEERING_VALIDATION_POLICY with a local mirror, pinned Docker image and approved commands. Actual isolated Docker execution remains unqualified.",
+    "Gateway publication requires a validated repository mirror, pinned Docker image and approved commands. Gateway GitHub settings can manage these inputs without an external policy file; actual isolated Docker execution remains unqualified.",
     "Legacy writes whose original invocation arguments and identifying context were already lost cannot be reconstructed from their hashes. Exact retained fences remain enforced; arbitrary resumption of that historical work requires external remote-state reconciliation.",
     "Live Android sign-in, authenticated App-token read/write and refresh acceptance remain unverified and are not claimed as qualified by this release.",
     "Live GitHub sign-in, private-repository access and credential-refresh acceptance remain unverified in this diagnostic audit; public browser sign-in requires the registered broker deployment.",
@@ -204,7 +205,8 @@
     "The supplemental November 14 archive repair requires an updated app and desktop gateway where applicable. Physical-device heap/frame improvements, microphone ownership, private-provider behavior and host policy/runtime readiness still require their own live evidence; diagnostic follow-ups do not establish the historical cause of an unreproduced report.",
     "Gateway 17 coding scores cover disposable local repository fixtures and declared grading criteria; seeded repeats are not distinct coding capabilities, HTTP concurrency does not verify native inference batching, and Windows layout, sandbox execution, physical-device behavior and reporter rollout require their own observed qualification.",
     "Voice pronunciation and latency changes require physical-device qualification. Unknown ordinary words retain captions with an explicit synthesis failure while no offline grapheme-to-phoneme front end is qualified. CPU remains the verified provider; GPU acceleration and higher thread defaults are not established. Hosted submissions of new GitHub prerequisite fields require a reporter advertising GITHUB_PREREQUISITE_EVIDENCE_V1. Native authenticated GitHub reporting validates and renders the approved payload locally without that hosted dependency.",
-    "The repository-map follow-up requires matching app and gateway deployment. Structural parsing still has partial and unresolved relationships; model-answer accuracy, token savings, and affected-device behavior remain unmeasured. Hosted submissions of new graph and policy diagnostic fields require a reporter advertising GITHUB_GRAPH_POLICY_EVIDENCE_V1; older services leave the approved report saved until the selected service is compatible. Native authenticated GitHub delivery uses local validation and does not require that hosted deployment."
+    "The repository-map follow-up requires matching app and gateway deployment. Structural parsing still has partial and unresolved relationships; model-answer accuracy, token savings, and affected-device behavior remain unmeasured. Hosted submissions of new graph and policy diagnostic fields require a reporter advertising GITHUB_GRAPH_POLICY_EVIDENCE_V1; older services leave the approved report saved until the selected service is compatible. Native authenticated GitHub delivery uses local validation and does not require that hosted deployment.",
+    "The 21c055de follow-up requires an updated app and gateway; hosted report submission of new cooldown/profile fields requires GH_COOLDOWN_V1 and PROFILE_SELECTION_EVIDENCE_V1. Historical quota exhaustion, incomplete graph outcomes, physical-device performance and conditional fixture approvals are not relabeled as repaired or verified by host tests."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -2752,6 +2754,17 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ChatFlowDeliveryObservation.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/util/ChatFlowDeliveryReportTest.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidence.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolAuthorizationOutcomeTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/GitHubProfileSelectionRejected.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/GitHubProfileSelectionRejectedTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActiveTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidenceTest.kt",
+    "docs/repairs/diagnostic-21c055de-2026-11-14-task.json",
+    "docs/repairs/diagnostic-21c055de-2026-11-14.md"
   ]
 }

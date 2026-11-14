@@ -68,10 +68,12 @@ internal object GitHubAcceptanceReportDiagnostics {
         put("acceptance_input_blocked_total", blockers.count { it in setOf("REPOSITORY_INPUT_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "OWNED_FIXTURE_REQUIRED", "GRAPH_INDEX_REQUIRED", "GRAPH_INPUT_REQUIRED") })
         put("acceptance_live_blocked_total", blockers.count { it == "LIVE_EVIDENCE_REQUIRED" })
         put("acceptance_continuation_blocked_total", blockers.count { it == "CONTINUATION_REQUIRED" })
-        // Sample a representative of every observed blocker before taking
-        // duplicates, so a long prerequisite list does not hide other causes.
-        val firstByBlocker = unmet.distinctBy { it.text("blocker_code").ifBlank { it.text("state") } }.take(8)
-        val selected = (firstByBlocker + unmet.filter { it !in firstByBlocker }).take(8)
+        // Keep recorded failures first: public byte compaction removes rows
+        // from the end, and prerequisite rows must not hide failed operations.
+        // Then retain distinct prerequisite blockers before their duplicates.
+        val (failures, prerequisites) = unmet.partition { it["state"] == JsonPrimitive("FAIL") }
+        val firstByBlocker = prerequisites.distinctBy { it.text("blocker_code").ifBlank { it.text("state") } }.take(8)
+        val selected = (failures + firstByBlocker + prerequisites.filter { it !in firstByBlocker }).take(8)
         put("unmet_criterion_omitted_count", unmet.size - selected.size)
         if (selected.isNotEmpty()) {
             val projection = GitHubAcceptanceDiagnostics.snapshot(buildJsonObject { put("requirements", JsonArray(selected)) }, limit = 8)

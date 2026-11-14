@@ -1,5 +1,13 @@
 # GPT Mobile 0.9.66.7
 
+## November 14 GitHub indexing and cooldown follow-up
+
+Repair the November 14 21c055de diagnostic intake: preserve typed GitHub cooldown/profile and graph uncertainty evidence, prevent graph-index replay and preparation starvation, retain failed acceptance rows, and pause durable source indexing at observed quota deadlines with a foreground reserve.
+
+The 21c055de follow-up requires an updated app and gateway; hosted report submission of new cooldown/profile fields requires GH_COOLDOWN_V1 and PROFILE_SELECTION_EVIDENCE_V1. Historical quota exhaustion, incomplete graph outcomes, physical-device performance and conditional fixture approvals are not relabeled as repaired or verified by host tests.
+
+The individual issue ledger now covers all 68 open reports through #1169. Source changes preserve the original partial acceptance, current selected-profile authority and uncertain-operation reconciliation. See [the diagnostic repair record](docs/repairs/diagnostic-21c055de-2026-11-14.md) for evidence, tests and qualifications.
+
 Android build 141. Scoped reliability release covering the changes since [0.9.66.6](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.66.6). That previous release was published from `223b7c9f1dbf1ecaa77b65936ca112817cfb6a9b`.
 
 This release brings together persistent gateway conversations and jobs, more reliable GitHub task recovery and acceptance evidence, application audits, safer diagnostics, and the November 7–9 integration repairs. The latest repair also addresses the Gateway conversations crash and the Android method-size and regression failures found while reviewing PR #815.
@@ -260,7 +268,7 @@ All scoped qualification limitations are retained below. Host and emulator resul
 - Tool health reports version-bound observations from actual executions; it does not actively probe services or guarantee present availability.
 - The diagnostics log rendering changes require physical-device frame measurements to quantify their effect. Forward rollback proposals require a reviewed new release; published tags are never rewritten.
 - Compiler-resolved Kotlin/Java navigation, a dedicated conflict workspace and native GitHub Enterprise support remain unimplemented; the integration expansion is partial.
-- Gateway publication requires an operator-provisioned GATEWAY_ENGINEERING_VALIDATION_POLICY with a local mirror, pinned Docker image and approved commands. Actual isolated Docker execution remains unqualified.
+- Gateway publication requires a validated repository mirror, pinned Docker image and approved commands. Gateway GitHub settings can manage these inputs without an external policy file; actual isolated Docker execution remains unqualified.
 - Android webhook push, complete approval/activity history, unified model readiness, full mutation fixtures, attestation retrieval and remaining performance/accessibility work are partial.
 - Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed.
 - The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.

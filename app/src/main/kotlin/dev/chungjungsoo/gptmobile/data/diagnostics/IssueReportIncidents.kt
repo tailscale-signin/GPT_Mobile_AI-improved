@@ -303,7 +303,7 @@ internal object IssueReportIncidents {
                 "provider_failure_stage" to "GENERATION",
                 "provider_failure_code" to publicCode
             )
-        } else if (publicCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
+        } else if (publicCode in setOf("GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_PROFILE_LOCKED", "GITHUB_COOLDOWN_ACTIVE")) {
             fields + mapOf(
                 "diagnostic_area" to "PROVIDER",
                 "diagnostic_capture_mode" to "INCIDENT",

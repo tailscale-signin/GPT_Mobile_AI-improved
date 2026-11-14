@@ -16,7 +16,7 @@ import requests
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering import EngineeringSupervisor
 from v14.engineering_backend import GitHubEngineeringBackend, blob_sha, prepare_changes
-from v14.github_api_governor import GitHubApiGovernor
+from v14.github_api_governor import GitHubApiGovernor, GitHubApiRateWait
 
 
 class EngineeringCredentialTests(unittest.TestCase):
@@ -171,6 +171,27 @@ class EngineeringCredentialTests(unittest.TestCase):
             self.assertFalse(reader.available())
             with self.assertRaises(ValueError):
                 reader.api('/user')
+            self.assertEqual(2, request.call_count)
+
+    def test_graph_sources_preserve_observed_foreground_capacity_without_blocking_status(self):
+        self.config['github-official'] = self.connection('quota-scope-fixture')
+        governor = GitHubApiGovernor(clock=lambda: 100.0, wall=lambda: 1_800_000_000)
+        self.backend.github_governor = governor
+        governor.observe('quota-scope-fixture', 200, {'X-RateLimit-Resource': 'core',
+                                                  'X-RateLimit-Remaining': '100',
+                                                  'X-RateLimit-Reset': '1800000600'})
+        reader = self.backend.graph_reader()
+        with patch('requests.request') as request:
+            for path in ('/repos/owner/repo/git/blobs/' + 'a' * 40, '/repos/owner/repo/git/trees/' + 'b' * 40):
+                with self.subTest(path=path), self.assertRaises(GitHubApiRateWait) as caught:
+                    reader.api(path)
+                self.assertEqual('FOREGROUND_RESERVE', caught.exception.reason)
+            request.assert_not_called()
+            response = request.return_value.__enter__.return_value
+            response.status_code = 200
+            response.iter_content.return_value = [b'{"id":42}']
+            self.assertEqual({'id': 42}, reader.api('/user'))
+            self.assertEqual({'id': 42}, self.backend.api('/repos/owner/repo'))
             self.assertEqual(2, request.call_count)
 
     def test_graph_reader_accepts_explicit_read_only_flags_but_preserves_lockdown_and_host_restrictions(self):

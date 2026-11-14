@@ -43,6 +43,7 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /**
@@ -1928,6 +1929,25 @@ class GitHubTool(
         throwable: Throwable
     ): AgentToolResult {
         if (throwable is dev.chungjungsoo.gptmobile.data.github.GitHubExecutionBlocked) return executionResult(callId, throwable.checkpoint)
+        val cooldown = when (throwable) {
+            is dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive -> throwable
+            is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected -> if (throwable.status == 0) throwable.cause as? dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive else null
+            else -> null
+        }
+        if (cooldown != null) {
+            return AgentToolResult(
+                callId,
+                ToolResultContent.Text(cooldown.message.orEmpty()),
+                true,
+                errorCode = cooldown.errorCode,
+                dispatched = false,
+                executionReceipt = JsonObject(
+                    cooldown.failureFields() + dev.chungjungsoo.gptmobile.data.agent.ToolExceptionEvidence.fields(throwable) + buildJsonObject {
+                        cooldown.delayMillis.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
+                    }
+                )
+            )
+        }
         val detail = throwable.localizedMessage ?: throwable.message ?: "Unknown error"
         if (detail.startsWith("GITHUB_RECEIPT_CAPACITY") || detail.startsWith("GITHUB_PUBLICATION_CLAIM_CAPACITY")) {
             return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = detail.substringBefore(':').substringBefore(' '), dispatched = false)
@@ -1972,7 +1992,7 @@ class GitHubTool(
                 )
                 return AgentToolResult(callId, ToolResultContent.Json(evidence), true, errorCode = code, retainedContent = ToolResultContent.Text(detail))
             }
-            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = code)
+            return AgentToolResult(callId, ToolResultContent.Text(detail), true, errorCode = code, executionReceipt = rateLimitResponseEvidence(throwable, code))
         }
         if (throwable is java.io.IOException) {
             val uncertain = currentCoroutineContext()[GitHubDispatchAccounting]?.mutationMayHaveTakenEffect() ?: (action in MUTATING_ACTIONS)
@@ -2038,7 +2058,35 @@ class GitHubTool(
         if (detail.contains("HTTP 404", ignoreCase = true) || detail.contains("Not Found", ignoreCase = true)) {
             return AgentToolResult(callId, ToolResultContent.Json(dev.chungjungsoo.gptmobile.data.github.GitHubFailurePolicy.notFoundEvidence(action, arguments)), true, errorCode = "GITHUB_NOT_FOUND_OR_INACCESSIBLE", retainedContent = ToolResultContent.Text(detail))
         }
-        return AgentToolResult(callId, ToolResultContent.Text("GitHub operation $action failed: $detail. Inspect the retained resource and request receipt before retrying."), true, errorCode = "GITHUB_OPERATION_FAILED")
+        return AgentToolResult(
+            callId,
+            ToolResultContent.Text("GitHub operation $action failed: $detail. Inspect the retained resource and request receipt before retrying."),
+            true,
+            errorCode = "GITHUB_OPERATION_FAILED",
+            executionReceipt = dev.chungjungsoo.gptmobile.data.agent.ToolExceptionEvidence.fields(throwable)
+        )
+    }
+
+    /** Only this rejected response supplies rate observations; manager snapshots and prose do not. */
+    private fun rateLimitResponseEvidence(failure: dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected, code: String): JsonObject? {
+        val evidence = failure.evidence ?: return null
+        if (failure.status !in setOf(403, 429) || code !in setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED") || evidence["code"] != JsonPrimitive(code) || evidence["http_status"] != JsonPrimitive(failure.status)) return null
+        return buildJsonObject {
+            for ((key, allowed) in listOf(
+                "github_cooldown_resource" to dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive.Resource.entries.map { it.name },
+                "github_cooldown_basis" to dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive.Basis.entries.map { it.name }
+            )) {
+                (evidence[key] as? JsonPrimitive)?.takeIf { it.isString && it.content in allowed }?.let { put(key, it) }
+            }
+            for (key in listOf("github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_observed_at_ms", "github_cooldown_remaining_requests", "retry_after_ms")) {
+                val limit = when (key) {
+                    "github_cooldown_remaining_requests" -> 16_000_000L
+                    "retry_after_ms" -> 86_400_000L
+                    else -> Long.MAX_VALUE
+                }
+                (evidence[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 0..limit }?.let { put(key, it) }
+            }
+        }
     }
 
     private fun transportFailure(callId: String, code: String, message: String, retryAfterMillis: Long, kind: String): AgentToolResult {
@@ -2201,7 +2249,9 @@ class GitHubTool(
                 check(!credential.authenticationRejected.get()) { "GitHub authentication was rejected (HTTP 401). Reconnect the GitHub account before retrying any operation." }
                 rateLimits.requireAvailable("core")
             } catch (rejected: IllegalStateException) {
-                throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch")
+                throw dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, rejected.message ?: "Request admission failed before dispatch").also {
+                    if (rejected is dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive) it.initCause(rejected)
+                }
             }
             scheduler.recordRequest()
             dev.chungjungsoo.gptmobile.data.github.GitHubMutationAttempts.dispatched()

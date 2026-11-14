@@ -17,6 +17,7 @@ from .engine import Graph, GraphStore, bounded, encoded, scope, import_matches, 
 from .extract import extract, identity, permitted, MAX_SOURCE_BYTES, metadata_fragment
 from .paging import graph_page
 from v14.engineering_backend import blob_sha
+from v14.github_api_governor import GitHubApiGovernor
 from v14.memory import local_model_destination
 
 ACTIONS = frozenset({'index', 'status', 'query', 'node', 'callers', 'callees', 'path', 'impact', 'architecture',
@@ -210,7 +211,8 @@ class GraphService:
                 # Revocation and cancellation stop the operation, not just one file.
                 raise
             except requests.HTTPError as error:
-                if error.response is not None and error.response.status_code in {401, 403}:
+                if error.response is not None and (error.response.status_code in {401, 403} or
+                        GitHubApiGovernor.retry_delay(error.response.status_code, error.response.headers, time.time()) is not None):
                     raise
             except (requests.RequestException, ValueError, OSError):
                 pass
@@ -220,8 +222,22 @@ class GraphService:
             fragment.update(status='failed', retryable=True)
             return path, fragment
 
+        rate_wait = None
+        rate_wait_until = 0
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
-            for path, fragment in pool.map(read_isolated, batch):
+            futures = [pool.submit(read_isolated, path) for path in batch]
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    path, fragment = future.result()
+                except requests.HTTPError as error:
+                    response = error.response
+                    observed_at = time.time()
+                    wait = GitHubApiGovernor.retry_delay(response.status_code, response.headers, observed_at) if response is not None else None
+                    if wait is None:
+                        raise
+                    if observed_at + wait > rate_wait_until:
+                        rate_wait, rate_wait_until = error, observed_at + wait
+                    continue
                 if fragment is None:
                     continue
                 snapshot['fragments'][path] = fragment
@@ -231,6 +247,10 @@ class GraphService:
         if cancelled():
             raise InterruptedError('Graph preparation cancelled')
         self.store.save(namespace, snapshot)
+        if rate_wait is not None:
+            # Successful siblings are durable; throttled files remain pending,
+            # never failed parser entries that require a manual retry/reset.
+            raise rate_wait
         remaining = sorted(set(snapshot['manifest']) - snapshot['fragments'].keys())
         return snapshot, {'has_more': bool(remaining), 'index_cursor': identity(namespace, snapshot['sha'], *remaining) if remaining else None,
                           'processed_files': len(snapshot['fragments']), 'expected_files': len(snapshot['manifest'])}

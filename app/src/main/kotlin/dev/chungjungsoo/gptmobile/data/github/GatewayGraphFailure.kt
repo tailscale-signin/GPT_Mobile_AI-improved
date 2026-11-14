@@ -4,6 +4,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 internal fun GatewayEngineeringCapabilities.requireGraphReadiness(): String {
@@ -43,7 +45,9 @@ internal enum class GatewayGraphPrerequisite(val nextAction: String) {
 internal open class GatewayGraphUnavailableException(
     message: String,
     val prerequisites: List<GatewayGraphPrerequisite> = listOf(GatewayGraphPrerequisite.READINESS_UNKNOWN),
-    val qualification: JsonObject? = null
+    val qualification: JsonObject? = null,
+    val httpStatus: Int? = null,
+    val retryAfterMillis: Long? = null
 ) : IllegalStateException(message) {
     fun atRevision(context: GitHubConversationContext): GatewayGraphUnavailableException = GatewayGraphUnavailableException(
         message.orEmpty(),
@@ -53,7 +57,9 @@ internal open class GatewayGraphUnavailableException(
             put("commit_sha", context.commitSha)
             put("qualification", "NOT_QUALIFIED")
             put("graph_complete", false)
-        }
+        },
+        httpStatus,
+        retryAfterMillis
     )
 
     fun diagnostic(): JsonObject = buildJsonObject {
@@ -61,5 +67,43 @@ internal open class GatewayGraphUnavailableException(
         put("missing_prerequisites", JsonArray(prerequisites.distinct().take(GatewayGraphPrerequisite.entries.size).map { JsonPrimitive(it.name) }))
         put("repair_action", (prerequisites.firstOrNull() ?: GatewayGraphPrerequisite.READINESS_UNKNOWN).nextAction)
         qualification?.let { put("selected_revision", it) }
+    }
+}
+
+/** An observed gateway HTTP failure is not proof that a prior index batch was rejected. */
+internal class GatewayGraphHttpFailure(
+    val httpStatus: Int,
+    val retryAfterMillis: Long? = null,
+    val rateLimitObservation: JsonObject? = null
+) : IllegalStateException("The selected gateway repository graph request failed (HTTP $httpStatus). Check its saved status before continuing an unconfirmed index request.") {
+    val code: String get() = (rateLimitObservation?.get("code") as? JsonPrimitive)?.contentOrNull ?: "GRAPH_HTTP_REJECTED"
+
+    companion object {
+        /** A gateway 429 and an upstream GitHub rejection describe separate request boundaries. */
+        fun fromResponse(status: Int, retryAfterMillis: Long?, detail: JsonObject?): GatewayGraphHttpFailure {
+            fun text(key: String) = (detail?.get(key) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+            val code = text("code")
+            val origin = text("rate_limit_origin")
+            val upstream = (detail?.get("upstream_http_status") as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+            val local = origin == "LOCAL_ADMISSION" &&
+                code in setOf("GRAPH_CAPACITY_RESERVED", "GITHUB_RATE_LIMIT_WAIT") &&
+                detail?.get("upstream_request_dispatched") == JsonPrimitive(false) &&
+                detail?.containsKey("upstream_http_status") == false
+            val remote = origin == "GITHUB_RESPONSE" &&
+                code in setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED") &&
+                detail?.get("upstream_request_dispatched") == JsonPrimitive(true) &&
+                upstream in setOf(403, 429)
+            val observation = if (status == 429 && (local || remote)) {
+                buildJsonObject {
+                    put("code", requireNotNull(code))
+                    put("rate_limit_origin", requireNotNull(origin))
+                    put("upstream_request_dispatched", remote)
+                    if (remote) put("upstream_http_status", requireNotNull(upstream))
+                }
+            } else {
+                null
+            }
+            return GatewayGraphHttpFailure(status, retryAfterMillis, observation)
+        }
     }
 }

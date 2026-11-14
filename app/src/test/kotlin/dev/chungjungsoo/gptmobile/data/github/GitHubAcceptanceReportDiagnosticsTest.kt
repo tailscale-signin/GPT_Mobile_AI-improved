@@ -389,6 +389,175 @@ class GitHubAcceptanceReportDiagnosticsTest {
         assertTrue(JsonPrimitive("REPOSITORY_INPUT_REQUIRED") in blockers)
     }
 
+    @Test fun recordedOperationFailuresLeadTheBoundedSampleWithoutChangingAcceptanceCounts() {
+        val verdict = crowdedAcceptanceVerdict()
+        val original = verdict.toString()
+        val fields = GitHubAcceptanceReportDiagnostics.fields(verdict, retainedReport = true)
+        val failures = listOf("github_ci:jobs", "github_read:files", "github_context:checks")
+        assertEquals(JsonArray(failures.map { JsonPrimitive(GitHubEvidenceBook.digest(it)) }), JsonArray((fields["unmet_criterion_id_hashes"] as JsonArray).take(3)))
+        assertEquals(JsonArray(List(3) { JsonPrimitive("FAIL") }), JsonArray((fields["unmet_criterion_states"] as JsonArray).take(3)))
+        assertEquals(JsonArray(List(3) { JsonPrimitive("OPERATION_FAILED") }), JsonArray((fields["unmet_criterion_blockers"] as JsonArray).take(3)))
+        assertEquals(JsonPrimitive(70), fields["required_capability_count"])
+        assertEquals(JsonPrimitive(13), fields["verified_capability_count"])
+        assertEquals(JsonPrimitive(30), fields["blocked_capability_count"])
+        assertEquals(JsonPrimitive(24), fields["untested_capability_count"])
+        assertEquals(JsonPrimitive(3), fields["acceptance_failed_operation_count"])
+        assertEquals(JsonPrimitive(59), fields["unmet_criterion_count"])
+        assertEquals(JsonPrimitive(2), fields["unmet_requirement_count"])
+        assertEquals(JsonPrimitive(57), fields["unmet_capability_count"])
+        assertEquals(JsonPrimitive(51), fields["unmet_criterion_omitted_count"])
+        assertEquals(JsonPrimitive(7), fields["acceptance_approval_blocked_total"])
+        assertEquals(JsonPrimitive(10), fields["acceptance_input_blocked_total"])
+        assertEquals(JsonPrimitive("RETAINED_VERDICT"), fields["acceptance_evidence_scope"])
+        assertEquals(JsonPrimitive("FULL_CATALOG"), fields["acceptance_capability_scope"])
+        assertEquals(JsonPrimitive(false), (verdict["acceptance_ledger"] as JsonObject)["completion_verified"])
+        assertEquals(original, verdict.toString())
+        assertFalse(fields.toString().contains("private"))
+    }
+
+    @Test fun recordedFailuresSurviveFinalPublicDiagnosticCompaction() {
+        val verdict = crowdedAcceptanceVerdict()
+        val details = GitHubTaskLifecycle.acceptanceFailureDetails(verdict, retainedReport = true)
+        val captured = JsonObject(
+            details + buildJsonObject {
+                put("run_id_hash", "a".repeat(64))
+                put("incident_phase", "acceptance_verification")
+                put("causal_provenance", "UNAVAILABLE")
+                put("causal_failure_code", "GITHUB_TASK_INCOMPLETE")
+                put("incident_evidence_status", "CAUSAL_EVIDENCE_UNAVAILABLE")
+                put("incident_origin", "ACCEPTANCE")
+                put("recovery_observation", "UNOBSERVED")
+            }
+        )
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", captured, 1_800_000_000_000)
+        val diagnostic = requireNotNull(context.diagnostics)
+        val values = diagnostic.values
+        val states = values["unmet_criterion_states"] as JsonArray
+        val size = states.size
+        assertEquals(3, diagnostic.schemaVersion)
+        assertTrue("The actual public byte bound must compact this fixture", size < 8)
+        assertTrue("All three observed failures must survive prerequisite compaction", size >= 3)
+        for (key in listOf("unmet_criterion_id_hashes", "unmet_criterion_reason_hashes", "unmet_criterion_categories", "unmet_criterion_states", "unmet_criterion_blockers")) {
+            assertEquals(key, size, (values[key] as JsonArray).size)
+        }
+        assertEquals(JsonArray(List(3) { JsonPrimitive("FAIL") }), JsonArray(states.take(3)))
+        assertEquals(JsonArray(List(3) { JsonPrimitive("OPERATION_FAILED") }), JsonArray((values["unmet_criterion_blockers"] as JsonArray).take(3)))
+        assertEquals(JsonArray(listOf("github_ci:jobs", "github_read:files", "github_context:checks").map { JsonPrimitive(GitHubEvidenceBook.digest(it)) }), JsonArray((values["unmet_criterion_id_hashes"] as JsonArray).take(3)))
+        assertEquals(JsonPrimitive(3), values["acceptance_failed_operation_count"])
+        assertEquals(JsonPrimitive(59), values["unmet_criterion_count"])
+        assertEquals(JsonPrimitive(59 - size), values["unmet_criterion_omitted_count"])
+        assertEquals(JsonPrimitive(7), values["acceptance_approval_blocked_total"])
+        assertEquals(JsonPrimitive(10), values["acceptance_input_blocked_total"])
+        assertEquals(JsonPrimitive("RETAINED_VERDICT"), values["acceptance_evidence_scope"])
+        assertEquals(JsonPrimitive("FULL_CATALOG"), values["acceptance_capability_scope"])
+        assertEquals(JsonPrimitive("CAUSAL_EVIDENCE_UNAVAILABLE"), values["incident_evidence_status"])
+        assertEquals("RECORDED_OPERATION_BLOCKERS", context.reasonCode)
+        assertEquals("RESUME_UNVERIFIED_REQUIREMENTS", context.recoveryAction)
+        assertNull(context.httpStatus)
+        assertNull(context.dispatched)
+        assertNull(context.remoteAcceptance)
+        assertNull(context.operation)
+        val encoded = Json.encodeToString(IssueReportDiagnostics.serializer(), diagnostic)
+        assertTrue(encoded.encodeToByteArray().size <= IssueReportDiagnostics.MAX_BYTES)
+        assertFalse(encoded.contains("private"))
+        assertFalse(encoded.contains("github_ci:jobs"))
+    }
+
+    @Test fun moreThanEightFailuresKeepRecordedOrderAndDeclareEveryOmission() {
+        val failures = (1..10).map { index ->
+            capability("github_ci__private-$index:jobs", "FAILED", "OPERATION_FAILED")
+        }
+        val ledger = GitHubAcceptanceLedger.snapshot(
+            requirements = JsonArray(listOf(requirement("private-requirement", "Device execution", "NOT_TESTED", true))),
+            capabilities = JsonArray(failures + capability("github_ci__private-excluded:logs", "FAILED", "OPERATION_FAILED", required = false))
+        )
+        val fields = GitHubAcceptanceReportDiagnostics.fields(buildJsonObject { put("acceptance_ledger", ledger) }, retainedReport = false)
+        assertEquals(JsonPrimitive(10), fields["acceptance_failed_operation_count"])
+        assertEquals(JsonPrimitive(11), fields["unmet_criterion_count"])
+        assertEquals(JsonPrimitive(3), fields["unmet_criterion_omitted_count"])
+        assertEquals(JsonArray(List(8) { JsonPrimitive("FAIL") }), fields["unmet_criterion_states"])
+        assertEquals(JsonArray((1..8).map { JsonPrimitive(GitHubEvidenceBook.digest("github_ci__private-$it:jobs")) }), fields["unmet_criterion_id_hashes"])
+        assertEquals(JsonPrimitive("CURRENT_VERDICT"), fields["acceptance_evidence_scope"])
+        assertFalse(fields.toString().contains("private"))
+    }
+
+    private fun crowdedAcceptanceVerdict(): JsonObject {
+        val requirements = listOf(
+            requirement("private-coverage", "Test all GitHub integration tools", "NOT_TESTED", true),
+            requirement("private-device", "Device execution", "NOT_TESTED", true)
+        ) + (1..3).map { requirement("private-passed-$it", "Verified requirement", "PASS", true) }
+        val blocked = List(7) { "FIXTURE_APPROVAL_MODE_REQUIRED" } + List(3) { "REPOSITORY_INPUT_REQUIRED" } +
+            List(3) { "ISSUE_ID_REQUIRED" } + List(4) { "WORKFLOW_RUN_OR_JOB_REQUIRED" } + List(13) { "PRECHECK_REJECTED" }
+        val capabilities = (1..24).map { capability("github_issue__private-untested-$it:list", "NOT_TESTED", "EXECUTION_NOT_EXERCISED") } +
+            blocked.mapIndexed { index, blocker -> capability("github_issue__private-blocked-$index:list", "BLOCKED", blocker) } +
+            listOf("github_ci:jobs", "github_read:files", "github_context:checks").map { capability(it, "FAILED", "OPERATION_FAILED") } +
+            (1..13).map { capability("github_issue__private-passed-$it:list", "PASSED", "") } +
+            capability("github_ci__private-excluded:logs", "FAILED", "OPERATION_FAILED", required = false)
+        return buildJsonObject {
+            put("acceptance_ledger", GitHubAcceptanceLedger.snapshot(JsonArray(requirements), JsonArray(capabilities)))
+            put("task_kind", "GENERAL")
+            put("unresolved_claims", JsonArray(emptyList()))
+            put(
+                "test_checklist",
+                buildJsonObject {
+                    put("coverage_scope", "FULL_CATALOG")
+                    put(
+                        "pagination_resume",
+                        buildJsonObject {
+                            put("mode", "BOUNDED_SMOKE_SAMPLE")
+                            put("workflow_dependency_observation", "OBSERVED_EXECUTED_JOB")
+                        }
+                    )
+                    put(
+                        "fixture_approval_preflight",
+                        buildJsonObject {
+                            put("state", "CONDITIONAL")
+                            put("decision_mode", "ASK")
+                        }
+                    )
+                    put(
+                        "stage_budget",
+                        buildJsonObject {
+                            put("effective_call_limit", 256)
+                            put("used_calls", 140)
+                            put("remaining_calls", 116)
+                            put("verification_reserve", 2)
+                        }
+                    )
+                }
+            )
+            put(
+                "execution_ledger",
+                buildJsonObject {
+                    put("required_criteria", 5)
+                    put("verified_criteria", 3)
+                    put("remaining_criteria", 2)
+                    put("unresolved_remote_outcomes", 0)
+                }
+            )
+            put(
+                "stop_reason",
+                buildJsonObject {
+                    put("code", "RECORDED_OPERATION_BLOCKERS")
+                    put("recovery_action", "RESUME_UNVERIFIED_REQUIREMENTS")
+                    put("pending_continuations", 4)
+                    put("pending_local_fragments", 0)
+                    put("pending_remote_continuations", 4)
+                }
+            )
+        }
+    }
+
+    private fun capability(id: String, status: String, blocker: String, required: Boolean = true) = buildJsonObject {
+        put("id", id)
+        put("scope", "private operation scope")
+        put("status", status)
+        put("required", required)
+        put("blocker_code", blocker)
+        put("reason", "private recorded reason for $id")
+        if (status == "FAILED") put("receipt_ids", JsonArray(listOf(JsonPrimitive("private-receipt-$id"))))
+    }
+
     @Test fun ambiguousProtectionObservationRequestsPermissionCheckWithoutClaimingNoPolicy() {
         val verdict = Json.parseToJsonElement("""{"acceptance_ledger":{},"status_coverage":[{"item":"Required-check policy","branch_protection_observation":"NOT_FOUND_OR_INACCESSIBLE","branch_rules_observation":"OBSERVED","branch_protection_http_status":404,"branch_rules_http_status":200}]}""") as JsonObject
         val fields = GitHubAcceptanceReportDiagnostics.fields(verdict, true)

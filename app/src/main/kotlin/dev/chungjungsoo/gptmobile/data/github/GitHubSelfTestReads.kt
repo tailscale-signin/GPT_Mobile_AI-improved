@@ -197,10 +197,15 @@ internal object GitHubSelfTestReads {
     private fun priority(call: ProviderEvent.ToolCall): Int = when {
         call.callId.startsWith("policy-read-") -> 0
         call.callId.startsWith("inventory-source-") -> 0
+        call.callId.startsWith("graph-reconciliation-") -> 0
         call.name.substringBefore("__") == "github_issue" && call.arguments.text("action") == "list" -> 1
         call.name.substringBefore("__") == "github_release" && call.arguments.text("action") in setOf("tags", "list") -> 1
         call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "jobs" -> 1
         call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "definitions" -> 3
+        // Building a large repository graph can require hundreds of batches.
+        // Qualify independent reads first so every new cursor cannot monopolize
+        // the shared acceptance budget. Failed batches still reconcile first.
+        call.name.substringBefore("__") == "repository_graph" && call.arguments.text("action") == "index" -> 4
         else -> 2
     }
 

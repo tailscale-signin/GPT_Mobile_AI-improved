@@ -2,7 +2,9 @@ package dev.chungjungsoo.gptmobile.data.network
 
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.network.error.ProviderFailure
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 
 /** Retain known response/admission evidence before considering an exception a transport failure. */
@@ -12,6 +14,89 @@ internal fun providerExceptionDetails(
     nowMillis: Long = System.currentTimeMillis(),
     monotonicMillis: Long = System.nanoTime() / 1_000_000
 ): ErrorDetail? {
+    if (error is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected && error.status == 0) {
+        val cooldown = error.cause as? dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
+        if (cooldown != null) return providerExceptionDetails(cooldown, partialOutput, nowMillis, monotonicMillis)
+    }
+    if (error is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected && error.status in setOf(403, 429)) {
+        val code = (error.evidence?.get("code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+        if (code in setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED")) {
+            return ErrorDetail(
+                message = "GitHub rejected this request because of its rate limit. Wait for the recorded reset time or check GitHub's current rate-limit status before resuming. Preserve saved results and reconcile any uncertain operation before repeating it.",
+                type = "github_rate_limit_response",
+                code = code,
+                retryable = false,
+                failureDetails = buildJsonObject {
+                    for (key in setOf("github_cooldown_resource", "github_cooldown_basis", "github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_observed_at_ms", "github_cooldown_remaining_requests", "retry_after_ms")) {
+                        error.evidence?.get(key)?.let { put(key, it) }
+                    }
+                    put("code", code)
+                    put("diagnostic_area", "PROVIDER")
+                    put("diagnostic_capture_mode", "INCIDENT")
+                    put("failed_stage", "tool_execution")
+                    put("provider_failure_code", code)
+                    put("provider_failure_domain", "TOOL_EXECUTION")
+                    put("failure_origin", "TOOL")
+                    put("http_status", error.status)
+                    put("retryable", false)
+                    put("request_replay_allowed", false)
+                    put("recovery_action", "RETRY_AFTER_BACKOFF")
+                    // This GitHub response cannot establish the acceptance or
+                    // replay state of earlier operations in the retained run.
+                }
+            )
+        }
+    }
+    if (error is dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "github_local_cooldown",
+            code = error.errorCode,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                error.failureFields().forEach { (key, value) -> put(key, value) }
+                put("code", error.errorCode)
+                put("diagnostic_area", "PROVIDER")
+                put("diagnostic_capture_mode", "INCIDENT")
+                put("failed_stage", "repository_admission")
+                put("provider_failure_stage", "ADMISSION")
+                put("provider_failure_code", error.errorCode)
+                put("failure_origin", "APPLICATION")
+                put("retryable", false)
+                put("request_replay_allowed", false)
+                put("recovery_action", "RETRY_AFTER_BACKOFF")
+                error.delayMillis.takeIf { it in 0L..86_400_000L }?.let { put("retry_after_ms", it) }
+                // This guard describes a refused local check. Neither a fresh
+                // collection nor partialOutput establishes earlier run dispatch,
+                // remote acceptance, an HTTP status or authority to replay.
+            }
+        )
+    }
+    if (error is dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected) {
+        return ErrorDetail(
+            message = requireNotNull(error.message),
+            type = "local_admission",
+            code = error.errorCode,
+            retryable = false,
+            failureDetails = buildJsonObject {
+                error.failureFields().forEach { (key, value) -> put(key, value) }
+                put("code", error.errorCode)
+                put("diagnostic_area", "PROVIDER")
+                put("diagnostic_capture_mode", "INCIDENT")
+                put("failed_stage", "provider_admission")
+                put("provider_failure_stage", "ADMISSION")
+                put("provider_failure_code", error.errorCode)
+                put("failure_origin", "APPLICATION")
+                put("retryable", false)
+                put("request_replay_allowed", false)
+                put("recovery_action", "RETRY_AFTER_CONFIGURATION_CHANGE")
+                // A resumed run starts a fresh collection/fence. Neither this
+                // rejection nor partialOutput establishes its earlier dispatch.
+                // Do not emit attempt_dispatch_state either: the public context
+                // currently promotes that alias into aggregate dispatch facts.
+            }
+        )
+    }
     if (error is dev.chungjungsoo.gptmobile.data.agent.CombinedBudgetExceeded && !partialOutput) {
         return ErrorDetail(
             message = "The Combined turn could not admit another provider attempt within its saved limits.",

@@ -20,7 +20,7 @@
   ],
   "prepared_at_utc_date": "2026-11-14",
   "intent": "Audit all 47 open non-PR reports through #1148, preserve existing fixes and concurrent source changes, improve missing diagnosis, and provide honest per-issue closure evidence. Each disposition remains conditional on the complete composed source and final-head qualification.",
-  "issue_count": 47,
+  "issue_count": 68,
   "remote_mutations_performed_by_this_audit": true,
   "closure_policy": "The requested closure may include diagnostic resolutions. Each note must preserve its remaining qualification; issue closure is not a declaration of full live/device acceptance.",
   "privacy": "No original prompts, private endpoints, repository names from report payloads, identifiers, credentials, raw tool arguments or raw logs are stored in this audit.",
@@ -176,6 +176,108 @@
       "generators": "app inventory, architecture and diagnostic schemas are current",
       "diff_check": "passed",
       "qualification": "Local checks qualify the complete graph/capacity composition only within their stated host scope. Full Android compilation/unit/heap/emulator, lint, CodeQL, packaging, Gateway/Windows, Marketplace and aggregate verification remain required on the final published head and current main."
+    },
+    "diagnostic_21c055de_followup": {
+      "status": "SOURCE_REVIEWED_GATEWAY_CANONICAL_RUNNING_FINAL_CI_PENDING",
+      "acceptance_report_host": {
+        "passed": 19,
+        "failed": 0
+      },
+      "physical_device": "NOT_RUN",
+      "historical_live_replay": "NOT_RUN",
+      "final_head_ci": "NOT_RUN",
+      "live_provider": "NOT_RUN",
+      "graph_native_report_host": {
+        "passed": 41,
+        "failed": 0
+      },
+      "rate_http_host": {
+        "passed": 18,
+        "failed": 0
+      },
+      "rate_typed_guard_host": {
+        "passed": 25,
+        "failed": 0,
+        "scope": "Final absolute-deadline tie correction included."
+      },
+      "coordinator_host": {
+        "passed": 6,
+        "failed": 0
+      },
+      "report_submission_host": {
+        "passed": 68,
+        "failed": 0
+      },
+      "python_report_contracts": {
+        "passed": 94,
+        "failed": 0
+      },
+      "reporter_readiness": {
+        "bytes": 1022,
+        "limit_bytes": 1024,
+        "features": 30
+      },
+      "host_boundary": "Actual changed producers with explicit cached/platform substitutes; counts overlap and must not be summed as unique cases. Final full Android and CI required.",
+      "issue_reconciliation": {
+        "open_snapshot": 68,
+        "ledger_entries": 68,
+        "unique_entries": 68,
+        "missing_issues": [],
+        "extra_issues": [],
+        "missing_source_paths": [],
+        "scope": "Source/test path and observed title/code/stage/operation review; final exact-head execution still pending."
+      },
+      "graph_replay_authorization_host": {
+        "passed": 57,
+        "failed": 0
+      },
+      "focused_gateway_host": {
+        "passed": 117,
+        "failed": 0,
+        "scope": "Earlier controlled governor/backend/service/job/routes component receipt; final canonical suite supersedes this overlapping count."
+      },
+      "canonical_fast": {
+        "passed": 510,
+        "failed": 0,
+        "status": "passed",
+        "command": "bash scripts/validate-local.sh fast"
+      },
+      "authentication_canonical": {
+        "passed": 119,
+        "failed": 0,
+        "status": "passed",
+        "scope": "All five authentication test modules, including failure details."
+      },
+      "changed_kotlin_format": {
+        "status": "passed",
+        "version": "1.3.1",
+        "paths": 56,
+        "qualification": "All changed Kotlin paths passed; the final two-file rate correction also passed afterward."
+      },
+      "independent_review": {
+        "status": "passed",
+        "remaining_blockers": 0,
+        "followups": [
+          "Exact absolute cooldown deadline selection",
+          "Finite extreme wait conversion",
+          "Durable wake at job budget without losing server retry deadline",
+          "Graph-only rate response preserves non-graph unknown admission outcome"
+        ]
+      },
+      "post_review_gateway_http": {
+        "passed": 24,
+        "failed": 0,
+        "scope": "Final graph-only rate mapping, extreme waits and accepted command recovery."
+      },
+      "post_review_gateway_bounds": {
+        "passed": 49,
+        "failed": 0,
+        "scope": "Job/HTTP bounds receipt before the final graph-only route correction; overlaps other suites."
+      },
+      "gateway_canonical": {
+        "status": "RUNNING",
+        "qualification": "Canonical final result and exact published head will be recorded in PR qualification comment before merge and issue closure."
+      }
     }
   },
   "reporter_contract": {
@@ -187,7 +289,9 @@
       "CAPTURE_BOUNDARY_EVIDENCE_V1",
       "HANDOFF_RECONCILIATION_EVIDENCE_V1",
       "CHAT_DELIVERY_EVIDENCE_V1",
-      "CLAIM_FRESHNESS_EVIDENCE_V1"
+      "CLAIM_FRESHNESS_EVIDENCE_V1",
+      "GH_COOLDOWN_V1",
+      "PROFILE_SELECTION_EVIDENCE_V1"
     ],
     "client": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
     "server": [
@@ -1233,7 +1337,7 @@
       "issue": 1139,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1139",
       "disposition": "diagnostic_resolution",
-      "observed_problem": "An installed b5ab42bf/build141 OpenRouter terminal-catch report retained UNKNOWN classified as CHAT_FAILED, a run hash and bounded exception signature/type hash, but no readable safe type or application frames, observed failure phase, provider invocation, HTTP/dispatch facts or causal identity. The four reports #1139–#1142 retain distinct run/report identities despite matching signatures. No external attachment was supplied.",
+      "observed_problem": "An installed b5ab42bf/build141 OpenRouter terminal-catch report retained UNKNOWN classified as CHAT_FAILED, a run hash and bounded exception signature/type hash, but no readable safe type or application frames, observed failure phase, provider invocation, HTTP/dispatch facts or causal identity. The four reports #1139\u2013#1142 retain distinct run/report identities despite matching signatures. No external attachment was supplied.",
       "resolution": "The current repository terminal catch captures sanitized exception type, bounded application frames, fingerprint and hashed cause types before producing an error value. The Flow/report collector preserves that metadata with its owning run. Closed capture-site validation and approved projection reject arbitrary frame text and preserve absent causal/dispatch facts as unavailable. The actual OpenRouter preparation-to-collector regression covers this data-loss boundary.",
       "remaining_qualification": "The historical cause has not been reproduced or assigned. Matching exception signatures across distinct runs do not establish a shared cause or duplicate execution. Install the updated app and obtain an approved recurrence report with safe type/application frames and any actually observed phase/causal identity. No raw exception message, prompt or repository content is exported.",
       "closure_basis": "The requested diagnostic fallback fixes the observed evidence-loss path; closure does not assert that the historical exception mechanism has been reproduced or repaired.",
@@ -1258,7 +1362,7 @@
       "issue": 1140,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1140",
       "disposition": "diagnostic_resolution",
-      "observed_problem": "An installed b5ab42bf/build141 OpenRouter terminal-catch report retained UNKNOWN classified as CHAT_FAILED, a run hash and bounded exception signature/type hash, but no readable safe type or application frames, observed failure phase, provider invocation, HTTP/dispatch facts or causal identity. The four reports #1139–#1142 retain distinct run/report identities despite matching signatures. No external attachment was supplied.",
+      "observed_problem": "An installed b5ab42bf/build141 OpenRouter terminal-catch report retained UNKNOWN classified as CHAT_FAILED, a run hash and bounded exception signature/type hash, but no readable safe type or application frames, observed failure phase, provider invocation, HTTP/dispatch facts or causal identity. The four reports #1139\u2013#1142 retain distinct run/report identities despite matching signatures. No external attachment was supplied.",
       "resolution": "The current repository terminal catch captures sanitized exception type, bounded application frames, fingerprint and hashed cause types before producing an error value. The Flow/report collector preserves that metadata with its owning run. Closed capture-site validation and approved projection reject arbitrary frame text and preserve absent causal/dispatch facts as unavailable. The actual OpenRouter preparation-to-collector regression covers this data-loss boundary.",
       "remaining_qualification": "The historical cause has not been reproduced or assigned. Matching exception signatures across distinct runs do not establish a shared cause or duplicate execution. Install the updated app and obtain an approved recurrence report with safe type/application frames and any actually observed phase/causal identity. No raw exception message, prompt or repository content is exported.",
       "closure_basis": "The requested diagnostic fallback fixes the observed evidence-loss path; closure does not assert that the historical exception mechanism has been reproduced or repaired.",
@@ -1283,7 +1387,7 @@
       "issue": 1141,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1141",
       "disposition": "diagnostic_resolution",
-      "observed_problem": "An installed b5ab42bf/build141 OpenRouter terminal-catch report retained UNKNOWN classified as CHAT_FAILED, a run hash and bounded exception signature/type hash, but no readable safe type or application frames, observed failure phase, provider invocation, HTTP/dispatch facts or causal identity. The four reports #1139–#1142 retain distinct run/report identities despite matching signatures. No external attachment was supplied.",
+      "observed_problem": "An installed b5ab42bf/build141 OpenRouter terminal-catch report retained UNKNOWN classified as CHAT_FAILED, a run hash and bounded exception signature/type hash, but no readable safe type or application frames, observed failure phase, provider invocation, HTTP/dispatch facts or causal identity. The four reports #1139\u2013#1142 retain distinct run/report identities despite matching signatures. No external attachment was supplied.",
       "resolution": "The current repository terminal catch captures sanitized exception type, bounded application frames, fingerprint and hashed cause types before producing an error value. The Flow/report collector preserves that metadata with its owning run. Closed capture-site validation and approved projection reject arbitrary frame text and preserve absent causal/dispatch facts as unavailable. The actual OpenRouter preparation-to-collector regression covers this data-loss boundary.",
       "remaining_qualification": "The historical cause has not been reproduced or assigned. Matching exception signatures across distinct runs do not establish a shared cause or duplicate execution. Install the updated app and obtain an approved recurrence report with safe type/application frames and any actually observed phase/causal identity. No raw exception message, prompt or repository content is exported. The earlier CONNECTION_REFUSED warning has no causal join to this terminal exception and is not treated as its cause.",
       "closure_basis": "The requested diagnostic fallback fixes the observed evidence-loss path; closure does not assert that the historical exception mechanism has been reproduced or repaired.",
@@ -1308,7 +1412,7 @@
       "issue": 1142,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1142",
       "disposition": "diagnostic_resolution",
-      "observed_problem": "An installed b5ab42bf/build141 OpenRouter terminal-catch report retained UNKNOWN classified as CHAT_FAILED, a run hash and bounded exception signature/type hash, but no readable safe type or application frames, observed failure phase, provider invocation, HTTP/dispatch facts or causal identity. The four reports #1139–#1142 retain distinct run/report identities despite matching signatures. No external attachment was supplied.",
+      "observed_problem": "An installed b5ab42bf/build141 OpenRouter terminal-catch report retained UNKNOWN classified as CHAT_FAILED, a run hash and bounded exception signature/type hash, but no readable safe type or application frames, observed failure phase, provider invocation, HTTP/dispatch facts or causal identity. The four reports #1139\u2013#1142 retain distinct run/report identities despite matching signatures. No external attachment was supplied.",
       "resolution": "The current repository terminal catch captures sanitized exception type, bounded application frames, fingerprint and hashed cause types before producing an error value. The Flow/report collector preserves that metadata with its owning run. Closed capture-site validation and approved projection reject arbitrary frame text and preserve absent causal/dispatch facts as unavailable. The actual OpenRouter preparation-to-collector regression covers this data-loss boundary.",
       "remaining_qualification": "The historical cause has not been reproduced or assigned. Matching exception signatures across distinct runs do not establish a shared cause or duplicate execution. Install the updated app and obtain an approved recurrence report with safe type/application frames and any actually observed phase/causal identity. No raw exception message, prompt or repository content is exported.",
       "closure_basis": "The requested diagnostic fallback fixes the observed evidence-loss path; closure does not assert that the historical exception mechanism has been reproduced or repaired.",
@@ -1580,12 +1684,726 @@
           "absentOrForeignRouteCapacityRemainsUnobservedInTheDecisionEvidence"
         ]
       }
+    },
+    {
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_and_independently_reviewed",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "issue": 1149,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1149",
+      "disposition": "capacity_constraint_and_diagnostic_resolution",
+      "observed_problem": "The selected LLAMA request was safely rejected before dispatch: 1,014 required schema tokens versus 260 available, a 754-token shortfall. Capacity was 5,632, prompt 3,900, tool-result reserve 704, safety 256 and output 512 under UTF8_ESTIMATE. The historical capsule lacks the selected identity and enforced ceiling provenance.",
+      "resolution": "Capture the typed capacity decision at preparePrimaryAdmission from the same selected profile, normalized configuration, catalog observation and freshness-checked route readiness used by primaryContext. Carry the immutable decision through both context-preparation paths to the exact schema-budget exception; retain hashed identity, separate configured/verified-route/catalog ceilings and closed winning provenance. Retain the current-only numeric system/request/history/attachment breakdown measured by the rejecting allocator. A later smaller explicit or engineering planning limit cannot be relabeled as verified remote capacity; missing or mismatched observations remain unavailable/UNKNOWN. Projection uses the existing approved CAPACITY_ADMISSION_EVIDENCE_V1 contract without enlarging readiness or collecting raw prompts/model names/endpoints. Admission, reserves, authorized schemas, output limits, final request measurement and replay/permission rules remain unchanged.",
+      "remaining_qualification": "The historical request and selected model/capacity source are unavailable. The report does not establish an unnecessary required schema, a larger supported context, or a lossless fitting transformation. Old history and optional catalog entries are outside this initial required-cost guard. Removing one reserve does not prove the later replay allocator and final physical request would fit. The original provider request is not replayed, and no live model or quota repair is claimed. Hosted submission of these fields requires the existing GITHUB_SCHEMA_BUDGET_EVIDENCE_V1 and CAPACITY_ADMISSION_EVIDENCE_V1 capabilities; native authenticated GitHub delivery remains independent. The recorded 512-token output origin is not inferred from the historical capsule.",
+      "closure_basis": "The observed capacity rejection remains valid and safely pre-dispatch; the requested diagnostic fallback preserves the missing admission-time identity and ceiling evidence for a recurrence.",
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacity.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacityTest.kt"
+      ],
+      "validation_refs": [
+        "current_capacity_admission_followup",
+        "diagnostic_21c055de_followup"
+      ],
+      "pending_source_followup": false,
+      "component_commit": "d3842baa72aeb1b75d716387bcbfb69f2acf0e43",
+      "regression_methods": {
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidenceTest.kt": [
+          "preparationFailureKeepsExactAdmissionAndOwningIdentityThroughTheApprovedReport",
+          "aSmallerLocalPlanningLimitDoesNotRelabelItAsTheVerifiedRemoteCapacity",
+          "missingAndUnboundedObservationsAreAbsentWhileMeasuredZeroRemainsZero",
+          "aLaterRejectionDoesNotProveEarlierGenerationWasUnsentOrReplayable",
+          "successfulPlansAndUnrelatedFailuresAreReturnedUnchanged",
+          "laterCapacityChangesCannotRelabelTheCapturedPlanningDecision",
+          "aFailureWithoutTheSameMeasuredPlanningBoundaryCannotInheritVerifiedProvenance",
+          "aChangedOrOversizedObservationCannotInventAVerifiedCapacity"
+        ],
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolCatalogAdmissionTest.kt": [
+          "initialAdmissionBreakdownExcludesOldHistoryAndRetainsNoPromptText",
+          "recoveryReaderIsAdmittedBeforeOptionalSchemasOnEveryGithubRound",
+          "savedRecoveryReaderIsRequiredWithoutTreatingSavedInstructionsAsNewUserAuthority",
+          "discoveryRemainsAvailableWhenAnOptionalSchemaWouldConsumeItsBudget",
+          "warmDiscoveryAlsoRespectsTheRemainingRoundBudgetAndPreservesPriority",
+          "existingResolverCatalogControlsPlanningAndNeverChargesTheHiddenLegacySchema",
+          "engineeringGoalFitsSmallContextWithoutPreloadingEveryGitHubSchema",
+          "providerRoundDefersLargeOptionalGithubSchema",
+          "defaultReplyReserveYieldsToRequiredSchemasWhileExplicitReserveStaysPinned",
+          "initialGithubDiscoverySurvivesByBorrowingOnlyADefaultReplyAllowance",
+          "initialGithubDiscoveryRejectsWhenEvenTheMinimumReplyCannotPreserveIt",
+          "coldGithubDiscoveryReachesTheNextProviderRequestAndExecutesOnce",
+          "coldGithubDiscoveryCannotOverrunRemainingContextOrPromiseAnUnavailableTool",
+          "discoveryReceiptAccountsForItsOwnReplayBeforeAdvertisingTheNextRequest",
+          "wireInventoryUsesActualProviderNamesIncludingGroupedGeminiDeclarations"
+        ],
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacityTest.kt": [
+          "verifiedSmallRouteBoundsToolAndHistoryPlanningBeforeSerialization",
+          "unverifiedOrDifferentSelectionCannotSupplyAPlanningCapacity",
+          "verifiedCapacityNeverExpandsConfiguredCeilingsOrChangesTheSelectedProfile",
+          "planningDecisionRetainsTheConsumedRouteAndTheConfiguredCeilingSeparately",
+          "absentOrForeignRouteCapacityRemainsUnobservedInTheDecisionEvidence"
+        ]
+      }
+    },
+    {
+      "issue": 1150,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1150",
+      "disposition": "selected_profile_guard_and_diagnostic_resolution",
+      "observed_problem": "CHAT_FAILED retained a ConfiguredDispatchAuthority selected-profile rejection, but omitted which identity comparison failed.",
+      "resolution": "Retain a typed GITHUB_PROFILE_LOCKED failure with independent profile-match, registration and model-match observations and hashed identities. Preserve the selected-profile admission condition; report the mismatch instead of replacing the chosen model.",
+      "remaining_qualification": "The old capsule cannot identify the original mismatching setting. No live model substitution or successful historical dispatch is asserted. Hosted report submission negotiates PROFILE_SELECTION_EVIDENCE_V1.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthority.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/GitHubProfileSelectionRejected.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthorityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt"
+      ]
+    },
+    {
+      "issue": 1151,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1151",
+      "disposition": "graph_index_replay_and_scheduling_repair",
+      "observed_problem": "A graph index deadline was labeled READ_DEADLINE with retryable=true and requiresReconciliation=false even though indexing changes durable gateway state. The archive shows 111 indexing calls before independent capability work completed.",
+      "resolution": "Exclude graph indexing, including its background job controls, from read-only replay authority. Preserve local indexing authorization and exact request/checkpoint identity; reconcile unknown outcomes through status before continuing. Schedule independent reads and source dependencies before each expensive indexing batch.",
+      "remaining_qualification": "The timed-out historical batch outcome remains unknown. A safe status query does not establish completion unless its returned checkpoint/acknowledgement matches. No automatic replay or permission expansion is introduced.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolReplaySafety.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/GitHubAuthorizationBoundary.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolApprovalManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptance.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolAuthorizationOutcomeTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/permissions/GitHubAuthorizationBoundaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptanceTest.kt"
+      ]
+    },
+    {
+      "issue": 1152,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1152",
+      "disposition": "unknown_graph_outcome_diagnostic_repair",
+      "observed_problem": "GRAPH_INDEX_OUTCOME_UNKNOWN became public TOOL_FAILURE and requiresReconciliation=false, obscuring the retained unconfirmed index checkpoint.",
+      "resolution": "Carry the actually observed prior-index uncertainty through the graph repository callback, tool result, accumulated dispatch receipt and approved report. Preserve the existing public reconciliation category and require matching saved status/acknowledgement before the uncertainty can clear.",
+      "remaining_qualification": "Current precheck rejection is distinct from the earlier request. Neither an unavailable gateway nor a successful unrelated status request proves the historical index outcome.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepositoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt"
+      ]
+    },
+    {
+      "issue": 1153,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1153",
+      "disposition": "graph_failure_evidence_and_quota_recovery",
+      "observed_problem": "REPOSITORY_GRAPH_UNAVAILABLE retained only a generic exception boundary during indexing.",
+      "resolution": "Retain observed gateway HTTP status and Retry-After, bounded exception type/fingerprint and graph prerequisites without response bodies. Gateway indexing observes successful quota headers, reserves requests for foreground work and defers durable batches until the observed reset while retaining the cursor.",
+      "remaining_qualification": "The supplied archive has no gateway-side wire/journal capture, so the original generic exception cannot be assigned a precise server cause. New quota behavior is qualified by controlled tests; historical account-wide consumption and physical performance remain unmeasured.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphResponse.kt",
+        "gateway/v14/engineering_routes.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepositoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
+      ]
+    },
+    {
+      "issue": 1154,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1154",
+      "disposition": "graph_failure_evidence_and_quota_recovery",
+      "observed_problem": "REPOSITORY_GRAPH_UNAVAILABLE retained only a generic exception boundary during saved-status reconciliation.",
+      "resolution": "Retain observed gateway HTTP status and Retry-After, bounded exception type/fingerprint and graph prerequisites without response bodies. Gateway indexing observes successful quota headers, reserves requests for foreground work and defers durable batches until the observed reset while retaining the cursor.",
+      "remaining_qualification": "The supplied archive has no gateway-side wire/journal capture, so the original generic exception cannot be assigned a precise server cause. New quota behavior is qualified by controlled tests; historical account-wide consumption and physical performance remain unmeasured.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphFailure.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphResponse.kt",
+        "gateway/v14/engineering_routes.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepositoryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
+      ]
+    },
+    {
+      "issue": 1155,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1155",
+      "disposition": "native_operation_cooldown_evidence_repair",
+      "observed_problem": "The repository read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
+      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
+      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
+      ]
+    },
+    {
+      "issue": 1156,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1156",
+      "disposition": "native_operation_cooldown_evidence_repair",
+      "observed_problem": "The commit read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
+      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
+      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
+      ]
+    },
+    {
+      "issue": 1157,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1157",
+      "disposition": "native_operation_cooldown_evidence_repair",
+      "observed_problem": "The changes read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
+      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
+      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
+      ]
+    },
+    {
+      "issue": 1158,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1158",
+      "disposition": "native_operation_cooldown_evidence_repair",
+      "observed_problem": "The branch read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
+      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
+      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
+      ]
+    },
+    {
+      "issue": 1159,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1159",
+      "disposition": "native_operation_cooldown_evidence_repair",
+      "observed_problem": "The branch_dependencies read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
+      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
+      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
+      ]
+    },
+    {
+      "issue": 1160,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1160",
+      "disposition": "acceptance_failure_sampling_and_graph_preparation_repair",
+      "observed_problem": "The retained verdict reports 13/70 capabilities, 3/5 task requirements, three failed operations and 59 unmet criteria. Bounded reporting can hide actual failures behind prerequisite rows, while graph preparation consumed disproportionate time. Fixture approvals and missing graph evidence remain real blockers.",
+      "resolution": "Place recorded FAIL rows first within the existing byte/sample bounds, then preserve distinct prerequisite blockers, counts and omission totals. Carry actual graph/native failure evidence forward and schedule independent capability reads before continued indexing; keep the original acceptance verdict and approval conditions.",
+      "remaining_qualification": "Available calls and remote continuation counts are not permission or successful coverage. The original task remains PARTIAL; neither failed operations nor required fixture approvals are relabeled as passing. The two reports belong to distinct runs.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnosticsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt"
+      ]
+    },
+    {
+      "issue": 1161,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1161",
+      "disposition": "rate_limit_diagnostic_and_background_recovery",
+      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
+      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
+      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "authentication/issue_report_diagnostics.py",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_incident_report_contract.py"
+      ]
+    },
+    {
+      "issue": 1162,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1162",
+      "disposition": "rate_limit_diagnostic_and_background_recovery",
+      "observed_problem": "An actual GitHub primary rate-limit response lost its structured status, remaining quota and reset/retry evidence.",
+      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
+      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "authentication/issue_report_diagnostics.py",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_incident_report_contract.py"
+      ]
+    },
+    {
+      "issue": 1163,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1163",
+      "disposition": "rate_limit_diagnostic_and_background_recovery",
+      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
+      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
+      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "authentication/issue_report_diagnostics.py",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_incident_report_contract.py"
+      ]
+    },
+    {
+      "issue": 1164,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1164",
+      "disposition": "rate_limit_diagnostic_and_background_recovery",
+      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
+      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
+      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "authentication/issue_report_diagnostics.py",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_incident_report_contract.py"
+      ]
+    },
+    {
+      "issue": 1165,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1165",
+      "disposition": "rate_limit_diagnostic_and_background_recovery",
+      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
+      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
+      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "authentication/issue_report_diagnostics.py",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_incident_report_contract.py"
+      ]
+    },
+    {
+      "issue": 1166,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1166",
+      "disposition": "rate_limit_diagnostic_and_background_recovery",
+      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
+      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
+      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "authentication/issue_report_diagnostics.py",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_incident_report_contract.py"
+      ]
+    },
+    {
+      "issue": 1167,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1167",
+      "disposition": "rate_limit_diagnostic_and_background_recovery",
+      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
+      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
+      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "authentication/issue_report_diagnostics.py",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_incident_report_contract.py"
+      ]
+    },
+    {
+      "issue": 1168,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1168",
+      "disposition": "rate_limit_diagnostic_and_background_recovery",
+      "observed_problem": "An actual GitHub primary rate-limit response lost its structured status, remaining quota and reset/retry evidence.",
+      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
+      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "authentication/issue_report_diagnostics.py",
+        "gateway/v14/github_api_governor.py",
+        "gateway/v14/code_graph/index_jobs.py"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
+        "authentication/test_incident_report_contract.py"
+      ]
+    },
+    {
+      "issue": 1169,
+      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1169",
+      "disposition": "acceptance_failure_sampling_and_graph_preparation_repair",
+      "observed_problem": "The retained verdict reports 40/70 capabilities, 3/5 task requirements, three failed operations and 32 unmet criteria. Bounded reporting can hide actual failures behind prerequisite rows, while graph preparation consumed disproportionate time. Fixture approvals and missing graph evidence remain real blockers.",
+      "resolution": "Place recorded FAIL rows first within the existing byte/sample bounds, then preserve distinct prerequisite blockers, counts and omission totals. Carry actual graph/native failure evidence forward and schedule independent capability reads before continued indexing; keep the original acceptance verdict and approval conditions.",
+      "remaining_qualification": "Available calls and remote continuation counts are not permission or successful coverage. The original task remains PARTIAL; neither failed operations nor required fixture approvals are relabeled as passing. The two reports belong to distinct runs.",
+      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "historical_incident_reproduced": false,
+      "source_integration_status": "integrated_pending_final_execution",
+      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
+      "pending_source_followup": false,
+      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "validation_refs": [
+        "diagnostic_21c055de_followup"
+      ],
+      "sources": [
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt"
+      ],
+      "regression_tests": [
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnosticsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt"
+      ]
     }
   ],
   "late_intake_base_sha": "007b29d2a7581c0acfd5474f7bc01ba768c57bae",
   "handoff_intake_base_sha": "2c18d55b17c443105966c4a4d08147cf6e30734e",
   "remote_mutation_scope": "Shared PR source updates and coordination comments; individual issue closures remain conditional on final-head qualification and merge.",
-  "intake_open_issue_count": 47,
+  "intake_open_issue_count": 68,
   "composed_from_remote_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
   "final_execution_policy": "Source integration and local component receipts are distinct from execution qualification. Merge and individual issue closure require successful applicable checks on the final published PR head and its current main base; historical/component results are not substitutes.",
   "reconciled_remote_parent_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
@@ -1600,5 +2418,43 @@
     "equivalent_production_head": "047c34545fa546f0dbf2ce843d69e4a2ad08e99a",
     "component_base_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
     "qualification": "These reports came from the composed production tree, unlike the older b5ab42bf report checkpoint. The graph omission is source-proven but historical causality remains unproved; capacity failures receive admission-time diagnostic evidence."
+  },
+  "diagnostic_21c055de_intake": {
+    "source_sha": "2b2d6276bceb5d3e2428ff52aad3b8e6bd9c791e",
+    "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+    "issues": [
+      1149,
+      1150,
+      1151,
+      1152,
+      1153,
+      1154,
+      1155,
+      1156,
+      1157,
+      1158,
+      1159,
+      1160,
+      1161,
+      1162,
+      1163,
+      1164,
+      1165,
+      1166,
+      1167,
+      1168,
+      1169
+    ],
+    "archive_stage_digests_matched": 20,
+    "archive_complete_for_selected_stages": true,
+    "runs": {
+      "total": 10,
+      "failed": 7,
+      "partial": 2,
+      "canceled": 1
+    },
+    "tool_receipts": 180,
+    "historical_graph_index_calls": 111,
+    "qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes."
   }
 }

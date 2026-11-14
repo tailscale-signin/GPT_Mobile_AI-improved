@@ -30,6 +30,7 @@ internal class GatewayGraphResultException(val code: String, message: String, va
 internal fun graphFailureCode(failure: Exception): String = when (failure) {
     is GatewayGraphIntegrityException -> failure.code
     is GatewayGraphResultException -> failure.code
+    is GatewayGraphHttpFailure -> failure.code
     is GatewayGraphAdmissionException -> failure.code
     is javax.net.ssl.SSLException -> "GRAPH_TLS_REJECTED"
     is GatewayAdmissionException -> "GRAPH_${failure.reason.name}"

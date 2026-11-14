@@ -56,6 +56,59 @@ class GovernorTests(unittest.TestCase):
         with governor.lease('account'):
             pass
 
+    def test_observed_core_reserve_defers_only_bulk_reads_and_expires_at_reset(self):
+        now = [100.0]
+        governor = GitHubApiGovernor(clock=lambda: now[0], wall=lambda: 1_800_000_000 + now[0] - 100)
+        governor.observe('account', 200, {'X-RateLimit-Resource': 'core', 'X-RateLimit-Remaining': '101',
+                                       'X-RateLimit-Reset': '1800000600'})
+        with governor.lease('account', reserve=100):
+            pass
+        # Admission spends the last bulk request even with missing response headers.
+        with self.assertRaises(GitHubApiRateWait) as caught:
+            with governor.lease('account', reserve=100):
+                self.fail('bulk reads must preserve the foreground allowance')
+        self.assertFalse(caught.exception.dispatched)
+        self.assertEqual('FOREGROUND_RESERVE', caught.exception.reason)
+        self.assertEqual('600', caught.exception.response.headers['Retry-After'])
+        with governor.lease('account'):
+            pass
+        with governor.lease('account', resource='search', reserve=100):
+            pass
+        with governor.lease('another-account', reserve=100):
+            pass
+        now[0] += 601
+        with governor.lease('account', reserve=100):
+            pass
+
+    def test_reserve_requires_valid_observed_core_metadata_and_zero_blocks_all_core_reads(self):
+        governor = GitHubApiGovernor(clock=lambda: 100.0, wall=lambda: 1_800_000_000)
+        cases = [{}, {'X-RateLimit-Resource': 'search', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1800000600'},
+                 {'X-RateLimit-Resource': 'core', 'X-RateLimit-Remaining': '0'},
+                 {'X-RateLimit-Resource': 'core', 'X-RateLimit-Remaining': '-1', 'X-RateLimit-Reset': '1800000600'},
+                 {'X-RateLimit-Resource': 'core', 'X-RateLimit-Remaining': '9' * 5000, 'X-RateLimit-Reset': '1800000600'},
+                 {'X-RateLimit-Resource': 'core', 'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': 'NaN'}]
+        for headers in cases:
+            governor.observe('account', 200, headers)
+            with governor.lease('account', reserve=100):
+                pass
+        governor.observe('account', 200, {'X-RateLimit-Resource': 'core', 'X-RateLimit-Remaining': '0',
+                                       'X-RateLimit-Reset': '1800000600'})
+        with self.assertRaises(GitHubApiRateWait) as caught:
+            with governor.lease('account'):
+                pass
+        self.assertEqual('OBSERVED_QUOTA_EXHAUSTED', caught.exception.reason)
+
+    def test_retry_delay_distinguishes_access_rejection_and_authoritative_rate_waits(self):
+        self.assertIsNone(GitHubApiGovernor.retry_delay(403, {}, 1_800_000_000))
+        self.assertEqual(60, GitHubApiGovernor.retry_delay(429, {}, 1_800_000_000))
+        self.assertEqual(900, GitHubApiGovernor.retry_delay(403, {'X-RateLimit-Remaining': '0',
+                                                             'X-RateLimit-Reset': '1800000900'}, 1_800_000_000))
+        self.assertEqual(120, GitHubApiGovernor.retry_delay(429, {'Retry-After': '120'}, 1_800_000_000))
+        self.assertEqual(120, GitHubApiGovernor.retry_delay(429, {'Retry-After': '120', 'X-RateLimit-Remaining': '4000',
+                                                               'X-RateLimit-Reset': '1800003600'}, 1_800_000_000))
+        self.assertEqual(60, GitHubApiGovernor.retry_delay(429, {'X-RateLimit-Remaining': '4000',
+                                                              'X-RateLimit-Reset': '1800003600'}, 1_800_000_000))
+
 
 if __name__ == '__main__':
     unittest.main()

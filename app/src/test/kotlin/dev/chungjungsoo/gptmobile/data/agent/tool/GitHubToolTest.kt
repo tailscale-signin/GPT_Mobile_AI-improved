@@ -26,6 +26,232 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubToolTest {
+    @Test fun typedRateResponseEvidenceSurvivesTheNativeOperationAndMeasuredReceipt() = runTest {
+        var requests = 0
+        HttpClient(
+            MockEngine {
+                requests++
+                respond(
+                    """{"message":"private rate response"}""",
+                    HttpStatusCode.TooManyRequests,
+                    headersOf(HttpHeaders.ContentType to listOf("application/json"), "Retry-After" to listOf("30"), "X-RateLimit-Resource" to listOf("core"), "X-RateLimit-Remaining" to listOf("7"))
+                )
+            }
+        ).use { http ->
+            val tool = GitHubTool("private-token", http, repositoryContext = GitHubRepositoryContext("private-owner", "private-repo", "working")).operations().single { it.operation == "github_context" }
+            val result = tool.execute("private-call", buildJsonObject { put("action", "repository") })
+            assertEquals("GITHUB_SECONDARY_RATE_LIMITED", result.errorCode)
+            assertTrue(result.dispatched)
+            assertEquals(1, requests)
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals(JsonPrimitive("READ_FAILED"), receipt["phase"])
+            assertEquals(JsonPrimitive(429), receipt["http_status"])
+            assertEquals(JsonPrimitive(1), receipt["read_requests"])
+            assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
+            assertEquals(JsonPrimitive("CORE"), receipt["github_cooldown_resource"])
+            assertEquals(JsonPrimitive("RESOURCE_RETRY_AFTER"), receipt["github_cooldown_basis"])
+            assertEquals(JsonPrimitive(30_000), receipt["github_cooldown_delay_ms"])
+            assertEquals(JsonPrimitive(30_000), receipt["retry_after_ms"])
+            assertEquals(JsonPrimitive(7), receipt["github_cooldown_remaining_requests"])
+            assertTrue(receipt.containsKey("github_cooldown_observed_at_ms"))
+            assertTrue(receipt.containsKey("github_cooldown_deadline_ms"))
+            assertEquals(null, receipt["recovery_action"])
+            val event = dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent("private-event", "private-run", 0, result.callId, null, null, "github_context", tool.definition.name, """{"action":"repository"}""", null, null, "FAILED")
+            val fields = receipt + dev.chungjungsoo.gptmobile.data.diagnostics.ToolReportDiagnostics.fields(event, result) + mapOf("run_id" to event.runId, "call_id" to event.callId, "tool" to event.modelToolName)
+            val capsule = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fields(dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature.TOOLS, "TOOL_RESULT", requireNotNull(result.errorCode), fields)
+            val context = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.fromFields("TOOL_RESULT", capsule, 1_800_000_000_000)
+            assertEquals(JsonPrimitive(30_000), context.diagnostics?.values?.get("github_cooldown_delay_ms"))
+            assertEquals(JsonPrimitive("GITHUB_SECONDARY_RATE_LIMITED"), context.diagnostics?.values?.get("tool_error_code"))
+            assertEquals(429, context.httpStatus)
+            val approved = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport("44444444-4444-4444-8444-444444444444", "debug", "1.0", 1, "abcdef0", "16", 36, "Fixture", feature = "tools", errorCode = result.errorCode, context = context).approvedPayload()
+            assertFalse(approved.contains("private"))
+        }
+    }
+
+    @Test fun typedCooldownAndItsUnsentWrapperKeepLocalWaitEvidenceWithoutNetworkRetry() = runTest {
+        val cooldown = dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive(
+            dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive.Resource.CORE,
+            dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive.Basis.RESOURCE_RESET,
+            30_000,
+            1_800_000_030_000,
+            1_800_000_000_000,
+            0
+        )
+        val wrapped = dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, cooldown.message.orEmpty()).also { it.initCause(cooldown) }
+        val failures = listOf(
+            cooldown to true,
+            wrapped to true,
+            IllegalStateException(cooldown.message) to false,
+            dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(0, cooldown.message.orEmpty()) to false,
+            dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected(403, cooldown.message.orEmpty()).also { it.initCause(cooldown) } to false
+        )
+        for ((failure, typed) in failures) {
+            var requests = 0
+            var credentials = 0
+            HttpClient(
+                MockEngine {
+                    requests++
+                    error("No HTTP request may execute")
+                }
+            ).use { http ->
+                val tool = GitHubTool(
+                    "token",
+                    http,
+                    repositoryContext = GitHubRepositoryContext("owner", "repo", "working"),
+                    credentialProvider = { if (++credentials == 2) throw failure else "token" }
+                ).operations().single { it.operation == "github_context" }
+                val result = tool.execute("call", buildJsonObject { put("action", "repository") })
+                assertTrue(result.isError)
+                assertFalse(result.dispatched)
+                assertEquals(0, requests)
+                assertEquals(2, credentials)
+                val receipt = requireNotNull(result.executionReceipt)
+                assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), receipt["phase"])
+                assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
+                assertFalse(dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.retryable(result))
+                assertEquals(null, receipt["github_transport_wait_ms"])
+                assertEquals(null, receipt["recovery_action"])
+                if (typed) {
+                    assertEquals("GITHUB_COOLDOWN_ACTIVE", result.errorCode)
+                    cooldown.failureFields().forEach { (key, value) -> assertEquals(key, value, receipt[key]) }
+                    assertEquals(JsonPrimitive(30_000), receipt["retry_after_ms"])
+                    assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.exceptionFingerprint(failure)), receipt["exception_fingerprint"])
+                } else {
+                    assertFalse(result.errorCode == "GITHUB_COOLDOWN_ACTIVE")
+                    assertEquals(null, receipt["github_cooldown_resource"])
+                }
+            }
+        }
+    }
+
+    @Test fun nativeWriteRetainsTypedCooldownCauseFromItsActualAdmissionWrapper() = runTest {
+        var requests = 0
+        HttpClient(
+            MockEngine { request ->
+                requests++
+                assertEquals(HttpMethod.Get, request.method)
+                assertEquals("/repos/owner/repo/issues/1", request.url.encodedPath)
+                respond("""{"number":1,"title":"retained"}""", headers = headersOf(HttpHeaders.ContentType to listOf("application/json"), "Retry-After" to listOf("30")))
+            }
+        ).use { http ->
+            val tool = GitHubTool("token", http, repositoryContext = GitHubRepositoryContext("owner", "repo", "working"))
+            assertFalse(
+                tool.execute(
+                    "read",
+                    buildJsonObject {
+                        put("action", "get_issue")
+                        put("issue_number", 1)
+                    }
+                ).isError
+            )
+            val result = tool.execute(
+                "write",
+                buildJsonObject {
+                    put("action", "create_issue_comment")
+                    put("pull_number", 1)
+                    put("body", "private comment")
+                }
+            )
+            assertEquals("GITHUB_COOLDOWN_ACTIVE", result.errorCode)
+            assertFalse(result.dispatched)
+            assertEquals(1, requests)
+            val receipt = requireNotNull(result.executionReceipt)
+            assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), receipt["phase"])
+            assertEquals(JsonPrimitive(0), receipt["read_requests"])
+            assertEquals(JsonPrimitive(0), receipt["mutation_requests"])
+            assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
+            assertTrue((receipt["cause_types"] as JsonArray).contains(JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive::class.java.name)))
+            assertTrue((receipt["cause_types"] as JsonArray).contains(JsonPrimitive(dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected::class.java.name)))
+            assertFalse(dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.retryable(result))
+        }
+    }
+
+    @Test fun contextPrecheckFailuresRetainActualCaughtEvidenceAcrossAllReportedReadActions() = runTest {
+        for (action in listOf("repository", "commit", "changes", "branch", "branch_dependencies")) {
+            var requests = 0
+            var credentials = 0
+            val observed = IllegalStateException("private credential provider detail", UnsupportedOperationException("private cause"))
+            val http = HttpClient(
+                MockEngine {
+                    requests++
+                    error("No HTTP request may execute")
+                }
+            )
+            try {
+                val tool = GitHubTool(
+                    "private-token",
+                    http,
+                    repositoryContext = GitHubRepositoryContext("private-owner", "private-repo", "working"),
+                    credentialProvider = { if (++credentials == 2) throw observed else "private-token" }
+                ).operations().single { it.operation == "github_context" }
+                val result = tool.execute(
+                    "call-$action",
+                    buildJsonObject {
+                        put("action", action)
+                        if (action == "commit") put("ref", "a".repeat(40))
+                        if (action == "changes") put("base_sha", "a".repeat(40))
+                        if (action in setOf("branch", "branch_dependencies")) put("branch", "working")
+                    }
+                )
+                assertTrue(action, result.isError)
+                assertEquals(action, "GITHUB_OPERATION_FAILED", result.errorCode)
+                assertFalse(action, result.dispatched)
+                assertEquals(action, 2, credentials)
+                assertEquals(action, 0, requests)
+                val receipt = requireNotNull(result.executionReceipt)
+                assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), receipt["phase"])
+                for (key in listOf("read_requests", "mutation_requests", "accepted_mutations", "unknown_mutations")) assertEquals(key, JsonPrimitive(0), receipt[key])
+                assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
+                assertEquals(JsonArray(listOf(JsonPrimitive("java.lang.IllegalStateException"), JsonPrimitive("java.lang.UnsupportedOperationException"))), receipt["cause_types"])
+                assertEquals(JsonPrimitive(dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.exceptionFingerprint(observed)), receipt["exception_fingerprint"])
+                assertFalse(requireNotNull(receipt["cause_types"]).toString().contains("private"))
+                assertFalse(requireNotNull(receipt["exception_fingerprint"]).toString().contains("private"))
+            } finally {
+                http.close()
+            }
+        }
+    }
+
+    @Test fun typedCredentialPrecheckAndCancellationDoNotBecomeGenericCaughtFailures() = runTest {
+        for (cancel in listOf(false, true)) {
+            var credentials = 0
+            var requests = 0
+            val http = HttpClient(
+                MockEngine {
+                    requests++
+                    error("No request may execute")
+                }
+            )
+            try {
+                val tool = GitHubTool(
+                    "private-token",
+                    http,
+                    repositoryContext = GitHubRepositoryContext("owner", "repo", "working"),
+                    credentialProvider = {
+                        if (++credentials == 2) {
+                            if (cancel) throw kotlinx.coroutines.CancellationException("cancelled")
+                            throw dev.chungjungsoo.gptmobile.data.github.GitHubReadValidation("GITHUB_REF_UNAVAILABLE", buildJsonObject { put("reason", "unavailable") })
+                        }
+                        "private-token"
+                    }
+                ).operations().single { it.operation == "github_context" }
+                val invocation = runCatching { tool.execute("call", buildJsonObject { put("action", "repository") }) }
+                if (cancel) {
+                    assertTrue(invocation.exceptionOrNull() is kotlinx.coroutines.CancellationException)
+                } else {
+                    val result = invocation.getOrThrow()
+                    assertEquals("GITHUB_REF_UNAVAILABLE", result.errorCode)
+                    assertFalse(result.dispatched)
+                    assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), result.executionReceipt?.get("phase"))
+                    assertEquals(null, result.executionReceipt?.get("cause_types"))
+                }
+                assertEquals(0, requests)
+            } finally {
+                http.close()
+            }
+        }
+    }
+
     @Test fun savedPagesRevalidateTheLiveAccountAndSurviveVerifiedCredentialRotation() = runTest {
         var requests = 0
         var credentialChecks = 0

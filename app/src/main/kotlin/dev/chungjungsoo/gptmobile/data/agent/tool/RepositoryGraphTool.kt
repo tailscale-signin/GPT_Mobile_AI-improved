@@ -3,7 +3,11 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolExceptionEvidence
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphUnavailableException
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.Json
@@ -37,19 +41,55 @@ internal class RepositoryGraphTool(
         }
         return try {
             val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000)))
-            AgentToolResult(callId, ToolResultContent.Json(query(payload)), isError = false)
+            val observed = query(payload)
+            val unresolved = (observed["index_checkpoint"] as? JsonObject)?.get("index_outcome_unknown") == JsonPrimitive(true)
+            AgentToolResult(
+                callId,
+                ToolResultContent.Json(if (unresolved) JsonObject(observed + savedIndexRecovery()) else observed),
+                isError = false,
+                executionReceipt = if (unresolved) {
+                    buildJsonObject {
+                        put("schema", RECEIPT_SCHEMA)
+                        put("call_id", callId)
+                        put("phase", "COMPLETED")
+                        put("index_outcome_unknown", true)
+                        put("requires_reconciliation", true)
+                        put("repair_action", "CHECK_SAVED_INDEX")
+                        put("recovery_action", "RECONCILE_OUTCOME")
+                    }
+                } else {
+                    null
+                }
+            )
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            val admission = failure as? dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
+            val operation = failure as? GatewayGraphOperationException
+            val cause = operation?.cause ?: failure
+            val admission = cause as? GatewayGraphAdmissionException
+            val prerequisite = cause as? GatewayGraphUnavailableException
+            val httpStatus = when (cause) {
+                is GatewayGraphHttpFailure -> cause.httpStatus
+                is GatewayGraphUnavailableException -> cause.httpStatus
+                is dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequestRejected -> cause.httpStatus
+                else -> null
+            }
+            val retryAfterMillis = when (cause) {
+                is GatewayGraphHttpFailure -> cause.retryAfterMillis
+                is GatewayGraphUnavailableException -> cause.retryAfterMillis
+                else -> null
+            }
+            val rateLimitObservation = (cause as? GatewayGraphHttpFailure)?.rateLimitObservation
+            val unresolved = operation?.indexOutcomeUnknown == true
+            val repairAction = if (unresolved) "CHECK_SAVED_INDEX" else operation?.repairAction ?: admission?.repairAction ?: prerequisite?.prerequisites?.firstOrNull()?.nextAction
             val code = admission?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
             val readAction = arguments["action"] !in setOf(JsonPrimitive("index"), JsonPrimitive("note"))
             // A transport/readiness failure of a status read may trigger one independent,
             // authorized native read. Typed readiness does not include graph policy,
             // identity or permission rejection. Indexing and notes are never replayed.
-            val unavailable = failure is GatewayGraphUnavailableException ||
-                failure is java.io.IOException &&
-                failure !is javax.net.ssl.SSLException
+            val unavailable = cause is GatewayGraphUnavailableException ||
+                cause is java.io.IOException &&
+                cause !is javax.net.ssl.SSLException
             val fallback = if (arguments["action"] == JsonPrimitive("status") && unavailable) {
                 try {
                     nativeStatus?.invoke("$callId-native-status")
@@ -66,14 +106,15 @@ internal class RepositoryGraphTool(
                 ToolResultContent.Json(
                     buildJsonObject {
                         put("code", code)
-                        val prerequisite = failure as? GatewayGraphUnavailableException
                         prerequisite?.diagnostic()?.forEach { (key, value) -> put(key, value) }
                         if (prerequisite == null) {
                             put(
                                 "failure_category",
-                                if (admission != null) {
+                                if (unresolved && admission?.code == "GRAPH_INDEX_OUTCOME_UNKNOWN") {
+                                    "RECONCILIATION_REQUIRED"
+                                } else if (admission != null) {
                                     "LOCAL_POLICY_OR_CONFIGURATION"
-                                } else if (failure is java.io.IOException && failure !is javax.net.ssl.SSLException) {
+                                } else if (cause is java.io.IOException && cause !is javax.net.ssl.SSLException) {
                                     "TRANSPORT_UNAVAILABLE"
                                 } else {
                                     "GRAPH_REQUEST_REJECTED"
@@ -94,7 +135,11 @@ internal class RepositoryGraphTool(
                         )
                         put(
                             "recovery_kind",
-                            if (admission != null) {
+                            if (unresolved) {
+                                "RECONCILE_SAVED_INDEX"
+                            } else if (rateLimitObservation != null) {
+                                "WAIT_FOR_REPORTED_RATE_LIMIT"
+                            } else if (admission != null) {
                                 "RESTORE_SELECTED_CONFIGURATION_OR_GRANTS"
                             } else if (unavailable) {
                                 "RESTORE_SELECTED_GATEWAY_READINESS"
@@ -103,12 +148,28 @@ internal class RepositoryGraphTool(
                             }
                         )
                         put("automatic_retry", false)
-                        put("next_action", if (admission != null) admission.message.orEmpty() else "Check the selected gateway host GitHub connection, durable storage, graph readiness and protocol. Refresh status after recovery. Do not substitute a different profile or treat native status as graph coverage.")
+                        put(
+                            "next_action",
+                            if (unresolved) {
+                                "The earlier index request remains unconfirmed. Wait for the reported retry delay if present, then read status on this same gateway and revision to reconcile its saved checkpoint; do not repeat indexing until the checkpoint is acknowledged."
+                            } else if (rateLimitObservation != null) {
+                                "GitHub request capacity is temporarily unavailable. Wait for the reported retry delay, then refresh saved status on this gateway and revision before continuing. The observed upstream request does not establish the outcome of other graph work."
+                            } else if (admission != null) {
+                                admission.message.orEmpty()
+                            } else {
+                                "Check the selected gateway host GitHub connection, durable storage, graph readiness and protocol. Refresh status after recovery. Do not substitute a different profile or treat native status as graph coverage."
+                            }
+                        )
+                        repairAction?.let { put("repair_action", it) }
+                        rateLimitObservation?.let { put("rate_limit", it) }
+                        httpStatus?.takeIf { it in 100..599 }?.let { put("http_status", it) }
+                        retryAfterMillis?.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
+                        if (unresolved) savedIndexRecovery().forEach { (key, value) -> put(key, value) }
                         put("graph_complete", false)
                         put("message", if (unavailable && readAction) "Repository graph evidence is unavailable. Authorized native repository reads remain independent of the graph connection. Resolve the selected revision, inspect branches, commits, source paths, PRs and checks as needed; their receipts do not establish graph coverage or executed tests." else "Repository graph access failed. Resolve the reported admission, validation or transport problem for this operation; no graph write or policy rejection was retried through another provider.")
-                        put("failure_type", failure.javaClass.simpleName)
+                        put("failure_type", cause.javaClass.simpleName)
                         if (unavailable && readAction && nativeStatus != null) {
-                            put("recovery_call", nativeCall("github_context", "status"))
+                            if (!unresolved) put("recovery_call", nativeCall("github_context", "status"))
                             put("native_read_alternatives", JsonArray(listOf("resolve", "branches", "commits", "checks").map { nativeCall("github_context", it) } + nativeCall("github_pr", "list")))
                             put("source_inspection", "After resolving the revision, use authorized github_search mode=paths with a concrete query, then github_read with exact ranges and commit_sha. Native source inspection does not supply graph callers/callees, complete graph coverage, or CI execution.")
                             put("native_authorization", "Every alternative still requires the current account, repository, privacy policy and tool budget. No additional tool is exposed by this response.")
@@ -130,7 +191,25 @@ internal class RepositoryGraphTool(
                 ),
                 true,
                 errorCode = code,
-                dispatched = admission == null
+                dispatched = admission == null,
+                executionReceipt = buildJsonObject {
+                    put("schema", RECEIPT_SCHEMA)
+                    put("call_id", callId)
+                    put("error_code", code)
+                    put("phase", if (admission != null) "PRECHECK_REJECTED" else "FAILED")
+                    put("failed_stage", if (admission != null) "tool_precheck" else "tool_execution")
+                    put("dispatched", admission == null)
+                    put("retryable", false)
+                    put("requires_reconciliation", unresolved)
+                    put("index_outcome_unknown", unresolved)
+                    repairAction?.let { put("repair_action", it) }
+                    if (unresolved) put("recovery_action", "RECONCILE_OUTCOME")
+                    httpStatus?.takeIf { it in 100..599 }?.let { put("http_status", it) }
+                    retryAfterMillis?.takeIf { it in 0..86_400_000 }?.let { put("retry_after_ms", it) }
+                    rateLimitObservation?.let { put("graph_rate_limit", it) }
+                    (prerequisite?.prerequisites?.firstOrNull()?.name ?: admission?.code ?: operation?.failureCode ?: (cause as? GatewayGraphHttpFailure)?.code)?.let { put("reason_code", it) }
+                    ToolExceptionEvidence.fields(cause).forEach { (key, value) -> put(key, value) }
+                }
             )
         }
     }
@@ -138,5 +217,22 @@ internal class RepositoryGraphTool(
     private fun nativeCall(operation: String, action: String) = buildJsonObject {
         put("tool", operation + nativeContextName.removePrefix("github_context"))
         put("arguments", buildJsonObject { put("action", action) })
+    }
+
+    private fun savedIndexRecovery() = buildJsonObject {
+        put("index_outcome_unknown", true)
+        put("requires_reconciliation", true)
+        put("repair_action", "CHECK_SAVED_INDEX")
+        put(
+            "recovery_call",
+            buildJsonObject {
+                put("tool", definition.name)
+                put("arguments", buildJsonObject { put("action", "status") })
+            }
+        )
+    }
+
+    companion object {
+        const val RECEIPT_SCHEMA = "gptmobile.repository-graph.v1"
     }
 }

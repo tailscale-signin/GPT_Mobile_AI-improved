@@ -59,6 +59,16 @@ internal object ProviderFailureReport {
                 }
             )
         }
+        if (receipt.errorCode == "GITHUB_PROFILE_LOCKED") {
+            for (key in IssueReportDiagnostics.profileSelectionFields) {
+                failure.failureDetails?.get(key)?.let { put(key, it) }
+            }
+        }
+        if (receipt.errorCode in setOf("GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED")) {
+            for (key in IssueReportDiagnostics.githubCooldownFields + listOf("failed_stage", "retryable", "recovery_action", "retry_after_ms")) {
+                failure.failureDetails?.get(key)?.let { put(key, it) }
+            }
+        }
         if (receipt.errorCode == "GITHUB_TOOL_CONTEXT_BUDGET") {
             for (key in IssueReportDiagnostics.githubSchemaBudgetFields + "admission_tool_result_reserve_tokens") {
                 failure.failureDetails?.get(key)?.let { put(key, it) }

@@ -255,7 +255,8 @@ class ChatRepositoryImplTest {
         assertEquals(0, progress.summarySnapshot().pending)
         clock = 45_000
         val summary = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().text
-        assertTrue(summary.contains("branch comparison"))
+        // Label-only successes stay in the counts; the focused failure owns the summary.
+        assertFalse(summary.contains("branch comparison"))
         assertTrue(summary.contains("source read") && summary.contains("failed") && summary.contains("MainActivity.kt"))
         assertTrue(summary.contains("inspect the source read error"))
         assertFalse(summary.contains("identify the pull request associated"))

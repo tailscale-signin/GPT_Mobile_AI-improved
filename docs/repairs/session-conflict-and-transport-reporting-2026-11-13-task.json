@@ -133,7 +133,13 @@
       "Recover original owned tool results for the waiting handoff; no uncertain mutations replayed.",
       "Required tool schemas must fit actual context capacity; no live request completion claimed.",
       "Install matching app/gateway and measure physical-device gestures/audio/frame timing separately."
-    ]
+    ],
+    "repository_regression_alignment": {
+      "parent_sha": "2b5bfe4735769909289dbd8719e12e5d835cf258",
+      "reason": "The existing native progress repository regression still required an unfocused branch-comparison label. The new factual-summary contract deliberately keeps that completed operation in counts and surfaces the focused source-read failure.",
+      "change": "Assert absence of the generic comparison label while retaining all pending/completed/failed counts, source path, failure and concrete recovery-next-step assertions. Production code is unchanged.",
+      "validation": "One additional actual-source emitted-event reproduction passed; the 62 integration/report tests also passed on 2b5bfe47 after the concurrent retained-scope change. Full repository/Android execution remains a hosted gate."
+    }
   },
   "audit_source_generation_heap_followup": {
     "repository": "tailscale-signin/GPT_Mobile_AI-improved",

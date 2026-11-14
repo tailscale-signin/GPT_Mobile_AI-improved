@@ -309,3 +309,17 @@ New regressions exercise actual retained checklist/save/restore/lifecycle projec
 The concurrent progress/prerequisite repair `3d2f210cca8865599b06ee23382443ed34ab12af` is preserved. The annotation-generation repair `9ead17c5a2c9e32d505bf37757bbbe41228118cd` is also preserved: a small additional observability change wraps each audit generation phase with the existing build-metrics collector and always retains both JSON reports. It changes no heap, metaspace, worker count, process deadline, step limit or subsequent gate. Repository CI policy and all 30 CI-observability/delivery regressions passed.
 
 Final combined host validation passed `bash scripts/validate-local.sh fast`: 507 Python tests, 1,651 literal regular expressions with 82 dynamic patterns skipped, 34 Android resource XML files, CI/schema/dependency/secret checks, icon checks and provenance checks. Generated inventory is current. The release validator passed all changed paths and verbatim limitation disclosures; the shallow recovery checkout cannot independently establish full release-base ancestry, so the hosted full-checkout gate remains required. These checks do not claim execution of the newly added Android regressions.
+
+
+### Native progress regression alignment
+
+A final integration review reproduced the existing native-progress test's emitted
+event sequence against the actual progress/narrator/presentation sources. All three
+successful operations remained counted; the focused source-read failure kept its
+path and concrete recovery step, and pending work changed from one to zero. The
+old assertion still required a label-only branch-comparison sentence that the new
+factual-summary contract deliberately suppresses. The assertion now checks its
+absence, retaining every count, path, failure and next-action check. This is a
+fixture alignment with the tested public policy; production behavior is unchanged.
+The separate 62-case integration/report harness also passed again on `2b5bfe47`
+after the concurrent retained-acceptance-scope diagnostic addition.

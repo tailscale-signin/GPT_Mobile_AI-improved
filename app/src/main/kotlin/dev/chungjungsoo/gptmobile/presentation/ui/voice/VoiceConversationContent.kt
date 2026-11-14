@@ -139,7 +139,7 @@ internal fun VoiceConversationScreen(state: VoiceConversationUiState, actions: V
 @Composable
 private fun VoiceConversationHeader(state: VoiceConversationUiState, actions: VoiceConversationActions) {
     Row(Modifier.widthIn(max = 640.dp).fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        IconButton(onClick = actions.end) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats") }
+        IconButton(onClick = actions.end) { Icon(Icons.AutoMirrored.Rounded.ArrowBack, "Back to chats", tint = MaterialTheme.colorScheme.onSurface) }
         VoiceProfilePicker(state, actions.selectProfile, Modifier.weight(1f))
         IconButton(onClick = actions.openTranscript) {
             Icon(Icons.Rounded.Subtitles, "Open full transcript", tint = MaterialTheme.colorScheme.primary)

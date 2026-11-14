@@ -14,9 +14,12 @@ import io.modelcontextprotocol.kotlin.sdk.types.ToolSchema
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -41,7 +44,28 @@ class GitHubFullToolVisibilityTest {
             val deferred = github.last()
             catalog.execute("discover-github", buildJsonObject { put("names", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(deferred.name)))) })
             assertTrue(catalog.selected(allowed).contains(deferred))
-            catalog.execute("discover-optional", buildJsonObject { put("query", "optional_80") })
+            assertFalse(catalog.execute("discover-optional", buildJsonObject { put("query", "optional_80") }).isError)
+            val shifted = catalog.selected(allowed)
+            assertTrue(shifted.contains(optional.last()))
+            assertTrue(shifted.count { it.name != ProgressiveToolCatalog.NAME } <= ProgressiveToolCatalog.INITIAL_TOOLS)
+            assertFalse("The bounded window may evict a prior schema without revoking it", shifted.contains(deferred))
+            val inventory = mutableSetOf<String>()
+            var arguments = JsonObject(emptyMap())
+            var pages = 0
+            while (true) {
+                check(++pages <= 32) { "Authorized inventory did not complete" }
+                val result = catalog.execute("inventory-$pages", arguments)
+                assertFalse(result.isError)
+                assertFalse(result.dispatched)
+                val payload = (result.content as ToolResultContent.Json).value.jsonObject
+                inventory += (payload.getValue("authorized_inventory") as JsonArray).map { it.jsonObject.getValue("name").jsonPrimitive.content }
+                val next = payload["continuation_call"] as? JsonObject ?: break
+                arguments = next.getValue("arguments").jsonObject
+            }
+            assertEquals(definitions.filter { it.modelVisible }.map { it.name }.toSet(), inventory)
+            val rediscovered = catalog.execute("rediscover-github", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(deferred.name)))) })
+            assertFalse(rediscovered.isError)
+            assertFalse(rediscovered.dispatched)
             assertTrue(catalog.selected(allowed).contains(deferred))
             val denied = github.last()
             assertFalse(catalog.selected(allowed - denied).any { it.name == denied.name })

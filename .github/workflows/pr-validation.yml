@@ -381,6 +381,9 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '22'
@@ -425,6 +428,7 @@ jobs:
       - name: Gateway and GitHub OAuth broker contracts
         if: ${{ !cancelled() }}
         run: |
+          python3 -c 'import tkinter'
           python3 -m pip install --require-hashes -r gateway/requirements.txt
           python3 -m py_compile gateway/gateway*.py
           python3 gateway/check_gateway.py

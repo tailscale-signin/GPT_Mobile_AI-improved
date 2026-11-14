@@ -121,6 +121,11 @@ internal fun planAuthorizedToolContext(
     val advertised = (required + (catalog?.selected(definitions + catalog.definition) ?: definitions.filter { it.modelVisible })).distinctBy { it.name }
     // Pin the immediate status/context read, not every operation mentioned in
     // a multi-step engineering task. Remaining schemas are discoverable later.
+    val requestedGitHubOperations = if (requireToolExecution) {
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
+    } else {
+        emptySet()
+    }
     val requiredGitHubSchemas = when {
         !requireToolExecution -> emptyList()
         scopedGitHubStatus -> advertised.filter {
@@ -130,8 +135,7 @@ internal fun planAuthorizedToolContext(
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_context"
         }.take(1)
         else -> advertised.filter { definition ->
-            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in
-                dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.taskTools(task)
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
         }
     }
     val pinnedSchemas = (requiredGitHubSchemas + required).distinctBy { it.name }

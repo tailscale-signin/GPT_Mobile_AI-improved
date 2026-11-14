@@ -74,7 +74,122 @@ class GatewayGraphRepositoryTest {
             val result = repository(http).executeForMap(context, action("status"), host.uid)
             assertEquals(host.uid, result.gatewayProfileUid)
             assertEquals(host.name, result.gatewayName)
+            assertEquals("PRIVATE_PROFILE_REQUIRED", result.modelAccess)
             assertEquals(1, graphRequests)
+        }
+    }
+
+    @Test fun lostBackgroundAcknowledgementReconcilesTheExactQueuedRequestWithoutReplaying() = runTest {
+        var saved = notIndexed
+        var writes = 0
+        val capability = ready.replace("\"schema_version\":1,\"enabled\":true", "\"schema_version\":1,\"enabled\":true,\"durable_index_jobs\":true")
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(capability, HttpStatusCode.OK, headers)
+                } else {
+                    val body = Json.parseToJsonElement((request.body as TextContent).text) as JsonObject
+                    if (body["action"]?.jsonPrimitive?.content == "index") {
+                        writes++
+                        assertEquals(JsonPrimitive(true), body["background"])
+                        val requestId = body["request_id"]?.jsonPrimitive?.content
+                        assertTrue(!requestId.isNullOrBlank())
+                        saved = """{"status":"INDEX_JOB_ACCEPTED","repository":"owner/repo","commit_sha":"${context.commitSha}","index_job":{"id":"saved-job","state":"QUEUED","request_id":"$requestId","accepted_request_ids":["$requestId"]}}"""
+                        throw IOException("lost acknowledgement")
+                    }
+                    respond(saved, HttpStatusCode.OK, headers)
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val store = GitHubRepositoryStateStore()
+            val repo = repository(http, store)
+            val arguments = buildJsonObject {
+                put("action", "index")
+                put("background", true)
+            }
+            val lost = runCatching { repo.executeForMap(context, arguments, host.uid) }.exceptionOrNull() as GatewayGraphOperationException
+            assertTrue(lost.indexOutcomeUnknown)
+            val restored = repository(http, store)
+            assertTrue(runCatching { restored.executeForMap(context, arguments, host.uid) }.isFailure)
+            assertFalse(restored.executeForMap(context, action("status"), host.uid).indexOutcomeUnknown)
+            assertEquals(1, writes)
+        }
+    }
+
+    @Test fun backgroundCancellationRejectsAChangedJobBeforeSendingTheCancel() = runTest {
+        var cancellations = 0
+        val capability = ready.replace("\"schema_version\":1,\"enabled\":true", "\"schema_version\":1,\"enabled\":true,\"durable_index_jobs\":true")
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(capability, HttpStatusCode.OK, headers)
+                } else {
+                    val body = Json.parseToJsonElement((request.body as TextContent).text) as JsonObject
+                    if (body["job_action"]?.jsonPrimitive?.content == "cancel") cancellations++
+                    respond("""{"repository":"owner/repo","commit_sha":"${context.commitSha}","index_job":{"id":"new-job","state":"RUNNING"}}""", HttpStatusCode.OK, headers)
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val arguments = buildJsonObject {
+                put("action", "index")
+                put("job_action", "cancel")
+                put("job_id", "old-job")
+            }
+            val failure = runCatching { repository(http).executeForMap(context, arguments, host.uid) }.exceptionOrNull() as GatewayGraphOperationException
+            assertEquals("GRAPH_JOB_CHANGED", failure.failureCode)
+            assertEquals(0, cancellations)
+        }
+    }
+
+    @Test fun backgroundCancellationRequiresTheObservedJobGeneration() = runTest {
+        var cancellations = 0
+        val capability = ready.replace("\"schema_version\":1,\"enabled\":true", "\"schema_version\":1,\"enabled\":true,\"durable_index_jobs\":true")
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(capability, HttpStatusCode.OK, headers)
+                } else {
+                    val body = Json.parseToJsonElement((request.body as TextContent).text) as JsonObject
+                    val cancel = body["job_action"]?.jsonPrimitive?.content == "cancel"
+                    if (cancel) {
+                        cancellations++
+                        assertEquals(JsonPrimitive(2), body["job_generation"])
+                    }
+                    respond("""{"repository":"owner/repo","commit_sha":"${context.commitSha}","index_job":{"id":"saved-job","generation":2,"state":"${if (cancel) "CANCELLED" else "RUNNING"}"}}""", HttpStatusCode.OK, headers)
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val repo = repository(http)
+            fun arguments(generation: Int) = buildJsonObject {
+                put("action", "index")
+                put("job_action", "cancel")
+                put("job_id", "saved-job")
+                put("job_generation", generation)
+            }
+            val stale = runCatching { repo.executeForMap(context, arguments(1), host.uid) }.exceptionOrNull() as GatewayGraphOperationException
+            assertEquals("GRAPH_JOB_CHANGED", stale.failureCode)
+            assertEquals(0, cancellations)
+            val stopped = repo.executeForMap(context, arguments(2), host.uid)
+            assertEquals(JsonPrimitive("CANCELLED"), (stopped.result["index_job"] as JsonObject)["state"])
+            assertEquals(1, cancellations)
+        }
+    }
+
+    @Test fun boundedResultFailureKeepsItsRevisionAndRequestsANarrowerQuery() = runTest {
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(ready, HttpStatusCode.OK, headers)
+                } else {
+                    respond("""{"status":"RESULT_ITEM_EXCEEDS_BUDGET","graph":{"repository":"owner/repo","branch":"main","commit_sha":"${context.commitSha}"},"error":{"code":"GRAPH_RESULT_BUDGET_TOO_SMALL"}}""", HttpStatusCode.OK, headers)
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val failure = runCatching { repository(http).executeForMap(context, action("query"), host.uid) }.exceptionOrNull() as GatewayGraphOperationException
+            assertEquals("GRAPH_RESULT_BUDGET_TOO_SMALL", failure.failureCode)
+            assertEquals("NARROW_GRAPH_QUERY", failure.repairAction)
+            assertEquals(host.uid, failure.gatewayProfileUid)
+            assertFalse(failure.indexOutcomeUnknown)
         }
     }
 

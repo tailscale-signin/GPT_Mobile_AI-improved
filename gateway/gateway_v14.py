@@ -36,7 +36,7 @@ import gateway_v13 as runtime
 from fastapi import FastAPI, Request
 from starlette.datastructures import Headers
 from fastapi.responses import JSONResponse, Response, StreamingResponse
-from v14.identity import Admission, principal_can_chat
+from v14.identity import Admission, principal_can_chat, principal_can_graph
 from v14.research import run_searches
 from v14.jobs import install_terminal_guard, migrate_legacy_owner, TERMINAL, DurableCommitError
 from v14.errors import GatewayFailure
@@ -104,6 +104,9 @@ engineering = EngineeringService(EngineeringStore(runtime), GitHubEngineeringBac
                                  public_repository_maps=config.public_repository_maps)
 runtime.gateway_engineering = engineering
 engineering.authorized = lambda job: principal_authorized(config, job['principal'], device_store)
+engineering.graph.authorized = lambda principal: principal_authorized(config, principal, device_store)
+if engineering.public_graph is not None:
+    engineering.public_graph.authorized = lambda principal: config.public_repository_maps and principal_can_graph(config, principal, device_store)
 engineering.backend.cancelled = lambda job_id: (engineering.store.get(job_id) or {}).get('state') in {'CANCELLED', 'CANCELLING'}
 from v14.code_graph.tools import install_graph_tool
 install_graph_tool(runtime, engineering, lambda principal: principal_authorized(config, principal, device_store))

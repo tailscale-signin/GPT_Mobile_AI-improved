@@ -14,10 +14,12 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 /** Graph requests use an explicitly selected private gateway and its existing GitHub account. */
@@ -81,28 +83,48 @@ class GatewayGraphRepository @Inject constructor(
             checkpoint = retained
             var payload = boundRequest(context, arguments)
             val action = payload.text("action") ?: error("Select a repository graph operation.")
+            val cancelJob = action == "index" && payload.text("job_action") == "cancel"
+            val durableJobs = capability.codeGraph?.durableIndexJobs == true
+            if (payload["background"] == JsonPrimitive(true) && !durableJobs) payload = JsonObject(payload - "background")
+            val background = action == "index" && payload["background"] == JsonPrimitive(true)
+            val modelAccess = if (GitHubAutonomousEngineeringPolicy.supportsSavedJobs(admitted.profile)) "PRIVATE_PROFILE_ELIGIBLE" else "PRIVATE_PROFILE_REQUIRED"
             var previousStatus: JsonObject? = null
             verifyAdmission(context, expectedGatewayProfileUid, admitted)
-            if (action == "index" && retained.unresolved()) {
+            if (cancelJob) {
+                if (!durableJobs) throw GatewayGraphAdmissionException("GRAPH_BACKGROUND_UNSUPPORTED", "Update this gateway to control saved index jobs.", "UPDATE_SELECTED_GATEWAY_GRAPH_PROTOCOL")
+                val saved = client.graph(frozenConfig, boundRequest(context, buildJsonObject { put("action", "status") }))
+                verifyResult(context, saved)
+                val job = saved["index_job"] as? JsonObject
+                if (payload.text("job_id").isNullOrBlank() || payload.text("job_id") != job?.text("id")) {
+                    throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The saved indexing job changed. Refresh its status before stopping it.")
+                }
+                val jobGeneration = (payload["job_generation"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                if (jobGeneration == null || jobGeneration < 1 || payload["job_generation"] != job?.get("generation")) throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The saved indexing job was replaced. Refresh its status before stopping the current job.")
+                verifyAdmission(context, expectedGatewayProfileUid, admitted)
+            }
+            if (action == "index" && !cancelJob && retained.unresolved()) {
                 throw GatewayGraphAdmissionException("GRAPH_INDEX_OUTCOME_UNKNOWN", "The previous index request is unconfirmed. Check the saved index on this gateway before continuing.", "CHECK_SAVED_INDEX")
             }
             // A retained cursor is a server-side precondition. A fresh build first reads
             // the existing snapshot, so reopening the map never restarts saved work.
-            if (action == "index" && payload.text("index_cursor").isNullOrBlank()) {
+            if (action == "index" && !cancelJob && payload.text("index_cursor").isNullOrBlank()) {
                 val saved = client.graph(frozenConfig, boundRequest(context, buildJsonObject { put("action", "status") }))
                 previousStatus = saved
                 verifyResult(context, saved)
                 verifyAdmission(context, expectedGatewayProfileUid, admitted)
                 if (saved["has_more"] == JsonPrimitive(false) && arguments["retry_failed"] != JsonPrimitive(true)) {
-                    return@withLock GatewayGraphResponse(saved, "status", admitted.gateway.uid, admitted.gateway.name)
+                    return@withLock GatewayGraphResponse(saved, "status", admitted.gateway.uid, admitted.gateway.name, durableIndexJobs = durableJobs, modelAccess = modelAccess)
                 }
-                if (saved["has_more"] == JsonPrimitive(true)) {
+                if (saved["has_more"] == JsonPrimitive(true) && arguments["retry_failed"] != JsonPrimitive(true) && !background) {
                     val cursor = saved.text("index_cursor")?.takeIf(String::isNotBlank)
                         ?: error("The saved index has no continuation cursor. Check its status before continuing.")
                     payload = JsonObject(payload + ("index_cursor" to JsonPrimitive(cursor)))
                 }
             }
-            if (action == "index") attempt = retained.begin(payload.text("index_cursor"), previousStatus)
+            if (action == "index" && !cancelJob) {
+                attempt = retained.begin(payload.text("index_cursor"), previousStatus)
+                if (background) payload = JsonObject(payload + ("request_id" to JsonPrimitive(attempt)))
+            }
             // Persistence and capability reads can suspend. Revalidate before the POST,
             // not only after a stale configuration could have changed host state.
             verifyAdmission(context, expectedGatewayProfileUid, admitted)
@@ -112,8 +134,15 @@ class GatewayGraphRepository @Inject constructor(
             currentCoroutineContext().ensureActive()
             verifyResult(context, result)
             if (action == "index") {
-                check(result["has_more"] in setOf(JsonPrimitive(true), JsonPrimitive(false))) { "The gateway did not confirm the index batch outcome. Check the saved index before continuing." }
-                check(result["has_more"] != JsonPrimitive(true) || !result.text("index_cursor").isNullOrBlank()) { "The gateway did not return the next indexing cursor. Check the saved index before continuing." }
+                if (background || cancelJob) {
+                    val job = result["index_job"] as? JsonObject
+                    if (job?.text("id").isNullOrBlank() || job?.text("state").isNullOrBlank()) throw GatewayGraphIntegrityException("GRAPH_JOB_ACK_MISSING", "The gateway did not confirm its saved indexing job. Check the saved status before continuing.")
+                    if (cancelJob && job?.text("id") != payload.text("job_id")) throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The indexing reply belongs to a different saved job. Check its status before continuing.")
+                    if (background && attempt != job?.text("request_id") && (job?.get("accepted_request_ids") as? JsonArray).orEmpty().none { (it as? JsonPrimitive)?.contentOrNull == attempt }) throw GatewayGraphIntegrityException("GRAPH_JOB_ACK_MISSING", "The saved job has not acknowledged this request. Check its status before continuing.")
+                } else {
+                    check(result["has_more"] in setOf(JsonPrimitive(true), JsonPrimitive(false))) { "The gateway did not confirm the index batch outcome. Check the saved index before continuing." }
+                    check(result["has_more"] != JsonPrimitive(true) || !result.text("index_cursor").isNullOrBlank()) { "The gateway did not return the next indexing cursor. Check the saved index before continuing." }
+                }
             }
             try {
                 verifyAdmission(context, expectedGatewayProfileUid, admitted)
@@ -123,7 +152,7 @@ class GatewayGraphRepository @Inject constructor(
             }
             attempt?.let { retained.confirm(it) }
             val unresolved = if (action == "status") retained.reconcile(result) else retained.unresolved()
-            GatewayGraphResponse(result, action, admitted.gateway.uid, admitted.gateway.name, unresolved)
+            GatewayGraphResponse(result, action, admitted.gateway.uid, admitted.gateway.name, unresolved, durableJobs, modelAccess)
         } catch (cancelled: CancellationException) {
             if (!dispatched) attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token) } }
             throw cancelled
@@ -146,6 +175,9 @@ class GatewayGraphRepository @Inject constructor(
                     GatewayAdmissionReason.ENGINEERING_GITHUB_REQUIRED -> "CONFIGURE_SELECTED_GATEWAY_HOST_GITHUB"
                     else -> "INSPECT_SELECTED_GATEWAY_READINESS"
                 }
+                is GatewayGraphIntegrityException -> "RECHECK_SELECTED_REVISION"
+                is GatewayGraphResultException -> unavailable.repairAction
+                is javax.net.ssl.SSLException -> "REVIEW_SELECTED_GATEWAY_CERTIFICATE"
                 else -> null
             }
             throw GatewayGraphOperationException(unavailable, gateway?.uid ?: expectedGatewayProfileUid, gateway?.name, if (unknown) "CHECK_SAVED_INDEX" else repair, unknown)
@@ -200,12 +232,16 @@ class GatewayGraphRepository @Inject constructor(
 
         private fun verifyResult(context: GitHubConversationContext, result: JsonObject) {
             val metadata = result["graph"] as? JsonObject ?: result
-            check(
-                "${context.owner}/${context.repo}".equals(metadata.text("repository"), ignoreCase = true) &&
-                    context.commitSha.equals(metadata.text("commit_sha"), ignoreCase = true) &&
-                    (metadata["branch"] == null || metadata.text("branch") == context.ref)
+            if (!(
+                    "${context.owner}/${context.repo}".equals(metadata.text("repository"), ignoreCase = true) &&
+                        context.commitSha.equals(metadata.text("commit_sha"), ignoreCase = true) &&
+                        (metadata["branch"] == null || metadata.text("branch") == context.ref)
+                    )
             ) {
-                "The gateway graph response does not match the selected repository revision. Check the original host before continuing."
+                throw GatewayGraphIntegrityException("GRAPH_REVISION_MISMATCH", "The gateway graph response does not match the selected repository revision. Check the original host before continuing.")
+            }
+            if (result.text("status") in setOf("RESULT_ITEM_EXCEEDS_BUDGET", "RESULT_EXCEEDS_BUDGET")) {
+                throw GatewayGraphResultException("GRAPH_RESULT_BUDGET_TOO_SMALL", "This source result exceeds the available response size. Search for a narrower symbol or source path, or inspect that source directly.", "NARROW_GRAPH_QUERY")
             }
         }
 

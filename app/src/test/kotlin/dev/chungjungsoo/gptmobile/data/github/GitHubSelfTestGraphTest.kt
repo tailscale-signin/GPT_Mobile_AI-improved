@@ -40,7 +40,8 @@ class GitHubSelfTestGraphTest {
     @Test fun failedOrUnconfirmedIndexNeverReplaysAndSelectorsNeverCrossRepositoryRevisionOrGateway() {
         val attempt = graph("index", """"has_more":true,"index_cursor":"next-1"""")
         val failed = JsonObject(attempt + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("GRAPH_INDEX_OUTCOME_UNKNOWN")))
-        assertTrue(calls(missing(), failed).isEmpty())
+        assertEquals(json("""{"action":"status"}"""), calls(missing(), failed).single().arguments)
+        assertTrue(calls(missing(), failed, missing()).isEmpty())
         assertTrue(calls(missing(), JsonObject(attempt + ("trusted" to JsonPrimitive(false)))).single().arguments["options"] == null)
         for (foreign in listOf(
             graph("status", """"has_more":true,"index_cursor":"foreign"""", head = "b".repeat(40)),
@@ -57,6 +58,32 @@ class GitHubSelfTestGraphTest {
         assertTrue(calls(repeated).isEmpty())
     }
 
+    @Test fun unconfirmedIndexReconcilesOnceAndOnlyNewObservedProgressPermitsAnotherBatch() {
+        val failed = JsonObject(graph("index", """"has_more":true""") + mapOf("success" to JsonPrimitive(false), "error_code" to JsonPrimitive("GRAPH_INDEX_OUTCOME_UNKNOWN")))
+        val first = calls(missing(), failed).single()
+        assertEquals(first, calls(missing(), failed).single())
+        assertEquals(JsonPrimitive("status"), first.arguments["action"])
+        val failedStatus = JsonObject(missing() + ("success" to JsonPrimitive(false)))
+        assertTrue(calls(missing(), failed, failedStatus).isEmpty())
+        val progress = graph("status", """"has_more":true,"index_cursor":"confirmed-next"""")
+        assertEquals(json("""{"action":"index","options":{"index_cursor":"confirmed-next"}}"""), calls(missing(), failed, progress).single().arguments)
+        assertEquals(GitHubCriterionBlocker.GRAPH_INDEX_UNCONFIRMED, GitHubSelfTestGraph.blocker("query", listOf(status(), missing(), failed, missing())))
+        val complete = graph("status", """"has_more":false""")
+        assertEquals(JsonPrimitive("architecture"), calls(missing(), failed, complete).first().arguments["action"])
+    }
+
+    @Test fun graphPreparationRequiresTaskBindingAndReportsMapPrerequisitesInsteadOfRepositoryInputs() {
+        assertTrue(GitHubSelfTestGraph.available(listOf(tool), listOf(JsonObject(status() - "binding"), JsonObject(missing() - "binding"))).isEmpty())
+        fun row(vararg records: JsonObject) = GitHubTestChecklist.rows((listOf(status()) + records).mapIndexed { index, receipt -> index.toString() to receipt }.toMap(), listOf(tool), "test all tools")
+            .filterIsInstance<JsonObject>().single { it["id"] == JsonPrimitive("repository_graph:query") }
+        assertEquals(JsonPrimitive("GRAPH_INDEX_REQUIRED"), row(missing())["blocker_code"])
+        assertEquals(JsonPrimitive("GRAPH_INDEX_REQUIRED"), row(missing(), graph("query", """"status":"NOT_INDEXED""""))["blocker_code"])
+        assertEquals(JsonPrimitive("GRAPH_INPUT_REQUIRED"), row(indexed())["blocker_code"])
+        val incomplete = graph("index", """"has_more":true,"index_cursor":"next"""")
+        assertEquals(JsonPrimitive("CONTINUATION_REQUIRED"), row(incomplete)["blocker_code"])
+        assertTrue((row(indexed())["required_inputs"] as JsonArray).toString().contains("architecture"))
+    }
+
     @Test fun indexedArchitectureAndQuerySupplyRealBoundedSelectors() {
         val architecture = graph("architecture", """"communities":[{"files":["src/Producer.kt","src/Consumer.kt"]}],"dependencies":{"src/Consumer.kt":["src/Producer.kt"]}""")
         val prepared = calls(indexed(), architecture).associateBy { it.arguments["action"] }
@@ -70,6 +97,63 @@ class GitHubSelfTestGraphTest {
         assertNull(selected[JsonPrimitive("diagnose")])
         assertTrue(selected.keys.none { it in listOf("note", "federated", "provider").map(::JsonPrimitive) })
         assertTrue(GitHubSelfTestGraph.requiredInputs("diff", listOf(status(), indexed())).single().contains("base_sha"))
+    }
+
+    @Test fun pagedArchitectureSuppliesQueryAndContractsWhilePathUsesActualQueryRelationships() {
+        // The gateway's paged nodes inherit the graph envelope SHA and omit
+        // communities, dependencies and per-node commit_sha.
+        val architecture = graph(
+            "architecture",
+            """
+            "status":"FOUND","total_files":2,"total_relationships":1,"repository_files":2,
+            "nodes":[
+              {"id":"file-consumer","name":"Consumer.kt","kind":"file","path":"src/Consumer.kt","line":1,"end_line":20,"blob_sha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","parser":"tree-sitter"},
+              {"id":"file-producer","name":"Producer.kt","kind":"file","path":"src/Producer.kt","line":1,"end_line":10,"blob_sha":"cccccccccccccccccccccccccccccccccccccccc","parser":"tree-sitter"}
+            ],
+            "edges":[{"source":"file-consumer","target":"file-producer","relation":"depends_on","confidence":"INFERRED"}],
+            "has_more":false,"next_cursor":null,"result_cursor":null,"truncated":false,"returned_nodes":2,"returned_edges":1,"page_offset":0
+            """.trimIndent()
+        )
+        val prepared = calls(indexed(), architecture).associateBy { it.arguments["action"] }
+        assertEquals(json("""{"action":"query","query":"src/Consumer.kt","options":{"limit":8,"depth":1}}"""), prepared[JsonPrimitive("query")]?.arguments)
+        assertEquals(json("""{"producer":"src/Producer.kt","consumer":"src/Consumer.kt"}"""), prepared[JsonPrimitive("contracts")]?.arguments?.get("options"))
+        assertNull(prepared[JsonPrimitive("path")])
+        val query = graph(
+            "query",
+            """
+            "status":"FOUND","total_matches":2,
+            "nodes":[
+              {"id":"consumer-call","name":"consume","kind":"function","path":"src/Consumer.kt","line":3,"end_line":8},
+              {"id":"producer-call","name":"produce","kind":"function","path":"src/Producer.kt","line":2,"end_line":5}
+            ],
+            "edges":[{"source":"consumer-call","target":"producer-call","relation":"calls","confidence":"RESOLVED","line":4}],
+            "has_more":false,"next_cursor":null,"result_cursor":null,"truncated":false,"returned_nodes":2,"returned_edges":1,"page_offset":0
+            """.trimIndent()
+        )
+        val selected = calls(indexed(), architecture, query).associateBy { it.arguments["action"] }
+        listOf("node", "callers", "callees", "impact").forEach { action ->
+            assertEquals(JsonPrimitive("consumer-call"), selected[JsonPrimitive(action)]?.arguments?.get("symbol"))
+        }
+        assertEquals(json("""{"source":"consumer-call","target":"producer-call","depth":2}"""), selected[JsonPrimitive("path")]?.arguments?.get("options"))
+    }
+
+    @Test fun pagedSelectorsIgnoreForeignNodeRevisionsAndNonStringPaths() {
+        val architecture = graph(
+            "architecture",
+            """
+            "nodes":[
+              {"id":"foreign","path":"foreign.kt","commit_sha":"${"b".repeat(40)}"},
+              {"id":"invalid","path":42},
+              {"id":"","path":"missing-id.kt"},
+              {"id":"selected-file","kind":"file","path":"src/Selected.kt","commit_sha":"$sha"}
+            ],"edges":[],"has_more":false,"returned_nodes":4,"returned_edges":0,"page_offset":0
+            """.trimIndent()
+        )
+        val selected = calls(indexed(), architecture).associateBy { it.arguments["action"] }
+        assertEquals(JsonPrimitive("src/Selected.kt"), selected[JsonPrimitive("query")]?.arguments?.get("query"))
+        assertEquals(JsonPrimitive("selected-file"), selected[JsonPrimitive("node")]?.arguments?.get("symbol"))
+        assertNull(selected[JsonPrimitive("path")])
+        assertNull(selected[JsonPrimitive("contracts")])
     }
 
     @Test fun diagnoseUsesOnlyObservedLogsForTheExactRevision() {

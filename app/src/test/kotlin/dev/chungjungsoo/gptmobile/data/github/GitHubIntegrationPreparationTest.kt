@@ -142,7 +142,7 @@ class GitHubIntegrationPreparationTest {
         val graph = receipt("graph", "repository_graph", """{"action":"status"}""", """{"status":"NOT_INDEXED","repository":"owner/repo","commit_sha":"$sha","next_action":"index"}""")
         val records = mapOf("source" to source(), "graph" to graph)
         val checkpoint = GitHubTestChecklist.checkpoint(task, records, available, 173)
-        val blocked = checkpoint.getValue("capabilities").jsonArray.map { it.jsonObject }.filter { it["blocker_code"] == JsonPrimitive("REPOSITORY_INPUT_REQUIRED") }
+        val blocked = checkpoint.getValue("capabilities").jsonArray.map { it.jsonObject }.filter { it["blocker_code"] == JsonPrimitive("GRAPH_INDEX_REQUIRED") }
         assertEquals(2, blocked.size)
         assertTrue(blocked.all { it["repository_graph_observation"] == JsonPrimitive("NOT_INDEXED") })
         assertTrue(blocked.all { it.getValue("required_inputs").jsonArray.any { field -> field.toString().contains("index", ignoreCase = true) } })

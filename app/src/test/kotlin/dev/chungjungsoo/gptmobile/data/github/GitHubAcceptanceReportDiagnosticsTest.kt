@@ -251,20 +251,41 @@ class GitHubAcceptanceReportDiagnosticsTest {
     }
 
     @Test fun ambiguousProtectionObservationRequestsPermissionCheckWithoutClaimingNoPolicy() {
-        val verdict = Json.parseToJsonElement("""{"acceptance_ledger":{},"status_coverage":[{"item":"Required-check policy","branch_protection_observation":"NOT_FOUND_OR_INACCESSIBLE","branch_rules_observation":"OBSERVED"}]}""") as JsonObject
+        val verdict = Json.parseToJsonElement("""{"acceptance_ledger":{},"status_coverage":[{"item":"Required-check policy","branch_protection_observation":"NOT_FOUND_OR_INACCESSIBLE","branch_rules_observation":"OBSERVED","branch_protection_http_status":404,"branch_rules_http_status":200}]}""") as JsonObject
         val fields = GitHubAcceptanceReportDiagnostics.fields(verdict, true)
         assertEquals(JsonPrimitive("CHECK_PROTECTION_READ_PERMISSION"), fields["status_policy_recovery"])
         assertEquals(JsonPrimitive("NOT_FOUND_OR_INACCESSIBLE"), fields["branch_protection_observation"])
+        val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_800_000_000_000).diagnostics)
+        assertEquals(JsonPrimitive(404), diagnostic.values["branch_protection_http_status"])
+        assertEquals(JsonPrimitive(200), diagnostic.values["branch_rules_http_status"])
+    }
+
+    @Test fun graphPreparationBlockersAndEndpointFailuresSurviveSanitizedPublicReport() {
+        val verdict = Json.parseToJsonElement(
+            """{"acceptance_ledger":{"requirements":[{"id":"graph-query","required":true,"state":"BLOCKED","blocker_code":"GRAPH_INDEX_REQUIRED"},{"id":"graph-path","required":true,"state":"BLOCKED","blocker_code":"GRAPH_INPUT_REQUIRED"},{"id":"graph-index","required":true,"state":"BLOCKED","blocker_code":"GRAPH_INDEX_UNCONFIRMED"}]},"status_coverage":[{"item":"Required-check policy","branch_protection_observation":"OBSERVED","branch_rules_observation":"ACCESS_DENIED","branch_protection_http_status":200,"branch_rules_http_status":403,"message":"private endpoint detail"}]}"""
+        ) as JsonObject
+        val fields = GitHubAcceptanceReportDiagnostics.fields(verdict, true)
+        val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_800_000_000_000).diagnostics)
+        assertEquals(JsonPrimitive(2), diagnostic.values["acceptance_input_blocked_total"])
+        assertEquals(JsonPrimitive("CHECK_RULES_READ_PERMISSION"), diagnostic.values["status_policy_recovery"])
+        assertEquals(JsonPrimitive(403), diagnostic.values["branch_rules_http_status"])
+        assertEquals(setOf("GRAPH_INDEX_REQUIRED", "GRAPH_INPUT_REQUIRED", "GRAPH_INDEX_UNCONFIRMED"), (diagnostic.values["unmet_criterion_blockers"] as JsonArray).map { (it as JsonPrimitive).content }.toSet())
+        assertFalse(diagnostic.values.toString().contains("private"))
+        val invalid = IssueReportContext.fromFields("CHAT_FAILURE", JsonObject(fields + mapOf("branch_rules_http_status" to JsonPrimitive(999), "branch_protection_http_status" to JsonPrimitive("403"))), 1_800_000_000_000).diagnostics
+        assertFalse(requireNotNull(invalid).values.containsKey("branch_rules_http_status"))
+        assertFalse(invalid.values.containsKey("branch_protection_http_status"))
     }
 
     @Test fun graphAndWorkflowPrerequisitesRetainTypedCausesWithoutSourceIdentifiers() {
         val verdict = Json.parseToJsonElement("""{"acceptance_ledger":{},"test_checklist":{"capabilities":[{"id":"repository_graph:query","required":true,"blocker_code":"REPOSITORY_INPUT_REQUIRED","repository_graph_observation":"NOT_INDEXED","required_inputs":["private/path"]},{"id":"repository_graph:node","required":true,"blocker_code":"REPOSITORY_INPUT_REQUIRED","repository_graph_observation":"NOT_INDEXED"},{"id":"repository_graph:note","required":false,"blocker_code":"REPOSITORY_INPUT_REQUIRED","repository_graph_observation":"NOT_INDEXED"}],"pagination_resume":{"workflow_dependency_observation":"MISSING_EXECUTED_JOB"}}}""") as JsonObject
-        val fields = GitHubAcceptanceReportDiagnostics.fields(verdict, true)
-        assertEquals(JsonPrimitive(2), fields["graph_input_blocked_count"])
-        assertEquals(JsonPrimitive("NOT_INDEXED"), fields["repository_graph_observation"])
-        assertEquals(JsonPrimitive("MISSING_EXECUTED_JOB"), fields["workflow_dependency_observation"])
-        assertFalse(fields.toString().contains("private/path"))
-        assertFalse(fields.toString().contains("repository_graph:query"))
+        for (code in listOf("REPOSITORY_INPUT_REQUIRED", "GRAPH_INDEX_REQUIRED", "GRAPH_INPUT_REQUIRED")) {
+            val fields = GitHubAcceptanceReportDiagnostics.fields(Json.parseToJsonElement(verdict.toString().replace("REPOSITORY_INPUT_REQUIRED", code)) as JsonObject, true)
+            assertEquals(JsonPrimitive(2), fields["graph_input_blocked_count"])
+            assertEquals(JsonPrimitive("NOT_INDEXED"), fields["repository_graph_observation"])
+            assertEquals(JsonPrimitive("MISSING_EXECUTED_JOB"), fields["workflow_dependency_observation"])
+            assertFalse(fields.toString().contains("private/path"))
+            assertFalse(fields.toString().contains("repository_graph:query"))
+        }
         val absent = GitHubAcceptanceReportDiagnostics.fields(buildJsonObject { put("acceptance_ledger", JsonObject(emptyMap())) }, true)
         assertFalse("repository_graph_observation" in absent)
         assertFalse("workflow_dependency_observation" in absent)

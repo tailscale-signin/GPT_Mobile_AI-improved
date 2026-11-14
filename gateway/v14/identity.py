@@ -69,6 +69,15 @@ class PrincipalResolver:
         return Principal("tailnet:" + grant["principalId"], frozenset(grant["scopes"]))
 
 
+def principal_can_graph(config, principal, devices):
+    """Recheck tools admission for a retained public-map indexing job."""
+    if config.mode == 'open_network':
+        return principal == 'network:shared'
+    if config.mode == 'loopback':
+        return principal == 'local:single-user' or bool(config.legacy_bearer and any(row[0] == principal and not row[2] for row in devices.list_devices()))
+    return any(principal == 'tailnet:' + grant['principalId'] and 'tools' in grant.get('scopes', []) for grant in config.trusted_users.values())
+
+
 def principal_can_chat(config, principal, devices):
     """Revalidate a retained admission immediately before first execution."""
     if config.mode == 'open_network':

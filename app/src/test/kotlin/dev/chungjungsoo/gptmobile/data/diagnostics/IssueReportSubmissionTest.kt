@@ -31,11 +31,17 @@ class IssueReportSubmissionTest {
             "CONVERSATION_CONFLICT_EVIDENCE_V1" to mapOf("conflict_pending_tool_state" to "NOT_REPORTED"),
             "ACCEPTANCE_SCOPE_EVIDENCE_V1" to mapOf("acceptance_capability_scope" to "FULL_CATALOG", "acceptance_pagination_mode" to "BOUNDED_SMOKE_SAMPLE"),
             "GITHUB_PREREQUISITE_EVIDENCE_V1" to mapOf("repository_graph_observation" to "NOT_INDEXED", "graph_input_blocked_count" to 16, "workflow_dependency_observation" to "MISSING_EXECUTED_JOB"),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("branch_protection_http_status" to 404),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("branch_rules_http_status" to 403),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("status_policy_recovery" to "CHECK_RULES_READ_PERMISSION"),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INDEX_REQUIRED")),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INDEX_UNCONFIRMED")),
+            "GITHUB_GRAPH_POLICY_EVIDENCE_V1" to mapOf("unmet_criterion_blockers" to listOf("GRAPH_INPUT_REQUIRED")),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_pending_reason" to "CONNECTIVITY"),
             "VOICE_INSTALL_EVIDENCE_V1" to mapOf("voice_install_failure" to "WORK_NOT_FOUND")
         )) {
             val area = when (feature) {
-                "ACCEPTANCE_SCOPE_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1" -> "ACCEPTANCE"
+                "ACCEPTANCE_SCOPE_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1", "GITHUB_GRAPH_POLICY_EVIDENCE_V1" -> "ACCEPTANCE"
                 "VOICE_INSTALL_EVIDENCE_V1" -> "VOICE"
                 else -> "PROVIDER"
             }

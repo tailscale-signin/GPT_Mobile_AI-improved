@@ -174,8 +174,55 @@ class SelectedExecutionTests(unittest.TestCase):
         service = EngineeringService(store, backend)
         backend.api = lambda *args, **kwargs: {'permissions': {'pull': True, 'push': True}}
         backend.recall_memory = lambda *args: {'records': []}
-        backend.recall_graph = lambda *args: {'status': 'NOT_INDEXED'}
+        backend.recall_graph = lambda *args, **kwargs: {'status': 'NOT_INDEXED'}
         return store, backend, service
+
+    def test_first_planner_receives_verified_graph_and_records_actual_prompt_use(self):
+        sha = 'a' * 40
+        self.backend.api = lambda *args, **kwargs: {'id': 7, 'default_branch': 'main',
+            'permissions': {'pull': True, 'push': True}, 'allow_squash_merge': True}
+        self.backend.ref = lambda job, branch: sha
+        self.backend.tree = lambda job, head: {'source.py': {'mode': '100644', 'sha': 'b' * 40}}
+        self.backend.find_pr = lambda job: None
+        def recall(job, query, *, role=None, paths=None):
+            self.assertEqual(7, job['data']['actor_id'])
+            self.assertEqual(sha, job['data']['head_sha'])
+            self.assertEqual('planner', role)
+            self.assertEqual(['source.py'], paths)
+            self.assertEqual([], job['milestones'])
+            return {'status': 'FOUND', 'graph': {'repository': 'owner/repo', 'commit_sha': sha, 'complete': True},
+                'nodes': [{'id': 'source-node', 'path': 'source.py', 'name': 'repair', 'line': 1}], 'edges': [],
+                'retrieval': {'provider': 'authenticated', 'selected_paths': 1, 'elapsed_ms': 2}}
+        self.backend.recall_graph = recall
+        result = self.backend.step(self.job, 'PLAN')
+        self.assertEqual(sha, result['head_sha'])
+        envelope = json.loads(self.calls[-1]['body']['messages'][-1]['content'])
+        self.assertEqual('FOUND', envelope['code_graph']['status'])
+        receipt = self.store.model_attempts(self.job['id'])[-1]['graph_retrieval']
+        self.assertEqual('INCLUDED', receipt['view_status'])
+        self.assertEqual(1, receipt['included_nodes'])
+        self.assertTrue(receipt['revision_match'])
+        self.assertTrue(receipt['dispatched'])
+        self.assertNotIn('source.py', json.dumps(receipt))
+
+    def test_graph_failure_is_actionable_without_private_exception_text(self):
+        def unavailable(*args, **kwargs):
+            raise ValueError('private-source.py secret source excerpt')
+        self.backend.recall_graph = unavailable
+        self.backend.model(self.job, 'planner', {})
+        receipt = self.store.model_attempts(self.job['id'])[-1]['graph_retrieval']
+        self.assertEqual('UNAVAILABLE', receipt['status'])
+        self.assertEqual('RETRIEVAL_FAILED', receipt['reason'])
+        self.assertEqual('NOT_AVAILABLE', receipt['view_status'])
+        self.assertNotIn('private-source', json.dumps(self.calls) + json.dumps(receipt))
+
+    def test_cancelled_graph_preparation_never_dispatches_the_model(self):
+        def cancelled(*args, **kwargs):
+            raise InterruptedError('cancelled')
+        self.backend.recall_graph = cancelled
+        with self.assertRaises(InterruptedError):
+            self.backend.model(self.job, 'planner', {})
+        self.assertEqual([], self.calls)
 
     def tearDown(self):
         self.server.shutdown()
@@ -448,8 +495,12 @@ class BudgetAndSchedulerTests(unittest.TestCase):
         # Exhaust the node budget across bounded containers before the other
         # root fields; a single wide object is now stopped by its item limit.
         evidence = [list(range(500)) for _ in range(500)]
+        graph = {'status': 'FOUND', 'graph': {'repository': 'owner/repo', 'commit_sha': 'a' * 40, 'complete': False},
+                 'nodes': [{'id': f'node-{index}', 'path': f'source{index}.py', 'name': 'relevant',
+                            'line': 1, 'commit_sha': 'a' * 40, 'excerpt': 'def relevant(): pass'} for index in range(100)],
+                 'edges': [{'source': 'node-0', 'target': 'node-99', 'relation': 'calls', 'confidence': 'INFERRED'}]}
         envelope = {'objective': 'keep exact objective', 'evidence': evidence,
-                    'historical_memory': {'source': 'x' * 10000}, 'code_graph': {'nodes': list(range(10000))}}
+                    'historical_memory': {'source': 'x' * 10000}, 'code_graph': graph}
         request = {'max_tokens': 1024, 'messages': [{'role': 'system', 'content': 'policy'},
                                                   {'role': 'user', 'content': json.dumps(envelope)}]}
         original = copy.deepcopy(request)
@@ -458,7 +509,14 @@ class BudgetAndSchedulerTests(unittest.TestCase):
         view = json.loads(fitted['messages'][-1]['content'])
         self.assertEqual('keep exact objective', view['objective'])
         self.assertEqual({'available_in_retained_evidence': True, 'view_omitted': True}, view['historical_memory'])
-        self.assertEqual(view['historical_memory'], view['code_graph'])
+        self.assertEqual('node-0', view['code_graph']['nodes'][0]['id'])
+        self.assertEqual('a' * 40, view['code_graph']['graph']['commit_sha'])
+        self.assertFalse(view['code_graph']['graph']['complete'])
+        self.assertFalse(view['code_graph']['view_complete'])
+        ids = {node['id'] for node in view['code_graph']['nodes']}
+        self.assertTrue(all(edge['source'] in ids and edge['target'] in ids for edge in view['code_graph']['edges']))
+        self.assertLess(len(view['code_graph']['nodes']), len(graph['nodes']))
+        self.assertLessEqual(compaction['graph_view_bytes'], compaction['graph_byte_budget'])
         self.assertLess(len(view['evidence']), len(evidence))
         self.assertLess(compaction['view_node_limit'], 2048)
         self.assertEqual(1024, budget['output_tokens'])

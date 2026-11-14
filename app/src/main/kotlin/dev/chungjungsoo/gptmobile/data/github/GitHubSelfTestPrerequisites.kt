@@ -6,6 +6,7 @@ import kotlinx.serialization.json.contentOrNull
 
 /** Preparation observations are scoped evidence, never execution or permission grants. */
 internal object GitHubSelfTestPrerequisites {
+    val graphInputBlockerCodes = setOf("REPOSITORY_INPUT_REQUIRED", "GRAPH_INDEX_REQUIRED", "GRAPH_INPUT_REQUIRED")
     data class Selected(val source: JsonObject, val head: JsonPrimitive, val receipts: List<JsonObject>)
 
     fun selected(receipts: List<JsonObject>): Selected? {

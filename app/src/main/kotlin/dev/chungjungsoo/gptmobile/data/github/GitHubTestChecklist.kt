@@ -645,11 +645,13 @@ internal object GitHubTestChecklist {
                     awaitingFixtureStart && authorized -> GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
                     repositoryStatusWithoutOperation -> GitHubCriterionBlocker.REPOSITORY_LIFECYCLE_REQUIRED
                     transportMissing -> GitHubCriterionBlocker.LIVE_EVIDENCE_REQUIRED
+                    graphIncomplete -> GitHubSelfTestGraph.blocker(capability.action, allTrusted) ?: GitHubCriterionBlocker.CONTINUATION_REQUIRED
                     incomplete -> GitHubCriterionBlocker.CONTINUATION_REQUIRED
                     status == "PREFLIGHT_REJECTED" -> GitHubCriterionBlocker.PRECHECK_REJECTED
                     status == "FAILED" -> GitHubCriterionBlocker.OPERATION_FAILED
                     status == "UNTESTED" -> GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
                     repositoryPrerequisites?.requiredInputs?.isNotEmpty() == true -> if (capability.action == "status") GitHubCriterionBlocker.REPOSITORY_LIFECYCLE_REQUIRED else GitHubCriterionBlocker.OPERATION_IDENTITY_REQUIRED
+                    capability.tool == "repository_graph" && readOnly(capability) -> GitHubSelfTestGraph.blocker(capability.action, allTrusted) ?: GitHubCriterionBlocker.EXECUTION_NOT_EXERCISED
                     capability.tool == "github_decide" -> GitHubCriterionBlocker.USER_DECISION_REQUIRED
                     capability.tool == "github_watch_checks" -> GitHubCriterionBlocker.CHECK_SUBSCRIPTION_REQUIRED
                     !readOnly(capability) -> GitHubCriterionBlocker.OWNED_FIXTURE_REQUIRED
@@ -698,7 +700,7 @@ internal object GitHubTestChecklist {
                     blockerCode?.let { put("blocker_code", it.name) }
                     repositoryPrerequisites?.requiredInputs?.takeIf { it.isNotEmpty() }?.let { put("required_inputs", JsonArray(it.map(::JsonPrimitive))) }
                     if (graphPrerequisites.isNotEmpty() && status !in setOf("PASSED", "RECOVERED") && readyCall == null) put("required_inputs", JsonArray(graphPrerequisites.map(::JsonPrimitive)))
-                    if (capability.tool == "repository_graph" && blockerCode == GitHubCriterionBlocker.REPOSITORY_INPUT_REQUIRED) {
+                    if (capability.tool == "repository_graph" && blockerCode?.name in GitHubSelfTestPrerequisites.graphInputBlockerCodes) {
                         put("repository_graph_observation", graphObservation)
                     }
                     put("evidence_origins", JsonArray(successes.ifEmpty { eligible }.map { GitHubEvidenceOrigin.of(it) }.distinct().map(::JsonPrimitive)))

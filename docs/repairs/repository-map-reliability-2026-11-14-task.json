@@ -1,0 +1,159 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
+  "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
+  "source_sha": "6d56939a5811c7779e49a072d8d1e3c08cf8fdd3",
+  "pull_request": 1122,
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "repository-map-reliability-2026-11-14",
+  "state": "READY_FOR_PUBLISHED_HEAD_QUALIFICATION",
+  "intent": [
+    "Repair all fourteen repository-map audit findings with behavior regressions",
+    "Reconcile all open issues and active branch work on the existing PR",
+    "Add diagnostic follow-up where device or backend causes cannot be reproduced",
+    "Qualify the combined current head, merge to main, verify, and close addressed issues"
+  ],
+  "intake": {
+    "open_pull_requests": [
+      1122
+    ],
+    "open_issues": [
+      1101,
+      1102,
+      1103,
+      1104,
+      1105,
+      1106,
+      1107,
+      1108,
+      1109,
+      1110,
+      1111,
+      1112,
+      1113,
+      1114,
+      1115,
+      1116,
+      1117,
+      1118,
+      1119,
+      1120,
+      1121,
+      1123,
+      1124,
+      1125,
+      1126,
+      1127,
+      1128
+    ],
+    "diagnostic_app_sha": "b5ab42bfe5270cbe28c2bbde16eecb38d44b4194",
+    "diagnostic_repository_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203"
+  },
+  "validation": {
+    "current_head_qualified": false,
+    "physical_device": "NOT_RUN",
+    "index_job_behaviors": {
+      "passed": 19,
+      "failed": 0,
+      "scope": "Real store/crypto, real GraphService integration and bounded fault injection"
+    },
+    "gateway_consumer_tests": {
+      "passed": 97,
+      "failed": 0
+    },
+    "android_planner_host": {
+      "passed": 178,
+      "failed": 0,
+      "scope": "112 manifested source/test/boundary files; production planner/report sources with explicit platform substitutes"
+    },
+    "android_map_host": {
+      "passed": 31,
+      "failed": 0,
+      "scope": "Production map/data sources with Android/lifecycle/HTTP boundary substitutes; final host compilation passed"
+    },
+    "reporter_contracts_focused": {
+      "passed": 25,
+      "failed": 0
+    },
+    "canonical_host": {
+      "passed": 508,
+      "failed": 0,
+      "command": "bash scripts/validate-local.sh fast"
+    },
+    "hosted_android": "PENDING_PUBLISHED_HEAD",
+    "marketplace_failure": {
+      "workflow_run": 43621179565,
+      "cause": "KAPT Java heap exhaustion",
+      "change": "Separate KSP/KAPT; canonical bounded 4 GiB annotation stage; final-head hosted qualification required"
+    },
+    "graph_regression_suite": {
+      "passed": 75,
+      "failed": 0
+    },
+    "graph_http_regressions": {
+      "passed": 21,
+      "failed": 0
+    },
+    "gateway_full": "RERUNNING_AFTER_DISABLED_STORAGE_SHUTDOWN_FIX",
+    "reporter_contracts": {
+      "passed": 99,
+      "failed": 0,
+      "scope": "Canonical authentication broker, app, ticket broker and incident-report contract modules"
+    },
+    "continuity_regressions": {
+      "passed": 24,
+      "failed": 0
+    },
+    "kotlin_format": {
+      "passed": true,
+      "files": 28
+    }
+  },
+  "authorization": "User requested fixes, diagnostic improvements, issue closure, and merge after green checks.",
+  "reconciled_remote_heads": [
+    "b9f3a36c6861c39ff0d65791e7c13c8a4dbbd88c",
+    "752e61c5e76afe305c5fd5aca88f60c4ac86ada9",
+    "2f7d5826c4ab043c628fae5f54caf32cdd8349d3",
+    "0a340a91a4e76f49c85339ecdd04891d7dfb2d72",
+    "90c2f835c032c3fce846777a07265fccb83fd43b"
+  ],
+  "branch_inventory": {
+    "remote_refs": 748,
+    "recent_repair_tips_in_main": 10,
+    "historical_refs_rewritten": false,
+    "active_prs": [
+      1122
+    ]
+  },
+  "map_worktree_observation": {
+    "base_commit": "2f7d5826c4ab043c628fae5f54caf32cdd8349d3",
+    "uncommitted_changes_included": true,
+    "eligible_files": 5555,
+    "processed_files": 5555,
+    "indexed_files": 5456,
+    "partial_files": 99,
+    "excluded_files": 212,
+    "snapshot_bytes": 113461662,
+    "first_architecture_page_bytes": 10106,
+    "first_architecture_page_nodes": 12,
+    "first_architecture_page_edges": 8,
+    "processing_complete": true,
+    "coverage_complete": false,
+    "model_answer_accuracy": "NOT_MEASURED",
+    "token_savings": "NOT_MEASURED"
+  },
+  "independent_review": {
+    "state": "REVIEWED",
+    "findings_fixed": [
+      "Generation-bound cancellation",
+      "Cancellation during source reads before snapshot publication",
+      "Fresh request rebuilds evicted snapshots",
+      "Unknown retry outcome stays explicit",
+      "Disabled-storage shutdown does not initialize or write the journal",
+      "Paged graph selectors feed integration probes",
+      "Legacy and precise graph blockers share report counters",
+      "New diagnostic fields and enums require reporter feature negotiation"
+    ]
+  }
+}

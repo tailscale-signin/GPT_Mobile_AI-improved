@@ -63,7 +63,7 @@ internal object GitHubAcceptanceReportDiagnostics {
         // Counts describe recorded blocker codes, including rows omitted from the compact sample.
         val blockers = unmet.map { it.text("blocker_code") }
         put("acceptance_approval_blocked_total", blockers.count { it in setOf("FIXTURE_APPROVAL_MODE_REQUIRED", "FIXTURE_APPROVAL_STATE_UNKNOWN", "APPROVAL_REQUIRED", "AUTHORIZATION_REQUIRED") })
-        put("acceptance_input_blocked_total", blockers.count { it in setOf("REPOSITORY_INPUT_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "OWNED_FIXTURE_REQUIRED") })
+        put("acceptance_input_blocked_total", blockers.count { it in setOf("REPOSITORY_INPUT_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "OWNED_FIXTURE_REQUIRED", "GRAPH_INDEX_REQUIRED", "GRAPH_INPUT_REQUIRED") })
         put("acceptance_live_blocked_total", blockers.count { it == "LIVE_EVIDENCE_REQUIRED" })
         put("acceptance_continuation_blocked_total", blockers.count { it == "CONTINUATION_REQUIRED" })
         // Sample a representative of every observed blocker before taking
@@ -87,16 +87,21 @@ internal object GitHubAcceptanceReportDiagnostics {
         }
         (verdict["status_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             .firstOrNull { it.text("item") == "Required-check policy" }?.let { coverage ->
-                if (coverage.text("branch_protection_observation") == "NOT_FOUND_OR_INACCESSIBLE") {
+                if (coverage.text("branch_protection_observation") in setOf("NOT_FOUND_OR_INACCESSIBLE", "ACCESS_DENIED")) {
                     put("status_policy_recovery", "CHECK_PROTECTION_READ_PERMISSION")
+                } else if (coverage.text("branch_rules_observation") in setOf("NOT_FOUND_OR_INACCESSIBLE", "ACCESS_DENIED")) {
+                    put("status_policy_recovery", "CHECK_RULES_READ_PERMISSION")
                 }
                 for (key in listOf("branch_protection_observation", "branch_rules_observation")) {
-                    coverage[key]?.let { put(key, it) }
+                    coverage[key]?.let { IssueReportIncidentCapsule.validValue(key, it) }?.let { put(key, it) }
+                }
+                for (key in listOf("branch_protection_http_status", "branch_rules_http_status")) {
+                    coverage.number(key)?.takeIf { it in 100..599 }?.let { put(key, it) }
                 }
             }
         val checklist = verdict["test_checklist"] as? JsonObject
         val graphInputs = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter {
-            it["required"] == JsonPrimitive(true) && it.text("id").startsWith("repository_graph:") && it.text("blocker_code") == "REPOSITORY_INPUT_REQUIRED"
+            it["required"] == JsonPrimitive(true) && it.text("id").startsWith("repository_graph:") && it.text("blocker_code") in GitHubSelfTestPrerequisites.graphInputBlockerCodes
         }
         if (graphInputs.isNotEmpty()) {
             put("graph_input_blocked_count", graphInputs.size)

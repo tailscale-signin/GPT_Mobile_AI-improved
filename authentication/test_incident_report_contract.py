@@ -58,6 +58,24 @@ class IncidentReportContractTest(unittest.TestCase):
             _, issue = issue_from_report(report)
             self.assertIn(code, issue["title"])
 
+    def test_graph_prerequisites_and_separate_policy_endpoint_statuses_survive_submission(self):
+        values = {"status_policy_recovery": "CHECK_RULES_READ_PERMISSION", "branch_protection_http_status": 200,
+                  "branch_rules_http_status": 403, "branch_protection_observation": "OBSERVED", "branch_rules_observation": "ACCESS_DENIED",
+                  "unmet_criterion_blockers": ["GRAPH_INDEX_REQUIRED", "GRAPH_INPUT_REQUIRED", "GRAPH_INDEX_UNCONFIRMED"]}
+        capture = self.capture("ACCEPTANCE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        report.update(feature="chat", errorCode="GITHUB_TASK_INCOMPLETE")
+        _, issue = issue_from_report(report)
+        for key in values:
+            self.assertIn(key, issue["body"])
+        for key in ("branch_protection_http_status", "branch_rules_http_status"):
+            for invalid in (99, 600, True, "403", "private endpoint detail"):
+                with self.subTest(key=key, value=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("ACCEPTANCE", {key: invalid}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"branch_rules_http_status": 403}))
+
     def test_voice_capture_and_playback_evidence_is_bounded_and_area_specific(self):
         values = {"voice_playback_failure": "AUDIO_FOCUS_DENIED", "voice_playback_focus_attempts": 2,
                   "voice_capture_silenced_stage": "CAPTURE_READ", "voice_caption_alignment": "NO_TIMING",

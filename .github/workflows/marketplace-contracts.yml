@@ -52,7 +52,7 @@ jobs:
   contracts:
     runs-on: ubuntu-latest
     # Reserve independent cold-compilation and focused-test deadlines.
-    timeout-minutes: 65
+    timeout-minutes: 80
     env:
       OBX_DISABLE_ANALYTICS: 'true'
     steps:

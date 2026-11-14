@@ -80,6 +80,7 @@ ENUM_LISTS = {
         "OUT_OF_SCOPE", "REPOSITORY_SCOPE_EXCLUDED", "OPERATION_IDENTITY_REQUIRED", "AUTHORIZATION_REQUIRED", "HISTORICAL_CONTRACT_CHANGED", "APPROVAL_REQUIRED", "FIXTURE_APPROVAL_MODE_REQUIRED", "FIXTURE_APPROVAL_STATE_UNKNOWN",
         "LIVE_EVIDENCE_REQUIRED", "CONTINUATION_REQUIRED", "PRECHECK_REJECTED", "OPERATION_FAILED", "USER_DECISION_REQUIRED", "CHECK_SUBSCRIPTION_REQUIRED", "OWNED_FIXTURE_REQUIRED",
         "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "REPOSITORY_INPUT_REQUIRED", "REPOSITORY_LIFECYCLE_REQUIRED",
+        "GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED",
         "EXECUTION_NOT_EXERCISED", "BLOCKER_DETAIL_NOT_RECORDED", "NONE", "VERIFICATION_FAILED", "REQUIRED_OPERATION_BLOCKED", "DEVICE_EXECUTION_NOT_OBSERVED", "CATALOG_NOT_EXHAUSTED",
         "FIXTURE_PROOF_INCOMPLETE", "GRAPH_QUALIFICATION_INCOMPLETE", "REPOSITORY_OPERATION_UNVERIFIED", "MATCHING_EVIDENCE_MISSING",
     },
@@ -129,7 +130,7 @@ FIELDS_BY_AREA["ACCEPTANCE"].update({"acceptance_unresolved_claim_count", "accep
 COUNTS.update({"reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
 ENUMS["admission_measurement"] = {"SERVING_TOKENIZER", "UTF8_ESTIMATE"}
 ENUMS["admission_dominant_component"] = {"tool_schemas", "system_instructions", "retained_history", "tool_results", "current_request", "response_schema", "serialization_and_template_estimate", "attachments"}
-ENUMS["status_policy_recovery"] = {"CHECK_PROTECTION_READ_PERMISSION"}
+ENUMS["status_policy_recovery"] = {"CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION"}
 ENUMS["reasoning_model_state"] = {"UNKNOWN", "UNAVAILABLE", "UNLOADED", "LOADING", "LOADED", "SLEEPING"}
 ENUMS["reasoning_recovery_action"] = {"CHOOSE_AUTO_OR_QUALIFIED_MODEL"}
 ENUMS["queue_blocker"] = {"ACTIVE_LEASE", "CHAT_BUSY", "DELIVERY_PENDING", "EXTERNAL_WORK", "GATEWAY_NOT_READY", "MODEL_PREPARATION", "CONFIGURATION", "NONE"}
@@ -137,7 +138,7 @@ ENUMS["gateway_validation_policy_state"] = {"NOT_CONFIGURED", "MISSING_OR_OVERSI
 ENUMS["gateway_preflight_reason"] = {"VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED", "VALIDATION_RUNTIME_UNAVAILABLE", "VALIDATION_REVISION_UNAVAILABLE", "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED"}
 FIELDS_BY_AREA["PROVIDER"].update({"reasoning_capability_age_ms", "reasoning_model_state", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action"})
 FIELDS_BY_AREA["GATEWAY"].update({"queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason"})
-FIELDS_BY_AREA["ACCEPTANCE"].update({"status_policy_recovery", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
+FIELDS_BY_AREA["ACCEPTANCE"].update({"status_policy_recovery", "branch_protection_http_status", "branch_rules_http_status", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
 
 COUNTS.add("graph_input_blocked_count")
 ENUMS["repository_graph_observation"] = {"NOT_INDEXED", "OBSERVED", "UNOBSERVED", "REVISION_MISMATCH", "UNAVAILABLE"}
@@ -257,7 +258,7 @@ def _valid_value(key, value):
         return 0 <= value <= 9_223_372_036_854_775_807
     if key == "gateway_protocol_version":
         return 1 <= value <= 1000
-    if key in {"backend_terminal_status", "gateway_http_status", "gateway_upstream_status", "gateway_reconciliation_status"}:
+    if key in {"backend_terminal_status", "gateway_http_status", "gateway_upstream_status", "gateway_reconciliation_status", "branch_protection_http_status", "branch_rules_http_status"}:
         return 100 <= value <= 599
     if key == "model_preparation_load_requests":
         return 0 <= value <= 1

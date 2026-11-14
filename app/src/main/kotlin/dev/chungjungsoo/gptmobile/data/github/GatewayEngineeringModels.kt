@@ -115,7 +115,11 @@ data class GatewayRepositoryCapability(
 }
 
 @Serializable
-data class GatewayGraphCapability(@SerialName("schema_version") val schemaVersion: Int = 0, val enabled: Boolean = false)
+data class GatewayGraphCapability(
+    @SerialName("schema_version") val schemaVersion: Int = 0,
+    val enabled: Boolean = false,
+    @SerialName("durable_index_jobs") val durableIndexJobs: Boolean = false
+)
 
 @Serializable
 data class GatewayEngineeringReadiness(

@@ -13,6 +13,7 @@ import uuid
 from v14.adaptive_sampling import resolve_policy, generation_parameters
 from v14.execution_binding import ExecutionBindingError, canonical, fingerprint
 from v14.inference_budget import fit_engineering_payload, plan_tokens, stage_reserves
+from v14.graph_context import admitted_graph_receipt
 from v14.inference_scheduler import admission_context, bound_invocation
 from v14.debug import diagnostic_execution_event
 from gateway_v13_runtime import GatewayContractError, normalize_backend_messages
@@ -47,6 +48,7 @@ class BoundModelInvocation:
         self.current, self.ticket, self.cancellation = None, None, None
         self.physical_count, self.observed_count = 0, 0
         self.initial_budget = self.compaction = None
+        self.graph_retrieval = None
         self.started = time.monotonic()
         self.sampling_policy = resolve_policy(job['request'], role)
 
@@ -71,6 +73,7 @@ class BoundModelInvocation:
         return {'schema_version': 1, 'attempt_id': 'attempt_' + uuid.uuid4().hex,
                 'job_id': self.job['id'], 'binding_id': self.binding['binding_id'],
                 'sampling_policy': copy.deepcopy(self.sampling_policy),
+                'graph_retrieval': copy.deepcopy(self.graph_retrieval),
                 'binding_revision': fingerprint(self.binding), 'role': self.role,
                 'phase': self.job['state'], 'job_revision': self.job['revision'],
                 'boot_id': self.service.bindings.boot_id, 'owner_epoch': self.job['_owner_epoch'],
@@ -121,6 +124,10 @@ class BoundModelInvocation:
             self.current.update(budget=budget, capability_revision=self.capability['capability_revision'],
                                 state='DISPATCHED', dispatched=True,
                                 reserved_tokens=budget['input_tokens'] + budget['output_tokens'])
+            if self.graph_retrieval is not None:
+                self.graph_retrieval = admitted_graph_receipt(self.graph_retrieval, payload, dispatched=True)
+                self.current['graph_retrieval'] = copy.deepcopy(self.graph_retrieval)
+                self.job['data']['graph_retrieval'] = copy.deepcopy(self.graph_retrieval)
             # The store checks the same lease and total run budget in the write
             # transaction. Persist intent before the socket can send bytes.
             self.persist()
@@ -189,6 +196,9 @@ class BoundModelInvocation:
         source_reference = self.service.artifacts.put_json(self.job, request, 'model-input')
         self.job['data']['latest_model_input'] = source_reference
         request, self.initial_budget, self.compaction = fit_engineering_payload(request, self.capability, lambda value: self.service.capabilities.count(value, self.capability))
+        if isinstance(self.job['data'].get('graph_retrieval'), dict):
+            self.graph_retrieval = admitted_graph_receipt(self.job['data']['graph_retrieval'], request)
+            self.job['data']['graph_retrieval'] = copy.deepcopy(self.graph_retrieval)
         request['max_tokens'] = self.initial_budget['output_tokens']
         if self.compaction:
             self.compaction['source_reference'] = source_reference

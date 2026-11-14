@@ -23,7 +23,7 @@ internal object GitHubIntegrationReport {
         val exhaustiveInventory = GitHubChecklistScope.exhaustive(task)
         val unmet = capabilities.filter { it["required"] != JsonPrimitive(false) && it.text("status") !in setOf("PASSED", "RECOVERED", "OUT_OF_SCOPE", "NOT_REQUESTED") }
         val blockers = unmet.groupingBy { it.text("blocker_code").ifBlank { "BLOCKER_DETAIL_NOT_RECORDED" } }.eachCount()
-        val graphInputs = unmet.count { it.text("id").startsWith("repository_graph:") && it.text("blocker_code") == "REPOSITORY_INPUT_REQUIRED" }
+        val graphInputs = unmet.count { it.text("id").startsWith("repository_graph:") && it.text("blocker_code") in GitHubSelfTestPrerequisites.graphInputBlockerCodes }
         val unindexedGraphInputs = unmet.count { it.text("repository_graph_observation") == "NOT_INDEXED" }
         val reason = when {
             GitHubTestChecklist.integration(task) && requirements.isNotEmpty() && requirements.all { it.text("acceptance_state") == "PASS" } -> "ACCEPTANCE_COMPLETE" to "Every requested criterion has qualifying evidence."

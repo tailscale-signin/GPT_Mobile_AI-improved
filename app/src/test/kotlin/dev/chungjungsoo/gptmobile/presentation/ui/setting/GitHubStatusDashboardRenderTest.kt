@@ -160,13 +160,18 @@ class GitHubStatusDashboardRenderTest {
         compose.runOnIdle { assertEquals("gateway", selected) }
     }
 
-    @Test fun statusArchitectureMapPagesSearchesAndInspectsRealFilesAtLargeFontSize() {
-        val paths = (0..12).joinToString(",") { "\"app/File${it.toString().padStart(2, '0')}.kt\"" }
-        val map = Json.parseToJsonElement("""{"communities":[{"id":"app","name":"app","files":[$paths]}],"dependencies":{"app/File00.kt":["app/File01.kt"]}}""") as JsonObject
+    @Test fun statusMapUsesServerPagesAndSymbolSearchAtLargeFontSize() {
+        val paths = (0..11).joinToString(",") { "\"app/File${it.toString().padStart(2, '0')}.kt\"" }
+        val map = Json.parseToJsonElement("""{"communities":[{"files":[$paths]}],"dependencies":{"app/File00.kt":["app/File01.kt"]},"has_more":true,"next_cursor":"second-page"}""") as JsonObject
+        val next = Json.parseToJsonElement("""{"nodes":[{"id":"last-file","path":"app/File12.kt","kind":"file"}],"has_more":false}""") as JsonObject
+        val symbols = Json.parseToJsonElement("""{"nodes":[{"id":"hidden-symbol","qualified":"Hidden.method","path":"app/File00.kt","kind":"function"}],"has_more":false}""") as JsonObject
         var context by mutableStateOf(GitHubConversationContext("github", "mobile", "app", "main", "a".repeat(40), "selected-profile"))
         var gatewayUid by mutableStateOf("gateway-one")
+        var state by mutableStateOf(RepositoryGraphUiState(architecture = map, mapNextCursor = "second-page"))
         var selected = ""
         var refreshes = 0
+        var searches = 0
+        var pages = 0
         compose.setContent {
             GPTMobileTheme(themeMode = ThemeMode.DARK) {
                 CompositionLocalProvider(LocalDensity provides Density(1f, 1.4f)) {
@@ -174,11 +179,21 @@ class GitHubStatusDashboardRenderTest {
                         Column(Modifier.verticalScroll(rememberScrollState())) {
                             RepositoryGraphStatusContent(
                                 context,
-                                RepositoryGraphUiState(architecture = map, gatewayProfileUid = gatewayUid),
+                                state.copy(gatewayProfileUid = gatewayUid),
                                 onRefresh = { refreshes++ },
                                 onIndex = {},
                                 onStop = {},
-                                onSelect = { selected = it["id"]?.jsonPrimitive?.content.orEmpty() }
+                                onSelect = { selected = it["id"]?.jsonPrimitive?.content.orEmpty() },
+                                onNextPage = {
+                                    pages++
+                                    state = state.copy(architecture = next, mapPage = 1, mapNextCursor = null)
+                                },
+                                onPreviousPage = { state = state.copy(architecture = map, mapPage = 0, mapNextCursor = "second-page") },
+                                onSearch = { term ->
+                                    searches++
+                                    assertEquals("Hidden", term)
+                                    state = state.copy(searchResult = symbols, mapQuery = term, mapPage = 0, mapNextCursor = null)
+                                }
                             )
                         }
                     }
@@ -190,17 +205,22 @@ class GitHubStatusDashboardRenderTest {
         compose.runOnIdle { assertEquals("app/File00.kt", selected) }
         compose.onNodeWithTag("github_repository_map_selection").assertExists()
         compose.onNodeWithTag("github_repository_map_next").performScrollTo().performClick()
-        compose.onNodeWithTag("github_repository_node_app/File12.kt").assertExists()
-        compose.onNodeWithTag("github_repository_map_search").performScrollTo().performTextInput("File00")
-        compose.onNodeWithContentDescription("Interactive repository network with 1 source-backed bubbles").assertExists()
-        compose.runOnIdle { context = context.copy(commitSha = "b".repeat(40)) }
+        compose.onNodeWithTag("github_repository_node_last-file").assertExists()
+        compose.runOnIdle { assertEquals(1, pages) }
+        compose.onNodeWithTag("github_repository_map_search").performScrollTo().performTextInput("Hidden")
+        compose.runOnIdle { assertEquals(0, searches) }
+        compose.onNodeWithTag("github_repository_map_search_submit").performScrollTo().performClick()
+        compose.onNodeWithTag("github_repository_node_hidden-symbol").assertExists()
+        compose.runOnIdle {
+            assertEquals(1, searches)
+            context = context.copy(commitSha = "b".repeat(40))
+            state = RepositoryGraphUiState(architecture = map, mapNextCursor = "second-page")
+        }
         compose.onNodeWithTag("github_repository_map_selection").assertDoesNotExist()
         compose.onNodeWithContentDescription("Interactive repository network with 12 source-backed bubbles").assertExists()
         compose.onNodeWithTag("github_repository_node_app/File00.kt").performScrollTo().performClick()
-        compose.onNodeWithTag("github_repository_map_search").performScrollTo().performTextInput("File00")
         compose.runOnIdle { gatewayUid = "gateway-two" }
         compose.onNodeWithTag("github_repository_map_selection").assertDoesNotExist()
-        compose.onNodeWithContentDescription("Interactive repository network with 12 source-backed bubbles").assertExists()
         compose.onNodeWithText("Refresh").performScrollTo().performClick()
         compose.runOnIdle { assertEquals(1, refreshes) }
         val directory = File("build/reports/reliability-ui").apply { mkdirs() }
@@ -283,6 +303,20 @@ class GitHubStatusDashboardRenderTest {
             assertEquals(1, builds)
             assertEquals(1, reads)
         }
+    }
+
+    @Test fun failedGatewayJobShowsItsReasonAndKeepsCoverageCategoriesDistinct() {
+        val context = GitHubConversationContext("github", "mobile", "app", "main", "c".repeat(40), "selected-profile")
+        val status = Json.parseToJsonElement("""{"has_more":false,"graph":{"processed_files":10,"expected_files":10,"processing_complete":true,"coverage_complete":false,"retryable_files":2,"file_statuses":{"indexed":6,"partial":1,"unsupported":2,"failed":1}}}""") as JsonObject
+        val job = Json.parseToJsonElement("""{"id":"saved-job","generation":2,"state":"FAILED","error_code":"INDEX_RETRY_OUTCOME_UNKNOWN"}""") as JsonObject
+        renderRepositoryMap(context, { RepositoryGraphUiState(result = status, indexStatus = status, indexJob = job, durableIndexJobs = true) }, ThemeMode.DARK)
+        compose.onNodeWithText("Indexing needs attention").assertIsDisplayed()
+        compose.onNodeWithTag("github_repository_map_job_state").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("The gateway could not confirm that the failed-file retry ran. Review the retained coverage before retrying those files. · INDEX_RETRY_OUTCOME_UNKNOWN").assertIsDisplayed()
+        compose.onNodeWithText("6 indexed · 1 partial · 2 unsupported · 1 failed").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Processing finished with incomplete source coverage. Missing relationships remain unknown.").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("github_repository_map_retry_failed").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Retry 2 failed or recoverable files").assertIsDisplayed()
     }
 
     @Test fun anUnselectedGatewayKeepsTheMapVisibleWithOnlyItsSetupAction() {

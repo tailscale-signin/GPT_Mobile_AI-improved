@@ -306,14 +306,21 @@ jobs:
         timeout-minutes: 8
         run: bash scripts/install_android_native_dependencies.sh
 
-      # Release KSP/KAPT before cold compilation, and compilation before lint.
-      # Only compilation needs the observed 4 GiB bound; lint keeps its defaults.
-      - name: Generate production sources before lint in a separate process
+      # Run 43551332536 exhausted 3 GiB after KSP and KAPT shared one process.
+      # Release each generation graph separately and retain the bounded defaults.
+      - name: Generate Room sources before lint in a separate process
         timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-ksp.log
+          python3 scripts/build_metrics.py --label lint-ksp --output build/reports/profile/lint-ksp-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-ksp.log
+
+      - name: Generate annotation sources before lint in a separate process
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/build_metrics.py --label lint-kapt --output build/reports/profile/lint-kapt-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-kapt.log
 
       - name: Compile production sources before lint in a separate process
         timeout-minutes: 20
@@ -338,6 +345,9 @@ jobs:
           name: android-lint-reports
           path: |
             lint-ksp.log
+            lint-kapt.log
+            build/reports/profile/lint-ksp-metrics.json
+            build/reports/profile/lint-kapt-metrics.json
             lint-compile.log
             lint.log
             app/build/reports/lint-results-debug.*

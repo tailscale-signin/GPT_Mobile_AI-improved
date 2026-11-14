@@ -101,6 +101,22 @@
       "metaspace_mib": 512,
       "exit_code": 1,
       "reason": "Daemon disappeared again at stub generation after KSP; no compiler diagnostic or JVM crash file. Repository memory settings unchanged. Hosted verification required."
+    },
+    "hosted_iteration_1": {
+      "sha": "f5e3c8e6303473c1a2fbbae99b42af5c9f928b85",
+      "compiler": {
+        "jobs": [
+          132314053547,
+          132314053316
+        ],
+        "failure": "MeasuredMarkdownTableRow referenced missing GFMElementTypes.TABLE_CELL",
+        "repair": "Use cached markdown-jvm 0.7.9 GFMTokenTypes.CELL; real parser probe and focused Compose production compilation passed; same token correction and GitHub-only fade scoping integrated from concurrent 858579f8a7ed078366828d5bae9b5d6415efbb00"
+      },
+      "lint_generation": {
+        "job": 132314300765,
+        "failure": "KAPT stub generation exhausted the Java heap after KSP in the same default 3 GiB process",
+        "repair": "Run KSP and KAPT in separate sequential processes; preserve repository memory defaults, one worker, deadlines and required checks; retain separate logs"
+      }
     }
   },
   "merge_gate": "Current head/base, complete required verification, applicable branch rules, and mergeable state.",
@@ -108,7 +124,8 @@
     "48d807e95b4ff5cd06a9d0155b288ddcb01f1182",
     "4bd7f737a6efd6f2ae9957555e05ec982519e2ae",
     "29eeba43c286ffde4fed26e64be092749503638e",
-    "335c25e311239bb38bb731b4ac5cd858d8e1be98"
+    "335c25e311239bb38bb731b4ac5cd858d8e1be98",
+    "858579f8a7ed078366828d5bae9b5d6415efbb00"
   ],
   "branch_inventory": {
     "branches": 747,

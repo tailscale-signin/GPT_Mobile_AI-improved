@@ -1394,6 +1394,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewaySurfacePolicyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayTransportDiagnosticsTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/gateway/GatewayV14CapabilitiesTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/ollama/OllamaTimeoutResilienceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterPrivacyPreflightTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/PrivacyRejectionCacheTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/pairing/LocalServerPairingTest.kt",

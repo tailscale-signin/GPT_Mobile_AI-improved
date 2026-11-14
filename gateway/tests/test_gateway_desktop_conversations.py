@@ -316,6 +316,45 @@ class DesktopConversationTest(unittest.TestCase):
         self.assertIsNone(panel.poll_timer)
         panel.after_cancel.assert_called_once_with('old-timer')
 
+    def test_close_cancels_ui_callbacks_and_persists_draft_without_touching_pending_send(self):
+        from desktop.chat_panel import ChatPanel
+        state = ChatState(self.root)
+        pending = {'command_id': 'original', 'identity': IDENTITY}
+        state.save(draft='Earlier draft', pending=pending)
+        panel = SimpleNamespace(closed=False, sending=False, state=state, draft_timer='draft-callback',
+            poll_timer='conversation-callback', event_timer='event-callback', after_cancel=Mock(),
+            composer=Mock(get=lambda *_: 'Latest draft'), model=Mock(get=lambda: 'model'))
+        ChatPanel.close(panel)
+        self.assertTrue(panel.closed)
+        self.assertEqual({'draft-callback', 'conversation-callback', 'event-callback'},
+                         {call.args[0] for call in panel.after_cancel.call_args_list})
+        restored = ChatState(self.root)
+        self.assertEqual('Latest draft', restored.value['draft'])
+        self.assertEqual(pending, restored.value['pending'])
+        ChatPanel.close(panel)
+        self.assertEqual(3, panel.after_cancel.call_count)
+
+    def test_lifecycle_watcher_ignores_child_destroy_and_cancels_its_own_callback(self):
+        from desktop.window_lifecycle import watch
+        scheduled, handlers = {}, []
+        def after(_delay, callback):
+            ident = 'watch-' + str(len(scheduled))
+            scheduled[ident] = callback
+            return ident
+        window = SimpleNamespace(after=after, after_cancel=lambda ident: scheduled.pop(ident),
+            bind=lambda _event, handler, **_options: handlers.append(handler), winfo_exists=lambda: True)
+        close = Mock()
+        stop = watch(window, self.root, close)
+        callback = next(iter(scheduled.values()))
+        handlers[0](SimpleNamespace(widget=object()))
+        self.assertEqual(1, len(scheduled))
+        handlers[0](SimpleNamespace(widget=window))
+        self.assertEqual({}, scheduled)
+        callback()
+        self.assertEqual({}, scheduled)
+        close.assert_not_called()
+        stop()
+
 
 if __name__ == '__main__':
     unittest.main()

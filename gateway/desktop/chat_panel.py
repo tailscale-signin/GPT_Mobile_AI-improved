@@ -36,8 +36,10 @@ class ChatPanel(tk.Frame):
         self.stream_text = ''
         self.draft_timer = None
         self.poll_timer = None
+        self.event_timer = None
         self.build()
-        self.after(100, self.poll)
+        self.bind('<Destroy>', self.destroyed, add='+')
+        self.event_timer = self.after(100, self.poll)
 
     def build(self):
         head = tk.Frame(self, bg=theme.BG)
@@ -69,14 +71,14 @@ class ChatPanel(tk.Frame):
         body.pack(fill='both', expand=True)
         listing = tk.Frame(body, bg=theme.PANEL)
         body.add(listing, weight=1)
-        self.list = ttk.Treeview(listing, columns=('title', 'state'), show='headings', selectmode='browse', height=7)
+        list_shell = tk.Frame(listing, bg=theme.PANEL)
+        list_shell.pack(side='top', fill='both', expand=True)
+        self.list = ttk.Treeview(list_shell, columns=('title', 'state'), show='headings', selectmode='browse', height=7)
         self.list.heading('title', text='Saved conversation')
         self.list.heading('state', text='Updated')
         self.list.column('title', width=175, minwidth=100)
         self.list.column('state', width=80, minwidth=65, stretch=False)
-        list_shell = tk.Frame(listing, bg=theme.PANEL)
-        list_shell.pack(side='top', fill='both', expand=True)
-        self.list.pack(in_=list_shell, side='left', fill='both', expand=True)
+        self.list.pack(side='left', fill='both', expand=True)
         list_vertical = ttk.Scrollbar(list_shell, orient='vertical', command=self.list.yview)
         list_vertical.pack(side='right', fill='y')
         self.list.configure(yscrollcommand=list_vertical.set)
@@ -511,6 +513,7 @@ class ChatPanel(tk.Frame):
         self.launch('opened', lambda: self.client().read(ident))
 
     def poll(self):
+        self.event_timer = None
         if self.closed:
             return
         redraw = False
@@ -599,18 +602,27 @@ class ChatPanel(tk.Frame):
             self.controls()
         if redraw:
             self.render_text()
-        self.after(100, self.poll)
+        self.event_timer = self.after(100, self.poll)
+
+    def destroyed(self, event):
+        if event.widget is self:
+            self.close()
 
     def close(self):
         if self.closed:
             return
-        if self.draft_timer:
-            self.after_cancel(self.draft_timer)
-            self.draft_timer = None
+        self.closed = True
+        for name in ('draft_timer', 'poll_timer', 'event_timer'):
+            timer = getattr(self, name, None)
+            if timer:
+                try:
+                    self.after_cancel(timer)
+                except tk.TclError:
+                    pass
+                setattr(self, name, None)
         if not self.sending:
             try:
                 version = self.state.reserve_draft()
                 self.state.save(draft=self.composer.get('1.0', 'end-1c'), model=self.model.get(), draft_version=version)
-            except (OSError, ValueError):
+            except (OSError, ValueError, tk.TclError):
                 pass
-        self.closed = True

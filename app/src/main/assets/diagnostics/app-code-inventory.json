@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "9d1022a9c4ccc1788299fae35851e227cd276e28f638e17ec4f0c15cff9862a3",
+  "source_digest": "73414ba350d363e65e2751f6feafb38b1cfcb2cb6d0d70abb8e3a65c2754274e",
   "file_count": 2599,
-  "indexed_line_count": 417994,
+  "indexed_line_count": 418029,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 138,
-      "indexed_line_count": 69337
+      "indexed_line_count": 69372
     },
     {
       "id": "authentication_service",
@@ -17335,8 +17335,8 @@
       "path": "gateway/desktop/chat_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "85f8d042bb3a1a6a7270673ff24e111d645d4abbb1caa5eee8a83237d82b6ecc",
-      "indexed_lines": 616
+      "sha256": "9ee5a9680774d669a5144cda3460dfcdf1cecee35bcd50b93646dc37d5ec6ae5",
+      "indexed_lines": 628
     },
     {
       "path": "gateway/desktop/chat_state.py",
@@ -17482,8 +17482,8 @@
       "path": "gateway/desktop/window_lifecycle.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "e28cc3807611cdd9874729d4ee413a0e8ec57821e7f605a1cf05646c3489328d",
-      "indexed_lines": 40
+      "sha256": "2b38558bc0c75ceb55e1c43def032b6ecc7359a6ef94ed483cd34f5d18e1e06c",
+      "indexed_lines": 63
     },
     {
       "path": "gateway/desktop/windows_job.py",

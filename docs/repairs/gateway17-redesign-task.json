@@ -3,7 +3,7 @@
   "base_branch": "main",
   "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
   "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
-  "source_sha": "aad56e7f6b9bbac05ca905907cdd627e2bb36244",
+  "source_sha": "d2f2d71d0276621656eaecb3fd8e29d87fe9bba7",
   "pull_request": 1122,
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "gateway17-redesign-and-issue-resolution-2026-11-14",

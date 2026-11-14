@@ -8,18 +8,41 @@ from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 
 
 def watch(window, root, close):
+    import tkinter as tk
     started = time.time()
+    after_id = None
+    disposed = False
+
+    def stop(event=None):
+        nonlocal after_id, disposed
+        if event is not None and event.widget is not window:
+            return
+        disposed = True
+        if after_id:
+            try:
+                window.after_cancel(after_id)
+            except tk.TclError:
+                pass
+            after_id = None
+
     def poll():
+        nonlocal after_id
+        after_id = None
+        if disposed:
+            return
         try:
             value = json.loads((Path(root) / 'close-desktop.json').read_text(encoding='utf-8'))
             if value.get('requestedAt', 0) >= started:
+                stop()
                 close()
                 return
         except (OSError, ValueError, TypeError):
             pass
-        if window.winfo_exists():
-            window.after(250, poll)
-    window.after(250, poll)
+        if not disposed and window.winfo_exists():
+            after_id = window.after(250, poll)
+    window.bind('<Destroy>', stop, add='+')
+    after_id = window.after(250, poll)
+    return stop
 
 
 def close_windows(root, timeout=10):

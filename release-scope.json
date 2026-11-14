@@ -2727,6 +2727,8 @@
     "gateway/v14/graph_context.py",
     "app/src/androidTest/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceTranscriptInstrumentedTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceAdmissionPlaybackTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceGenerationSupersessionTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceGenerationSupersessionTest.kt",
+    "gateway/desktop/window_lifecycle.py",
+    "scripts/requirements-ci.txt"
   ]
 }

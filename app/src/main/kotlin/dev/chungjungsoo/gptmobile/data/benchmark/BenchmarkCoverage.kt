@@ -25,7 +25,8 @@ data class BenchmarkCoverage(
 
 internal fun BenchmarkSample.knownExecuted(): Boolean = runtimeExecutions.any { it.knownDispatched } ||
     phaseIntervals.any { it.nativeStage == "NATIVE_ENTRY" && (it.nativeOperationId ?: 0) > 0 } ||
-    requestAdmitted != false && requestDispatched != false &&
+    requestAdmitted != false &&
+    requestDispatched != false &&
     (outputCharacters > 0 || chunks > 0 || rounds.isNotEmpty() || requestDispatched == true && providerHttpStatus == null)
 
 fun benchmarkCoverage(run: BenchmarkRun): BenchmarkCoverage {

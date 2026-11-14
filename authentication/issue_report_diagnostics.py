@@ -145,6 +145,10 @@ ENUMS["conflict_active_job_kind"] = {"generation", "engineering"}
 ENUMS["github_cooldown_stop"] = {"WAIT_ALREADY_USED", "WAIT_LIMIT", "TASK_DEADLINE"}
 HASH_FIELDS.add("conflict_conversation_hash")
 TRANSPORT_FIELDS = {"github_transport_read_attempts", "github_transport_unanswered_reads", "github_transport_http_responses"}
+GITHUB_SCHEMA_BUDGET_FIELDS = {"required_schema_tokens", "available_schema_tokens"}
+ENUMS["provider_failure_code"].add("GITHUB_TOOL_CONTEXT_BUDGET")
+COUNTS.update(GITHUB_SCHEMA_BUDGET_FIELDS)
+FIELDS_BY_AREA["PROVIDER"].update(GITHUB_SCHEMA_BUDGET_FIELDS)
 CAPACITY_DETAIL_FIELDS = {"admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens"}
 COUNTS.update(TRANSPORT_FIELDS | CAPACITY_DETAIL_FIELDS | {"conflict_conversation_revision", "acceptance_pending_remote_continuations"})
 FIELDS_BY_AREA["PROVIDER"].update({"conflict_active_job_kind", "conflict_conversation_revision", "conflict_pending_tool_count", "conflict_conversation_hash", "github_cooldown_stop"})

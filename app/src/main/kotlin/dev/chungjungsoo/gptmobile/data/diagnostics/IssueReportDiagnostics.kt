@@ -40,6 +40,7 @@ internal data class IssueReportDiagnostics(
     }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values.keys + omittedFields).any { it in githubSchemaBudgetFields } || values["provider_failure_code"] == JsonPrimitive("GITHUB_TOOL_CONTEXT_BUDGET")) add("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in capacityEvidenceFields }) add("CAPACITY_ADMISSION_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in conflictEvidenceFields } || values["conflict_pending_tool_count"] == JsonPrimitive(0)) add("CONVERSATION_CONFLICT_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in acceptanceScopeFields }) add("ACCEPTANCE_SCOPE_EVIDENCE_V1")
@@ -97,6 +98,7 @@ internal data class IssueReportDiagnostics(
             "admission_capacity_age_ms"
         )
         internal val capacityEvidenceFields = capacityEvidenceCounts + "admission_capacity_provenance"
+        internal val githubSchemaBudgetFields = setOf("required_schema_tokens", "available_schema_tokens")
         private val acceptanceScopeFields = setOf("acceptance_capability_scope", "acceptance_pagination_mode")
         private val conflictEvidenceFields = setOf(
             "conflict_active_job_provenance",
@@ -187,7 +189,7 @@ internal data class IssueReportDiagnostics(
             "voice_response_to_first_audio_ms",
             "voice_warmup_ms"
         )
-        private val counts = capacityEvidenceCounts + setOf(
+        private val counts = capacityEvidenceCounts + githubSchemaBudgetFields + setOf(
             "reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total",
             "acceptance_unresolved_claim_count", "acceptance_pending_remote_continuations", "conflict_conversation_revision",
             "github_transport_read_attempts", "github_transport_unanswered_reads", "github_transport_http_responses",
@@ -235,7 +237,7 @@ internal data class IssueReportDiagnostics(
 
             "provider_failure_stage" to setOf("ADMISSION", "ENGINEERING_GUARD", "GENERATION", "CONTINUATION", "REVIEW_COMPATIBILITY", "ANSWER_REVIEW", "CLAIM_VERIFICATION", "DELIVERY"),
             "provider_failure_domain" to setOf("PROVIDER", "APPROVAL", "APPLICATION_VERIFICATION", "TOOL_EXECUTION", "UNKNOWN"),
-            "provider_failure_code" to reconciliationCodes + setOf("HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION"),
+            "provider_failure_code" to reconciliationCodes + setOf("GITHUB_TOOL_CONTEXT_BUDGET", "HTTP_ERROR", "TRANSPORT_ERROR", "UNCLASSIFIED_PROVIDER_FAILURE", "OUTPUT_LIMIT", "CAPACITY_UNVERIFIED", "INPUT_CAPACITY_EXCEEDED", "OUTPUT_CAPACITY_EXCEEDED", "CONTEXT_CAPACITY_EXCEEDED", "LOCAL_SERVICE_UNREACHABLE", "GATEWAY_OUTCOME_UNKNOWN", "TIMEOUT_OUTCOME_UNKNOWN", "RUN_DEADLINE_REACHED", "PROVIDER_RATE_LIMITED", "PRIVACY_CONFIGURATION"),
             "voice_reply_state" to setOf("FAILED_WITHOUT_DETAILS", "EMPTY_REPLY"),
             "tool_action" to setOf("status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch"),
             "tool_error_code" to setOf("APP_ERROR", "DNS_RESOLUTION_FAILED", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED"),
@@ -292,7 +294,7 @@ internal data class IssueReportDiagnostics(
             "gateway_model_state", "gateway_failure_category", "gateway_dependency", "gateway_upstream_status", "gateway_upstream_message_code", "gateway_reconciliation_status"
         )
         private val fieldsByArea = mapOf(
-            "PROVIDER" to capacityEvidenceFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
+            "PROVIDER" to capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
                 "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash",
                 "provider_failure_stage", "provider_failure_domain", "provider_failure_code",
                 "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections",

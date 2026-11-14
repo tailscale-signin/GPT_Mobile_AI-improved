@@ -58,6 +58,24 @@ class IncidentReportContractTest(unittest.TestCase):
             _, issue = issue_from_report(report)
             self.assertIn(code, issue["title"])
 
+    def test_github_schema_budget_preserves_specific_code_and_bounded_counts(self):
+        code = "GITHUB_TOOL_CONTEXT_BUDGET"
+        counts = {"required_schema_tokens": 5000, "available_schema_tokens": 0}
+        capture = self.capture("PROVIDER", {"provider_failure_code": code, "causal_failure_code": code, **counts})
+        report = self.report(capture)
+        report.update(feature="chat", errorCode=code)
+        report["events"] = ["-0ms E chat " + code]
+        report["context"]["source"] = "CHAT_FAILURE"
+        _, issue = issue_from_report(report)
+        self.assertIn(code, issue["title"])
+        for key in counts:
+            self.assertIn(key, issue["body"])
+            for invalid in (-1, 16_000_001, True, "5000"):
+                bad = copy.deepcopy(capture)
+                bad["values"][key] = invalid
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(bad)
+
     def test_session_recovery_diagnostics_validate_through_issue_submission(self):
         samples = {
             "PROVIDER": {"provider_failure_code": "CONVERSATION_CONFLICT", "conflict_active_job_kind": "generation",

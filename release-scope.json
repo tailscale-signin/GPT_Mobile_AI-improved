@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Preserve the GitHub tool-schema admission error and its required and available token counts in approved issue reports.",
     "Back off repeated saved gateway result reads after missing HTTP responses, retain redacted transport evidence, and move route fingerprint calculation outside the runtime diagnostics monitor.",
     "Implement measured GitHub fade and rendered-line pacing, stable preview activation order, shared user-bottom follow, themed voice captions with observed playback phases, and schema-preserving benchmark request and execution-evidence repairs.",
     "Reduce chat composable method size and enforce ART code-unit bounds on packaged chat/voice definitions, retain APK-bound CI reports, and restore benchmark backup evidence without endpoint substitution or private parser errors.",

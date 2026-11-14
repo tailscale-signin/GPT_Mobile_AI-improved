@@ -26,6 +26,7 @@ class IssueReportSubmissionTest {
 
     @Test fun newDiagnosticEvidenceRequiresMatchingServiceBeforePostingTheUnchangedApprovedPayload() {
         for ((feature, evidence) in listOf(
+            "GITHUB_SCHEMA_BUDGET_EVIDENCE_V1" to mapOf("required_schema_tokens" to 5000, "available_schema_tokens" to 0),
             "CAPACITY_ADMISSION_EVIDENCE_V1" to mapOf("admission_capacity_provenance" to "VERIFIED_ROUTE"),
             "CONVERSATION_CONFLICT_EVIDENCE_V1" to mapOf("conflict_pending_tool_state" to "NOT_REPORTED"),
             "ACCEPTANCE_SCOPE_EVIDENCE_V1" to mapOf("acceptance_capability_scope" to "FULL_CATALOG", "acceptance_pagination_mode" to "BOUNDED_SMOKE_SAMPLE"),
@@ -67,6 +68,19 @@ class IssueReportSubmissionTest {
             assertEquals(1, dispatched)
             assertEquals(listOf(payload), posted)
         }
+    }
+
+    @Test fun schemaBudgetCodeRequiresServiceSupportEvenWithoutCountEvidence() {
+        val payload = report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = "GITHUB_TOOL_CONTEXT_BUDGET").approvedPayload()
+        val methods = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            methods += request.method
+            response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":[]}""")
+        }.build()
+        val outcome = IssueReportSubmission(origin, client).send(report.reportId, payload) as IssueReportSubmission.Failure
+        assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", outcome.code)
+        assertEquals(listOf("GET"), methods)
     }
 
     @Test fun preparingVoiceRequiresServiceSupportBeforePostingApprovedBytes() {

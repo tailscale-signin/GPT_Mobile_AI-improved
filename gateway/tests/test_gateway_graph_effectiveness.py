@@ -100,6 +100,42 @@ class RelationshipCoverageTests(unittest.TestCase):
 
 
 class ResultPagingTests(unittest.TestCase):
+    def test_wide_query_pages_cover_every_requested_hop_without_hidden_truncation(self):
+        branches = 202
+        source = 'def seed():\n' + ''.join(f'    branch_{i:03d}()\n' for i in range(branches))
+        source += ''.join(f'\ndef branch_{i:03d}(): return leaf_{i:03d}()\ndef leaf_{i:03d}(): return {i}\n'
+                          for i in range(branches))
+        graph = Graph(snapshot({'service.py': source}))
+        names = {node['name']: node['id'] for node in graph.nodes.values() if node['kind'] == 'function'}
+        expected = {(names['seed'], names[f'branch_{i:03d}']) for i in range(branches)}
+        expected |= {(names[f'branch_{i:03d}'], names[f'leaf_{i:03d}']) for i in range(branches)}
+        envelope = {'graph': graph.metadata(), 'stale': False, 'observed_branch_head': 'a' * 40}
+        request = {'action': 'query', 'query': 'seed', 'depth': 2, 'budget_bytes': 8000, 'limit': 17}
+        edges, cursors = set(), set()
+        for _ in range(200):
+            result = graph_page(graph, 'scope', request, envelope)
+            self.assertEqual('FOUND', result['status'])
+            self.assertLessEqual(len(encoded(result).encode()), request['budget_bytes'])
+            self.assertFalse(result['truncated'])
+            page_nodes = {node['id'] for node in result['nodes']}
+            page_edges = {(edge['source'], edge['target']) for edge in result['edges']}
+            self.assertTrue(all(source in page_nodes and target in page_nodes for source, target in page_edges))
+            self.assertEqual(len(page_nodes), result['returned_nodes'])
+            self.assertEqual(len(page_edges), result['returned_edges'])
+            self.assertTrue(edges.isdisjoint(page_edges))
+            edges.update(page_edges)
+            self.assertEqual(result['has_more'], bool(result['next_cursor']))
+            self.assertEqual(result['next_cursor'], result['result_cursor'])
+            if not result['has_more']:
+                break
+            self.assertNotIn(result['next_cursor'], cursors)
+            cursors.add(result['next_cursor'])
+            request['result_cursor'] = result['next_cursor']
+        else:
+            self.fail('Wide query did not reach its final page')
+        self.assertTrue(cursors)
+        self.assertEqual(expected, edges)
+
     def test_large_architecture_pages_keep_endpoints_and_cover_every_file_and_link(self):
         files = {f'long/source/package/module_{i:04d}.py':
                  (f'from .module_{i+1:04d} import run\n' if i < 3199 else '') + f'def value_{i}(): return {i}\n'

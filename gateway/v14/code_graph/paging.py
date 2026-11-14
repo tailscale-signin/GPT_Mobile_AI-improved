@@ -84,7 +84,9 @@ def query_records(graph, request):
                         records.append(([graph.nodes[edge['source']], graph.nodes[edge['target']]], [edge]))
                         seen.add(signature)
                     following.update((edge['source'], edge['target']))
-            frontier = set(sorted(following - visited)[:200])
+            # Page complete rows after traversal; dropping frontier nodes here
+            # makes their relationships unreachable from every result cursor.
+            frontier = following - visited
             visited.update(frontier)
     return records, {'total_matches': len(ranked)}
 

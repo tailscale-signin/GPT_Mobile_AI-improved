@@ -274,10 +274,12 @@ and accelerator execution are not measured by host tests.
 | #1127 | Continue authorized, already-issued exact-head workflow pages when an executed job/log dependency is still missing, within the accepted call budget and bounded eight-page prerequisite allowance. Identify unindexed graph prerequisites explicitly and retain closed-enum graph/workflow observations. Indexing and fixture approval remain real prerequisites. |
 | #1128 | Retain observed rules as partial policy evidence and choose access-refresh recovery when another policy endpoint is inaccessible. Do not retry unchanged reads automatically or infer that 404 means no branch protection. Complete policy and merge readiness remain unverified until all required sources are available. |
 
-Three new public prerequisite fields require `GITHUB_PREREQUISITE_EVIDENCE_V1`.
-The app gate, server validation and advertised capability change together; deployment
-of that reporter support is required before those enhanced public payloads can be
-submitted. The diagnostic archive retains the underlying bounded evidence independently.
+Hosted submission of the three new prerequisite fields requires a reporter that
+advertises `GITHUB_PREREQUISITE_EVIDENCE_V1`. The app gate, server validation and
+advertised capability change together. Native authenticated GitHub reporting
+validates and renders the approved payload locally without depending on a hosted
+reporter deployment. The diagnostic archive retains the underlying bounded evidence
+independently; the approved destination and payload are never silently changed.
 
 The current branch audit also checked the recent divergent production repair tips.
 Their associated PRs #785, #801, #802, #803, #804 and #807 are already merged into
@@ -421,3 +423,37 @@ After reconciling the voice follow-up, the combined canonical host gate passed
 source inventories, diagnostic schema and whitespace checks are current; hosted
 Android, CodeQL, emulator and applicable packaging gates remain required on the
 final shared head.
+
+## Complete bounded query paging
+
+Independent review of the repository-map integration reproduced a silent
+200-node traversal-frontier cutoff. A depth-two query with 202 first-hop branches
+and one second-hop leaf per branch exposed only 402 of 404 known relationships,
+then reported no continuation and no truncation. The new real-Graph regression
+first failed on the unchanged implementation with those two missing relationships.
+
+The repair removes that hidden frontier slice. Traversal remains bounded by the
+finite admitted graph snapshot, the existing depth limit, visited/expanded nodes
+and unique relationship identities. Page record/byte limits and revision/query
+cursor binding remain intact. The regression collects all 404 relationships with
+both endpoints on each page, unique advancing cursors, no duplicate relationships,
+and pages no larger than 8,000 bytes. All 72 focused effectiveness, durable-index
+and core-graph tests passed.
+
+This checkpoint preserves repository-map commit `b279eddfe41edd23602aacd811c881defa3b1aea`
+and voice-ownership/theme commit `b1a0ea71ce748a04d50b0d85fa4c301032c57107`.
+The hosted-versus-native report-delivery clarification above also applies to
+`GITHUB_GRAPH_POLICY_EVIDENCE_V1`; no report destination or approved bytes change.
+
+After reconciling Gateway 17 commit `cf094eea6fc6bdeadbfe1ba76864a019c4cf688d`,
+the focused paging, durable-index and core-graph rerun passed 75 tests. Canonical
+fast validation on the combined source passed 509 tests; all five authentication
+and reporting modules passed 105. The canonical architecture index exactly
+matches concurrent correction `1ed51b1a0ebbdd8fa1efd1b51d1b27cac379c773`.
+Gateway versions 14, 15 and 16 remain supported alongside 17, required-policy
+completeness still depends on both valid source observations, and the new hosted
+recovery fields remain bounded and negotiated. The current readiness document is
+847 bytes within the unchanged 1,024-byte limit. Native authenticated GitHub
+delivery retains local validation. Required Android and exact-head hosted checks
+remain pending the final shared integration candidate; the separately owned
+benchmark interruption correction must also be preserved before qualification.

@@ -919,7 +919,7 @@ class ProviderAdaptersTest {
                 val session = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(type).copy(token = "one,two"))
                 val original = IllegalStateException("quota in collector must not rotate")
                 try {
-                    session.streamRound(emptyList(), emptyList()).collect { throw original }
+                    session.streamRound(emptyList(), emptyList()).collect { if (it !is ProviderEvent.RequestConfigured) throw original }
                     fail("Expected collector failure")
                 } catch (error: IllegalStateException) {
                     assertSame(original, error)
@@ -966,7 +966,7 @@ class ProviderAdaptersTest {
         for (session in sessions) {
             val original = IllegalStateException("collector stopped")
             try {
-                session.streamRound(emptyList(), emptyList()).collect { throw original }
+                session.streamRound(emptyList(), emptyList()).collect { if (it !is ProviderEvent.RequestConfigured) throw original }
                 fail("Expected collector failure")
             } catch (error: IllegalStateException) {
                 assertSame(original, error)
@@ -982,8 +982,10 @@ class ProviderAdaptersTest {
         val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flow { throw java.net.UnknownHostException("unavailable") })))
         val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder()).openSession(turns(), platform(ClientType.CUSTOM))
             .streamRound(emptyList(), emptyList()).toList()
-        assertEquals(1, events.size)
-        assertTrue(events.single() is ProviderEvent.Failed)
+        assertEquals(1, events.filterIsInstance<ProviderEvent.RequestConfigured>().size)
+        assertEquals(1, events.filterIsInstance<ProviderEvent.Failed>().size)
+        assertFalse(events.any { it == ProviderEvent.Completed })
+        assertEquals(1, api.chatRequests.size)
     }
 
     @Test

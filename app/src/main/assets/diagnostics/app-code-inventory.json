@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "b11dfa1ffd66434ad9295f87dbe2e2f66fdc7f9585213ede62c91ccece2e4d7e",
+  "source_digest": "ae13c4eea391ec4bdaaf79eb62814e4426577e1e67d6a3f095c08447f886f546",
   "file_count": 2657,
-  "indexed_line_count": 430379,
+  "indexed_line_count": 430385,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 553,
-      "indexed_line_count": 96897
+      "indexed_line_count": 96900
     },
     {
       "id": "accessibility_and_localization",
@@ -148,7 +148,7 @@
       "id": "voice_and_media",
       "label": "Voice and media",
       "file_count": 30,
-      "indexed_line_count": 6069
+      "indexed_line_count": 6072
     },
     {
       "id": "portable_domain",
@@ -11875,8 +11875,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroVoiceOutput.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "ff2b63a28b8f4bb79decc5f876b0707f0b8cd0e3c61c4e9608fb94dfecc6bcd1",
-      "indexed_lines": 800
+      "sha256": "f6fce401d656a8238e7b7595d80de03bca9181652079ec1f035100554391f8e8",
+      "indexed_lines": 803
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/LocalVoiceModelStore.kt",
@@ -15592,8 +15592,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "ee79e66a98a3da120e5f7e997f5b219b3f8d366c785c748c735d094a61c3804c",
-      "indexed_lines": 1149
+      "sha256": "de2ac569e606451eefb22a42b4f09990f39dafca588bbefe91bc9889ccc29531",
+      "indexed_lines": 1152
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",

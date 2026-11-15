@@ -6,7 +6,7 @@
   "working_branch": "fix/post-1203-diagnostics-2026-11-15",
   "predecessor_pr": 1203,
   "pull_request": 1299,
-  "state": "FINAL_SOURCE_PREPARATION",
+  "state": "READY_FOR_PUBLISHED_VALIDATION",
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "post-merge-report-diagnostics-2026-11-15",
   "runtime_task_store": "The app task database is unavailable in this checkout. This versioned development checkpoint does not claim runtime receipts.",
@@ -228,14 +228,19 @@
   ],
   "validation": {
     "targeted": "Frozen source and focused execution receipts retained; exact scope and unexecuted Android boundaries remain explicit",
-    "canonical_fast": "PASS on localfa3:512 script tests and canonical fast checks; rechecking composed7ec source before publication",
+    "canonical_fast": "PASS:512 script tests and all canonical fast policy, metadata, regex, resource, icon and provenance checks on the final composed source; no Android execution.",
     "canonical_full": "PENDING_HOSTED_ANDROID_SDK",
     "hosted_current_head": "PENDING_PUBLICATION_AND_CURRENT_HEAD_RUNS",
     "physical_device": "NOT_RUN",
-    "reporting_service": "129 composed Python checks passed with all five consumer additions and the adopted URL capability; deployed service and Android remain separate",
-    "changed_kotlin_formatting": "PASS: all116 changed Kotlin paths after c3 composition; no Android execution",
+    "reporting_service": "PASS:129 composed Python tests re-executed against source checkpoint59f8db93, with unchanged source before/after. Deployed service and Android remain separate.",
+    "changed_kotlin_formatting": "PASS:all116 changed Kotlin files; every checked postimage remains identical after final package metadata generation.",
     "gateway_focused": "PASS: all18 methods in the final composed recovery, autonomous-tools and canonical qualification-measurements modules; zero failures/errors/skips/timeouts. Source-bound to78579b2b; hosted Gateway/installer remains pending.",
-    "gateway_windows_fixture": "Actual prior Windows failure reproduced with CRLF committed bytes; explicit-LF fixture correction passes9 existing methods locally. Final native Windows execution remains pending."
+    "gateway_windows_fixture": "PASS locally:explicit LF setup plus retained c3 explicit CRLF extension in the nine-method module. Native Windows execution remains pending.",
+    "gateway_manifest": "PASS:340 entries regenerated and individually hash-verified against published source checkpoint59f8db9316e4377f4152f81f4d1e28898b7e38ea. Only manifest metadata differs from the composed18-test source.",
+    "planned_pr_workflows": 11,
+    "planned_pr_jobs": 22,
+    "planned_main_workflows": 6,
+    "planned_main_jobs": 16
   },
   "remote": {
     "main_verified_at": "2026-11-15T15:49:15.926245+00:00",
@@ -253,5 +258,6 @@
     "Prior PR/main results are baseline evidence and do not qualify new source changes",
     "No branch deletion or force push"
   ],
-  "composition_baseline": "aaa3bcd8c4fd188598c0849ac6fa83fe7d686a75"
+  "composition_baseline": "aaa3bcd8c4fd188598c0849ac6fa83fe7d686a75",
+  "source_checkpoint": "59f8db9316e4377f4152f81f4d1e28898b7e38ea"
 }

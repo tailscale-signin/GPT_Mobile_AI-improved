@@ -5,16 +5,18 @@ import tkinter as tk
 from tkinter import ttk
 
 BG = '#001219'
+SIDEBAR = '#061C24'
 PANEL = '#0B2028'
 RAISED = '#103239'
 CYAN = '#00FFDE'
 PURPLE = '#CC00FF'
 TEXT = '#E0F4F7'
-MUTED = '#9EBFC6'
+MUTED = '#B8DDE2'
 LINE = '#294D53'
 ERROR = '#FFB4AB'
 ASSETS = Path(__file__).with_name('assets')
 APP_ID = 'GPTMobile.Gateway'
+FONT = 'Segoe UI'
 
 
 def apply(window):
@@ -31,7 +33,7 @@ def apply(window):
         window.iconphoto(True, window._brand_icon)
     except tk.TclError:
         pass
-    window.option_add('*Font', ('Segoe UI', 10))
+    window.option_add('*Font', (FONT, 10))
     window.option_add('*TCombobox*Listbox.background', PANEL)
     window.option_add('*TCombobox*Listbox.foreground', TEXT)
     style = ttk.Style(window)
@@ -39,10 +41,14 @@ def apply(window):
     style.configure('.', background=BG, foreground=TEXT, fieldbackground=PANEL, bordercolor=LINE, lightcolor=LINE, darkcolor=LINE)
     style.configure('TFrame', background=BG)
     style.configure('TLabel', background=BG, foreground=TEXT)
+    style.configure('TNotebook', background=BG, borderwidth=0)
+    style.configure('TNotebook.Tab', background=PANEL, foreground=MUTED, padding=(14, 9))
+    style.map('TNotebook.Tab', background=[('selected', RAISED)], foreground=[('selected', CYAN)])
+    style.configure('TPanedwindow', background=BG)
     style.configure('TButton', background=RAISED, foreground=TEXT, borderwidth=0, padding=(14, 9), focusthickness=1, focuscolor=CYAN)
     style.map('TButton', background=[('active', '#19505A'), ('disabled', PANEL)], foreground=[('disabled', MUTED)])
     style.configure('Accent.TButton', background=CYAN, foreground=BG)
-    style.map('Accent.TButton', background=[('active', '#8CFFF0')])
+    style.map('Accent.TButton', background=[('disabled', PANEL), ('active', '#8CFFF0')], foreground=[('disabled', MUTED)])
     style.configure('TEntry', fieldbackground=PANEL, foreground=TEXT, insertcolor=CYAN, padding=8)
     style.configure('TCombobox', fieldbackground=PANEL, foreground=TEXT, arrowcolor=CYAN, padding=6)
     style.map('TCombobox', fieldbackground=[('readonly', PANEL)], foreground=[('readonly', TEXT)])
@@ -58,4 +64,4 @@ def apply(window):
 
 def label(parent, content, size=10, color=TEXT, bold=False, bg=BG, **kwargs):
     return tk.Label(parent, text=content, foreground=color, background=bg,
-                    font=('Segoe UI', size, 'bold' if bold else 'normal'), **kwargs)
+                    font=(FONT, size, 'bold' if bold else 'normal'), **kwargs)

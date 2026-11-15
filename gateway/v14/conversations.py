@@ -18,7 +18,7 @@ import uuid
 
 admission_context = contextvars.ContextVar('gateway_conversation_admission', default=None)
 TERMINAL = {'completed', 'failed', 'cancelled', 'canceled', 'interrupted', 'COMPLETED', 'CANCELLED', 'FAILED'}
-FEATURES = {'job_catalog_v1': True, 'conversation_sync_v1': True, 'conversation_message_parts_v1': True, 'durable_detach_v1': True, 'command_outcomes_v1': True}
+FEATURES = {'job_catalog_v1': True, 'conversation_sync_v1': True, 'conversation_message_parts_v1': True, 'durable_detach_v1': True, 'command_outcomes_v1': True, 'conversation_metadata_v1': True, 'saved_messages_v1': True}
 SCHEMA_VERSION = '3'
 MESSAGE_PAGE_BYTES = 1_900_000
 MESSAGE_PART_BYTES = 256 * 1024
@@ -132,6 +132,8 @@ class Conversations:
         installation = db.execute("SELECT value FROM engineering_identity WHERE name='installation'").fetchone()[0]
         db.execute("INSERT OR IGNORE INTO gateway_installation VALUES('gateway_id',?)", (installation,))
         db.execute("INSERT OR IGNORE INTO gateway_installation VALUES('cursor_key',?)", (secrets.token_hex(32),))
+        from v14.conversation_metadata import schema as metadata_schema
+        metadata_schema(db)
         migrate(db, Conversations.identity(db))
         version = db.execute("SELECT value FROM gateway_installation WHERE key='conversation_schema'").fetchone()
         if version is None or version[0] != SCHEMA_VERSION:
@@ -187,7 +189,7 @@ class Conversations:
                         db.execute('BEGIN')
                         exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='gateway_installation'").fetchone()
                         installation = dict(db.execute('SELECT key,value FROM gateway_installation')) if exists else {}
-                        if installation.get('gateway_id') and installation.get('conversation_schema') == SCHEMA_VERSION:
+                        if installation.get('gateway_id') and installation.get('conversation_schema') == SCHEMA_VERSION and installation.get('conversation_metadata_schema') == '1':
                             return operation(db)
                 finally:
                     db.close()
@@ -606,6 +608,7 @@ class Conversations:
                 'gap': bool(missing), 'gap_details': {'missing_ranges': ranges[:100], 'has_more': len(ranges) > 100, 'missing_revision_count': len(missing)} if ranges else None}
 
     def snapshot(self, principal, conversation_id):
+        from v14.conversation_metadata import metadata
         def read(db):
             row = db.execute('SELECT * FROM gateway_conversations WHERE principal=? AND id=?', (principal, conversation_id)).fetchone()
             if not row:
@@ -613,15 +616,21 @@ class Conversations:
             row = dict(row)
             return dict(json.loads(row['binding']), schema_version=1, gateway_id=self.identity(db), principal_id=principal,
                         conversation_id=row['id'], title=row['title'], revision=row['revision'], transcript_available=True,
-                        active_job_id=row['active_job'], active_job_kind=row['active_kind'], job_state=self.job_state(db, row), created_at=row['created_at'], updated_at=row['updated_at'], head_sha=self.head_sha(db, row), server_now=self.now(), **self.history_status(db, row))
+                        active_job_id=row['active_job'], active_job_kind=row['active_kind'], job_state=self.job_state(db, row), created_at=row['created_at'], updated_at=row['updated_at'], head_sha=self.head_sha(db, row), server_now=self.now(), **self.history_status(db, row), **metadata(db, row['id']))
         return self.read(read)
 
-    def list(self, principal, cursor=None, limit=50, engineering_allowed=True, generation_allowed=True):
+    def list(self, principal, cursor=None, limit=50, engineering_allowed=True, generation_allowed=True, *, query='', archived=None, favorite=None):
+        from v14.conversation_metadata import metadata, search_query, like_query
+        query = search_query(query)
+        if any(value is not None and type(value) is not bool for value in (archived, favorite)):
+            raise ValueError('Invalid conversation filter')
         if not 1 <= limit <= 100:
             raise ValueError('Page size must be between 1 and 100')
         def read(db):
             gateway_id = self.identity(db)
             scope = [gateway_id, principal, 'conversations', engineering_allowed, generation_allowed]
+            if query or archived is not None or favorite is not None:
+                scope += [query, archived, favorite]
             upper = db.execute('SELECT COALESCE(MAX(sequence),0) FROM gateway_conversation_catalog').fetchone()[0]
             before = upper + 1
             if cursor:
@@ -631,8 +640,8 @@ class Conversations:
                 upper, before = value.get('upper'), value.get('before')
                 if type(upper) is not int or type(before) is not int or not 0 <= before <= upper + 1:
                     raise ValueError('Invalid conversation list cursor')
-            rows = db.execute("SELECT c.*,k.sequence FROM gateway_conversations c JOIN gateway_conversation_catalog k ON k.conversation_id=c.id WHERE principal=? AND k.sequence<=? AND k.sequence<? AND (? OR active_kind!='engineering') AND (? OR active_kind!='generation') AND c.history_complete=1 AND EXISTS(SELECT 1 FROM gateway_messages m WHERE m.conversation_id=c.id AND m.role=?) AND NOT EXISTS(SELECT 1 FROM gateway_message_publications p LEFT JOIN gateway_messages m ON m.id=p.message_id AND m.conversation_id=p.conversation_id WHERE p.conversation_id=c.id AND m.id IS NULL) ORDER BY k.sequence DESC LIMIT ?", (principal, upper, before, int(engineering_allowed), int(generation_allowed), 'user', limit + 1)).fetchall()
-            items = [dict(json.loads(row['binding']), conversation_id=row['id'], title=row['title'], revision=row['revision'], created_at=row['created_at'], updated_at=row['updated_at'], job_id=row['active_job'], job_kind=row['active_kind'], active_job_id=row['active_job'], active_job_kind=row['active_kind'], job_state=self.job_state(db, row), head_sha=self.head_sha(db, row), transcript_available=True, gateway_id=gateway_id, principal_id=principal, **self.history_status(db, row)) for row in rows[:limit]]
+            rows = db.execute("SELECT c.*,k.sequence FROM gateway_conversations c JOIN gateway_conversation_catalog k ON k.conversation_id=c.id LEFT JOIN gateway_conversation_metadata meta ON meta.conversation_id=c.id WHERE principal=? AND k.sequence<=? AND k.sequence<? AND (? OR active_kind!='engineering') AND (? OR active_kind!='generation') AND (? IS NULL OR COALESCE(meta.archived,0)=?) AND (? IS NULL OR COALESCE(meta.favorite,0)=?) AND (?='' OR c.title LIKE ? ESCAPE '\\' OR EXISTS(SELECT 1 FROM gateway_messages search WHERE search.conversation_id=c.id AND search.content LIKE ? ESCAPE '\\')) AND c.history_complete=1 AND EXISTS(SELECT 1 FROM gateway_messages m WHERE m.conversation_id=c.id AND m.role=?) AND NOT EXISTS(SELECT 1 FROM gateway_message_publications p LEFT JOIN gateway_messages m ON m.id=p.message_id AND m.conversation_id=p.conversation_id WHERE p.conversation_id=c.id AND m.id IS NULL) ORDER BY k.sequence DESC LIMIT ?", (principal, upper, before, int(engineering_allowed), int(generation_allowed), archived, archived, favorite, favorite, query, like_query(query), like_query(query), 'user', limit + 1)).fetchall()
+            items = [dict(json.loads(row['binding']), conversation_id=row['id'], title=row['title'], revision=row['revision'], created_at=row['created_at'], updated_at=row['updated_at'], job_id=row['active_job'], job_kind=row['active_kind'], active_job_id=row['active_job'], active_job_kind=row['active_kind'], job_state=self.job_state(db, row), head_sha=self.head_sha(db, row), transcript_available=True, gateway_id=gateway_id, principal_id=principal, **self.history_status(db, row), **metadata(db, row['id'])) for row in rows[:limit]]
             items = [item for item in items if item['history_complete']]
             more = len(rows) > limit
             return {'schema_version': 1, 'gateway_id': gateway_id, 'principal_id': principal, 'server_now': self.now(), 'items': items, 'has_more': more, 'complete': not more, 'next_cursor': self.encode_cursor(db, {'scope': scope, 'upper': upper, 'before': rows[limit - 1]['sequence']}) if more else None}

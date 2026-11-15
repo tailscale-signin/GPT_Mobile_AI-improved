@@ -325,7 +325,9 @@ jobs:
         run: bash scripts/install_android_native_dependencies.sh
 
       # Run 43551332536 exhausted 3 GiB after KSP and KAPT shared one process.
-      # Release each generation graph separately and retain the bounded defaults.
+      # Run 43627862538 then exhausted the default heap while KAPT rendered the
+      # generated annotation stubs. Release each graph separately and give only
+      # the annotation phase the same bounded heap as the validated unit path.
       - name: Generate Room sources before lint in a separate process
         timeout-minutes: 10
         shell: bash
@@ -338,7 +340,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          python3 scripts/build_metrics.py --label lint-kapt --output build/reports/profile/lint-kapt-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee lint-kapt.log
+          python3 scripts/build_metrics.py --label lint-kapt --output build/reports/profile/lint-kapt-metrics.json -- python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee lint-kapt.log
 
       - name: Compile production sources before lint in a separate process
         timeout-minutes: 20
@@ -381,6 +383,10 @@ jobs:
         with:
           fetch-depth: 0
           persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        if: ${{ !cancelled() }}
+        with:
+          python-version: '3.12'
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: '22'
@@ -396,6 +402,9 @@ jobs:
           MANUAL_CHANGE_BASE: ${{ inputs.change_base_sha }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: python3 scripts/resolve_validation_base.py
+      - name: Install repository contract dependencies
+        run: |
+          python3 -m pip install --require-hashes --only-binary=:all: -r scripts/requirements-ci.txt
       - name: Repository contracts and workflow policy
         run: |
           python3 scripts/check_ci_policy.py
@@ -425,6 +434,7 @@ jobs:
       - name: Gateway and GitHub OAuth broker contracts
         if: ${{ !cancelled() }}
         run: |
+          python3 -c 'import tkinter'
           python3 -m pip install --require-hashes -r gateway/requirements.txt
           python3 -m py_compile gateway/gateway*.py
           python3 gateway/check_gateway.py

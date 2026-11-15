@@ -134,6 +134,7 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
             val kind = node.graphText("kind")
             val isSelected = id == selectedId
             val connections = visibleEdges.count { it.graphText("source") == id || it.graphText("target") == id }
+            val outside = edges.count { it.graphText("source") == id || it.graphText("target") == id } - connections
             val accent = when (kind.lowercase()) {
                 "community", "module", "package" -> colors.tertiary
                 "file" -> colors.secondary
@@ -146,7 +147,7 @@ internal fun GraphMiniMap(nodes: List<JsonObject>, edges: List<JsonObject>, sele
                     .semantics {
                         selected = isSelected
                         contentDescription = path
-                        stateDescription = "$connections visible source connections"
+                        stateDescription = "$connections visible source connections; $outside connections outside this diagram"
                     }
                     .clickable(role = Role.Button, onClickLabel = "Inspect source") { onSelect(node) },
                 horizontalAlignment = Alignment.CenterHorizontally,

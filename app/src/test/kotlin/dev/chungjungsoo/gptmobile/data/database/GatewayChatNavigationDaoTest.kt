@@ -44,6 +44,7 @@ class GatewayChatNavigationDaoTest {
         database.gatewayJobDao().saveSubmission(GatewaySubmissionRecord("command", submitted, null, null, null, "original", "http://192.168.1.4:8090", "original", "fingerprint", "{}", createdAtMillis = 1))
 
         assertEquals(listOf(submitted, engineering, mirrored, explicit), dao.observeGatewayChats().first().map { it.id })
+        assertEquals(254, dao.observeUnarchivedChats().first().size)
     }
 
     @Test fun archivedChatsStayOutOfTheListButTheirAttachedTranscriptCanStillBeOpened() = runBlocking {
@@ -52,6 +53,7 @@ class GatewayChatNavigationDaoTest {
         database.gatewayJobDao().saveConversation(record("remote-only", null))
         database.gatewayJobDao().saveConversation(record("deleted-room", id + 100))
         assertTrue(database.chatRoomDao().observeGatewayChats().first().isEmpty())
+        assertTrue(database.chatRoomDao().observeUnarchivedChats().first().isEmpty())
         assertEquals(listOf("archived"), database.gatewayJobDao().observeAttachedConversations().first().map { it.key })
     }
 

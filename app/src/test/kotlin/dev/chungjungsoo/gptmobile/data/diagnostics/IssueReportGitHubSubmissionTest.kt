@@ -75,6 +75,121 @@ class IssueReportGitHubSubmissionTest {
         assertEquals(payload, uncertain.payload)
     }
 
+    @Test fun profileSelectionReportsPublishExactApprovedEvidenceWithoutHostedNegotiation() {
+        val codeOnly = report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = "GITHUB_PROFILE_LOCKED")
+        val context = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            mapOf(
+                "diagnostic_area" to "PROVIDER",
+                "provider_failure_code" to "GITHUB_PROFILE_LOCKED",
+                "github_selection_profile_match" to false,
+                "github_selection_registered_profile" to true,
+                "github_selection_model_match" to false,
+                "github_selection_profile_hash" to "a".repeat(64),
+                "github_selection_registered_model_hash" to "b".repeat(64)
+            ),
+            1_000L
+        )
+        val capture = requireNotNull(context.diagnostics)
+        val omitted = capture.copy(values = capture.values - IssueReportDiagnostics.profileSelectionFields, omittedFields = IssueReportDiagnostics.profileSelectionFields.sorted())
+        for (enriched in listOf(codeOnly, codeOnly.copy(context = context), codeOnly.copy(context = context.withDiagnostics(omitted)))) {
+            val payload = enriched.approvedPayload()
+            val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+            val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+            val requests = mutableListOf<Request>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                requests += request
+                assertEquals("POST", request.method)
+                assertEquals("api.github.com", request.url.host)
+                assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                response(request, 201, receipt(body = rendered.getValue("body")).toString())
+            }.build()
+            assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") {})
+            assertEquals(1, requests.size)
+            assertEquals(payload, entry.payload)
+        }
+    }
+
+    @Test fun nativeProfileSelectionReportRejectsPrivateOrWrongTypedRestoredEvidenceBeforeDispatch() {
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "PROVIDER"), 1_000L)
+        val capture = requireNotNull(context.diagnostics)
+        for (key in IssueReportDiagnostics.profileSelectionFields) {
+            val invalid = capture.copy(values = capture.values + (key to JsonPrimitive("PRIVATE_PROFILE_MODEL_TOKEN")))
+            val malformed = report.copy(context = context.copy(diagnostics = invalid))
+            assertThrows(IllegalArgumentException::class.java) { malformed.approvedPayload() }
+            val payload = IssueReport.json.encodeToString(IssueReport.serializer(), malformed)
+            val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+            val client = OkHttpClient.Builder().addInterceptor { error("Private restored evidence must never reach GitHub") }.build()
+            val failure = IssueReportGitHubSubmission(client).send(entry, "private-token") { error("Invalid report cannot dispatch") } as IssueReportSubmission.Failure
+            assertEquals("REPORT_PAYLOAD_INVALID", failure.code)
+            assertFalse(failure.retryable)
+            assertEquals(payload, entry.payload)
+        }
+    }
+
+    @Test fun githubCooldownReportsPublishExactApprovedEvidenceWithoutHostedNegotiation() {
+        for (area in listOf("PROVIDER", "TOOL")) {
+            for (code in listOf("GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED")) {
+                val codeOnly = report.copy(source = "debug", title = null, description = null, feature = "chat", errorCode = code)
+                val context = IssueReportContext.fromFields(
+                    "CHAT_FAILURE",
+                    mapOf(
+                        "diagnostic_area" to area,
+                        (if (area == "PROVIDER") "provider_failure_code" else "tool_error_code") to code,
+                        "github_cooldown_resource" to "CORE",
+                        "github_cooldown_basis" to "RESOURCE_RESET",
+                        "github_cooldown_delay_ms" to Long.MAX_VALUE,
+                        "github_cooldown_deadline_ms" to Long.MAX_VALUE,
+                        "github_cooldown_observed_at_ms" to 100_000L,
+                        "github_cooldown_remaining_requests" to 0L
+                    ),
+                    1_000L
+                )
+                val capture = requireNotNull(context.diagnostics)
+                val omitted = capture.copy(values = capture.values - IssueReportDiagnostics.githubCooldownFields, omittedFields = IssueReportDiagnostics.githubCooldownFields.sorted())
+                for (enriched in listOf(codeOnly, codeOnly.copy(context = context), codeOnly.copy(context = context.withDiagnostics(omitted)))) {
+                    val payload = enriched.approvedPayload()
+                    val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+                    val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+                    val requests = mutableListOf<Request>()
+                    val client = OkHttpClient.Builder().addInterceptor { chain ->
+                        val request = chain.request()
+                        requests += request
+                        assertEquals("POST", request.method)
+                        assertEquals("api.github.com", request.url.host)
+                        assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                        response(request, 201, receipt(body = rendered.getValue("body")).toString())
+                    }.build()
+                    assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") {})
+                    assertEquals(1, requests.size)
+                    assertEquals(payload, entry.payload)
+                }
+            }
+        }
+    }
+
+    @Test fun nativeCooldownReportRejectsPrivateOrWrongTypedRestoredEvidenceBeforeDispatch() {
+        for (area in listOf("PROVIDER", "TOOL")) {
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to area), 1_000L)
+            val capture = requireNotNull(context.diagnostics)
+            for (key in IssueReportDiagnostics.githubCooldownFields) {
+                for (value in listOf(JsonPrimitive("PRIVATE_RESOURCE_TOKEN"), JsonPrimitive(false), JsonPrimitive(1.0), kotlinx.serialization.json.JsonNull)) {
+                    val invalid = capture.copy(values = capture.values + (key to value))
+                    val malformed = report.copy(context = context.copy(diagnostics = invalid))
+                    assertThrows(IllegalArgumentException::class.java) { malformed.approvedPayload() }
+                    val payload = IssueReport.json.encodeToString(IssueReport.serializer(), malformed)
+                    val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+                    val client = OkHttpClient.Builder().addInterceptor { error("Private restored evidence must never reach GitHub") }.build()
+                    val failure = IssueReportGitHubSubmission(client).send(entry, "private-token") { error("Invalid report cannot dispatch") } as IssueReportSubmission.Failure
+                    assertEquals("REPORT_PAYLOAD_INVALID", failure.code)
+                    assertFalse(failure.retryable)
+                    assertEquals(payload, entry.payload)
+                }
+            }
+        }
+    }
+
     @Test fun selectedNativeRoutePublishesModelPreparationCaptureWithoutHostedReporterNegotiation() {
         val context = IssueReportContext.fromFields("STRUCTURED_EVENT", mapOf("diagnostic_area" to "GATEWAY", "model_preparation_action" to "WAKE", "model_preparation_state" to "LOAD_REJECTED", "gateway_upstream_status" to 403), 1_000L)
         val enriched = report.copy(context = context)
@@ -94,6 +209,70 @@ class IssueReportGitHubSubmissionTest {
         assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") {})
         assertEquals(1, requests.size)
         assertEquals(payload, entry.payload)
+    }
+
+    @Test fun newCaptureBoundariesPublishThroughTheNativeRouteWithoutHostedCapabilities() {
+        for (site in listOf(IssueReportIncidentCapsule.ExceptionCaptureSite.PROVIDER_ADAPTER_STREAM_CATCH, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)) {
+            val fields = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", IssueReportIncidentCapsule.boundaryFields(site))
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+            assertTrue("CAPTURE_BOUNDARY_EVIDENCE_V1" in requireNotNull(context.diagnostics).requiredServiceFeatures())
+            val enriched = report.copy(context = context)
+            val payload = enriched.approvedPayload()
+            val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+            val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+            val requests = mutableListOf<Request>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                requests += request
+                assertEquals("POST", request.method)
+                assertEquals("api.github.com", request.url.host)
+                assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                assertTrue(rendered.getValue("body").toString().contains(site.name))
+                response(request, 201, receipt(body = rendered.getValue("body")).toString())
+            }.build()
+            assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") {})
+            assertEquals(1, requests.size)
+            assertEquals(payload, entry.payload)
+        }
+    }
+
+    @Test fun newEvidenceAndOmissionsPublishNativelyWithoutHostedCapabilityNegotiation() {
+        val cases = listOf(
+            "HANDOFF_RECONCILIATION_EVIDENCE_V1" to mapOf("handoff_checkpoint_state" to "TOOL_HANDOFF", "handoff_durable_lookup" to "RETURNED_EMPTY", "handoff_durable_receipt_count" to 0),
+            "CHAT_DELIVERY_EVIDENCE_V1" to mapOf("incident_capture_site" to "CHAT_FLOW_EMPTY_ANSWER", "chat_delivery_terminal" to "DONE", "chat_delivery_answer_state" to "EMPTY_CONTENT", "chat_delivery_content_bytes" to 0, "chat_delivery_counts_capped" to false),
+            "CLAIM_FRESHNESS_EVIDENCE_V1" to mapOf("diagnostic_area" to "ACCEPTANCE", "acceptance_claim_freshness_predicates" to listOf("MUTABLE_EPOCH_MISMATCH")),
+            "CLAIM_FRESHNESS_EVIDENCE_V1" to mapOf("diagnostic_area" to "ACCEPTANCE", "acceptance_claim_freshness_predicates" to emptyList<String>())
+        )
+        for ((feature, evidence) in cases) {
+            val family = when (feature) {
+                "HANDOFF_RECONCILIATION_EVIDENCE_V1" -> IssueReportIncidentCapsule.handoffReconciliationFields
+                "CLAIM_FRESHNESS_EVIDENCE_V1" -> IssueReportIncidentCapsule.claimFreshnessFields
+                else -> IssueReportIncidentCapsule.chatDeliveryFields
+            }
+            val fields = IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "RECONCILIATION_REQUIRED", evidence)
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+            val diagnostic = requireNotNull(context.diagnostics)
+            for (snapshot in listOf(diagnostic, diagnostic.copy(values = diagnostic.values - family - "incident_capture_site", omittedFields = family.sorted()))) {
+                val enriched = report.copy(context = context.withDiagnostics(snapshot))
+                assertTrue(feature in snapshot.requiredServiceFeatures())
+                val payload = enriched.approvedPayload()
+                val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+                val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+                val requests = mutableListOf<Request>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    requests += request
+                    assertEquals("POST", request.method)
+                    assertEquals("api.github.com", request.url.host)
+                    assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                    assertTrue(rendered.getValue("body").toString().contains(evidence.keys.first { it in family }))
+                    response(request, 201, receipt(body = rendered.getValue("body")).toString())
+                }.build()
+                assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") {})
+                assertEquals(1, requests.size)
+                assertEquals(payload, entry.payload)
+            }
+        }
     }
 
     @Test fun explicitApprovalPayloadAndNativeRouteRejectUnknownPrivateDiagnosticFields() {

@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent.provider
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.context.CapacityProvenance
 import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation
@@ -53,5 +54,32 @@ class ProviderRouteCapacityTest {
         assertEquals(4096, configured.contextTokens)
         assertEquals(512, configured.outputTokens)
         assertEquals("exact-model", profile.model)
+    }
+
+    @Test fun planningDecisionRetainsTheConsumedRouteAndTheConfiguredCeilingSeparately() {
+        val decision = ProviderRouteCapacity.primaryContextDecision(profile, TokenBudgetSettings(contextTokens = 8192), readiness, githubMode = true)
+        assertEquals(5632, decision.tokens)
+        assertEquals(8192, decision.configuredTokens)
+        assertEquals(5632, decision.verifiedRouteTokens)
+        assertEquals(null, decision.catalogTokens)
+        assertEquals(CapacityProvenance.VERIFIED_ROUTE, decision.provenance)
+        val configured = ProviderRouteCapacity.primaryContextDecision(profile, TokenBudgetSettings(contextTokens = 4096, profileContextCeilings = mapOf(profile.uid to 2048)), readiness, githubMode = true)
+        assertEquals(2048, configured.tokens)
+        assertEquals(2048, configured.configuredTokens)
+        assertEquals(5632, configured.verifiedRouteTokens)
+        assertEquals(CapacityProvenance.DECLARED, configured.provenance)
+    }
+
+    @Test fun absentOrForeignRouteCapacityRemainsUnobservedInTheDecisionEvidence() {
+        for (observation in listOf(null, readiness.copy(routeVerified = false), readiness.copy(profileUid = "other"), readiness.copy(model = "other"))) {
+            val decision = ProviderRouteCapacity.primaryContextDecision(profile, TokenBudgetSettings(), observation, githubMode = true)
+            assertEquals(32768, decision.tokens)
+            assertEquals(null, decision.configuredTokens)
+            assertEquals(null, decision.verifiedRouteTokens)
+            assertEquals(CapacityProvenance.CONSERVATIVE_POLICY, decision.provenance)
+        }
+        val unknown = ProviderRouteCapacity.primaryContextDecision(profile, TokenBudgetSettings(), null, githubMode = false)
+        assertEquals(Int.MAX_VALUE, unknown.tokens)
+        assertEquals(CapacityProvenance.UNKNOWN, unknown.provenance)
     }
 }

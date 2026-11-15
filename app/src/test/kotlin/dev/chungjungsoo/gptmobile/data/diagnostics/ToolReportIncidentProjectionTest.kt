@@ -2,8 +2,13 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -14,6 +19,49 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolReportIncidentProjectionTest {
+    @Test fun savedIndexPublicAliasRequiresTheExactPersistedCallAndTypedPriorCheckpointReceipt() = runBlocking {
+        val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
+        val tool = RepositoryGraphTool(event.modelToolName) {
+            throw GatewayGraphOperationException(GatewayGraphAdmissionException("GRAPH_INDEX_OUTCOME_UNKNOWN", "private earlier request", "CHECK_SAVED_INDEX"), "private-host", "private name", "CHECK_SAVED_INDEX", true)
+        }
+        val result = tool.execute(event.callId, buildJsonObject { put("action", "index") })
+        assertEquals("RECONCILIATION_REQUIRED", ToolReportDiagnostics.reportCode(event, result))
+        assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", result.errorCode)
+        assertFalse(result.dispatched)
+        val original = requireNotNull(result.executionReceipt)
+        for (wrongEvent in listOf(
+            null,
+            event.copy(callId = "other-call"),
+            event.copy(modelToolName = "repository_graph_other"),
+            event.copy(modelToolName = "github_context"),
+            event.copy(arguments = """{"action":"status"}"""),
+            event.copy(arguments = "{incomplete"),
+            event.copy(arguments = " ".repeat(65_537))
+        )) {
+            assertNull(ToolReportDiagnostics.reportCode(wrongEvent, result))
+        }
+        for (key in listOf("schema", "call_id", "error_code", "phase", "dispatched", "retryable", "index_outcome_unknown", "requires_reconciliation", "repair_action", "recovery_action")) {
+            assertNull(key, ToolReportDiagnostics.reportCode(event, result.copy(executionReceipt = JsonObject(original - key))))
+        }
+        for ((key, value) in listOf(
+            "schema" to JsonPrimitive("github.dispatch.v1"),
+            "call_id" to JsonPrimitive("another-call"),
+            "phase" to JsonPrimitive("OUTCOME_UNKNOWN"),
+            "dispatched" to JsonPrimitive(true),
+            "retryable" to JsonPrimitive(true),
+            "index_outcome_unknown" to JsonPrimitive(false),
+            "requires_reconciliation" to JsonPrimitive(false),
+            "repair_action" to JsonPrimitive("RESTORE_SELECTED_GITHUB_CONNECTION")
+        )) {
+            assertNull(key, ToolReportDiagnostics.reportCode(event, result.copy(executionReceipt = JsonObject(original + (key to value)))))
+        }
+        assertNull(ToolReportDiagnostics.reportCode(event, result.copy(dispatched = true)))
+        assertNull(ToolReportDiagnostics.reportCode(event, result.copy(isError = false)))
+        assertEquals("REPOSITORY_GRAPH_UNAVAILABLE", ToolReportDiagnostics.reportCode(event, result.copy(errorCode = "REPOSITORY_GRAPH_UNAVAILABLE")))
+        assertNull(ToolReportDiagnostics.reportCode(event, result.copy(executionReceipt = null, content = ToolResultContent.Text("GRAPH_INDEX_OUTCOME_UNKNOWN CHECK_SAVED_INDEX requires_reconciliation=true"))))
+        assertEquals(original, result.executionReceipt)
+    }
+
     @Test fun transportAndSavedCursorRejectionsKeepTypedReasonsWithoutArgumentValues() {
         val event = event("""{"action":"status","per_page":101,"view_cursor":"private-cursor"}""").copy(modelToolName = "github_context")
         val result = AgentToolResult(

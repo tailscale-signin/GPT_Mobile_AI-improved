@@ -71,6 +71,35 @@ class ConversationProgressPresentationTest {
         compose.onNodeWithContentDescription("Gateway · read", useUnmergedTree = true).assertExists()
     }
 
+    @Test fun gatewayTabShowsChatModeInsideTheBubbleWhileOtherDestinationsKeepTheCloud() {
+        val room = ChatRoomV2(id = 1, title = "GitHub task")
+        var inGatewayTab by mutableStateOf(true)
+        compose.setContent {
+            MaterialTheme {
+                ChatListItem(
+                    room,
+                    0,
+                    HomeViewModel.ChatListState(chats = listOf(room)),
+                    false,
+                    true,
+                    "Selected gateway",
+                    emptyList(),
+                    isGateway = true,
+                    isGitHub = true,
+                    onItemClick = {},
+                    onItemLongClick = {},
+                    animateStatus = false,
+                    showGatewayMode = inGatewayTab
+                )
+            }
+        }
+        compose.onNodeWithContentDescription("Gateway · GitHub Chat · unread reply", useUnmergedTree = true).assertExists()
+        compose.onNodeWithContentDescription("Gateway · unread reply", useUnmergedTree = true).assertDoesNotExist()
+        compose.runOnIdle { inGatewayTab = false }
+        compose.onNodeWithContentDescription("Gateway · GitHub Chat · unread reply", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithContentDescription("Gateway · unread reply", useUnmergedTree = true).assertExists()
+    }
+
     @Test fun progressUsesTheTextColumnAndAcknowledgementUpdatesTheResearchIcon() {
         val room = ChatRoomV2(id = 1, title = "Conversation", isFavorite = true)
         val published = CompletedGeneration("reply", 1, 11, 100, revision = 1, contentDigest = "digest")

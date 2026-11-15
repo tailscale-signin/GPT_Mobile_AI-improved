@@ -171,14 +171,14 @@ class RuntimeTests(unittest.TestCase):
 
     def test_actual_capabilities_ready_and_facade(self):
         cap=self.client.get('/v1/gateway/capabilities').json()
-        fixture=json.loads((Path(__file__).resolve().parents[1]/'contracts/v16/capabilities.json').read_text(encoding="utf-8"))
+        fixture=json.loads((Path(__file__).resolve().parents[1]/'contracts/v17/capabilities.json').read_text(encoding="utf-8"))
         for key,value in fixture.items():
             if key == "features":
                 for feature, supported in value.items(): self.assertEqual(cap["features"].get(feature), supported)
             else:
                 self.assertEqual(cap[key],value)
         self.assertFalse(cap['auth']['apiKeyRequired'])
-        self.assertEqual(cap['gatewayVersion'],'16.0.0')
+        self.assertEqual(cap['gatewayVersion'],'17.0.0')
         self.assertEqual(cap['memory']['authority'],'client')
         self.assertFalse(cap['features']['mcpFacade'])
         self.assertEqual(cap['contracts']['toolArguments'], ['gptmobile.tool-arguments.v1'])
@@ -241,7 +241,7 @@ class RuntimeTests(unittest.TestCase):
 
     def test_distribution_detects_missing_companion(self):
         root=Path(__file__).resolve().parents[1]
-        self.assertEqual(validate_package(root)['version'],'16.0.0')
+        self.assertEqual(validate_package(root)['version'],'17.0.0')
         with tempfile.TemporaryDirectory() as target:
             # A running package owns a byte-range lock on Windows. Distribution
             # validation copies only immutable manifest files, never live state.

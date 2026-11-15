@@ -28,6 +28,7 @@ internal object GitHubSelfTestReads {
                 !retiredRead(it)
         }
         GitHubPolicyReadRecovery.next(tools, observations)?.let { ready += it }
+        ready += GitHubSelfTestGraph.available(tools, observations)
         // Old receipts may retain a count and only the first inventory row. Reacquire
         // their exact read once under today's authorization; never synthesize the lost rows.
         observations.forEachIndexed { index, receipt ->
@@ -64,17 +65,7 @@ internal object GitHubSelfTestReads {
         // for ordinary inspection must not hide a different observed failed run.
         val failedRun = currentRuns.firstOrNull { it.text("status") == "completed" && it.text("conclusion") in setOf("failure", "timed_out") }
         val job = workflowJobs.job
-        val needsJobDependency = tools.any { tool ->
-            if (!tool.modelVisible || tool.name.substringBefore("__") != "github_ci") return@any false
-            val action = (tool.inputSchema["properties"] as? JsonObject)?.get("action") as? JsonObject
-            val actions = (action?.get("enum") as? JsonArray).orEmpty() + listOfNotNull(action?.get("const"))
-            actions.any action@{ value ->
-                val name = (value as? JsonPrimitive)?.contentOrNull
-                if (name !in setOf("job", "logs")) return@action false
-                val prior = observations.filter { it.text("tool") == tool.name && (it["arguments"] as? JsonObject)?.text("action") == name }
-                prior.isEmpty() || name == "logs" && prior.size == 1 && prior.single().text("error_code") == "GITHUB_NOT_FOUND_OR_HIDDEN"
-            }
-        }
+        val needsJobDependency = GitHubSelfTestWorkflowJobs.needsJobDependency(tools, observations)
         val jobsRun = if (needsJobDependency) workflowJobs.nextRun else run
         val pr = records("github_pr", "list", "pull_requests", "items").firstOrNull()
             ?: listOf("headers", "context").firstNotNullOfOrNull { action ->
@@ -206,10 +197,15 @@ internal object GitHubSelfTestReads {
     private fun priority(call: ProviderEvent.ToolCall): Int = when {
         call.callId.startsWith("policy-read-") -> 0
         call.callId.startsWith("inventory-source-") -> 0
+        call.callId.startsWith("graph-reconciliation-") -> 0
         call.name.substringBefore("__") == "github_issue" && call.arguments.text("action") == "list" -> 1
         call.name.substringBefore("__") == "github_release" && call.arguments.text("action") in setOf("tags", "list") -> 1
         call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "jobs" -> 1
         call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "definitions" -> 3
+        // Building a large repository graph can require hundreds of batches.
+        // Qualify independent reads first so every new cursor cannot monopolize
+        // the shared acceptance budget. Failed batches still reconcile first.
+        call.name.substringBefore("__") == "repository_graph" && call.arguments.text("action") == "index" -> 4
         else -> 2
     }
 

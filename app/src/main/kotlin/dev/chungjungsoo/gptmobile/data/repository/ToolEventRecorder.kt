@@ -185,7 +185,7 @@ class ToolEventRecorder @Inject constructor(
                 if (withheldRead) {
                     "BUDGET_RESTRICTED"
                 } else {
-                    dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportCodes.toolResult(normalizedResult.errorCode)
+                    captureIssueReport { ToolReportDiagnostics.reportCode(startedEvent, normalizedResult) }
                 }
                 ).takeUnless { healthEvent },
             reportFields = if (healthEvent || !normalizedResult.isError && !withheldRead) {

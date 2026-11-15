@@ -54,5 +54,18 @@ class RepositoryGraphPresentationTest {
         assertTrue(graph.relationships("unknown").isEmpty())
     }
 
+    @Test fun neighborhoodKeepsRealNeighborsTogetherAndReportsOffDiagramConnections() {
+        val graph = repositoryGraphPresentation(json("""{"nodes":[{"id":"center"},{"id":"unrelated"},{"id":"caller"},{"id":"callee"}],"edges":[{"source":"caller","target":"center","relation":"calls"},{"source":"center","target":"callee","relation":"calls"}]}"""))
+        val small = graph.neighborhood("center", 2)
+        assertEquals(listOf("center", "caller"), small.nodes.map { it.graphText("id") })
+        assertEquals(1, small.edges.size)
+        assertEquals(1, small.externalConnections)
+        assertEquals(2, small.omittedNodes)
+        val neighborhood = graph.neighborhood("center", 3)
+        assertEquals(setOf("center", "caller", "callee"), neighborhood.nodes.map { it.graphText("id") }.toSet())
+        assertEquals(2, neighborhood.edges.size)
+        assertEquals(0, neighborhood.externalConnections)
+    }
+
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject
 }

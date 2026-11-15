@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.GitHubTaskRecovery
+import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.context.TextTokenEstimate
@@ -425,6 +426,39 @@ class GitHubVerifiedSessionTest {
         assertEquals(JsonPrimitive(false), failure.failureDetails?.get("requires_reconciliation"))
     }
 
+    @Test fun failedCompatibilityWithoutRepositoryReceiptsPublishesOneTerminalExplanation() = runTest {
+        for (outcome in listOf(null, "BLOCKED", "PARTIAL")) {
+            var providerRounds = 0
+            val failure = ProviderEvent.Failed(
+                "The bounded answer repair exhausted its allowance.",
+                errorCode = "COMPLETION_REPAIR_BUDGET_EXHAUSTED",
+                invocationId = "preflight-final",
+                taskOutcome = outcome,
+                failureDetails = buildJsonObject {
+                    put("review_stage", "review_compatibility")
+                    put("repository_operations_started", false)
+                    put("request_replay_allowed", false)
+                }
+            )
+            val provider = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                    providerRounds++
+                    emit(failure)
+                }
+            }
+            val gate = GitHubVerifiedSession(provider, GitHubEvidenceBook("b", "o/r", "main", emptySet()), "Explain repository findings", { 8192 }, { error("Failed compatibility must not open extraction") }, {}, {})
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, emptyList()).toList()
+                .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+            assertEquals(1, providerRounds)
+            val visible = events.filterIsInstance<ProviderEvent.TextDelta>().single()
+            assertEquals(OutputOrigin.SYSTEM_ERROR, visible.lineage.origin)
+            assertEquals("preflight-final", visible.lineage.invocationId)
+            assertTrue(visible.text.contains("The answer review could not finish"))
+            assertEquals(failure, events.filterIsInstance<ProviderEvent.Failed>().single())
+            assertFalse(events.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+        }
+    }
+
     @Test fun typedReviewFailuresDeliverReceiptFactsWithoutReopeningExtractionOrPublishingTheCandidate() = runBlocking {
         for (code in listOf("COMPLETION_REPAIR_BUDGET_EXHAUSTED", "CONTEXT_CAPACITY_EXCEEDED")) {
             val stored = linkedMapOf<String, JsonObject>()
@@ -444,6 +478,7 @@ class GitHubVerifiedSessionTest {
                 errorCode = code,
                 invocationId = "reviewer",
                 transportComplete = true,
+                taskOutcome = if (code == "CONTEXT_CAPACITY_EXCEEDED") "BLOCKED" else "PARTIAL",
                 failureDetails = buildJsonObject {
                     put("failed_stage", if (code == "CONTEXT_CAPACITY_EXCEEDED") "provider_admission" else "provider_generation")
                     put("review_stage", "answer_review")
@@ -460,7 +495,8 @@ class GitHubVerifiedSessionTest {
                 provider, book, task, { 8192 }, { error("Failed review must not dispatch claim extraction") }, {}, {}, now = { 1000L },
                 privateReviewCandidate = { candidate }, onPublication = { report = it }, openExecutionContinuation = { error("No tool or generation replay after failed review") }
             )
-            val events = gate.streamRound(emptyList(), emptyList()).toList()
+            val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, emptyList()).toList()
+                .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
             val text = events.filterIsInstance<ProviderEvent.TextDelta>().single()
             assertEquals(OutputOrigin.APPLICATION_REPORT, text.lineage.origin)
             assertTrue(text.text.contains(sha))
@@ -498,7 +534,8 @@ class GitHubVerifiedSessionTest {
             override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(failure)
         }
         val gate = GitHubVerifiedSession(provider, book, "Inspect repository findings and explain the evidence.", { 8192 }, { error("No verification generation while outcome is unknown") }, {}, {}, now = { 1000L })
-        val events = gate.streamRound(emptyList(), emptyList()).toList()
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(gate, emptyList()).toList()
+            .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         assertTrue(events.any { it is ProviderEvent.TextDelta })
         assertTrue(events.none { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
         val terminal = events.last() as ProviderEvent.Failed
@@ -566,8 +603,12 @@ class GitHubVerifiedSessionTest {
         book.observe(call, AgentToolResult("read", ToolResultContent.Text("""{"checks":3}"""), false))
         val id = book.snapshot().first.keys.single()
         val failure = ProviderEvent.Failed("Reviewer returned invalid JSON", errorCode = "GITHUB_REVIEW_INVALID_VERDICT")
+        var providerRounds = 0
         val source = object : AgentProviderSession {
-            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(failure)
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                providerRounds++
+                emit(failure)
+            }
         }
         var extractions = 0
         val session = GitHubVerifiedSession(
@@ -577,17 +618,38 @@ class GitHubVerifiedSessionTest {
                 answer("""{"claims":[{"kind":"fact","receipt_id":"$id","pointer":"/checks","value":3}]}""")
             }, {}, {}, now = { 1000L }, privateReviewCandidate = { "UNVERIFIED: everything is fixed" }
         )
-        val events = session.streamRound(emptyList(), emptyList()).toList()
+        val events = AgentRunner(AgentRunLimits(githubTask = true)).run(session, emptyList()).toList()
+            .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
         val text = events.filterIsInstance<ProviderEvent.TextDelta>().single().text
         assertTrue(text.contains("3"))
         assertFalse(text.contains("everything is fixed"))
         assertEquals(0, extractions)
-        assertEquals("PARTIAL", (events.last() as ProviderEvent.Failed).taskOutcome)
-        val noEvidence = GitHubVerifiedSession(source, GitHubEvidenceBook("empty", "o/r", "main", emptySet()), "Explain", { 8192 }, { error("No receipts") }, {}, {})
-        val noEvidenceEvents = noEvidence.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(1, providerRounds)
+        val retainedFailure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("PARTIAL", retainedFailure.taskOutcome)
+        assertEquals(failure.errorCode, retainedFailure.errorCode)
+        assertEquals(retainedFailure, events.last())
+        assertFalse(events.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+        val noEvidence = GitHubVerifiedSession(
+            source,
+            GitHubEvidenceBook("empty", "o/r", "main", emptySet()),
+            "Explain",
+            { 8192 },
+            { error("No receipts") },
+            {},
+            {},
+            privateReviewCandidate = { "UNVERIFIED: everything is fixed" }
+        )
+        val noEvidenceEvents = AgentRunner(AgentRunLimits(githubTask = true)).run(noEvidence, emptyList()).toList()
+            .filterIsInstance<AgentRunEvent.Provider>().map { it.event }
+        assertEquals(2, providerRounds)
+        assertEquals(0, extractions)
+        assertEquals(failure, noEvidenceEvents.filterIsInstance<ProviderEvent.Failed>().single())
         assertEquals(failure, noEvidenceEvents.last())
-        assertTrue(noEvidenceEvents.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("draft remains unverified"))
-        assertTrue(noEvidenceEvents.none { it == ProviderEvent.Completed })
+        val unverifiedText = noEvidenceEvents.filterIsInstance<ProviderEvent.TextDelta>().single().text
+        assertTrue(unverifiedText.contains("draft remains unverified"))
+        assertFalse(unverifiedText.contains("everything is fixed"))
+        assertFalse(noEvidenceEvents.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
     }
 
     @Test fun assistantFailureQuestionUsesOnlyHistoricalDiagnostics() = runBlocking {
@@ -693,6 +755,142 @@ class GitHubVerifiedSessionTest {
         assertTrue(book.snapshot().first.isEmpty())
         assertTrue(visible.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Recorded tool receipts: 0; dispatched tool calls: 0"))
         assertFalse(visible.any { it is ProviderEvent.Completed || it is ProviderEvent.ToolCall })
+    }
+
+    @Test fun compactAuthorizedGraphSchemaIsDiscoveredBeforeStatusAndIndexPreparation() = runBlocking {
+        for (name in listOf("repository_graph", "repository_graph__selected")) {
+            val fixture = GraphDiscoveryFixture(name)
+            val compact = fixture.observeInventoryAndRepository()
+            assertFalse(compact.any { it.name == name })
+            val discovery = fixture.session.streamRound(compact, emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>().single()
+            assertEquals(fixture.catalog.definition.name, discovery.name)
+            assertEquals(buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(name)))) }, discovery.arguments)
+
+            val acquired = fixture.catalog.execute(discovery.callId, discovery.arguments)
+            assertFalse(acquired.isError)
+            val exposed = fixture.catalog.selected(fixture.authorized)
+            assertTrue(exposed.any { it.name == name })
+            val status = fixture.session.streamRound(exposed, listOf(AgentToolExchange(listOf(discovery), listOf(acquired))))
+                .toList().filterIsInstance<ProviderEvent.ToolCall>().single()
+            assertEquals(name, status.name)
+            assertEquals(buildJsonObject { put("action", "status") }, status.arguments)
+
+            val observation = AgentToolResult(
+                status.callId,
+                ToolResultContent.Json(
+                    buildJsonObject {
+                        put("status", "NOT_INDEXED")
+                        put(
+                            "graph",
+                            buildJsonObject {
+                                put("repository", "owner/repo")
+                                put("branch", "main")
+                                put("commit_sha", fixture.sha)
+                            }
+                        )
+                    }
+                ),
+                false
+            )
+            val index = fixture.session.streamRound(exposed, listOf(AgentToolExchange(listOf(status), listOf(observation))))
+                .toList().filterIsInstance<ProviderEvent.ToolCall>().single()
+            assertEquals(name, index.name)
+            assertEquals(buildJsonObject { put("action", "index") }, index.arguments)
+            val retainedStatus = fixture.book.snapshot().first.values.single { it["tool"] == JsonPrimitive(name) }
+            assertEquals(JsonPrimitive("task"), retainedStatus["binding"])
+            assertEquals(JsonPrimitive("owner/repo"), retainedStatus["repository"])
+            assertEquals(JsonPrimitive(fixture.sha), retainedStatus.getValue("result").jsonObject.getValue("graph").jsonObject["commit_sha"])
+            val approval = fixture.book.fixtureApprovalPreflight()
+            assertEquals(JsonPrimitive("ASK"), approval["decision_mode"])
+            assertEquals(JsonPrimitive("CONDITIONAL"), approval["state"])
+            assertEquals(JsonPrimitive(false), approval["mutation_dispatched"])
+        }
+    }
+
+    @Test fun graphDiscoveryDoesNotInventAuthorizationOrMatchOtherGraphPrefixes() = runBlocking {
+        val fixture = GraphDiscoveryFixture(authorizeGraph = false)
+        val compact = fixture.observeInventoryAndRepository()
+        assertFalse(fixture.authorized.any { it.name.substringBefore("__") == "repository_graph" })
+        assertTrue(fixture.authorized.any { it.name == "repository_graph_export__selected" })
+        val events = fixture.session.streamRound(compact, emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertTrue(fixture.book.snapshot().first.values.none { it["tool"] == JsonPrimitive(fixture.graph.name) })
+    }
+
+    @Test fun graphDiscoveryIsNotRepeatedWhenItsSchemaRemainsOutsideTheRound() = runBlocking {
+        val fixture = GraphDiscoveryFixture()
+        val compact = fixture.observeInventoryAndRepository()
+        val discovery = fixture.session.streamRound(compact, emptyList()).toList().filterIsInstance<ProviderEvent.ToolCall>().single()
+        val acquired = fixture.catalog.execute(discovery.callId, discovery.arguments)
+        val events = fixture.session.streamRound(compact, listOf(AgentToolExchange(listOf(discovery), listOf(acquired)))).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertEquals(
+            1,
+            fixture.book.snapshot().first.values.count {
+                it["tool"] == JsonPrimitive(discovery.name) && it["arguments"] == discovery.arguments
+            }
+        )
+    }
+
+    @Test fun graphDiscoveryPreservesTheVerificationCallReserve() = runBlocking {
+        val fixture = GraphDiscoveryFixture(remaining = GitHubChecklistBudget.VERIFICATION_RESERVE)
+        val compact = fixture.observeInventoryAndRepository()
+        val events = fixture.session.streamRound(compact, emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall })
+        assertEquals(2, fixture.book.snapshot().first.size)
+    }
+
+    private class GraphDiscoveryFixture(
+        graphName: String = "repository_graph__selected",
+        authorizeGraph: Boolean = true,
+        remaining: Int = 192
+    ) {
+        val sha = "a".repeat(40)
+        private val task = "Test GitHub tools and report."
+        private fun definition(name: String, vararg actions: String) = AgentToolDefinition(
+            name,
+            "Bound repository operation",
+            buildJsonObject {
+                put("type", "object")
+                put("required", JsonArray(listOf(JsonPrimitive("action"))))
+                put("additionalProperties", false)
+                put("properties", buildJsonObject { put("action", buildJsonObject { put("enum", JsonArray(actions.map(::JsonPrimitive))) }) })
+            }
+        )
+        private val context = definition("github_context__selected", "status")
+        val graph = definition(graphName, "status", "index")
+        private val definitions = listOf(context, definition("repository_graph_export__selected", "status")) + if (authorizeGraph) listOf(graph) else emptyList()
+        val catalog = ProgressiveToolCatalog(definitions, task, initialNames = setOf(context.name), githubMode = true)
+        val authorized = definitions + catalog.definition
+        val book = GitHubEvidenceBook("task", "owner/repo", "main", authorized.map { it.name }.toSet(), now = { 1000L }, fixtureDecisionMode = GitHubDecisionMode.ASK)
+        val session = GitHubVerifiedSession(
+            object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = error("Graph preparation uses existing authorized recipes")
+            },
+            book, task, { 8192 }, { error("No verifier is needed to prepare the graph") }, {}, {}, now = { 1000L },
+            authorizedTools = authorized, remainingToolCalls = { remaining }
+        )
+
+        suspend fun observeInventoryAndRepository(): List<AgentToolDefinition> {
+            val inventory = ProviderEvent.ToolCall("inventory", catalog.definition.name, JsonObject(emptyMap()))
+            book.observe(inventory, catalog.execute(inventory.callId, inventory.arguments))
+            val status = ProviderEvent.ToolCall("repository-status", context.name, buildJsonObject { put("action", "status") })
+            book.observe(
+                status,
+                AgentToolResult(
+                    status.callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("branch", "main")
+                            put("commit_sha", sha)
+                        }
+                    ),
+                    false
+                )
+            )
+            assertEquals(JsonPrimitive(true), GitHubAuthorizedCatalog.snapshot(book.snapshot().first, authorized)["complete"])
+            return catalog.selected(authorized)
+        }
     }
 
     @Test fun providerDenialRetainsPendingAcceptanceWithoutClaimingPartialVerification() = runTest {

@@ -22,4 +22,8 @@ class ChatRepositoryResearchIncidentTest {
     @Test fun genericPreparationExceptionRetainsEvidenceThroughCollector() {
         fixture.genericPreparationExceptionRetainsEvidenceThroughCollector()
     }
+
+    @Test fun missingRecoverySourceRetainsBoundaryEvidenceThroughCollector() {
+        fixture.missingRecoverySourceRetainsBoundaryEvidenceThroughCollector()
+    }
 }

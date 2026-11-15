@@ -95,7 +95,20 @@ class StagedChatDebugExportTest {
             }
             DiagnosticLogSnapshot(sources, 123, true, 0, snapshotDirectory = directory)
         }
-        coEvery { database.capture(any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
+        coEvery { database.latestFailureSummary(any(), any(), any(), any(), any(), any()) } coAnswers {
+            arg<suspend () -> Unit>(4)()
+            buildJsonObject { put("kind", "compact_failure_summary") }
+        }
+        coEvery { database.latestPolicyReferences(any(), any()) } coAnswers {
+            arg<suspend () -> Unit>(1)()
+            buildJsonObject {
+                put("kind", "accepted_policy_workspace_references")
+                put("availability", "NO_RETAINED_WORKSPACE_POLICY_REFERENCES")
+                put("references", JsonArray(emptyList()))
+                put("referencesTruncated", false)
+            }
+        }
+        coEvery { database.capture(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()) } coAnswers {
             val consume = arg<suspend (JsonObject) -> Unit>(4)
             val omitted = arg<(String) -> Unit>(5)
             // The real database producer projects each bounded row before passing it to the adapter.
@@ -118,7 +131,6 @@ class StagedChatDebugExportTest {
             )
             IssueReportCorrelationIndex(indexFile).retain(report)
             coEvery { IssueReportIncidents.correlationSnapshot() } coAnswers { IssueReportCorrelationIndex(indexFile).snapshot() }
-            coEvery { database.latestFailureSummary(any(), any(), any(), any(), any(), any()) } returns buildJsonObject { put("kind", "compact_failure_summary") }
             every { AppLogRecorder.captureForExport(any(), any()) } returns DiagnosticLogSnapshot(emptyList(), 123, false, 0, omissionReason = "APPLICATION_LOG_RECORDING_DISABLED")
             val files = archive(capture())
             val latest = files.getValue("latest-state.jsonl")
@@ -135,7 +147,6 @@ class StagedChatDebugExportTest {
     }
 
     @Test fun unavailableReportCorrelationDoesNotDiscardOtherLatestStateEvidence() = runBlocking {
-        coEvery { database.latestFailureSummary(any(), any(), any(), any(), any(), any()) } returns buildJsonObject { put("kind", "compact_failure_summary") }
         coEvery { IssueReportIncidents.correlationSnapshot() } throws IOException("private local path")
         readSection = { section, before, consume ->
             before()
@@ -172,6 +183,8 @@ class StagedChatDebugExportTest {
         assertTrue(files.getValue("tool-receipts.jsonl").contains("GITHUB_TRANSIENT_NETWORK"))
         assertTrue(files.getValue("profiles.jsonl").contains("Profile"))
         assertEquals(JsonPrimitive("FAILED"), stage(result, "conversation")["status"])
+        assertEquals(JsonPrimitive("PARTIAL"), stage(result, "tool_catalog")["status"])
+        assertTrue(files.getValue("tool-catalog.jsonl").contains("NO_RETAINED_WORKSPACE_POLICY_REFERENCES"))
         assertFalse(files.values.any { "private-secret" in it || "sensitive-error-message" in it })
         assertTrue(result.retryRecommended)
     }

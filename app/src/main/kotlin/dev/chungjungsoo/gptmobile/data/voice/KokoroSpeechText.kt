@@ -3,9 +3,24 @@ package dev.chungjungsoo.gptmobile.data.voice
 import java.text.Normalizer
 import java.util.Locale
 
-/** Sherpa's lexicon drops unknown words. Admit only known words or their spelled-out letters. */
+internal enum class KokoroPronunciationFailure { UNSUPPORTED_SCRIPT, UNKNOWN_WORD, MISSING_LETTER }
+
+/** Contains counts and finite reasons only; never retains words, phonemes, or the source response. */
+internal data class KokoroPronunciationObservation(
+    val knownWords: Int,
+    val initialisms: Int,
+    val unknownWords: Int,
+    val spelledLetters: Int,
+    val removedFormatCharacters: Int,
+    val failure: KokoroPronunciationFailure?
+)
+
+internal data class KokoroSpeechProjection(val parts: List<String>?, val observation: KokoroPronunciationObservation)
+
+/** Sherpa's lexicon drops unknown words. Spell explicit initialisms, never an ordinary missing word. */
 internal object KokoroSpeechText {
     private val marks = Regex("""\p{M}+""")
+    private val invisibleFormat = Regex("[\u00AD\u200B\u200C\u200D\u2060\uFEFF]")
     private val token = Regex("""[vV][0-9]+(?:\.[0-9]+)+|[+\-]?(?:[0-9]{1,3}(?:,[0-9]{3})+|[0-9]+)(?:\.[0-9]+)*|[a-zA-Z]+(?:'[a-zA-Z]+)*|[.,!?;:\n%&#@/+]""")
     private val camelBoundary = Regex("""(?<=[a-z])(?=[A-Z])|(?<=[A-Z])(?=[A-Z][a-z])""")
     private val initialisms = setOf("AI", "API", "APK", "AAR", "CI", "CPU", "GPU", "HTML", "HTTP", "HTTPS", "LLM", "MCP", "PR", "RAM", "SDK", "SHA", "SQL", "SSH", "TTS", "UI", "URL", "UX", "XML")
@@ -17,23 +32,34 @@ internal object KokoroSpeechText {
     private const val MAX_PART_CHARS = 128
     private const val MAX_PART_WORDS = 16
 
-    /** A null result asks the caller to use the installed Android voice for this input. */
-    fun parts(input: String, isKnown: (String) -> Boolean): List<String>? = parts(input, project = true, isKnown)
+    /** A null result requires a visible pronunciation failure, never silent engine fallback or omission. */
+    fun parts(input: String, isKnown: (String) -> Boolean): List<String>? = project(input, markdown = true, isKnown).parts
 
     /** Stream chunks already contain readable speech; their start is not a new Markdown document. */
-    fun projectedParts(input: String, isKnown: (String) -> Boolean): List<String>? = parts(input, project = false, isKnown)
+    fun projectedParts(input: String, isKnown: (String) -> Boolean): List<String>? = projected(input, isKnown).parts
 
-    private fun parts(input: String, project: Boolean, isKnown: (String) -> Boolean): List<String>? {
+    fun projected(input: String, isKnown: (String) -> Boolean): KokoroSpeechProjection = project(input, markdown = false, isKnown)
+
+    private fun project(input: String, markdown: Boolean, isKnown: (String) -> Boolean): KokoroSpeechProjection {
         val clipped = if (input.length <= MAX_INPUT) {
             input
         } else {
             val end = if (input[MAX_INPUT - 1].isHighSurrogate()) MAX_INPUT - 1 else MAX_INPUT
             input.substring(0, end)
         }
-        val projected = (if (project) VoiceSpeechText.project(input) else clipped) + if (input.length > MAX_INPUT) " The rest of this response is available in the chat." else ""
-        val plain = Normalizer.normalize(projected, Normalizer.Form.NFKD)
+        val projected = (if (markdown) VoiceSpeechText.project(input) else clipped) + if (input.length > MAX_INPUT) " The rest of this response is available in the chat." else ""
+        val formatCharacters = invisibleFormat.findAll(projected).count()
+        val plain = Normalizer.normalize(projected.replace(invisibleFormat, ""), Normalizer.Form.NFKD)
             .replace(marks, "").replace('’', '\'').replace('−', '-')
-        if (plain.codePoints().anyMatch { it > 127 && Character.isLetterOrDigit(it) }) return null
+        var knownWords = 0
+        var initialismWords = 0
+        var unknownWords = 0
+        var spelledLetters = 0
+        fun outcome(parts: List<String>?, failure: KokoroPronunciationFailure? = null) = KokoroSpeechProjection(
+            parts,
+            KokoroPronunciationObservation(knownWords, initialismWords, unknownWords, spelledLetters, formatCharacters, failure)
+        )
+        if (plain.codePoints().anyMatch { it > 127 && Character.isLetterOrDigit(it) }) return outcome(null, KokoroPronunciationFailure.UNSUPPORTED_SCRIPT)
         val result = mutableListOf<String>()
         val part = StringBuilder()
         var words = 0
@@ -69,23 +95,30 @@ internal object KokoroSpeechText {
                 val lower = word.lowercase(Locale.ROOT)
                 if (word !in initialisms && isKnown(lower)) {
                     appendWord(lower)
+                    knownWords++
                 } else {
                     for (segment in word.split(camelBoundary)) {
                         val key = segment.lowercase(Locale.ROOT)
                         if (segment !in initialisms && segment != word && isKnown(key)) {
                             appendWord(key)
-                        } else {
+                            knownWords++
+                        } else if (segment in initialisms) {
+                            initialismWords++
                             for (letter in key.filter(Char::isLetter)) {
-                                if (!isKnown(letter.toString())) return null
+                                if (!isKnown(letter.toString())) return outcome(null, KokoroPronunciationFailure.MISSING_LETTER)
                                 appendWord(letter.toString())
+                                spelledLetters++
                             }
+                        } else {
+                            unknownWords++
+                            return outcome(null, KokoroPronunciationFailure.UNKNOWN_WORD)
                         }
                     }
                 }
             }
         }
         flush()
-        return result
+        return outcome(result)
     }
 
     private fun spokenNumber(value: String): String {

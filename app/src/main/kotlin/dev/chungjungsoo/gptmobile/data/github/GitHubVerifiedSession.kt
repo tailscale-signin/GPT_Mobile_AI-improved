@@ -238,7 +238,11 @@ internal class GitHubVerifiedSession(
                 Triple(
                     GitHubTestChecklist.checkpoint(task, receipts, authorizedTools, planningRemaining, fixturePreflight, planningBudget),
                     GitHubTestChecklist.nextCall(task, tools, receipts, planningRemaining, fixturePreflight),
-                    authorizedTools.filter { definition -> definition.name.startsWith("github_") && tools.none { it.name == definition.name } && receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) } }.take(12)
+                    authorizedTools.filter { definition ->
+                        (definition.name.startsWith("github_") || definition.name.substringBefore("__") == "repository_graph") &&
+                            tools.none { it.name == definition.name } &&
+                            receipts.values.none { it["tool"] == kotlinx.serialization.json.JsonPrimitive(definition.name) }
+                    }.take(12)
                 )
             }
             val discovery = tools.firstOrNull { it.name == "discover_available_tools" }
@@ -422,13 +426,9 @@ internal class GitHubVerifiedSession(
         if (failed || !completed) {
             // The runner owns retries and protocol repair. Do not turn a transient
             // failure into completion before that policy has had a chance to run.
-            if (!calls && providerFailure?.let(::reviewOriginFailure) == true) {
-                // A review failure retains its provider code. Publish directly
-                // verified receipt observations without spending another model
-                // request extracting claims from the still-private candidate.
-                emitAll(retainedFailureResponse(requireNotNull(providerFailure)))
-                return
-            }
+            // Failure prose is published by retainedFailureResponse after the
+            // runner's recovery decision. Publishing it here as well duplicates
+            // the same terminal report when that failure reaches the runner.
             emit(providerFailure ?: ProviderEvent.Failed("GitHub response ended before verification. Receipts remain available.", errorCode = "GITHUB_EVIDENCE_REQUIRED"))
             return
         }

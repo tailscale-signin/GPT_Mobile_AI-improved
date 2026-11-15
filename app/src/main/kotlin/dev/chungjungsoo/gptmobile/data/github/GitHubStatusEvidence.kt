@@ -215,35 +215,25 @@ internal object GitHubStatusEvidence {
         val policyKnown = (latestPolicy?.get("policy") as? JsonObject)?.let {
             it["required_checks_complete"] == JsonPrimitive(true) && it.text("required_checks_state") in setOf("VERIFIED_NONE", "VERIFIED_PRESENT")
         } == true
-        fun sourceState(key: String, expectsArray: Boolean): String {
-            val observation = latestPolicy?.get(key) as? JsonObject ?: return "UNOBSERVED"
-            val status = observation.integer("http_status")
-            if (observation["available"] == JsonPrimitive(true)) {
-                val data = observation["data"]
-                val valid = if (expectsArray) {
-                    (data as? JsonArray)?.all { it is JsonObject && it.text("type").isNotBlank() } == true
-                } else {
-                    data is JsonObject
-                }
-                return if (valid) "OBSERVED" else "INVALID_RESPONSE"
-            }
-            return when (status) {
-                401, 403 -> "ACCESS_DENIED"
-                404 -> "NOT_FOUND_OR_INACCESSIBLE"
-                429 -> "RATE_LIMITED"
-                null -> "UNAVAILABLE"
-                else -> "HTTP_FAILURE"
-            }
+        val policyEvidence = GitHubStatusPolicyEvidence.snapshot(latestPolicy)
+        val protectionState = policyEvidence.text("branch_protection_observation")
+        val rulesState = policyEvidence.text("branch_rules_observation")
+        fun sourceStatus(key: String) = (latestPolicy?.get(key) as? JsonObject)?.integer("http_status")?.takeIf { it in 100..599 }
+        fun sourceDescription(key: String, state: String) = state.lowercase().replace('_', ' ') + (sourceStatus(key)?.let { " (HTTP $it)" } ?: "")
+        val observedChecks = ((latestPolicy?.get("policy") as? JsonObject)?.get("observed_required_checks") as? JsonArray).orEmpty()
+            .mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.contentOrNull?.takeIf(String::isNotBlank) }.distinct()
+        val policySummary = if (!policyKnown && (protectionState == "OBSERVED" || rulesState == "OBSERVED")) {
+            "Partial required-check policy: ${observedChecks.size} required check name(s) captured from the available policy source. The unavailable source can add requirements; this does not establish the complete policy or merge readiness."
+        } else {
+            ""
         }
-        val protectionState = sourceState("protection", expectsArray = false)
-        val rulesState = sourceState("rules", expectsArray = true)
         val recovery = if (!policyKnown) {
             buildString {
-                append("Required-check policy is unknown. Branch protection: ${protectionState.lowercase().replace('_', ' ')}. ")
-                append("Applicable rules: ${rulesState.lowercase().replace('_', ' ')}. ")
+                append("Required-check policy is unknown. Branch protection: ${sourceDescription("protection", protectionState)}. ")
+                append("Applicable rules: ${sourceDescription("rules", rulesState)}. ")
                 append(
                     if ("ACCESS_DENIED" in setOf(protectionState, rulesState) || "NOT_FOUND_OR_INACCESSIBLE" in setOf(protectionState, rulesState)) {
-                        "Check access to both policy endpoints, then refresh the selected branch at its current head."
+                        "Confirm the selected GitHub connection can read branch protection and applicable branch rules, then request Repository Health again at the current branch head. A 404 does not establish that protection is absent."
                     } else {
                         "Refresh both policy observations at the selected branch head."
                     }
@@ -257,9 +247,11 @@ internal object GitHubStatusEvidence {
             selected && policyKnown,
             policy.keys,
             recovery,
+            summary = policySummary,
             policyEvidence = buildJsonObject {
-                put("branch_protection_observation", protectionState)
-                put("branch_rules_observation", rulesState)
+                policyEvidence.forEach { (key, value) -> put(key, value) }
+                sourceStatus("protection")?.let { put("branch_protection_http_status", it) }
+                sourceStatus("rules")?.let { put("branch_rules_http_status", it) }
             }
         )
         val failures = matching("github_ci", "runs") { data, args ->

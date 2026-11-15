@@ -17,6 +17,105 @@ class IssueReportDiagnosticsTest {
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 
+    @Test fun githubCooldownEvidenceKeepsLongBoundariesAndRejectsMalformedRestoredFields() {
+        val longs = setOf("github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_observed_at_ms")
+        val sample = mapOf<String, Any?>(
+            "github_cooldown_resource" to "CORE",
+            "github_cooldown_basis" to "RESOURCE_RESET",
+            "github_cooldown_delay_ms" to 20_000L,
+            "github_cooldown_deadline_ms" to 130_000L,
+            "github_cooldown_observed_at_ms" to 100_000L,
+            "github_cooldown_remaining_requests" to 0L
+        )
+        assertEquals(IssueReportDiagnostics.githubCooldownFields, sample.keys)
+        for (area in listOf("PROVIDER", "TOOL")) {
+            for (boundary in listOf(0L, 86_400_001L, Long.MAX_VALUE)) {
+                val snapshot = capture(area, sample + longs.associateWith { boundary })
+                assertEquals(sample.keys, snapshot.values.keys)
+                for (key in longs) assertEquals(JsonPrimitive(boundary), snapshot.values[key])
+                assertTrue("GH_COOLDOWN_V1" in snapshot.requiredServiceFeatures())
+                assertEquals(snapshot, IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), snapshot)))
+            }
+            val snapshot = capture(area, sample)
+            for (key in sample.keys) {
+                val invalid = when (key) {
+                    "github_cooldown_resource", "github_cooldown_basis" -> listOf(JsonPrimitive("PRIVATE_RESOURCE"), JsonPrimitive("core"), JsonPrimitive(1), JsonPrimitive(false))
+                    else -> listOf(JsonPrimitive(-1), JsonPrimitive("20000"), JsonPrimitive(1.0), JsonPrimitive(false), IssueReport.json.parseToJsonElement("9223372036854775808")) +
+                        if (key == "github_cooldown_remaining_requests") listOf(JsonPrimitive(16_000_001L)) else emptyList()
+                } + listOf(kotlinx.serialization.json.JsonNull, JsonArray(emptyList()))
+                for (value in invalid) {
+                    val malformed = snapshot.copy(values = snapshot.values + (key to value))
+                    assertNull("$key accepted $value", malformed.validated())
+                    assertNull(IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), malformed)))
+                    assertFalse(capture(area, mapOf(key to value)).values.containsKey(key))
+                }
+            }
+            for (resource in listOf("CORE", "SEARCH", "GRAPHQL", "OTHER")) {
+                for (basis in listOf("SECONDARY_DEADLINE", "RESOURCE_RESET", "RESOURCE_RETRY_AFTER", "RESOURCE_RESET_AND_RETRY_AFTER")) {
+                    val accepted = capture(area, sample + mapOf("github_cooldown_resource" to resource, "github_cooldown_basis" to basis, "github_cooldown_remaining_requests" to 16_000_000L))
+                    assertEquals(JsonPrimitive(resource), accepted.values["github_cooldown_resource"])
+                    assertEquals(JsonPrimitive(basis), accepted.values["github_cooldown_basis"])
+                    assertEquals(JsonPrimitive(16_000_000L), accepted.values["github_cooldown_remaining_requests"])
+                }
+            }
+            val omitted = capture(area, emptyMap()).copy(omittedFields = sample.keys.sorted())
+            assertTrue(omitted.isValid())
+            assertTrue("GH_COOLDOWN_V1" in omitted.requiredServiceFeatures())
+        }
+        for (area in listOf("VOICE", "APP", "INCIDENT", "GATEWAY", "ACCEPTANCE")) {
+            assertTrue(capture(area, sample).values.isEmpty())
+        }
+    }
+
+    @Test fun githubCooldownCodeRequiresItsFeatureWithoutMeasuredFields() {
+        for ((area, field) in listOf("PROVIDER" to "provider_failure_code", "INCIDENT" to "causal_failure_code", "VOICE" to "voice_chat_failure_code", "TOOL" to "tool_error_code")) {
+            val snapshot = capture(area, mapOf(field to "GITHUB_COOLDOWN_ACTIVE"))
+            assertTrue(snapshot.isValid())
+            assertEquals(JsonPrimitive("GITHUB_COOLDOWN_ACTIVE"), snapshot.values[field])
+            assertTrue("GH_COOLDOWN_V1" in snapshot.requiredServiceFeatures())
+            assertFalse("GH_COOLDOWN_V1" in capture(area, mapOf(field to "GITHUB_CIRCUIT_OPEN")).requiredServiceFeatures())
+        }
+        for (code in listOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED")) {
+            for ((area, field) in listOf("PROVIDER" to "provider_failure_code", "INCIDENT" to "causal_failure_code", "VOICE" to "voice_chat_failure_code", "TOOL" to "tool_error_code")) {
+                val snapshot = capture(area, mapOf(field to code))
+                assertTrue(snapshot.isValid())
+                assertEquals(JsonPrimitive(code), snapshot.values[field])
+                assertEquals(field == "provider_failure_code", "GH_COOLDOWN_V1" in snapshot.requiredServiceFeatures())
+            }
+        }
+    }
+
+    @Test fun profileSelectionEvidenceKeepsFalseValuesAndRejectsMalformedRestoredFields() {
+        val flags = setOf("github_selection_profile_match", "github_selection_registered_profile", "github_selection_model_match")
+        val hashes = setOf("github_selection_profile_hash", "github_selection_registered_model_hash")
+        val snapshot = capture("PROVIDER", flags.associateWith { it == "github_selection_registered_profile" } + hashes.associateWith { hash })
+        assertEquals(flags + hashes, snapshot.values.keys)
+        assertTrue("PROFILE_SELECTION_EVIDENCE_V1" in snapshot.requiredServiceFeatures())
+        assertEquals(snapshot, IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), snapshot)))
+        for (key in flags + hashes) {
+            val invalid = if (key in flags) {
+                listOf(JsonPrimitive("false"), JsonPrimitive(0), JsonPrimitive(1), JsonPrimitive("PRIVATE"), kotlinx.serialization.json.JsonNull, JsonArray(emptyList()))
+            } else {
+                listOf(JsonPrimitive("PRIVATE_PROFILE"), JsonPrimitive("A".repeat(64)), JsonPrimitive("a".repeat(63)), JsonPrimitive("a".repeat(65)), JsonPrimitive(false), JsonPrimitive(1), kotlinx.serialization.json.JsonNull)
+            }
+            for (value in invalid) {
+                val malformed = snapshot.copy(values = snapshot.values + (key to value))
+                assertNull("$key accepted $value", malformed.validated())
+                assertNull(IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), malformed)))
+                assertFalse(capture("PROVIDER", mapOf(key to value)).values.containsKey(key))
+            }
+        }
+        for (area in listOf("TOOL", "VOICE", "APP", "INCIDENT", "GATEWAY", "ACCEPTANCE")) {
+            assertTrue(capture(area, flags.associateWith { false } + hashes.associateWith { hash }).values.isEmpty())
+        }
+        val unregistered = capture("PROVIDER", mapOf("github_selection_profile_match" to false, "github_selection_registered_profile" to false, "github_selection_profile_hash" to hash))
+        assertFalse(unregistered.values.containsKey("github_selection_model_match"))
+        assertFalse(unregistered.values.containsKey("github_selection_registered_model_hash"))
+        val omitted = capture("PROVIDER", emptyMap()).copy(omittedFields = (flags + hashes).sorted())
+        assertTrue(omitted.isValid())
+        assertTrue("PROFILE_SELECTION_EVIDENCE_V1" in omitted.requiredServiceFeatures())
+    }
+
     @Test fun schemaBudgetCodeRequiresItsFeatureAcrossValidDiagnosticAreas() {
         for ((area, field) in listOf("PROVIDER" to "provider_failure_code", "INCIDENT" to "causal_failure_code", "VOICE" to "voice_chat_failure_code")) {
             val snapshot = capture(area, mapOf(field to "GITHUB_TOOL_CONTEXT_BUDGET"))
@@ -151,6 +250,48 @@ class IssueReportDiagnosticsTest {
         }
         val rejected = requireNotNull(IssueReportDiagnostics.fromFields("MANUAL_REPORT", mapOf("diagnostic_area" to "TOOL", "github_transport_kind" to "private-error", "github_transport_wait_ms" to -1), time))
         assertTrue(rejected.values.isEmpty())
+    }
+
+    @Test fun githubPrerequisiteEvidenceIsClosedAndRequiresItsMatchingServiceFeature() {
+        val values = mapOf("repository_graph_observation" to "NOT_INDEXED", "graph_input_blocked_count" to 16, "workflow_dependency_observation" to "MISSING_EXECUTED_JOB")
+        val snapshot = capture("ACCEPTANCE", values)
+        assertEquals(values.keys, snapshot.values.keys)
+        assertTrue("GITHUB_PREREQUISITE_EVIDENCE_V1" in snapshot.requiredServiceFeatures())
+        assertTrue(snapshot.isValid())
+        val omitted = capture("ACCEPTANCE", emptyMap()).copy(omittedFields = values.keys.toList())
+        assertTrue(omitted.isValid())
+        assertTrue("GITHUB_PREREQUISITE_EVIDENCE_V1" in omitted.requiredServiceFeatures())
+        for ((key, value) in listOf(
+            "repository_graph_observation" to JsonPrimitive("private/path"),
+            "workflow_dependency_observation" to JsonPrimitive("private-run-id"),
+            "graph_input_blocked_count" to JsonPrimitive(-1),
+            "graph_input_blocked_count" to JsonPrimitive("16")
+        )) {
+            assertNull(snapshot.copy(values = snapshot.values + (key to value)).validated())
+        }
+        assertNull(snapshot.copy(area = "PROVIDER").validated())
+    }
+
+    @Test fun graphPolicyFieldsAndNewEnumValuesRequireTheirExplicitReporterFeature() {
+        val feature = "GITHUB_GRAPH_POLICY_EVIDENCE_V1"
+        val evidence = listOf(
+            mapOf("branch_protection_http_status" to 404),
+            mapOf("branch_rules_http_status" to 403),
+            mapOf("status_policy_recovery" to "CHECK_RULES_READ_PERMISSION")
+        ) + listOf("GRAPH_INDEX_REQUIRED", "GRAPH_INDEX_UNCONFIRMED", "GRAPH_INPUT_REQUIRED").map {
+            mapOf("unmet_criterion_blockers" to listOf(it))
+        }
+        for (fields in evidence) {
+            val snapshot = capture("ACCEPTANCE", fields)
+            assertEquals(fields.keys, snapshot.values.keys)
+            assertTrue(snapshot.isValid())
+            assertTrue(feature in snapshot.requiredServiceFeatures())
+        }
+        val omitted = capture("ACCEPTANCE", emptyMap()).copy(omittedFields = listOf("branch_protection_http_status", "branch_rules_http_status"))
+        assertTrue(omitted.isValid())
+        assertTrue(feature in omitted.requiredServiceFeatures())
+        val legacy = capture("ACCEPTANCE", mapOf("status_policy_recovery" to "CHECK_PROTECTION_READ_PERMISSION", "unmet_criterion_blockers" to listOf("REPOSITORY_INPUT_REQUIRED")))
+        assertFalse(feature in legacy.requiredServiceFeatures())
     }
 
     @Test fun toolBudgetEvidenceCanBeCapturedAndNegotiated() {

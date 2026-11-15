@@ -2,6 +2,7 @@ import json
 import hashlib
 import hmac
 import io
+import math
 import os
 import sys
 import unittest
@@ -21,10 +22,87 @@ import test_gateway_v14_engineering as fixtures
 from v14.code_graph.public_github import PublicGitHubReader
 from v14.code_graph.service import GraphService
 from v14.engineering_backend import blob_sha
-from requests import Response
+from v14.github_api_governor import GitHubApiRateWait
+from requests import HTTPError, Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_graph_rate_responses_preserve_retry_deadline_and_local_or_upstream_origin(self):
+        actual = HTTPError('private upstream source must not be retained')
+        actual.response = Response()
+        actual.response.status_code = 403
+        actual.response.headers.update({'X-RateLimit-Remaining': '0', 'X-RateLimit-Reset': '1800000900'})
+        secondary = HTTPError('private secondary limit body')
+        secondary.response = Response()
+        secondary.response.status_code = 429
+        secondary.response.headers.update({'Retry-After': '120', 'X-RateLimit-Remaining': '4000', 'X-RateLimit-Reset': '1800003600'})
+        cases = [(GitHubApiRateWait(600, reason='FOREGROUND_RESERVE'), 'GRAPH_CAPACITY_RESERVED', 'LOCAL_ADMISSION', 600, None),
+                 (GitHubApiRateWait(300), 'GITHUB_RATE_LIMIT_WAIT', 'LOCAL_ADMISSION', 300, None),
+                 (actual, 'GITHUB_PRIMARY_RATE_LIMITED', 'GITHUB_RESPONSE', 900, 403),
+                 (secondary, 'GITHUB_SECONDARY_RATE_LIMITED', 'GITHUB_RESPONSE', 120, 429)]
+        for failure, code, origin, wait, upstream in cases:
+            with self.subTest(code=code), patch.object(self.service.graph, 'execute', side_effect=failure), \
+                    patch('v14.engineering_routes.time.time', return_value=1_800_000_000):
+                response = self.client.post('/gateway/engineering/graph', json={'action': 'status'}, headers=self.headers)
+            self.assertEqual(429, response.status_code, response.text)
+            self.assertEqual(str(wait), response.headers['Retry-After'])
+            error = response.json()['error']
+            self.assertEqual(code, error['code'])
+            self.assertEqual(origin, error['rate_limit_origin'])
+            self.assertEqual(upstream is not None, error['upstream_request_dispatched'])
+            self.assertEqual(wait * 1000, error['retry_after_ms'])
+            self.assertEqual(1_800_000_000 + wait, error['retry_at_epoch_seconds'])
+            if upstream is None:
+                self.assertNotIn('upstream_http_status', error)
+            else:
+                self.assertEqual(upstream, error['upstream_http_status'])
+            self.assertNotIn('private', response.text)
+
+    def test_extreme_finite_rate_wait_preserves_full_deadline_without_overflow(self):
+        for wait in (1e308, sys.float_info.max):
+            failure = HTTPError('private upstream detail')
+            failure.response = Response()
+            failure.response.status_code = 429
+            failure.response.headers['Retry-After'] = str(wait)
+            with self.subTest(wait=wait), patch.object(self.service.graph, 'execute', side_effect=failure), \
+                    patch('v14.engineering_routes.time.time', return_value=1_800_000_000):
+                response = self.client.post('/gateway/engineering/graph', json={'action': 'status'}, headers=self.headers)
+            self.assertEqual(429, response.status_code, response.text)
+            seconds = math.ceil(wait)
+            self.assertEqual(seconds, int(response.headers['Retry-After']))
+            error = response.json()['error']
+            self.assertEqual(seconds * 1000, error['retry_after_ms'])
+            self.assertEqual(1_800_000_000 + seconds, error['retry_at_epoch_seconds'])
+            self.assertLess(len(response.content), 2000)
+            self.assertNotIn('private', response.text)
+
+    def test_job_rate_failure_keeps_unknown_admission_and_recovers_accepted_command(self):
+        upstream = HTTPError('private upstream detail')
+        upstream.response = Response()
+        upstream.response.status_code = 429
+        upstream.response.headers['Retry-After'] = '600'
+        for index, failure in enumerate((GitHubApiRateWait(600), upstream)):
+            payload = dict(self.request, request_id=f'rate-unknown-{index}')
+
+            def accepted_then_failed(owner, request):
+                # Another admission can commit before this copy sees the rate
+                # failure. The response cannot establish a rejection fence.
+                self.store.create(owner, request)
+                raise failure
+
+            with self.subTest(origin=type(failure).__name__), \
+                    patch.object(self.service, 'admit', side_effect=accepted_then_failed) as admit, \
+                    patch.object(self.store.conversations, 'reject_command') as reject:
+                response = self.client.post('/gateway/engineering/jobs', json=payload, headers=self.headers)
+                self.assertEqual(503, response.status_code, response.text)
+                self.assertEqual({'error': {'code': 'engineering_connection_unavailable'}}, response.json())
+                self.assertNotIn('Retry-After', response.headers)
+                reject.assert_not_called()
+                recovered = self.client.post('/gateway/engineering/jobs', json=payload, headers=self.headers)
+                self.assertEqual(200, recovered.status_code, recovered.text)
+                self.assertEqual(payload['request_id'], recovered.json()['command_id'])
+                admit.assert_called_once()
+
     def test_base_branch_admission_reports_scope_and_source_guard_before_execution(self):
         base = dict(self.request, branch='main', source_branch='main', task_scope='implement')
         cases = [

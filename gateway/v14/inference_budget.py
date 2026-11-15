@@ -4,6 +4,7 @@ from __future__ import annotations
 import copy
 
 from v14.execution_binding import ExecutionBindingError, canonical, fingerprint
+from v14.graph_context import project_graph
 
 
 def plan_tokens(payload, capability, counter, *, verification_tokens=0, final_tokens=0, recovery_tokens=0):
@@ -124,7 +125,12 @@ def fit_engineering_payload(payload, capability, counter):
         nodes = min(2048, max(32, limit // 8))
         candidate = copy.deepcopy(original)
         body = copy.deepcopy(envelope)
-        projected, omissions = compact_evidence(retained, limit, nodes=nodes)
+        # Graph anchors have their own bounded allocation. A wide file/log
+        # container must not consume the entire traversal before graph context.
+        graph_budget = min(4096, max(1024, limit))
+        graph_view = project_graph(retained['code_graph'], graph_budget)
+        projected, omissions = compact_evidence({name: value for name, value in retained.items() if name != 'code_graph'}, limit, nodes=nodes)
+        projected['code_graph'] = graph_view
         # Replace every retained source, including fields omitted at the root,
         # so exhaustion never restores the unbounded original into the view.
         projected = {name: projected.get(name, {'available_in_retained_evidence': True, 'view_omitted': True}) for name in retained}
@@ -136,6 +142,8 @@ def fit_engineering_payload(payload, capability, counter):
             budget = plan_tokens(candidate, capability, counter, **reserves)
             return candidate, budget, {'reason': 'CONTEXT_BUDGET', 'source_digest': source_digest,
                                       'view_digest': fingerprint(projected), 'text_slice_bytes': limit, 'view_node_limit': nodes,
+                                      'graph_byte_budget': graph_budget, 'graph_view_bytes': len(canonical(graph_view).encode()),
+                                      'graph_view_nodes': len(graph_view.get('nodes', [])) if isinstance(graph_view, dict) and isinstance(graph_view.get('nodes'), list) else 0,
                                       'omissions': omissions, 'objective_preserved': True, 'completion_reserves_preserved': True}
         except ExecutionBindingError as error:
             if error.code != 'EXECUTION_CONTEXT_EXHAUSTED':

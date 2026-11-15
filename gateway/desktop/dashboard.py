@@ -10,7 +10,9 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 from desktop import theme
+from desktop import icons
 from desktop.benchmark_panel import BenchmarkPanel
+from desktop.chat_panel import ChatPanel
 from desktop.metrics import number
 from desktop.token_history import TokenHistory
 from desktop.configuration import atomic_json, load
@@ -19,7 +21,7 @@ from desktop.manager import request
 from v14 import VERSION
 from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 
-PAGES = ['Overview', 'Jobs', 'Devices', 'Recent activity', 'Search jobs', 'GitHub jobs', 'Benchmarks']
+PAGES = ['Overview', 'Chat', 'Saved', 'Jobs', 'Benchmarks']
 
 
 class Dashboard:
@@ -46,7 +48,7 @@ class Dashboard:
         watch(self.window, self.root, self.close)
 
     def build(self):
-        sidebar_shell = tk.Frame(self.window, bg='#061C24', width=195 if self.compact else 225)
+        sidebar_shell = tk.Frame(self.window, bg=theme.SIDEBAR, width=185 if self.compact else 215)
         sidebar_shell.pack(side='left', fill='y')
         sidebar_shell.pack_propagate(False)
         sidebar_canvas = tk.Canvas(sidebar_shell, bg='#061C24', highlightthickness=0)
@@ -62,21 +64,29 @@ class Dashboard:
             self.logo = self.window._brand_icon.subsample(2)
             tk.Label(sidebar, image=self.logo, background='#061C24').pack(anchor='w', padx=23, pady=(26, 12))
         theme.label(sidebar, 'GATEWAY', 20, bold=True, bg='#061C24').pack(anchor='w', padx=23)
-        theme.label(sidebar, f'GPT Mobile  /  {VERSION}', 10, color=theme.MUTED, bg='#061C24').pack(anchor='w', padx=23, pady=(3, 28))
+        theme.label(sidebar, f'GPT Mobile  /  {VERSION}', 10, color=theme.MUTED, bg=theme.SIDEBAR).pack(anchor='w', padx=23, pady=(3, 18))
+        ttk.Button(sidebar, text='New prompt', style='Accent.TButton', command=self.new_prompt).pack(fill='x', padx=14, pady=(0, 15))
         self.nav = {}
+        self.nav_icons = {}
         for page in PAGES:
+            self.nav_icons[page] = (icons.load(self.window, page), icons.load(self.window, page, active=True))
             button = tk.Button(sidebar, text=page, anchor='w', padx=15, pady=12,
-                font=('Segoe UI', 11), foreground=theme.MUTED, background='#061C24', activebackground=theme.RAISED,
-                activeforeground=theme.CYAN, relief='flat', borderwidth=0, highlightthickness=0, cursor='hand2',
+                font=(theme.FONT, 11), foreground=theme.MUTED, background=theme.SIDEBAR, activebackground=theme.RAISED,
+                activeforeground=theme.CYAN, relief='flat', borderwidth=0, highlightthickness=1, highlightbackground=theme.SIDEBAR,
+                highlightcolor=theme.CYAN, takefocus=True, cursor='hand2', compound='left',
                 command=lambda value=page: self.navigate(value))
+            if self.nav_icons[page][0]:
+                button.configure(image=self.nav_icons[page][0], text='   ' + page)
             button.pack(fill='x', padx=12, pady=3)
             self.nav[page] = button
         tk.Frame(sidebar, bg=theme.LINE, height=1).pack(fill='x', padx=25, pady=25)
-        for section in ('General', 'Advanced', 'Add-ons', 'GitHub'):
-            ttk.Button(sidebar, text=section, command=lambda value=section: self.settings(value)).pack(fill='x', padx=17, pady=4)
+        ttk.Button(sidebar, text='Settings', command=self.settings).pack(fill='x', padx=17, pady=4)
+        theme.label(sidebar, 'Closing this window keeps\nyour Gateway running.', 9, color=theme.MUTED,
+                    bg=theme.SIDEBAR, justify='left').pack(anchor='w', padx=22, pady=16)
         content = tk.Frame(self.window, bg=theme.BG)
         content.pack(side='left', fill='both', expand=True, padx=16 if self.compact else 27, pady=16)
         self.body = tk.Frame(content, bg=theme.BG)
+        self.chat_page = ChatPanel(content, self.root)
         self.benchmark_page = tk.Frame(content, bg=theme.BG)
         theme.label(self.benchmark_page, 'Benchmarks', 23, bold=True).pack(anchor='w', pady=(0, 4))
         theme.label(self.benchmark_page, 'Test an AI model through this Gateway and compare saved scores.',
@@ -129,6 +139,10 @@ class Dashboard:
         self.search.insert(0, '')
         theme.label(toolbar, 'Filter  ', 10, color=theme.MUTED).pack(side='right')
         self.query.trace_add('write', lambda *_: self.render_rows())
+        self.job_filter = tk.StringVar(value='All jobs')
+        self.job_filter_box = ttk.Combobox(toolbar, textvariable=self.job_filter, width=16, state='readonly',
+            values=('All jobs', 'GitHub jobs', 'Search jobs', 'Recent activity', 'Devices'))
+        self.job_filter.trace_add('write', lambda *_: self.render_rows())
         table = tk.Frame(self.body, bg=theme.PANEL)
         table.pack(fill='both', expand=True)
         self.table = ttk.Treeview(table, columns=('kind', 'title', 'state', 'updated'), show='headings', selectmode='browse', height=5)
@@ -160,18 +174,28 @@ class Dashboard:
         self.detail.pack(side='bottom', fill='x', pady=(12, 9))
         table.pack(fill='both', expand=True)
         self.navigate('Overview')
+        self.window.bind('<Control-n>', lambda _: self.new_prompt())
 
     def navigate(self, page):
         self.page = page
         for name, button in self.nav.items():
-            button.configure(background=theme.RAISED if name == page else '#061C24', foreground=theme.CYAN if name == page else theme.MUTED)
+            button.configure(background=theme.RAISED if name == page else theme.SIDEBAR, foreground=theme.CYAN if name == page else theme.MUTED)
+            artwork = self.nav_icons[name][1 if name == page else 0]
+            if artwork:
+                button.configure(image=artwork)
+        self.body.pack_forget()
+        self.benchmark_page.pack_forget()
+        self.chat_page.pack_forget()
+        self.chat_page.deactivate()
+        if page in {'Chat', 'Saved'}:
+            self.chat_page.pack(fill='both', expand=True)
+            self.chat_page.activate(saved=page == 'Saved', smoke=getattr(self, 'smoke', False))
+            return
         if page == 'Benchmarks':
-            self.body.pack_forget()
             self.benchmark_page.pack(fill='both', expand=True)
             if not getattr(self, 'smoke', False):
                 self.benchmark_panel.activate()
             return
-        self.benchmark_page.pack_forget()
         self.body.pack(fill='both', expand=True)
         self.title.configure(text='Your gateway, at a glance' if page == 'Overview' else page)
         self.section.configure(text='Recent activity' if page == 'Overview' else page)
@@ -180,27 +204,39 @@ class Dashboard:
                 self.chart_frame.pack(fill='x', pady=(0, 18), before=self.section.master)
         else:
             self.chart_frame.pack_forget()
+        if page == 'Jobs':
+            self.job_filter_box.pack(side='left', padx=12)
+        else:
+            self.job_filter_box.pack_forget()
         self.query.set('')
         self.render_rows()
 
+    def new_prompt(self):
+        self.chat_page.new_chat()
+        self.navigate('Chat')
+
+    def history_page(self):
+        return ('Jobs' if self.job_filter.get() == 'All jobs' else self.job_filter.get()) if self.page == 'Jobs' else self.page
+
     def render_rows(self):
-        if self.page == 'Benchmarks':
+        if self.page in {'Benchmarks', 'Chat', 'Saved'}:
             return
-        candidates = rows(self.snapshot, self.page, self.query.get())
-        if candidates == self.displayed and getattr(self, 'rendered_page', None) == self.page:
+        page = self.history_page()
+        candidates = rows(self.snapshot, page, self.query.get())
+        if candidates == self.displayed and getattr(self, 'rendered_page', None) == page:
             for index, item in enumerate(candidates):
-                self.table.set(str(index), 'updated', age(item.get('lastSeen' if self.page == 'Devices' else 'updated')))
-                if self.page == 'Devices':
+                self.table.set(str(index), 'updated', age(item.get('lastSeen' if page == 'Devices' else 'updated')))
+                if page == 'Devices':
                     self.table.set(str(index), 'state', self.device_status(item))
             return
         previous_page = getattr(self, 'rendered_page', None)
-        view = self.table.yview()[0] if previous_page == self.page else 0
-        self.rendered_page = self.page
+        view = self.table.yview()[0] if previous_page == page else 0
+        self.rendered_page = page
         selected = self.table.selection()
         selected_id = self.displayed[int(selected[0])].get('id') if selected and int(selected[0]) < len(self.displayed) else None
         self.displayed = candidates
         self.table.delete(*self.table.get_children())
-        device_page = self.page == 'Devices'
+        device_page = page == 'Devices'
         for col, title in [('kind', 'CLIENT' if device_page else 'TYPE'), ('title', 'ADDRESS / AGENT' if device_page else 'ACTIVITY'), ('state', 'CONNECTION' if device_page else 'STATE'), ('updated', 'LAST SEEN' if device_page else 'UPDATED')]:
             self.table.heading(col, text=title)
         for index, item in enumerate(self.displayed):
@@ -233,7 +269,7 @@ class Dashboard:
         if not selected or int(selected[0]) >= len(self.displayed):
             return
         item = self.displayed[int(selected[0])]
-        if self.page == 'Devices':
+        if self.history_page() == 'Devices':
             content = f'Observed address: {item.get("address")}  ·  Requests this session: {item.get("requests", 0)}\nKey-free connections are grouped by socket address; this is not a verified device identity.'
         else:
             content = '  ·  '.join(str(item[key]) for key in ('detail', 'branch', 'peer', 'id') if item.get(key))
@@ -274,11 +310,9 @@ class Dashboard:
         self.badge.configure(text='●  LIVE' if fresh else '●  ' + str(status.get('state', 'offline')).upper(), fg=theme.CYAN if fresh else theme.MUTED)
         try:
             cfg = load(self.root)
-            endpoint = f'{cfg["bind_host"]}:{cfg["port"]}'
             mode = 'Key-free network' if cfg['access'] == 'network' else 'This PC only'
-            revision = status.get('build', {}).get('sourceCommit', '')
-            build = f'{status.get("version", "unknown")} ({revision[:12] if revision else "revision not observed"})'
-            self.subtitle.configure(text=f'{endpoint}  /  {mode}  /  Gateway {build}  /  Model backend: {status.get("backend", "not measured")}')
+            backend = str(status.get('backend', 'not measured')).replace('_', ' ')
+            self.subtitle.configure(text=f'Your AI workspace  ·  Model backend: {backend}  ·  {mode}')
         except (OSError, ValueError):
             self.subtitle.configure(text='Connection settings unavailable. Open settings to recover the configuration.')
         usage = self.snapshot.get('usage', {})
@@ -327,6 +361,7 @@ class Dashboard:
 
     def close(self):
         self.closed = True
+        self.chat_page.close()
         self.window.destroy()  # The supervisor/tray owns gateway lifetime.
 
 
@@ -347,30 +382,54 @@ def show(root, smoke=False):
 def _show(root, smoke):
     dashboard = Dashboard(root)
     dashboard.smoke = smoke
+    failures = []
     if smoke:
+        dashboard.window.report_callback_exception = lambda kind, error, trace: failures.append(f'{kind.__name__}: {error}')
+        def capture(name):
+            if os.name != 'nt':
+                return
+            x, y = dashboard.window.winfo_rootx(), dashboard.window.winfo_rooty()
+            width, height = dashboard.window.winfo_width(), dashboard.window.winfo_height()
+            script = ('Add-Type -AssemblyName System.Drawing; '
+                      f'$b=New-Object System.Drawing.Bitmap({width},{height}); '
+                      '$g=[System.Drawing.Graphics]::FromImage($b); '
+                      f'$g.CopyFromScreen({x},{y},0,0,$b.Size); '
+                      '$b.Save($env:GATEWAY_UI_CAPTURE,[System.Drawing.Imaging.ImageFormat]::Png); '
+                      '$g.Dispose(); $b.Dispose()')
+            subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                           env=dict(os.environ, GATEWAY_UI_CAPTURE=str(Path(root) / name)),
+                           check=True, timeout=30, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
         def inspect():
             try:
                 for page in PAGES:
                     dashboard.navigate(page)
                     dashboard.window.update_idletasks()
+                    dashboard.window.update()
+                    capture('dashboard-' + page.lower() + '.png')
+                original = dashboard.window.geometry()
+                dashboard.window.geometry('900x600+16+16')
+                for page in ('Chat', 'Benchmarks'):
+                    dashboard.navigate(page)
+                    dashboard.window.update()
+                    if page == 'Chat':
+                        button = dashboard.chat_page.send_button
+                        if (not button.winfo_ismapped() or button.winfo_height() < 15 or
+                                button.winfo_rooty() + button.winfo_height() > dashboard.window.winfo_rooty() + dashboard.window.winfo_height()):
+                            raise RuntimeError('The primary chat action is clipped at the minimum window size')
+                    capture('dashboard-' + page.lower() + '-compact.png')
+                dashboard.window.geometry(original)
                 dashboard.navigate('Overview')
                 dashboard.window.update()
-                if os.name == 'nt':
-                    # Capture the rendered window for Windows CI visual review.
-                    x, y = dashboard.window.winfo_rootx(), dashboard.window.winfo_rooty()
-                    width, height = dashboard.window.winfo_width(), dashboard.window.winfo_height()
-                    script = ('Add-Type -AssemblyName System.Drawing; '
-                              f'$b=New-Object System.Drawing.Bitmap({width},{height}); '
-                              '$g=[System.Drawing.Graphics]::FromImage($b); '
-                              f'$g.CopyFromScreen({x},{y},0,0,$b.Size); '
-                              '$b.Save($env:GATEWAY_UI_CAPTURE,[System.Drawing.Imaging.ImageFormat]::Png); '
-                              '$g.Dispose(); $b.Dispose()')
-                    subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
-                                   env=dict(os.environ, GATEWAY_UI_CAPTURE=str(Path(root) / 'dashboard-preview.png')),
-                                   check=True, timeout=30, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                capture('dashboard-preview.png')
+                if failures:
+                    raise RuntimeError('A desktop callback failed during navigation')
                 from desktop.configuration import atomic_json
                 atomic_json(Path(root) / 'dashboard-ui-smoke.json', {'pages': PAGES, 'width': dashboard.window.winfo_width(), 'height': dashboard.window.winfo_height()})
+            except Exception as error:
+                failures.append(str(error))
             finally:
                 dashboard.close()
         dashboard.window.after(800, inspect)
     dashboard.window.mainloop()
+    if failures:
+        raise RuntimeError('Gateway desktop smoke failed: ' + '; '.join(failures))

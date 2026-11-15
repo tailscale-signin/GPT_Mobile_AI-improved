@@ -56,6 +56,8 @@ def build_window(root, parent=None, section='General'):
     ttk.Label(header, textvariable=state_text, style='Muted.TLabel').pack(side='right')
     tabs = ttk.Notebook(window)
     tabs.pack(fill='both', expand=True, padx=20)
+    advanced_visible = tk.BooleanVar(value=section == 'Advanced')
+    advanced_shell = None
     scroll_surfaces = {}
     def page(name):
         shell = ttk.Frame(tabs)
@@ -85,12 +87,24 @@ def build_window(root, parent=None, section='General'):
     sections = {}
     for title in ('General', 'Advanced', 'Add-ons', 'GitHub'):
         canvas = page(title)
+        if title == 'Advanced':
+            advanced_shell = canvas.master
         frame = ttk.Frame(canvas, padding=24)
         attach(canvas, frame)
         frame.columnconfigure(1, weight=1)
         sections[title] = frame
         if title == section:
             tabs.select(canvas.master)
+    def toggle_advanced():
+        if advanced_visible.get():
+            tabs.insert(1, advanced_shell, text='Advanced')
+            tabs.select(advanced_shell)
+        else:
+            tabs.hide(advanced_shell)
+    ttk.Checkbutton(header, text='Show advanced settings', variable=advanced_visible,
+                    command=toggle_advanced).pack(side='right', padx=18)
+    if not advanced_visible.get():
+        tabs.hide(advanced_shell)
     values = {}
 
     def title(frame, text, detail):
@@ -172,6 +186,12 @@ def build_window(root, parent=None, section='General'):
                  values=['1', '2', '3', '4']).grid(row=15, column=0, columnspan=3, sticky='ew', pady=5)
     ttk.Label(advanced, text='One runs sequentially. Higher values parallelize only adjacent independent checks that the repository validation policy explicitly groups. Each check stays in its own offline sandbox. GitHub API requests remain serialized; native cloud-provider batching is unavailable.',
               style='Muted.TLabel', wraplength=600).grid(row=16, column=0, columnspan=3, sticky='w', pady=(4, 12))
+    ttk.Label(advanced, text='Repository validation is configured in GitHub → Repository Validation. No external policy file is required.',
+              style='Muted.TLabel', wraplength=600).grid(row=17, column=0, columnspan=3, sticky='w', pady=(12, 8))
+    def benchmark_settings():
+        from desktop.benchmark_panel import open_benchmark_settings
+        open_benchmark_settings(window, root)
+    ttk.Button(advanced, text='Benchmark settings…', command=benchmark_settings).grid(row=22, column=0, columnspan=3, sticky='w', pady=(14, 6))
 
     addons = sections['Add-ons']
     title(addons, 'Extend your gateway', 'Manage configured PC tools.')
@@ -233,11 +253,21 @@ def build_window(root, parent=None, section='General'):
     reload_addons()
 
     from desktop.github_setup import build_github_settings
+    from desktop.repository_validation_panel import RepositoryValidationPanel
     github = sections['GitHub']
-    title(github, 'GitHub', 'Map public repositories or connect GitHub for private maps and saved jobs.')
+    title(github, 'GitHub', 'Connect your account and prepare repository validation on this PC.')
+    github_tabs = ttk.Notebook(github)
+    github_tabs.grid(row=2, column=0, columnspan=3, sticky='nsew')
+    connection = ttk.Frame(github_tabs, padding=12)
+    connection.columnconfigure(1, weight=1)
+    validation_frame = ttk.Frame(github_tabs, padding=12)
+    github_tabs.add(connection, text='Connection')
+    github_tabs.add(validation_frame, text='Repository Validation')
     public_maps_saved = public_repository_maps(root)
     public_maps = tk.BooleanVar(value=public_maps_saved)
-    refresh_github = build_github_settings(github, root, cfg, public_maps, values['engineering'])
+    refresh_github = build_github_settings(connection, root, cfg, public_maps, values['engineering'])
+    validation_panel = RepositoryValidationPanel(validation_frame, root, cfg)
+    window.repository_validation_panel = validation_panel
 
     footer = ttk.Frame(window, padding=(24, 16))
     footer.pack(fill='x')
@@ -271,7 +301,7 @@ def build_window(root, parent=None, section='General'):
             if public_maps.get() != public_maps_saved:
                 save_public_repository_maps(root, public_maps.get())
                 public_maps_saved = public_maps.get()
-            notice.set('Settings saved. Restart when your current work is complete.')
+            notice.set('General settings saved. Repository validation uses its own Prepare & save action. Restart when idle.')
         except Exception as error:
             messagebox.showerror('Check settings', str(error))
 
@@ -296,6 +326,7 @@ def build_window(root, parent=None, section='General'):
     def refresh():
         nonlocal busy
         refresh_github()
+        validation_panel.refresh()
         while not messages.empty():
             success, text = messages.get_nowait()
             busy = False

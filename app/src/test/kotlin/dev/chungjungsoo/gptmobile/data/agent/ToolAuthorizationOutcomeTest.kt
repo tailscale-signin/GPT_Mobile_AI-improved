@@ -1,11 +1,18 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.MeasuredAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.permissions.ToolAuthorizationRejected
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolAuthorizationOutcomeTest {
@@ -48,6 +55,98 @@ class ToolAuthorizationOutcomeTest {
             assertEquals(if (expected == "READ_DEADLINE") "READ_DEADLINE" else "RECONCILIATION_REQUIRED", retry.errorCode)
             assertEquals(if (expected == "READ_DEADLINE") 2 else 1, dispatches)
             assertEquals("DUPLICATE_INVOCATION", wrapped.execute("first", buildJsonObject {}).errorCode)
+        }
+    }
+
+    @Test fun repositoryGraphIndexDeadlineRetainsUnknownOutcomeAndBlocksFreshReplay() = runTest {
+        for (name in listOf("repository_graph", "repository_graph__github_api")) {
+            for (approvedReadOnly in listOf(false, true)) {
+                var queries = 0
+                val graph = RepositoryGraphTool(name) {
+                    queries++
+                    delay(1000)
+                    buildJsonObject { put("has_more", false) }
+                }
+                val measured = MeasuredAgentTool(graph, approvedReadOnly = approvedReadOnly)
+                val wrapped = ToolExecutionBudget(AgentRunLimits(toolTimeoutMillis = 10)).bind(measured)
+                val arguments = buildJsonObject { put("action", "index") }
+                val timedOut = wrapped.execute("index", arguments)
+                assertEquals("TIMEOUT_OUTCOME_UNKNOWN", timedOut.errorCode)
+                assertTrue(timedOut.dispatched)
+                assertEquals(1, queries)
+                val receipt = ToolFailureMetadata.receipt(timedOut, name, replaySafe = ToolReplaySafety.isReplayableRead(name, arguments, measured))
+                assertEquals(JsonPrimitive(false), receipt.executionReceipt?.get("retryable"))
+                assertEquals(JsonPrimitive(true), receipt.executionReceipt?.get("requires_reconciliation"))
+                assertEquals(JsonPrimitive(false), receipt.executionReceipt?.get("replay_safe"))
+                val envelope = Json.parseToJsonElement(ToolResultEnvelope.encode(name, receipt)) as JsonObject
+                assertEquals(JsonPrimitive("UNKNOWN_OUTCOME"), (envelope["execution"] as JsonObject)["state"])
+                assertEquals(JsonPrimitive(true), (envelope["error"] as JsonObject)["reconciliationRequired"])
+                val retry = wrapped.execute("new-index-call", arguments)
+                assertEquals("RECONCILIATION_REQUIRED", retry.errorCode)
+                assertFalse(retry.dispatched)
+                assertEquals(1, queries)
+                // Status remains an independent read after an interrupted index.
+                assertEquals("READ_DEADLINE", wrapped.execute("reconcile-status", buildJsonObject { put("action", "status") }).errorCode)
+                assertEquals(2, queries)
+            }
+        }
+    }
+
+    @Test fun graphIndexJobControlsCannotAcquireReplayAuthorityFromAReadOnlyWrapper() = runTest {
+        for (control in listOf("start", "pause", "resume", "cancel")) {
+            var queries = 0
+            val graph = RepositoryGraphTool("repository_graph__github_api") {
+                queries++
+                delay(1000)
+                buildJsonObject { put("status", "INDEX_JOB_ACCEPTED") }
+            }
+            val measured = MeasuredAgentTool(graph, approvedReadOnly = true)
+            val wrapped = ToolExecutionBudget(AgentRunLimits(toolTimeoutMillis = 10)).bind(measured)
+            val arguments = buildJsonObject {
+                put("action", "index")
+                put(
+                    "options",
+                    buildJsonObject {
+                        put("background", true)
+                        put("job_action", control)
+                        put("job_id", "observed-job")
+                        put("job_generation", 2)
+                    }
+                )
+            }
+            assertFalse(ToolReplaySafety.isReplayableRead(measured.definition.name, arguments, measured))
+            val native = JsonObject(arguments + mapOf("action" to JsonPrimitive("repository_graph"), "graph_action" to JsonPrimitive("index")))
+            assertFalse(ToolReplaySafety.isReplayableRead("github", native, measured))
+            assertEquals("TIMEOUT_OUTCOME_UNKNOWN", wrapped.execute("first-$control", arguments).errorCode)
+            assertEquals("RECONCILIATION_REQUIRED", wrapped.execute("retry-$control", arguments).errorCode)
+            assertEquals(1, queries)
+        }
+    }
+
+    @Test fun graphStatusAndQueryRetainBoundedReadRetriesThroughTheActualWrapper() = runTest {
+        for (name in listOf("repository_graph", "repository_graph__github_api")) {
+            for (action in listOf("status", "query")) {
+                var queries = 0
+                val measured = MeasuredAgentTool(
+                    RepositoryGraphTool(name) {
+                        queries++
+                        delay(1000)
+                        buildJsonObject {}
+                    },
+                    approvedReadOnly = true
+                )
+                val wrapped = ToolExecutionBudget(AgentRunLimits(toolTimeoutMillis = 10)).bind(measured)
+                val arguments = buildJsonObject { put("action", action) }
+                assertTrue(ToolReplaySafety.isReplayableRead(name, arguments, measured))
+                for (call in listOf("first", "second")) {
+                    val result = ToolFailureMetadata.receipt(wrapped.execute(call, arguments), name, replaySafe = true)
+                    assertEquals("READ_DEADLINE", result.errorCode)
+                    assertEquals(JsonPrimitive(true), result.executionReceipt?.get("retryable"))
+                    assertEquals(JsonPrimitive(false), result.executionReceipt?.get("requires_reconciliation"))
+                }
+                assertEquals("REPEATED_FAILURE", wrapped.execute("third", arguments).errorCode)
+                assertEquals(2, queries)
+            }
         }
     }
 

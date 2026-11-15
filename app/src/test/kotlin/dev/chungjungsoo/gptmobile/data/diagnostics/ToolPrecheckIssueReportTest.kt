@@ -51,7 +51,7 @@ class ToolPrecheckIssueReportTest {
             val report = record(operation, result)
             val context = requireNotNull(report.context)
             val diagnostics = requireNotNull(context.diagnostics)
-            assertEquals("TOOL_FAILURE", report.errorCode)
+            assertEquals(if (code == "BUDGET_EXHAUSTED") "TOOL_BUDGET_EXHAUSTED" else "TOOL_FAILURE", report.errorCode)
             assertEquals(code, context.reasonCode)
             assertEquals(7, context.schemaVersion)
             assertEquals("TOOL", diagnostics.area)

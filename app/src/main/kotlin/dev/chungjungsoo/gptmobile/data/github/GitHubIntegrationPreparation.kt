@@ -99,7 +99,7 @@ internal object GitHubIntegrationPreparation {
     private fun requiredInputs(code: String): List<String> = when (code) {
         "OWNED_FIXTURE_REQUIRED" -> listOf("Task/repository-bound ownership", "Exact current resource lease", "Authorized cleanup operation", "Remaining cleanup and verification allowance")
         "FIXTURE_APPROVAL_STATE_UNKNOWN" -> listOf("Effective task-bound approval decision")
-        "FIXTURE_APPROVAL_MODE_REQUIRED" -> listOf("Explicit fixture-only automatic approval or the existing native approval interaction")
+        "FIXTURE_APPROVAL_MODE_REQUIRED" -> listOf("GitHub workspace > Settings > Chat decisions > Fixture-only auto-approval for a new task, or the existing exact Approve & Commit interaction", "The retained task approval preflight and any staged patch approval remain unchanged")
         "APPROVAL_REQUIRED" -> listOf("Decision on the existing exact approval card")
         "ISSUE_ID_REQUIRED" -> listOf("Issue number from an authorized issue inventory; PR numbers cannot substitute")
         "PULL_REQUEST_ID_REQUIRED" -> listOf("Pull request number from an authorized PR inventory", "Observed head SHA")
@@ -107,6 +107,9 @@ internal object GitHubIntegrationPreparation {
         "CHECK_SUBSCRIPTION_REQUIRED" -> listOf("Observed run/PR and exact head SHA", "Bounded inline observation or separately verified saved-chat subscription")
         "RELEASE_OR_TAG_REQUIRED" -> listOf("Tag or release from the selected repository inventory")
         "REPOSITORY_INPUT_REQUIRED" -> listOf("Authorized repository/ref", "Observed immutable revision and source path")
+        "GRAPH_INDEX_REQUIRED" -> listOf("Authorized graph status and index preparation for the selected immutable repository revision")
+        "GRAPH_INDEX_UNCONFIRMED" -> listOf("Retained index checkpoint on the original gateway", "Independent status proving index progress or completion before another batch")
+        "GRAPH_INPUT_REQUIRED" -> listOf("Indexed node or source path, comparison baseline, or observed revision-bound log required by this graph action")
         "REPOSITORY_LIFECYCLE_REQUIRED" -> listOf("Retained create/fork/import/clone operation", "Gateway operation_id or native expected_repository_id with its original destination and operation")
         "AUTHORIZATION_REQUIRED", "HISTORICAL_CONTRACT_CHANGED" -> listOf("Current operation authorization and catalog binding")
         "CONTINUATION_REQUIRED" -> listOf("Exact issued continuation and sufficient remaining read allowance")

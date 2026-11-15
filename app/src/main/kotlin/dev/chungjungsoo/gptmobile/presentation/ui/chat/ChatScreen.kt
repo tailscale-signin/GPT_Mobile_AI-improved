@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -221,6 +222,7 @@ private fun ChatScreenContent(
     viewportWidth: Dp,
     viewportHeight: Dp
 ) {
+    val voiceControls = dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoiceMessageControls.current
     val chatRoom by chatViewModel.chatRoom.collectAsStateWithLifecycle()
     val agentRunsById by chatViewModel.agentRunsById.collectAsStateWithLifecycle()
     val providerWaitDeadlines by chatViewModel.providerWaitDeadlines.collectAsStateWithLifecycle()
@@ -1223,8 +1225,14 @@ private fun ChatScreenContent(
                         onFileSelected = { filePath -> chatViewModel.addSelectedFile(filePath) },
                         onFileRemoved = { filePath -> chatViewModel.removeSelectedFile(filePath) },
                         onFileRetry = chatViewModel::retrySelectedFile,
-                        onCancelButtonClick = chatViewModel::cancelActiveRuns,
-                        onComposerFocusChanged = dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints::composerFocusChanged
+                        onCancelButtonClick = {
+                            voiceControls?.stop?.invoke()
+                            chatViewModel.cancelActiveRuns()
+                        },
+                        onComposerFocusChanged = { focused ->
+                            if (focused) voiceControls?.pauseCapture?.invoke()
+                            dev.chungjungsoo.gptmobile.data.readiness.ReadinessHints.composerFocusChanged(focused)
+                        }
                     ) {
                         if (!requestedNotificationPermission &&
                             Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -2013,6 +2021,9 @@ internal fun ChatMessagePair(
                     )
                 }
                 androidx.compose.runtime.CompositionLocalProvider(LocalGitHubAssistantReferences provides receiptScopedGitHubReferences) {
+                    selectedAssistantMessage?.let { response ->
+                        dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceMessageSpeaker(response, assistantContent)
+                    }
                     OpponentChatBubble(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -2567,6 +2578,33 @@ fun ChatInputBox(
     val composerKeyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
     val reportComposerFocus by androidx.compose.runtime.rememberUpdatedState(onComposerFocusChanged)
     var composerFocused by remember(inputState) { mutableStateOf(false) }
+    val composerIme = WindowInsets.ime
+    val composerDensity = androidx.compose.ui.platform.LocalDensity.current
+    LaunchedEffect(inputState, composerIme, composerDensity) {
+        if (!dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.diagnosticCaptureEnabled()) return@LaunchedEffect
+        var previous: Pair<Boolean, Boolean>? = null
+        var focusTransitions = 0
+        var keyboardTransitions = 0
+        snapshotFlow { composerFocused to (composerIme.getBottom(composerDensity) > 0) }.collect { current ->
+            previous?.let { prior ->
+                if (prior.first != current.first) focusTransitions = (focusTransitions + 1).coerceAtMost(255)
+                if (prior.second != current.second) keyboardTransitions = (keyboardTransitions + 1).coerceAtMost(255)
+            }
+            previous = current
+            dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.fromFields(
+                "MANUAL_REPORT",
+                mapOf(
+                    "diagnostic_area" to "APP",
+                    "diagnostic_capture_mode" to "SELECTED_CAPTURE",
+                    "composer_focus_transitions" to focusTransitions,
+                    "composer_ime_transitions" to keyboardTransitions,
+                    "composer_focused" to current.first,
+                    "composer_ime_visible" to current.second
+                ),
+                System.currentTimeMillis()
+            )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
+        }
+    }
     var restingFocusEnabled by remember(inputState) { mutableStateOf(false) }
     var restingFocused by remember(inputState) { mutableStateOf(false) }
     fun releaseComposerInput(disposing: Boolean = false) {
@@ -2600,11 +2638,8 @@ fun ChatInputBox(
     LaunchedEffect(chatEnabled) {
         if (!chatEnabled) releaseComposerInput()
     }
-    LaunchedEffect(isRunning) {
-        // A run may start through a quick action or a restored request. Release
-        // the previous editor session once; a new draft may still be typed while it runs.
-        if (isRunning) releaseComposerInput()
-    }
+    // Sending explicitly releases the editor. Run-state changes can also come
+    // from restored or background work while the user is typing a different draft.
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     var composerNotice by remember { mutableStateOf("") }
     val sendAction = {

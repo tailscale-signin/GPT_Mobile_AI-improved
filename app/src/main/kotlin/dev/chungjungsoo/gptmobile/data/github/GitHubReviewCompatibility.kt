@@ -68,6 +68,12 @@ internal class GitHubReviewCompatibility(now: () -> Long = { System.nanoTime() /
         // The selected profile may explicitly require reasoning. Leave room for
         // that policy and a visible verdict instead of imposing a 512-token cap.
         const val OUTPUT_TOKENS = 2048
+        const val OUTPUT_RETRY_TOKENS = 4096
+        const val PREFLIGHT_ROLE = "github-review-preflight"
+        const val OUTPUT_RETRY_ROLE = "github-review-preflight-output-retry"
+
+        fun isPreflightRole(role: String): Boolean = role == PREFLIGHT_ROLE || role == OUTPUT_RETRY_ROLE
+
         const val EVIDENCE_ID = "probe:0"
         const val PROMPT = """{"phase":"review","candidate_scope":"complete","task":"Check this synthetic status only.","candidate_answer":"The synthetic check passed.","records":[{"id":"probe:0","evidence":"{\"status\":\"passed\"}"}],"verified_claims":[],"review_issues":[]}"""
         const val BOUNDED_RETRY_PROMPT = """{"phase":"review","candidate_scope":"complete","task":"Check only whether the candidate matches the one supplied synthetic status. Return one compact verdict, one short reason, no issues if supported, and at most one verified claim. Do not elaborate.","candidate_answer":"The synthetic check passed.","records":[{"id":"probe:0","evidence":"{\"status\":\"passed\"}"}],"verified_claims":[],"review_issues":[]}"""

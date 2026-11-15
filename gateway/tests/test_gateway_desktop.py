@@ -183,17 +183,24 @@ class SettingsTests(unittest.TestCase):
 
 class ReleaseTests(unittest.TestCase):
     def test_only_newer_stable_compatible_official_digest_assets(self):
-        bad = [metadata('15.0.0'), metadata('14.99.0'), metadata('17.0.0'), metadata(digest=None), metadata(size=0), metadata(browser_download_url='https://evil.example/file')]
+        bad = [metadata('15.0.0'), metadata('14.99.0'), metadata('18.0.0'), metadata(digest=None), metadata(size=0), metadata(browser_download_url='https://evil.example/file')]
         bad += [dict(metadata('15.2.0'), prerelease=True), dict(metadata('15.3.0'), draft=True)]
         self.assertIsNone(releases.choose(bad, '15.0.0'))
         self.assertEqual('15.1.0', releases.choose(bad+[metadata(),metadata('15.1.0')], '15.0.0')['version'])
 
     def test_gateway16_upgrade_preserves_stable_channel_and_cannot_downgrade(self):
-        candidates = [metadata('15.9.0'), metadata('16.0.0'), metadata('16.0.1'), metadata('17.0.0')]
+        candidates = [metadata('15.9.0'), metadata('16.0.0'), metadata('16.0.1'), metadata('18.0.0')]
         self.assertEqual('16.0.1', releases.choose(candidates, '15.0.0')['version'])
         self.assertEqual('16.0.1', releases.choose(candidates, '16.0.0')['version'])
         self.assertIsNone(releases.choose(candidates, '16.0.1'))
         self.assertIsNone(releases.choose([dict(metadata('16.0.2'), prerelease=True)], '16.0.1'))
+
+
+    def test_v17_update_is_admitted_only_with_official_bounded_digest_metadata(self):
+        candidates = [metadata('17.0.0'), metadata('18.0.0')]
+        self.assertEqual('17.0.0', releases.choose(candidates, '16.0.0')['version'])
+        self.assertIsNone(releases.choose(candidates, '17.0.0'))
+        self.assertIsNone(releases.choose([metadata('17.0.1', digest=None)], '17.0.0'))
 
     def test_rejects_archive_paths_links_case_collisions_and_expansion(self):
         for names in [['../escape'], ['/absolute'], ['a\\b'], ['C:evil'], ['NUL'], ['foo.'], ['a','A'], ['x/../y'], ['a//b']]:

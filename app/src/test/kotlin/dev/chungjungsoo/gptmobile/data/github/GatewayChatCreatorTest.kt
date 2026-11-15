@@ -162,6 +162,42 @@ class GatewayChatCreatorTest {
         coVerify(exactly = 0) { database.chatRoomDao().markGatewayChat(any()) }
     }
 
+    @Test fun profileOnlyLocalDraftCannotBecomeAReadOnlyGatewayAdoption() = runBlocking {
+        val draft = room.copy(conversationMode = ConversationMode.STANDARD, draftText = "retained draft")
+        coEvery { database.gatewayJobDao().localChat(room.id) } returns draft
+        coEvery { database.gatewayJobDao().conversationsForChat(room.id) } returns emptyList()
+        val opened = creator.adopt(room.id)
+        assertEquals(draft, opened.room)
+        assertEquals(null, opened.blocker)
+        coVerify(exactly = 0) { database.chatRoomDao().markGatewayChat(any()) }
+        coVerify(exactly = 0) { settings.mutateFeatureSettings(any()) }
+    }
+
+    @Test fun researchAndMultiChatsKeepTheirWorkflowsWhenAGatewayParticipantHasRetainedHistory() = runBlocking {
+        val standard = room.copy(conversationMode = ConversationMode.STANDARD)
+        features = features.copy(researchChatIds = setOf(room.id))
+        coEvery { database.gatewayJobDao().localChat(room.id) } returns standard
+        assertEquals(standard, creator.adopt(room.id).room)
+        assertEquals(setOf(room.id), features.researchChatIds)
+
+        features = AppFeatureSettings()
+        val multi = standard.copy(enabledPlatform = listOf(profile.uid, "other"), activePlatform = listOf(profile.uid, "other"))
+        coEvery { database.gatewayJobDao().localChat(room.id) } returns multi
+        assertEquals(multi, creator.adopt(room.id).room)
+        coVerify(exactly = 0) { database.chatRoomDao().markGatewayChat(any()) }
+        coVerify(exactly = 0) { settings.mutateFeatureSettings(any()) }
+    }
+
+    @Test fun changedParticipantsOnAnExplicitGatewayChatStillRequireItsFrozenSelection() = runBlocking {
+        features = features.copy(conversationGateway = mapOf(room.id to selection))
+        val changed = room.copy(activePlatform = listOf(profile.uid, "other"))
+        coEvery { database.gatewayJobDao().localChat(room.id) } returns changed
+        val opened = creator.adopt(room.id)
+        assertEquals(ConversationMode.GATEWAY, opened.room.conversationMode)
+        assertTrue(opened.blocker.orEmpty().contains("original Gateway participant"))
+        assertEquals(selection, features.conversationGateway[room.id])
+    }
+
     @Test fun existingFrozenSelectionIsPreservedWhenTheConfiguredDefaultModelChanges() = runBlocking {
         features = features.copy(conversationGateway = mapOf(room.id to selection))
         coEvery { settings.fetchPlatformV2s() } returns listOf(profile.copy(model = "new-default-model"))

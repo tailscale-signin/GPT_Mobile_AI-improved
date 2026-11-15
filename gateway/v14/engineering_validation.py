@@ -101,6 +101,12 @@ def patch_identity(head, changes):
 
 
 def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
+    from v14.validation_host import command
+    with command(argv) as approved:
+        return _run_bounded(approved, cwd, timeout, maximum, destination)
+
+
+def _run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
     started = time.monotonic()
     output = bytearray()
     total = 0
@@ -184,20 +190,25 @@ class ValidationPolicyError(ValueError):
         self.state = state
 
 
-def load_policy(repository):
+def load_policy(repository, *, policy_path=None):
     """One parser shared by admission and execution; host policy is never model-selected."""
-    policy_path = os.getenv('GATEWAY_ENGINEERING_VALIDATION_POLICY', '')
+    if policy_path is None:
+        policy_path = os.getenv('GATEWAY_ENGINEERING_VALIDATION_POLICY', '')
     if not policy_path:
         raise ValidationPolicyError('NOT_CONFIGURED', 'Configure an approved repository mirror, immutable container image and command list before admission')
     policy_file = Path(policy_path)
     if not policy_file.is_file() or policy_file.stat().st_size > 65536:
         raise ValidationPolicyError('MISSING_OR_OVERSIZED', 'Validation policy is missing or oversized')
-    document = json.loads(policy_file.read_text())
+    document = json.loads(policy_file.read_text(encoding='utf-8-sig'))
     if not isinstance(document, dict):
         raise ValidationPolicyError('INVALID_DOCUMENT', 'Validation policy must be a repository mapping')
     policy = document.get(repository.lower())
     if not isinstance(policy, dict):
         raise ValidationPolicyError('REPOSITORY_UNCONFIGURED', 'Repository has no host-approved validation policy')
+    return validate_policy_entry(policy)
+
+
+def validate_policy_entry(policy):
     mirror = Path(policy['mirror']).resolve()
     image = policy.get('image', '')
     commands = policy.get('commands')
@@ -301,7 +312,10 @@ def validate(job, changes):
                 if cidfile.exists():
                     container = cidfile.read_text().strip()
                     if re.fullmatch('[a-f0-9]{64}', container):
-                        subprocess.run(['docker', 'rm', '-f', container], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15, check=False)
+                        from v14.validation_host import command as host_command, environment as host_environment
+                        with host_command(['docker', 'rm', '-f', container]) as cleanup:
+                            subprocess.run(cleanup, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                                           stderr=subprocess.DEVNULL, timeout=15, check=False, env=host_environment(root))
             return dict(result, command=command, report_snapshots=capture_behavior_reports(command_coverage, command_checkout))
 
         index = 0

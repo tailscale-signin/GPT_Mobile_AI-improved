@@ -1,0 +1,22 @@
+{
+  "androidSources": {
+    "overview": "ic_gateway_server.xml",
+    "chat": "ic_conversation_chat_seen.xml",
+    "new_prompt": "ic_new_chat.xml",
+    "benchmarks": "ic_chart.xml"
+  },
+  "nativeOutlines": [
+    "saved",
+    "jobs",
+    "settings"
+  ],
+  "colors": {
+    "active": "#00FFDE",
+    "muted": "#B8DDE2"
+  },
+  "sizes": [
+    24,
+    36,
+    48
+  ]
+}

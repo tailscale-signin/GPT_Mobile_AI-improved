@@ -41,6 +41,14 @@ class GitHubLineAutoScrollerTest {
     @get:Rule val compose = createComposeRule(effectContext = durationScale)
 
     @Test fun paragraphInsertedBelowTheViewportIsMeasuredAndGetsItsCompleteReadingBudget() {
+        verifyInsertedTextPacing("First new line\nSecond new line\nThird new line", 3000L)
+    }
+
+    @Test fun aSingleRenderedPreviewLineGetsOneAndAHalfSeconds() {
+        verifyInsertedTextPacing("One preview line", 1500L)
+    }
+
+    private fun verifyInsertedTextPacing(insertedText: String, expectedDurationMillis: Long) {
         var showList by mutableStateOf(false)
         var added by mutableStateOf(false)
         lateinit var state: LazyListState
@@ -58,7 +66,7 @@ class GitHubLineAutoScrollerTest {
                                 Column {
                                     Spacer(Modifier.height(300.dp))
                                     Text("Existing text", onTextLayout = rememberGitHubTextLayout("existing"))
-                                    if (added) Text("First new line\nSecond new line\nThird new line", onTextLayout = rememberGitHubTextLayout("new"))
+                                    if (added) Text(insertedText, onTextLayout = rememberGitHubTextLayout("new"))
                                 }
                             }
                         }
@@ -83,12 +91,13 @@ class GitHubLineAutoScrollerTest {
         compose.waitForIdle()
         compose.mainClock.advanceTimeUntil(250) { !lines.queue.isEmpty }
         compose.runOnIdle {
-            assertEquals(4500L, lines.queue.remainingMillis)
+            assertEquals(expectedDurationMillis, lines.queue.remainingMillis)
             assertFalse(state.isAtGitHubBottom())
         }
-        compose.mainClock.advanceTimeBy(3000)
+        val partialDuration = expectedDurationMillis * 2 / 3
+        compose.mainClock.advanceTimeBy(partialDuration)
         compose.runOnIdle { assertFalse(state.isAtGitHubBottom()) }
-        compose.mainClock.advanceTimeBy(1600)
+        compose.mainClock.advanceTimeBy(expectedDurationMillis - partialDuration + 100)
         compose.runOnIdle {
             assertTrue(lines.queue.isEmpty)
             assertTrue(state.isAtGitHubBottom())

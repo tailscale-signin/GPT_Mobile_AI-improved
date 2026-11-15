@@ -10,9 +10,11 @@ interface ApprovedReadOnlyAgentTool {
 }
 
 internal object ToolReplaySafety {
-    fun isReplayableRead(name: String, arguments: JsonObject, tool: AgentTool? = null): Boolean =
-        name == ProgressiveToolCatalog.NAME ||
+    fun isReplayableRead(name: String, arguments: JsonObject, tool: AgentTool? = null): Boolean {
+        if (GitHubAuthorizationBoundary.isLocalGraphIndexing(name, arguments)) return false
+        return name == ProgressiveToolCatalog.NAME ||
             GitHubAuthorizationBoundary.isReplayableRead(name, arguments) ||
             ResearchTimeouts.isAcademicRead(name) ||
             (tool as? ApprovedReadOnlyAgentTool)?.approvedReadOnly == true
+    }
 }

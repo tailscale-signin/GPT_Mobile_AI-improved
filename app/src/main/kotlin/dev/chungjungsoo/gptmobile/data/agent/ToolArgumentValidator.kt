@@ -91,7 +91,7 @@ internal object ToolArgumentValidator {
             errorCode = "INVALID_ARGUMENTS",
             dispatched = false,
             executionReceipt = JsonObject(
-                rejectionReceipt(arguments, schema, validationErrors, selector) + buildJsonObject {
+                rejectionReceipt(toolName.substringBefore("__"), arguments, schema, validationErrors, selector) + buildJsonObject {
                     if (toolName.substringBefore("__") == "github_read") {
                         (arguments["ranges"] as? JsonArray)?.let { ranges ->
                             put("read_range_count", ranges.size)
@@ -110,7 +110,7 @@ internal object ToolArgumentValidator {
     }
 
     /** Typed cause and constraint classes; no argument values enter public diagnostic fields. */
-    private fun rejectionReceipt(arguments: JsonObject, schema: JsonObject, validationErrors: List<String>, selector: SelectorProblem?): JsonObject {
+    private fun rejectionReceipt(operation: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String>, selector: SelectorProblem?): JsonObject {
         val properties = (schema["properties"] as? JsonObject).orEmpty()
         val missing = (schema["required"] as? JsonArray).orEmpty().filterIsInstance<JsonPrimitive>()
             .filter { it.isString && it.content !in arguments }.map { it.content }.toMutableSet()
@@ -122,6 +122,24 @@ internal object ToolArgumentValidator {
         selector?.let { if (it.missing) missing += it.field else invalid += it.field }
         val classes = linkedSetOf<String>()
         validate(arguments, schema, "$", 0, classes)
+        if (operation == "github_context" && arguments["action"] == JsonPrimitive("repositories") && "view_cursor" !in arguments && "query" in properties) {
+            when (val query = arguments["query"]) {
+                null -> {
+                    missing += "query"
+                    classes += "MISSING_REQUIRED"
+                }
+                else -> when {
+                    query !is JsonPrimitive || !query.isString -> {
+                        invalid += "query"
+                        classes += "WRONG_TYPE"
+                    }
+                    query.content.isBlank() -> {
+                        invalid += "query"
+                        classes += "EMPTY_STRING"
+                    }
+                }
+            }
+        }
         selector?.let {
             val value = arguments[it.field] as? JsonPrimitive
             classes += when {

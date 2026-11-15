@@ -32,7 +32,6 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -69,27 +68,37 @@ internal fun RepositoryGraphStatusContent(
     onSelect: (JsonObject) -> Unit,
     onConfigureGateway: (() -> Unit)? = null,
     gatewayConfigured: Boolean = true,
-    showTitle: Boolean = true
+    showTitle: Boolean = true,
+    onSearch: (String) -> Unit = {},
+    onNextPage: () -> Unit = {},
+    onPreviousPage: () -> Unit = {},
+    onRetryFailed: () -> Unit = {},
+    onNeighborhood: (JsonObject) -> Unit = {}
 ) {
-    val map = state.architecture
+    val map = state.visibleMap
     val graph = remember(map) { repositoryGraphPresentation(map) }
-    var query by remember(context, state.gatewayProfileUid) { mutableStateOf("") }
-    var page by remember(context, state.gatewayProfileUid, query, map) { mutableIntStateOf(0) }
+    var query by remember(context, state.gatewayProfileUid, state.mapQuery) { mutableStateOf(state.mapQuery) }
     var selectedNode by remember(context, state.gatewayProfileUid, map) { mutableStateOf<JsonObject?>(null) }
-    val filtered = remember(graph, query) { graph.search(query) }
-    val visible = remember(filtered, page) { filtered.page(page) }
-    val metadata = (state.result?.get("graph") ?: map?.get("graph")) as? JsonObject
+    val visible = remember(graph, selectedNode) { graph.neighborhood(selectedNode?.graphText("id")) }
+    val metadata = (state.indexStatus?.get("graph") ?: state.result?.get("graph") ?: map?.get("graph")) as? JsonObject
     val processed = (metadata?.get("processed_files") as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull?.takeIf { it >= 0 }
     val total = (metadata?.get("expected_files") as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull?.takeIf { it >= 0 }
-    val partial = map?.get("truncated") == JsonPrimitive(true) || metadata?.get("complete") == JsonPrimitive(false)
+    val partial = metadata?.get("coverage_complete") == JsonPrimitive(false) || metadata?.get("complete") == JsonPrimitive(false)
+    val statuses = metadata?.get("file_statuses") as? JsonObject
+    val retryable = metadata?.graphCount("retryable_files") ?: statuses?.graphCount("failed") ?: 0
+    val jobState = state.indexJob?.graphText("state")
+    val jobError = state.indexJob?.graphText("error_code")?.takeIf { it.matches(Regex("[A-Z][A-Z0-9_]{0,79}")) }
     val indexedEmpty = map != null && graph.nodes.isEmpty()
-    val canContinue = state.indexCursor != null || state.indexingPaused
-    val blocked = state.error != null || !gatewayConfigured || state.indexOutcomeUnknown
+    val canContinue = !state.indexingOnGateway && (state.indexCursor != null || state.indexingPaused || state.indexJob?.graphText("state") in setOf("PAUSED", "INTERRUPTED"))
+    val queryRecoverable = state.repairAction in setOf("NARROW_GRAPH_QUERY", "RESTART_MAP_SEARCH")
+    val blocked = state.error != null && !queryRecoverable || !gatewayConfigured || state.indexOutcomeUnknown
     val label = when {
         !gatewayConfigured -> "Setup needed"
-        state.busy -> if (state.operation == "index") "Building" else "Checking"
         state.indexOutcomeUnknown -> "Check required"
         state.error != null -> "Needs attention"
+        state.indexingOnGateway -> "Building on gateway"
+        state.busy -> if (state.operation == "index") "Updating index" else "Checking"
+        jobState == "FAILED" -> "Indexing needs attention"
         canContinue -> "Paused"
         graph.nodes.isNotEmpty() -> if (partial) "Partial map" else "Map available"
         indexedEmpty -> "No source links"
@@ -113,7 +122,7 @@ internal fun RepositoryGraphStatusContent(
                     if (showTitle) Text("Repository map", style = MaterialTheme.typography.titleMedium)
                     Text("${context.owner}/${context.repo}", style = MaterialTheme.typography.bodyMedium)
                 }
-                if (state.busy && gatewayConfigured) {
+                if ((state.busy || state.indexingOnGateway && state.error == null) && gatewayConfigured) {
                     TextButton(onClick = onStop, modifier = Modifier.testTag("github_repository_map_stop")) { Text("Stop") }
                 } else {
                     TextButton(onClick = onRefresh, enabled = gatewayConfigured, modifier = Modifier.testTag("github_repository_map_refresh")) { Text("Refresh") }
@@ -145,7 +154,6 @@ internal fun RepositoryGraphStatusContent(
                     onRefresh,
                     allowRefresh = false
                 )
-                state.busy -> RepositoryGraphProgress(state, processed, total)
                 state.indexOutcomeUnknown -> RepositoryGraphRepair(
                     "Check the saved index first",
                     "The build request may have reached the gateway. Read its saved status before starting another build.",
@@ -155,22 +163,33 @@ internal fun RepositoryGraphStatusContent(
                     refreshLabel = "Check saved index"
                 )
                 state.error != null -> RepositoryGraphRepair(
-                    if (state.repairAction == "CONFIGURE_SELECTED_GATEWAY_HOST_GITHUB") "Connect GitHub on your gateway" else "The map needs attention",
+                    when (state.repairAction) {
+                        "CONFIGURE_SELECTED_GATEWAY_HOST_GITHUB" -> "Connect GitHub on your gateway"
+                        "REVIEW_SELECTED_GATEWAY_CERTIFICATE" -> "Check the gateway certificate"
+                        "RECHECK_SELECTED_REVISION" -> "Check the selected revision"
+                        "NARROW_GRAPH_QUERY" -> "Narrow this source search"
+                        "RESTART_MAP_SEARCH" -> "Refresh this source search"
+                        else -> "The map needs attention"
+                    },
                     if (state.repairAction == "CONFIGURE_SELECTED_GATEWAY_HOST_GITHUB") {
                         "Your selected gateway needs its own GitHub connection before it can map this revision. Open gateway settings to review the connection."
+                    } else if (queryRecoverable) {
+                        "Use the search below to request a smaller result or refresh the map’s first page."
                     } else {
                         "Check the selected gateway, then refresh this map."
                     },
                     state,
-                    onConfigureGateway,
+                    onConfigureGateway.takeUnless { queryRecoverable },
                     onRefresh
                 )
+                state.busy || state.indexingOnGateway -> RepositoryGraphProgress(state, processed, total)
                 canContinue -> {
                     Text("Indexing is paused", style = MaterialTheme.typography.titleMedium)
                     Text(if (state.indexCursor != null) "Continue from the saved source-file cursor for this revision." else "Review the retained progress, then continue indexing this revision.", style = MaterialTheme.typography.bodyMedium)
                     RepositoryGraphFileProgress(processed, total)
                     Button(onClick = onIndex, modifier = Modifier.fillMaxWidth().testTag("github_repository_map_index")) { Text("Continue indexing") }
                 }
+                state.searchResult != null && graph.nodes.isEmpty() -> Text("No matching file or symbol was found in this index. Unindexed or dynamic code may still contain a match.", style = MaterialTheme.typography.bodyMedium)
                 graph.nodes.isEmpty() -> {
                     Column(Modifier.fillMaxWidth().padding(vertical = 10.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         Box(Modifier.size(84.dp).background(Brush.radialGradient(listOf(colors.primary.copy(alpha = .16f), colors.primary.copy(alpha = 0f))), RoundedCornerShape(28.dp)), contentAlignment = Alignment.Center) {
@@ -187,26 +206,78 @@ internal fun RepositoryGraphStatusContent(
                     }
                 }
             }
-            if (gatewayConfigured && graph.nodes.isNotEmpty()) {
-                Text(if (blocked || state.busy) "Loaded source relationships" else "${graph.nodes.size} sources · ${graph.edges.size} indexed links", style = MaterialTheme.typography.titleSmall)
-                OutlinedTextField(query, { query = it.take(200) }, label = { Text("Find a file or symbol") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("github_repository_map_search"))
-                if (visible.nodes.isNotEmpty()) {
-                    GraphMiniMap(visible.nodes, visible.edges, selectedId = selectedNode?.graphText("id")) { node ->
+            if (jobState in setOf("FAILED", "PAUSED", "CANCELLED", "INTERRUPTED") && state.error == null && !state.indexOutcomeUnknown) {
+                val jobMessage = when (jobError) {
+                    "INDEX_ACCESS_REVOKED" -> "The saved index job stopped because repository access changed. Review the gateway connection, then refresh."
+                    "INDEX_CONNECTION_UNAVAILABLE" -> "The saved index job stopped after connection retries. Its source progress is retained."
+                    "INDEX_BUDGET_REACHED" -> "The saved index job reached its work limit. Continue indexing to process the remaining files."
+                    "INDEX_RETRY_OUTCOME_UNKNOWN" -> "The gateway could not confirm that the failed-file retry ran. Review the retained coverage before retrying those files."
+                    else -> when (jobState) {
+                        "CANCELLED" -> "The saved index job was stopped. Previously indexed sources remain available."
+                        "INTERRUPTED" -> "The gateway is recovering its saved index job. Refresh to reconnect to its progress."
+                        "PAUSED" -> "The gateway paused its saved index job. Previously indexed sources remain available."
+                        else -> "The saved index job failed. Review its retained progress and refresh before continuing."
+                    }
+                }
+                Text(listOfNotNull(jobMessage, jobError).joinToString(" · "), style = MaterialTheme.typography.bodySmall, color = if (jobState == "FAILED") colors.error else colors.onSurfaceVariant, modifier = Modifier.testTag("github_repository_map_job_state"))
+            }
+            if (metadata != null) {
+                val categories = listOf("indexed" to "indexed", "partial" to "partial", "unsupported" to "unsupported", "failed" to "failed")
+                if (statuses != null) Text(categories.joinToString(" · ") { (key, label) -> "${statuses.graphCount(key) ?: 0} $label" }, style = MaterialTheme.typography.labelSmall, modifier = Modifier.testTag("github_repository_map_coverage"))
+                if (metadata["processing_complete"] == JsonPrimitive(true) && partial) Text("Processing finished with incomplete source coverage. Missing relationships remain unknown.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                if (retryable > 0 && !blocked && !state.busy && !state.indexingOnGateway) OutlinedButton(onClick = onRetryFailed, modifier = Modifier.testTag("github_repository_map_retry_failed")) { Text("Retry $retryable failed or recoverable files") }
+                if ((statuses?.graphCount("unsupported") ?: 0) > 0) Text("Unsupported files remain listed in coverage. Files above the size limit need a source read; unavailable parsers can be retried after updating the gateway.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+            }
+            if (state.modelAccess != "NOT_CHECKED") {
+                Text(
+                    if (state.modelAccess == "PRIVATE_PROFILE_ELIGIBLE") "Your private AI profile is eligible to use this map. Actual use is recorded with each retrieval." else "Map browsing is available, but the selected AI profile cannot receive private graph context. Select a private profile to use the map in AI requests.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.testTag("github_repository_map_model_access")
+                )
+            }
+            if (gatewayConfigured && (map != null || metadata != null)) {
+                OutlinedTextField(query, { query = it.take(2000) }, label = { Text("Find a file or symbol") }, leadingIcon = { Icon(Icons.Outlined.Search, null) }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("github_repository_map_search"))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = { onSearch(query) }, enabled = !state.busy && !blocked, modifier = Modifier.testTag("github_repository_map_search_submit")) { Text("Search index") }
+                    if (state.mapQuery.isNotEmpty() || state.mapFocusPath != null) {
+                        TextButton(onClick = {
+                            query = ""
+                            onSearch("")
+                        }, enabled = !state.busy && !blocked) { Text("All files") }
+                    }
+                }
+                state.mapFocusPath?.let { Text("Connections around $it", style = MaterialTheme.typography.labelMedium) }
+                if (graph.nodes.isNotEmpty()) {
+                    val totalMatches = map?.graphCount(if (state.mapQuery.isNotEmpty()) "total_matches" else "total_files")
+                    val totalLinks = map?.graphCount("total_relationships")
+                    Text("${graph.nodes.size} loaded sources" + totalMatches?.let { if (state.mapQuery.isNotEmpty()) " · $it matching sources" else " · $it sources in this view" }.orEmpty() + " · ${graph.edges.size} loaded links" + totalLinks?.let { " of $it" }.orEmpty(), style = MaterialTheme.typography.titleSmall)
+                    GraphMiniMap(visible.nodes, graph.edges, selectedId = selectedNode?.graphText("id")) { node ->
                         selectedNode = node
                         if (!state.busy && !blocked) onSelect(node)
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { page-- }, enabled = page > 0, modifier = Modifier.testTag("github_repository_map_previous")) { Text("Previous") }
-                        Text("${page * 12 + 1}–${page * 12 + visible.nodes.size} of ${filtered.nodes.size}", style = MaterialTheme.typography.labelMedium)
-                        TextButton(onClick = { page++ }, enabled = (page + 1) * 12 < filtered.nodes.size, modifier = Modifier.testTag("github_repository_map_next")) { Text("Next") }
+                    if (visible.omittedNodes > 0 || visible.externalConnections > 0) Text("${visible.omittedNodes} loaded sources and ${visible.externalConnections} connections extend beyond this diagram. Select a source below to center its neighborhood.", style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("github_repository_map_external_links"))
+                    if (visible.omittedNodes > 0) {
+                        graph.nodes.forEach { node ->
+                            TextButton(onClick = { selectedNode = node }, modifier = Modifier.fillMaxWidth()) { Text(node.graphText("qualified", node.graphText("name"))) }
+                        }
                     }
                     if (visible.edges.isNotEmpty()) Text("Arrows follow indexed source links. Select a source to inspect its connections.", Modifier.testTag("github_repository_map_legend"), style = MaterialTheme.typography.labelSmall, color = colors.onSurfaceVariant)
-                } else {
-                    Text("No indexed file or symbol matches this search.", style = MaterialTheme.typography.bodyMedium)
+                    selectedNode?.let { node ->
+                        RepositoryGraphSourceDetail(context, node, state, graph)
+                        TextButton(onClick = { onNeighborhood(node) }, enabled = !state.busy && !blocked, modifier = Modifier.testTag("github_repository_map_neighborhood")) { Text("Explore this source’s connections") }
+                    }
                 }
-                selectedNode?.let { RepositoryGraphSourceDetail(context, it, state, graph) }
+                if (state.mapPage > 0 || state.mapNextCursor != null) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        TextButton(onClick = onPreviousPage, enabled = state.mapPage > 0 && !state.busy && !blocked, modifier = Modifier.testTag("github_repository_map_previous")) { Text("Previous") }
+                        Text("Page ${state.mapPage + 1}", style = MaterialTheme.typography.labelMedium)
+                        TextButton(onClick = onNextPage, enabled = state.mapNextCursor != null && !state.busy && !blocked, modifier = Modifier.testTag("github_repository_map_next")) { Text("Next") }
+                    }
+                }
                 if (map?.get("stale") == JsonPrimitive(true)) Text("The branch has moved. This map remains pinned to the revision above.", color = colors.error, style = MaterialTheme.typography.bodySmall)
-                if (partial) Text("This is part of the source index. Search or continue indexing to explore additional relationships.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                if (partial) Text("This index has incomplete source coverage. A missing relationship is not proof that the source has no connection.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+                if (map?.get("has_more") == JsonPrimitive(true)) Text("More results are available on the next page.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
         }
     }
@@ -224,7 +295,7 @@ private fun RepositoryGraphRepair(title: String, message: String, state: Reposit
             if (allowRefresh) TextButton(onClick = onRefresh, modifier = Modifier.testTag("github_repository_map_recheck")) { Text(refreshLabel) }
             state.error?.takeIf(String::isNotBlank)?.let { error ->
                 TextButton(onClick = { details = !details }, modifier = Modifier.testTag("github_repository_map_error_details")) { Text(if (details) "Hide details" else "Connection details") }
-                if (details) SelectionContainer { Text(error, style = MaterialTheme.typography.bodySmall) }
+                if (details) SelectionContainer { Text(listOfNotNull(state.errorCode, error).joinToString(" · "), style = MaterialTheme.typography.bodySmall) }
             }
         }
     }
@@ -233,9 +304,10 @@ private fun RepositoryGraphRepair(title: String, message: String, state: Reposit
 @Composable
 private fun RepositoryGraphProgress(state: RepositoryGraphUiState, processed: Int?, total: Int?) {
     val colors = MaterialTheme.colorScheme
-    val progress = if (processed != null && total != null && total > 0 && processed <= total && state.operation == "index") processed.toFloat() / total else null
+    val progress = if (processed != null && total != null && total > 0 && processed <= total && (state.operation == "index" || state.indexingOnGateway)) processed.toFloat() / total else null
     val phase = rememberGitHubProgressMotion(progress == null)
     val message = when {
+        state.indexingOnGateway -> "Building on your gateway"
         state.operation == "index" -> "Building the source map"
         state.indexOutcomeUnknown -> "Checking the saved index"
         state.operation == "node" -> "Reading source details"
@@ -252,7 +324,7 @@ private fun RepositoryGraphProgress(state: RepositoryGraphUiState, processed: In
             }
         }
         RepositoryGraphFileProgress(processed, total)
-        Text("The map stays pinned to the selected revision.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
+        Text(if (state.indexingOnGateway) "You can close this screen. The saved index job continues on your gateway." else "The map stays pinned to the selected revision.", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
     }
 }
 
@@ -292,3 +364,5 @@ private fun RepositoryGraphSourceDetail(context: GitHubConversationContext, node
         }
     }
 }
+
+private fun JsonObject.graphCount(name: String): Int? = (get(name) as? JsonPrimitive)?.takeIf { !it.isString }?.intOrNull?.takeIf { it >= 0 }

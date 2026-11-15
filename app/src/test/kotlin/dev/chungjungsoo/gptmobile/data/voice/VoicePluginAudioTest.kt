@@ -6,6 +6,25 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoicePluginAudioTest {
+    @Test fun voiceConversationRequiresKokoroAndNeverFallsBackToAndroidSpeech() {
+        val failures = mutableListOf<String>()
+        var fallbackCalls = 0
+        val output = LocalOutput()
+        val plugin = VoicePluginAudio(system, local, output, { _, _, _ -> fallbackCalls++ }) {}.apply {
+            requireLocalOutput = true
+            kokoroVoice = KokoroVoice.HEART
+        }
+        plugin.speak("Here is the answer.", {}, failures::add)
+        requireNotNull(output.onError)("Kokoro could not start.", true)
+        assertEquals(0, fallbackCalls)
+        assertTrue(system.spoken.isEmpty())
+        assertEquals(listOf("Kokoro could not start."), failures)
+        plugin.kokoroVoice = null
+        plugin.speak("Keep this in chat.", {}, failures::add)
+        assertTrue(system.spoken.isEmpty())
+        assertEquals(2, failures.size)
+    }
+
     @Test fun projectedReplyAndReplayPreserveLeadingNumbersThroughTheDeferredOutput() {
         val spoken = mutableListOf<String>()
         val completions = mutableListOf<() -> Unit>()

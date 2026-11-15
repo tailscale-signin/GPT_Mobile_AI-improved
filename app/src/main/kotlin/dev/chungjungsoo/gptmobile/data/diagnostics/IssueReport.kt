@@ -5,6 +5,8 @@ import dev.chungjungsoo.gptmobile.BuildConfig
 import java.util.UUID
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 @Serializable
@@ -26,6 +28,22 @@ internal data class IssueReport(
     val events: List<String> = emptyList(),
     val context: IssueReportContext? = null
 ) {
+    /** Preserve safe catch-site frames when a Flow error crosses the UI boundary without its throwable. */
+    fun withCapturedException(fields: Map<String, Any?>): IssueReport {
+        fun text(value: Any?): String? = (value as? String) ?: (value as? JsonPrimitive)?.takeIf { it.isString }?.content
+        if (text(fields["incident_capture_site"]) !in IssueReportIncidentCapsule.ExceptionCaptureSite.entries.map { it.name } ||
+            text(fields["incident_phase_provenance"]) != "CAPTURE_BOUNDARY_ONLY"
+        ) {
+            return this
+        }
+        val capturedType = text(fields["exception_report_type"])?.takeIf(typePattern::matches)
+        val capturedFrames = (fields["exception_application_frames"] as? JsonArray).orEmpty().take(8)
+            .mapNotNull(::text).filter { frame ->
+                framePattern.matches(frame) && (frame.startsWith("dev.chungjungsoo.gptmobile.") || frame.startsWith("dev.melo.gptmobile."))
+            }.distinct()
+        return copy(errorType = errorType ?: capturedType, frames = frames.ifEmpty { capturedFrames })
+    }
+
     /** Validate the exact approved bytes before durable delivery; retries keep these bytes and this ID. */
     fun approvedPayload(): String = json.encodeToString(serializer(), this).also {
         require(IssueReportContext.validDiagnosticsIn(json.parseToJsonElement(it).jsonObject["context"])) { "Invalid report diagnostics." }

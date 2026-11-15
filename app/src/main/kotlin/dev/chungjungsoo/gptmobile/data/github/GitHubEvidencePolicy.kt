@@ -13,6 +13,7 @@ import kotlinx.serialization.json.put
 /** Verifies observations, never arbitrary model prose. Shared contract: github.evidence.v1. */
 internal object GitHubEvidencePolicy {
     const val MAX_AGE_MS = 120_000L
+    val freshnessPredicateValues = setOf("OBSERVATION_TIME_UNAVAILABLE", "OBSERVATION_TIME_FUTURE", "MUTABLE_AGE_EXCEEDED", "MUTABLE_EPOCH_MISMATCH")
     private val unavailable = setOf("app", "node_id", "external_id", "avatar_url", "content", "body", "text", "patch", "message", "summary", "description", "instructions", "log", "logs", "error", "error_message")
 
     private val secretField = Regex("(?i)token|secret|password|authorization|cookie")
@@ -110,9 +111,22 @@ internal object GitHubEvidencePolicy {
             status == "CONTRADICTED" -> "VALUE_MISMATCH"
             else -> "EXACT_RECEIPT_MATCH"
         }
+        // Preserve the decision above. These are its effective, verification-time
+        // observations, not a later reconstruction from the retained receipt.
+        val freshnessPredicates = when {
+            status == "NOT_MEASURED" -> null
+            timestamp <= 0 -> listOf("OBSERVATION_TIME_UNAVAILABLE")
+            timestamp > now -> listOf("OBSERVATION_TIME_FUTURE")
+            status == "CONTRADICTED" || immutable -> emptyList()
+            else -> buildList {
+                if (now - timestamp > MAX_AGE_MS) add("MUTABLE_AGE_EXCEEDED")
+                if (receipt?.get("epoch") != JsonPrimitive(currentEpoch)) add("MUTABLE_EPOCH_MISMATCH")
+            }
+        }
         return buildJsonObject {
             put("status", status)
             put("reason", reason)
+            freshnessPredicates?.let { put("freshness_predicates", JsonArray(it.map(::JsonPrimitive))) }
             put(
                 "recovery",
                 when (reason) {

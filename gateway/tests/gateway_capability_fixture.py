@@ -24,7 +24,7 @@ from test_gateway_v14_http import Backend
 
 GATEWAY_ROOT = Path(__file__).resolve().parents[1]
 RESOURCE_ROOT = GATEWAY_ROOT / 'contracts/v15'
-FULL_FIXTURE = GATEWAY_ROOT / 'contracts/v16/gateway-v16-capabilities-full.json'
+FULL_FIXTURE = GATEWAY_ROOT / 'contracts/v17/gateway-v17-capabilities-full.json'
 LEGACY_FIXTURE = RESOURCE_ROOT / 'gateway-v15-capabilities-legacy-mixed.json'
 
 

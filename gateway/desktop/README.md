@@ -1,10 +1,10 @@
-# Gateway 16 for Windows
+# Gateway 17 for Windows
 
 Gateway connects GPT Mobile to your model backend and approved PC tools. The Windows x64 installer bundles Python and the pinned gateway dependencies. The model server is a separate prerequisite. No Tailscale installation is needed.
 
 ## Install and connect
 
-1. Run `Gateway-16.0.0-windows-x64-setup.exe` under your normal Windows account. Choose the installation folder, backend origin, port, worker/chat limits, shutdown grace, MCP configuration, listen address, optional LAN firewall rule, startup preference and update policy.
+1. Run `Gateway-17.0.0-windows-x64-setup.exe` under your normal Windows account. Choose the installation folder and keep Recommended setup for the default local model connection. Advanced setup exposes backend, concurrency and network controls; the same controls are available later in Settings.
 2. Start your model server. Default backend: `http://127.0.0.1:8080`. Gateway listens only on `127.0.0.1:8090` by default. Backend origins must omit `/v1`; remote backends require HTTPS. MCP commands run with your Windows account permissions: use configuration from sources you trust.
 3. Open **Gateway Settings** from the Start menu to check status, edit settings, restart, stop, check updates or install an available update. Notify is the default; select Auto for unattended updates. Restart applies saved connection/concurrency changes after work finishes.
 4. For phone access, set **Listen address** to the PC interface IP or `0.0.0.0` (all IPv4 interfaces), save and restart. On Android, use a LLAMA connection with `http://<PC-IP-or-hostname>:8090/v1` and leave the API key empty. `0.0.0.0` is a listener setting, not the phone's destination. The PC hostname is admitted automatically; add custom aliases in **Additional hostnames** if needed.
@@ -55,9 +55,72 @@ For private maps or saved GitHub jobs, select **Open GitHub settings for private
 
 On a LAN listener, **Allow network devices to run GitHub engineering tasks** grants connected devices access to private maps and saved engineering operations through this PC's GitHub connection. Enable it only for your intended network, save settings, and restart after active work finishes.
 
+### Repository Validation tab
+
+Open **Gateway Settings → GitHub → Repository Validation**. Connection and
+Repository Validation are separate tabs. No external policy file, hand-written
+JSON file, Docker digest lookup or terminal command is required for the normal
+setup path.
+
+The default repository is `tailscale-signin/gpt_mobile_ai-improved`. Repository
+URLs and uppercase GitHub names are normalized automatically. For this repository,
+an existing `D:\MCP` folder is preferred on Windows; otherwise Gateway uses its
+persistent `data/mirrors/<owner>/` directory. Browse can select an existing bare
+mirror or a new destination. A working checkout, a mirror of another repository,
+filesystem links and folders with unrelated contents are not overwritten.
+
+**Prepare & save** confirms the local host's approval, then checks installed Git
+and Docker Desktop, creates or refreshes the mirror, prepares the official
+`docker.io/library/python:3.12-slim-bookworm` image and resolves its actual registry
+SHA-256 digest. It saves the approved commands and settings internally. Git and
+Docker Desktop with Linux containers are prerequisites; missing prerequisites get
+a specific explanation. Downloads need connectivity. Existing approved digests
+remain pinned until **Refresh image pin** or a different image is selected. Setup
+and validation address the same local/default Docker daemon, not a saved remote
+context. Private GitHub access uses the PC-selected credential only in the Git
+child environment, never in a URL, saved policy or displayed subprocess output.
+
+**Check setup** verifies the existing mirror and pinned local image without
+fetching, pulling, saving or executing repository commands. Setup runs off the
+UI thread; Cancel and closing the settings window stop its pending subprocess
+work. Errors, cancellation and concurrent edits leave the previously selected
+settings in place. A successfully fetched mirror/image may remain cached after
+cancellation, but no new policy is activated.
+
+Recommended source checks need only the standard library in that Python image:
+Python syntax, diagnostic-schema consistency and checked-in CI policy. The
+600-second per-command timeout is editable. These checks are **not** full Android
+builds, Gateway behavior tests, Windows qualification or permission to merge.
+Per-task implementation admission still requires explicit acceptance requirements
+and genuine behavior-test mappings. The default includes the repository's exact
+`Required verification` and `Analyze (java-kotlin)` CI names, but does not invent
+acceptance cases or claim those remote checks ran.
+
+Advanced validation settings expose the image source, custom argument-array
+commands, exact CI check names, behavior acceptance mappings, parallel groups,
+objective templates and draft-repair requirements. Existing mappings and unknown
+host policy fields are preserved on migration; a generic repository must use its
+own Custom commands. No model-selected shell command is run on the host. Custom
+images must already provide their commands' offline dependencies; registry
+credentials are not inherited by the isolated validation Docker client.
+
+Existing external selections remain readable until **Prepare & save** migrates
+all their entries into managed internal snapshots. After migration the external
+file can be removed without affecting the selected policy. Internal immutable
+snapshots under `data/repository-validation/` and the schema-1 selector under
+`data/validation-settings.json` survive updates and both launcher stages. Active
+jobs keep their old approval snapshot. **Restart** applies the new selection
+through the existing guarded restart flow; setup never cancels engineering jobs.
+Refresh the mirror with Prepare & save when newer source commits are needed.
+
+**Disable / reset validation settings** is an explicit advanced repair action. It
+disables the selection without deleting mirrors, images, old snapshots or the
+original external policy. A corrupt saved selection never silently inherits a
+different policy. The old Advanced-tab file picker is no longer required.
+
 ## General, Advanced and Add-ons
 
-Open each section directly from the dashboard sidebar or from Gateway Settings. General exposes the backend, listener address, hostnames, startup/update preferences and explicit firewall actions. Advanced exposes worker/chat limits and shutdown grace. Add-ons shows the enabled services in the selected MCP JSON configuration. Saving add-ons preserves commands, arguments and credentials, and refuses a save if the configuration changed externally. Save the selected file path in settings and restart when work finishes to apply it. The gateway service allowlist remains authoritative.
+Open Settings from the dashboard. General, Add-ons and GitHub are available there; select Show advanced settings for worker limits, batch controls and benchmark setup. Repository validation lives in its own GitHub subtab. General exposes the backend, listener address, hostnames, startup/update preferences and explicit firewall actions. Advanced exposes worker/chat limits and shutdown grace. Add-ons shows the enabled services in the selected MCP JSON configuration. Saving add-ons preserves commands, arguments and credentials, and refuses a save if the configuration changed externally. Save the selected file path in settings and restart when work finishes to apply it. The gateway service allowlist remains authoritative.
 
 The token graph uses provider completion usage or llama.cpp timing receipts, including reasoning when counted by the backend. Missing measurements remain unavailable and partial coverage is disclosed. Counters start with this update, persist in `data/usage.sqlite3`, and exclude cached deliveries. These are measurements for this installation, without inferred per-phone attribution. Old logs are not estimated. A single background observer delivers both usage and activity without blocking generation; stale data is visibly marked.
 
@@ -69,3 +132,7 @@ Open **Settings → Advanced**, enable **Debug mode**, save and restart after ac
 ### Benchmarks
 
 In the dashboard, open **Benchmarks**, select an advertised model, and run the suite. The latest result for each exact model and backend is saved on this PC. The score measures correct answers across five fixtures. Select a result to see Gateway round-trip latency, time to first text, total time, stream gaps, and model throughput when the backend reports it. A transport or stream failure leaves the run incomplete.
+
+## Chat, saved messages and benchmarks
+
+The dashboard now has Overview, Chat, Saved, Jobs and Benchmarks. New prompt opens the selected-model composer; Ctrl+Enter sends. Saved offers history search, bookmarks, favorites and archiving. Advanced setup is optional. See [Gateway 17 contracts](../V17_DESKTOP.md) for conversation identity, benchmark scope, safe recovery and upgrade behavior.

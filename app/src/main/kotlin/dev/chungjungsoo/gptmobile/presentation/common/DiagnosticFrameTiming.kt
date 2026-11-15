@@ -3,9 +3,12 @@ package dev.chungjungsoo.gptmobile.presentation.common
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.LayoutDirection
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationOwner
 import dev.chungjungsoo.gptmobile.data.diagnostics.CombinedOperationTrace
+import dev.chungjungsoo.gptmobile.data.diagnostics.TextLayoutDiagnosticContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.UiMeasureHistory
 import java.util.concurrent.atomic.AtomicBoolean
 
 private val diagnosticScreenName = Regex("[A-Za-z0-9_]{1,40}")
@@ -28,10 +31,19 @@ internal fun Modifier.diagnosticFrameTiming(owner: CombinedOperationOwner): Modi
     val measureOperation = "${prefix}_measure"
     val layoutOperation = "${prefix}_layout"
     val drawOperation = "${prefix}_draw"
+    val measures = UiMeasureHistory()
     return layout { measurable, constraints ->
-        val measured = CombinedOperationTrace.measure(measureOperation, owner) { measurable.measure(constraints) }
+        // Only allocate detailed structural evidence while diagnostic/Perfetto
+        // observers are active. No text, prompts or history scans enter this path.
+        val measuredOwner = if (CombinedOperationTrace.hasObservers()) {
+            val inputs = TextLayoutDiagnosticContext(constraints.minWidth, constraints.maxWidth, constraints.minHeight, constraints.maxHeight, density, fontScale, layoutDirection == LayoutDirection.Rtl)
+            owner.copy(uiMeasure = measures.observe(inputs))
+        } else {
+            owner
+        }
+        val measured = CombinedOperationTrace.measure(measureOperation, measuredOwner) { measurable.measure(constraints) }
         layout(measured.width, measured.height) {
-            CombinedOperationTrace.measure(layoutOperation, owner) { measured.placeRelative(0, 0) }
+            CombinedOperationTrace.measure(layoutOperation, measuredOwner) { measured.placeRelative(0, 0) }
         }
     }.drawWithContent {
         CombinedOperationTrace.measure(drawOperation, owner) { drawContent() }

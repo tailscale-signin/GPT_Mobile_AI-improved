@@ -11,7 +11,12 @@ class GatewayV14CapabilitiesTest {
     private val json = Json { ignoreUnknownKeys = true }
 
     @Test fun completeServerRouteFixturesAcceptLegacyMetadataWithoutEnablingIt() {
-        for (name in listOf("gateway-v15-capabilities-legacy-mixed.json", "gateway-v15-capabilities-full.json", "gateway-v16-capabilities-full.json")) {
+        for (name in listOf(
+            "gateway-v15-capabilities-legacy-mixed.json",
+            "gateway-v15-capabilities-full.json",
+            "gateway-v16-capabilities-full.json",
+            "gateway-v17-capabilities-full.json"
+        )) {
             val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream(name)).bufferedReader().use { it.readText() }
             val capabilities = json.decodeFromString<GatewayCapabilities>(fixture)
             assertTrue(capabilities.supportsKeyFreeConnection)
@@ -80,20 +85,46 @@ class GatewayV14CapabilitiesTest {
     }
 
     @Test
-    fun acceptsGateway15And16AndRejectsUnknownOrMalformedContracts() {
-        val valid = """{"gatewayVersion":"15.0.0","contractVersion":1,"auth":{"mode":"trusted_proxy","apiKeyRequired":false},"desktop":{"managed":true,"maintenanceProtocol":1,"stateSchema":1,"idleUpdates":true,"updateAuthority":"local-manager"}}"""
+    fun sharedGateway17FixtureAdvertisesAdditiveSavedWorkAndBenchmarkContracts() {
+        val fixture = requireNotNull(javaClass.classLoader?.getResourceAsStream("gateway-v17-capabilities-full.json"))
+            .bufferedReader().use { it.readText() }
+        val capabilities = json.decodeFromString<GatewayCapabilities>(fixture)
+        assertEquals("17.0.0", capabilities.gatewayVersion)
+        assertTrue(capabilities.supportsKeyFreeConnection)
+        assertTrue(capabilities.supportsCancellation)
+        assertTrue(capabilities.supportsResultRecovery)
+        for (feature in listOf("conversation_metadata_v1", "saved_messages_v1", "mutation_identity_preconditions_v1", "durable_benchmarks_v1")) {
+            assertTrue(feature, capabilities.supportsFeature(feature))
+        }
+        assertTrue(capabilities.supportsContract("conversationMetadata", "gptmobile.gateway.conversation-metadata.v1"))
+        assertTrue(capabilities.supportsContract("benchmarks", "gateway.benchmark.v1"))
+        assertFalse(capabilities.supportsContract("benchmarks", "gateway.benchmark.v2"))
+        assertTrue("X-Gateway-Installation-ID" in capabilities.acceptedRequestHeaders)
+        assertTrue("X-Gateway-Principal-ID" in capabilities.acceptedRequestHeaders)
+        assertEquals(1, capabilities.desktop?.maintenanceProtocol)
+        assertEquals(1, capabilities.desktop?.stateSchema)
+        assertEquals("client", capabilities.memory?.authority)
+    }
+
+    @Test
+    fun acceptsGateway14Through17AndRejectsUnknownOrMalformedContracts() {
+        val valid = """{"gatewayVersion":"17.0.0","contractVersion":1,"auth":{"mode":"trusted_proxy","apiKeyRequired":false},"desktop":{"managed":true,"maintenanceProtocol":1,"stateSchema":1,"idleUpdates":true,"updateAuthority":"local-manager"}}"""
         val caps = json.decodeFromString<GatewayCapabilities>(valid)
         assertTrue(caps.supportsKeyFreeConnection)
         assertTrue(caps.desktop?.managed == true)
         assertTrue(caps.desktop?.idleUpdates == true)
-        for (version in listOf("15.0.0", "16.0.0", "16.1.2")) {
-            assertTrue(json.decodeFromString<GatewayCapabilities>(valid.replace("15.0.0", version)).supportsKeyFreeConnection)
+        for (version in listOf("14.0.0", "15.0.0", "16.0.0", "16.1.2", "17.0.0", "17.1.2")) {
+            assertTrue(version, json.decodeFromString<GatewayCapabilities>(valid.replace("17.0.0", version)).supportsKeyFreeConnection)
         }
-        for (version in listOf("17.0.0", "15.evil", "15.0.0-preview", "15.00.0", "15.0.0.extra", "16.0.0-preview", "16.00.0")) {
-            assertFalse(json.decodeFromString<GatewayCapabilities>(valid.replace("15.0.0", version)).supportsKeyFreeConnection)
+        for (version in listOf(
+            "13.0.0", "18.0.0", "15.evil", "15.0.0-preview", "15.00.0", "15.0.0.extra", "16.0.0-preview", "16.00.0",
+            "17.evil", "17.0.0-preview", "17.0.0+build.1", "17.00.0", "17.0.00", "017.0.0", "17.0.0.extra", "17.0", " 17.0.0"
+        )) {
+            assertFalse(version, json.decodeFromString<GatewayCapabilities>(valid.replace("17.0.0", version)).supportsKeyFreeConnection)
         }
         assertFalse(json.decodeFromString<GatewayCapabilities>(valid.replace("trusted_proxy", "public")).supportsKeyFreeConnection)
         assertFalse(json.decodeFromString<GatewayCapabilities>(valid.replace("contractVersion\":1", "contractVersion\":2")).supportsKeyFreeConnection)
+        assertFalse(caps.copy(auth = caps.auth?.copy(apiKeyRequired = true)).supportsKeyFreeConnection)
     }
 
     @Test

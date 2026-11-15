@@ -26,6 +26,7 @@ from v14.github_api_governor import GLOBAL_GITHUB_GOVERNOR
 from v14.github import ImmutableGitHubReads
 from v14.engineering_validation import validate as validate_checkout, patch_identity
 from v14.execution_binding import ExecutionBindingError
+from v14.graph_context import graph_receipt, stage_selection
 
 HEALTH_QUERY = '''query($owner:String!,$repo:String!,$number:Int!,$after:String) {
  repository(owner:$owner,name:$repo) { pullRequest(number:$number) {
@@ -102,6 +103,8 @@ def prepare_changes(proposal, files, tree):
 
 class ReadOnlyGraphGitHub:
     """Graph source access shares the selected host identity, never its write surface."""
+    SOURCE_REQUEST_RESERVE = 100
+
     def __init__(self, backend):
         self.backend = backend
 
@@ -115,7 +118,11 @@ class ReadOnlyGraphGitHub:
     def api(self, path, method='GET', body=None, job=None, text=False):
         if method not in {'GET', 'HEAD'} or body is not None or job is not None:
             raise PermissionError('Repository graph access cannot dispatch GitHub mutations or engineering jobs')
-        return self.backend.api(path, method=method, text=text, read_only=True)
+        # Leave observed capacity for interactive status, CI and repository work.
+        # Identity/status reads still work while large source batches are deferred.
+        source_read = '/git/blobs/' in path or '/git/trees/' in path
+        return self.backend.api(path, method=method, text=text, read_only=True,
+                                capacity_reserve=self.SOURCE_REQUEST_RESERVE if source_read else 0)
 
     def paged(self, path, key=None, job=None, maximum=1000):
         # The common paginator calls this adapter's guarded GET path on every page.
@@ -134,7 +141,7 @@ class GitHubEngineeringBackend:
         self.cancelled = lambda job_id: False
         self.record_evidence = lambda job, payload: None
         self.recall_memory = lambda job, query: {'records': [], 'current_evidence': False}
-        self.recall_graph = lambda job, query: {'status': 'NOT_INDEXED'}
+        self.recall_graph = lambda job, query, **selection: {'status': 'NOT_INDEXED'}
         self.model_executor = None
         self.save_adaptive_planning = None
         self.before_mutation = None
@@ -267,7 +274,7 @@ class GitHubEngineeringBackend:
         owner, repo = job['request']['repository'].split('/')
         return '/repos/' + quote(owner, safe='') + '/' + quote(repo, safe='')
 
-    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False):
+    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False, capacity_reserve=0):
         if read_only and (method not in {'GET', 'HEAD'} or body is not None):
             raise PermissionError('Read-only GitHub access cannot dispatch a mutation')
         started = time.monotonic()
@@ -314,7 +321,9 @@ class GitHubEngineeringBackend:
                 return self.operations.service.artifacts.json_value(job, operation['response_ref'])
             # Physical intent is recorded only after API admission succeeds.
         try:
-            with self.github_governor.lease(token, mutating=mutating, cancelled=admission_stopped):
+            resource = 'search' if path.startswith('/search/') else 'graphql' if path == '/graphql' else 'core'
+            with self.github_governor.lease(token, mutating=mutating, cancelled=admission_stopped,
+                                           resource=resource, reserve=capacity_reserve):
                 if operation:
                     self.operations.dispatch(job, operation)
                 with requests.request(method, 'https://api.github.com' + path, headers=headers, json=body,
@@ -470,10 +479,18 @@ class GitHubEngineeringBackend:
         metadata = self.api(self.root(job), job=job)
         job['data']['permission_revision'] = digest(metadata.get('permissions', {}))
         historical = self.recall_memory(job, job['request']['objective'])
+        graph_query, graph_paths = stage_selection(job, role, evidence)
         try:
-            graph = self.recall_graph(job, job['request']['objective'])
-        except Exception as error:
-            graph = {'status': 'UNAVAILABLE', 'reason': type(error).__name__}
+            graph = self.recall_graph(job, graph_query, role=role, paths=graph_paths)
+        except InterruptedError:
+            raise
+        except PermissionError:
+            graph = {'status': 'UNAVAILABLE', 'reason': 'AUTHORIZATION_CHANGED'}
+        except Exception:
+            # Source/parser error messages can contain private paths or text.
+            # Preserve an actionable state without copying them into reports.
+            graph = {'status': 'UNAVAILABLE', 'reason': 'RETRIEVAL_FAILED'}
+        job['data']['graph_retrieval'] = graph_receipt(graph, job, role)
         payload = {'model': job['request']['model'], 'stream': False, 'cache_prompt': False,
                    'response_format': {'type': 'json_object'},
                    'messages': [{'role': 'system', 'content': system}, {'role': 'user', 'content': json.dumps({
@@ -549,6 +566,10 @@ class GitHubEngineeringBackend:
             if writable:
                 self.find_pr(dict(job, data=dict(data, head_sha=head)))
             tree = self.tree(job, head)
+            # These are freshly observed selection facts, not a completed PLAN.
+            # Recall and model admission need them before selecting source paths.
+            # The supervisor alone records successful stage completion.
+            data.update(actor_id=actor['id'], head_sha=head)
             plan = self.model(job, 'planner', {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'head_sha': head})
             merge_method = next((method for method in ('squash', 'merge', 'rebase') if metadata.get('allow_' + method + '_merge')), None)
             if writable and merge_method is None:

@@ -8,6 +8,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrameOperationCoverageTest {
+    @Test fun transcriptRemeasurementsDistinguishStableConstraintsFromResizeWithoutContent() {
+        val history = UiMeasureHistory()
+        val inputs = TextLayoutDiagnosticContext(0, 400, 0, 800, 2f, 1f, false)
+        assertEquals(0L, history.observe(inputs).consecutiveEqualConstraints)
+        val repeated = history.observe(inputs)
+        assertEquals(2L, repeated.sequence)
+        assertEquals(1L, repeated.consecutiveEqualConstraints)
+        assertEquals(0L, history.observe(inputs.copy(maxHeight = 500)).consecutiveEqualConstraints)
+        val coverage = FrameOperationCoverage()
+        coverage.observe(FrameOperationCoverage.Sample("ui_Chat_Transcript_measure", 1, 10, 20, null, CombinedOperationOwner(uiMeasure = repeated)))
+        val sample = coverage.snapshot(0, 30).contextReport().contexts.single().jsonObject.getValue("uiMeasure").jsonObject
+        assertEquals(setOf("scope", "sequence", "consecutiveEqualConstraints", "inputs"), sample.keys)
+        assertEquals(JsonPrimitive("MODIFIER_INSTANCE_CONSTRAINTS_ONLY"), sample["scope"])
+        assertEquals(JsonPrimitive(400), sample.getValue("inputs").jsonObject["maxWidth"])
+        assertEquals(1L, UiMeasureHistory().observe(inputs).sequence)
+    }
+
     @Test fun repeatedTextDigestRetainsTheChangedLayoutInputsWithoutSourceText() {
         val coverage = FrameOperationCoverage()
         val owner = CombinedOperationOwner(messageId = 7, digest = "a".repeat(64))

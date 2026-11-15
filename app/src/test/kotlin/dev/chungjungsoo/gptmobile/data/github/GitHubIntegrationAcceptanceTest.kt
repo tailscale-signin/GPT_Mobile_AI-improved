@@ -111,6 +111,27 @@ class GitHubIntegrationAcceptanceTest {
         assertEquals(JsonPrimitive("NOT_TESTED"), GitHubIntegrationAcceptance.binding(receipts().values, runtime)["device_execution"])
     }
 
+    @Test fun graphIndexReceiptNeverSuppliesOwnedFixtureMutationEvidence() {
+        for (origin in listOf("LOCAL", "LIVE")) {
+            val records = receipts()
+            records["graph-index"] = receipt(
+                "graph-index",
+                "repository_graph__selected",
+                json("""{"action":"index"}"""),
+                json("""{"has_more":false,"graph":{"repository":"owner/repo","branch":"main","commit_sha":"$sha"}}"""),
+                origin
+            )
+            val fixture = acceptance(records)[2]
+            assertEquals(JsonPrimitive("PASS"), fixture["acceptance_state"])
+            assertFalse((fixture["evidence_receipt_ids"] as JsonArray).contains(JsonPrimitive("graph-index")))
+            records.remove("creation")
+            records.remove("cleanup")
+            val absent = acceptance(records)[2]
+            assertFalse(absent["acceptance_state"] == JsonPrimitive("PASS"))
+            assertFalse((absent["evidence_receipt_ids"] as JsonArray).contains(JsonPrimitive("graph-index")))
+        }
+    }
+
     @Test fun confirmedLocalProposalsPreserveVerifiedFixtureCleanupWithoutQualifyingPublication() {
         val records = receipts()
         records["draft"] = JsonObject(

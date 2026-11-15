@@ -26,6 +26,186 @@ import org.junit.Test
 class StagedDiagnosticCaptureTest {
     private val available = DiagnosticCaptureOptions(minimumHeadroomBytes = 0)
 
+    @Test fun heapRecoveryResumesCommittedRowsAndRetainsTheActualDeferralSample() = temporary { directory ->
+        runBlocking {
+            val mib = 1024L * 1024
+            var pressureSamplePending = false
+            var interrupt = true
+            val pageSizes = mutableListOf<Int>()
+            val rows = DiagnosticCaptureStage("workspace", "workspace.jsonl", resumableRecords = true) { sink ->
+                pageSizes += sink.sourcePageSize
+                val after = sink.resumeCursor?.get("afterRowId")?.jsonPrimitive?.content?.toInt() ?: 0
+                for (row in after + 1..3) {
+                    sink.sourceRecord(DiagnosticSourceRecord("workspace_records", row.toLong(), 2048L, 4096))
+                    sink.logicalRecord {
+                        sink.record("row-$row-a")
+                        if (row == 2 && interrupt) {
+                            interrupt = false
+                            pressureSamplePending = true
+                            sink.checkBudget()
+                        }
+                        sink.record("row-$row-b")
+                    }
+                    sink.checkpoint(JsonObject(mapOf("afterRowId" to JsonPrimitive(row))))
+                    sink.sourceRecord(null)
+                }
+            }
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "heap-row-recovery",
+                listOf(rows, stage("small", lowMemorySafe = true) { it.record("other evidence") }),
+                available.copy(
+                    minimumHeadroomBytes = 16 * mib,
+                    memorySampler = {
+                        val headroom = if (pressureSamplePending) 8 * mib else 32 * mib
+                        pressureSamplePending = false
+                        memory(headroom)
+                    }
+                )
+            )
+            assertTrue(result.manifest.toString(), result.complete)
+            assertEquals(listOf(16, 1), pageSizes)
+            val observed = receipt(result, "workspace")
+            val deferred = observed.getValue("priorHeapDeferral").jsonObject
+            assertEquals(JsonPrimitive("AT_BUDGET_DEFERRAL"), deferred["measurement"])
+            assertEquals(JsonPrimitive(8 * mib), deferred.getValue("memory").jsonObject["javaHeadroomBytes"])
+            assertEquals(JsonPrimitive(16 * mib), deferred["requiredHeadroomBytes"])
+            assertEquals(JsonPrimitive(2L), deferred.getValue("sourceRecord").jsonObject["rowId"])
+            assertEquals(JsonPrimitive(2048L), deferred.getValue("sourceRecord").jsonObject["sourceBytes"])
+            assertEquals(JsonPrimitive(4096), deferred.getValue("sourceRecord").jsonObject["maximumSourceBytes"])
+            assertEquals(JsonPrimitive(32 * mib), observed["retryHeadroomBytes"])
+            assertEquals(JsonPrimitive(16 * mib), observed["retryRequiredHeadroomBytes"])
+            assertEquals(JsonPrimitive(8 * mib), observed.getValue("priorMemoryGuard").jsonObject["minimumObservedHeadroomBytes"])
+            assertEquals(JsonPrimitive(true), observed["cooperativeHeapRecovery"])
+            ZipFile(result.file).use { zip ->
+                val exported = zip.getInputStream(zip.getEntry("workspace.jsonl")).bufferedReader().use { it.readLines() }
+                assertEquals(listOf("row-1-a", "row-1-b", "row-2-a", "row-2-b", "row-3-a", "row-3-b"), exported)
+            }
+            assertEquals(result.manifest, StagedDiagnosticCapture.verify(result.file))
+        }
+    }
+
+    @Test fun recoveryNeverRetriesBelowTheOriginalStageHeadroomGuard() = temporary { directory ->
+        runBlocking {
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "heap-guard",
+                listOf(stage("workspace") { error("Insufficient headroom must stop before source access") }),
+                available.copy(minimumHeadroomBytes = 16L * 1024 * 1024, memorySampler = { memory(12L * 1024 * 1024) })
+            )
+            val observed = receipt(result, "workspace")
+            assertEquals("JAVA_HEAP_PRESSURE", observed.text("omissionReason"))
+            assertEquals(null, observed["heapPressureRetry"])
+            assertEquals(JsonPrimitive(12L * 1024 * 1024), observed.getValue("heapDeferral").jsonObject.getValue("memory").jsonObject["javaHeadroomBytes"])
+            assertFalse(result.complete)
+        }
+    }
+
+    @Test fun partialHeadroomRecoveryDoesNotRetryACollectorBelowItsActualThreshold() = temporary { directory ->
+        runBlocking {
+            var pressure = false
+            var sampledPressure = false
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "insufficient-heap-recovery",
+                listOf(
+                    DiagnosticCaptureStage("workspace", "workspace.jsonl") { sink ->
+                        pressure = true
+                        sink.record("not yet retained")
+                    }
+                ),
+                DiagnosticCaptureOptions(
+                    minimumHeadroomBytes = 16L * 1024 * 1024,
+                    memorySampler = {
+                        val headroom = if (!pressure) {
+                            32L * 1024 * 1024
+                        } else if (!sampledPressure) {
+                            2L * 1024 * 1024
+                        } else {
+                            10L * 1024 * 1024
+                        }
+                        if (pressure) sampledPressure = true
+                        DiagnosticExportMemory.sample().copy(javaHeadroomBytes = headroom)
+                    }
+                )
+            )
+            assertFalse(result.complete)
+            val failed = receipt(result, "workspace")
+            assertEquals(JsonPrimitive("JAVA_HEAP_PRESSURE"), failed["omissionReason"])
+            assertFalse(failed.containsKey("heapPressureRetry"))
+            assertEquals(JsonPrimitive(16L * 1024 * 1024), failed.getValue("memoryGuard").jsonObject["minimumRequiredHeadroomBytes"])
+        }
+    }
+
+    @Test fun transientHeapPressureRetainsTheRejectingSampleAfterMemoryRecovers() = temporary { directory ->
+        runBlocking {
+            var failNextCheck = false
+            var attempts = 0
+            val stage = DiagnosticCaptureStage("workspace", "workspace.jsonl") { sink ->
+                attempts++
+                if (attempts == 1) failNextCheck = true
+                sink.record("retained workspace row")
+            }
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "heap-pressure-evidence",
+                listOf(stage),
+                DiagnosticCaptureOptions(
+                    minimumHeadroomBytes = 4L * 1024 * 1024,
+                    memorySampler = {
+                        val headroom = if (failNextCheck) 2L * 1024 * 1024 else 32L * 1024 * 1024
+                        failNextCheck = false
+                        DiagnosticExportMemory.sample().copy(javaHeadroomBytes = headroom)
+                    }
+                )
+            )
+            assertTrue(result.complete)
+            assertEquals(2, attempts)
+            val evidence = receipt(result, "workspace")
+            val prior = evidence.getValue("priorMemoryGuard").jsonObject
+            assertEquals(JsonPrimitive(4L * 1024 * 1024), prior["minimumRequiredHeadroomBytes"])
+            assertEquals(JsonPrimitive(2L * 1024 * 1024), prior["minimumObservedHeadroomBytes"])
+            assertEquals(JsonPrimitive(2L), prior["budgetChecks"])
+            assertEquals(JsonPrimitive(2L * 1024 * 1024), evidence.getValue("priorHeapDeferral").jsonObject.getValue("memory").jsonObject["javaHeadroomBytes"])
+            assertEquals(kotlinx.serialization.json.JsonNull, evidence["heapDeferral"])
+            assertFalse(prior.containsKey("memoryAtPressure"))
+            assertEquals(result.manifest, StagedDiagnosticCapture.verify(result.file, available.maxArchiveBytes))
+        }
+    }
+
+    @Test fun lowMemorySafeRecoveryUsesItsActualGuardAndEachAttemptKeepsItsOwnMeasurements() = temporary { directory ->
+        runBlocking {
+            val mib = 1024L * 1024
+            var attempts = 0
+            val stage = DiagnosticCaptureStage("receipts", "receipts.jsonl", lowMemorySafe = true) { sink ->
+                attempts++
+                if (attempts == 1) throw JavaHeapWorkDeferred()
+                sink.record("retained receipt")
+            }
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "safe-stage-guard",
+                listOf(stage),
+                available.copy(
+                    minimumHeadroomBytes = 16 * mib,
+                    memorySampler = { memory(if (attempts < 2) 2 * mib else 8 * mib) }
+                )
+            )
+            assertTrue(result.complete)
+            assertEquals(2, attempts)
+            val observed = receipt(result, "receipts")
+            assertEquals(JsonPrimitive(mib), observed["retryRequiredHeadroomBytes"])
+            assertEquals(JsonPrimitive(2 * mib), observed["retryHeadroomBytes"])
+            val prior = observed.getValue("priorMemoryGuard").jsonObject
+            val current = observed.getValue("memoryGuard").jsonObject
+            assertEquals(JsonPrimitive(1L), prior["budgetChecks"])
+            assertEquals(JsonPrimitive(2L), current["budgetChecks"])
+            assertEquals(JsonPrimitive(mib), current["minimumRequiredHeadroomBytes"])
+            assertEquals(kotlinx.serialization.json.JsonNull, observed["priorHeapDeferral"])
+            assertEquals(kotlinx.serialization.json.JsonNull, observed["heapDeferral"])
+        }
+    }
+
     @Test fun heapDeferredSectionIsRetriedOnceAfterMeasuredHeadroomReturns() = temporary { directory ->
         runBlocking {
             var attempts = 0

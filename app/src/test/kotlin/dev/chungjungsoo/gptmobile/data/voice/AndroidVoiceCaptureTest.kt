@@ -255,7 +255,7 @@ class AndroidVoiceCaptureTest {
             val failure = assertThrows(LocalVoiceCaptureException::class.java) { fixture.capture.start() }
             assertEquals("MICROPHONE_CAPTURE_SILENCED", failure.code)
             assertEquals("capture_start", failure.phase)
-            assertFalse(failure.retryable)
+            assertTrue(failure.retryable)
             assertEquals(0L, failure.capturedSamples)
             assertTrue(fixture.capture.read().isEmpty())
             verify(fixture.record, never()).read(any(ShortArray::class.java), anyInt(), anyInt(), anyInt())

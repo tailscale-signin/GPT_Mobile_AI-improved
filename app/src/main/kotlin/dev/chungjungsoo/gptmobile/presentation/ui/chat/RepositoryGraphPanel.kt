@@ -18,7 +18,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -32,12 +31,16 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.github.GitHubAutonomousEngineeringPolicy
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdrop
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -63,17 +66,31 @@ fun RepositoryGraphStatusMap(
         state,
         onRefresh = { model.request("status") },
         onIndex = { model.request("index") },
-        onStop = model::stop,
+        onStop = model::stopIndexing,
         onSelect = { node -> model.request("node", symbol = node.text("id")) },
         onConfigureGateway = onConfigureGateway,
-        gatewayConfigured = GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile)
+        gatewayConfigured = GitHubAutonomousEngineeringPolicy.supportsSavedJobs(profile),
+        onSearch = model::searchMap,
+        onNextPage = model::nextMapPage,
+        onPreviousPage = model::previousMapPage,
+        onRetryFailed = model::retryFailed,
+        onNeighborhood = model::focusMap
     )
 }
 
 @Composable
 private fun observeRepositoryGraph(context: GitHubConversationContext, profile: PlatformV2?, model: RepositoryGraphViewModel): RepositoryGraphUiState {
-    LaunchedEffect(context, profile) { model.bind(context, profile?.uid, profile) }
-    DisposableEffect(context, profile, model) { onDispose(model::stop) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(context, profile, model, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            model.bind(context, profile?.uid, profile)
+            try {
+                awaitCancellation()
+            } finally {
+                if (model.isBoundTo(context, profile?.uid, profile)) model.stop()
+            }
+        }
+    }
     val observed by model.state.collectAsStateWithLifecycle()
     return observed.takeIf { it.boundContext == context && it.gatewayProfileUid == profile?.uid && model.isBoundTo(context, profile?.uid, profile) && it == model.state.value }
         ?: RepositoryGraphUiState(boundContext = context, gatewayProfileUid = profile?.uid, gatewayName = profile?.name, busy = true)
@@ -123,11 +140,16 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                         state,
                         onRefresh = { model.request("status") },
                         onIndex = { model.request("index") },
-                        onStop = model::stop,
+                        onStop = model::stopIndexing,
                         onSelect = { model.request("node", symbol = it.text("id")) },
                         onConfigureGateway = onConfigureGateway,
                         gatewayConfigured = gatewayConfigured,
-                        showTitle = false
+                        showTitle = false,
+                        onSearch = model::searchMap,
+                        onNextPage = model::nextMapPage,
+                        onPreviousPage = model::previousMapPage,
+                        onRetryFailed = model::retryFailed,
+                        onNeighborhood = model::focusMap
                     )
                 }
                 if (gatewayConfigured) {
@@ -144,7 +166,7 @@ fun RepositoryGraphPanel(context: GitHubConversationContext, profile: PlatformV2
                                     model.request(action)
                                 }, enabled = canInspect) { Text(label) }
                             }
-                            if (state.busy) TextButton(onClick = model::stop) { Text("Stop") }
+                            if (state.busy) TextButton(onClick = model::stopIndexing) { Text("Stop") }
                         }
                         Text("Source relationships guide investigation. Test results and current GitHub checks remain authoritative.", style = MaterialTheme.typography.bodySmall)
                         if (result["stale"] == JsonPrimitive(true)) Text("The branch has moved. This map describes ${context.commitSha.take(10)}.", color = MaterialTheme.colorScheme.error)

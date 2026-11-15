@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.workspace
 
 import dev.chungjungsoo.gptmobile.data.chat.ArchivedTextCodec
 import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticRecordChunks
+import dev.chungjungsoo.gptmobile.data.diagnostics.DiagnosticValueProjector
 import java.io.IOException
 import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
@@ -20,6 +21,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WorkspaceDiagnosticPayloadTest {
+    @Test fun sharedRowProjectorBoundsProtectedExpansionTogetherWithMetadata() = runBlocking {
+        val text = JsonObject(mapOf("result" to JsonPrimitive("x".repeat(700)), "token" to JsonPrimitive("must-be-redacted"))).toString()
+        val omissions = mutableListOf<String>()
+        val projector = DiagnosticValueProjector(1024, omissions::add)
+        projector.text("metadata".repeat(80))
+        val result = readWorkspaceDiagnosticPayload(
+            7, metadata(listOf("workspace-memory-7-one"), text), 1024, {}, { true },
+            { text.toByteArray().size + 38L }, { text.toByteArray() }, omissions::add, projector
+        )
+        assertNull(result.omissionReason)
+        assertTrue(omissions.contains("RECORD_CHARACTER_LIMIT"))
+        val safe = requireNotNull(result.payload).toString()
+        assertTrue(safe.contains("[diagnostic value omitted:"))
+        assertFalse(safe.contains("must-be-redacted"))
+        assertFalse(safe.contains("x".repeat(700)))
+    }
+
     @Test fun sourceGrowthAfterMeasurementFailsClosedAndClearsTheDecryptedChunk() = runBlocking {
         val changed = "{\"value\":\"${"x".repeat(1000)}\"}".toByteArray()
         val result = readWorkspaceDiagnosticPayload(
@@ -51,7 +69,8 @@ class WorkspaceDiagnosticPayloadTest {
             { true },
             { chunks[it]!!.size + 38L },
             { chunks[it]?.copyOf()?.also(issued::add) },
-            {}
+            {},
+            DiagnosticValueProjector(4096) {}.also { it.text("retained metadata") }
         )
         assertNull(result.omissionReason)
         assertTrue(result.protected)

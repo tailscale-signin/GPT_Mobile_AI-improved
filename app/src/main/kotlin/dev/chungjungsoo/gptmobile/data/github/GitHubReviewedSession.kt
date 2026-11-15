@@ -582,12 +582,28 @@ internal class GitHubReviewedSession(
      * An interrupted request, admission failure or malformed completed verdict
      * keeps its original outcome; no repository work or alternate profile is used.
      */
-    private suspend fun collectPreflight(): String = try {
-        collectPass(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, "github-review-preflight", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
-    } catch (failure: ReviewPassFailure) {
-        if (!failure.completedOutputLimit) throw failure
-        progress("Retrying the synthetic review check once with a compact verdict; repository work has not started")
-        collectPass(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, "github-review-preflight", GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
+    private suspend fun collectPreflight(): String {
+        val role = GitHubReviewCompatibility.PREFLIGHT_ROLE
+        val attemptedOutputAllowance = outputLimitForPass(role)?.takeIf { it > 0 }
+        return try {
+            collectPass(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, role, GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
+        } catch (failure: ReviewPassFailure) {
+            if (!failure.completedOutputLimit || failure.original?.failureDetails?.get("logical_continuation_allowed") == JsonPrimitive(false)) throw failure
+            val retryRole = GitHubReviewCompatibility.OUTPUT_RETRY_ROLE
+            val retryOutputAllowance = outputLimitForPass(retryRole)?.takeIf { it > 0 }
+            // The first probe is already compact. Repeating its prompt and cap
+            // spends another allowance without changing the limiting condition.
+            if (attemptedOutputAllowance == null || retryOutputAllowance == null || retryOutputAllowance <= attemptedOutputAllowance) throw failure
+            progress("Retrying the synthetic review check once with output allowance increased from $attemptedOutputAllowance to $retryOutputAllowance tokens; the selected profile and reasoning policy are unchanged")
+            try {
+                collectPass(GitHubReviewCompatibility.BOUNDED_RETRY_PROMPT, retryRole, GitHubReviewSchema.MAX_OUTPUT_CHARACTERS)
+            } catch (retry: ReviewPassFailure) {
+                // A smaller input allowance can reject the enlarged request
+                // locally. Keep the accepted first attempt as its original cause.
+                if (retry.original == null) throw ReviewPassFailure(retry.message.orEmpty(), retry.splittable, failure.original, retry.completedOutputLimit)
+                throw retry
+            }
+        }
     }
 
     private class ReviewVerdictFailure(message: String) : IllegalStateException(message)
@@ -705,7 +721,7 @@ internal class GitHubReviewedSession(
     private suspend fun collectPass(prompt: String, kind: String, cap: Int): String {
         if (measureInput(prompt) > minOf(inputTokenLimit, currentInputLimit(), inputLimitForPass(kind))) throw ReviewPassFailure("The complete rendered review input exceeds the current context; split this batch.", true)
         if (++reviewPasses > 32) throw ReviewAllowanceFailure("The bounded review allowance is exhausted; retained observations remain available.")
-        if (!kind.endsWith("-preflight") && checkpoint?.claimPass(32) == false) throw ReviewAllowanceFailure("The saved review allowance is exhausted; change the evidence or supported profile configuration before retrying.")
+        if (!GitHubReviewCompatibility.isPreflightRole(kind) && checkpoint?.claimPass(32) == false) throw ReviewAllowanceFailure("The saved review allowance is exhausted; change the evidence or supported profile configuration before retrying.")
         val output = StringBuilder()
         var completed = false
         var failure: ProviderEvent.Failed? = null
@@ -755,7 +771,7 @@ internal class GitHubReviewedSession(
             throw error
         } catch (error: Exception) {
             failure?.takeIf(::reviewOutcomeUnknown)?.let { throw ReviewPassFailure(it.message, false, it) }
-            val unavailable = reviewUnavailable(error, if (kind.endsWith("-preflight")) "review_compatibility" else "answer_review")
+            val unavailable = reviewUnavailable(error, if (GitHubReviewCompatibility.isPreflightRole(kind)) "review_compatibility" else "answer_review")
             val localCapacity = error is dev.chungjungsoo.gptmobile.data.context.RequestCapacityException &&
                 error.code in setOf("CONTEXT_CAPACITY_EXCEEDED", "INPUT_CAPACITY_EXCEEDED") &&
                 unavailable.failureDetails?.get("dispatched") == JsonPrimitive(false) &&

@@ -44,6 +44,7 @@ internal data class ProviderContractFailure(val code: String, val phase: String,
             ProviderContractFailure("INVALID_V14_REQUEST", "provider_admission", "The gateway rejected the request format. Update the client and gateway compatibility before retrying."),
             ProviderContractFailure("MIXED_TOOL_BATCH", "tool_continuation", "The gateway rejected an incompatible tool batch. Preserve completed tool results and correct the continuation format."),
             ProviderContractFailure("EMPTY_COMPLETION", "delivery", "The provider returned no usable answer. Review generation settings and the saved result before resuming."),
+            ProviderContractFailure("TOOL_PROTOCOL_INVALID_FRAME", "provider_generation", "The model returned an invalid tool call. Review the selected model's tool format and continue using earlier saved results."),
             ProviderContractFailure("UNAUTHORIZED_TOOL_CALL", "tool_precheck", "The model requested a tool outside the permitted tool set. Review the saved tool request before resuming."),
             ProviderContractFailure("INVALID_TOOL_ARGUMENTS", "tool_precheck", "The model returned invalid tool arguments. Correct the request before resuming; completed actions remain recorded.")
         )

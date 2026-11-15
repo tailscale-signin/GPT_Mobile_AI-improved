@@ -189,7 +189,7 @@ class GitHubProgrammerHomeTest {
         val profile = compose.onNodeWithTag("github_main_profile").fetchSemanticsNode().boundsInRoot
         assertTrue(profile.left >= home.left && profile.right <= home.right)
         compose.onNodeWithTag("github_index_option").performScrollTo().performClick()
-        compose.onNodeWithText("Prepare next batch").performScrollTo().assertIsDisplayed().performClick()
+        compose.onNodeWithText("Cache next source batch").performScrollTo().assertIsDisplayed().performClick()
         compose.runOnIdle {
             assertTrue(indexing)
             assertEquals(1, preparations)

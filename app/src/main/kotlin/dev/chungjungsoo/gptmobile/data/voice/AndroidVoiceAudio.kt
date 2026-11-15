@@ -56,6 +56,10 @@ class AndroidVoiceAudio internal constructor(
     @Volatile private var generation = 0L
     private var diagnosticProbe: VoiceDiagnosticTrace.Probe? = null
     private var playbackStarted: (() -> Unit)? = null
+    private var spokenRange: ((Int, String, IntRange) -> Unit)? = null
+    override fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) {
+        spokenRange = spoken
+    }
     override val reportsPlaybackStart: Boolean get() = true
     override fun bindPlaybackStarted(started: (() -> Unit)?) {
         playbackStarted = started
@@ -520,6 +524,7 @@ class AndroidVoiceAudio internal constructor(
         val ticket = generation
         val observations = diagnosticProbe
         val audioStarted = playbackStarted
+        val rangeObserver = spokenRange
         var reportedStart = false
         observations?.engine(VoiceDiagnosticTrace.Engine.SYSTEM)
         val wasWarm = speechReady
@@ -528,19 +533,23 @@ class AndroidVoiceAudio internal constructor(
             .setAudioAttributes(playbackAttributes())
             .setOnAudioFocusChangeListener({ change ->
                 if (change < 0 && !closed && ticket == generation) {
+                    observations?.playbackFailure("AUDIO_FOCUS_LOST")
                     stop()
                     error("Audio paused because another app needs the speaker.")
                 }
             }, main).build()
         val focusResult = runCatching { audioManager?.requestAudioFocus(request) }.getOrNull()
-        observations?.focus(
+        observations?.playbackFocus(
             when (focusResult) {
                 AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
                 null -> VoiceDiagnosticTrace.Focus.ERROR
                 else -> VoiceDiagnosticTrace.Focus.DENIED
-            }
+            },
+            1
         )
         if (focusResult != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+            playbackError = null
+            observations?.playbackFailure("AUDIO_FOCUS_DENIED")
             error("Audio output is unavailable. Your answer is available in captions.")
             return
         }
@@ -657,6 +666,19 @@ class AndroidVoiceAudio internal constructor(
                                 }
                             }
                         }
+                        override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+                            val callback = rangeObserver ?: return
+                            if (utteranceId !in utteranceIds) return
+                            val index = utteranceId?.substringAfterLast(':')?.toIntOrNull() ?: return
+                            val utterance = chunks.getOrNull(index) ?: return
+                            if (start !in 0 until end || end > utterance.length) return
+                            main.post {
+                                if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine) {
+                                    callback(index, utterance, start until end)
+                                }
+                            }
+                        }
+
                         override fun onDone(utteranceId: String?) {
                             main.post {
                                 if (!closed && ticket == generation && engineVersion == speechGeneration && tts === engine && utteranceId in utteranceIds) {

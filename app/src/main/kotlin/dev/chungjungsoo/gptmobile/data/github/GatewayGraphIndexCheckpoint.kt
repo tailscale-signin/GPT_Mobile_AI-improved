@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import java.util.UUID
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -40,6 +41,12 @@ internal class GatewayGraphIndexCheckpoint(private val store: GitHubRepositorySt
     /** An absent or unchanged snapshot cannot prove that a timed-out first batch was not accepted. */
     suspend fun reconcile(result: JsonObject): Boolean {
         val previous = pending() ?: return false
+        val job = result["index_job"] as? JsonObject
+        val accepted = (job?.get("accepted_request_ids") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
+        if (previous.text("attempt")?.let { it == job?.text("request_id") || it in accepted } == true) {
+            confirm(requireNotNull(previous.text("attempt")))
+            return unresolved()
+        }
         if (result["graph"] !is JsonObject) return true
         val more = result["has_more"]
         val next = result.text("index_cursor")?.takeIf(String::isNotBlank)

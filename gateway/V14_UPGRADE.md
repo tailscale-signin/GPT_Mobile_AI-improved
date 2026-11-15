@@ -1,6 +1,6 @@
 # Gateway v14 implementation and upgrade
 
-For Gateway 16 direct, key-free IP/hostname access, use the [current Windows guide](desktop/README.md) or [manual network configuration](README.md). The Tailscale section below describes legacy manual-install compatibility only.
+For Gateway 17 direct, key-free IP/hostname access, use the [current Windows guide](desktop/README.md) or [manual network configuration](README.md). The Tailscale section below describes legacy manual-install compatibility only.
 
 This implementation branch targets **14.2.0** and retains the 14.1 foundations. See [V14_1_ARCHITECTURE.md](V14_1_ARCHITECTURE.md) for the researched architecture, implemented stability changes, configuration and failure tests. The branch keeps modern MCP disabled and advertises only the additive contracts currently implemented and qualified by its test suite.
 

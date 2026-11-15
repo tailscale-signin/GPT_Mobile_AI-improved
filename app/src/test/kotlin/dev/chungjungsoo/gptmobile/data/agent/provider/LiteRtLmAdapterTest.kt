@@ -52,12 +52,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LiteRtLmAdapterTest {
     @Test
-    fun `github mode keeps the complete authorized catalog in native and prompt conversations`() = runBlocking {
+    fun `github mode keeps only the upstream admitted catalog in native and prompt conversations`() = runBlocking {
         val github = (1..12).map { index ->
             object : AgentTool by lookupTool("opaque_$index") {
                 override val definition = lookupTool("opaque_$index").definition.copy(
@@ -75,7 +76,7 @@ class LiteRtLmAdapterTest {
                 scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Ready."), LocalRuntimeEvent.Done))
             }
             val events = adapter(runtime).openSession(
-                turns("Hi"),
+                turns("Use opaque_1 to inspect the repository"),
                 localPlatform(),
                 github + hidden + lookupTool("unrelated_calendar"),
                 advertisedTools = listOf(github.first().definition),
@@ -84,10 +85,11 @@ class LiteRtLmAdapterTest {
             assertEquals(ProviderEvent.Completed, events.last())
             val configured = runtime.createConversationCalls.single()
             if (nativeSupport) {
-                assertEquals(github.map { it.definition.name }.toSet(), configured.tools.map { it.name }.toSet())
+                assertEquals(listOf(github.first().definition.name), configured.tools.map { it.name })
             } else {
-                github.forEach { tool ->
-                    assertTrue(configured.systemPrompt.orEmpty().contains("\"name\":\"${tool.definition.name}\""))
+                assertTrue(configured.systemPrompt.orEmpty().contains("\"name\":\"${github.first().definition.name}\""))
+                github.drop(1).forEach { tool ->
+                    assertFalse(tool.definition.name, configured.systemPrompt.orEmpty().contains("\"name\":\"${tool.definition.name}\""))
                 }
                 assertTrue(configured.systemPrompt.orEmpty().contains("\"parameters\""))
             }
@@ -97,7 +99,7 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
-    fun `github catalog overflow fails before engine generation rather than hiding schemas`() = runBlocking {
+    fun `github catalog overflow defers optional schemas but rejects an oversized admitted schema`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             capabilities = LocalModelCapabilities(contextTokens = 2048, backends = setOf("gpu"), tools = false)
         }
@@ -109,11 +111,37 @@ class LiteRtLmAdapterTest {
                 )
             }
         }
-        val events = adapter(runtime).openSession(
+        runtime.scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Ready."), LocalRuntimeEvent.Done))
+        val deferredEvents = adapter(runtime).openSession(
             turns("Hi"),
             localPlatform(),
             github,
             advertisedTools = emptyList(),
+            githubMode = true,
+            fallbackSystemPrompt = "Short optional context"
+        ).streamRound(emptyList(), emptyList()).toList()
+        assertEquals(ProviderEvent.Completed, deferredEvents.last())
+        assertTrue(runtime.createConversationCalls.single().tools.isEmpty())
+        val deferredPrompt = runtime.createConversationCalls.single().systemPrompt.orEmpty()
+        assertTrue(deferredPrompt.contains("Be concise"))
+        github.forEach { tool ->
+            assertFalse(tool.definition.name, deferredPrompt.contains("\"name\":\"${tool.definition.name}\""))
+        }
+
+        val blockedRuntime = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 2048, backends = setOf("gpu"), tools = false)
+        }
+        val required = object : AgentTool by lookupTool("github_context") {
+            override val definition = lookupTool("github_context").definition.copy(
+                description = "Required repository context schema ".repeat(500),
+                capabilities = setOf(dev.chungjungsoo.gptmobile.data.agent.AgentToolCapability.GITHUB)
+            )
+        }
+        val events = adapter(blockedRuntime).openSession(
+            turns("Inspect GitHub"),
+            localPlatform(),
+            github + required,
+            advertisedTools = listOf(required.definition),
             githubMode = true,
             fallbackSystemPrompt = "Short optional context"
         ).streamRound(emptyList(), emptyList()).toList()
@@ -123,9 +151,9 @@ class LiteRtLmAdapterTest {
         assertEquals(JsonPrimitive(false), failure.failureDetails?.get("dispatched"))
         assertEquals(JsonPrimitive("NO"), failure.failureDetails?.get("remote_acceptance"))
         assertEquals(JsonPrimitive("PRECHECK_REJECTED"), failure.failureDetails?.get("dispatch_state"))
-        assertTrue(runtime.loadEngineCalls.isEmpty())
-        assertTrue(runtime.createConversationCalls.isEmpty())
-        assertTrue(runtime.sendMessageCalls.isEmpty())
+        assertTrue(blockedRuntime.loadEngineCalls.isEmpty())
+        assertTrue(blockedRuntime.createConversationCalls.isEmpty())
+        assertTrue(blockedRuntime.sendMessageCalls.isEmpty())
         assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
     }
 
@@ -2520,6 +2548,13 @@ class LiteRtLmAdapterTest {
         assertTrue(failed.message.contains("CPU fallback:"))
         assertTrue(failed.message.contains("CreateSharedMemoryManager"))
         assertTrue(failed.message.indexOf("GPU:") < failed.message.indexOf("CPU fallback:"))
+        val evidence = requireNotNull(failed.failureDetails)
+        assertEquals(JsonPrimitive("PROVIDER_ADAPTER_STREAM_CATCH"), evidence["incident_capture_site"])
+        assertEquals(JsonPrimitive("CAPTURE_BOUNDARY_ONLY"), evidence["incident_phase_provenance"])
+        assertEquals(JsonPrimitive("LocalEngineLoadException"), evidence["exception_report_type"])
+        assertTrue(evidence.containsKey("exception_fingerprint"))
+        assertFalse(evidence.toString().contains("CreateSharedMemoryManager"))
+        for (key in listOf("failed_stage", "dispatched", "http_status", "remote_acceptance", "retryable")) assertNull(evidence[key])
     }
 
     @Test
@@ -2591,7 +2626,29 @@ class LiteRtLmAdapterTest {
         val events = adapter(runtime).openSession(turns("hello"), localPlatform())
             .streamRound(emptyList(), emptyList()).toList()
         assertEquals(1, runtime.loadEngineCalls.size)
-        assertTrue(events.filterIsInstance<ProviderEvent.Failed>().single().message.contains("GPU / CPU edition"))
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertTrue(failure.message.contains("GPU / CPU edition"))
+        val evidence = requireNotNull(failure.failureDetails)
+        assertEquals(JsonPrimitive("PROVIDER_ADAPTER_STREAM_CATCH"), evidence["incident_capture_site"])
+        assertEquals(JsonPrimitive("LocalNpuPackageException"), evidence["exception_report_type"])
+        assertTrue(evidence.containsKey("exception_fingerprint"))
+        assertFalse(evidence.toString().contains("native failure"))
+        for (key in listOf("failed_stage", "dispatched", "http_status", "remote_acceptance", "retryable")) assertNull(evidence[key])
+    }
+
+    @Test
+    fun `engine cancellation is rethrown without a captured failure`() = runBlocking {
+        val cancelled = CancellationException("PRIVATE_ENGINE_CANCELLED")
+        val runtime = FakeLocalRuntime().apply { failLoadEngineIf = { cancelled } }
+        val observed = mutableListOf<ProviderEvent>()
+        val failure = runCatching {
+            adapter(runtime).openSession(turns("hello"), localPlatform())
+                .streamRound(emptyList(), emptyList()).collect { observed += it }
+        }.exceptionOrNull()
+        assertTrue(failure is CancellationException)
+        assertTrue(generateSequence(failure) { it.cause }.any { it === cancelled })
+        assertFalse(observed.any { it is ProviderEvent.Failed || it == ProviderEvent.Completed })
+        assertEquals(1, runtime.loadEngineCalls.size)
     }
 
     @Test

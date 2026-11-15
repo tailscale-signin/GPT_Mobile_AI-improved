@@ -6,6 +6,15 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class NativeVoiceDiagnosticClassificationTest {
+    @Test fun unavailablePronunciationAndLexiconAreActionablePlaybackFailures() {
+        for (reason in listOf("pronunciation_unavailable", "lexicon_unavailable")) {
+            val failure = classifyDiagnostic("I", "VoiceTiming", "kokoro_terminal · reason=$reason · knownWords=4 · unknownWords=1")
+            assertEquals("voice_playback_failure", failure.category)
+            assertTrue(failure.actionable)
+        }
+        assertFalse(classifyDiagnostic("I", "VoiceTiming", "kokoro_terminal · reason=complete · unknownWords=0").actionable)
+    }
+
     @Test fun documentedSherpaHeaderAndCompleteTypedDumpsAreConfigurationRatherThanFailures() {
         // k2-fsa/sherpa-onnx jni/offline-tts.cc emits config:\n%s through LOGE.
         val records = listOf(

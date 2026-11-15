@@ -17,26 +17,33 @@ import org.junit.Test
 class ProgressiveGitHubPresetTest {
     private val task = "Test all authorized GitHub integration tools.\n[github-workflow-preset:test_integration]"
 
-    @Test fun explicitPresetMountsEveryAuthorizedGitHubSchemaBeforeDiscovery() = runTest {
+    @Test fun explicitPresetKeepsFullAuthorizationWhileMountingAFittingInitialWindow() = runTest {
         val authorized = GitHubOperationTool.names.sorted().map { GitHubOperationTool.definition(it, it + "__github_api") }
         val hidden = AgentToolDefinition("github_hidden", "hidden", JsonObject(emptyMap()), modelVisible = false)
         val catalog = ProgressiveToolCatalog(authorized + hidden, task, initialNames = setOf("github_context__github_api"))
-        assertEquals(authorized.map { it.name }.toSet(), catalog.selected(authorized + hidden).map { it.name }.toSet())
+        val initial = catalog.selected(authorized + hidden)
+        assertTrue(initial.any { it.name == "github_context__github_api" })
+        assertTrue(initial.size < authorized.size)
+        assertFalse(initial.any { it.name == "github_hidden" })
         val inventory = (catalog.execute("catalog", JsonObject(emptyMap())).content as ToolResultContent.Json).value.jsonObject
         assertEquals(JsonPrimitive(false), inventory["permissions_changed"])
         assertEquals(JsonPrimitive(false), inventory["has_more"])
-        assertEquals(JsonPrimitive("AUTHORIZED_GITHUB_UPFRONT"), inventory["mount_policy"])
+        assertEquals(JsonPrimitive("AUTHORIZED_GITHUB_ON_DEMAND"), inventory["mount_policy"])
         assertEquals(authorized.size, inventory.getValue("authorized_inventory").jsonArray.size)
         assertTrue(inventory.getValue("authorized_inventory").jsonArray.all { it.jsonObject["operational_status"] == JsonPrimitive("not tested") })
         assertEquals(JsonPrimitive(0), inventory.getValue("coverage").jsonObject["dispatched_calls"])
         assertFalse(inventory.toString().contains("github_hidden"))
     }
 
-    @Test fun explicitNameLookupDoesNotEvictOtherPresetSchemasOrGrantAbsentOnes() = runTest {
+    @Test fun explicitNameLookupRetainsTheWindowAndCannotGrantAbsentSchemas() = runTest {
         val authorized = listOf("github_read", "github_commit", "github_issue").map { GitHubOperationTool.definition(it) }
         val catalog = ProgressiveToolCatalog(authorized, task)
+        val before = catalog.selected(authorized).map { it.name }.toSet()
         catalog.execute("lookup", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive("github_read"), JsonPrimitive("github_not_authorized")))) })
-        assertEquals(authorized.map { it.name }.toSet(), catalog.selected(authorized).map { it.name }.toSet())
+        val after = catalog.selected(authorized).map { it.name }.toSet()
+        assertTrue(after.containsAll(before))
+        assertTrue("github_read" in after)
+        assertTrue(after.size < authorized.size)
         assertFalse(catalog.selected(authorized).any { it.name == "github_not_authorized" })
     }
 

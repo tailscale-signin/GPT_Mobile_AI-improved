@@ -14,6 +14,7 @@ import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runCurrent
@@ -260,6 +261,189 @@ class RepositoryGraphViewModelTest {
         assertEquals(saved, model.state.value.result)
         assertEquals("status", model.state.value.resultOperation)
         assertEquals(architecture, model.state.value.architecture)
+    }
+
+    @Test fun unindexedStatusMetadataDoesNotTriggerArchitectureOrBecomeAnEmptyIndex() = runTest {
+        val missing = json("""{"status":"NOT_INDEXED","graph":{"repository":"owner/repo","branch":"main","commit_sha":"${context.commitSha}","processing_complete":false,"coverage_complete":false,"complete":false}}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(missing)
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        assertEquals(missing, model.state.value.result)
+        assertEquals("NOT_INDEXED", model.state.value.indexStatus?.graphText("status"))
+        assertNull(model.state.value.architecture)
+        assertNull(model.state.value.visibleMap)
+        assertNull(model.state.value.error)
+        coVerify(exactly = 0) { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) }
+    }
+
+    @Test fun completeEmptyIndexStillLoadsItsRealArchitecture() = runTest {
+        val saved = json("""{"has_more":false,"graph":{"commit_sha":"${context.commitSha}","processing_complete":true,"coverage_complete":true,"complete":true}}""")
+        val empty = json("""{"nodes":[],"edges":[],"has_more":false,"graph":{"commit_sha":"${context.commitSha}","complete":true}}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(saved)
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns response(empty, "architecture")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        assertEquals(empty, model.state.value.visibleMap)
+        assertTrue(repositoryGraphPresentation(model.state.value.visibleMap).nodes.isEmpty())
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) }
+    }
+
+    @Test fun aSnapshotLostBetweenStatusAndArchitectureRemainsUnindexed() = runTest {
+        val saved = json("""{"has_more":true,"index_cursor":"stale-index-cursor","graph":{"commit_sha":"${context.commitSha}"}}""")
+        val missing = json("""{"status":"NOT_INDEXED","graph":{"commit_sha":"${context.commitSha}","complete":false}}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(saved)
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) } returns response(missing, "architecture")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        assertEquals(missing, model.state.value.result)
+        assertEquals(missing, model.state.value.indexStatus)
+        assertEquals("architecture", model.state.value.resultOperation)
+        assertNull(model.state.value.visibleMap)
+        assertNull(model.state.value.indexCursor)
+        assertFalse(model.state.value.indexingPaused)
+        assertNull(model.state.value.error)
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) }
+    }
+
+    @Test fun unindexedRefreshDiscardsThePriorSearchPageAndItsSavedCursors() = runTest {
+        val first = json("""{"nodes":[{"id":"one"}],"has_more":true,"next_cursor":"page-two"}""")
+        val second = json("""{"nodes":[{"id":"two"}],"has_more":true,"next_cursor":"page-three"}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "query" }, any(), any()) } coAnswers {
+            response(if (secondArg<JsonObject>().graphText("result_cursor") == "page-two") second else first, "query")
+        }
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.searchMap("symbol")
+        advanceUntilIdle()
+        model.nextMapPage()
+        advanceUntilIdle()
+        assertEquals(1, model.state.value.mapPage)
+        val missing = json("""{"status":"NOT_INDEXED","graph":{"commit_sha":"${context.commitSha}","complete":false}}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(missing)
+        model.request("status")
+        advanceUntilIdle()
+        assertNull(model.state.value.visibleMap)
+        assertNull(model.state.value.mapNextCursor)
+        assertEquals(0, model.state.value.mapPage)
+        assertEquals("", model.state.value.mapQuery)
+        model.previousMapPage()
+        model.nextMapPage()
+        advanceUntilIdle()
+        coVerify(exactly = 2) { graphs.executeForMap(context, match { it.graphText("action") == "query" }, any(), any()) }
+        coVerify(exactly = 0) { graphs.executeForMap(context, match { it.graphText("action") == "architecture" }, any(), any()) }
+    }
+
+    @Test fun mainMapSearchUsesTheBackendAndPreservesItsQueryAcrossServerPages() = runTest {
+        val first = json("""{"nodes":[{"id":"one","qualified":"Hidden.method"}],"has_more":true,"next_cursor":"page-two","total_matches":2}""")
+        val second = json("""{"nodes":[{"id":"two","qualified":"Hidden.other"}],"has_more":false,"total_matches":2}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "query" }, any(), any()) } coAnswers {
+            val request = secondArg<JsonObject>()
+            response(if (request.graphText("result_cursor") == "page-two") second else first, "query")
+        }
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.searchMap(" Hidden ")
+        advanceUntilIdle()
+        assertEquals("Hidden", model.state.value.mapQuery)
+        assertEquals(first, model.state.value.visibleMap)
+        model.nextMapPage()
+        advanceUntilIdle()
+        assertEquals(1, model.state.value.mapPage)
+        assertEquals(second, model.state.value.visibleMap)
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("query") == "Hidden" && it.graphText("result_cursor") == "page-two" && "index_cursor" !in it }, any(), any()) }
+        model.previousMapPage()
+        advanceUntilIdle()
+        assertEquals(0, model.state.value.mapPage)
+        assertEquals(first, model.state.value.visibleMap)
+    }
+
+    @Test fun repeatedResultCursorDoesNotReplaceTheLastUsableMapPage() = runTest {
+        val first = json("""{"nodes":[{"id":"one"}],"has_more":true,"next_cursor":"same"}""")
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "query" }, any(), any()) } returns response(first, "query")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.searchMap("symbol")
+        advanceUntilIdle()
+        model.nextMapPage()
+        advanceUntilIdle()
+        assertEquals(0, model.state.value.mapPage)
+        assertEquals(first, model.state.value.visibleMap)
+        assertTrue(model.state.value.error.orEmpty().contains("repeated a result page"))
+    }
+
+    @Test fun retryFailedFilesStartsWithoutTheOldContinuationCursor() = runTest {
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(json("""{"has_more":true,"index_cursor":"old-cursor"}"""))
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } returns response(json("""{"has_more":false}"""), "index")
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        model.retryFailed()
+        advanceUntilIdle()
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "index" && it["retry_failed"].toString() == "true" && "index_cursor" !in it }, any(), any()) }
+    }
+
+    @Test fun closingTheMapDetachesPollingWithoutCancellingItsSavedGatewayJob() = runTest {
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(indexed).copy(durableIndexJobs = true)
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) } returns response(json("""{"status":"INDEX_JOB_ACCEPTED","index_job":{"id":"saved-job","generation":1,"state":"QUEUED"}}"""), "index").copy(durableIndexJobs = true)
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        runCurrent()
+        model.request("index")
+        runCurrent()
+        assertTrue(model.state.value.indexingOnGateway)
+        assertFalse(model.state.value.indexOutcomeUnknown)
+        model.stop()
+        advanceTimeBy(10_000)
+        runCurrent()
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "index" && it["background"].toString() == "true" }, any(), any()) }
+        coVerify(exactly = 0) { graphs.executeForMap(context, match { it.graphText("job_action") == "cancel" }, any(), any()) }
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) }
+        model.bind(context)
+        runCurrent()
+        coVerify(exactly = 2) { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) }
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("action") == "index" }, any(), any()) }
+        model.stop()
+    }
+
+    @Test fun explicitStopCancelsOnlyTheDisplayedSavedJob() = runTest {
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(json("""{"index_job":{"id":"saved-job","generation":1,"state":"RUNNING"}}""")).copy(durableIndexJobs = true)
+        coEvery { graphs.executeForMap(context, match { it.graphText("job_action") == "cancel" }, any(), any()) } returns response(json("""{"index_job":{"id":"saved-job","generation":1,"state":"CANCELLED"}}"""), "index").copy(durableIndexJobs = true)
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        runCurrent()
+        model.stopIndexing()
+        runCurrent()
+        assertFalse(model.state.value.indexingOnGateway)
+        assertEquals("CANCELLED", model.state.value.indexJob?.graphText("state"))
+        coVerify(exactly = 1) { graphs.executeForMap(context, match { it.graphText("job_action") == "cancel" && it.graphText("job_id") == "saved-job" && it.graphText("job_generation") == "1" && "index_cursor" !in it }, any(), any()) }
+        model.stop()
+    }
+
+    @Test fun stoppingWithoutAnObservedJobGenerationRequiresARefresh() = runTest {
+        coEvery { graphs.executeForMap(context, match { it.graphText("action") == "status" }, any(), any()) } returns response(json("""{"index_job":{"id":"saved-job","state":"RUNNING"}}""")).copy(durableIndexJobs = true)
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        runCurrent()
+        model.stopIndexing()
+        runCurrent()
+        assertEquals("GRAPH_JOB_IDENTITY_REQUIRED", model.state.value.errorCode)
+        coVerify(exactly = 0) { graphs.executeForMap(context, match { it.graphText("job_action") == "cancel" }, any(), any()) }
+        model.stop()
+    }
+
+    @Test fun certificateRejectionRetainsItsDistinctFailureAndRepairAction() = runTest {
+        coEvery { graphs.executeForMap(context, any(), any(), any()) } throws GatewayGraphOperationException(javax.net.ssl.SSLException("Certificate rejected"), "gateway", "Selected gateway", "REVIEW_SELECTED_GATEWAY_CERTIFICATE", false)
+        val model = RepositoryGraphViewModel(graphs)
+        model.bind(context)
+        advanceUntilIdle()
+        assertEquals("GRAPH_TLS_REJECTED", model.state.value.errorCode)
+        assertEquals("REVIEW_SELECTED_GATEWAY_CERTIFICATE", model.state.value.repairAction)
     }
 
     private fun response(value: JsonObject, operation: String = "status", unknown: Boolean = false) = GatewayGraphResponse(value, operation, "gateway", "Selected gateway", unknown)

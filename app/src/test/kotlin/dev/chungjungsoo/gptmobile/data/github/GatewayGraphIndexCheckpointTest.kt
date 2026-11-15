@@ -52,5 +52,12 @@ class GatewayGraphIndexCheckpointTest {
         assertFalse(checkpoint.reconcile(json("""{"has_more":false,"graph":{"index_metrics":{"parsed_files":25}}}""")))
     }
 
+    @Test fun durableAcknowledgementReconcilesAQueuedJobBeforeItsFirstSourceBatch() = runTest {
+        val checkpoint = GatewayGraphIndexCheckpoint(GitHubRepositoryStateStore(), "selected-host-revision")
+        val request = checkpoint.begin(null)
+        assertTrue(checkpoint.reconcile(json("""{"status":"NOT_INDEXED","index_job":{"id":"job","state":"QUEUED","request_id":"other"}}""")))
+        assertFalse(checkpoint.reconcile(json("""{"status":"INDEX_JOB_ACCEPTED","index_job":{"id":"job","state":"QUEUED","request_id":"other","accepted_request_ids":["$request","other"]}}""")))
+    }
+
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject
 }

@@ -65,6 +65,12 @@ internal object IssueReportIncidentCapsule {
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
     val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection")
     val combinedDeliveryFields = setOf("combined_requirement_gap", "combined_issue_count")
+    private val handoffReconciliationCounts = setOf("handoff_replay_receipt_count", "handoff_replay_matched_count", "handoff_durable_receipt_count", "handoff_durable_matched_count", "handoff_retained_matched_count")
+    private val handoffReconciliationHashes = setOf("handoff_tool_binding_hash", "handoff_saved_tool_binding_hash", "handoff_evidence_digest_hash", "handoff_journal_digest_hash")
+    val handoffReconciliationFields = handoffReconciliationCounts + handoffReconciliationHashes + setOf("handoff_checkpoint_state", "handoff_durable_lookup")
+    private val chatDeliveryCounts = setOf("chat_delivery_content_bytes", "chat_delivery_thinking_bytes", "chat_delivery_success_events", "chat_delivery_tool_events", "chat_delivery_progress_events", "chat_delivery_github_rounds")
+    val chatDeliveryFields = chatDeliveryCounts + setOf("chat_delivery_terminal", "chat_delivery_answer_state", "chat_delivery_counts_capped")
+    val claimFreshnessFields = setOf("acceptance_claim_freshness_predicates")
     val acceptanceBlockerFields = setOf("fixture_approval_blocked_count", "owned_fixture_blocked_count", "pending_local_fragments", "pending_remote_continuations")
     private val toolFields = setOf(
         "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count",
@@ -85,14 +91,18 @@ internal object IssueReportIncidentCapsule {
         "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "privacy_metadata_age_ms", "privacy_blockers"
     ) + gatewayDeliveryFields + providerExecutionFields
     private val voiceFields = setOf("run_id_hash", "invocation_id_hash", "voice_reply_failed", "voice_reply_terminal_status", "voice_reply_failure_evidence", "voice_chat_failure_code", "voice_chat_failure_code_hash", "voice_chat_failure_phase")
-    private val hashes = setOf("causal_id_hash", "action_schema_generation_hash", "resolved_argument_shape_hash", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_restore_error_hash", "server_request_id_hash", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash", "argument_repair_signature_hash", "provider_error_type_hash", "provider_parameter_path_hash", "voice_chat_failure_code_hash", "mcp_connection_hash", "search_id_hash", "search_cursor_hash", "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_route_hash")
+    private val hashes = setOf("causal_id_hash", "action_schema_generation_hash", "resolved_argument_shape_hash", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_restore_error_hash", "server_request_id_hash", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash", "argument_repair_signature_hash", "provider_error_type_hash", "provider_parameter_path_hash", "voice_chat_failure_code_hash", "mcp_connection_hash", "search_id_hash", "search_cursor_hash", "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_route_hash") + handoffReconciliationHashes
     private val hashLists = setOf("validation_path_hashes", "unknown_field_hashes", "evidence_ref_hashes", "exception_type_hashes", "dependency_call_id_hashes", "pending_tool_identity_hashes")
-    private val flags = setOf("tls_response_started", "provider_local_budget_block", "saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required")
+    private val flags = setOf("tls_response_started", "provider_local_budget_block", "saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required", "chat_delivery_counts_capped")
     private val counts = setOf("recovery_attempt_count", "unknown_field_count", "eligible_receipt_count", "excluded_receipt_count", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count", "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count", "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "dependency_count", "dependency_failed_count", "pending_tool_count") + policyCounts
     private val executionCounts = setOf("tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "combined_issue_count") + acceptanceBlockerFields
     private val types = setOf("STRING", "NUMBER", "BOOLEAN", "OBJECT", "ARRAY", "NULL")
     private val mcpHealth = setOf("DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "TLS_FAILED", "CONNECT_TIMEOUT", "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT", "HEALTHY", "UNKNOWN")
     private val enums = mapOf(
+        "chat_delivery_terminal" to setOf("DONE"),
+        "chat_delivery_answer_state" to setOf("EMPTY_CONTENT", "NO_ANSWER_CONTENT", "GITHUB_ANSWER_PENDING"),
+        "handoff_checkpoint_state" to setOf("TOOL_HANDOFF", "TOOL_RESULTS_READY"),
+        "handoff_durable_lookup" to setOf("RETURNED_EMPTY", "RETURNED_RECEIPTS"),
         "url_reader_dns_state" to setOf("RECOVERY_COOLDOWN", "LOOKUP_FAILED"),
         "fixture_decision_mode" to setOf("AUTO_APPROVE", "SUGGESTED", "ASK", "UNKNOWN"),
         "crash_surface" to setOf("CHAT", "DEBUG_LOGS", "GITHUB_WORKSPACE"),
@@ -153,6 +163,7 @@ internal object IssueReportIncidentCapsule {
         "command_receipt_observation" to setOf("PRESENT", "UNAVAILABLE_404", "CONTRACT_UNSUPPORTED", "READ_INTERRUPTED", "UNOBSERVED")
     )
     private val enumLists = mapOf(
+        "acceptance_claim_freshness_predicates" to setOf("OBSERVATION_TIME_UNAVAILABLE", "OBSERVATION_TIME_FUTURE", "MUTABLE_AGE_EXCEEDED", "MUTABLE_EPOCH_MISMATCH"),
         "dispatch_policy_sections" to policySections,
         "changed_policy_fields" to policyFieldNames,
         "semantic_read_rules" to dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule.entries.mapTo(linkedSetOf()) { it.name },
@@ -169,22 +180,31 @@ internal object IssueReportIncidentCapsule {
         "receipt_exclusion_reasons" to setOf("WRONG_OPERATION", "WRONG_ACTION", "WRONG_REVISION", "WRONG_SCOPE", "PRECHECK_ONLY", "NOT_SUCCESSFUL", "UNKNOWN_OUTCOME", "STALE", "MISSING_IDENTITY", "UNVERIFIED")
     )
     val coreFields = listOf("incident_phase", "causal_id_hash", "causal_provenance", "incident_evidence_status")
-    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes") + policyDiagnostics + runEvidenceFields
+    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields
 
-    enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH }
+    enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH, PROVIDER_ADAPTER_STREAM_CATCH, CHAT_REPOSITORY_ERROR_VALUE, CHAT_FLOW_EMPTY_ANSWER }
+
+    /** An observed boundary does not establish dispatch, retryability, or a throwable. */
+    fun boundaryFields(site: ExceptionCaptureSite): JsonObject = buildJsonObject {
+        put("incident_capture_site", site.name)
+        put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+    }
 
     /** Captured at the actual catch. A boundary identifies where observed, not where dispatched. */
     fun exceptionFields(error: Throwable, site: ExceptionCaptureSite): JsonObject = buildJsonObject {
-        put("incident_capture_site", site.name)
-        put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
+        boundaryFields(site).forEach { (key, value) -> put(key, value) }
         put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).map(::JsonPrimitive)))
         IssueReportContext.exceptionFingerprint(error)?.let { put("exception_fingerprint", it) }
+        val (type, frames) = IssueReport.exceptionMetadata(error)
+        type?.let { put("exception_report_type", it) }
+        val applicationFrames = frames.filter { it.startsWith("dev.chungjungsoo.gptmobile.") || it.startsWith("dev.melo.gptmobile.") }
+        if (applicationFrames.isNotEmpty()) put("exception_application_frames", JsonArray(applicationFrames.map(::JsonPrimitive)))
     }
 
     fun fieldsFor(area: String): Set<String> = common + when (area) {
         "TOOL" -> toolFields + toolFailureFields
-        "INCIDENT" -> combinedDeliveryFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure")
-        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
+        "INCIDENT" -> combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure")
+        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
         "GATEWAY" -> gatewayFields
         "PROVIDER" -> providerFields + setOf("provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash")
         "APP" -> setOf("crash_surface", "crash_boundary")
@@ -195,7 +215,11 @@ internal object IssueReportIncidentCapsule {
     fun validValue(key: String, value: JsonElement): JsonElement? {
         if (key in hashLists || key in enumLists) {
             val items = value as? JsonArray ?: return null
-            if (items.size !in 1..if (key == "privacy_blockers") 4 else 8) return null
+            if (key in claimFreshnessFields) {
+                if (items.size !in 0..4 || items.distinct().size != items.size) return null
+            } else if (items.size !in 1..if (key == "privacy_blockers") 4 else 8) {
+                return null
+            }
             if (items.any { item -> text(item)?.let { if (key in hashLists) it.matches(HASH) else it in enumLists.getValue(key) } != true }) return null
             return JsonArray(items.toList())
         }
@@ -208,7 +232,8 @@ internal object IssueReportIncidentCapsule {
             "retry_delay_ms", "privacy_metadata_age_ms", "mcp_health_age_ms" -> 0L..86_400_000L
             "tool_contract_version" -> 1L..1000L
             "argument_repair_attempt" -> 1L..3L
-            in counts, in executionCounts -> 0L..16_000_000L
+            in handoffReconciliationCounts -> 0L..1024L
+            in counts, in executionCounts, in chatDeliveryCounts -> 0L..16_000_000L
             else -> return null
         }
         return number.takeIf { it in range }?.let(::JsonPrimitive)

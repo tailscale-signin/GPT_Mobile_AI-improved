@@ -18,8 +18,10 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.put
 
 @Serializable
 enum class ProviderFailureStage { ADMISSION, ENGINEERING_GUARD, GENERATION, CONTINUATION, REVIEW_COMPATIBILITY, ANSWER_REVIEW, CLAIM_VERIFICATION, DELIVERY }
@@ -96,7 +98,7 @@ data class ProviderFailureReceipt(
             "GITHUB_REVIEW_INCOMPATIBLE", "GITHUB_REVIEW_INVALID_VERDICT", "GITHUB_REVIEW_INDETERMINATE",
             "GITHUB_REVIEW_REQUIRED", "GITHUB_REVIEW_BLOCKED", "GITHUB_REVIEW_UNAVAILABLE", "GITHUB_REVIEW_CAPACITY",
             "GITHUB_REVIEW_BUDGET_EXHAUSTED",
-            "GITHUB_CIRCUIT_OPEN", "GITHUB_PROFILE_LOCKED", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE",
+            "GITHUB_CIRCUIT_OPEN", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_PROFILE_LOCKED", "GITHUB_EVIDENCE_REQUIRED", "GITHUB_EVIDENCE_RETENTION_INCOMPLETE",
             "GITHUB_EXTRACTION_TIMEOUT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_UNAVAILABLE", "GITHUB_EXTRACTION_FAILED", "GITHUB_EXTRACTION_OUTPUT_LIMIT",
             "GITHUB_TOOL_CONTEXT_BUDGET", "GITHUB_OPERATION_BLOCKED", "GITHUB_RUN_INTERRUPTED", "GITHUB_TASK_INCOMPLETE", "GITHUB_UNEXPECTED_RESPONSE",
             "OUTPUT_CONTINUATION_BUDGET_EXHAUSTED", "OUTPUT_CONTINUATION_DISABLED", "OUTPUT_CONTINUATION_NO_PROGRESS",
@@ -116,18 +118,38 @@ data class ProviderFailureReceipt(
             val reviewStage = (failure.failureDetails?.get("review_stage") as? JsonPrimitive)?.content
             val classified = dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.fromProvider(failure.message, failure.errorCode, failure.failureDetails)
             val invocationId = failure.invocationId ?: classified.invocationId
-            val correlatedUsage = usage?.takeIf {
+            val matchingUsage = usage?.takeIf {
                 if (invocationId != null || it.invocationId != null) invocationId != null && invocationId == it.invocationId else role != "github-delivery"
-            } ?: dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)
+            }
+            val retainedUsage = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryUsage.from(failure.failureDetails)?.event(invocationId)
+            // A finish-only stream frame cannot hide usage already attached to
+            // this failure. Never fill it from another invocation's last frame.
+            val correlatedUsage = matchingUsage?.copy(
+                inputTokens = matchingUsage.inputTokens ?: retainedUsage?.inputTokens,
+                outputTokens = matchingUsage.outputTokens ?: retainedUsage?.outputTokens,
+                inputSource = if (matchingUsage.inputTokens == null && retainedUsage?.inputTokens != null) retainedUsage.inputSource else matchingUsage.inputSource,
+                outputSource = if (matchingUsage.outputTokens == null && retainedUsage?.outputTokens != null) retainedUsage.outputSource else matchingUsage.outputSource
+            ) ?: retainedUsage
             val attemptEvidence = dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromDetails(failure.failureDetails)
                 ?: dev.chungjungsoo.gptmobile.data.accounting.GatewayRecoveryEvidence.fromRecovery(correlatedUsage?.gatewayRecovery)
+            val profileSelectionRejected = code == "GITHUB_PROFILE_LOCKED" &&
+                failedStage == "provider_admission" &&
+                classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
+            val githubCooldownActive = code == "GITHUB_COOLDOWN_ACTIVE" &&
+                failedStage == "repository_admission" &&
+                classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
+            val githubRateResponse = code in setOf("GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED") &&
+                failedStage == "tool_execution" &&
+                status in setOf(403, 429) &&
+                classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
             val stage = when {
+                profileSelectionRejected || githubCooldownActive -> ProviderFailureStage.ADMISSION
                 classified.isUserInputRequired || classified.isEngineeringSetup || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD
                 classified.dispatched == false && failedStage in setOf("provider_admission", "connection_preflight", "backend_admission", "request_validation", "message_admission", "conversation_admission") -> ProviderFailureStage.ADMISSION
                 failedStage in setOf("tool_continuation", "tool_reconciliation") || code == "OUTPUT_CONTINUATION_PENDING_TOOLS" -> ProviderFailureStage.CONTINUATION
-                role.endsWith("-preflight") || reviewStage == "review_compatibility" || failedStage == "review_compatibility" || code == "GITHUB_REVIEW_INCOMPATIBLE" -> ProviderFailureStage.REVIEW_COMPATIBILITY
+                dev.chungjungsoo.gptmobile.data.github.GitHubReviewCompatibility.isPreflightRole(role) || role.endsWith("-preflight") || reviewStage == "review_compatibility" || failedStage == "review_compatibility" || code == "GITHUB_REVIEW_INCOMPATIBLE" -> ProviderFailureStage.REVIEW_COMPATIBILITY
                 role.startsWith("github-review") || reviewStage == "answer_review" || failedStage == "answer_review" || code.startsWith("GITHUB_REVIEW_") -> ProviderFailureStage.ANSWER_REVIEW
                 failedStage in setOf("gateway_recovery", "delivery") -> ProviderFailureStage.DELIVERY
                 role == "github-claim-extraction" || code.startsWith("GITHUB_EVIDENCE_") || code.startsWith("GITHUB_EXTRACTION_") -> ProviderFailureStage.CLAIM_VERIFICATION
@@ -167,6 +189,8 @@ data class ProviderFailureReceipt(
                 generationId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity((failure.failureDetails?.get("generation_id") as? JsonPrimitive)?.contentOrNull),
                 causeTypes = classified.causeTypes,
                 failureDomain = when {
+                    profileSelectionRejected || githubCooldownActive -> FailureDomain.APPLICATION_VERIFICATION
+                    githubRateResponse -> FailureDomain.TOOL_EXECUTION
                     classified.isUserInputRequired || classified.isEngineeringSetup || code == "ENGINEERING_STATE_OR_INPUT_CHANGED" || code.startsWith("MODEL_PREPARATION_") -> FailureDomain.APPLICATION_VERIFICATION
                     code == "WAITING_FOR_APPROVAL" || failedStage == "approval" -> FailureDomain.APPROVAL
                     code == "GITHUB_TASK_INCOMPLETE" || failedStage == "acceptance_verification" -> FailureDomain.APPLICATION_VERIFICATION
@@ -217,17 +241,21 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                         outputSource = if (event.outputTokens == null && prior?.outputTokens != null) prior.outputSource else event.outputSource,
                         reasoningTokens = event.reasoningTokens ?: prior?.reasoningTokens,
                         finishReason = event.finishReason ?: prior?.finishReason,
-                        gatewayRecovery = event.gatewayRecovery ?: prior?.gatewayRecovery
+                        gatewayRecovery = event.gatewayRecovery ?: prior?.gatewayRecovery,
+                        providerResponseTiming = event.providerResponseTiming ?: prior?.providerResponseTiming
                     )
                 }
                 if (event is ProviderEvent.Failed) {
-                    val ownedFailure = event.copy(invocationId = event.invocationId ?: invocationId)
+                    val retainedInvocationId = (event.failureDetails?.get("invocation_id") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                        ?.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9_-]{0,127}")) }
+                    val identifiedFailure = event.copy(invocationId = event.invocationId ?: retainedInvocationId ?: invocationId.takeUnless { role == "github-delivery" })
+                    val ownsStream = role != "github-delivery" && invocationId != null && identifiedFailure.invocationId == invocationId
+                    val ownedFailure = if (ownsStream) observedFailure(identifiedFailure, usage, metadata) else identifiedFailure
                     val receipt = ProviderFailureReceipt.from(profile, role, ownedFailure, usage)
                     RunDiagnostics.journal?.record(runId, RunDiagnosticKind.FAILURE_RECEIPT, invocationId = receipt.invocationId, successful = false, providerFailure = receipt)
                     // Delivery can wrap review, extraction, approval or a retained verdict. It
                     // cannot replace the original producer's profile or borrow its last usage.
                     if (role != "github-delivery" && (receipt.failureDomain == FailureDomain.PROVIDER || event.failureDetails?.get("provider_local_budget_block") == JsonPrimitive(true)) && (invocationId == null || receipt.invocationId == invocationId) && event.failureDetails?.get("diagnostic_area") == null) {
-                        val ownsStream = invocationId != null && receipt.invocationId == invocationId
                         val fields = ProviderFailureReport.fields(
                             runId,
                             ownedFailure,
@@ -238,11 +266,35 @@ internal fun withProviderFailureReceipts(delegate: AgentProviderSession, runId: 
                             reasoningBytes = reasoningBytes.takeIf { ownsStream },
                             metadata = metadata.takeIf { ownsStream }
                         )
-                        emit(event.copy(failureDetails = JsonObject(event.failureDetails.orEmpty() + fields)))
+                        emit(ownedFailure.copy(failureDetails = JsonObject(ownedFailure.failureDetails.orEmpty() + fields)))
                         return@collect
                     }
+                    emit(ownedFailure)
+                    return@collect
                 }
                 emit(event)
             }
         }
     }
+
+/** Local observations from the owning stream supplement absent facts, never a foreign failure. */
+private fun observedFailure(failure: ProviderEvent.Failed, usage: ProviderEvent.Usage?, metadata: GatewayResponseMetadata?): ProviderEvent.Failed {
+    val timing = usage?.takeIf { failure.invocationId != null && it.invocationId == failure.invocationId }?.providerResponseTiming
+    val requestId = dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(timing?.serverRequestId)
+        ?: metadata?.takeIf { it.transportVerified }?.requestId?.let { dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(it) }
+    val status = timing?.httpStatus?.takeIf { it in 100..599 }
+    val retained = failure.failureDetails.orEmpty()
+    val observed = buildJsonObject {
+        status?.let { put("http_status", it) }
+        if (status != null || requestId != null) put("dispatched", true)
+        when {
+            status in 200..299 -> put("remote_acceptance", "YES")
+            status in 400..499 && retained["requires_reconciliation"] != JsonPrimitive(true) -> put("remote_acceptance", "NO")
+        }
+        requestId?.let { put("server_request_id", it) }
+        dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity(timing?.generationId)?.let { put("generation_id", it) }
+    }
+    // Header acceptance does not establish generation or transport completion.
+    // Explicit upstream reconciliation/dispatch facts retain their precedence.
+    return if (observed.isEmpty()) failure else failure.copy(failureDetails = JsonObject(observed + retained))
+}

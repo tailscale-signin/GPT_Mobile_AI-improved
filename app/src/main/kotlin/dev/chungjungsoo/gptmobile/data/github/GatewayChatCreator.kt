@@ -75,7 +75,19 @@ internal class GatewayChatCreator @Inject constructor(
         }
         val features = settings.getFeatureSettings()
         val nativeGitHubConversation = original.conversationMode != ConversationMode.GATEWAY && features.conversationGitHub[chatId] != null
-        if (original.conversationMode == ConversationMode.COMBINED || database.gatewayJobDao().bindings(chatId).isNotEmpty() || repositoryConversation || nativeGitHubConversation) {
+        val nativeResearchConversation = original.conversationMode != ConversationMode.GATEWAY &&
+            (chatId in features.researchChatIds || features.conversationResearch[chatId]?.researchToggle == true)
+        val nativeMultiConversation = original.conversationMode != ConversationMode.GATEWAY && original.activePlatform.size > 1
+        if (original.conversationMode == ConversationMode.COMBINED || nativeMultiConversation || database.gatewayJobDao().bindings(chatId).isNotEmpty() || repositoryConversation || nativeGitHubConversation || nativeResearchConversation) {
+            return@withLock GatewayChatAdoption(original)
+        }
+        if (original.conversationMode != ConversationMode.GATEWAY &&
+            records.isEmpty() &&
+            features.conversationGateway[chatId] == null &&
+            database.gatewayJobDao().submissionsForChat(chatId).isEmpty()
+        ) {
+            // A verified gateway profile can expose a local draft before any server work exists.
+            // Opening that draft must not mark it as an adopted, frozen server conversation.
             return@withLock GatewayChatAdoption(original)
         }
         check(database.chatRoomDao().markGatewayChat(chatId) == 1) { "The retained Gateway chat could not be opened." }

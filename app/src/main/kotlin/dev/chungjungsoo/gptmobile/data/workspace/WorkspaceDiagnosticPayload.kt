@@ -30,7 +30,8 @@ internal suspend fun readWorkspaceDiagnosticPayload(
     authorized: suspend () -> Boolean,
     storedSize: suspend (String) -> Long?,
     read: suspend (String) -> ByteArray?,
-    omitted: (String) -> Unit
+    omitted: (String) -> Unit,
+    projector: DiagnosticValueProjector? = null
 ): WorkspaceDiagnosticPayload {
     require(maximumBytes in 1024..1_048_576)
     val chunks = metadata["protectedChunks"]
@@ -110,7 +111,7 @@ internal suspend fun readWorkspaceDiagnosticPayload(
         } ?: return missing("PROTECTED_PAYLOAD_INVALID_JSON")
         beforeRead()
         if (!authorized()) return missing("PROTECTED_SOURCE_CHANGED")
-        val projected = DiagnosticValueProjector(maximumBytes, omitted).element(value)
+        val projected = (projector ?: DiagnosticValueProjector(maximumBytes, omitted)).element(value)
         return WorkspaceDiagnosticPayload(true, redactChatDebugData(projected))
     } finally {
         output.fill(0)

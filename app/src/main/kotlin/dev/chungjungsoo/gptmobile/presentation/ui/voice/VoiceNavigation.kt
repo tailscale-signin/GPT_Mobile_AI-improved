@@ -61,7 +61,7 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
                 if (moonshine != null && kokoro != null) {
                     VoicePluginSetup(moonshine, kokoro, installation, { VoicePluginInstall.start(context) }, { VoicePluginInstall.cancel(context) }) {
                         VoicePluginInstall.refresh(context)
-                        VoicePluginInstall.captureReportObservation()
+                        VoicePluginInstall.captureReportObservation(moonshine.status, kokoro.status)
                         onReportDownload()
                     }
                 }
@@ -73,12 +73,35 @@ internal fun NavGraphBuilder.voiceNavigation(navController: NavHostController, o
         arguments = listOf(navArgument("chatRoomId") { type = NavType.IntType }, navArgument("enabledPlatforms") { defaultValue = "" }),
         enterTransition = { fadeIn(tween(280)) },
         exitTransition = { fadeOut(tween(220)) }
-    ) { entry ->
-        val id = entry.arguments?.getInt("chatRoomId") ?: 0
-        VoiceChatScreen(
-            onEnd = { navController.navigateUp() },
-            onOpenChat = { navController.navigate("chat_room/$id") { popUpTo(Route.VOICE_CHAT) { inclusive = true } } }
-        )
+    ) {
+        val conversation: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = hiltViewModel()
+        val room by conversation.chatRoom.collectAsStateWithLifecycle()
+        val router: dev.chungjungsoo.gptmobile.presentation.ui.chat.ConversationRoutingViewModel = hiltViewModel()
+        val routing by router.state.collectAsStateWithLifecycle()
+        val availableConnections = routing?.let { current ->
+            current.connections.filter { connection ->
+                connection.type == dev.chungjungsoo.gptmobile.data.database.entity.ToolConnectionType.GITHUB &&
+                    current.features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.GITHUB) &&
+                    current.features.isToolPluginEnabled(dev.chungjungsoo.gptmobile.data.model.ToolPluginId.connection(connection.connectionUid))
+            }.map { it.connectionUid }.toSet()
+        }.orEmpty()
+        dev.chungjungsoo.gptmobile.presentation.ui.workspace.GitHubConversationApprovalHost(
+            chatId = room.id,
+            availableConnectionUids = availableConnections,
+            requestedTaskId = null,
+            onApprovalPendingChanged = conversation::bindGitHubApprovalPending,
+            onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) }
+        ) { approvalContent ->
+            VoiceChatScreen(
+                model = conversation,
+                onEnd = { navController.navigateUp() },
+                onNavigateToLocalModels = { navController.navigate(Route.LOCAL_MODELS + "?marketplace=true") },
+                onReviewEvidenceAccess = { navController.navigate(Route.TOOL_CONNECTIONS) },
+                onProfileSettings = { uid -> navController.navigate(Route.PLATFORM_SETTINGS.replace("{platformUid}", android.net.Uri.encode(uid))) },
+                onOpenConversation = { roomId, regenerate -> navController.navigate("chat_room/$roomId?regenerate=$regenerate") },
+                bottomInteractionContent = approvalContent
+            )
+        }
     }
 }
 
@@ -130,7 +153,7 @@ internal fun VoicePluginSetup(
             androidx.compose.material3.Text(if (message == null && installation.failure == null) "Download Voice Chat plugin" else "Resume download")
         }
     }
-    if (!ready && (installation.pending || installation.failure != null || downloading)) {
+    if (!ready && (installation.pending || installation.failure != null || downloading || installation.phase == "COMPLETED")) {
         androidx.compose.material3.TextButton(onClick = onReportDownload) { androidx.compose.material3.Text("Report download problem") }
     }
 }

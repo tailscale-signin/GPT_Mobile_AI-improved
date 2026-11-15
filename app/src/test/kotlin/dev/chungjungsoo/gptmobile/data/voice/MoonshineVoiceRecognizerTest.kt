@@ -80,28 +80,35 @@ class MoonshineVoiceRecognizerTest {
         }
     }
 
-    @Test fun systemSilencedCapturePreservesItsCauseWithoutAutomaticRetryOrSpeech() {
+    @Test fun systemSilencedCaptureIsRecreatedOnceBeforePcmAndThenRecoversSpeech() {
         val failure = LocalVoiceCaptureException(
             "Android is silencing microphone input",
             "MICROPHONE_CAPTURE_SILENCED",
             "capture_start",
+            retryable = true,
             audioFocusResult = 0
         )
-        val capture = FakeCapture(startFailure = failure)
-        val decoder = FakeDecoder()
-        val fixture = Fixture(decoder, capture = capture)
+        val first = FakeCapture(startFailure = failure)
+        val replacement = FakeCapture()
+        val calls = AtomicInteger()
+        val decoder = FakeDecoder { events(LocalSpeechEvent.Final("recovered words")) }
+        val fixture = Fixture(decoder, capture = first, captureFactory = {
+            if (calls.incrementAndGet() == 1) first else replacement.also { assertTrue(first.closed) }
+        })
         try {
             fixture.audio.listen(fixture.listener)
+            assertTrue(replacement.started.await(3, TimeUnit.SECONDS))
+            replacement.chunks.add(FloatArray(1600))
             assertTrue(decoder.closed.await(3, TimeUnit.SECONDS))
             fixture.worker.shutdown()
             assertTrue(fixture.worker.awaitTermination(3, TimeUnit.SECONDS))
             fixture.drain()
-            // The public code is already supported by existing report services.
-            assertEquals(listOf("VOICE_MICROPHONE_BUSY"), fixture.codes)
-            assertSame(failure, fixture.causes.single())
+            assertEquals(2, calls.get())
+            assertEquals(listOf("recovered words"), fixture.finals)
+            assertTrue(fixture.codes.isEmpty())
             assertTrue(fixture.retryableErrors.isEmpty())
-            assertTrue(fixture.finals.isEmpty())
-            assertEquals(1, capture.closeCount.get())
+            assertEquals(1, first.closeCount.get())
+            assertEquals(1, replacement.closeCount.get())
             assertEquals(1, fixture.releases.get())
         } finally {
             fixture.close()

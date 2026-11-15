@@ -7,13 +7,32 @@ from v14.usage import dashboard_snapshot
 from v14.debug_projection import provenance
 
 
+def pending_index_jobs(db):
+    # Older installations have no graph-job table; an idle check must not
+    # initialize a second executor or create a journal as a side effect.
+    exists = db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='code_graph_index_jobs'").fetchone()
+    if not exists:
+        return 0
+    return db.execute("SELECT COUNT(*) FROM code_graph_index_jobs WHERE state IN ('QUEUED','RUNNING','INTERRUPTED','PAUSED')").fetchone()[0]
+
+
+def indexing_snapshot(engineering):
+    active = 0
+    for name in ('graph', 'public_graph'):
+        graph = getattr(engineering, name, None)
+        worker = getattr(graph, '_index_jobs', None)
+        if worker is not None:
+            active += worker.snapshot()['activeIndexBatches']
+    return {'activeIndexBatches': active}
+
+
 def pending_work(runtime, engineering):
     if not runtime.GATEWAY_DURABLE_JOBS:
         return 0
     def count(db):
         chats = db.execute("SELECT COUNT(*) FROM gateway_jobs WHERE status IS NULL OR status NOT IN ('completed','failed','cancelled','canceled','interrupted')").fetchone()[0]
         jobs = db.execute("SELECT COUNT(*) FROM engineering_jobs WHERE state NOT IN ('COMPLETED','CANCELLED')").fetchone()[0]
-        return chats + jobs
+        return chats + jobs + pending_index_jobs(db)
     return engineering.store.tx(count)
 
 
@@ -23,7 +42,10 @@ def prepare(runtime, state, engineering, generation=None):
     with state.lock:
         if generation is not None and state.maintenance_generation != generation:
             return False
-        if state.active_requests or state.workers or pending_work(runtime, engineering):
+        benchmarks = getattr(runtime, 'gateway_benchmarks', None)
+        benchmark_state = benchmarks.snapshot() if benchmarks is not None else {}
+        indexing = indexing_snapshot(engineering)
+        if state.active_requests or state.workers or pending_work(runtime, engineering) or benchmark_state.get('activeBenchmarks', 0) or benchmark_state.get('queuedBenchmarks', 0) or indexing['activeIndexBatches']:
             return False
         state.draining = True
         runtime.gateway_draining = True
@@ -39,6 +61,11 @@ def install_maintenance(app, runtime, state, engineering):
         health['protocol'] = 1
         health['build'] = provenance(getattr(getattr(runtime, 'gateway_debug', None), 'provenance', {}))
         health['dashboard'] = await asyncio.to_thread(dashboard_snapshot, runtime)
+        benchmarks = getattr(runtime, 'gateway_benchmarks', None)
+        if benchmarks is not None:
+            health['benchmarks'] = await asyncio.to_thread(benchmarks.snapshot)
+        health['repositoryIndexing'] = await asyncio.to_thread(indexing_snapshot, engineering)
+        health['repositoryIndexing']['pendingIndexJobs'] = await asyncio.to_thread(engineering.store.tx, pending_index_jobs) if runtime.GATEWAY_DURABLE_JOBS else 0
         return health
 
     @app.post('/gateway/admin/maintenance')

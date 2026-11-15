@@ -71,6 +71,35 @@ class DiagnosticDatabaseSourceTest {
         research.close()
     }
 
+    @Test fun recoveryPagesRetainEveryRowAndReportOnlyMeasuredSourceLocation() = runBlocking {
+        val chat = createRun("bounded-recovery", null)
+        repeat(3) { index -> workspace.saveSynthesisCheckpoint("recovery-$index", chat, "bounded-recovery", buildJsonObject { put("value", "private fixture $index") }) }
+        val rows = mutableListOf<JsonObject>()
+        val locations = mutableListOf<DiagnosticSourceRecord>()
+        val coverage = mutableListOf<JsonObject>()
+        source.capture(
+            chat, "workspace", 4096, {}, { rows += it }, {}, metadata = { coverage += it },
+            sourceRecord = { it?.let(locations::add) }, sourcePageSize = 1
+        )
+        assertEquals(3, rows.size)
+        assertEquals(rows.map { it.getValue("rowId").jsonPrimitive.long }, locations.map { it.rowId })
+        assertEquals(3, locations.map { it.rowId }.distinct().size)
+        assertTrue(locations.all { it.table == "workspace_records" && it.sourceBytes > 0 && it.maximumBytes == 4096 })
+        assertFalse(locations.joinToString { it.json().toString() }.contains("private fixture"))
+        assertEquals(setOf("workspace_records", "pending_prompts"), coverage.map { it.getValue("table").jsonPrimitive.content }.toSet())
+        assertTrue(coverage.all { it["pageSize"] == JsonPrimitive(1) })
+        val workspaceCoverage = coverage.single { it["table"] == JsonPrimitive("workspace_records") }
+        assertEquals(JsonPrimitive(3L), workspaceCoverage["expectedRows"])
+        assertEquals(JsonPrimitive(3L), workspaceCoverage["inspectedRows"])
+        assertEquals(JsonPrimitive(3L), workspaceCoverage["emittedRows"])
+        assertEquals(JsonPrimitive("AVAILABLE"), workspaceCoverage["availability"])
+        val pendingCoverage = coverage.single { it["table"] == JsonPrimitive("pending_prompts") }
+        assertEquals(JsonPrimitive(0L), pendingCoverage["expectedRows"])
+        assertEquals(JsonPrimitive(0L), pendingCoverage["inspectedRows"])
+        assertEquals(JsonPrimitive(0L), pendingCoverage["emittedRows"])
+        assertEquals(JsonPrimitive("EMPTY"), pendingCoverage["availability"])
+    }
+
     @Test fun fencedWaitRecoveryExplainsTerminalStateWhenWorkspaceStillHasTheOriginalInterruption() = runBlocking {
         val chat = createRun("wait-run", "PROVIDER_WAIT_CHECKPOINT_CHANGED")
         val run = requireNotNull(database.agentPersistenceDao().recoveryRun("wait-run"))

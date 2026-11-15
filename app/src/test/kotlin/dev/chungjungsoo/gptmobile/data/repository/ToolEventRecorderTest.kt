@@ -43,6 +43,121 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolEventRecorderTest {
+    @Test fun blockedGraphIndexPublishesPriorReconciliationWithoutRelabellingTheUnsentCurrentCall() = runBlocking {
+        val reports = mutableListOf<Pair<String?, Map<String, Any?>>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg<String?>(3) to arg<Map<String, Any?>>(5))
+                Unit
+            }
+            val args = buildJsonObject { put("action", "index") }
+            val event = recorder.startTool("private-graph-run", 0, "private-graph-call", "repository_graph", "repository_graph__selected", args, startedAt = 10L)
+            val tool = dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool(event.modelToolName) {
+                throw dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException(
+                    dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException("GRAPH_INDEX_OUTCOME_UNKNOWN", "private earlier index request", "CHECK_SAVED_INDEX"),
+                    "private-host",
+                    "private gateway",
+                    "CHECK_SAVED_INDEX",
+                    true
+                )
+            }
+            val result = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(tool.execute(event.callId, args), tool.definition.name)
+            assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", result.errorCode)
+            assertEquals("PRECHECK_REJECTED", dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope.executionState(result))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("RECONCILIATION_REQUIRED"), (result.content as ToolResultContent.Json).value.jsonObject["failure_category"])
+            val saved = requireNotNull(recorder.finishTool(event.eventId, result, 20L))
+            val stored = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(saved))
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("GRAPH_INDEX_OUTCOME_UNKNOWN"), stored["error_code"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"), stored["execution_state"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(false), stored["dispatched"])
+            val (publicCode, fields) = reports.single()
+            assertEquals("RECONCILIATION_REQUIRED", publicCode)
+            val capsule = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fields(dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature.TOOLS, "TOOL_RESULT", requireNotNull(publicCode), fields)
+            val context = IssueReportContext.fromFields("TOOL_RESULT", capsule, 1_800_000_000_000)
+            val values = requireNotNull(context.diagnostics).values
+            assertEquals("tool_precheck", context.stage)
+            assertEquals(false, context.dispatched)
+            assertEquals(false, context.retryable)
+            assertEquals(true, context.requiresReconciliation)
+            assertEquals("RECONCILE_OUTCOME", context.recoveryAction)
+            assertEquals(null, context.remoteAcceptance)
+            assertEquals(null, context.httpStatus)
+            assertEquals(null, context.jobState)
+            assertEquals(null, context.resumeAllowed)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("PRECHECK_REJECTED"), values["tool_dispatch_phase"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("TOOL_CALL"), values["causal_provenance"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(IssueReportContext.identifierHash("tool-error-code", "GRAPH_INDEX_OUTCOME_UNKNOWN")), values["original_error_code_hash"])
+            assertEquals(IssueReportContext.identifierHash("call", event.callId), context.callIdHash)
+            val approved = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport("11111111-1111-4111-8111-111111111111", "debug", "1.0", 1, "abcdef0", "16", 36, "Fixture", feature = "tools", errorCode = publicCode, context = context).approvedPayload()
+            assertFalse(approved.contains("private"))
+            assertFalse(approved.contains("GRAPH_INDEX_OUTCOME_UNKNOWN"))
+            assertFalse(approved.contains("UNKNOWN_OUTCOME"))
+            assertFalse(approved.contains("generation_completed"))
+            assertFalse(approved.contains("remote_acceptance"))
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
+    @Test fun caughtNativePrecheckEvidenceSurvivesTheRealRecorderAndApprovedProjection() = runBlocking {
+        val reports = mutableListOf<Pair<String?, Map<String, Any?>>>()
+        var requests = 0
+        var checks = 0
+        val observed = IllegalStateException("private token https://private.example/owner/repo", UnsupportedOperationException("private nested detail"))
+        val http = io.ktor.client.HttpClient(
+            io.ktor.client.engine.mock.MockEngine {
+                requests++
+                error("No HTTP request should run")
+            }
+        )
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg<String?>(3) to arg<Map<String, Any?>>(5))
+                Unit
+            }
+            val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubTool(
+                "private-token",
+                http,
+                modelToolName = "github__selected",
+                repositoryContext = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext("private-owner", "private-repo", "private-branch"),
+                credentialProvider = { if (++checks == 2) throw observed else "private-token" }
+            )
+            val tool = native.operations().single { it.operation == "github_context" }
+            val args = buildJsonObject { put("action", "repository") }
+            val event = recorder.startTool("private-native-run", 0, "private-native-call", "github_context", tool.definition.name, args, startedAt = 10L)
+            val result = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(tool.execute(event.callId, args), tool.definition.name)
+            assertEquals("GITHUB_OPERATION_FAILED", result.errorCode)
+            assertFalse(result.dispatched)
+            assertEquals(0, requests)
+            assertEquals(2, checks)
+            recorder.finishTool(event.eventId, result, 20L)
+            val (publicCode, fields) = reports.single()
+            val code = publicCode ?: "TOOL_FAILURE"
+            val capsule = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fields(dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature.TOOLS, "TOOL_RESULT", code, fields)
+            val context = IssueReportContext.fromFields("TOOL_RESULT", capsule, 1_800_000_000_000)
+            val values = requireNotNull(context.diagnostics).values
+            assertEquals("tool_precheck", context.stage)
+            assertEquals(false, context.dispatched)
+            assertEquals(false, context.retryable)
+            assertEquals(false, context.requiresReconciliation)
+            assertEquals(null, context.remoteAcceptance)
+            assertEquals(null, context.httpStatus)
+            assertEquals(IssueReportContext.exceptionFingerprint(observed), context.exceptionFingerprint)
+            assertEquals(kotlinx.serialization.json.JsonPrimitive("PREFLIGHT_REJECTED"), values["tool_dispatch_phase"])
+            assertEquals(kotlinx.serialization.json.JsonPrimitive(IssueReportContext.identifierHash("tool-error-code", "GITHUB_OPERATION_FAILED")), values["original_error_code_hash"])
+            assertEquals(kotlinx.serialization.json.JsonArray(listOf(observed, observed.cause).map { kotlinx.serialization.json.JsonPrimitive(IssueReportContext.identifierHash("exception-type", requireNotNull(it).javaClass.name)) }), values["exception_type_hashes"])
+            assertEquals(IssueReportContext.identifierHash("call", event.callId), context.callIdHash)
+            assertEquals(null, values["incident_capture_site"])
+            val approved = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport("22222222-2222-4222-8222-222222222222", "debug", "1.0", 1, "abcdef0", "16", 36, "Fixture", feature = "tools", errorCode = code, context = context).approvedPayload()
+            for (secret in listOf("private", "IllegalStateException", "UnsupportedOperationException", "cause_types", "exception_application_frames")) assertFalse(secret, approved.contains(secret))
+        } finally {
+            http.close()
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
     @Test fun reportInitializerFailurePreservesTheFailedToolReceipt() = runBlocking {
         val event = recorder.startTool("run", 0, "call", "github_context", "github_context", buildJsonObject { put("action", "checks") }, startedAt = 10)
         val result = AgentToolResult(event.callId, ToolResultContent.Text("Read rejected"), isError = true, errorCode = "HTTP_ERROR")

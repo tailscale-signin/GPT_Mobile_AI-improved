@@ -15,7 +15,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 
-/** A single scroll mutation drains a FIFO budget; a new line appends a full 1,500 ms. */
+/** A single mutation drains measured output: 1,500 ms for one line, 1,000 ms per line for a block. */
 @Composable
 internal fun GitHubLineAutoScroller(listState: LazyListState, lines: GitHubRenderedLines, enabled: Boolean, revision: Int, animate: Boolean) {
     val footerHeight = with(LocalDensity.current) { 1.dp.roundToPx().toFloat() }

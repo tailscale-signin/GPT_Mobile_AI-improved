@@ -147,6 +147,11 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         )
     }
     suspend fun authorizeOrThrow(connectionId: String, runId: String, callId: String, tool: String, arguments: JsonObject, schema: JsonObject? = null, nativeGitHub: Boolean = false, executionAllowed: (suspend () -> Boolean)? = null): Boolean {
+        if (tool.substringBefore("__") == "repository_graph" && connections.getConnection(connectionId)?.type == "GITHUB") {
+            val graphAction = arguments["action"] ?: return false
+            val native = JsonObject(arguments + mapOf("action" to kotlinx.serialization.json.JsonPrimitive("repository_graph"), "graph_action" to graphAction))
+            return authorizeOrThrow(connectionId, runId, callId, "github", native, schema, nativeGitHub, executionAllowed)
+        }
         if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(tool) != null && connections.getConnection(connectionId)?.type == "GITHUB") {
             val native = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments) ?: return false
             return authorizeOrThrow(connectionId, runId, callId, "github", native, schema, nativeGitHub, executionAllowed)
@@ -223,6 +228,7 @@ class ToolApprovalManager @Inject constructor(private val database: ChatDatabase
         val policy = runCatching { ToolPolicy.valueOf(connection.toolPolicy) }.getOrDefault(ToolPolicy.ASK_WRITES)
         val githubRead = tool != "github" ||
             GitHubAuthorizationBoundary.isReplayableRead(tool, arguments) ||
+            GitHubAuthorizationBoundary.isLocalGraphIndexing(tool, arguments) ||
             GitHubAuthorizationBoundary.isLocalPatchStaging(tool, arguments)
         val replayableRead = connection.type == "GITHUB" && GitHubAuthorizationBoundary.isReplayableRead(tool, arguments)
         val branchSelection = github && GitHubAuthorizationBoundary.isBranchSelection(tool, arguments)

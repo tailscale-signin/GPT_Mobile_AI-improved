@@ -17,6 +17,7 @@ from v14.code_graph.engine import Graph, GraphStore, bounded, encoded, scope
 from v14.code_graph.service import GraphService, validate
 from v14.engineering import EngineeringService, EngineeringStore
 from v14.engineering_backend import GitHubEngineeringBackend, blob_sha
+from v14.github_api_governor import GitHubApiRateWait
 
 
 def snapshot(files, sha='a' * 40):
@@ -294,6 +295,45 @@ class GraphServiceTests(unittest.TestCase):
         self.call('index', retry_failed=True)
         self.assertEqual(before + 1, self.blob_reads)
         self.assertTrue(self.call('status')['graph']['complete'])
+
+    def test_source_quota_pause_saves_successful_siblings_without_failed_file_markers(self):
+        original = self.backend.api
+        deferred = '/git/blobs/' + blob_sha(self.files['a.py'])
+
+        def limited(path):
+            if deferred in path:
+                raise GitHubApiRateWait(600, reason='FOREGROUND_RESERVE')
+            return original(path)
+
+        self.backend.api = limited
+        with self.assertRaises(GitHubApiRateWait):
+            self.call('index')
+        status = self.call('status')
+        self.assertTrue(status['has_more'])
+        self.assertEqual(1, status['graph']['processed_files'])
+        self.assertEqual({'indexed': 1}, status['graph']['file_statuses'])
+        self.assertEqual(0, status['graph']['retryable_files'])
+        self.backend.api = original
+        resumed = self.call('index', index_cursor=status['index_cursor'])
+        self.assertFalse(resumed['has_more'])
+        self.assertEqual(2, self.blob_reads)
+        self.assertTrue(self.call('status')['graph']['complete'])
+
+    def test_multiple_throttled_siblings_preserve_the_latest_observed_retry_deadline(self):
+        original = self.backend.api
+        self.files['c.py'] = 'def third(): return 3\n'
+        waits = {blob_sha(self.files['a.py']): 1200, blob_sha(self.files['b.py']): 600}
+
+        def limited(path):
+            if '/git/blobs/' in path and path.rsplit('/', 1)[-1] in waits:
+                raise GitHubApiRateWait(waits[path.rsplit('/', 1)[-1]])
+            return original(path)
+
+        self.backend.api = limited
+        with self.assertRaises(GitHubApiRateWait) as caught:
+            self.call('index')
+        self.assertEqual('1200', caught.exception.response.headers['Retry-After'])
+        self.assertEqual({'indexed': 1}, self.call('status')['graph']['file_statuses'])
 
     def test_blob_digest_mismatch_is_not_indexed_or_retried_implicitly(self):
         original = self.backend.api

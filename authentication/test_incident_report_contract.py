@@ -24,6 +24,253 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_handoff_reconciliation_preserves_bounded_observations_and_omissions(self):
+        counts = {"handoff_replay_receipt_count", "handoff_replay_matched_count", "handoff_durable_receipt_count",
+                  "handoff_durable_matched_count", "handoff_retained_matched_count"}
+        hashes = {"handoff_tool_binding_hash", "handoff_saved_tool_binding_hash", "handoff_evidence_digest_hash", "handoff_journal_digest_hash"}
+        self.assertEqual(counts, capsule.HANDOFF_RECONCILIATION_COUNTS)
+        self.assertEqual(hashes, capsule.HANDOFF_RECONCILIATION_HASHES)
+        self.assertEqual(counts | hashes | {"handoff_checkpoint_state", "handoff_durable_lookup"}, capsule.HANDOFF_RECONCILIATION_FIELDS)
+        for state in ("TOOL_HANDOFF", "TOOL_RESULTS_READY"):
+            for lookup in ("RETURNED_EMPTY", "RETURNED_RECEIPTS"):
+                for boundary in (0, 1024):
+                    values = {**dict.fromkeys(counts, boundary), **dict.fromkeys(hashes, "b" * 64),
+                              "handoff_checkpoint_state": state, "handoff_durable_lookup": lookup}
+                    capture = self.capture("INCIDENT", values)
+                    original = copy.deepcopy(capture)
+                    self.assertEqual(original, validate_diagnostics(capture))
+                    report = self.report(capture)
+                    approved = json.dumps(report, separators=(",", ":"))
+                    _, issue = issue_from_report(report)
+                    self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                    for key in values:
+                        self.assertIn(key, issue["body"])
+                    self.assertNotIn("dispatched", capture["values"])
+                    self.assertNotIn("retryable", capture["values"])
+                    self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+        omitted = self.capture("INCIDENT")
+        omitted["omittedFields"] = sorted(capsule.HANDOFF_RECONCILIATION_FIELDS)
+        original = copy.deepcopy(omitted)
+        self.assertEqual(original, validate_diagnostics(omitted))
+        _, issue = issue_from_report(self.report(omitted))
+        for key in omitted["omittedFields"]:
+            self.assertIn(key, issue["body"])
+
+    def test_handoff_reconciliation_rejects_malformed_values_and_other_areas(self):
+        for key in capsule.HANDOFF_RECONCILIATION_FIELDS:
+            if key in capsule.HANDOFF_RECONCILIATION_COUNTS:
+                valid, malformed = 0, [-1, 1025, "1", 1.0, 1.5]
+            elif key in capsule.HANDOFF_RECONCILIATION_HASHES:
+                valid, malformed = "a" * 64, ["A" * 64, "a" * 63, "a" * 65, 1]
+            else:
+                valid, malformed = sorted(capsule.ENUMS[key])[0], [1, "UNKNOWN", "JOURNAL_ABSENT", "JOURNAL_CORRUPT"]
+            for bad in [None, True, False, {}, [], "private-binding-or-call", *malformed]:
+                with self.subTest(key=key, bad=bad), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("INCIDENT", {key: bad}))
+            for area in CORE_FIELDS.keys() - {"INCIDENT"}:
+                with self.subTest(key=key, area=area):
+                    capture = self.capture(area)
+                    # Validate the control to avoid a false positive from an unrelated area field.
+                    if area == "GATEWAY":
+                        from authentication.engineering_report_contract import GATEWAY_ADMISSION_CORE
+                        capture["unavailableFields"] = sorted(set(capture["unavailableFields"]) | GATEWAY_ADMISSION_CORE)
+                    validate_diagnostics(capture)
+                    with self.assertRaises(ValueError):
+                        validate_diagnostics({**capture, "values": {**capture["values"], key: valid}})
+                    with self.assertRaises(ValueError):
+                        validate_diagnostics({**capture, "omittedFields": [key]})
+        for key in ("handoff_tool_binding", "handoff_call_id", "handoff_tool_name", "handoff_arguments", "handoff_result"):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: "private-value"}))
+        for schema in (1, 2):
+            with self.subTest(schema=schema), self.assertRaises(ValueError):
+                validate_diagnostics({**self.capture("INCIDENT", {"handoff_durable_lookup": "RETURNED_EMPTY"}), "schemaVersion": schema})
+
+    def test_handoff_reconciliation_vocabulary_matches_android_contract(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        for name, expected in (("handoffReconciliationCounts", capsule.HANDOFF_RECONCILIATION_COUNTS),
+                               ("handoffReconciliationHashes", capsule.HANDOFF_RECONCILIATION_HASHES)):
+            match = re.search(r"val " + name + r" = setOf\(([^\n]*)\)", source)
+            self.assertIsNotNone(match, name)
+            self.assertEqual(expected, set(re.findall(r'"([^"\n]+)"', match.group(1))), name)
+        for key in ("handoff_checkpoint_state", "handoff_durable_lookup"):
+            match = re.search(r'"' + key + r'" to setOf\(([^\n]*)\)', source)
+            self.assertIsNotNone(match, key)
+            self.assertEqual(capsule.ENUMS[key], set(re.findall(r'"([^"\n]+)"', match.group(1))), key)
+
+    def test_chat_delivery_preserves_closed_terminal_evidence_without_content_or_cause(self):
+        counts = {"chat_delivery_content_bytes", "chat_delivery_thinking_bytes", "chat_delivery_success_events",
+                  "chat_delivery_tool_events", "chat_delivery_progress_events", "chat_delivery_github_rounds"}
+        self.assertEqual(counts, capsule.CHAT_DELIVERY_COUNTS)
+        self.assertEqual(counts | {"chat_delivery_terminal", "chat_delivery_answer_state", "chat_delivery_counts_capped"}, capsule.CHAT_DELIVERY_FIELDS)
+        for state in ("EMPTY_CONTENT", "NO_ANSWER_CONTENT", "GITHUB_ANSWER_PENDING"):
+            for boundary in (0, 16_000_000):
+                values = {**dict.fromkeys(counts, boundary), "chat_delivery_terminal": "DONE", "chat_delivery_answer_state": state,
+                          "chat_delivery_counts_capped": boundary == 16_000_000, "incident_capture_site": "CHAT_FLOW_EMPTY_ANSWER",
+                          "incident_phase": "delivery", "incident_origin": "APPLICATION", "incident_phase_provenance": "CAPTURE_BOUNDARY_ONLY",
+                          "causal_provenance": "UNAVAILABLE", "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE"}
+                capture = self.capture("INCIDENT", values)
+                del capture["values"]["causal_id_hash"]
+                capture["unavailableFields"] = sorted((CORE_FIELDS["INCIDENT"] | capsule.CORE) - capture["values"].keys())
+                original = copy.deepcopy(capture)
+                self.assertEqual(original, validate_diagnostics(capture))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                for key in values:
+                    self.assertIn(key, issue["body"])
+                for absent in ("causal_id_hash", "exception_type_hashes", "dispatched", "retryable"):
+                    self.assertNotIn(absent, capture["values"])
+        omitted = self.capture("INCIDENT")
+        omitted["omittedFields"] = sorted(capsule.CHAT_DELIVERY_FIELDS)
+        self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
+        _, issue = issue_from_report(self.report(omitted))
+        for key in omitted["omittedFields"]:
+            self.assertIn(key, issue["body"])
+
+    def test_chat_delivery_rejects_malformed_values_private_text_and_other_areas(self):
+        for key in capsule.CHAT_DELIVERY_FIELDS | {"incident_capture_site"}:
+            if key in capsule.CHAT_DELIVERY_COUNTS:
+                valid, malformed = 0, [-1, 16_000_001, "1", 1.0, True, False]
+            elif key == "chat_delivery_counts_capped":
+                valid, malformed = False, [0, 1, "false", "true"]
+            else:
+                valid = "CHAT_FLOW_EMPTY_ANSWER" if key == "incident_capture_site" else sorted(capsule.ENUMS[key])[0]
+                malformed = [0, 1, True, False, "UNKNOWN"]
+            for bad in [None, {}, [], "private answer or thinking", *malformed]:
+                with self.subTest(key=key, bad=bad), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("INCIDENT", {key: bad}))
+            for area in CORE_FIELDS.keys() - {"INCIDENT"}:
+                capture = self.capture(area)
+                if area == "GATEWAY":
+                    from authentication.engineering_report_contract import GATEWAY_ADMISSION_CORE
+                    capture["unavailableFields"] = sorted(set(capture["unavailableFields"]) | GATEWAY_ADMISSION_CORE)
+                validate_diagnostics(capture)
+                with self.subTest(area=area, key=key), self.assertRaises(ValueError):
+                    validate_diagnostics({**capture, "values": {**capture["values"], key: valid}})
+                if key != "incident_capture_site":
+                    with self.assertRaises(ValueError):
+                        validate_diagnostics({**capture, "omittedFields": [key]})
+        for key in ("chat_delivery_content", "chat_delivery_thinking", "chat_delivery_tool_arguments", "chat_delivery_exception"):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("INCIDENT", {key: "private-text"}))
+
+    def test_chat_delivery_vocabulary_matches_android_contract(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        match = re.search(r"val chatDeliveryCounts = setOf\(([^\n]*)\)", source)
+        self.assertIsNotNone(match)
+        self.assertEqual(capsule.CHAT_DELIVERY_COUNTS, set(re.findall(r'"([^"\n]+)"', match.group(1))))
+        for key in ("chat_delivery_terminal", "chat_delivery_answer_state"):
+            match = re.search(r'"' + key + r'" to setOf\(([^\n]*)\)', source)
+            self.assertIsNotNone(match, key)
+            self.assertEqual(capsule.ENUMS[key], set(re.findall(r'"([^"\n]+)"', match.group(1))), key)
+
+    def test_claim_freshness_preserves_observed_empty_distinct_predicates_and_absence(self):
+        key = "acceptance_claim_freshness_predicates"
+        predicates = ["OBSERVATION_TIME_UNAVAILABLE", "OBSERVATION_TIME_FUTURE", "MUTABLE_AGE_EXCEEDED", "MUTABLE_EPOCH_MISMATCH"]
+        self.assertEqual({key}, capsule.CLAIM_FRESHNESS_FIELDS)
+        self.assertEqual(set(predicates), capsule.ENUM_LISTS[key])
+        for observed in [predicates[:size] for size in range(5)] + [predicates[::-1]]:
+            with self.subTest(observed=observed):
+                capture = self.capture("ACCEPTANCE", {key: observed})
+                original = copy.deepcopy(capture)
+                self.assertEqual(original, validate_diagnostics(capture))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                self.assertIn(key, issue["body"])
+                self.assertEqual(observed, capture["values"][key])
+        unavailable = self.capture("ACCEPTANCE")
+        validate_diagnostics(unavailable)
+        self.assertNotIn(key, unavailable["values"])
+        self.assertNotIn(key, unavailable.get("omittedFields", []))
+        omitted = {**unavailable, "omittedFields": [key]}
+        self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
+        _, issue = issue_from_report(self.report(omitted))
+        self.assertIn(key, issue["body"])
+
+    def test_claim_freshness_rejects_duplicates_oversized_private_or_wrong_area_evidence(self):
+        key = "acceptance_claim_freshness_predicates"
+        predicate = "MUTABLE_AGE_EXCEEDED"
+        for bad in (None, True, 0, predicate, {}, [predicate, predicate], [predicate] * 5, ["private/path"],
+                    ["mutable_age_exceeded"], [True], [0], [None], [[]], [{}]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {key: bad}))
+        for area in CORE_FIELDS.keys() - {"ACCEPTANCE"}:
+            capture = self.capture(area)
+            if area == "GATEWAY":
+                from authentication.engineering_report_contract import GATEWAY_ADMISSION_CORE
+                capture["unavailableFields"] = sorted(set(capture["unavailableFields"]) | GATEWAY_ADMISSION_CORE)
+            validate_diagnostics(capture)
+            for value in ([], [predicate]):
+                with self.subTest(area=area, value=value), self.assertRaises(ValueError):
+                    validate_diagnostics({**capture, "values": {**capture["values"], key: value}})
+            with self.subTest(area=area, omitted=True), self.assertRaises(ValueError):
+                validate_diagnostics({**capture, "omittedFields": [key]})
+        for private_key in ("acceptance_claim_timestamp", "acceptance_claim_path", "acceptance_claim_value", "freshness_predicates"):
+            with self.subTest(key=private_key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {private_key: "private-value"}))
+
+    def test_claim_freshness_vocabulary_matches_android_contract(self):
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()
+        match = re.search(r"val claimFreshnessFields = setOf\(([^\n]*)\)", source)
+        self.assertIsNotNone(match)
+        self.assertEqual(capsule.CLAIM_FRESHNESS_FIELDS, set(re.findall(r'"([^"\n]+)"', match.group(1))))
+        key = "acceptance_claim_freshness_predicates"
+        match = re.search(r'"' + key + r'" to setOf\(([^\n]*)\)', source)
+        self.assertIsNotNone(match)
+        self.assertEqual(capsule.ENUM_LISTS[key], set(re.findall(r'"([^"\n]+)"', match.group(1))))
+
+    def test_acceptance_recovery_evidence_preserves_unknown_policy_and_prerequisites(self):
+        values = {
+            "acceptance_preparation_state": "PREREQUISITES_REQUIRED",
+            "acceptance_ready_read_count": 0, "acceptance_additional_ready_read_count": 0,
+            "acceptance_fixture_creation_admissible": False,
+            "acceptance_blocked_operation_families": ["github_ci", "github_read"],
+            "status_policy_protection_http_status": 404,
+            "status_policy_rules_http_status": 403,
+            "status_branch_protected": False, "status_policy_complete": False,
+            "status_policy_recovery_hint": "CHECK_POLICY_READ_PERMISSIONS",
+        }
+        capture = self.capture("ACCEPTANCE", values)
+        original = copy.deepcopy(capture)
+        validate_diagnostics(capture)
+        self.assertEqual(original, capture)
+        self.assertFalse(capture["values"]["status_policy_complete"])
+        self.assertFalse(capture["values"]["acceptance_fixture_creation_admissible"])
+        for key, bad in (
+            ("status_policy_protection_http_status", "404"),
+            ("status_policy_rules_http_status", 600),
+            ("status_branch_protected", "false"),
+            ("status_policy_complete", 0),
+            ("acceptance_fixture_creation_admissible", "true"),
+            ("acceptance_ready_read_count", -1),
+            ("acceptance_preparation_state", "private repository path"),
+            ("acceptance_blocked_operation_families", ["private-owner/private-repo"]),
+            ("status_policy_recovery_hint", "BYPASS_POLICY"),
+        ):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {key: bad}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("VOICE", values))
+        root = Path(__file__).resolve().parents[1]
+        source = (root / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceRecoveryEvidence.kt").read_text()
+        from authentication import issue_report_diagnostics as contract
+        for name, expected in (("preparationStates", contract.ENUMS["acceptance_preparation_state"]),
+                               ("operationFamilies", contract.ENUM_LISTS["acceptance_blocked_operation_families"]),
+                               ("policyRecoveryHints", contract.ENUMS["status_policy_recovery_hint"]),
+                               ("fields", contract.ACCEPTANCE_RECOVERY_FIELDS)):
+            match = re.search(r"val " + name + r" = setOf\((.*?)\n?    \)", source, re.S)
+            if name != "fields":
+                match = re.search(r"val " + name + r" = setOf\(([^\n]*)\)", source)
+            self.assertIsNotNone(match, name)
+            self.assertEqual(expected, set(re.findall(r'"([^"\n]+)"', match.group(1))), name)
+
     def test_admission_diagnostics_preserve_typed_capacity_queue_and_preflight(self):
         samples = {
             "PROVIDER": {"admission_prompt_tokens": 9639, "admission_safety_tokens": 2409,
@@ -58,6 +305,64 @@ class IncidentReportContractTest(unittest.TestCase):
             _, issue = issue_from_report(report)
             self.assertIn(code, issue["title"])
 
+    def test_graph_prerequisites_and_separate_policy_endpoint_statuses_survive_submission(self):
+        values = {"status_policy_recovery": "CHECK_RULES_READ_PERMISSION", "branch_protection_http_status": 200,
+                  "branch_rules_http_status": 403, "branch_protection_observation": "OBSERVED", "branch_rules_observation": "ACCESS_DENIED",
+                  "unmet_criterion_blockers": ["GRAPH_INDEX_REQUIRED", "GRAPH_INPUT_REQUIRED", "GRAPH_INDEX_UNCONFIRMED"]}
+        capture = self.capture("ACCEPTANCE", values)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        report.update(feature="chat", errorCode="GITHUB_TASK_INCOMPLETE")
+        _, issue = issue_from_report(report)
+        for key in values:
+            self.assertIn(key, issue["body"])
+        for key in ("branch_protection_http_status", "branch_rules_http_status"):
+            for invalid in (99, 600, True, "403", "private endpoint detail"):
+                with self.subTest(key=key, value=invalid), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("ACCEPTANCE", {key: invalid}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", {"branch_rules_http_status": 403}))
+
+    def test_voice_capture_and_playback_evidence_is_bounded_and_area_specific(self):
+        values = {"voice_playback_failure": "AUDIO_FOCUS_DENIED", "voice_playback_focus_attempts": 2,
+                  "voice_capture_silenced_stage": "CAPTURE_READ", "voice_caption_alignment": "NO_TIMING",
+                  "voice_install_recognition_status": "CHECKING", "voice_install_playback_status": "READY"}
+        validate_diagnostics(self.capture("VOICE", values))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", values))
+        for key in values:
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {key: "raw recorder or speech text"}))
+
+    def test_github_prerequisite_evidence_is_typed_and_keeps_policy_unknown(self):
+        values = {"repository_graph_observation": "NOT_INDEXED", "graph_input_blocked_count": 16,
+                  "workflow_dependency_observation": "MISSING_EXECUTED_JOB",
+                  "branch_protection_observation": "NOT_FOUND_OR_INACCESSIBLE", "branch_rules_observation": "OBSERVED"}
+        sample = self.capture("ACCEPTANCE", values)
+        original = copy.deepcopy(sample)
+        validate_diagnostics(sample)
+        self.assertEqual(original, sample)
+        for key in values:
+            invalid = dict(values, **{key: -1 if key == "graph_input_blocked_count" else "private repository or run"})
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", invalid))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", values))
+
+    def test_completion_and_composer_report_fields(self):
+        validate_diagnostics(self.capture("PROVIDER", {
+            "provider_failure_code": "TOOL_PROTOCOL_INVALID_FRAME",
+            "empty_completion_observed_attempts": 2, "empty_completion_reasoning_only_attempts": 1,
+        }))
+        validate_diagnostics(self.capture("APP", {
+            "composer_focus_transitions": 1, "composer_ime_transitions": 2,
+            "composer_focused": True, "composer_ime_visible": False,
+        }))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("APP", {"composer_focus_transitions": 256}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("APP", {"composer_focused": "draft text"}))
+
     def test_github_schema_budget_preserves_specific_code_and_bounded_counts(self):
         code = "GITHUB_TOOL_CONTEXT_BUDGET"
         counts = {"required_schema_tokens": 5000, "available_schema_tokens": 0}
@@ -75,6 +380,144 @@ class IncidentReportContractTest(unittest.TestCase):
                 bad["values"][key] = invalid
                 with self.assertRaises(ValueError):
                     validate_diagnostics(bad)
+
+    def test_github_cooldown_preserves_full_long_range_closed_types_and_exact_report(self):
+        from authentication.issue_report_diagnostics import GITHUB_COOLDOWN_LONGS, GITHUB_COOLDOWN_FIELDS
+        longs = {"github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_observed_at_ms"}
+        fields = longs | {"github_cooldown_resource", "github_cooldown_basis", "github_cooldown_remaining_requests"}
+        self.assertEqual(longs, GITHUB_COOLDOWN_LONGS)
+        self.assertEqual(fields, GITHUB_COOLDOWN_FIELDS)
+        code = "GITHUB_COOLDOWN_ACTIVE"
+        sample = {"github_cooldown_resource": "CORE", "github_cooldown_basis": "RESOURCE_RESET",
+                  "github_cooldown_delay_ms": 20_000, "github_cooldown_deadline_ms": 130_000,
+                  "github_cooldown_observed_at_ms": 100_000, "github_cooldown_remaining_requests": 0}
+        for area, code_field in (("PROVIDER", "provider_failure_code"), ("TOOL", "tool_error_code")):
+            values = {**sample, code_field: code, "causal_failure_code": code}
+            for boundary in (0, 86_400_001, 9_223_372_036_854_775_807):
+                capture = self.capture(area, {**values, **dict.fromkeys(longs, boundary)})
+                original = copy.deepcopy(capture)
+                self.assertEqual(original, validate_diagnostics(capture))
+                report = self.report(capture)
+                report.update(feature="chat", errorCode=code, events=["-0ms E chat " + code])
+                report["context"]["source"] = "CHAT_FAILURE"
+                approved = copy.deepcopy(report)
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, report)
+                self.assertIn(code, issue["title"])
+                for key in fields:
+                    self.assertIn(key, issue["body"])
+                self.assertIn(str(boundary), issue["body"])
+                self.assertNotIn("dispatched", report["context"])
+                self.assertNotIn("remoteAcceptance", report["context"])
+            for resource in ("CORE", "SEARCH", "GRAPHQL", "OTHER"):
+                for basis in ("SECONDARY_DEADLINE", "RESOURCE_RESET", "RESOURCE_RETRY_AFTER", "RESOURCE_RESET_AND_RETRY_AFTER"):
+                    validate_diagnostics(self.capture(area, {**values, "github_cooldown_resource": resource,
+                        "github_cooldown_basis": basis, "github_cooldown_remaining_requests": 16_000_000}))
+            for key in fields:
+                invalid = ("PRIVATE_RESOURCE", "core", 1, False) if key in {"github_cooldown_resource", "github_cooldown_basis"} else (
+                    -1, "20000", 1.0, False, 9_223_372_036_854_775_808)
+                if key == "github_cooldown_remaining_requests":
+                    invalid += (16_000_001,)
+                for value in invalid + (None, [], {}):
+                    with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                        validate_diagnostics(self.capture(area, {**values, key: value}))
+        for key in fields:
+            for area in ("VOICE", "APP", "INCIDENT", "GATEWAY", "ACCEPTANCE"):
+                with self.subTest(key=key, area=area), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {key: sample[key]}))
+
+    def test_github_cooldown_optional_snapshot_values_and_code_only_reports_stay_absent(self):
+        from authentication.issue_report_diagnostics import GITHUB_COOLDOWN_FIELDS
+        code = "GITHUB_COOLDOWN_ACTIVE"
+        for area, code_field in (("PROVIDER", "provider_failure_code"), ("TOOL", "tool_error_code")):
+            secondary = self.capture(area, {"github_cooldown_resource": "SEARCH", "github_cooldown_basis": "SECONDARY_DEADLINE",
+                "github_cooldown_delay_ms": 20_000, "github_cooldown_deadline_ms": 130_000})
+            validate_diagnostics(secondary)
+            self.assertNotIn("github_cooldown_observed_at_ms", secondary["values"])
+            self.assertNotIn("github_cooldown_remaining_requests", secondary["values"])
+            omitted = self.capture(area, {code_field: code})
+            omitted["omittedFields"] = sorted(GITHUB_COOLDOWN_FIELDS)
+            validate_diagnostics(omitted)
+        for area, field in (("PROVIDER", "provider_failure_code"), ("INCIDENT", "causal_failure_code"), ("VOICE", "voice_chat_failure_code"), ("TOOL", "tool_error_code")):
+            capture = self.capture(area, {field: code})
+            report = self.report(capture)
+            report.update(feature="chat", errorCode=code, events=["-0ms E chat " + code])
+            report["context"]["source"] = "CHAT_FAILURE"
+            approved = copy.deepcopy(report)
+            _, issue = issue_from_report(report)
+            self.assertEqual(approved, report)
+            self.assertIn(code, issue["body"])
+            self.assertTrue(GITHUB_COOLDOWN_FIELDS.isdisjoint(report["context"]["diagnostics"]["values"]))
+
+    def test_github_http_rate_report_keeps_response_status_separate_from_model_provider(self):
+        for code, status in (("GITHUB_PRIMARY_RATE_LIMITED", 403), ("GITHUB_SECONDARY_RATE_LIMITED", 429)):
+            for measured in (False, True):
+                values = {"provider_failure_code": code, "provider_failure_stage": "GENERATION", "provider_failure_domain": "TOOL_EXECUTION",
+                          "github_cooldown_resource": "CORE", "github_cooldown_observed_at_ms": 100_000,
+                          "request_replay_allowed": False}
+                if measured:
+                    values.update(github_cooldown_basis="RESOURCE_RETRY_AFTER", github_cooldown_delay_ms=20_000,
+                                  github_cooldown_deadline_ms=120_000, github_cooldown_remaining_requests=0)
+                report = self.report(self.capture("PROVIDER", values))
+                report.update(feature="chat", errorCode=code)
+                report["context"].update(source="CHAT_FAILURE", provider="LLAMA", stage="tool_execution", httpStatus=status,
+                                         retryable=False, recoveryAction="RETRY_AFTER_BACKOFF")
+                report["context"]["unavailableFields"] = sorted(CONTEXT_FIELDS_V5 - report["context"].keys())
+                approved = copy.deepcopy(report)
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, report)
+                self.assertIn(code, issue["title"])
+                self.assertIn("TOOL_EXECUTION", issue["body"])
+                self.assertIn("tool_execution", issue["body"])
+                self.assertNotIn("dispatched", report["context"])
+                self.assertNotIn("remoteAcceptance", report["context"])
+                if not measured:
+                    self.assertTrue({"github_cooldown_basis", "github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_remaining_requests"}.isdisjoint(values))
+                for area, field in (("INCIDENT", "causal_failure_code"), ("VOICE", "voice_chat_failure_code")):
+                    validate_diagnostics(self.capture(area, {field: code}))
+
+    def test_profile_selection_preserves_closed_comparisons_hashes_and_exact_report(self):
+        from authentication.issue_report_diagnostics import PROFILE_SELECTION_FLAGS, PROFILE_SELECTION_HASHES, PROFILE_SELECTION_FIELDS
+        flags = {"github_selection_profile_match", "github_selection_registered_profile", "github_selection_model_match"}
+        hashes = {"github_selection_profile_hash", "github_selection_registered_model_hash"}
+        self.assertEqual(flags, PROFILE_SELECTION_FLAGS)
+        self.assertEqual(hashes, PROFILE_SELECTION_HASHES)
+        self.assertEqual(flags | hashes, PROFILE_SELECTION_FIELDS)
+        code = "GITHUB_PROFILE_LOCKED"
+        values = {**{key: key == "github_selection_registered_profile" for key in flags},
+                  **{key: "a" * 64 for key in hashes}, "provider_failure_code": code, "causal_failure_code": code}
+        capture = self.capture("PROVIDER", values)
+        original = copy.deepcopy(capture)
+        validate_diagnostics(capture)
+        self.assertEqual(original, capture)
+        report = self.report(capture)
+        report.update(feature="chat", errorCode=code)
+        report["events"] = ["-0ms E chat " + code]
+        report["context"]["source"] = "CHAT_FAILURE"
+        approved = copy.deepcopy(report)
+        _, issue = issue_from_report(report)
+        self.assertEqual(approved, report)
+        self.assertIn(code, issue["title"])
+        for key in PROFILE_SELECTION_FIELDS:
+            self.assertIn(key, issue["body"])
+        omitted = self.capture("PROVIDER", {"provider_failure_code": code})
+        omitted["omittedFields"] = sorted(PROFILE_SELECTION_FIELDS)
+        validate_diagnostics(omitted)
+        unregistered = self.capture("PROVIDER", {"github_selection_profile_match": False,
+                                               "github_selection_registered_profile": False,
+                                               "github_selection_profile_hash": "b" * 64})
+        validate_diagnostics(unregistered)
+        self.assertNotIn("github_selection_model_match", unregistered["values"])
+        self.assertNotIn("github_selection_registered_model_hash", unregistered["values"])
+        for key in PROFILE_SELECTION_FIELDS:
+            invalid = ("false", 0, 1, None, [], {}, "PRIVATE_TOKEN") if key in flags else (
+                "A" * 64, "a" * 63, "a" * 65, False, 1, None, [], "PRIVATE_MODEL")
+            for value in invalid:
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("PROVIDER", {**values, key: value}))
+            for area in ("TOOL", "VOICE", "APP", "INCIDENT", "GATEWAY", "ACCEPTANCE"):
+                with self.subTest(key=key, area=area), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {key: values[key]}))
 
     def test_session_recovery_diagnostics_validate_through_issue_submission(self):
         samples = {
@@ -460,7 +903,7 @@ class IncidentReportContractTest(unittest.TestCase):
         self.assertEqual(67, len(capsule.POLICY_FIELD_NAMES))
 
     def test_exception_capture_survives_validation_without_claiming_provider_dispatch(self):
-        for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH"):
+        for site in ("CHAT_REPOSITORY_TERMINAL_CATCH", "OPENAI_ADAPTER_STREAM_CATCH", "PROVIDER_ADAPTER_STREAM_CATCH", "CHAT_REPOSITORY_ERROR_VALUE"):
             with self.subTest(site=site):
                 capture = self.capture("INCIDENT", {
                     "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",
@@ -484,6 +927,22 @@ class IncidentReportContractTest(unittest.TestCase):
                     invalid["context"]["diagnostics"]["values"][key] = value
                     with self.assertRaises(ReportError):
                         issue_from_report(invalid)
+
+    def test_error_value_boundary_preserves_unknown_cause_without_exception_metadata(self):
+        capture = self.capture("INCIDENT", {
+            "incident_phase": "unknown", "causal_provenance": "UNAVAILABLE",
+            "causal_failure_code": "CHAT_FAILED", "incident_evidence_status": "CAUSAL_EVIDENCE_UNAVAILABLE",
+            "incident_capture_site": "CHAT_REPOSITORY_ERROR_VALUE", "incident_phase_provenance": "CAPTURE_BOUNDARY_ONLY",
+        })
+        del capture["values"]["causal_id_hash"]
+        capture["unavailableFields"] = sorted((CORE_FIELDS["INCIDENT"] | capsule.CORE) - capture["values"].keys())
+        report = self.report(capture)
+        approved = json.dumps(report, separators=(",", ":"))
+        _, issue = issue_from_report(report)
+        self.assertIn("CHAT_REPOSITORY_ERROR_VALUE", issue["body"])
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+        self.assertNotIn("exception_type_hashes", capture["values"])
+        self.assertTrue({"stage", "httpStatus", "dispatched", "retryable", "remoteAcceptance", "exceptionFingerprint"}.issubset(report["context"]["unavailableFields"]))
 
     def test_exception_capture_vocabulary_matches_native_contract(self):
         source = (Path(__file__).resolve().parents[1] / "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt").read_text()

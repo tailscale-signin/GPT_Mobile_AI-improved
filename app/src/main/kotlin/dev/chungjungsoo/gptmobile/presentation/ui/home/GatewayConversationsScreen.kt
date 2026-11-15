@@ -207,6 +207,9 @@ internal fun GatewayConversationsScreen(
                             profileLabels = emptyList(),
                             isGateway = true,
                             isServerChat = true,
+                            isGitHub = chat.id in state.gitHubChatIds,
+                            isResearch = chat.id in state.researchChatIds,
+                            showGatewayMode = true,
                             onItemClick = { viewModel.openLocalChat(chat, onOpenLocalChat) },
                             onItemLongClick = { viewModel.openLocalChat(chat, onOpenLocalChat) }
                         )
@@ -348,7 +351,11 @@ private fun GatewayHistoryRow(conversation: GatewayConversationSnapshot, opening
         headlineContent = { Text(conversation.title.ifBlank { stringResource(R.string.gateway_browser_untitled) }, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         leadingContent = {
             Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                GatewayConversationIcon(working = live && conversation.isWorking(), unread = false)
+                GatewayConversationIcon(
+                    working = live && conversation.isWorking(),
+                    unread = false,
+                    conversationType = if (conversation.repository != null) dev.chungjungsoo.gptmobile.data.model.NewChatType.GITHUB else dev.chungjungsoo.gptmobile.data.model.NewChatType.SINGLE
+                )
             }
         },
         supportingContent = {

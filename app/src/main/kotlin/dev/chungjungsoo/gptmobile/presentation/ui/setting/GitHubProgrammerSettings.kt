@@ -139,8 +139,8 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
         GitHubDecisionSettings(state.decisionMode, state.chatId?.let { it > 0 } == true, onDecisionMode)
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Prepare code context", style = MaterialTheme.typography.titleSmall)
-                Text("Optional incremental indexing. Files remain available on demand.", style = MaterialTheme.typography.bodySmall)
+                Text("Cache source files", style = MaterialTheme.typography.titleSmall)
+                Text("Cache file contents for on-demand reads. Build the separate symbol and dependency index in Repository map.", style = MaterialTheme.typography.bodySmall)
             }
             Switch(state.prepareIndex, onIndex, modifier = Modifier.testTag("github_index_option"))
         }
@@ -149,7 +149,7 @@ internal fun GitHubProgrammerSettings(workspace: GitHubWorkspaceState, state: Gi
             val total = status["total_paths"]?.jsonPrimitive?.intOrNull
             Text(if (total == null) "$indexed files cached. Coverage is checked against the selected revision." else "$indexed of $total files cached. Partial indexing remains visible.", style = MaterialTheme.typography.bodySmall)
         }
-        if (state.prepareIndex) OutlinedButton(onClick = onPrepare, enabled = !workspace.busy) { Text("Prepare next batch") }
+        if (state.prepareIndex) OutlinedButton(onClick = onPrepare, enabled = !workspace.busy) { Text("Cache next source batch") }
     }
 }
 

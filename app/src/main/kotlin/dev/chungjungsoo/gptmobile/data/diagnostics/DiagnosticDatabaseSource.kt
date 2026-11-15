@@ -225,9 +225,12 @@ class DiagnosticDatabaseSource @Inject constructor(
         maximumSourceBytes: Int = maximumCharacters,
         metadata: suspend (JsonObject) -> Unit = {},
         resumeCursor: JsonObject? = null,
-        checkpoint: (JsonObject) -> Unit = {}
+        checkpoint: (JsonObject) -> Unit = {},
+        sourceRecord: (DiagnosticSourceRecord?) -> Unit = {},
+        sourcePageSize: Int = 16
     ) = withContext(Dispatchers.IO) {
         require(chatId > 0 && maximumCharacters in 1024..1_048_576 && maximumSourceBytes in maximumCharacters..1_048_576)
+        require(sourcePageSize in 1..16)
         require(
             resumeCursor == null ||
                 resumeCursor.number("schema") == 1L &&
@@ -252,7 +255,7 @@ class DiagnosticDatabaseSource @Inject constructor(
             val state = tableStates[table.name] as? JsonObject
             if (state?.get("completed") == JsonPrimitive(true)) continue
             try {
-                captureTable(source, table, chatId, maximumSourceBytes, beforeRead, consume, omitted, metadata, state) { save(table.name, it) }
+                captureTable(source, table, chatId, maximumSourceBytes, beforeRead, consume, omitted, metadata, state, { save(table.name, it) }, sourceRecord, sourcePageSize)
             } catch (_: SQLException) {
                 omitted("DIAGNOSTIC_TABLE_READ_FAILED")
                 consume(
@@ -276,7 +279,9 @@ class DiagnosticDatabaseSource @Inject constructor(
         omitted: (String) -> Unit,
         metadata: suspend (JsonObject) -> Unit,
         saved: JsonObject?,
-        checkpoint: (JsonObject) -> Unit
+        checkpoint: (JsonObject) -> Unit,
+        sourceRecord: (DiagnosticSourceRecord?) -> Unit,
+        sourcePageSize: Int
     ) {
         var omissionCount = saved?.number("omissionCount") ?: 0L
         fun recordOmission(reason: String) {
@@ -346,15 +351,16 @@ class DiagnosticDatabaseSource @Inject constructor(
             val page = database.query(
                 SimpleSQLiteQuery(
                     if (table.newestFirst) {
-                        "SELECT t.rowid, $rowLength, $sort FROM ${table.name} t WHERE ($where) AND ($sort < ? OR ($sort = ? AND t.rowid < ?)) AND t.rowid <= ? ORDER BY $sort DESC, t.rowid DESC LIMIT 16"
+                        "SELECT t.rowid, $rowLength, $sort FROM ${table.name} t WHERE ($where) AND ($sort < ? OR ($sort = ? AND t.rowid < ?)) AND t.rowid <= ? ORDER BY $sort DESC, t.rowid DESC LIMIT $sourcePageSize"
                     } else {
-                        "SELECT t.rowid, $rowLength, t.rowid FROM ${table.name} t WHERE ($where) AND t.rowid > ? AND t.rowid <= ? ORDER BY t.rowid LIMIT 16"
+                        "SELECT t.rowid, $rowLength, t.rowid FROM ${table.name} t WHERE ($where) AND t.rowid > ? AND t.rowid <= ? ORDER BY t.rowid LIMIT $sourcePageSize"
                     },
                     if (table.newestFirst) arrayOf<Any?>(afterSort, afterSort, after, highWatermark) else arrayOf<Any?>(after, highWatermark)
                 )
             ).use { cursor -> buildList { while (cursor.moveToNext()) add(Triple(cursor.getLong(0), cursor.getLong(1), cursor.getLong(2))) } }
             if (page.isEmpty()) break
             for ((rowId, sourceBytes, order) in page) {
+                sourceRecord(DiagnosticSourceRecord(table.name, rowId, sourceBytes, maximumCharacters))
                 beforeRead()
                 inspectedRows++
                 if (sourceBytes > maximumCharacters) {
@@ -370,6 +376,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                         }
                     )
                     advance(rowId, order)
+                    sourceRecord(null)
                     continue
                 }
                 // Recheck the bound in this query too: a live generation may update the row.
@@ -395,6 +402,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                 if (fields == null) {
                     recordOmission("SOURCE_CHANGED_DURING_CAPTURE")
                     advance(rowId, order)
+                    sourceRecord(null)
                     continue
                 }
                 // Protected receipts are expanded only after the bounded row cursor is closed.
@@ -407,12 +415,15 @@ class DiagnosticDatabaseSource @Inject constructor(
                         storedPayload,
                         maximumCharacters,
                         beforeRead,
-                        ::recordOmission
+                        ::recordOmission,
+                        projector
                     )
                     val payload = if (!protected.protected) {
                         projector.text(storedPayload)
                     } else if (protected.payload != null) {
-                        projector.element(protected.payload)
+                        // Protected hydration consumed this same row projector's budget.
+                        // Reprojecting duplicates the walk and can expand a quoted value twice.
+                        protected.payload
                     } else {
                         val reason = protected.omissionReason ?: "PROTECTED_PAYLOAD_UNAVAILABLE"
                         recordOmission(reason)
@@ -447,6 +458,8 @@ class DiagnosticDatabaseSource @Inject constructor(
                 )
                 emittedRows++
                 advance(rowId, order)
+                sourceRecord(null)
+                if (sourcePageSize == 1) kotlinx.coroutines.yield()
             }
         }
         if (inspectedRows != expectedRows) recordOmission("DATABASE_ROW_COUNT_CHANGED")
@@ -472,7 +485,7 @@ class DiagnosticDatabaseSource @Inject constructor(
                 put("resumed", saved != null)
                 put("newestFirst", table.newestFirst)
                 put("omittedValuesOrRows", omissionCount)
-                put("pageSize", 16)
+                put("pageSize", sourcePageSize)
                 put("rowLimit", kotlinx.serialization.json.JsonNull)
                 put("startedAtMillis", startedAt)
                 put("completedAtMillis", System.currentTimeMillis())

@@ -10,7 +10,7 @@ from urllib.parse import quote
 import requests
 
 from v14.engineering_backend import GitHubEngineeringBackend, blob_sha
-from .extract import MAX_FILE_BYTES
+from .extract import MAX_SOURCE_BYTES
 
 API = 'https://api.github.com'
 MAX_ARCHIVE_BYTES = 128 * 1024 * 1024
@@ -123,14 +123,14 @@ class PublicGitHubReader:
             archive, root = self._source
             try:
                 member = archive.getinfo(root + '/' + path)
-                if not member.is_dir() and member.file_size <= MAX_FILE_BYTES:
+                if not member.is_dir() and member.file_size <= MAX_SOURCE_BYTES:
                     with archive.open(member) as stream:
-                        raw = stream.read(MAX_FILE_BYTES + 1)
-                    if len(raw) <= MAX_FILE_BYTES and blob_sha(raw) == expected_blob:
+                        raw = stream.read(MAX_SOURCE_BYTES + 1)
+                    if len(raw) <= MAX_SOURCE_BYTES and blob_sha(raw) == expected_blob:
                         return raw
             except (KeyError, OSError, RuntimeError, zipfile.BadZipFile):
                 pass
         # Archives may omit export-ignored files or substitute LFS objects.
         with anonymous_get(f'https://raw.githubusercontent.com/{repository}/{sha}/' + quote(path, safe='/')) as response:
             require_ok(response)
-            return b''.join(bounded_chunks(response, MAX_FILE_BYTES, 15))
+            return b''.join(bounded_chunks(response, MAX_SOURCE_BYTES, 15))

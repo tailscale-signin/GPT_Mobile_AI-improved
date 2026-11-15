@@ -7,7 +7,9 @@ from pathlib import Path
 import sys
 import tempfile
 import time
+from types import SimpleNamespace
 import unittest
+from unittest.mock import patch
 import zipfile
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -76,13 +78,63 @@ class DebugEvidenceTests(unittest.TestCase):
             self.assertEqual(request['httpRequestId'], response['httpRequestId'])
             self.assertEqual(attempt, response['retryAttempt'])
             self.assertGreaterEqual(response['timestampMs'] - request['timestampMs'], 30)
-            self.assertLess(abs(response['durationMs'] - (response['completedAtMs'] - request['arrivalAtMs'])), 15)
+            # Wall time and monotonic time are independent observations. Their
+            # Windows/Python 3.12 clocks can tick at different 15.6 ms boundaries.
+            self.assertGreaterEqual(response['durationMs'], 30)
+            self.assertEqual(request['arrivalAtMs'], request['timestampMs'])
+            self.assertEqual(response['completedAtMs'], response['timestampMs'])
             self.assertLessEqual(request['arrivalAtMs'], request['recordedAtMs'])
             self.assertLessEqual(response['responseStartedAtMs'], response['completedAtMs'])
             self.assertTrue(response['responseBodyCompleted'])
             self.assertEqual('BACKEND_CONNECTION_REFUSED', response['observation']['reasonCode'])
         self.assertNotIn('secret', self.store.export())
         self.assertNotIn('private', self.store.export())
+
+    def test_duration_remains_monotonic_when_wall_clock_ticks_or_moves_backwards(self):
+        cases = {
+            'coarse_ticks': (1000.015625, 1000.046875, 1000.0625),
+            'clock_moved_backwards': (1000.0, 999.5, 999.25),
+        }
+        for name, (arrival, response_started, completed) in cases.items():
+            with self.subTest(clock=name):
+                clock = SimpleNamespace(wall=arrival, monotonic=10.0)
+
+                async def app(scope, receive, send):
+                    clock.wall, clock.monotonic = response_started, 10.03125
+                    await send({'type': 'http.response.start', 'status': 200, 'headers': []})
+                    clock.wall, clock.monotonic = completed, 10.0625
+                    await send({'type': 'http.response.body', 'body': b'{}'})
+                    # Work after the completed body must not extend its latency
+                    # or replace the captured completion time with write time.
+                    clock.wall += 5.0
+                    clock.monotonic += 5.0
+
+                async def call():
+                    async def receive():
+                        return {'type': 'http.request', 'body': b''}
+
+                    async def send(message):
+                        pass
+
+                    await middleware({'type': 'http', 'method': 'GET', 'path': '/gateway/ready', 'headers': []}, receive, send)
+
+                # Replace only this module's clock reference; asyncio retains
+                # its real clock and does not depend on the controlled ticks.
+                clocks = SimpleNamespace(time=lambda: clock.wall, monotonic=lambda: clock.monotonic)
+                with patch.object(self.store, 'now', clocks.time), patch('v14.debug.time', clocks):
+                    middleware = DebugMiddleware(app, self.store, '2' * 32)
+                    asyncio.run(call())
+                request, response = [json.loads(row) for row in self.store.export().splitlines()][-2:]
+                self.assertEqual(['client_request', 'gateway_response'], [request['event'], response['event']])
+                self.assertEqual(int(arrival * 1000), request['arrivalAtMs'])
+                self.assertEqual(request['arrivalAtMs'], request['timestampMs'])
+                self.assertEqual(int(response_started * 1000), response['responseStartedAtMs'])
+                self.assertEqual(int(completed * 1000), response['completedAtMs'])
+                self.assertEqual(response['completedAtMs'], response['timestampMs'])
+                self.assertEqual(int((completed + 5.0) * 1000), response['recordedAtMs'])
+                self.assertEqual(62, response['durationMs'])
+                self.assertNotEqual(response['durationMs'], response['completedAtMs'] - request['arrivalAtMs'])
+                self.assertTrue(response['responseBodyCompleted'])
 
     def test_http_200_capability_failure_preserves_unverified_reason_and_upstream_status(self):
         self.assertEqual(200, self.client().get('/gateway/capabilities').status_code)

@@ -353,7 +353,18 @@ internal class MoonshineVoiceRecognizer internal constructor(
                     mayRecreateVoiceCapture(failure, run.captureAttempts.get(), run.capturedChunks.get())
                 ) {
                     engineEvent(run, "capture_recreate", failure.diagnosticFields())
-                    // finally releases this recorder and audio focus before the new instance starts.
+                    // Release ownership before giving Android time to settle the input route.
+                    if (failure.code == "MICROPHONE_CAPTURE_SILENCED") {
+                        if (run.capture === capture) run.capture = null
+                        runCatching { capture?.close() }
+                        capture = null
+                        try {
+                            Thread.sleep(200)
+                        } catch (_: InterruptedException) {
+                            Thread.currentThread().interrupt()
+                            return
+                        }
+                    }
                     continue
                 }
                 if (!run.cancelled.get() && !run.ending.get()) {
@@ -665,11 +676,13 @@ internal class AndroidVoiceCapture(
         val silenced = record.activeRecordingConfiguration?.isClientSilenced
         if (!stopped && silenced != null) diagnosticProbe?.inputSilenced(silenced)
         if (silenced != true || stopped) return
+        diagnosticProbe?.captureSilenced(phase.uppercase(java.util.Locale.ROOT))
         val failure = captureFailure(
             record,
             "MICROPHONE_CAPTURE_SILENCED",
             phase,
-            "Android is silencing microphone input. Keep Voice open in the foreground, finish any active call or other recording, and try again."
+            "Android is silencing microphone input. Keep Voice open in the foreground, finish any active call or other recording, and try again.",
+            retryable = capturedSamples == 0L
         )
         stop()
         throw failure

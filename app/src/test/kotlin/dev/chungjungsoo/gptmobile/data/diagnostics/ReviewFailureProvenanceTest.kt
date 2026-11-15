@@ -16,6 +16,16 @@ import org.junit.Test
 class ReviewFailureProvenanceTest {
     private val profile = PlatformV2(uid = "selected", name = "Selected", model = "model")
 
+    @Test fun enlargedSyntheticProbeRetainsCompatibilityStageInsteadOfAnswerReview() {
+        val failed = failure().copy(failureDetails = JsonObject(failure().failureDetails.orEmpty() - "review_stage"))
+        for (role in listOf("github-review-preflight", "github-review-preflight-output-retry")) {
+            val receipt = ProviderFailureReceipt.from(profile, role, failed)
+            assertEquals(ProviderFailureStage.REVIEW_COMPATIBILITY, receipt.stage)
+            assertEquals("reviewer", receipt.invocationId)
+            assertEquals("provider_generation", receipt.causeStage)
+        }
+    }
+
     @Test fun noUsageReviewerAttemptKeepsKnownFinishAndBytesInThePersistedFailureReceipt() {
         val recovery = Json.parseToJsonElement("""{"schema_version":1,"attempt_receipts":[{"attempt":1,"output_allowance":1536,"finish_reason":"LENGTH","visible_output_bytes":0,"reasoning_output_bytes":11,"terminal_error_code":"completion_repair_budget_exhausted","terminal_status_code":200,"backend_response_observed":true,"status":"COMPLETED"}]}""")
         val failed = failure().let { it.copy(failureDetails = JsonObject(it.failureDetails.orEmpty() + ("gateway_recovery" to recovery))) }

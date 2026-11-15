@@ -234,6 +234,7 @@ data class ProfileFailureRecord(
             val readinessCode = readinessCodes.firstOrNull { details.contains(it, true) }
             val repositoryAdmission = repositoryAdmissionCodes.firstOrNull { details.contains(it, true) }
             val githubSchemaAdmission = githubSchemaAdmissionCodes.firstOrNull { details.contains(it, true) }
+                ?: "GITHUB_TOOL_CONTEXT_BUDGET".takeIf { details.contains("GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET", true) }
             val capacityCode = capacityCodes.firstOrNull { details.contains(it, true) }
             val continuationCode = continuationCodes.firstOrNull { details.contains(it, true) }
             val verificationCode = typedCodes.firstOrNull { code ->

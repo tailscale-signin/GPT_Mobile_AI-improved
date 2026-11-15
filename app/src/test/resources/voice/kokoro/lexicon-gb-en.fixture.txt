@@ -1,0 +1,23 @@
+# Unmodified rows from the verified Kokoro pack used by KokoroModelPack.
+# Source: https://huggingface.co/csukuangfj/kokoro-int8-multi-lang-v1_0/blob/main/lexicon-gb-en.txt
+# Full source SHA-256: c4cbb37316f62210dff52718a7afcaae24f50c032cc75ab47ae67b831d1049e7
+a A
+e ˈ i ː
+g ʤ ˈ i ː
+h ˈ A ʧ
+is ɪ z
+p p ˈ i ː
+r ˈ ɑ ː
+u j ˈ u ː
+answer ˈ ɑ ː n s ə
+hear h ˈ ɪ ə
+hello h ə l ˈ Q
+here h ˈ ɪ ə
+read ɹ ˈ i ː d
+that ð a t
+the ð ə
+there ð ɛ ː
+this ð ɪ s
+voice v ˈ Y s
+word w ˈ ɜ ː d
+you j u ː

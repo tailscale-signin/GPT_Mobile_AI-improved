@@ -11,6 +11,16 @@ import yaml
 
 
 class GitHubIntegrationFixtureTest(unittest.TestCase):
+    def test_workflow_files_are_well_formed_yaml(self):
+        workflows = Path(__file__).resolve().parents[2] / '.github/workflows'
+        for path in sorted(workflows.iterdir()):
+            if path.suffix not in {'.yml', '.yaml'}:
+                continue
+            with self.subTest(workflow=path.name):
+                document = yaml.load(path.read_text(), Loader=yaml.BaseLoader)
+                self.assertIsInstance(document, dict)
+                self.assertIsInstance(document.get('jobs'), dict)
+
     @classmethod
     def setUpClass(cls):
         cls.workflow = yaml.load(

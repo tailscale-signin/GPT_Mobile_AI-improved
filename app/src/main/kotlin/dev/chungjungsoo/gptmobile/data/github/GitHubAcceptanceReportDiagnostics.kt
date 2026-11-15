@@ -17,12 +17,14 @@ internal object GitHubAcceptanceReportDiagnostics {
         put("diagnostic_area", "ACCEPTANCE")
         put("diagnostic_capture_mode", "INCIDENT")
         put("acceptance_evidence_scope", if (retainedReport) "RETAINED_VERDICT" else "CURRENT_VERDICT")
+        GitHubAcceptanceRecoveryEvidence.fields(verdict).forEach { (key, value) -> put(key, value) }
         (verdict["unresolved_claims"] as? JsonArray)?.let { claims ->
             put("acceptance_unresolved_claim_count", claims.size)
             val reasons = claims.filterIsInstance<JsonObject>().map { it.text("reason") }
                 .filter { it in setOf("RECEIPT_NOT_FOUND", "UNTRUSTED_RECEIPT", "AUTHORIZATION_REVALIDATION_REQUIRED", "OPERATION_FAILED", "CLAIM_VALUE_MISSING", "POINTER_NOT_IN_EVIDENCE", "FIELD_SEMANTICS_MISMATCH", "OBSERVATION_TIME_UNKNOWN", "HISTORICAL_OBSERVATION", "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "VALUE_MISMATCH", "EXACT_RECEIPT_MATCH") }.distinct().take(8)
             if (reasons.isNotEmpty()) put("acceptance_claim_failure_reasons", JsonArray(reasons.map(::JsonPrimitive)))
         }
+        recordedFreshnessPredicates(verdict)?.let { put("acceptance_claim_freshness_predicates", it) }
         val requirements = (ledger["requirements"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
         val unmetRequirements = requirements.filter { it["required"] == JsonPrimitive(true) && it["state"] != JsonPrimitive("PASS") }
         val capabilities = (ledger["capabilities"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter { it["required"] == JsonPrimitive(true) }
@@ -63,13 +65,15 @@ internal object GitHubAcceptanceReportDiagnostics {
         // Counts describe recorded blocker codes, including rows omitted from the compact sample.
         val blockers = unmet.map { it.text("blocker_code") }
         put("acceptance_approval_blocked_total", blockers.count { it in setOf("FIXTURE_APPROVAL_MODE_REQUIRED", "FIXTURE_APPROVAL_STATE_UNKNOWN", "APPROVAL_REQUIRED", "AUTHORIZATION_REQUIRED") })
-        put("acceptance_input_blocked_total", blockers.count { it in setOf("REPOSITORY_INPUT_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "OWNED_FIXTURE_REQUIRED") })
+        put("acceptance_input_blocked_total", blockers.count { it in setOf("REPOSITORY_INPUT_REQUIRED", "WORKFLOW_RUN_OR_JOB_REQUIRED", "ISSUE_ID_REQUIRED", "PULL_REQUEST_ID_REQUIRED", "RELEASE_OR_TAG_REQUIRED", "OWNED_FIXTURE_REQUIRED", "GRAPH_INDEX_REQUIRED", "GRAPH_INPUT_REQUIRED") })
         put("acceptance_live_blocked_total", blockers.count { it == "LIVE_EVIDENCE_REQUIRED" })
         put("acceptance_continuation_blocked_total", blockers.count { it == "CONTINUATION_REQUIRED" })
-        // Sample a representative of every observed blocker before taking
-        // duplicates, so a long prerequisite list does not hide other causes.
-        val firstByBlocker = unmet.distinctBy { it.text("blocker_code").ifBlank { it.text("state") } }.take(8)
-        val selected = (firstByBlocker + unmet.filter { it !in firstByBlocker }).take(8)
+        // Keep recorded failures first: public byte compaction removes rows
+        // from the end, and prerequisite rows must not hide failed operations.
+        // Then retain distinct prerequisite blockers before their duplicates.
+        val (failures, prerequisites) = unmet.partition { it["state"] == JsonPrimitive("FAIL") }
+        val firstByBlocker = prerequisites.distinctBy { it.text("blocker_code").ifBlank { it.text("state") } }.take(8)
+        val selected = (failures + firstByBlocker + prerequisites.filter { it !in firstByBlocker }).take(8)
         put("unmet_criterion_omitted_count", unmet.size - selected.size)
         if (selected.isNotEmpty()) {
             val projection = GitHubAcceptanceDiagnostics.snapshot(buildJsonObject { put("requirements", JsonArray(selected)) }, limit = 8)
@@ -87,14 +91,31 @@ internal object GitHubAcceptanceReportDiagnostics {
         }
         (verdict["status_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             .firstOrNull { it.text("item") == "Required-check policy" }?.let { coverage ->
-                if (coverage.text("branch_protection_observation") == "NOT_FOUND_OR_INACCESSIBLE") {
+                if (coverage.text("branch_protection_observation") in setOf("NOT_FOUND_OR_INACCESSIBLE", "ACCESS_DENIED")) {
                     put("status_policy_recovery", "CHECK_PROTECTION_READ_PERMISSION")
+                } else if (coverage.text("branch_rules_observation") in setOf("NOT_FOUND_OR_INACCESSIBLE", "ACCESS_DENIED")) {
+                    put("status_policy_recovery", "CHECK_RULES_READ_PERMISSION")
                 }
                 for (key in listOf("branch_protection_observation", "branch_rules_observation")) {
-                    coverage[key]?.let { put(key, it) }
+                    coverage[key]?.let { IssueReportIncidentCapsule.validValue(key, it) }?.let { put(key, it) }
+                }
+                for (key in listOf("branch_protection_http_status", "branch_rules_http_status")) {
+                    coverage.number(key)?.takeIf { it in 100..599 }?.let { put(key, it) }
                 }
             }
         val checklist = verdict["test_checklist"] as? JsonObject
+        val graphInputs = (checklist?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>().filter {
+            it["required"] == JsonPrimitive(true) && it.text("id").startsWith("repository_graph:") && it.text("blocker_code") in GitHubSelfTestPrerequisites.graphInputBlockerCodes
+        }
+        if (graphInputs.isNotEmpty()) {
+            put("graph_input_blocked_count", graphInputs.size)
+            graphInputs.map { it.text("repository_graph_observation") }.distinct().singleOrNull()
+                ?.takeIf { it in setOf("NOT_INDEXED", "OBSERVED", "UNOBSERVED", "REVISION_MISMATCH", "UNAVAILABLE") }
+                ?.let { put("repository_graph_observation", it) }
+        }
+        (checklist?.get("pagination_resume") as? JsonObject)?.text("workflow_dependency_observation")
+            ?.takeIf { it in setOf("UNOBSERVED", "READ_FAILED", "OBSERVED_EXECUTED_JOB", "RUN_READ_PENDING", "MISSING_EXECUTED_JOB", "RUN_PAGE_AVAILABLE") }
+            ?.let { put("workflow_dependency_observation", it) }
         checklist?.text("coverage_scope")?.takeIf { it in setOf("FULL_CATALOG", "OBSERVED_CAPABILITIES") }?.let {
             put("acceptance_capability_scope", it)
         }
@@ -128,6 +149,28 @@ internal object GitHubAcceptanceReportDiagnostics {
             budget?.let { put("stage_budget", it) }
         }
         put("checkpoint_hash", GitHubEvidenceBook.digest(checkpoint.toString()))
+    }
+
+    private fun recordedFreshnessPredicates(verdict: JsonObject): JsonArray? {
+        val claims = verdict["claims"] as? JsonArray ?: return null
+        if (claims.size !in 1..128 || claims.any { it !is JsonObject }) return null
+        val rows = claims.filterIsInstance<JsonObject>()
+        if (rows.any { it.text("status") !in setOf("VERIFIED", "HISTORICAL", "STALE", "CONTRADICTED", "NOT_MEASURED", "INFERRED") }) return null
+        val checked = rows.filter { it.text("status") !in setOf("NOT_MEASURED", "INFERRED") }
+        if (checked.isEmpty()) return null
+        val values = checked.flatMap { claim ->
+            // Old or incomplete checkpoints are unavailable, not an observed
+            // empty result. Never infer a predicate from a reason or timestamp.
+            if (claim.text("reason") !in setOf("EXACT_RECEIPT_MATCH", "HISTORICAL_OBSERVATION", "OBSERVATION_TIME_UNKNOWN", "MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED", "VALUE_MISMATCH")) return null
+            val recorded = claim["freshness_predicates"] as? JsonArray ?: return null
+            if (recorded.size > 4 || recorded.distinct().size != recorded.size) return null
+            val invalid = recorded.any {
+                it !is JsonPrimitive || !it.isString || it.contentOrNull !in GitHubEvidencePolicy.freshnessPredicateValues
+            }
+            if (invalid) return null
+            recorded
+        }.distinct()
+        return JsonArray(values)
     }
 
     private fun JsonObject.text(key: String): String = (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull.orEmpty()

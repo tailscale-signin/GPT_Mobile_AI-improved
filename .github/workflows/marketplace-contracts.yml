@@ -52,7 +52,7 @@ jobs:
   contracts:
     runs-on: ubuntu-latest
     # Reserve independent cold-compilation and focused-test deadlines.
-    timeout-minutes: 65
+    timeout-minutes: 80
     env:
       OBX_DISABLE_ANALYTICS: 'true'
     steps:
@@ -91,15 +91,22 @@ jobs:
         timeout-minutes: 10
         run: python3 scripts/provision_robolectric_sdks.py
 
-      # Release KSP/KAPT before production compilation, then release the compiler
-      # before compiling and running tests. Run 42164047415 exhausted 3 GiB.
-      - name: Generate production sources in a separate process
+      # Run 43621179565 exhausted 3 GiB when KSP and KAPT shared a process.
+      # Match PR Validation: release Room generation before bounded annotation processing.
+      - name: Generate production Room sources in a separate process
         timeout-minutes: 10
         shell: bash
         run: |
           set -o pipefail
           chmod +x gradlew
-          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee marketplace-ksp.log
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kspDebugKotlin --no-daemon --max-workers=1 --console=plain 2>&1 | tee marketplace-ksp.log
+
+      - name: Generate production annotation sources in a separate process
+        timeout-minutes: 10
+        shell: bash
+        run: |
+          set -o pipefail
+          python3 scripts/gradle_retry.py --timeout-seconds 540 -- :app:kaptDebugKotlin --no-daemon --max-workers=1 --console=plain '-Dorg.gradle.jvmargs=-Xmx4096m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8' 2>&1 | tee marketplace-kapt.log
 
       - name: Compile production sources in a separate process
         timeout-minutes: 20

@@ -2,3 +2,4 @@
 gateway/** text eol=lf
 gateway/desktop/assets/*.png binary
 gateway/desktop/assets/*.ico binary
+gateway/desktop/assets/navigation/*.png binary

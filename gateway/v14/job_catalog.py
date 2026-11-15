@@ -157,7 +157,66 @@ def install_routes(app, conversations, engineering, service, ownership):
     @app.get('/gateway/conversations')
     @app.get('/v1/gateway/conversations')
     async def list_conversations(request: Request):
-        return await execute(lambda: conversations.list(request.state.principal.id, request.query_params.get('cursor'), int(request.query_params.get('limit', '50')), engineering_allowed(request), request.state.principal.local_admin or 'jobs' in request.state.principal.scopes))
+        def read():
+            q = request.query_params
+            def flag(name):
+                value = q.get(name)
+                if value not in {None, 'true', 'false'}:
+                    raise ValueError('Invalid conversation filter')
+                return None if value is None else value == 'true'
+            return conversations.list(request.state.principal.id, q.get('cursor'), int(q.get('limit', '50')),
+                engineering_allowed(request), request.state.principal.local_admin or 'jobs' in request.state.principal.scopes,
+                query=q.get('query', ''), archived=flag('archived'), favorite=flag('favorite'))
+        return await execute(read)
+
+    @app.get('/gateway/saved-messages')
+    @app.get('/v1/gateway/saved-messages')
+    async def saved_messages(request: Request):
+        from v14.conversation_metadata import saved_messages as saved
+        q = request.query_params
+        return await execute(lambda: saved(conversations, request.state.principal.id, q.get('query', ''), q.get('cursor'),
+            int(q.get('limit', '50')), engineering_allowed(request), request.state.principal.local_admin or 'jobs' in request.state.principal.scopes))
+
+    async def metadata_payload(request):
+        raw = await request.body()
+        if len(raw) > 8192:
+            raise ValueError('Metadata is too large')
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            raise ValueError('Expected metadata')
+        return payload
+
+    @app.patch('/gateway/conversations/{conversation_id}/metadata')
+    @app.patch('/v1/gateway/conversations/{conversation_id}/metadata')
+    async def update_metadata(conversation_id: str, request: Request):
+        from v14.conversation_metadata import update
+        try:
+            payload = await metadata_payload(request)
+        except (ValueError, TypeError):
+            return JSONResponse({'error': {'code': 'invalid_conversation_request'}}, status_code=400)
+        def save():
+            verify_mutation_identity(request.headers, request.state.principal.id, conversations.gateway_id)
+            if not authorized_snapshot(request, conversation_id):
+                return None
+            return update(conversations, request.state.principal.id, conversation_id, payload)
+        return await execute(save)
+
+    @app.put('/gateway/conversations/{conversation_id}/bookmarks/{message_id}')
+    @app.put('/v1/gateway/conversations/{conversation_id}/bookmarks/{message_id}')
+    async def bookmark_message(conversation_id: str, message_id: str, request: Request):
+        from v14.conversation_metadata import bookmark
+        try:
+            payload = await metadata_payload(request)
+            if set(payload) != {'saved'}:
+                raise ValueError('Expected saved state')
+        except (ValueError, TypeError):
+            return JSONResponse({'error': {'code': 'invalid_conversation_request'}}, status_code=400)
+        def save():
+            verify_mutation_identity(request.headers, request.state.principal.id, conversations.gateway_id)
+            if not authorized_snapshot(request, conversation_id):
+                return None
+            return bookmark(conversations, request.state.principal.id, conversation_id, message_id, payload['saved'])
+        return await execute(save)
 
     @app.get('/gateway/conversations/{conversation_id}')
     @app.get('/v1/gateway/conversations/{conversation_id}')

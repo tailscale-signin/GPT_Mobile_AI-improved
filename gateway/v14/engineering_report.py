@@ -2,6 +2,7 @@
 from v14.engineering_scope import accepted_scope
 from collections import Counter
 from v14.diagnostic_support import terminal_receipt
+from v14.graph_context import public_graph_receipt
 
 
 def build_report(job, state, verification):
@@ -17,6 +18,7 @@ def build_report(job, state, verification):
                 'inspected_paths': (data.get('read_report') or {}).get('paths', []),
                 'limitations': (data.get('read_report') or {}).get('limitations', []),
                 'scope_verification': data.get('scope_verification'), 'repository_mutations': 0,
+                'graph_retrieval': public_graph_receipt(data.get('graph_retrieval')),
                 'tests_executed': False, 'merge_performed': False,
                 'benchmark_status': 'NOT_MEASURED', 'device_performance': 'NOT_MEASURED'}
     requirements = verification.get('requirements', [])
@@ -34,6 +36,7 @@ def build_report(job, state, verification):
             'checks': data.get('readiness', {}).get('checks', []), 'blocked_steps': verification.get('failures', []),
             'latest_evidence': data.get('latest_evidence'), 'latest_operation': data.get('latest_operation'),
             'latest_execution_receipt': data.get('latest_execution_receipt'),
+            'graph_retrieval': public_graph_receipt(data.get('graph_retrieval')),
             'artifact_refs': [value for value in data.values() if isinstance(value, dict) and value.get('result_ref')],
             'benchmark_status': 'NOT_MEASURED', 'device_performance': 'NOT_MEASURED',
             'recovery': 'Read this same durable job and its operation receipts before continuing; unknown writes are never replay permission.'}

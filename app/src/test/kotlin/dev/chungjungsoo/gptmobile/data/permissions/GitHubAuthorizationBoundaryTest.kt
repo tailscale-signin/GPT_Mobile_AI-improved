@@ -12,6 +12,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -80,6 +82,90 @@ class GitHubAuthorizationBoundaryTest {
         }
         assertFalse(GitHubAuthorizationBoundary.isReplayableRead("arbitrary_mcp_read", buildJsonObject {}))
         assertTrue(GitHubAuthorizationBoundary.isReplayableRead("github_search__github_api", buildJsonObject {}))
+    }
+
+    @Test fun graphReadClassificationSeparatesIndexingFromStatusAndQueries() {
+        val reads = listOf("status", "query", "node", "callers", "callees", "path", "impact", "architecture", "diff", "diagnose", "contracts", "prs", "notes", "requirements", "wiki", "metrics")
+        for (action in reads + listOf("index", "note", "federated", "provider")) {
+            for ((tool, arguments) in graphForms(action)) {
+                assertEquals("$tool $action", action in reads, GitHubAuthorizationBoundary.isReplayableRead(tool, arguments))
+                assertEquals("$tool $action", action == "index", GitHubAuthorizationBoundary.isLocalGraphIndexing(tool, arguments))
+            }
+        }
+        for (tool in listOf("repository_graph_extra", "other__repository_graph", "github_context", "github__alias")) {
+            assertFalse(tool, GitHubAuthorizationBoundary.isLocalGraphIndexing(tool, buildJsonObject { put("action", "index") }))
+        }
+        assertFalse(GitHubAuthorizationBoundary.isLocalGraphIndexing("github", buildJsonObject { put("graph_action", "index") }))
+        assertFalse(GitHubAuthorizationBoundary.isLocalGraphIndexing("repository_graph", buildJsonObject { put("action", true) }))
+        assertFalse(
+            GitHubAuthorizationBoundary.isLocalGraphIndexing(
+                "repository_graph",
+                buildJsonObject {
+                    put("action", "status")
+                    put("options", buildJsonObject { put("action", "index") })
+                }
+            )
+        )
+    }
+
+    @Test fun localGraphIndexingKeepsItsExistingNativeReadOnlyGrantWithoutReplayAuthority() = runTest {
+        coEvery { connections.getConnection("github") } returns connection.copy(toolPolicy = "READ_ONLY", approvedReadTools = "github")
+        for (control in listOf(null, "start", "pause", "resume", "cancel")) {
+            val options = buildJsonObject {
+                if (control != null) {
+                    put("background", true)
+                    put("job_action", control)
+                    put("job_id", "observed-job")
+                    put("job_generation", 2)
+                }
+            }
+            for ((tool, arguments) in graphForms("index", options)) {
+                assertTrue(GitHubAuthorizationBoundary.isLocalGraphIndexing(tool, arguments))
+                assertFalse(GitHubAuthorizationBoundary.isReplayableRead(tool, arguments))
+                assertTrue(manager.authorize("github", "run", "$tool-$control", tool, arguments))
+            }
+        }
+        for (action in listOf("status", "query")) {
+            for ((tool, arguments) in graphForms(action)) {
+                assertTrue(manager.authorize("github", "run", "$tool-$action", tool, arguments))
+            }
+        }
+        coVerify(exactly = 0) { dao.insert(any()) }
+    }
+
+    @Test fun localGraphIndexingCannotInventAReadGrantOrRepeatAnUnknownTrustedAction() = runTest {
+        coEvery { connections.getConnection("github") } returns connection.copy(toolPolicy = "READ_ONLY", approvedReadTools = "")
+        for ((tool, arguments) in graphForms("index")) {
+            assertFalse(manager.authorize("github", "run", "ungranted-$tool", tool, arguments))
+        }
+        coEvery { connections.getConnection("github") } returns connection
+        val nativeHash = ScopedToolGrant.canonicalHash(
+            buildJsonObject {
+                put("action", "repository_graph")
+                put("graph_action", "index")
+            }
+        )
+        coEvery { dao.previousMatchingAction(any(), any(), any(), any(), any()) } returns null
+        coEvery { dao.previousMatchingAction("run", "GitHub", "github", nativeHash, any()) } returns "OUTCOME_UNKNOWN"
+        every { dao.observe(any()) } returns MutableStateFlow(null)
+        for ((tool, arguments) in graphForms("index")) {
+            val failure = runCatching { manager.authorizeOrThrow("github", "run", "retry-$tool", tool, arguments) }.exceptionOrNull()
+            assertEquals("DUPLICATE_ACTION", (failure as? ToolAuthorizationRejected)?.code)
+        }
+        coVerify(exactly = 0) { dao.insert(any()) }
+        coVerify(exactly = 6) { dao.previousMatchingAction("run", "GitHub", "github", nativeHash, any()) }
+    }
+
+    private fun graphForms(action: String, options: JsonObject? = null): List<Pair<String, JsonObject>> {
+        val arguments = buildJsonObject {
+            put("action", action)
+            options?.takeIf { it.isNotEmpty() }?.let { put("options", it) }
+        }
+        return listOf(
+            "repository_graph" to arguments,
+            "repository_graph__github_api" to arguments,
+            "github" to JsonObject(arguments + mapOf("action" to JsonPrimitive("repository_graph"), "graph_action" to JsonPrimitive(action)))
+        )
     }
 
     @Test fun immediatePatchPublicationCannotUseALocalStagingReadGrant() = runTest {

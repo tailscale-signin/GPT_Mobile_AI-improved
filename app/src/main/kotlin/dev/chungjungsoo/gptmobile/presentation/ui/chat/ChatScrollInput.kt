@@ -50,8 +50,9 @@ internal fun rememberChatScrollInput(listState: LazyListState, touchSlop: Float,
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                // A geometry change cannot attach: a real downward scroll must arrive.
-                if (consumed.y < 0f) currentFollowIfAtBottom()
+                // A deliberate downward scroll can arrive at an already reached edge,
+                // where the list consumes nothing. Geometry changes alone cannot attach.
+                if (consumed.y < 0f || available.y < 0f) currentFollowIfAtBottom()
                 return Offset.Zero
             }
 

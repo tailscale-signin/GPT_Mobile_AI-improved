@@ -80,12 +80,12 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
 
     override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
         output()?.speak(text, voice, complete, error)
-            ?: error("Kokoro playback is unavailable. Using the installed Android voice instead.", true)
+            ?: error("Kokoro playback is unavailable. Check the downloaded voice files and try again.", true)
     }
 
     override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
         output()?.speakProjected(text, voice, complete, error)
-            ?: error("Kokoro playback is unavailable. Using the installed Android voice instead.", true)
+            ?: error("Kokoro playback is unavailable. Check the downloaded voice files and try again.", true)
     }
 
     override fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit): VoiceReplyPlayback? =
@@ -185,6 +185,7 @@ internal class KokoroVoiceOutput(
     }
 
     private data class ModelKey(val lexicon: String, val threads: Int)
+    private class LexiconUnavailable : IllegalStateException()
     private class LoadedModel(val key: ModelKey, val engine: OfflineTts, val words: Set<String>) {
         val readyAt = SystemClock.elapsedRealtime()
     }
@@ -203,7 +204,7 @@ internal class KokoroVoiceOutput(
         val id = UUID.randomUUID().toString()
         val startedAt = SystemClock.elapsedRealtime()
         val segments = ArrayBlockingQueue<String>(MAX_SEGMENTS)
-        val pcm = ArrayBlockingQueue<FloatArray>(MAX_PCM_BATCHES)
+        val pcm = ArrayBlockingQueue<FloatArray>(KokoroPcmBatches.QUEUE_BATCHES)
 
         // D8 can emit invalid monitor regions for inlined synchronized blocks in playback cleanup.
         val trackLock = ReentrantLock()
@@ -223,6 +224,16 @@ internal class KokoroVoiceOutput(
         var firstPcm = false
         var firstFrame = false
         var inputChars = 0
+
+        @Volatile var knownWords = 0
+
+        @Volatile var initialisms = 0
+
+        @Volatile var unknownWords = 0
+
+        @Volatile var spelledLetters = 0
+
+        @Volatile var removedFormatCharacters = 0
     }
 
     private val memoryCallbacks = object : ComponentCallbacks2 {
@@ -306,21 +317,29 @@ internal class KokoroVoiceOutput(
         playback = Playback(replyId, voice, ModelKey(voice.lexicon, threadCount), focus, watchdog, complete, error, diagnosticProbe, playbackStarted)
         active = playback
         playback.diagnostics?.engine(VoiceDiagnosticTrace.Engine.KOKORO)
-        val focusResult = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull()
-        playback.diagnostics?.focus(
-            when (focusResult) {
-                AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
-                null -> VoiceDiagnosticTrace.Focus.ERROR
-                else -> VoiceDiagnosticTrace.Focus.DENIED
+        fun acquireFocus(attempt: Int) {
+            if (active !== playback) return
+            val focusResult = runCatching { audioManager?.requestAudioFocus(focus) }.getOrNull()
+            playback.diagnostics?.playbackFocus(
+                when (focusResult) {
+                    AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> VoiceDiagnosticTrace.Focus.GRANTED
+                    null -> VoiceDiagnosticTrace.Focus.ERROR
+                    else -> VoiceDiagnosticTrace.Focus.DENIED
+                },
+                attempt
+            )
+            when {
+                focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED -> {
+                    playback.lastProgress = SystemClock.elapsedRealtime()
+                    main.postDelayed(watchdog, 1_000)
+                    synthesis.execute { synthesize(playback, speed, playbackAttributes) }
+                }
+                focusResult == AudioManager.AUDIOFOCUS_REQUEST_FAILED && attempt == 1 ->
+                    main.postDelayed({ acquireFocus(attempt + 1) }, 250)
+                else -> main.post { fail(playback, "audio_focus_denied", "Audio output is unavailable. Your answer remains in chat.", canFallback = false) }
             }
-        )
-        val focusGranted = focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
-        if (!focusGranted) {
-            main.post { fail(playback, "audio_focus_denied", "Audio output is unavailable. Your answer remains in chat.", canFallback = false) }
-        } else {
-            main.postDelayed(watchdog, 1_000)
-            synthesis.execute { synthesize(playback, speed, playbackAttributes) }
         }
+        acquireFocus(1)
         return object : VoiceReplyPlayback {
             override fun enqueue(text: String) {
                 if (active !== playback || playback.sealed || text.isBlank()) return
@@ -365,7 +384,21 @@ internal class KokoroVoiceOutput(
                     continue
                 }
                 playback.synthesizing = true
-                val parts = requireNotNull(KokoroSpeechText.projectedParts(segment, model.words::contains))
+                val projection = KokoroSpeechText.projected(segment, model.words::contains)
+                val observation = projection.observation
+                playback.knownWords += observation.knownWords
+                playback.initialisms += observation.initialisms
+                playback.unknownWords += observation.unknownWords
+                playback.spelledLetters += observation.spelledLetters
+                playback.removedFormatCharacters += observation.removedFormatCharacters
+                val parts = projection.parts
+                if (parts == null) {
+                    timing("pronunciation_unavailable", playback, "reason=${observation.failure?.name ?: "UNKNOWN"} · unknownWords=${playback.unknownWords} · normalizedFormats=${playback.removedFormatCharacters}")
+                    main.post {
+                        fail(playback, "pronunciation_unavailable", "A word in this reply is not supported by the installed voice. The complete answer is available in chat.", canFallback = false)
+                    }
+                    return
+                }
                 for (part in parts) {
                     if (active !== playback) return
                     var callbackFrames = 0L
@@ -375,7 +408,7 @@ internal class KokoroVoiceOutput(
                         if (callbackFrames > sampleRate * 30L) invalidBatch = true
                         return if (invalidBatch || active !== playback) {
                             0
-                        } else if (samples.isEmpty() || queuePcm(playback, samples, part.length)) {
+                        } else if (samples.isEmpty() || queuePcm(playback, samples, sampleRate, part.length)) {
                             1
                         } else {
                             0
@@ -395,11 +428,13 @@ internal class KokoroVoiceOutput(
                     check(!invalidBatch && generated.sampleRate == sampleRate)
                     if (callbackFrames == 0L) {
                         check(generated.samples.size in 1..sampleRate * 30)
-                        if (!queuePcm(playback, generated.samples, part.length)) return
+                        if (!queuePcm(playback, generated.samples, sampleRate, part.length)) return
                     }
                 }
             }
             playback.synthesisDone = true
+        } catch (_: LexiconUnavailable) {
+            main.post { fail(playback, "lexicon_unavailable", "The installed voice dictionary is incomplete. Repair the Kokoro voice pack in Voice settings and retry.", canFallback = false) }
         } catch (_: Exception) {
             main.post { fail(playback, "synthesis_failed", "Kokoro could not synthesize this reply. Your answer remains in chat.") }
         } catch (_: LinkageError) {
@@ -414,22 +449,25 @@ internal class KokoroVoiceOutput(
     }
 
     /** Callback runs on the synthesis worker. A full queue applies backpressure off main. */
-    private fun queuePcm(playback: Playback, samples: FloatArray, segmentChars: Int): Boolean {
-        while (active === playback) {
-            if (playback.pcm.offer(samples, POLL_MS, TimeUnit.MILLISECONDS)) {
-                if (active !== playback) {
-                    playback.pcm.remove(samples)
-                    return false
+    private fun queuePcm(playback: Playback, samples: FloatArray, sampleRate: Int, segmentChars: Int): Boolean {
+        fun offer(batch: FloatArray): Boolean {
+            while (active === playback) {
+                if (playback.pcm.offer(batch, POLL_MS, TimeUnit.MILLISECONDS)) {
+                    if (active !== playback) {
+                        playback.pcm.remove(batch)
+                        return false
+                    }
+                    playback.lastProgress = SystemClock.elapsedRealtime()
+                    if (!playback.firstPcm) {
+                        playback.firstPcm = true
+                        timing("first_pcm", playback, "segmentChars=$segmentChars · pcmQueueLimitMs=${KokoroPcmBatches.QUEUE_LIMIT_MS}")
+                    }
+                    return true
                 }
-                playback.lastProgress = SystemClock.elapsedRealtime()
-                if (!playback.firstPcm) {
-                    playback.firstPcm = true
-                    timing("first_pcm", playback, "segmentChars=$segmentChars")
-                }
-                return true
             }
+            return false
         }
-        return false
+        return KokoroPcmBatches.emit(samples, sampleRate, ::offer)
     }
 
     private fun play(playback: Playback, playbackAttributes: AudioAttributes, sampleRate: Int) {
@@ -523,7 +561,10 @@ internal class KokoroVoiceOutput(
         try {
             val directory = models.modelDirectory()
             val lexicon = File(directory, key.lexicon)
-            val words = lexicon.useLines { lines -> lines.map { it.substringBefore(' ') }.toHashSet() }
+            val words = lexicon.useLines(block = KokoroLexicon::words)
+            val missingRequiredWords = KokoroLexicon.missingRequiredWords(words)
+            AppLogRecorder.record("VoiceEngine", "kokoro_lexicon · engineId=$engineId · lexicon=${key.lexicon} · entries=${words.size} · missingRequiredWords=$missingRequiredWords · projectionVersion=2")
+            if (missingRequiredWords != 0) throw LexiconUnavailable()
             val engine = OfflineTts(
                 config = OfflineTtsConfig(
                     model = OfflineTtsModelConfig(
@@ -533,7 +574,8 @@ internal class KokoroVoiceOutput(
                             tokens = File(directory, KokoroModelPack.TOKENS).absolutePath,
                             lexicon = lexicon.absolutePath
                         ),
-                        numThreads = key.threads
+                        numThreads = key.threads,
+                        provider = "cpu"
                     ),
                     maxNumSentences = 1
                 )
@@ -573,12 +615,16 @@ internal class KokoroVoiceOutput(
     }
 
     private fun releaseModel() {
-        val model = loaded ?: return
-        loaded = null
-        try {
-            runCatching { model.engine.free() }
-        } finally {
-            models.releaseUse()
+        VoiceNativeEngineGate.exclusive {
+            val model = loaded ?: return@exclusive
+            loaded = null
+            try {
+                runCatching { model.engine.free() }.onFailure {
+                    AppLogRecorder.record("VoiceEngine", "kokoro_release_failed · type=${it.javaClass.simpleName}", "W")
+                }
+            } finally {
+                models.releaseUse()
+            }
         }
     }
 
@@ -603,11 +649,14 @@ internal class KokoroVoiceOutput(
             playback.underruns
         }
         runCatching { audioManager?.abandonAudioFocusRequest(playback.focus) }
-        timing("terminal", playback, "reason=$reason · cancellationOrigin=${cancellationOrigin ?: "none"} · textChars=${playback.inputChars} · firstPcm=${playback.firstPcm} · firstOutputFrame=${playback.firstFrame} · inputComplete=${playback.sealed} · drainComplete=${reason == "complete"} · underruns=${underruns ?: "unmeasured"}")
+        timing("terminal", playback, "reason=$reason · cancellationOrigin=${cancellationOrigin ?: "none"} · textChars=${playback.inputChars} · firstPcm=${playback.firstPcm} · firstOutputFrame=${playback.firstFrame} · inputComplete=${playback.sealed} · drainComplete=${reason == "complete"} · underruns=${underruns ?: "unmeasured"} · knownWords=${playback.knownWords} · initialisms=${playback.initialisms} · unknownWords=${playback.unknownWords} · spelledLetters=${playback.spelledLetters} · normalizedFormats=${playback.removedFormatCharacters}")
     }
 
     private fun fail(playback: Playback, reason: String, message: String, canFallback: Boolean = !playback.queuedAudio) {
         if (active !== playback) return
+        // Keep the closed report-server enum compatible; the exported timing event retains the precise reason.
+        val diagnosticReason = if (reason in setOf("pronunciation_unavailable", "lexicon_unavailable")) "SYNTHESIS_FAILED" else reason.uppercase(java.util.Locale.ROOT)
+        playback.diagnostics?.playbackFailure(diagnosticReason)
         end(playback, reason)
         playback.error(message, canFallback)
     }
@@ -634,7 +683,6 @@ internal class KokoroVoiceOutput(
     private companion object {
         const val MAX_REPLY_CHARS = 12_100
         const val MAX_SEGMENTS = MAX_REPLY_CHARS
-        const val MAX_PCM_BATCHES = 3
         const val POLL_MS = 12L
         const val INPUT_WAIT_MS = 100L
         const val WATCHDOG_MS = 30_000L

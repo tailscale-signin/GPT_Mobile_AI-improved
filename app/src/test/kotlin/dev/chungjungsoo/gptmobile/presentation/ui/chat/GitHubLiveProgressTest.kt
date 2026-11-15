@@ -159,6 +159,42 @@ class GitHubLiveProgressTest {
         compose.runOnIdle { assertEquals(0, lines.ledger.takeLines()) }
     }
 
+    @Test
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    fun completeSummaryAndPreviewArrivalsKeepTheirMeasuredPacingBudgets() {
+        var timeline by mutableStateOf(listOf(line("Existing summary", true)))
+        lateinit var lines: GitHubRenderedLines
+        compose.setContent {
+            MaterialTheme {
+                lines = remember { GitHubRenderedLines() }
+                Column(Modifier.width(320.dp)) {
+                    GitHubLineScope(lines, "turn") { GitHubLiveProgressCard(timeline, active = false) }
+                }
+            }
+        }
+        compose.runOnIdle {
+            lines.ledger.arm()
+            // ActivitySummary publishes a complete paragraph, even when its
+            // provider produced the summary as smaller text deltas internally.
+            timeline = timeline + line("First summary line\nSecond summary line\nThird summary line", true)
+        }
+        compose.runOnIdle {
+            val summaryLines = lines.ledger.takeLines()
+            assertEquals(3, summaryLines)
+            lines.queue.append(summaryLines, 90f)
+            assertEquals(3000L, lines.queue.remainingMillis)
+            timeline = timeline + line("Inspecting files")
+        }
+        compose.runOnIdle {
+            val previewLines = lines.ledger.takeLines()
+            assertEquals(1, previewLines)
+            lines.queue.append(previewLines, 30f)
+            assertEquals(4500L, lines.queue.remainingMillis)
+            assertEquals(90f, lines.queue.advance(3000), 0.001f)
+            assertEquals(1500L, lines.queue.remainingMillis)
+        }
+    }
+
     @Test fun countersChangeInTheSameSingleLineRowsWithoutMovingOrDuplicatingThem() {
         var timeline by mutableStateOf(listOf(line("I will verify the checks and changed files.", true), line("Check 2/8"), line("Files 1/3")))
         compose.mainClock.autoAdvance = false

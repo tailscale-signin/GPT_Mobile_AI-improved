@@ -11,7 +11,8 @@ internal class GitHubLinePacingQueue {
 
     fun append(renderedLines: Int, pixels: Float) {
         if (renderedLines <= 0 || !pixels.isFinite() || pixels <= 0f) return
-        segments.addLast(Segment(pixels, renderedLines.toLong() * GITHUB_BOTTOM_FOLLOW_MILLIS))
+        val duration = if (renderedLines == 1) GITHUB_BOTTOM_FOLLOW_MILLIS.toLong() else renderedLines.toLong() * 1000L
+        segments.addLast(Segment(pixels, duration))
     }
 
     /** A width, font, inset or non-text change may change distance, never reading time. */

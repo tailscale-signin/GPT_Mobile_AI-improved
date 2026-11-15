@@ -1126,6 +1126,8 @@ class AgentRunCoordinator @Inject constructor(
                 }
                 val outcome = response.flowOn(researchLifecycle ?: kotlin.coroutines.EmptyCoroutineContext).collectApiStateUpdates(
                     restoredTimeline = request.assistantMessage.timeline,
+                    diagnosticRunId = request.runId,
+                    diagnosticProvider = request.platform.compatibleType.name,
                     onOutputPublication = { content, lineage, first ->
                         if (content.isNotEmpty()) {
                             latestPublishedOutput = content to lineage

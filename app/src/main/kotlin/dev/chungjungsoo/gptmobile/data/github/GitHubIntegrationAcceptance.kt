@@ -208,7 +208,8 @@ internal object GitHubIntegrationAcceptance {
     }
 
     private fun eligible(receipt: JsonObject) = receipt["trusted"] == JsonPrimitive(true) && receipt["verification_eligible"] != JsonPrimitive(false) && receipt["success"] == JsonPrimitive(true)
-    private fun read(receipt: JsonObject) = GitHubAuthorizationBoundary.isReplayableRead(receipt.text("tool"), args(receipt))
+    private fun read(receipt: JsonObject) = GitHubAuthorizationBoundary.isReplayableRead(receipt.text("tool"), args(receipt)) ||
+        GitHubAuthorizationBoundary.isLocalGraphIndexing(receipt.text("tool"), args(receipt))
     private fun liveRead(receipt: JsonObject): Boolean {
         val execution = receipt["execution"] as? JsonObject
         return read(receipt) &&

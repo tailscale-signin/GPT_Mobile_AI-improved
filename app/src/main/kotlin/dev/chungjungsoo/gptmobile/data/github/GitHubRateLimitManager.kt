@@ -51,14 +51,40 @@ class GitHubRateLimitManager {
     }
 
     fun requireAvailable(resource: String = "core", nowEpochSeconds: Long = System.currentTimeMillis() / 1000) {
-        val secondary = ceilingSeconds(ProviderRetryPolicy.remainingMillis(secondaryUntil.get(), secondsToMillis(nowEpochSeconds)))
-        check(secondary == 0L) { "GitHub secondary rate limit: retry after $secondary seconds." }
-        val state = resources[resource] ?: return
-        val delay = maxOf(
-            retryAfterRemaining(state, nowEpochSeconds),
-            if (state.remaining == 0L) ((state.resetEpochSeconds ?: nowEpochSeconds) - nowEpochSeconds).coerceAtLeast(0) else 0
-        )
-        check(delay == 0L) { "GitHub is cooling down for $resource. Retry after $delay seconds; use results already collected." }
+        val nowMillis = secondsToMillis(nowEpochSeconds)
+        val secondaryDeadline = secondaryUntil.get()
+        val secondary = ceilingSeconds(ProviderRetryPolicy.remainingMillis(secondaryDeadline, nowMillis))
+        val state = resources[resource]
+        val retryAfterDelay = state?.let { retryAfterRemaining(it, nowEpochSeconds) } ?: 0
+        val resetDelay = if (state?.remaining == 0L) ((state.resetEpochSeconds ?: nowEpochSeconds) - nowEpochSeconds).coerceAtLeast(0) else 0
+        val delay = maxOf(retryAfterDelay, resetDelay)
+        val resourceDeadline = ProviderRetryPolicy.deadlineMillis(nowMillis, secondsToMillis(delay))
+        // The current request must satisfy both gates. A shorter shared
+        // cooldown must not advertise a retry before this bucket resets.
+        // Rounded second delays can tie while their absolute deadlines differ.
+        if (secondary > 0L && secondaryDeadline >= resourceDeadline) {
+            throw GitHubCooldownActive(
+                GitHubCooldownActive.resource(resource),
+                GitHubCooldownActive.Basis.SECONDARY_DEADLINE,
+                secondsToMillis(secondary),
+                secondaryDeadline
+            )
+        }
+        if (delay != 0L) {
+            val delayMillis = secondsToMillis(delay)
+            throw GitHubCooldownActive(
+                GitHubCooldownActive.resource(resource),
+                when {
+                    retryAfterDelay > 0 && resetDelay > 0 -> GitHubCooldownActive.Basis.RESOURCE_RESET_AND_RETRY_AFTER
+                    retryAfterDelay > 0 -> GitHubCooldownActive.Basis.RESOURCE_RETRY_AFTER
+                    else -> GitHubCooldownActive.Basis.RESOURCE_RESET
+                },
+                delayMillis,
+                resourceDeadline,
+                state?.observedAtMillis,
+                state?.remaining
+            )
+        }
     }
 
     fun snapshot(): Snapshot = latest
@@ -73,10 +99,13 @@ class GitHubRateLimitManager {
     fun retryDelayMillis(nowEpochSeconds: Long = System.currentTimeMillis() / 1000): Long {
         val state = latest
         val secondary = ProviderRetryPolicy.remainingMillis(secondaryUntil.get(), secondsToMillis(nowEpochSeconds))
-        if (secondary > 0) return secondary
-        retryAfterRemaining(state, nowEpochSeconds).takeIf { it > 0 }?.let { return secondsToMillis(it) }
-        if (state.remaining != 0L) return 0L
-        return ProviderRetryPolicy.remainingMillis(secondsToMillis(state.resetEpochSeconds ?: nowEpochSeconds), secondsToMillis(nowEpochSeconds))
+        val retryAfter = secondsToMillis(retryAfterRemaining(state, nowEpochSeconds))
+        val reset = if (state.remaining == 0L) {
+            ProviderRetryPolicy.remainingMillis(secondsToMillis(state.resetEpochSeconds ?: nowEpochSeconds), secondsToMillis(nowEpochSeconds))
+        } else {
+            0L
+        }
+        return maxOf(secondary, retryAfter, reset)
     }
 
     private fun retryAfterRemaining(state: Snapshot, nowEpochSeconds: Long): Long {
@@ -111,3 +140,6 @@ class GitHubRateLimitManager {
         )
     }
 }
+
+/** Minimal cached admission facts for callers without a complete resource snapshot. */
+internal class GitHubRateLimitAdmissionException(val code: String, val retryAfterMillis: Long) : IllegalStateException("$code: GitHub is cooling down. Wait for the recorded deadline before resuming saved work.")

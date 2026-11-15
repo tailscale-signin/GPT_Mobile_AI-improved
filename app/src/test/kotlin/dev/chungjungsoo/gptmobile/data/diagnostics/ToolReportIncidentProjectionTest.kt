@@ -134,5 +134,26 @@ class ToolReportIncidentProjectionTest {
         assertTrue("RECOVERY_OBSERVATIONS_V1" in snapshot.requiredServiceFeatures())
     }
 
+    @Test fun missingUrlProjectionDistinguishesNetworkFromNegativeCache() {
+        val event = event("""{"url":"https://example.com/private-source"}""").copy(modelToolName = "read_url")
+        for (dispatched in listOf(true, false)) {
+            val receipt = buildJsonObject {
+                put("schema", "gptmobile.search-operation.v1")
+                put("provider", "read_url")
+                put("callId", event.callId)
+                put("errorCode", "SOURCE_UNAVAILABLE")
+                put("requestSent", dispatched)
+                if (dispatched) put("httpStatus", 404) else put("source_availability_observation", "NEGATIVE_CACHE")
+            }
+            val result = AgentToolResult(event.callId, ToolResultContent.Text("private-source"), true, errorCode = "SOURCE_UNAVAILABLE", executionReceipt = receipt, dispatched = dispatched)
+            val fields = ToolReportDiagnostics.fields(event, result)
+            val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+            assertEquals(JsonPrimitive(if (dispatched) "HTTP_UNAVAILABLE" else "NEGATIVE_CACHE"), snapshot.values["url_reader_availability"])
+            assertTrue("URL_READER_AVAILABILITY_V1" in snapshot.requiredServiceFeatures())
+            assertFalse(snapshot.toString().contains("private-source"))
+            assertNull(ToolReportDiagnostics.fields(event.copy(callId = "other-call"), result)["url_reader_availability"])
+        }
+    }
+
     private fun event(arguments: String) = ToolEvent("private-event", "private-run", 1, "private-call", null, null, "github_issue", "github_issue", arguments, null, null, "FAILED")
 }

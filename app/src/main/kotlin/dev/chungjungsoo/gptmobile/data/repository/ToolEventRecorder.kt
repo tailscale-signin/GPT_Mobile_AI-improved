@@ -202,7 +202,7 @@ class ToolEventRecorder @Inject constructor(
                                 "diagnostic_area", "diagnostic_capture_mode", "run_id_hash", "call_id_hash", "tool_name_hash", "tool_action_hash",
                                 "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase",
                                 "argument_shape_hash", "original_error_code_hash", "original_reason_code_hash",
-                                "graph_index_attempt_hash", "tool_budget_bytes_available", "sqlite_constraint_kind",
+                                "graph_index_attempt_hash", "tool_budget_bytes_available", "sqlite_constraint_kind", "url_reader_availability",
                                 "tool_event_persistence_operation", "tool_event_persistence_phase", "tool_event_persistence_failure",
                                 "tool_event_requested_sequence", "tool_event_assigned_sequence", "tool_event_previous_max_sequence", "tool_event_write_attempted"
                             ) &&

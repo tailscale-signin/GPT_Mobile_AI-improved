@@ -11,7 +11,8 @@ internal object GitHubStageBudget {
             role == GitHubReviewCompatibility.OUTPUT_RETRY_ROLE -> GitHubReviewCompatibility.OUTPUT_RETRY_TOKENS
             role.endsWith("-preflight") -> GitHubReviewCompatibility.OUTPUT_TOKENS
             role.endsWith("-output-retry") -> 4096
-            role.endsWith("-repair") || role == "github-claim-extraction" -> 4096
+            role == "github-claim-extraction" -> 8192
+            role.endsWith("-repair") -> 4096
             else -> GitHubReviewSchema.OUTPUT_TOKENS
         }
         val capacity = context.coerceIn(0, 1_048_576)

@@ -1147,8 +1147,13 @@ internal class GitHubVerifiedSession(
                     put("extraction_batches_total", requests.size)
                 }
             )
-            val failure = providerFailure?.copy(errorCode = code, failureDetails = details) ?: ProviderEvent.Failed(
-                "Claim extraction did not finish. Saved evidence and unfinished batches remain available.",
+            val stageMessage = when (code) {
+                "GITHUB_EXTRACTION_OUTPUT_LIMIT" -> "Claim verification reached its output limit. The repository observations and completed claim batches are saved."
+                "GITHUB_EXTRACTION_INVALID_RESPONSE" -> "Claim verification received invalid structured output. The repository observations and completed claim batches are saved."
+                else -> null
+            }
+            val failure = providerFailure?.copy(message = stageMessage ?: providerFailure.message, errorCode = code, failureDetails = details) ?: ProviderEvent.Failed(
+                stageMessage ?: "Claim extraction did not finish. Saved evidence and unfinished batches remain available.",
                 errorCode = code,
                 transportComplete = code in setOf("GITHUB_EXTRACTION_OUTPUT_LIMIT", "GITHUB_EXTRACTION_INVALID_RESPONSE", "GITHUB_EXTRACTION_TIMEOUT"),
                 taskOutcome = "PARTIAL",

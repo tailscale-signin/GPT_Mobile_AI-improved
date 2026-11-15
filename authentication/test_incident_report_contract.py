@@ -1034,7 +1034,7 @@ class IncidentReportContractTest(unittest.TestCase):
         examples = (
             ("TOOL", {"semantic_read_rules": ["LINE_WINDOW"], "validation_field_names": ["ranges", "end_line"],
                       "dependency_admission_reasons": ["CALL_ALLOWANCE"], "saved_view_restore_state": "CURSOR_INDEX_MISSING",
-                      "url_reader_dns_state": "RECOVERY_COOLDOWN"}),
+                      "url_reader_dns_state": "RECOVERY_COOLDOWN", "url_reader_availability": "NEGATIVE_CACHE"}),
             ("INCIDENT", {"incident_capture_site": "CHAT_REPOSITORY_PREFLIGHT", "incident_origin": "APPLICATION",
                           "local_readiness_failure": "PENDING_CLEANUP", "pending_tool_count": 2,
                           "pending_tool_identity_hashes": ["a" * 64], "pending_tool_receipt_state": "SOME_TERMINAL_RECEIPTS_MISSING"}),
@@ -1052,6 +1052,9 @@ class IncidentReportContractTest(unittest.TestCase):
         for key in ("semantic_read_rules", "dependency_admission_reasons"):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("TOOL", {key: ["private-value"]}))
+
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"url_reader_availability": "https://example.com/private"}))
 
     def test_rate_limit_scheduling_is_an_observation_without_replay_authority(self):
         capture = self.capture("PROVIDER", {"incident_phase": "provider_wait", "causal_provenance": "MODEL_INVOCATION",

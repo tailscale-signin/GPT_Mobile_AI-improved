@@ -64,7 +64,7 @@ internal object IssueReportIncidentCapsule {
     )
     private val policyObservation = setOf("OBSERVED", "UNOBSERVED", "INVALID_RESPONSE", "ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE", "RATE_LIMITED", "UNAVAILABLE", "HTTP_FAILURE")
     private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
-    val toolFailureFields = setOf("url_reader_dns_state", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
+    val toolFailureFields = setOf("url_reader_dns_state", "url_reader_availability", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
     val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection")
     val combinedDeliveryFields = setOf("combined_requirement_gap", "combined_issue_count")
@@ -122,6 +122,7 @@ internal object IssueReportIncidentCapsule {
         "handoff_checkpoint_state" to setOf("TOOL_HANDOFF", "TOOL_RESULTS_READY"),
         "handoff_durable_lookup" to setOf("RETURNED_EMPTY", "RETURNED_RECEIPTS"),
         "url_reader_dns_state" to setOf("RECOVERY_COOLDOWN", "LOOKUP_FAILED"),
+        "url_reader_availability" to setOf("HTTP_UNAVAILABLE", "NEGATIVE_CACHE", "TURN_SUPPRESSION", "REPEAT_LIMIT", "REPEATED_FAILURE"),
         "fixture_decision_mode" to setOf("AUTO_APPROVE", "SUGGESTED", "ASK", "UNKNOWN"),
         "crash_surface" to setOf("CHAT", "DEBUG_LOGS", "GITHUB_WORKSPACE"),
         "crash_boundary" to setOf("ANDROID_VIEW_DRAW"),

@@ -254,7 +254,7 @@ TOOL_REPEAT_COUNTS = {'dependency_repeat_prior_admissions', 'dependency_repeat_b
 TOOL_REPEAT_FIELDS = TOOL_REPEAT_COUNTS | {'dependency_repeat_scope'}
 
 TOOL_FIELDS = {
-    'url_reader_dns_state', 'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
+    'url_reader_dns_state', 'url_reader_availability', 'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
     'tool_budget_calls_used', 'tool_budget_calls_limit', 'tool_permission_scope',
     'semantic_read_rules', 'dependency_admission_reasons',
     'native_dependency_state', 'dependency_call_id_hashes', 'dependency_count', 'dependency_failed_count', 'search_cursor_state', 'search_id_hash', 'search_cursor_hash',
@@ -498,6 +498,7 @@ ENUMS = {
     'handoff_checkpoint_state': {'TOOL_HANDOFF', 'TOOL_RESULTS_READY'},
     'handoff_durable_lookup': {'RETURNED_EMPTY', 'RETURNED_RECEIPTS'},
     'url_reader_dns_state': {'RECOVERY_COOLDOWN', 'LOOKUP_FAILED'},
+    'url_reader_availability': {'HTTP_UNAVAILABLE', 'NEGATIVE_CACHE', 'TURN_SUPPRESSION', 'REPEAT_LIMIT', 'REPEATED_FAILURE'},
     'fixture_decision_mode': {'AUTO_APPROVE', 'SUGGESTED', 'ASK', 'UNKNOWN'},
     'crash_surface': {'CHAT', 'DEBUG_LOGS', 'GITHUB_WORKSPACE'},
     'crash_boundary': {'ANDROID_VIEW_DRAW'},

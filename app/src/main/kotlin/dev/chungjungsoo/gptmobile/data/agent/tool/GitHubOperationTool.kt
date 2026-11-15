@@ -1070,11 +1070,15 @@ internal class GitHubOperationTool(
                     properties["page"] = integer(1, 1000)
                     properties["index_cursor"] = integer(0)
                     properties["per_page"] = integer(1, 100)
-                    properties["start_line"] = integer()
-                    properties["end_line"] = integer()
+                    properties["start_line"] = integer(1, description = "First job log line (one-based).")
+                    properties["end_line"] = integer(1, description = "Inclusive last job log line. A request can span at most 2,000 lines. Omit for the default bounded window.")
                     properties["start_offset"] = integer(0)
                     properties["expected_head_sha"] = field("string")
-                    listOf("workflow_id", "branch", "ref", "status", "actor", "event", "created", "head_sha").forEach { properties[it] = field("string") }
+                    listOf("workflow_id", "branch", "ref", "actor", "event", "created", "head_sha").forEach { properties[it] = field("string") }
+                    properties["status"] = buildJsonObject {
+                        put("type", "string")
+                        put("description", "Workflow run status or conclusion. For failed runs use status=failure alone.")
+                    }
                     properties["workflow_id"] = buildJsonObject {
                         put("type", JsonArray(listOf("string", "integer").map(::JsonPrimitive)))
                         put("minimum", 1)

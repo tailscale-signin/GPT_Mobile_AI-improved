@@ -475,7 +475,7 @@ class IssueReportHttpTest(unittest.TestCase):
         extended = self.client.get("/health/ready?capabilities=extended")
         self.assertEqual(200, extended.status_code)
         additions = ["ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
-                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1"]
+                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1"]
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
                          extended.json()["reportDiagnosticFeatures"])
         for key in ("service", "version", "reportContextVersions"):

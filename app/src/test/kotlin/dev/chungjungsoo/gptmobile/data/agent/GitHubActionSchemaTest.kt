@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -64,6 +66,38 @@ class GitHubActionSchemaTest {
         AgentRunner(AgentRunLimits(githubMode = true)).run(session, listOf(tool, catalog), selectDefinitions = catalog::selected).toList()
         assertEquals(requireNotNull(GitHubActionSchema.project(original, "logs")), advertised)
         assertEquals(1, executed)
+    }
+
+    @Test fun rejectedCiAndFileReadsOfferBoundedSchemaValidCorrections() {
+        val sha = "a".repeat(40)
+        fun checkCorrection(tool: String, input: String, expected: String) {
+            val schema = GitHubOperationTool.definition(tool).inputSchema
+            val arguments = Json.parseToJsonElement(input) as JsonObject
+            val violations = ToolArgumentValidator.errors(arguments, schema) + GitHubOperationArguments.errors(tool, arguments)
+            assertTrue(violations.isNotEmpty())
+            val result = ToolArgumentValidator.rejection("test-call", tool, arguments, schema, violations)
+            assertFalse(result.dispatched)
+            val correction = ((result.content as ToolResultContent.Json).value as JsonObject)["correction_call"] as JsonObject
+            val corrected = correction["arguments"] as JsonObject
+            assertEquals(Json.parseToJsonElement(expected), corrected)
+            assertTrue(ToolArgumentValidator.errors(corrected, schema).isEmpty())
+            assertTrue(GitHubOperationArguments.errors(tool, corrected).isEmpty())
+        }
+        checkCorrection(
+            "github_ci",
+            """{"action":"runs","branch":"main","status":"completed","conclusion":"failure"}""",
+            """{"action":"runs","branch":"main","status":"failure"}"""
+        )
+        checkCorrection(
+            "github_ci",
+            """{"action":"logs","job_id":3,"start_line":10,"end_line":3010}""",
+            """{"action":"logs","job_id":3,"start_line":10,"end_line":2009}"""
+        )
+        checkCorrection(
+            "github_read",
+            """{"action":"ranges","commit_sha":"$sha","ranges":[{"path":"build.yml","start_line":1,"max_lines":2000,"end_line":-1}]}""",
+            """{"action":"ranges","commit_sha":"$sha","ranges":[{"path":"build.yml","start_line":1,"max_lines":2000}]}"""
+        )
     }
 
     @Test fun ciLogContractRetainsBoundsAndPagingButExcludesDispatch() {

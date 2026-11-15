@@ -64,6 +64,32 @@ internal object ToolReportDiagnostics {
         if (result.executionReceipt?.containsKey("mcp_failure_phase") == true) {
             put("mcp_connection_hash", IssueReportContext.identifierHash("mcp-connection", event.connectionUidSnapshot))
         }
+        val admission = (result.executionReceipt?.get("dependency_admission_reasons") as? JsonArray)?.singleOrNull()
+        if (event.modelToolName == "read_url" && result.isError && !result.dispatched && result.errorCode == "NOT_DISPATCHED") {
+            val observation = when (admission) {
+                JsonPrimitive("REPEAT_LIMIT") -> "REPEAT_LIMIT"
+                JsonPrimitive("REPEATED_FAILURE") -> "REPEATED_FAILURE"
+                else -> null
+            }
+            observation?.let { put("url_reader_availability", it) }
+        }
+        val reader = result.executionReceipt
+        if (event.modelToolName == "read_url" && result.isError && result.errorCode == "SOURCE_UNAVAILABLE" &&
+            reader?.get("schema") == JsonPrimitive("gptmobile.search-operation.v1") &&
+            reader["provider"] == JsonPrimitive("read_url") && reader["callId"] == JsonPrimitive(result.callId) &&
+            reader["errorCode"] == JsonPrimitive(result.errorCode)
+        ) {
+            val observation = if (result.dispatched && reader["requestSent"] == JsonPrimitive(true) &&
+                reader["httpStatus"] in setOf(JsonPrimitive(404), JsonPrimitive(405), JsonPrimitive(410))
+            ) {
+                JsonPrimitive("HTTP_UNAVAILABLE")
+            } else if (!result.dispatched && reader["requestSent"] == JsonPrimitive(false) && reader["httpStatus"] == null) {
+                reader["source_availability_observation"]?.takeIf { it in setOf(JsonPrimitive("NEGATIVE_CACHE"), JsonPrimitive("TURN_SUPPRESSION")) }
+            } else {
+                null
+            }
+            observation?.let { put("url_reader_availability", it) }
+        }
         val reason = (result.executionReceipt?.get("reason_code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: (result.executionReceipt?.get("reasonCode") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: precheckReason

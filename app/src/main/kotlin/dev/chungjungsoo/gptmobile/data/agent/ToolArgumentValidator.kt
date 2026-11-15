@@ -32,6 +32,8 @@ internal object ToolArgumentValidator {
             "github_read" ->
                 "Use one to eight ranges with a repository-relative path and start_line>=1. " +
                     "Choose either max_lines (1..2000) or end_line, never both; end_line=-1 means bounded EOF. "
+            "github_ci" ->
+                "For failed runs set status=failure. For longer job logs read successive windows of at most 2000 lines. "
             "github_context" ->
                 "For saved content use only the exact view_cursor from continuation_call. " +
                     "For a fresh page use per_page=1..100. Do not copy an action from a different request. "
@@ -55,7 +57,8 @@ internal object ToolArgumentValidator {
                 buildJsonObject {
                     put("schema", "gptmobile.arguments.v2")
                     put("operation", toolName)
-                    put("message", repairMessage(toolName, validationErrors, schema, arguments))
+                    val message = repairMessage(toolName, validationErrors, schema, arguments)
+                    put("message", if (correction == null) message else "$message Use correction_call for the bounded read.")
                     put("validation_errors", JsonArray(validationErrors.map(::JsonPrimitive)))
                     put("state", "PRECHECK_REJECTED")
                     put("dispatched", false)
@@ -176,6 +179,9 @@ internal object ToolArgumentValidator {
             val proposal = JsonObject(arguments - "per_page")
             return proposal.takeIf { errors(it, schema).isEmpty() }
         }
+        boundedReadCorrection(operation, arguments)?.let { proposal ->
+            if (errors(proposal, schema).isEmpty() && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors(operation, proposal).isEmpty()) return proposal
+        }
         if (operation !in setOf("github_pr", "github_issue") || "view_cursor" in arguments) return null
         val issue = operation == "github_issue"
         val numberKey = if (issue) "issue_number" else "pull_number"
@@ -204,6 +210,39 @@ internal object ToolArgumentValidator {
         }
         return proposal.takeIf { errors(it, schema).isEmpty() }
     }
+
+    private fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
+        if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
+        return when (operation to arguments["action"]) {
+            "github_ci" to JsonPrimitive("runs") -> {
+                val conclusion = arguments["conclusion"]?.takeIf { it == JsonPrimitive("failure") } ?: return null
+                if (arguments["status"] !in setOf(null, JsonPrimitive("completed"), conclusion)) return null
+                JsonObject(arguments - "conclusion" + ("status" to conclusion))
+            }
+            "github_ci" to JsonPrimitive("logs") -> {
+                val start = if ("start_line" in arguments) integer(arguments["start_line"]) ?: return null else 1
+                val end = integer(arguments["end_line"]) ?: return null
+                if (start < 1 || end.toLong() - start < 2000) return null
+                JsonObject(arguments + ("end_line" to JsonPrimitive(start + 1999)))
+            }
+            "github_read" to JsonPrimitive("ranges") -> {
+                val ranges = arguments["ranges"] as? JsonArray ?: return null
+                val corrected = ranges.map { value ->
+                    val range = value as? JsonObject ?: return null
+                    if (range["end_line"] == JsonPrimitive(-1) && integer(range["max_lines"])?.let { it in 1..2000 } == true) {
+                        JsonObject(range - "end_line")
+                    } else {
+                        range
+                    }
+                }
+                if (corrected == ranges) return null
+                JsonObject(arguments + ("ranges" to JsonArray(corrected)))
+            }
+            else -> null
+        }
+    }
+
+    private fun integer(value: JsonElement?): Int? = (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
 
     private data class SelectorProblem(val field: String, val missing: Boolean, val reason: String, val source: String)
 

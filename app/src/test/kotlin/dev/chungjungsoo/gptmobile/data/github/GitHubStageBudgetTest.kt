@@ -31,7 +31,8 @@ class GitHubStageBudgetTest {
         assertEquals(2048, GitHubStageBudget.resolve(32768, 2048, "github-review-preflight-output-retry").output)
         assertEquals(1536, GitHubStageBudget.resolve(32768, null, "github-review").output)
         assertEquals(4096, GitHubStageBudget.resolve(32768, null, "github-review-repair").output)
-        assertEquals(4096, GitHubStageBudget.resolve(32768, null, "github-claim-extraction").output)
+        assertEquals(8192, GitHubStageBudget.resolve(32768, null, "github-claim-extraction").output)
+        assertEquals(4096, GitHubStageBudget.resolve(32768, 4096, "github-claim-extraction").output)
     }
 
     @Test fun preflightReservationAndRequestAgreeWithoutChangingExplicitReasoningOrHardCaps() {

@@ -108,7 +108,6 @@ class DesktopNativeAcceptance(unittest.TestCase):
         tab = next(tab for tab in settings.github_tabs.tabs()
                    if settings.github_tabs.tab(tab, 'text') == 'Repository Validation')
         settings.github_tabs.select(tab)
-        settings.lift()
         self.window.update()
         return settings, settings.repository_validation_panel
 

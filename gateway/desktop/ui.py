@@ -403,6 +403,16 @@ def build_window(root, parent=None, section='General'):
     refresh()
     from desktop.window_lifecycle import watch
     watch(window, root, window.destroy)
+    if parent is not None:
+        # Tk can map a transient Toplevel behind its owner on Windows when the
+        # owner has not processed geometry yet. Map the owner first, finish the
+        # child layout, then raise the settings window before returning it to
+        # the dashboard's click handler.
+        owner = parent.winfo_toplevel()
+        owner.update_idletasks()
+        window.update_idletasks()
+        window.lift()
+        window.focus_set()
     return window
 
 

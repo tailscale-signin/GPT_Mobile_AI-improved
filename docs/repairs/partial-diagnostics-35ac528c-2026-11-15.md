@@ -53,3 +53,19 @@ Where an issue appears in two rows above, #1316 is elaborated separately and **c
 6. Enable application logging (with privacy-safe capture), reproduce unknown `CHAT_FAILED` reports and export a **new** staged archive. Do not claim this archive was resumable.
 
 **Disposition rule:** Leave GitHub issues open until the exact fix is built and regression-qualified for the affected pathway; use a linked commit and matching test/CI evidence when closing. Unsupported external operations or unknown-cause historical reports stay open for follow-up, not falsely marked repaired.
+
+## Current-PR implementation follow-up (2026-11-15)
+
+The following changes have been published to PR #1299 on the same branch, without broadening the source or permission authority:
+
+- **#1315: bounded graph transport recovery:** `GatewayGraphRepository.executeForMap` retries only a revision-bound `status` read following an `IOException` that is not TLS-related. It revalidates the selected profile/account/branch and coroutine activity before the single replay. Index, cancel, HTTP rejection and uncertain mutation requests remain non-replayable. `GatewayGraphRepositoryTest` covers a transient status recovery and permission revocation before the retry.
+- **#1313, plus #1304/#1305 planning class:** `LocalContextPlanner.preflightSafetyReserve` retains a minimum 256 tokens and, for larger contexts, reserves one fifth of declared context in advance of optional history and tool selection. This corresponds to the final JSON admission's proportional estimate. It cannot create a larger serving allocation or recover a missing metadata/credential/route capability. `LocalContextPlannerTest` includes a 4096-token budget fixture. An actual selected-model inference remains a separate live requirement.
+- **#1317/#1318: code-less provider errors:** the OpenAI-compatible stream adapter preserves a typed `PROVIDER_INVOCATION_FAILED` and a bounded `provider_error_code_state=ABSENT` observation rather than losing provenance in a repository terminal boundary. No historical cause is inferred from these old reports.
+- **#1319/#1320: pronunciation:** unknown ordinary words are not silently omitted or read as spelled-out letters. Prior to actual Kokoro output, a protected offline Android TTS fallback may read the complete reply. If audio has already started or an installed offline voice is absent, the transcript and explicit failure are retained; no network speech is selected.
+- **Missing logs in this archive:** the manual issue report provides an **explicit**, separately consented application-log tracking toggle. A report's `include diagnostics` checkbox never enables logging. Past omitted records remain omitted, private-session collection remains excluded, and submission still requires approval.
+
+### Verification and issue-closure conditions
+
+The graph retry, context-budget change and report UI need the current exact-head Android/test/ktlint/CodeQL qualification. Focused test source is not a successful runtime receipt until CI completes. Require actual selected-model and gateway route tests for #1313–#1316, a real on-device audio/voice-pack observation for #1319/#1320, and privacy-safe application-log reproduction for #1317/#1318. Service outages, auth scope, inaccessible branch protection and unavailable disposable fixtures cannot be repaired by repository-only changes and must not be labeled fixed. Leave affected issues open until there is evidence for the specific outcome.
+
+No service tokens, permissions, GitHub rulesets, models, or user's machine configuration were changed by this PR.

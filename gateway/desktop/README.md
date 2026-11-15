@@ -55,6 +55,14 @@ For private maps or saved GitHub jobs, select **Open GitHub settings for private
 
 On a LAN listener, **Allow network devices to run GitHub engineering tasks** grants connected devices access to private maps and saved engineering operations through this PC's GitHub connection. Enable it only for your intended network, save settings, and restart after active work finishes.
 
+### Guided engineering prerequisites
+
+Windows installation offers **Standard Gateway** (Docker not required) or **Full GitHub Engineering**. Selecting Full opens the opt-in **Engineering Setup** wizard after installation. It is also available from the Windows Start menu and the **Guided Docker / WSL setup** button under Gateway Settings → GitHub → Repository Validation. Existing installations are not silently enrolled during upgrades.
+
+The wizard separately checks Git, WSL 2, the local Docker Linux engine and Docker CLI credentials. Install WSL, Install Docker and Repair Docker PATH require explicit confirmation. Installer actions use Windows Package Manager or the Windows WSL command; Windows may ask for elevation, license acceptance or a reboot, which Gateway never bypasses or forces. No Docker factory reset, credential deletion, WSL distribution removal or unapproved network exposure is performed. If the official Docker credential helper exists but is missing from PATH, the optional repair adds only that installed directory to the *user* PATH; if it is missing entirely, the user is directed to the official Docker repair installer.
+
+**Prepare & verify** uses the existing revision-locked Repository Validation setup: prepare/refresh the approved bare mirror and immutable Linux image, retain existing custom mappings, save the host-approved validation policy, check the prepared resources, and run a disposable offline Python 3.12 image smoke test. The UI is asynchronous and cancellable; reopening it after a reboot reprobes actual machine state. Docker CLI credential warnings remain separate from the Gateway validator's isolated local/default Docker context. A successful smoke test is **not** a full Android build, source behavior test, GitHub mutation or merge permission.
+
 ### Repository Validation tab
 
 Open **Gateway Settings → GitHub → Repository Validation**. Connection and

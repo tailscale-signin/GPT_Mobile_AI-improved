@@ -42,6 +42,7 @@ Name: "{group}\Gateway Dashboard"; Filename: "{sys}\WindowsPowerShell\v1.0\power
 Name: "{autodesktop}\GPT Mobile Gateway"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; WorkingDir: "{app}"; IconFilename: "{app}\releases\{#GatewayVersion}\Gateway.exe"; AppUserModelID: "GPTMobile.Gateway"; Tasks: desktopicon
 Name: "{group}\Start Gateway"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"""; WorkingDir: "{app}"
 Name: "{group}\Gateway Settings"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command settings"; WorkingDir: "{app}"
+Name: "{group}\Engineering Setup"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command engineering-setup"; WorkingDir: "{app}"
 Name: "{group}\Gateway Logs"; Filename: "{app}\logs"
 Name: "{group}\Uninstall Gateway"; Filename: "{uninstallexe}"
 
@@ -50,6 +51,8 @@ Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; Description: "Open the live Gateway dashboard"; Flags: nowait postinstall skipifsilent
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command github-settings"; Description: "Open GitHub settings for private repositories or saved jobs"; Flags: nowait postinstall skipifsilent unchecked
 
+Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command engineering-setup"; Description: "Set up Full GitHub Engineering (Docker and WSL 2)"; Flags: nowait postinstall skipifsilent; Check: IsFullEngineeringSelected
+
 [UninstallDelete]
 Type: files; Name: "{app}\current.json"
 Type: filesandordirs; Name: "{app}\releases"
@@ -57,7 +60,7 @@ Type: filesandordirs; Name: "{app}\releases"
 [Code]
 var
   ConnectionPage, PerformancePage, NetworkPage: TInputQueryWizardPage;
-  SetupPage, UpdatePage: TInputOptionWizardPage;
+  SetupPage, UpdatePage, EngineeringPage: TInputOptionWizardPage;
   RuntimePrepared: Boolean;
 
 function J(Value: String): String;
@@ -82,7 +85,13 @@ begin
   SetupPage.Add('Recommended setup');
   SetupPage.Add('Advanced setup');
   SetupPage.SelectedValueIndex := 0;
-  ConnectionPage := CreateInputQueryPage(SetupPage.ID, 'Connection settings', 'Choose your model backend and gateway port.', 'Public GitHub maps work by default. You can connect GitHub for private repositories or saved jobs from Gateway Settings.');
+  EngineeringPage := CreateInputOptionPage(SetupPage.ID, 'Optional GitHub engineering',
+    'Choose whether to prepare isolated Linux repository validation.',
+    'Standard Gateway works without Docker. Full GitHub Engineering offers guided WSL 2 and Docker setup after installation. System changes require approval and existing Docker data is retained.', True, False);
+  EngineeringPage.Add('Standard Gateway - no Docker required');
+  EngineeringPage.Add('Full GitHub Engineering - guided Docker and WSL 2 setup');
+  EngineeringPage.SelectedValueIndex := 0;
+  ConnectionPage := CreateInputQueryPage(EngineeringPage.ID, 'Connection settings', 'Choose your model backend and gateway port.', 'Public GitHub maps work by default. You can connect GitHub for private repositories or saved jobs from Gateway Settings.');
   ConnectionPage.Add('Model backend origin (without /v1):', False);
   ConnectionPage.Add('Gateway port (1024-65535):', False);
   ConnectionPage.Add('Existing MCP JSON file (optional, absolute path):', False);
@@ -103,6 +112,11 @@ begin
   UpdatePage.SelectedValueIndex := 0;
 end;
 
+function IsFullEngineeringSelected: Boolean;
+begin
+  Result := EngineeringPage.SelectedValueIndex = 1;
+end;
+
 function ShouldSkipPage(PageID: Integer): Boolean;
 var AdvancedPage, Upgrade: Boolean;
 begin
@@ -110,7 +124,7 @@ begin
     (PageID = NetworkPage.ID) or (PageID = UpdatePage.ID);
   Upgrade := FileExists(ExpandConstant('{app}\settings.json'));
   Result := (AdvancedPage and ((SetupPage.SelectedValueIndex = 0) or Upgrade)) or
-    ((PageID = SetupPage.ID) and Upgrade);
+    ((PageID = SetupPage.ID) and Upgrade) or ((PageID = EngineeringPage.ID) and Upgrade);
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;

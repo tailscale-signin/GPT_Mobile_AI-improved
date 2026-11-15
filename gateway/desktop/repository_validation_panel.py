@@ -157,6 +157,9 @@ class RepositoryValidationPanel:
             button.pack(side='left', padx=(0, 4))
             setattr(self, attr, button)
             self.inputs.append(button)
+        guide = ttk.Button(frame, text='Guided Docker / WSL setup...', command=self.open_guided_setup)
+        guide.grid(row=4, column=0, columnspan=2, sticky='w', pady=(6, 2))
+        self.inputs.append(guide)
         self.cancel_button = ttk.Button(buttons, text='Cancel', command=lambda: self.cancel.set(), state='disabled', padding=(8, 8))
         self.cancel_button.pack(side='left')
         self.toggle_advanced()
@@ -166,6 +169,12 @@ class RepositoryValidationPanel:
         self.frame.bind('<Destroy>', self.destroyed, add='+')
         self.reload(confirm=False)
         _PANELS.add(self)
+
+    def open_guided_setup(self):
+        if self.busy or self.closed:
+            return
+        from desktop.engineering_setup_panel import show
+        show(self.root, parent=self.frame.winfo_toplevel())
 
     def notice(self, message):
         self.status.set(message if len(message) <= 190 else message[:187] + '…')

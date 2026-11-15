@@ -17,7 +17,7 @@ from v14.state_lock import StateDirectoryLock
 
 def main():
     parser = argparse.ArgumentParser(description='GPT Mobile Gateway desktop manager')
-    parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard'])
+    parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'engineering-setup', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard'])
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--version')
     parser.add_argument('--quiet', action='store_true')
@@ -75,6 +75,10 @@ def main():
     if args.command == 'dashboard':
         from desktop.dashboard import show
         show(root, smoke=args.smoke_ui)
+        return 0
+    if args.command == 'engineering-setup':
+        from desktop.engineering_setup_panel import show
+        show(root)
         return 0
     if args.command in {'settings', 'github-settings'}:
         from desktop.ui import show

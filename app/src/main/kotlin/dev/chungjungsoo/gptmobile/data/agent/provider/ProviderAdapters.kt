@@ -1027,10 +1027,19 @@ class OpenAICompatibleAdapter @Inject constructor(
                                     streamInterrupted = true
                                     lastFailedMessage = error.message
                                     providerLimitDecision = error.providerLimit
-                                    failureDetails = kotlinx.serialization.json.JsonObject(error.failureDetails.orEmpty() + error.retryable?.let { mapOf("retryable" to JsonPrimitive(it)) }.orEmpty())
+                                    // A provider error *value* has no caught throwable. Record its original
+                                    // code availability and observation site instead of losing it at
+                                    // the chat repository's generic CHAT_FAILED boundary.
+                                    val sourceCodeMissing = error.code.isNullOrBlank() && error.type.isNullOrBlank()
+                                    val sourceObservation = if (sourceCodeMissing) mapOf(
+                                        "provider_error_code_state" to JsonPrimitive("ABSENT"),
+                                        "provider_error_origin" to JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"),
+                                        "failed_stage" to (error.failureDetails?.get("failed_stage") ?: JsonPrimitive("model_invocation"))
+                                    ) else emptyMap()
+                                    failureDetails = kotlinx.serialization.json.JsonObject(error.failureDetails.orEmpty() + sourceObservation + error.retryable?.let { mapOf("retryable" to JsonPrimitive(it)) }.orEmpty())
                                     val contract = dev.chungjungsoo.gptmobile.data.network.error.ProviderContractFailure.find(error.code, error.message)
                                     protocolErrorCode = contract?.code ?: error.type?.uppercase()?.takeIf { category -> dev.chungjungsoo.gptmobile.data.network.FreeFailureCategory.entries.any { it.name == category } }
-                                        ?: error.code ?: error.type ?: protocolErrorCode
+                                        ?: error.code?.takeIf(String::isNotBlank) ?: error.type?.takeIf(String::isNotBlank) ?: protocolErrorCode ?: "PROVIDER_INVOCATION_FAILED"
                                     if (error.failureDetails?.containsKey("failed_stage") == true) protocolErrorCode = contract?.code ?: error.code ?: protocolErrorCode
                                     canRotate = providerLimitDecision == null && error.retryable != false && contract == null && !dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.requiresReconciliation(error.message, error.code) && ApiCredentialRotator.containsQuotaOrRateLimitMessage(error.message)
                                 }

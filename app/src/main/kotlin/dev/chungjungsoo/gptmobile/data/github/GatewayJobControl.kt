@@ -21,6 +21,43 @@ class GatewayJobControl @Inject constructor(
     /** A confirmation preview contains no credentials and performs only reads. */
     suspend fun inspect(record: GatewayJobRecord): GatewayJobStopReview = inspectRoute(record).second
 
+    /** Review the exact retained recovery without attaching it to a different local chat. */
+    suspend fun inspectRecoveryApproval(record: GatewayJobRecord): GatewayEngineeringJob {
+        val (config, review) = inspectRoute(record)
+        check(review.summary.recoveryOf != null && "approve" in review.summary.allowedActions) { "This recovery no longer needs merge approval." }
+        return engineering.get(config, review.summary.jobId, -1).also { job ->
+            verifyEngineering(review, job)
+            check(
+                job.mergeReady &&
+                    job.pr != null &&
+                    job.headSha?.matches(Regex("[a-f0-9]{40}")) == true &&
+                    job.recoveryOf == review.summary.recoveryOf &&
+                    !job.executionBindingId.isNullOrBlank()
+            ) { "The exact recovery revision is no longer available for approval." }
+        }
+    }
+
+    suspend fun approveRecovery(record: GatewayJobRecord, reviewed: GatewayEngineeringJob) {
+        val fresh = inspectRecoveryApproval(record)
+        check(
+            fresh.id == reviewed.id &&
+                fresh.revision == reviewed.revision &&
+                fresh.pr == reviewed.pr &&
+                fresh.headSha == reviewed.headSha &&
+                fresh.recoveryOf == reviewed.recoveryOf &&
+                fresh.executionBindingId == reviewed.executionBindingId
+        ) { "The recovery changed. Reopen its approval before continuing." }
+        val config = repository.originalRoute(record.connectionProfileUid, record.endpoint).config
+        val response = engineering.control(mutationConfig(record, config), fresh, "approve")
+        check(
+            response.id == fresh.id &&
+                response.revision > fresh.revision &&
+                response.gatewayId == fresh.gatewayId &&
+                response.principalId == fresh.principalId &&
+                response.executionBindingId == fresh.executionBindingId
+        ) { "Approval outcome is unknown. Refresh the original recovery." }
+    }
+
     /** Called only after confirmation. A retry reads the original job before another possible POST. */
     suspend fun stop(review: GatewayJobStopReview): GatewayJobStopResult {
         return try {

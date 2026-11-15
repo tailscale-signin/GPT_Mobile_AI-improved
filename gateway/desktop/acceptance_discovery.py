@@ -8,7 +8,7 @@ from desktop import repository_validation as setup
 from v14.validation_host import command as host_command, environment as host_environment
 
 
-def discover(options, query='', cancel=None):
+def discover(options, query='', cancel=None, *, source_sha=None, approved_cases=None):
     mirror = setup.mirror_path(options['mirror'])
     if not isinstance(query, str) or len(query) > 200:
         raise ValueError('Use a test filename or path fragment of at most 200 characters.')
@@ -18,8 +18,10 @@ def discover(options, query='', cancel=None):
         with host_command(['git', '--git-dir=' + str(mirror), *args]) as argv:
             return setup.run(argv, timeout=15, cancel=cancel, env=host_environment(mirror), label='Test discovery')
 
-    head = git('rev-parse', 'HEAD')
-    if not re.fullmatch('[a-f0-9]{40}', head):
+    if source_sha is not None and (not isinstance(source_sha, str) or not re.fullmatch('[a-f0-9]{40}', source_sha)):
+        raise ValueError('Enter the exact 40-character source commit SHA.')
+    head = git('rev-parse', '--verify', (source_sha or 'HEAD') + '^{commit}')
+    if not re.fullmatch('[a-f0-9]{40}', head) or source_sha is not None and head != source_sha:
         raise ValueError('Prepare the repository mirror before discovering tests.')
     paths = []
     for line in git('ls-tree', '-r', '--full-tree', head).splitlines():
@@ -37,7 +39,8 @@ def discover(options, query='', cancel=None):
         if int(git('cat-file', '-s', sha)) > 256 * 1024:
             continue
         text = git('cat-file', 'blob', sha)
-        candidates.extend(parse_tests(path, text))
+        candidates.extend(dict(candidate, source_sha=head, blob_sha=sha) for candidate in parse_tests(path, text)
+                          if approved_cases is None or candidate['case_id'] in approved_cases)
         if len(candidates) >= 256:
             break
     return {'head_sha': head, 'candidates': candidates[:256], 'matching_files': len(paths),

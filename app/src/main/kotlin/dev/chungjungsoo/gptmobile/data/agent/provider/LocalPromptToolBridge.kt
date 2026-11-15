@@ -143,6 +143,16 @@ internal object LocalPromptToolBridge {
                             put(key, JsonArray(values.take(16).mapNotNull { boundedName(it)?.let(::JsonPrimitive) }))
                         }
                     }
+                    val actions = catalog["selected_actions"] as? JsonObject
+                    val names = catalogNames(catalog["available_next_round"])
+                    if (actions != null) {
+                        put(
+                            "selected_actions",
+                            buildJsonObject {
+                                names.forEach { name -> boundedName(actions[name])?.let { put(name, it) } }
+                            }
+                        )
+                    }
                     catalog["catalog_unchanged"]?.takeIf { it == JsonPrimitive(true) || it == JsonPrimitive(false) }?.let { put("catalog_unchanged", it) }
                     put("availability_note", "Only returned registered schemas may be admitted. Permissions and execution budgets are unchanged; omitted schemas are not available.")
                 }
@@ -169,6 +179,15 @@ internal object LocalPromptToolBridge {
         }
         val payload = envelope["data"] as? JsonObject ?: return emptySet()
         return catalogNames(payload["available_next_round"])
+    }
+
+    fun discoveredToolActions(result: String): Map<String, String> {
+        val names = discoveredToolNames(result)
+        if (names.isEmpty()) return emptyMap()
+        val envelope = Json.parseToJsonElement(result) as JsonObject
+        val payload = envelope["data"] as JsonObject
+        val actions = payload["selected_actions"] as? JsonObject ?: return emptyMap()
+        return names.mapNotNull { name -> boundedName(actions[name])?.let { name to it } }.toMap()
     }
 
     private val json = Json { ignoreUnknownKeys = true }

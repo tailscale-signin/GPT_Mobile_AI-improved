@@ -43,16 +43,24 @@ class RepositoryValidationPanel:
         self.document, self.drafts = {}, {}
         self.revision = self.loaded = self.saved_snapshot = self.worker = None
         self.fields, self.inputs = {}, []
-        frame.configure(padding=(14, 10))
+        viewport = tk.Canvas(frame, bg=BG, highlightthickness=0, width=1, height=1)
+        scrollbar = ttk.Scrollbar(frame, orient='vertical', command=viewport.yview)
+        scrollbar.pack(side='right', fill='y')
+        viewport.pack(side='left', fill='both', expand=True)
+        viewport.configure(yscrollcommand=scrollbar.set)
+        self.viewport = viewport
+        frame = ttk.Frame(viewport, padding=(14, 10))
+        self.content = frame
+        window = viewport.create_window((0, 0), window=frame, anchor='nw')
+        frame.bind('<Configure>', lambda _: viewport.configure(scrollregion=viewport.bbox(window)))
+        viewport.bind('<Configure>', lambda event: viewport.itemconfigure(window, width=event.width))
         frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(1, weight=1)
         self.enabled = tk.BooleanVar(master=frame, value=False)
         self.enable_button = ttk.Checkbutton(frame, text='Enable repository validation', variable=self.enabled,
                                             command=self.enabled_changed)
         self.enable_button.grid(row=0, column=0, sticky='w')
         self.inputs.append(self.enable_button)
         basic = ttk.Frame(frame)
-        self.basic = basic
         basic.grid(row=1, column=0, sticky='ew')
         basic.columnconfigure(1, weight=1)
         for row, key, label in [(0, 'repository', 'Repository'), (1, 'profile', 'Validation profile')]:
@@ -91,17 +99,10 @@ class RepositoryValidationPanel:
         self.advanced_toggle.grid(row=0, column=1, sticky='e')
         self.inputs.append(self.advanced_toggle)
         self.advanced = ttk.Frame(frame)
-        self.advanced.grid(row=1, column=0, rowspan=3, sticky='nsew', pady=4)
-        self.editor_canvas = tk.Canvas(self.advanced, bg=BG, highlightthickness=0, height=80)
-        scroll = ttk.Scrollbar(self.advanced, orient='vertical', command=self.editor_canvas.yview)
-        self.editor_canvas.configure(yscrollcommand=scroll.set)
-        scroll.pack(side='right', fill='y')
-        self.editor_canvas.pack(side='left', fill='both', expand=True)
-        editor = ttk.Frame(self.editor_canvas, padding=(0, 2, 8, 4))
+        self.advanced.grid(row=5, column=0, columnspan=2, sticky='ew', pady=4)
+        editor = ttk.Frame(self.advanced, padding=(0, 2, 8, 4))
+        editor.pack(fill='x')
         editor.columnconfigure(1, weight=1)
-        item = self.editor_canvas.create_window((0, 0), window=editor, anchor='nw')
-        editor.bind('<Configure>', lambda _: self.editor_canvas.configure(scrollregion=self.editor_canvas.bbox('all')))
-        self.editor_canvas.bind('<Configure>', lambda e: self.editor_canvas.itemconfigure(item, width=e.width))
         self.editor = editor
         for row, key, label in [(0, 'mirror', 'Local mirror folder'), (1, 'timeout_seconds', 'Timeout (seconds)'),
                                 (2, 'image_source', 'Image to prepare')]:
@@ -111,7 +112,6 @@ class RepositoryValidationPanel:
             var.trace_add('write', lambda *_: self.edited())
             control = ttk.Entry(editor, textvariable=var)
             control.grid(row=row, column=1, sticky='ew', pady=4)
-            control.bind('<FocusIn>', lambda _, w=control: self.reveal(w))
             self.inputs.append(control)
         browse = ttk.Button(editor, text='Browse…', command=self.browse)
         browse.grid(row=0, column=2, padx=(6, 0))
@@ -135,7 +135,6 @@ class RepositoryValidationPanel:
             control.bind('<Tab>', lambda _, w=control: self.focus_next(w))
             control.bind('<Shift-Tab>', lambda _, w=control: self.focus_next(w, backwards=True))
             control.bind('<ISO_Left_Tab>', lambda _, w=control: self.focus_next(w, backwards=True))
-            control.bind('<FocusIn>', lambda _, w=control: self.reveal(w))
             self.inputs.append(control)
         self.behavior_button = ttk.Button(editor, text='Add task behavior check…', command=self.add_behavior_check)
         self.behavior_button.grid(row=9, column=0, columnspan=3, sticky='w', pady=5)
@@ -149,7 +148,7 @@ class RepositoryValidationPanel:
         # Keep the primary actions in the fixed portion of the page. On a
         # minimum-height Windows window, placing them below the expandable
         # editor can put their hit targets underneath Settings' footer.
-        buttons.grid(row=4, column=0, sticky='ew', pady=(4, 0))
+        buttons.grid(row=3, column=0, sticky='ew', pady=(4, 0))
         for attr, label, command in [('prepare_button', 'Prepare & save', lambda: self.start(True)),
                                      ('check_button', 'Check setup', lambda: self.start(False)),
                                      ('save_button', 'Save policy', self.save), ('reload_button', 'Reload', self.reload)]:
@@ -160,8 +159,10 @@ class RepositoryValidationPanel:
         self.cancel_button = ttk.Button(buttons, text='Cancel', command=lambda: self.cancel.set(), state='disabled', padding=(8, 8))
         self.cancel_button.pack(side='left')
         self.toggle_advanced()
+        for control in [*self.inputs, self.cancel_button]:
+            control.bind('<FocusIn>', lambda _, focused=control: self.reveal(focused), add='+')
         frame.bind('<Configure>', lambda e: self.status_label.configure(wraplength=max(200, e.width - 28)) if e.widget is frame else None, add='+')
-        frame.bind('<Destroy>', self.destroyed, add='+')
+        self.frame.bind('<Destroy>', self.destroyed, add='+')
         self.reload(confirm=False)
         _PANELS.add(self)
 
@@ -185,30 +186,20 @@ class RepositoryValidationPanel:
         target = control.tk_focusPrev() if backwards else control.tk_focusNext()
         if target is not None:
             target.focus_set()
-            if self.advanced_visible.get():
-                self.editor_canvas.after_idle(lambda focused=target: self.reveal(focused))
+            self.viewport.after_idle(lambda focused=target: self.reveal(focused))
         return 'break'
 
     def reveal(self, control):
-        if self.advanced_visible.get():
-            self.editor.update_idletasks()
-            canvas = self.editor_canvas
-            bounds = canvas.bbox('all')
-            if not bounds:
-                return
-            content_height = max(1, bounds[3] - bounds[1])
-            viewport_height = max(1, canvas.winfo_height())
-            margin = max(4, (viewport_height - control.winfo_height()) // 2)
-            control_top = 0
-            current = control
-            while current is not self.editor:
-                control_top += current.winfo_y()
-                current = current.master
-            control_top += bounds[1]
-            max_top = max(bounds[1], bounds[3] - viewport_height)
-            target_top = min(max(bounds[1], control_top - margin), max_top)
-            canvas.yview_moveto((target_top - bounds[1]) / content_height)
-            canvas.update_idletasks()
+        if self.closed or not control.winfo_viewable():
+            return
+        viewport = self.viewport
+        viewport.update_idletasks()
+        top = control.winfo_rooty() - viewport.winfo_rooty()
+        height = viewport.winfo_height()
+        if top < 0 or top + control.winfo_height() > height:
+            offset = viewport.canvasy(0) + top - max(0, (height - control.winfo_height()) // 2)
+            viewport.yview_moveto(max(0, offset) / max(1, self.content.winfo_height()))
+            viewport.update_idletasks()
 
     def discover_behavior_checks(self):
         from desktop.acceptance_discovery_dialog import open_dialog
@@ -259,16 +250,12 @@ class RepositoryValidationPanel:
 
     def toggle_advanced(self):
         if self.advanced_visible.get():
-            self.basic.grid_remove()
-            self.status_label.grid_remove()
-            # Advanced mode uses the whole content area. Keeping the basic
-            # form behind a minimum-size canvas leaves its lower fields under
-            # the Settings footer on Windows.
-            self.advanced.grid(row=1, column=0, rowspan=3, sticky='nsew', pady=4)
+            # grid_remove retains a widget's layout, but explicitly restoring
+            # the slot is reliable across the Tk builds shipped with Windows.
+            self.advanced.grid(row=5, column=0, columnspan=2, sticky='ew', pady=4)
         else:
             self.advanced.grid_remove()
-            self.basic.grid(row=1, column=0, sticky='ew')
-            self.status_label.grid(row=2, column=0, sticky='ew', pady=3)
+            self.viewport.yview_moveto(0)
 
     def fill(self, options):
         self.loading = True

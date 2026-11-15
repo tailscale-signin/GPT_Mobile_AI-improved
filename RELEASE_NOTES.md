@@ -1,5 +1,11 @@
 # GPT Mobile 0.9.66.7
 
+## Durable engineering wiring
+
+Prepare replay with the final uncertainty policy and recompact after a confirmed pre-dispatch capacity rejection. Keep selected LiteRT schemas, prioritize newly requested workspace pages, retain tested candidates and page complete bounded check output. Commit recovery links and final completion evidence with their owning SQLite transactions. Android Jobs and Windows Saved can review an exact recovery merge. Validation settings use a single scrollable viewport.
+
+Read-only acceptance discovery is pinned to the selected commit and proposes approved test cases for review. Windows repository-bound task composition and independent benchmark input-preservation proof still require implementation. Native Windows, installed Android, and live-model qualification are pending.
+
 ## November 15 engineering feature follow-up
 
 Add approved workspace check selection and bounded output paging, ordinary behavior-test discovery and release-check settings, bounded selected-model investigators, one primary-answer allocation, compact action contracts, and gated recovery of failed main builds. Artifact verification now downloads and checks declared current-attempt artifacts against the exact merged revision before configured container installation and smoke checks.

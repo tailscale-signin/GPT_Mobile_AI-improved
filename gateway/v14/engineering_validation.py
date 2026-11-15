@@ -193,9 +193,8 @@ def _run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
             digest.update(block)
             if destination is not None:
                 destination.write(block)
-            else:
-                output.extend(block)
-                del output[:-16000]
+            output.extend(block)
+            del output[:-16000]
         # EOF does not mean the child exited. Keep observing the job's stop
         # and deadline while a command that closed its output is still alive.
         while True:
@@ -288,7 +287,7 @@ def _validation_workers(job):
     return workers
 
 
-def validate(job, changes, cancel=None, *, command_index=None, artifacts=None):
+def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, retain_output=None):
     identity = patch_identity(job['data']['head_sha'], changes)
     try:
         policy, mirror, image, commands, coverage = load_policy(job['request']['repository'])
@@ -362,7 +361,14 @@ def validate(job, changes, cancel=None, *, command_index=None, artifacts=None):
                     '--workdir=/workspace', '--env=HOME=/tmp', image, *command]
             try:
                 with cancellation_scope(cancel, job.get('deadline')):
-                    result = run_bounded(argv, root, min(timeout, max(1, job.get('deadline', time.time() + timeout) - time.time())))
+                    seconds = min(timeout, max(1, job.get('deadline', time.time() + timeout) - time.time()))
+                    if retain_output is None:
+                        result = run_bounded(argv, root, seconds)
+                    else:
+                        with tempfile.TemporaryFile() as log:
+                            result = run_bounded(argv, root, seconds, destination=log)
+                            log.seek(0)
+                            result['output_ref'] = retain_output(log)
             finally:
                 if cidfile.exists():
                     container = cidfile.read_text().strip()

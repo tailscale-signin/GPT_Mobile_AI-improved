@@ -20,8 +20,8 @@ def open_dialog(panel):
     dialog.title('Choose task tests')
     dialog.geometry('740x620')
     dialog.columnconfigure(1, weight=1)
-    dialog.rowconfigure(3, weight=1)
-    fields = {key: tk.StringVar(master=dialog) for key in ('query', 'objective', 'requirement_id', 'source_path', 'ci_check')}
+    dialog.rowconfigure(4, weight=1)
+    fields = {key: tk.StringVar(master=dialog) for key in ('query', 'source_sha', 'objective', 'requirement_id', 'source_path', 'ci_check')}
     status = tk.StringVar(master=dialog, value='Search the prepared mirror for existing Python unittest or JUnit tests.')
     ttk.Label(dialog, text='Find existing tests, choose the behavior relevant to your task, then save the policy.',
               wraplength=680).grid(row=0, column=0, columnspan=3, padx=12, pady=10, sticky='w')
@@ -29,11 +29,13 @@ def open_dialog(panel):
     ttk.Entry(dialog, textvariable=fields['query']).grid(row=1, column=1, sticky='ew')
     search = ttk.Button(dialog, text='Find tests')
     search.grid(row=1, column=2, padx=12)
-    ttk.Label(dialog, textvariable=status, wraplength=680).grid(row=2, column=0, columnspan=3, padx=12, pady=8, sticky='w')
+    ttk.Label(dialog, text='Source SHA (optional)').grid(row=2, column=0, padx=12, sticky='w')
+    ttk.Entry(dialog, textvariable=fields['source_sha']).grid(row=2, column=1, sticky='ew')
+    ttk.Label(dialog, textvariable=status, wraplength=680).grid(row=3, column=0, columnspan=3, padx=12, pady=8, sticky='w')
     listing = tk.Listbox(dialog, exportselection=False)
-    listing.grid(row=3, column=0, columnspan=3, padx=12, sticky='nsew')
+    listing.grid(row=4, column=0, columnspan=3, padx=12, sticky='nsew')
     for row, (key, label) in enumerate((('objective', 'Task objective'), ('requirement_id', 'Requirement ID'),
-                                      ('source_path', 'File this requirement covers'), ('ci_check', 'Required GitHub check')), 4):
+                                      ('source_path', 'File this requirement covers'), ('ci_check', 'Required GitHub check')), 5):
         ttk.Label(dialog, text=label).grid(row=row, column=0, padx=12, pady=4, sticky='w')
         if key == 'ci_check':
             control = ttk.Combobox(dialog, textvariable=fields[key], values=options['allowed_checks'])
@@ -43,7 +45,7 @@ def open_dialog(panel):
             control = ttk.Entry(dialog, textvariable=fields[key])
         control.grid(row=row, column=1, columnspan=2, padx=(0, 12), pady=4, sticky='ew')
     preview = tk.Text(dialog, height=4, wrap='word')
-    preview.grid(row=8, column=0, columnspan=3, padx=12, pady=6, sticky='ew')
+    preview.grid(row=9, column=0, columnspan=3, padx=12, pady=6, sticky='ew')
     preview.insert('1.0', 'Select a test to review its proposed command. It runs only in the configured validation container. '
                    'JUnit/Gradle tests require a prepared image with that build environment. No test has run yet.')
     preview.configure(state='disabled')
@@ -108,6 +110,7 @@ def open_dialog(panel):
             status.set(str(error))
             return
         query = fields['query'].get().strip()
+        source_sha = fields['source_sha'].get().strip() or None
         panel.cancel.clear()
         panel.set_busy(True)
         state['running'] = True
@@ -115,7 +118,7 @@ def open_dialog(panel):
         status.set('Inspecting the pinned repository files…')
         def work():
             try:
-                results.put((True, discover(options, query, panel.cancel)))
+                results.put((True, discover(options, query, panel.cancel, source_sha=source_sha)))
             except (OSError, ValueError, TypeError, KeyError):
                 results.put((False, 'Test discovery was cancelled or unavailable. Prepare the mirror, then try a narrower filename search.'))
         panel.worker = threading.Thread(target=work, name='acceptance-discovery', daemon=False)
@@ -149,7 +152,7 @@ def open_dialog(panel):
 
     search.configure(command=find)
     listing.bind('<<ListboxSelect>>', select)
-    ttk.Button(dialog, text='Cancel', command=close).grid(row=9, column=0, padx=12, pady=10, sticky='w')
-    ttk.Button(dialog, text='Add selected task check', command=apply).grid(row=9, column=1, columnspan=2, padx=12, pady=10, sticky='e')
+    ttk.Button(dialog, text='Cancel', command=close).grid(row=10, column=0, padx=12, pady=10, sticky='w')
+    ttk.Button(dialog, text='Add selected task check', command=apply).grid(row=10, column=1, columnspan=2, padx=12, pady=10, sticky='e')
     dialog.protocol('WM_DELETE_WINDOW', close)
     return dialog

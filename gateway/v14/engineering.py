@@ -218,7 +218,7 @@ class EngineeringStore:
             'SELECT data FROM engineering_events WHERE job_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 201', (job_id, after, through))])
 
     def create(self, principal, request, *, admission=None, recovery_of=None):
-        existing = self.existing_request(principal, request)
+        existing = self.existing_request(principal, request) if recovery_of is None else None
         if existing:
             return existing
         request = validate_request(new_request_defaults(request))
@@ -256,12 +256,34 @@ class EngineeringStore:
             job['diagnostic_capture'] = capture
         def insert(db):
             if recovery_of is not None:
-                parent = db.execute('SELECT state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?',
+                parent = db.execute('SELECT state,revision,lease,data FROM engineering_jobs WHERE id=? AND principal=?',
                                     (recovery_of['id'], principal)).fetchone()
                 epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (recovery_of['id'],)).fetchone()
-                if (not parent or tuple(parent) != (recovery_of['state'], recovery_of['revision'], recovery_of.get('_execution_lease'))
+                if (not parent or tuple(parent[:3]) != (recovery_of['state'], recovery_of['revision'], recovery_of.get('_execution_lease'))
                         or parent[2] is None or not epoch or epoch[0] != recovery_of.get('_owner_epoch')):
                     raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'Recovery admission lost its original job owner.')
+                parent_checkpoint = json.loads(parent[3])
+                parent_data = parent_checkpoint['data']
+                linked = parent_data.get('post_merge_recovery_job_id')
+                if linked:
+                    child = self.get_in_transaction(db, linked, principal)
+                    if not child or child.get('recovery_of') != recovery_of['id']:
+                        raise ValueError('Linked recovery identity could not be verified')
+                    return child
+                # Recognize children saved by an earlier gateway that could
+                # crash before checkpointing the parent link.
+                prior = db.execute(
+                    "SELECT data,state,revision FROM engineering_jobs WHERE principal=? "
+                    "AND json_extract(data, '$.recovery_of')=? "
+                    "AND json_extract(data, '$.data.ci.merge_sha')=? ORDER BY rowid LIMIT 2",
+                    (principal, recovery_of['id'], recovery_of['data']['merge_sha'])).fetchall()
+                if len(prior) > 1:
+                    raise ValueError('Multiple retained recoveries require reconciliation')
+                if prior:
+                    child = self.decode(prior[0])
+                    parent_data['post_merge_recovery_job_id'] = child['id']
+                    db.execute('UPDATE engineering_jobs SET data=? WHERE id=?', (json.dumps(parent_checkpoint), recovery_of['id']))
+                    return child
             old = db.execute('SELECT data,state,revision,request_digest FROM engineering_jobs WHERE principal=? AND request_id=?', (principal, request['request_id'])).fetchone()
             if old:
                 if old[3] != request_hash:
@@ -306,6 +328,13 @@ class EngineeringStore:
             job.update(title=short_title(request['objective']), queued_at=now, started_at=None)
             db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?,?,0,?,NULL,?)',
                        (job['id'], principal, request['request_id'], request_hash, 'PLAN', now, json.dumps(job)))
+            if recovery_of is not None:
+                parent_data['post_merge_recovery_job_id'] = job['id']
+                parent_data['recovery_budget_reservation'] = request['execution_budget']
+                parent_data['post_merge'] = dict(
+                    recovery_of['data']['post_merge'], status='PENDING', original_status='FAILED',
+                    reason='MERGE_RECOVERY_RUNNING', recovery_job_id=job['id'])
+                db.execute('UPDATE engineering_jobs SET data=? WHERE id=?', (json.dumps(parent_checkpoint), recovery_of['id']))
             self.event(db, job, 'PLAN', 0, now)
             return dict(job, state='PLAN', revision=0)
         return self.tx(insert)
@@ -390,12 +419,11 @@ class EngineeringStore:
         if phase in {'COMPLETED', 'CANCELLED', 'FAILED'}:
             job['finished_at'] = self.now()
         artifacts = EngineeringArtifacts(self)
-        output_json, _ = canonical_json(artifacts.checkpoint(job, output, 'phase-result'), maximum_bytes=2 * 1024 * 1024)
+        phase_result = artifacts.checkpoint(job, output, 'phase-result')
         checkpoint = {key: value for key, value in job.items() if not key.startswith('_')}
         checkpoint['data'] = artifacts.checkpoint(job, job['data'], 'checkpoint')
-        payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
         def save(db):
-            nonlocal phase, payload
+            nonlocal phase
             if phase == 'COMPLETED' and job.get('conversation_id') and db.execute("SELECT 1 FROM gateway_pending_instructions WHERE conversation_id=? AND status='pending' LIMIT 1", (job['conversation_id'],)).fetchone():
                 # A last-moment instruction was accepted before terminal commit.
                 # Preserve it visibly; never silently drop it or replay a write.
@@ -407,11 +435,38 @@ class EngineeringStore:
                 # phase so the UI cannot claim Full Batch completion while the
                 # durable job is actually waiting for a user continuation.
                 batch_transition(job, phase, dict(output, error_code='PENDING_INSTRUCTIONS'))
+                from v14.engineering_report import build_report
+                prior_report = job['data'].get('final_report') or {}
+                verification = dict(job['data'].get('completion_verification') or {},
+                                    passed=False, failures=['PENDING_INSTRUCTIONS'])
+                report = build_report(job, phase, verification, committed_revision=job['revision'] + 1)
+                report.update(summary=job['message'], prior_objective_status=prior_report.get('status'))
+                job['data']['completion_verification'] = verification
+                checkpoint['data']['completion_verification'] = verification
+                job['data']['final_report'] = report
+                phase_result['error_code'] = 'PENDING_INSTRUCTIONS'
                 checkpoint.update(message=job['message'])
                 checkpoint.pop('finished_at', None)
-                # The checkpoint shares the updated batch plan and already
-                # holds the artifact references prepared before this write.
-                payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
+            report = job['data'].get('final_report') if phase in PAUSED else None
+            if report:
+                owner = db.execute('SELECT revision,lease FROM engineering_jobs WHERE id=?', (job['id'],)).fetchone()
+                if not owner or tuple(owner) != (job['revision'], lease):
+                    self._confirm_cancellation(db, job['id'], job.get('_owner_epoch'))
+                    return False
+                db.execute('SAVEPOINT final_report_artifact')
+                try:
+                    reference = artifacts.put_json(job, report, 'final-report', transaction=db)
+                    report = dict(report, artifact=reference)
+                except (ExecutionBindingError, OSError, sqlite3.Error) as error:
+                    db.execute('ROLLBACK TO final_report_artifact')
+                    report = dict(report, artifact_availability='UNAVAILABLE',
+                                  artifact_error=getattr(error, 'code', type(error).__name__))
+                finally:
+                    db.execute('RELEASE final_report_artifact')
+                job['data']['final_report'] = checkpoint['data']['final_report'] = report
+                phase_result['terminal_receipt'] = report['terminal_receipt']
+            payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
+            output_json, _ = canonical_json(phase_result, maximum_bytes=2 * 1024 * 1024)
             # Keep every meaningful update, without thousands of identical CI
             # polls filling Android history during a multi-day job.
             unchanged = False
@@ -426,6 +481,10 @@ class EngineeringStore:
                 self._confirm_cancellation(db, job['id'], job.get('_owner_epoch'))
                 return False  # Cancel/revoke won the race; never resurrect it.
             self.conversations.engineering_projection(db, job, phase)
+            if job.get('recovery_of') and phase != job['state']:
+                db.execute("UPDATE engineering_jobs SET next_at=MIN(next_at,?) WHERE id=? AND principal=? "
+                           "AND state='VERIFY' AND json_extract(data, '$.data.post_merge_recovery_job_id')=?",
+                           (self.now(), job['recovery_of'], job['principal'], job['id']))
             if not unchanged:
                 self.event(db, job, phase, job['revision'] + 1, self.now())
             db.execute("UPDATE engineering_receipts SET status='CONFIRMED',output_json=? WHERE job_id=? AND revision=?", (output_json, job['id'], job['revision']))
@@ -617,7 +676,7 @@ class EngineeringSupervisor:
             return 'Job duration limit reached; confirmed work is retained'
         if job['state'] not in {'MERGE', 'VERIFY'} and now >= job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30):
             return 'The remaining duration is reserved for verification and a durable partial report'
-        if job['steps'] >= 256:
+        if job['steps'] >= 256 and job['state'] not in {'CI', 'MERGE', 'VERIFY'}:
             return 'Step budget reached'
         if job['stalls'] >= 3:
             return 'Three attempts made no verified progress'
@@ -668,6 +727,7 @@ class EngineeringService:
         backend.save_adaptive_planning = self.store.save_adaptive_planning
         backend.before_mutation = self.validate_mutation
         backend.operations = self.operations
+        backend.private_artifacts = self.artifacts
 
     def prepare_binding(self, principal, selection, gateway_endpoint=None):
         return self.bindings.prepare(principal, selection, gateway_endpoint)
@@ -928,6 +988,7 @@ class EngineeringService:
                     job['data']['readiness'] = output
                     job['message'] = output.get('message', 'Waiting for checks, required reviews or merge policy')
                     delay = 30
+                    job['external_observations'] = job.get('external_observations', 0) + 1
             else:
                 # Legacy jobs remain readable but cannot acquire new model
                 # authority from today's settings or a reused display name.
@@ -938,7 +999,8 @@ class EngineeringService:
                     recovered = inspect_recovery(self, job)
                     output = {'post_merge': recovered, 'result': dict(job['data'].get('result', {}),
                         qualification=recovered['status'], recovery_job_id=recovered.get('recovery_job_id'),
-                        recovery_merge_sha=recovered.get('recovery_merge_sha'))}
+                        recovery_merge_sha=recovered.get('recovery_merge_sha'),
+                        qualified_revision=recovered.get('qualified_revision'))}
                 else:
                     output = self.backend.step(job, phase)
                 job['data'].update(output)
@@ -973,8 +1035,11 @@ class EngineeringService:
                                               reason='MERGE_RECOVERY_RUNNING', recovery_job_id=recovery['id'])
                             job['data']['post_merge'] = post_merge
                     if post_merge.get('status') == 'PENDING' and self.store.now() < job['deadline']:
-                        phase, delay = 'VERIFY', 30
-                        job['message'] = 'Merge confirmed; verifying workflows on the resulting revision'
+                        observations = job.get('external_observations', 0)
+                        phase, delay = 'VERIFY', min(120, 30 * (1 + observations // 10),
+                                                     job['deadline'] - self.store.now())
+                        job['message'] = ('The linked recovery needs attention' if post_merge.get('recovery_state') in {'MERGE_READY', 'NEEDS_INPUT'}
+                                          else 'Merge confirmed; verifying workflows on the resulting revision')
                     elif post_merge.get('status') != 'PASSED':
                         phase = 'NEEDS_INPUT'
                         gate['passed'] = False
@@ -989,8 +1054,11 @@ class EngineeringService:
                 else:
                     phase = 'CI' if phase == 'PROMOTE' else PHASES[PHASES.index(phase) + 1]
                 job['stalls'] = 0
-                job['steps'] += 1
-                if phase not in PAUSED:
+                if phase == 'VERIFY' and delay:
+                    job['external_observations'] = job.get('external_observations', 0) + 1
+                else:
+                    job['steps'] += 1
+                if phase not in PAUSED and phase != 'VERIFY':
                     job['message'] = {'READ': 'Reading selected repository files in batches', 'IMPLEMENT': 'Preparing coordinated changes',
                                       'REVIEW': 'Selected-model review of proposed changes', 'COMMIT': 'Publishing the reviewed branch changes',
                                       'OPEN_PR': 'Preparing the draft pull request', 'CI': 'Waiting for CI validation',
@@ -1183,14 +1251,9 @@ class EngineeringService:
             job['data']['graph_status'] = 'UNAVAILABLE:' + type(error).__name__
         if phase in PAUSED:
             from v14.engineering_report import build_report
-            report = build_report(job, phase, self.completion_verification(job, job['data'].get('readiness', {}), merged=phase == 'COMPLETED'))
-            try:
-                reference = self.artifacts.put_json(job, report, 'final-report')
-                job['data']['final_report'] = dict(report, artifact=reference)
-            except (ExecutionBindingError, OSError, sqlite3.Error) as error:
-                # Final delivery has an inline bounded fallback; an artifact
-                # quota must not erase the reason a retained job stopped.
-                job['data']['final_report'] = dict(report, artifact_availability='UNAVAILABLE', artifact_error=getattr(error, 'code', type(error).__name__))
+            report = build_report(job, phase, self.completion_verification(job, job['data'].get('readiness', {}), merged=phase == 'COMPLETED'),
+                                  committed_revision=job['revision'] + 1)
+            job['data']['final_report'] = report
         self.store.complete(job, lease, phase, output, delay)
 
     def start(self):
@@ -1296,6 +1359,7 @@ def public_job(job):
             'merge_sha': data.get('merge_sha'), 'review': data.get('review', {}),
             'post_merge': data.get('post_merge'), 'recovery_of': job.get('recovery_of'),
             'recovery_job_id': data.get('post_merge_recovery_job_id'),
+            'qualified_revision': (data.get('post_merge') or {}).get('qualified_revision'),
             'acceptance': job['request'].get('acceptance', []), 'admission': data.get('admission'),
             'execution_owner': 'GATEWAY' if job.get('detach_safe') else 'NOT_CONFIRMED',
             'completion_verification': data.get('completion_verification'), 'evidence_policy': 'github.evidence.v1',

@@ -91,15 +91,15 @@ def act(backend, job, action):
 def view(data):
     # Full source remains in the encrypted artifact store; each model call receives
     # a small current window plus its durable task/revision and prior receipts.
-    windows = data.get('workspace_receipts', [])[-3:]
+    windows = list(reversed(data.get('workspace_receipts', [])[-3:]))
     files = {}
     for path, value in list(data['files'].items())[:20]:
         limit = value.get('preview_characters', value.get('visible_characters', 0))
         content = value['content'][:min(max(limit, 0), 2400)]
         files[path] = {'sha': value['sha'], 'content': content,
                        'partial': len(content) < len(value['content']), 'total_lines': len(value['content'].splitlines())}
-    return {'head_sha': data['head_sha'], 'plan': data['plan'], 'repair_feedback': repair_feedback(data), 'files': files,
-            'workspace_receipts': windows, 'iteration': data.get('workspace_iterations', 0),
+    return {'head_sha': data['head_sha'], 'workspace_receipts': windows, 'plan': data['plan'],
+            'repair_feedback': repair_feedback(data), 'files': files, 'iteration': data.get('workspace_iterations', 0),
             'ci': data.get('ci'), 'review': data.get('review')}
 
 

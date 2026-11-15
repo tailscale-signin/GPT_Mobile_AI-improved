@@ -50,6 +50,33 @@ class Backend:
 
 
 class DurableEngineeringTests(unittest.TestCase):
+    def test_completion_race_publishes_one_effective_state_revision_and_summary(self):
+        from v14.engineering_report import build_report
+
+        created = self.store.create('owner', self.request)
+        job, lease, _ = self.store.claim(created['id'])
+        verification = {'passed': True, 'requirements': [{'status': 'BEHAVIOR_VERIFIED'}]}
+        job['data']['completion_verification'] = verification
+        job['data']['final_report'] = build_report(job, 'COMPLETED', verification)
+        self.store.tx(lambda db: db.execute(
+            'INSERT INTO gateway_pending_instructions VALUES(?,?,?,?,?)',
+            ('late', job['conversation_id'], 'Also cover failure recovery.', 'pending', self.store.now())))
+        self.assertTrue(self.store.complete(job, lease, 'COMPLETED', {}))
+        retained = self.store.get(job['id'])
+        report = retained['data']['final_report']
+        message = self.store.tx(lambda db: db.execute(
+            "SELECT content,status FROM gateway_messages WHERE conversation_id=? AND role='assistant'",
+            (job['conversation_id'],)).fetchone())
+        output = self.store.tx(lambda db: db.execute(
+            'SELECT output_json FROM engineering_receipts WHERE job_id=? AND revision=?',
+            (job['id'], job['revision'])).fetchone())
+        self.assertEqual('NEEDS_INPUT', retained['state'])
+        self.assertEqual('PARTIAL_UNVERIFIED', report['status'])
+        self.assertEqual('BLOCKED', report['terminal_receipt']['status'])
+        self.assertEqual(retained['revision'], report['terminal_receipt']['checkpoint_revision'])
+        self.assertEqual(report['terminal_receipt'], json.loads(output[0])['terminal_receipt'])
+        self.assertEqual((report['summary'], 'needs_attention'), tuple(message))
+
     def test_post_merge_completion_receipt_retains_the_final_qualification(self):
         for verdict in ('PENDING', 'FAILED', 'BLOCKED', 'PASSED'):
             with self.subTest(verdict=verdict):

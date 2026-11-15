@@ -149,12 +149,12 @@ class DesktopNativeAcceptance(unittest.TestCase):
             self.assertIs(panel.contract, settings.winfo_containing(panel.contract.winfo_rootx() + panel.contract.winfo_width() // 2,
                                                                    panel.contract.winfo_rooty() + panel.contract.winfo_height() // 2),
                           'Focused contract editor must be the topmost hit target; '
-                          f'canvasRoot=({panel.editor_canvas.winfo_rootx()},{panel.editor_canvas.winfo_rooty()}), '
-                          f'canvasSize=({panel.editor_canvas.winfo_width()},{panel.editor_canvas.winfo_height()}), '
+                          f'canvasRoot=({panel.viewport.winfo_rootx()},{panel.viewport.winfo_rooty()}), '
+                          f'canvasSize=({panel.viewport.winfo_width()},{panel.viewport.winfo_height()}), '
                           f'editorSize=({panel.editor.winfo_width()},{panel.editor.winfo_height()}), '
                           f'contractRoot=({panel.contract.winfo_rootx()},{panel.contract.winfo_rooty()}), '
                           f'contractSize=({panel.contract.winfo_width()},{panel.contract.winfo_height()}), '
-                          f'scroll={panel.editor_canvas.yview()}, region={panel.editor_canvas.bbox("all")}')
+                          f'scroll={panel.viewport.yview()}, region={panel.viewport.bbox("all")}')
             panel.advanced_toggle.invoke()
             self.window.update()
             self.assertFalse(panel.advanced.winfo_viewable())

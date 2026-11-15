@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Repair final request budgeting, local tool projection, workspace evidence and logs, recovery and completion receipts, and explicit client recovery review. Classify terminal Android CI blockers and keep the validation form scrollable.",
     "Add shared Android admission/replay allocation and action-specific GitHub schema selection; approved workspace check selection and bounded logs; static behavior-test discovery; bounded selected-model investigators; exact-revision artifact and isolated release checks; and idempotent main-build recovery with fresh approval, remaining budgets and cancellation propagation.",
     "Restore bounded Ollama typed transport recovery only under explicit producer retry and replay authority, retain terminal rejection and uncertain-outcome evidence, and disclose the remaining Kokoro word-timing limitation for #1114.",
     "Address late reports #1129 and #1130 with safe provider-catch and repository error-value boundary evidence, separately negotiated hosted reporter compatibility, and explicit capability-test prerequisites. Preserve known failure details and cancellation without inventing dispatch or causal proof.",
@@ -230,6 +231,14 @@
     "Gateway Windows installer"
   ],
   "allowedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolicy.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolling.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringRoom.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringStateMachine.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolicyTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPollingTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringRoomIntegrationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringStateMachineTest.kt",
     ".gitattributes",
     ".github/workflows/README.md",
     ".github/workflows/apply-ui-pipeline.yml",

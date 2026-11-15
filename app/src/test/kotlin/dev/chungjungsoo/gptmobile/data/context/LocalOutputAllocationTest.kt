@@ -45,12 +45,14 @@ class LocalOutputAllocationTest {
     }
 
     @Test fun oneAdmissionRecordCarriesInputReplyEvidenceAndSafetyAcrossRoutes() {
-        for ((context, prompt) in listOf(5632 to 2400, 8192 to 4000, 131072 to 40000)) {
+        for ((context, prompt) in listOf(5632 to 2400, 8192 to 4000, 32768 to 12000, 131072 to 40000)) {
             val allocation = ReplayAllowance.allocate(context, prompt, 4096, 4096)
             assertEquals(prompt, allocation.input)
             assertEquals(context, allocation.ceiling)
             assertTrue(allocation.output > 0 && allocation.replay > 0)
-            assertTrue(allocation.input.toLong() + allocation.output + allocation.replay + allocation.safety <= allocation.ceiling)
+            val serializedPrompt = allocation.input.toLong() + allocation.replay
+            assertEquals(RequestAdmission.estimateSafety(serializedPrompt), allocation.safety.toLong())
+            assertTrue(serializedPrompt + allocation.output + allocation.safety <= allocation.ceiling)
         }
         val overflow = ReplayAllowance.allocate(5632, 9043, 4096, 4096)
         assertEquals(0, overflow.output)

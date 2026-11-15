@@ -265,6 +265,8 @@ class AgentRunner(
         exchanges.forEach(ciInvestigation::observe)
         state.replayTokens = prepareReplay(exchanges, effectiveReplayTokens, limits.maxReplayResultTokens).compactedTokens.toLong()
 
+        var admittedReplayLimit = effectiveReplayTokens
+        var capacityReplans = 0
         with(state) {
             while (true) {
                 if (!prepareNextRound(session, exchanges, state, executionToolCallLimit)) return
@@ -323,7 +325,7 @@ class AgentRunner(
                     emit(AgentRunEvent.Notice("Continuing CI diagnosis with the next revision-bound run, job or log observation.", persistent = false))
                     RoundResult(calls = listOf(ciRead), completed = true, observedCalls = 1)
                 } else {
-                    collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, retainedUnknownOutcome || unknownOutcomes.isNotEmpty())
+                    collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), admittedReplayLimit)
                 }
                 observedToolCalls += round.observedCalls
                 if (round.batchRejected) {
@@ -359,6 +361,34 @@ class AgentRunner(
                     return
                 }
                 if (round.failure != null) {
+                    val admission = round.failureDetails
+                    if (capacityReplans < 2 &&
+                        !session.handlesToolsInternally &&
+                        !round.textEmitted &&
+                        round.calls.isEmpty() &&
+                        exchanges.isNotEmpty() &&
+                        round.errorCode in setOf("CONTEXT_CAPACITY_EXCEEDED", "INPUT_CAPACITY_EXCEEDED") &&
+                        (admission?.get("attempt_dispatch_state") as? JsonPrimitive)?.content == "NOT_DISPATCHED"
+                    ) {
+                        fun count(key: String) = (admission?.get(key) as? JsonPrimitive)?.content?.toLongOrNull()
+                            ?.takeIf { it in 0..Int.MAX_VALUE }
+                        val prompt = count("prompt_tokens")
+                        val safety = count("safety_tokens")
+                        val ceiling = count("capacity_tokens")
+                        val output = if (round.errorCode == "INPUT_CAPACITY_EXCEEDED") 0L else count("output_allowance") ?: 0L
+                        if (prompt != null && safety != null && ceiling != null) {
+                            val overage = (prompt + safety + output - ceiling).coerceAtLeast(1)
+                            val requested = (minOf(replayTokens, admittedReplayLimit.toLong()) - overage - 64).coerceAtLeast(0).toInt()
+                            val fit = prepareReplay(exchanges, requested, limits.maxReplayResultTokens, consumedCallIds)
+                            if (requested > 0 && fit.compactedTokens <= requested && fit.compactedTokens.toLong() < replayTokens) {
+                                admittedReplayLimit = requested
+                                replayTokens = fit.compactedTokens.toLong()
+                                capacityReplans++
+                                rounds--
+                                continue
+                            }
+                        }
+                    }
                     val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), recoveryState) ?: return
                     exposedDefinitions = recovery.definitions
                     if (recovery.restoreRound) rounds--
@@ -1358,8 +1388,10 @@ class AgentRunner(
             maxReplayTokens = effectiveReplayTokens,
             maxResultTokens = limits.maxReplayResultTokens
         ).compactedTokens.toLong()
+        val estimatedPrompt = limits.initialContextTokens.toLong().coerceAtLeast(0) + replayTokens
         val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
-            limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
+            estimatedPrompt + limits.finalResponseReserveTokens +
+            dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(estimatedPrompt) >= limits.contextTokens
         val repeatLimited = allResults.any { toolResultText(it).contains("reached the per-response repeat limit", ignoreCase = true) }
         val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
         val argumentRepairStalled = allResults.isNotEmpty() &&
@@ -1542,7 +1574,8 @@ class AgentRunner(
         successfulSearch: Boolean,
         searchToolNames: Set<String>,
         consumedCallIds: MutableSet<String>,
-        hasUnknownOutcome: Boolean
+        hasUnknownOutcome: Boolean,
+        replayLimit: Int = effectiveReplayTokens
     ): RoundResult {
         val calls = mutableListOf<ProviderEvent.ToolCall>()
         val admission = ToolRoundAdmission(minOf(MAX_BUFFERED_TOOL_CALLS, remainingObserved), maxSameTool = MAX_SAME_TOOL_CALLS_PER_RUN)
@@ -1602,7 +1635,7 @@ class AgentRunner(
         // Keep provider failures separate from downstream collector failures. In
         // particular, never emit usage from finally after cancellation or a failed emit.
         flow {
-            if (exchanges.isNotEmpty() && effectiveReplayTokens <= 0) {
+            if (exchanges.isNotEmpty() && replayLimit <= 0) {
                 emit(
                     ProviderEvent.Failed(
                         "No actionable tool receipt fits this request. Lower the stage output reservation or narrow the schemas before continuing; saved evidence was retained.",
@@ -1617,7 +1650,7 @@ class AgentRunner(
             }
             val replay = prepareReplay(
                 exchanges = exchanges,
-                maxReplayTokens = effectiveReplayTokens,
+                maxReplayTokens = replayLimit,
                 maxResultTokens = limits.maxReplayResultTokens,
                 consumedCallIds = consumedCallIds
             )
@@ -1630,13 +1663,13 @@ class AgentRunner(
             if (rawReplayTokens > compactedReplayTokens && replayCompactionLogGate.shouldLog(rawReplayTokens, exchanges.size, compactionMicros)) {
                 AppLogRecorder.record(
                     "Agent",
-                    "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=$effectiveReplayTokens · compactionUs=$compactionMicros · tokenCounts=ESTIMATED · retainedEvidenceIndependent=true · logPolicy=EXPONENTIAL_HIGH_WATER"
+                    "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=$replayLimit · compactionUs=$compactionMicros · tokenCounts=ESTIMATED · retainedEvidenceIndependent=true · logPolicy=EXPONENTIAL_HIGH_WATER"
                 )
             }
-            if (compactedReplayTokens > effectiveReplayTokens) {
+            if (compactedReplayTokens > replayLimit) {
                 AppLogRecorder.record(
                     "Agent",
-                    "PRIMARY_REPLAY_BUDGET_OVERRUN · replayTokens=$compactedReplayTokens · budget=$effectiveReplayTokens · exchanges=${exchanges.size}",
+                    "PRIMARY_REPLAY_BUDGET_OVERRUN · replayTokens=$compactedReplayTokens · budget=$replayLimit · exchanges=${exchanges.size}",
                     "W"
                 )
                 emit(
@@ -1649,7 +1682,7 @@ class AgentRunner(
                             put("dispatched", false)
                             put("retryable", false)
                             put("replay_tokens", compactedReplayTokens)
-                            put("replay_allowance", effectiveReplayTokens)
+                            put("replay_allowance", replayLimit)
                         }
                     )
                 )

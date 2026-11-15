@@ -3,7 +3,7 @@ import hashlib
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk, simpledialog
+from tkinter import ttk, simpledialog, messagebox
 import uuid
 
 from desktop import theme
@@ -115,6 +115,8 @@ class ChatPanel(tk.Frame):
         self.archive_button.pack(side='left', padx=5)
         self.favorite_button = ttk.Button(actions, text='Favorite', command=self.favorite, state='disabled')
         self.favorite_button.pack(side='left')
+        self.engineering_button = ttk.Button(actions, text='Review job…', command=self.review_engineering, state='disabled')
+        self.engineering_button.pack(side='left', padx=5)
         text_shell = tk.Frame(reading, bg=theme.PANEL)
         text_shell.pack(fill='both', expand=True, padx=(12, 0))
         self.text = tk.Text(text_shell, bg=theme.PANEL, fg=theme.TEXT, insertbackground=theme.CYAN,
@@ -437,6 +439,26 @@ class ChatPanel(tk.Frame):
         if ident:
             self.launch('stopped', lambda: self.client().cancel(ident), quiet=True)
 
+    def review_engineering(self):
+        if self.conversation and self.conversation.get('active_job_kind') == 'engineering':
+            conversation = dict(self.conversation)
+            self.launch('engineering-reviewed', lambda: (conversation, self.client().engineering_review(conversation)))
+
+    def show_engineering_review(self, conversation, job):
+        if not self.visible or not self.conversation or self.conversation.get('conversation_id') != conversation['conversation_id']:
+            return
+        description = f"{job['repository']} · {job['branch']}\nStage: {job['state']}"
+        if job.get('pr'):
+            description += f"\nPull request #{job['pr']}"
+        if job.get('qualified_revision'):
+            description += '\nQualified commit: ' + job['qualified_revision']
+        if not job.get('merge_ready'):
+            messagebox.showinfo('Engineering job', description + '\n\n' + job.get('message', ''), parent=self)
+            return
+        description += '\nCommit: ' + job['head_sha']
+        if messagebox.askyesno('Approve exact merge?', description, parent=self):
+            self.launch('engineering-approved', lambda: self.client().approve_engineering(conversation, job))
+
     def controls(self):
         pending = self.state.value.get('pending')
         original = self.conversation
@@ -449,6 +471,7 @@ class ChatPanel(tk.Frame):
         self.stop_button.configure(state='normal' if (self.sending or active) and (getattr(self, 'active_job_id', None) or active) and not (original and original.get('active_job_kind') == 'engineering') else 'disabled')
         for button in (self.rename_button, self.archive_button, self.favorite_button):
             button.configure(state='normal' if original and not self.busy else 'disabled')
+        self.engineering_button.configure(state='normal' if original and original.get('active_job_kind') == 'engineering' and not self.busy else 'disabled')
         self.archive_button.configure(text='Unarchive' if original and original.get('archived') else 'Archive')
         self.favorite_button.configure(text='Unfavorite' if original and original.get('favorite') else 'Favorite')
         self.save_message_button.configure(state='normal' if original and self.selected_message and not self.busy else 'disabled')
@@ -495,7 +518,7 @@ class ChatPanel(tk.Frame):
                 self.text.mark_set('insert', positions[0])
                 self.selected_message = opened_message
             self.open_message_id = None
-        self.status.configure(text='Saved conversation loaded. Click inside a message to save it.' if mode == 'Chat' else 'Saved GitHub transcript. Continue engineering work through its original job.')
+        self.status.configure(text='Saved conversation loaded. Click inside a message to save it.' if mode == 'Chat' else 'Saved GitHub transcript. Review its job for current stage or merge approval.')
         self.controls()
         if self.poll_timer:
             self.after_cancel(self.poll_timer)
@@ -565,6 +588,11 @@ class ChatPanel(tk.Frame):
                 self.status.configure(text=f'{len(self.rows)} saved items shown.' if self.rows else 'Nothing here yet. Send a prompt or save a message from a conversation.')
             elif name == 'opened':
                 self.show_opened(value)
+            elif name == 'engineering-reviewed':
+                self.show_engineering_review(*value)
+            elif name == 'engineering-approved':
+                self.status.configure(text='Approval received. Gateway will recheck the exact pull request and commit.')
+                self.refresh_conversation()
             elif name == 'accepted':
                 self.active_job_id = value.get('job_id')
                 self.status.configure(text='Gateway is responding. Closing this window keeps admitted work running.' if value.get('detach_safe') else 'Gateway is responding. Keep this window open until the reply is saved.')

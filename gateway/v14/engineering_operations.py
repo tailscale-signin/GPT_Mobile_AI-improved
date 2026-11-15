@@ -14,7 +14,7 @@ class EngineeringOperations:
     def schema(db):
         db.execute('CREATE TABLE IF NOT EXISTS engineering_operations (id TEXT PRIMARY KEY,job_id TEXT NOT NULL,revision INTEGER NOT NULL,state TEXT NOT NULL,payload TEXT NOT NULL)')
 
-    def prepare(self, job, method, path, body):
+    def prepare(self, job, method, path, body, *, context=None):
         self.service.validate_mutation(job)
         identity = 'operation_' + fingerprint([job['id'], job['revision'], method, path, body])[:40]
         def read(db):
@@ -29,7 +29,7 @@ class EngineeringOperations:
                 error = ExecutionBindingError('EXECUTION_OPERATION_UNKNOWN_OUTCOME', 'This exact mutation was dispatched. Reconcile its remote outcome before any retry.')
                 error.dispatched = True
                 raise error
-        request_ref = self.service.artifacts.put_json(job, {'method': method, 'path': path, 'body': body}, 'operation-intent')
+        request_ref = self.service.artifacts.put_json(job, {'method': method, 'path': path, 'body': body, 'context': context}, 'operation-intent')
         record = {'schema_version': 1, 'operation_id': identity, 'job_id': job['id'], 'revision': job['revision'],
                   'binding_id': job['request'].get('execution_binding_id'), 'lease_id': job['_execution_lease'],
                   'owner_epoch': job['_owner_epoch'], 'method': method, 'path': path,
@@ -99,3 +99,18 @@ class EngineeringOperations:
             rows = db.execute('SELECT payload FROM engineering_operations WHERE job_id=? AND revision=?', (job['id'], job['revision'])).fetchall()
             return any(json.loads(row[0]).get('dispatched') is True for row in rows)
         return self.store.tx(read)
+
+    def dispatched_intent(self, job, method, path):
+        def read(db):
+            self.schema(db)
+            rows = db.execute('SELECT payload FROM engineering_operations WHERE job_id=? AND revision=?',
+                              (job['id'], job['revision'])).fetchall()
+            records = [json.loads(row[0]) for row in rows]
+            matches = [record for record in records if record.get('dispatched') is True
+                       and record.get('method') == method and record.get('path') == path
+                       and record.get('binding_id') == job['request'].get('execution_binding_id')]
+            return matches[0] if len(matches) == 1 else None
+        record = self.store.tx(read)
+        if record:
+            return self.service.artifacts.json_value(job, record['request_ref'])
+        return None

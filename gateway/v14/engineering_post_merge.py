@@ -55,4 +55,4 @@ def inspect(backend, job):
                   installation_verification=release['installation_verification'], smoke_verification=release['smoke_verification'])
     if release['status'] != 'PASSED':
         return dict(result, status=release['status'], reason=release['reason'])
-    return dict(result, status='PASSED', reason='MERGE_REVISION_WORKFLOWS_VERIFIED')
+    return dict(result, status='PASSED', reason='MERGE_REVISION_WORKFLOWS_VERIFIED', qualified_revision=sha)

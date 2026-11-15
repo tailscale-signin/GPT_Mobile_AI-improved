@@ -164,6 +164,23 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                             val queueText = waitLabel ?: job.queuePosition?.let { stringResource(R.string.gateway_jobs_queue_position, it) } ?: job.queueReason
                             queueText?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                         }
+                        job.recoveryJobId?.let { recoveryId ->
+                            val child = displayedRows.singleOrNull { it.summary.jobId == recoveryId && it.summary.recoveryOf == job.jobId }
+                            val phase = child?.summary?.phase ?: job.recoveryState
+                            Text(
+                                listOfNotNull(stringResource(R.string.gateway_recovery_label), phase?.let(::gatewayPhaseLabel), job.recoveryPr?.let { "#$it" }, job.qualifiedRevision?.take(12)).joinToString(" · "),
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            if (!state.legacy && child != null) {
+                                TextButton(onClick = { model.open(child, onOpenConversation) }) { Text(stringResource(R.string.gateway_recovery_open)) }
+                                if ("approve" in child.summary.allowedActions) {
+                                    TextButton(onClick = { model.showRecoveryApproval(child) }) { Text(stringResource(R.string.gateway_recovery_review)) }
+                                }
+                            }
+                        }
+                        if (!state.legacy && job.recoveryOf != null && "approve" in job.allowedActions) {
+                            TextButton(onClick = { model.showRecoveryApproval(row) }) { Text(stringResource(R.string.gateway_recovery_review)) }
+                        }
                         if (!state.legacy && job.acceptsInstruction) {
                             TextButton(onClick = { model.showInstruction(row) }) { Text(stringResource(R.string.gateway_jobs_instruction)) }
                         }
@@ -187,6 +204,29 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
         }
     }
     state.transcriptKey?.let { GatewayTranscriptDialog(it, onDismiss = model::dismissTranscript) }
+    state.approval?.let { draft ->
+        FadingAlertDialog(
+            onDismissRequest = model::dismissRecoveryApproval,
+            title = { Text(stringResource(R.string.gateway_recovery_review)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (draft.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                    draft.job?.let { job ->
+                        Text(stringResource(R.string.gateway_recovery_exact_merge, job.repository, job.pr ?: 0, job.headSha.orEmpty()))
+                    }
+                    draft.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = model::confirmRecoveryApproval, enabled = draft.job != null && !draft.busy) {
+                    Text(stringResource(R.string.gateway_recovery_approve))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = model::dismissRecoveryApproval, enabled = !draft.busy) { Text(stringResource(android.R.string.cancel)) }
+            }
+        )
+    }
     state.stop?.let { draft ->
         val summary = draft.review?.summary ?: draft.row.summary
         val outcome = draft.result?.outcome

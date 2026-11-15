@@ -161,6 +161,7 @@ class GitHubEngineeringBackend:
         self.save_specialists = None
         self.before_mutation = None
         self.operations = None
+        self.private_artifacts = None
 
     def cancel(self):
         self.stopping.set()
@@ -289,7 +290,7 @@ class GitHubEngineeringBackend:
         owner, repo = job['request']['repository'].split('/')
         return '/repos/' + quote(owner, safe='') + '/' + quote(repo, safe='')
 
-    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False, capacity_reserve=0):
+    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False, capacity_reserve=0, operation_context=None):
         if read_only and (method not in {'GET', 'HEAD'} or body is not None):
             raise PermissionError('Read-only GitHub access cannot dispatch a mutation')
         started = time.monotonic()
@@ -331,7 +332,7 @@ class GitHubEngineeringBackend:
         if mutating and job:
             if not callable(self.before_mutation) or self.operations is None:
                 raise ExecutionBindingError('EXECUTION_BINDING_REQUIRED', 'A fenced execution binding is required before dependent writes.')
-            operation = self.operations.prepare(job, method, path, body)
+            operation = self.operations.prepare(job, method, path, body, context=operation_context) if operation_context else self.operations.prepare(job, method, path, body)
             if operation['state'] == 'COMPLETED':
                 return self.operations.service.artifacts.json_value(job, operation['response_ref'])
             # Physical intent is recorded only after API admission succeeds.
@@ -486,7 +487,7 @@ class GitHubEngineeringBackend:
                        '"paths":[up to 20 existing repository paths]}. Findings are suggestions, never execution proof. '
                        'You may instead request {"workspace_action":{"action":"paths|search|read","head_sha":"exact current head",'
                        '"query":"literal text","paths":["exact files"],"path":"exact file","start_line":1,"line_count":80}}. '
-                       'At most three calls are available. You cannot edit, run commands, approve or publish changes.')
+                       'At most three calls are available. If synthesis_requested or format_repair is true, return findings and paths using the observations you have. You cannot edit, run commands, approve or publish changes.')
         elif role in {'independent reviewer', 'selected-model reviewer'}:
             system += 'Perform a separate review pass using the selected model. Inspect the proposed diff and objective for correctness, missing tests, regressions and security issues. Return {"approved":boolean,"issues":[strings]}. This is supplemental same-model review only, never merge authorization or independent model validation.'
         else:
@@ -498,7 +499,8 @@ class GitHubEngineeringBackend:
                        '"query":"literal search","paths":["paths for text search"],"path":"path for read","start_line":1,"line_count":80}}. '
                        'Paths accepts query and offset; search accepts query and 1-10 paths; read accepts path and an exact line range. '
                        'Use checks to list approved checks; check selects check_index and optionally proposal with the normal changes contract '
-                       '(omitting proposal tests the unchanged source). check_output reads check_id with start_line and line_count. '
+                       '(omitting proposal tests unchanged source). Use candidate_check_id to reuse the exact previously tested patch, and a unique attempt_id for a deliberate fresh execution. '
+                       'check_output reads check_id with start_line and line_count. '
                        'Only host-approved commands execute; a selected check never replaces complete final validation. '
                        'Read relevant ranges before editing large files. Each action resumes this same task with bounded fresh context.')
         if role == 'planner' and 'proposed_options' in evidence:
@@ -721,7 +723,8 @@ class GitHubEngineeringBackend:
                 self.record_evidence(job, {'workspace_receipt': receipt})
                 return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
                         'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
-                        'workspace_checks': data.get('workspace_checks', {})}
+                        'workspace_checks': data.get('workspace_checks', {}),
+                        'workspace_check_executions': data.get('workspace_check_executions', 0)}
             changes = prepare_changes(proposal, data['files'], data['tree'], head_sha=data['head_sha'])
             return {'workspace_continue': False, 'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
         if phase == 'REVIEW':
@@ -917,8 +920,24 @@ class GitHubEngineeringBackend:
 
     def merge(self, job, evidence):
         self.identity(job)
-        result = self.api(self.root(job) + '/pulls/' + str(evidence['pr']) + '/merge', 'PUT',
-                          {'sha': evidence['head_sha'], 'merge_method': job['data'].get('merge_method', 'squash')}, job)
+        root = self.root(job)
+        path = root + '/pulls/' + str(evidence['pr'])
+        method = job['data'].get('merge_method', 'squash')
+        kwargs = {}
+        if self.operations is not None and method == 'squash':
+            pr = self.api(path, job=job)
+            head, base = evidence['head_sha'], evidence['base_sha']
+            if (pr.get('head', {}).get('sha') != head or pr.get('base', {}).get('sha') != base
+                    or pr.get('state') != 'open'):
+                raise ValueError('Approved merge head or base changed before dispatch')
+            context = {'base_sha': base, 'expected_tree': None}
+            test_merge = pr.get('merge_commit_sha')
+            if isinstance(test_merge, str) and re.fullmatch('[0-9a-f]{40}', test_merge):
+                candidate = self.api(root + '/git/commits/' + test_merge, job=job)
+                if candidate.get('sha') == test_merge and [row['sha'] for row in candidate.get('parents', [])] == [base, head]:
+                    context['expected_tree'] = candidate.get('tree', {}).get('sha')
+            kwargs['operation_context'] = context
+        result = self.api(path + '/merge', 'PUT', {'sha': evidence['head_sha'], 'merge_method': method}, job, **kwargs)
         if result.get('merged') is not True or not re.fullmatch('[0-9a-f]{40}', result.get('sha', '')):
             raise ValueError('GitHub did not confirm the approved merge')
         return {'merge_sha': result['sha'], 'merge_method_receipt': {'method': job['data'].get('merge_method', 'squash'), 'merge_sha': result['sha'], 'confirmed': True}}
@@ -946,6 +965,22 @@ class GitHubEngineeringBackend:
                 return None
             if phase == 'PROMOTE' and pr.get('draft') is False and pr['head']['sha'] == job['data']['head_sha']:
                 return {'promoted': True}
-            if pr.get('merged') is True and pr['head']['sha'] == job['data']['head_sha'] and pr.get('merge_commit_sha'):
-                return {'merge_sha': pr['merge_commit_sha']}
+            sha = pr.get('merge_commit_sha')
+            if (phase == 'MERGE' and pr.get('merged') is True and pr['head']['sha'] == job['data']['head_sha']
+                    and isinstance(sha, str) and re.fullmatch('[0-9a-f]{40}', sha)):
+                result = {'merge_sha': sha}
+                path = self.root(job) + '/pulls/' + str(job['data']['pr']) + '/merge'
+                intent = self.operations.dispatched_intent(job, 'PUT', path) if self.operations is not None else None
+                approval = job.get('approval') or {}
+                context = (intent or {}).get('context') or {}
+                tree = context.get('expected_tree')
+                if (isinstance(tree, str) and re.fullmatch('[0-9a-f]{40}', tree)
+                        and intent.get('body') == {'sha': approval.get('head_sha'), 'merge_method': 'squash'}
+                        and approval.get('head_sha') == pr['head']['sha']
+                        and context.get('base_sha') == approval.get('base_sha')):
+                    observed = self.api(self.root(job) + '/git/commits/' + sha, job=job)
+                    if (observed.get('sha') == sha and observed.get('tree', {}).get('sha') == tree
+                            and [row['sha'] for row in observed.get('parents', [])] == [context['base_sha']]):
+                        result['merge_method_receipt'] = {'method': 'squash', 'merge_sha': sha, 'confirmed': True}
+                return result
         return None

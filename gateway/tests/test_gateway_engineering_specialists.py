@@ -4,7 +4,7 @@ from pathlib import Path
 import threading
 from types import SimpleNamespace
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering_specialists import investigate
@@ -43,8 +43,11 @@ class SpecialistTests(unittest.TestCase):
         for action in ('check', 'commit', 'write'):
             with self.subTest(action=action):
                 self.backend.model.return_value = {'workspace_action': {'action': action, 'head_sha': 'a' * 40}}
-                with self.assertRaises(ValueError):
-                    investigate(self.backend, self.job, self.tasks[:1])
+                self.job['data'].pop('specialists', None)
+                with patch('v14.engineering_specialists.act') as workspace:
+                    result = investigate(self.backend, self.job, self.tasks[:1])
+                workspace.assert_not_called()
+                self.assertEqual('ACTION_REJECTED', result[0]['status'])
 
     def test_inspection_is_bounded_and_revision_change_invalidates_saved_work(self):
         self.backend.model.return_value = {'workspace_action': {'action': 'paths', 'query': 'file', 'head_sha': 'a' * 40}}

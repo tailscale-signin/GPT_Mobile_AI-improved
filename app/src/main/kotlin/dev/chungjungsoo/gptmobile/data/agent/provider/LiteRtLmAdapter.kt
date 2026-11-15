@@ -114,11 +114,8 @@ class LiteRtLmAdapter(
         // Authorization and advertised schemas are distinct. Honor the upstream
         // subset in every mode; preserve its selected GitHub contracts and reject
         // a subset that cannot fit the local engine context.
-        val advertisedNames = dev.chungjungsoo.gptmobile.data.context.LocalContextPlanner.advertisedToolNames(
-            boundTools.map { it.definition },
-            advertisedTools,
-            githubMode = githubMode
-        )
+        val authorizedDefinitions = boundTools.map { it.definition }
+        val initialDefinitions = advertisedTools ?: authorizedDefinitions.filter { it.modelVisible }
         return object : AgentProviderSession {
             override val handlesToolsInternally: Boolean = true
             private var generationDispatched = false
@@ -126,9 +123,14 @@ class LiteRtLmAdapter(
             override fun streamRound(
                 tools: List<AgentToolDefinition>,
                 exchanges: List<AgentToolExchange>
-            ): Flow<ProviderEvent> = localPreloadReplanningFlow(platform.compatibleType.name, ::streamPlannedRound)
+            ): Flow<ProviderEvent> = localPreloadReplanningFlow(platform.compatibleType.name) { ceiling ->
+                streamPlannedRound(ceiling, tools.ifEmpty { initialDefinitions })
+            }
 
-            private fun streamPlannedRound(contextCeiling: Int?): Flow<ProviderEvent> = channelFlow {
+            private fun streamPlannedRound(contextCeiling: Int?, presented: List<AgentToolDefinition>): Flow<ProviderEvent> = channelFlow {
+                val advertisedNames = LocalContextPlanner.advertisedToolNames(authorizedDefinitions, presented)
+                require(advertisedNames.size == presented.size) { "Ambiguous local tool schemas" }
+                val admitted = presented.associateBy { it.name }
                 kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestAuthorizationGuard]?.validate?.invoke()
                 suspend fun inspectSource(): PreparedLocalSource? {
                     val entries = modelCatalogRepository?.getCachedVisibleEntries().orEmpty()
@@ -295,10 +297,10 @@ class LiteRtLmAdapter(
                 suspend fun planToolContext(): PreparedLocalToolContext? {
                     val intent = if (LocalContextPlanner.isToolFollowUp(latestUserText)) turns.dropLast(1).takeLast(6).lastOrNull { !LocalContextPlanner.isToolFollowUp(it.userMessage.effectiveContent()) }?.userMessage?.effectiveContent().orEmpty() else ""
                     val stepTools = boundTools.filter { it.definition.name in advertisedNames }
-                    val requiredTools = LocalContextPlanner.requiredToolNames(latestUserText + "\n" + intent, stepTools.map { it.definition }, githubMode)
+                    val requiredTools = LocalContextPlanner.requiredToolNames(latestUserText + "\n" + intent, stepTools.map { admitted.getValue(it.definition.name) }, githubMode)
                     val relevantNames = LocalContextPlanner.relevantTools(
                         latestUserText,
-                        stepTools.map { it.definition },
+                        stepTools.map { admitted.getValue(it.definition.name) },
                         requiredTools,
                         githubMode
                     ).map { it.name }.toSet()
@@ -339,7 +341,7 @@ class LiteRtLmAdapter(
                             priorTurns = turns.dropLast(1),
                             currentUserPrompt = latestUserText,
                             systemPrompt = evidencePrompt.orEmpty() + noToolsInstruction + capabilityContract,
-                            tools = availableTools.map { it.definition },
+                            tools = availableTools.map { admitted.getValue(it.definition.name) },
                             contextTokens = effectiveContextTokens,
                             outputLimit = outputLimit,
                             imageCount = latestImages.size,
@@ -362,7 +364,7 @@ class LiteRtLmAdapter(
                                 priorTurns = turns.dropLast(1),
                                 currentUserPrompt = latestUserText,
                                 systemPrompt = conversationSystemPrompt.orEmpty() + noToolsInstruction + capabilityContract,
-                                tools = availableTools.map { it.definition },
+                                tools = availableTools.map { admitted.getValue(it.definition.name) },
                                 contextTokens = effectiveContextTokens,
                                 outputLimit = outputLimit,
                                 imageCount = latestImages.size,
@@ -438,7 +440,9 @@ class LiteRtLmAdapter(
                     }
                     dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("LocalModel", "LOCAL_TOOL_REGISTRATION · tool=${tool.definition.name} · disposition=$exclusion · selectionReason=${plan.toolSelectionReasons[tool.definition.name]}")
                 }
-                val registeredTools = availableTools.filter { it.definition.name in selectedNames }.map { toolBudget.bind(it) }
+                val selectedDefinitions = plan.tools.associateBy { it.name }
+                val registeredTools = availableTools.filter { it.definition.name in selectedNames }
+                    .map { toolBudget.bindPresented(it, selectedDefinitions.getValue(it.definition.name)) }
                 val descriptors = if (nativeToolsCapable && !usePromptToolBridge) registeredTools.map { it.definition.toLocalDescriptor() } else emptyList()
                 val toolsKey = toolsFingerprint(descriptors) + "|finalSchema=" + constraints.finalResponseSchemaJson.orEmpty() + "|structuredMode=" + constraints.structuredOutputMode + "|compatibility=" + constraints.structuredOutputCompatibilityKey.orEmpty()
                 val runToolsByName = registeredTools.associateBy { it.definition.name }.toMutableMap()
@@ -909,11 +913,21 @@ class LiteRtLmAdapter(
                                                         generationInput = LocalPromptToolBridge.continuation(call, result)
                                                         if (call.name == dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME) {
                                                             val names = LocalPromptToolBridge.discoveredToolNames(result)
-                                                            val discovered = boundTools.filter { it.definition.name in names }
+                                                            val actions = LocalPromptToolBridge.discoveredToolActions(result)
+                                                            val discovered = boundTools.filter { it.definition.name in names }.associateBy { it.definition.name }
+                                                            val definitions = discovered.values.map { tool ->
+                                                                val action = actions[tool.definition.name]
+                                                                if (action == null) {
+                                                                    tool.definition
+                                                                } else {
+                                                                    dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(tool.definition, action) ?: tool.definition
+                                                                }
+                                                            }
                                                             // Admit the exact returned schemas before promising availability.
-                                                            val additions = LocalContextPlanner.plan(emptyList(), names.joinToString(" "), generationInput, discovered.map { it.definition }, effectiveContextTokens, outputLimit, githubMode = githubMode).tools
-                                                            val allowed = additions.map { it.name }.toSet()
-                                                            discovered.filter { it.definition.name in allowed }.forEach { runToolsByName[it.definition.name] = toolBudget.bind(it) }
+                                                            val additions = LocalContextPlanner.plan(emptyList(), names.joinToString(" "), generationInput, definitions, effectiveContextTokens, outputLimit, githubMode = githubMode).tools
+                                                            additions.forEach { definition ->
+                                                                runToolsByName[definition.name] = toolBudget.bindPresented(discovered.getValue(definition.name), definition)
+                                                            }
                                                             generationInput += if (additions.isEmpty()) {
                                                                 "\nNo additional schemas were admitted. Existing registered tools remain available; use only their supplied schemas."
                                                             } else {

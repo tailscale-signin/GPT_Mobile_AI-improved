@@ -58,6 +58,48 @@ import org.junit.Test
 
 class LiteRtLmAdapterTest {
     @Test
+    fun `native and prompt bridges serialize the admitted projection without broadening it`() = runBlocking {
+        val full = object : AgentTool by lookupTool("github_ci") {
+            override val definition = lookupTool("github_ci").definition.copy(
+                description = "Full CI",
+                inputSchema = kotlinx.serialization.json.Json.parseToJsonElement(
+                    """{"type":"object","properties":{"run_id":{"type":"integer"},"workflow_id":{"type":"string"}}}"""
+                ) as JsonObject
+            )
+        }
+        val compact = full.definition.copy(
+            description = "CI logs",
+            inputSchema = kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"type":"object","properties":{"run_id":{"type":"integer"}}}"""
+            ) as JsonObject
+        )
+        for (nativeSupport in listOf(true, false)) {
+            for (projection in listOf(compact, full.definition)) {
+                val runtime = FakeLocalRuntime().apply {
+                    deviceRamGb = 16
+                    capabilities = LocalModelCapabilities(contextTokens = 8192, backends = setOf("gpu"), tools = nativeSupport)
+                    scriptedEvents = listOf(listOf(LocalRuntimeEvent.TextDelta("Ready."), LocalRuntimeEvent.Done))
+                }
+                val events = adapter(runtime).openSession(
+                    turns("Use github_ci for logs"),
+                    localPlatform(),
+                    listOf(full),
+                    advertisedTools = listOf(projection),
+                    githubMode = true
+                ).streamRound(emptyList(), emptyList()).toList()
+                assertEquals(ProviderEvent.Completed, events.last())
+                val config = runtime.createConversationCalls.single()
+                if (nativeSupport) {
+                    assertEquals(projection.inputSchema.toString(), config.tools.single().inputSchemaJson)
+                } else {
+                    assertTrue(config.systemPrompt.orEmpty().contains(projection.description))
+                    assertEquals(projection == full.definition, config.systemPrompt.orEmpty().contains("workflow_id"))
+                }
+            }
+        }
+    }
+
+    @Test
     fun `github mode keeps only the upstream admitted catalog in native and prompt conversations`() = runBlocking {
         val github = (1..12).map { index ->
             object : AgentTool by lookupTool("opaque_$index") {

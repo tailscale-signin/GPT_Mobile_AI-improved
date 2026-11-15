@@ -321,7 +321,7 @@ def build_window(root, parent=None, section='General'):
     validation_panel = RepositoryValidationPanel(validation_frame, root, cfg)
     window.repository_validation_panel = validation_panel
 
-    scroll_surfaces[validation_panel.editor_canvas] = validation_panel.editor_canvas
+    scroll_surfaces[validation_panel.viewport] = validation_panel.viewport
 
     messages = queue.Queue()
     busy = False

@@ -58,7 +58,13 @@ data class GatewayJobSummary(
     @SerialName("working_branch") val workingBranch: String? = null,
     @SerialName("provider_retry_at") val providerRetryAt: Double? = null,
     @SerialName("execution_mode") val executionMode: String? = null,
-    @SerialName("batch_progress") val batchProgress: GatewayIntegrationBatchProgress? = null
+    @SerialName("batch_progress") val batchProgress: GatewayIntegrationBatchProgress? = null,
+    @SerialName("recovery_of") val recoveryOf: String? = null,
+    @SerialName("recovery_job_id") val recoveryJobId: String? = null,
+    @SerialName("recovery_state") val recoveryState: String? = null,
+    @SerialName("recovery_pr") val recoveryPr: Int? = null,
+    @SerialName("recovery_action") val recoveryAction: String? = null,
+    @SerialName("qualified_revision") val qualifiedRevision: String? = null
 ) {
     val group: GatewayJobGroup get() = gatewayJobGroup(schedulingState ?: state)
     val acceptsInstruction: Boolean get() = jobKind == "engineering" && conversationId != null && !cancellationRequested && group in setOf(GatewayJobGroup.RUNNING, GatewayJobGroup.QUEUED) && state.uppercase() != "CANCELLING" && phase?.uppercase() != "CANCELLING"

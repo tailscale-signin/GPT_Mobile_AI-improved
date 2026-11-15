@@ -120,13 +120,19 @@ class ToolExecutionBudget(
         authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true }
     ): AgentTool = bindPrepared(tool.withChildBudget { child -> bind(child) }, onFinished, statisticsIdentity, authorize)
 
+    internal fun bindPresented(tool: AgentTool, presented: AgentToolDefinition): AgentTool {
+        require(presented.name == tool.definition.name)
+        return bindPrepared(tool.withChildBudget { child -> bind(child) }, definitionOverride = presented)
+    }
+
     private fun bindPrepared(
         tool: AgentTool,
         onFinished: suspend (String, Boolean) -> Unit = { _, _ -> },
         statisticsIdentity: dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity = dev.chungjungsoo.gptmobile.data.telemetry.tool.ToolIdentity.of(tool.definition.name),
-        authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true }
+        authorize: suspend (String, JsonObject) -> Boolean = { _, _ -> true },
+        definitionOverride: AgentToolDefinition? = null
     ): AgentTool = object : PreparableAgentTool, OwnedAgentTool, ApprovedReadOnlyAgentTool {
-        override val definition = tool.definition
+        override val definition = definitionOverride ?: tool.definition
         override val approvedReadOnly = (tool as? ApprovedReadOnlyAgentTool)?.approvedReadOnly == true
         override val managesExecutionBudget = true
         override val coordinatesChildWork = tool.coordinatesChildWork
@@ -160,9 +166,15 @@ class ToolExecutionBudget(
             terminalToolFailures[tool.definition.name]?.let { code ->
                 return { withBudgetState(ToolResultEnvelope.error(callId, code, "This tool's permission or authentication failed earlier in this turn. Review its grants or credentials before starting a new turn; changing arguments will not retry it.")) }
             }
-            val invalid = ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
+            val invalid = ToolArgumentValidator.errors(arguments, definition.inputSchema).ifEmpty {
+                if (definition.inputSchema == tool.definition.inputSchema) {
+                    emptyList()
+                } else {
+                    ToolArgumentValidator.errors(arguments, tool.definition.inputSchema)
+                }
+            }
             if (invalid.isNotEmpty()) {
-                val rejected = argumentRepairs.rejection(callId, tool.definition, arguments, invalid)
+                val rejected = argumentRepairs.rejection(callId, definition, arguments, invalid)
                 return { withBudgetState(rejected) }
             }
             semanticArgumentRejections[signature]?.let { previous ->

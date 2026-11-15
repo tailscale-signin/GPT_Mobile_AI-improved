@@ -6,6 +6,7 @@ shared-network principal as other admitted clients, not a private desktop owner.
 import base64
 import hashlib
 import json
+import re
 import time
 from urllib.parse import quote
 
@@ -138,10 +139,12 @@ class Client:
                               not_dispatched=error.get('dispatch_state') == 'not_dispatched')
         return value
 
-    def request(self, method, path, *, params=None, payload=None):
+    def request(self, method, path, *, params=None, payload=None, user_action=None):
         if self.cfg != load(self.root):
             raise ClientError('Gateway settings changed. Reconnect before continuing.', code='identity_changed', not_dispatched=True)
         headers = self.headers() if method != 'GET' else {}
+        if user_action:
+            headers['X-Gateway-User-Action'] = user_action
         try:
             with self.session() as session:
                 with session.request(method, self.origin + path, params=params, json=payload, headers=headers,
@@ -212,6 +215,37 @@ class Client:
 
     def cancel(self, job_id):
         return self.request('POST', '/gateway/jobs/' + quote(job_id, safe='') + '/cancel', payload={})
+
+    def engineering_job(self, job_id):
+        if not isinstance(job_id, str) or not re.fullmatch(r'eng_[a-f0-9]{32}', job_id):
+            raise ClientError('The saved engineering job identity is unavailable.', not_dispatched=True)
+        job = self.request('GET', '/gateway/engineering/jobs/' + job_id)
+        if (not self.expected_identity or job.get('id') != job_id or
+                any(job.get(key) != self.expected_identity[key] for key in ('gateway_id', 'principal_id'))):
+            raise ClientError('The original saved job identity changed.', not_dispatched=True)
+        return job
+
+    def engineering_review(self, conversation):
+        parent = self.engineering_job(conversation.get('active_job_id'))
+        if parent.get('conversation_id') != conversation.get('conversation_id'):
+            raise ClientError('The job is attached to a different conversation.', not_dispatched=True)
+        child_id = parent.get('recovery_job_id')
+        if not child_id:
+            return parent
+        child = self.engineering_job(child_id)
+        if child.get('recovery_of') != parent['id'] or any(child.get(key) != parent.get(key) for key in ('repository', 'base')):
+            raise ClientError('The linked recovery identity could not be verified.', not_dispatched=True)
+        return child
+
+    def approve_engineering(self, conversation, reviewed):
+        job = self.engineering_review(conversation)
+        if (not job.get('merge_ready') or type(job.get('revision')) is not int or type(job.get('pr')) is not int or
+                not re.fullmatch(r'[a-f0-9]{40}', job.get('head_sha') or '') or not job.get('execution_binding_id') or
+                any(job.get(key) != reviewed.get(key) for key in ('id', 'revision', 'pr', 'head_sha', 'execution_binding_id'))):
+            raise ClientError('The reviewed revision changed. Refresh before approving the merge.', not_dispatched=True)
+        return self.request('POST', '/gateway/engineering/jobs/' + job['id'] + '/approve',
+                            payload={key: job[key] for key in ('revision', 'pr', 'head_sha')},
+                            user_action='approve-and-merge')
 
     def send(self, model, prompt, command_id, *, conversation=None, history=(), on_event=lambda *_: None):
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 32000:

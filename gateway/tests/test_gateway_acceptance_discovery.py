@@ -32,6 +32,16 @@ class AcceptanceDiscoveryTests(unittest.TestCase):
             self.assertEqual(expected, result['head_sha'])
             self.assertFalse(result['executed'])
             self.assertEqual('test_behavior.Behavior.test_answer', result['candidates'][0]['case_id'])
+            (root / 'test_feature_only.py').write_text(self.SOURCE)
+            subprocess.run(['git', '-C', directory, 'switch', '-qc', 'feature'], check=True, env=env)
+            subprocess.run(['git', '-C', directory, 'add', 'test_feature_only.py'], check=True, env=env)
+            subprocess.run(['git', '-C', directory, '-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
+                            '-c', 'commit.gpgsign=false', 'commit', '-qm', 'Feature'], check=True, env=env)
+            feature = subprocess.check_output(['git', '-C', directory, 'rev-parse', 'HEAD'], text=True, env=env).strip()
+            subprocess.run(['git', '-C', directory, 'switch', '-q', '--detach', expected], check=True, env=env)
+            self.assertEqual([], discover({'mirror': str(root / '.git')}, 'feature_only')['candidates'])
+            pinned = discover({'mirror': str(root / '.git')}, 'feature_only', source_sha=feature)
+            self.assertEqual(feature, pinned['candidates'][0]['source_sha'])
             cancel = threading.Event()
             cancel.set()
             with self.assertRaises(SetupCancelled):

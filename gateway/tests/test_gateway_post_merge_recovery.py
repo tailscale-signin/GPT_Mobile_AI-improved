@@ -64,6 +64,32 @@ class PostMergeRecoveryTests(unittest.TestCase):
         self.assertEqual('c' * 40, result['merge_sha'])
         self.assertEqual('f' * 40, result['recovery_merge_sha'])
 
+    def test_child_link_and_budget_survive_loss_of_parent_checkpoint(self):
+        with patch('v14.engineering_source.prepare_source'):
+            child = enqueue(self.service, self.job, self.failed)
+        self.store.recover()
+        restarted, _, _ = self.store.claim(self.job['id'])
+        self.assertEqual(child['id'], restarted['data']['post_merge_recovery_job_id'])
+        self.assertEqual(child['request']['execution_budget'], restarted['data']['recovery_budget_reservation'])
+        self.assertEqual(child['id'], enqueue(self.service, restarted, dict(self.failed, branch_head='9' * 40))['id'])
+        self.assertEqual(2, len(self.store.list('owner')))
+
+    def test_nested_recovery_compares_only_the_final_qualified_revision(self):
+        self.job['data']['post_merge_recovery_job_id'] = 'child'
+        request = self.job['request']
+        child = {'id': 'child', 'recovery_of': self.job['id'], 'request': request, 'state': 'COMPLETED',
+                 'data': {'merge_sha': 'a' * 40, 'post_merge': {'status': 'PASSED'},
+                          'post_merge_recovery_job_id': 'grandchild'}}
+        grandchild = {'id': 'grandchild', 'recovery_of': 'child', 'request': request, 'state': 'COMPLETED',
+                      'data': {'merge_sha': 'b' * 40, 'post_merge': {'status': 'PASSED', 'qualified_revision': 'b' * 40}}}
+        self.backend.ref = Mock(return_value='d' * 40)
+        with patch.object(self.store, 'get', side_effect=lambda job_id, _: {'child': child, 'grandchild': grandchild}[job_id]):
+            self.backend.api.return_value = {'status': 'ahead', 'merge_base_commit': {'sha': 'a' * 40}}
+            self.assertEqual('BLOCKED', inspect(self.service, self.job)['status'])
+            self.backend.api.return_value = {'status': 'ahead', 'merge_base_commit': {'sha': 'b' * 40}}
+            self.assertEqual('b' * 40, inspect(self.service, self.job)['qualified_revision'])
+        self.assertIn('/compare/' + 'b' * 40, self.backend.api.call_args.args[0])
+
     def test_configuration_blocks_deadline_and_depth_do_not_spawn_more_jobs(self):
         self.assertIsNone(enqueue(self.service, self.job, dict(self.failed, status='BLOCKED')))
         self.job['recovery_depth'] = self.job['request']['repair_attempts']

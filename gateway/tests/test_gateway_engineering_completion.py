@@ -29,6 +29,66 @@ class CompletionTests(unittest.TestCase):
                     'request': {'repository': 'owner/repo', 'branch': 'feature', 'base': 'main'},
                     'data': {'head_sha': 'a' * 40, 'actor_id': 1, 'merge_sha': 'b' * 40}}
 
+    def test_lost_squash_response_recovers_pinned_test_merge_tree_without_write(self):
+        base, head, merged, tree = 'c' * 40, 'a' * 40, 'b' * 40, 'd' * 40
+        self.job['data']['pr'] = 7
+        self.job['approval'] = {'base_sha': base, 'head_sha': head}
+        self.backend.identity = Mock()
+        self.backend.operations = Mock()
+        self.backend.operations.dispatched_intent.return_value = {
+            'body': {'sha': head, 'merge_method': 'squash'},
+            'context': {'base_sha': base, 'expected_tree': tree}}
+        pr = {'merged': True, 'head': {'sha': head, 'ref': 'feature'}, 'base': {'ref': 'main'}, 'merge_commit_sha': merged}
+        commit = {'sha': merged, 'parents': [{'sha': base}], 'tree': {'sha': tree}}
+        self.backend.api = Mock(side_effect=[pr, commit, pr, dict(commit, tree={'sha': 'e' * 40})])
+        receipt = self.backend.reconcile(self.job, 'MERGE')
+        self.assertEqual({'method': 'squash', 'merge_sha': merged, 'confirmed': True}, receipt['merge_method_receipt'])
+        self.assertNotIn('merge_method_receipt', self.backend.reconcile(self.job, 'MERGE'))
+        self.assertTrue(all(len(call.args) == 1 for call in self.backend.api.call_args_list))
+
+    def test_latest_workspace_pages_survive_compaction_ahead_of_twenty_file_prefixes(self):
+        from v14.inference_budget import fit_engineering_payload
+
+        head = self.job['data']['head_sha']
+        files = {f'file{i}.py': {'content': 'x' * 2400, 'preview_characters': 2400, 'sha': blob_sha('x' * 2400)}
+                 for i in range(20)}
+        path = 'target.py'
+        source = '# earlier\n' * 400 + 'wanted_value = 41\n'
+        files[path] = {'content': source, 'preview_characters': 0, 'sha': blob_sha(source)}
+        tree = {name: {'mode': '100644', 'sha': value['sha']} for name, value in files.items()}
+        self.job['data'].update(files=files, tree=tree, plan={'summary': 'bounded'})
+        page = act(self.backend, self.job, {'action': 'read', 'head_sha': head, 'path': path, 'start_line': 401})
+        self.job['data']['workspace_receipts'] = [page, {'action': 'check_output', 'head_sha': head, 'content': 'compiler failure\n'}]
+        request = {'messages': [{'content': json.dumps({'evidence': view(self.job['data'])})}], 'max_tokens': 512}
+        capability = {'context_tokens': 5632, 'limits_verified': True, 'max_output_tokens': 512}
+        admitted, _, compaction = fit_engineering_payload(
+            request, capability, lambda value: (len(value['messages'][0]['content'].encode()) // 3, 'UTF8_ESTIMATE'))
+        self.assertIsNotNone(compaction)
+        self.assertIn('compiler failure', admitted['messages'][0]['content'])
+        self.assertIn('wanted_value = 41', admitted['messages'][0]['content'])
+        record_model_exposure(self.job['data'], admitted)
+        changes = prepare_changes({'changes': [{'path': path, 'expected_blob_sha': files[path]['sha'],
+                                   'edits': [{'old': 'wanted_value = 41', 'new': 'wanted_value = 42'}]}]},
+                                  files, tree, head_sha=head)
+        self.assertTrue(changes[0]['content'].endswith('wanted_value = 42\n'))
+
+    def test_specialist_format_repair_preserves_sibling_and_exhausted_observations(self):
+        from v14.engineering_specialists import investigate
+
+        head = self.job['data']['head_sha']
+        self.job['request']['execution_mode'] = 'full'
+        self.job['data']['tree'] = {'answer.py': {'mode': '100644'}}
+        self.backend.save_specialists = Mock()
+        self.backend.cancellation = Mock(return_value=threading.Event())
+        self.backend.model = Mock(side_effect=lambda _, role, evidence: (
+            {'workspace_action': {'action': 'paths', 'head_sha': head}} if role == 'source explorer'
+            else {'findings': ['fixture'], 'paths': ['answer.py']} if evidence['format_repair'] else {'invalid': True}))
+        results = investigate(self.backend, self.job, [{'role': role, 'evidence': {}} for role in ('source explorer', 'test investigator')])
+        self.assertEqual(['LIMIT_REACHED', 'COMPLETED'], [result['status'] for result in results])
+        self.assertEqual(['answer.py'], results[0]['paths'])
+        self.assertEqual(3, len(results[0]['observations']))
+        self.assertEqual(2, results[1]['calls'])
+
     def test_followup_inherits_only_verified_pr_ownership(self):
         self.job.update(continuation_of='eng_first', pr_owner_job_id='eng_first', continuation_actor_id=1,
                         continuation_branch='feature', continuation_pr=7)

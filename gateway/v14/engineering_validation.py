@@ -336,7 +336,7 @@ def validate(job, changes, cancel=None, *, command_index=None, artifacts=None, r
                 target.unlink()
             else:
                 target.parent.mkdir(parents=True, exist_ok=True)
-                target.write_text(change['content'])
+                target.write_bytes(change['content'].encode('utf-8'))
         if artifacts:
             if (not isinstance(artifacts, dict) or len(artifacts) > 8
                     or any(not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,103}', name)

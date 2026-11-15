@@ -651,12 +651,13 @@ internal class GitHubVerifiedSession(
             } else {
                 null
             }
-            val requests = if (draft == null || status != null || coverage != null || ciObservation != null) {
+            val verificationPlan = if (draft == null || status != null || coverage != null || ciObservation != null) {
                 null
             } else {
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequests(draft, receipts) }
             }
+            val requests = (verificationPlan as? VerificationPlan.Ready)?.requests
             val extraction = requests?.let { extract(requireNotNull(draft), it, receipts, epoch) }
             val rendered = status ?: coverage ?: ciObservation ?: extraction?.rendered ?: partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE")
             // Claim extraction and deterministic rendering can be slower than an
@@ -783,6 +784,36 @@ internal class GitHubVerifiedSession(
                             }
                         )
                     }
+                    val publicationSource = when {
+                        evidenceAdvanced -> GitHubAcceptancePublicationEvidence.Source.EVIDENCE_ADVANCED
+                        status != null -> GitHubAcceptancePublicationEvidence.Source.STATUS
+                        coverage != null -> GitHubAcceptancePublicationEvidence.Source.COVERAGE
+                        ciObservation != null -> GitHubAcceptancePublicationEvidence.Source.CI_OBSERVATION
+                        extraction != null -> GitHubAcceptancePublicationEvidence.Source.CLAIM_EXTRACTION
+                        else -> GitHubAcceptancePublicationEvidence.Source.PARTIAL_FALLBACK
+                    }
+                    val rejectedPlan = verificationPlan as? VerificationPlan.Rejected
+                    val extractionObservation = when {
+                        evidenceAdvanced -> null
+                        status != null || coverage != null || ciObservation != null -> GitHubAcceptancePublicationEvidence.Extraction.NOT_NEEDED
+                        draft == null -> GitHubAcceptancePublicationEvidence.Extraction.NO_DRAFT
+                        rejectedPlan != null -> rejectedPlan.observation
+                        extraction?.failure != null -> GitHubAcceptancePublicationEvidence.Extraction.FAILED
+                        extraction != null -> GitHubAcceptancePublicationEvidence.Extraction.COMPLETED
+                        else -> null
+                    }
+                    put(
+                        GitHubAcceptancePublicationEvidence.KEY,
+                        GitHubAcceptancePublicationEvidence.record(
+                            publicationSource,
+                            publicationReceipts.size,
+                            draft,
+                            extractionObservation,
+                            verificationPlan?.plannedBatches,
+                            rejectedPlan?.requiredTokens,
+                            rejectedPlan?.inputLimitTokens
+                        )
+                    )
                 }
             )
             val execution = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(retained, publicationReceipts), publicationReceipts)
@@ -1151,13 +1182,28 @@ internal class GitHubVerifiedSession(
         }
     }
 
-    private fun verificationRequests(draft: String, receipts: Map<String, JsonObject>): List<GitHubClaimBatches.Request>? {
+    private sealed interface VerificationPlan {
+        val plannedBatches: Int
+
+        data class Ready(val requests: List<GitHubClaimBatches.Request>) : VerificationPlan {
+            override val plannedBatches: Int get() = requests.size
+        }
+
+        data class Rejected(
+            val observation: GitHubAcceptancePublicationEvidence.Extraction,
+            override val plannedBatches: Int,
+            val requiredTokens: Int? = null,
+            val inputLimitTokens: Int? = null
+        ) : VerificationPlan
+    }
+
+    private fun verificationRequests(draft: String, receipts: Map<String, JsonObject>): VerificationPlan {
         val hardLimit = inputLimit()
         val groups = GitHubRequestCompletion.requirements(task).distinct().chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH)
         // Never let the extraction bound silently remove acceptance criteria. A task
         // that exceeds the bounded batch plan remains incomplete until it is split or
         // a larger, explicitly supported plan is introduced.
-        if (groups.size > GitHubClaimBatches.MAX_BATCHES) return null
+        if (groups.size > GitHubClaimBatches.MAX_BATCHES) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_BATCH_LIMIT, groups.size)
         val catalog by lazy { JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()) }
         val requests = groups.mapIndexed { index, requirements ->
             // Never replay a history-sized saved report into the extractor. Completed
@@ -1189,7 +1235,7 @@ internal class GitHubVerifiedSession(
             }.toString()
             var request = payload(emptyList())
             val baseTokens = TextTokenEstimate.estimate(request)
-            if (baseTokens > hardLimit) return null
+            if (baseTokens > hardLimit) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_INPUT_LIMIT, groups.size, baseTokens, hardLimit)
             val limit = minOf(hardLimit, maxOf(6_000, baseTokens + 2_048))
             val query = "$task\n${requirements.joinToString("\n")}\n$candidate"
             val selected = mutableListOf<kotlinx.serialization.json.JsonElement>()
@@ -1203,7 +1249,14 @@ internal class GitHubVerifiedSession(
             GitHubClaimBatches.Request(request, ids.toSet())
         }
         val currentLimit = inputLimit()
-        return requests.takeIf { batch -> batch.all { TextTokenEstimate.estimate(it.payload) <= currentLimit } }
+        var rejection: VerificationPlan.Rejected? = null
+        val admitted = requests.all { request ->
+            val estimate = TextTokenEstimate.estimate(request.payload)
+            (estimate <= currentLimit).also { fits ->
+                if (!fits) rejection = VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_LIMIT_CHANGED, groups.size, estimate, currentLimit)
+            }
+        }
+        return if (admitted) VerificationPlan.Ready(requests) else requireNotNull(rejection)
     }
 
     private fun draftExcerpt(draft: String, requirements: List<String>): String {

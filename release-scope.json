@@ -147,7 +147,10 @@
     "Preserve inherited PR ownership, cancel subprocesses throughout their lifetime, schedule independent branches within the bounded worker pool, and require exact merge workflow coverage before recording final completion.",
     "Keep benchmark caller-input observations untrusted and withhold full resolution and overall scoring when required preservation evidence is unavailable; retain independently measured functional results.",
     "Preserve the actual local-service connection phase and original cause through approved failure reports. Retain typed primary-answer allocation refusals and their allocation values while keeping earlier dispatch, output and unknown outcomes distinct. Existing capacity limits, cancellation, retry and privacy rules remain in force.",
-    "Retire rejected desktop commands atomically under their command and Gateway/principal ownership. Delayed cleanup preserves a successor command and newer draft. Recovery successors retain original failure evidence, cumulative budget and fresh merge approval; Android review follows the bounded exact recovery chain."
+    "Retire rejected desktop commands atomically under their command and Gateway/principal ownership. Delayed cleanup preserves a successor command and newer draft. Recovery successors retain original failure evidence, cumulative budget and fresh merge approval; Android review follows the bounded exact recovery chain.",
+    "Prefer an existing compact GitHub inspection contract for the initial request while preserving exact connection identity, authorized full-tool discovery and unchanged admission limits. Keep unavailable supplemental engineering memory optional, with a scoped notice and finite lookup/revalidation evidence; fresh repository access, cancellation and cloud-memory consent remain enforced.",
+    "Record the actual acceptance publication path, extraction state, draft presence, receipt and claim counts, and the operands of an observed planning rejection. Older verdicts retain unavailable observations. New reports negotiate the extended reporting capability without changing approved bytes or the legacy readiness and submission-receipt limits.",
+    "Materialize candidate source as exact UTF-8 bytes, preserving its declared line endings on Windows. Let Repository Validation status and actions span the full compact viewport. Correct the capacity-test lease receiver without changing production behavior or existing assertions, and give the isolated GenieX KAPT step the established 4 GiB build heap."
   ],
   "limitations": [
     "The separate ten-scenario production engineering benchmark has not been executed. Its scenario list is retained in the engineering follow-up; execution still requires a designated test repository and runtime. A live 9,043-token request replay on the 5,632-token route, installed phone/Windows gateway acceptance, physical installation and smoke qualification remain unverified. Configured container release checks do not establish physical-device coverage.",
@@ -221,7 +224,8 @@
     "The repository-map follow-up requires matching app and gateway deployment. Structural parsing still has partial and unresolved relationships; model-answer accuracy, token savings, and affected-device behavior remain unmeasured. Hosted submissions of new graph and policy diagnostic fields require a reporter advertising GITHUB_GRAPH_POLICY_EVIDENCE_V1; older services leave the approved report saved until the selected service is compatible. Native authenticated GitHub delivery uses local validation and does not require that hosted deployment.",
     "The 21c055de follow-up requires an updated app and gateway; hosted report submission of new cooldown/profile fields requires GH_COOLDOWN_V1 and PROFILE_SELECTION_EVIDENCE_V1. Historical quota exhaustion, incomplete graph outcomes, physical-device performance and conditional fixture approvals are not relabeled as repaired or verified by host tests.",
     "The PR #1203 successor retains unknown historical device and provider causes. New optional composer, tool, reasoning and voice values require numeric reporter protocol 2 where specified; source and CI do not establish hosted reporter rollout, actual affected-phone audio/IME behavior, measured latency or GPU execution.",
-    "Durable engineering post-merge qualification supports only verified workflow syntax and a proved push boundary; unsupported filters, incomplete changed-path coverage, rebase or unconfirmed single-parent recovery remain blocked. Benchmark input preservation is not independently verified by candidate-process observations, so full contract resolution and the overall coding score remain unavailable without that proof."
+    "Durable engineering post-merge qualification supports only verified workflow syntax and a proved push boundary; unsupported filters, incomplete changed-path coverage, rebase or unconfirmed single-parent recovery remain blocked. Benchmark input preservation is not independently verified by candidate-process observations, so full contract resolution and the overall coding score remain unavailable without that proof.",
+    "Enhanced acceptance publication diagnostics require a hosted reporter advertising ACCEPTANCE_PUBLICATION_EVIDENCE_V1 through the bounded extended readiness view. An older service leaves the exact approved report pending before submission. Repository changes do not establish hosted-service deployment or reconstruction of the original missing diagnostic observations."
   ],
   "requiredWorkflows": [
     "Build Android APK",
@@ -2868,6 +2872,14 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayJobRecoveryApprovalTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayRecoveryApprovalTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/localruntime/ProcessLocalRuntimeConnectionTest.kt",
-    "gateway/tests/test_gateway_desktop_validation_focus.py"
+    "gateway/tests/test_gateway_desktop_validation_focus.py",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryAccessRejected.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryPreparation.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptancePublicationEvidenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryAccessRejectedTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryPreparationTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryTest.kt",
+    "docs/repairs/acceptance-publication-evidence-2026-11-15.md"
   ]
 }

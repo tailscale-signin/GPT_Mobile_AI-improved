@@ -42,7 +42,8 @@ class ProgressiveToolCatalog(
     private val executionBindings = mutableMapOf<String, ExecutionBinding>()
     private val deferredEngineering = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
     private val taskRequired = definitions.filter { definition ->
-        !conversational &&
+        definition.modelVisible &&
+            !conversational &&
             (
                 definition.name == "read_recovery_context" ||
                     AgentToolCapability.USER_DECISION in definition.capabilities ||
@@ -52,6 +53,14 @@ class ProgressiveToolCatalog(
                             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) !in deferredEngineering
                         )
                 )
+    }.groupBy { definition ->
+        val name = definition.name
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
+            ?.let { it + name.removePrefix(name.substringBefore("__")) } ?: name
+    }.values.map { alternatives ->
+        // Resolver sorting must not replace an available compact initial contract
+        // with its full facade. Explicit discovery still selects the exact name.
+        alternatives.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: alternatives.first()
     }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()

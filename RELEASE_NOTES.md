@@ -1,5 +1,17 @@
 # GPT Mobile 0.9.66.7
 
+## Final CI and reporting follow-up
+
+Prefer an existing compact GitHub inspection contract for the initial request while preserving exact connection identity, authorized full-tool discovery and unchanged admission limits. Keep unavailable supplemental engineering memory optional, with a scoped notice and finite lookup/revalidation evidence; fresh repository access, cancellation and cloud-memory consent remain enforced.
+
+Record the actual acceptance publication path, extraction state, draft presence, receipt and claim counts, and the operands of an observed planning rejection. Older verdicts retain unavailable observations. New reports negotiate the extended reporting capability without changing approved bytes or the legacy readiness and submission-receipt limits.
+
+Materialize candidate source as exact UTF-8 bytes, preserving its declared line endings on Windows. Let Repository Validation status and actions span the full compact viewport. Correct the capacity-test lease receiver without changing production behavior or existing assertions, and give the isolated GenieX KAPT step the established 4 GiB build heap.
+
+Enhanced acceptance publication diagnostics require a hosted reporter advertising ACCEPTANCE_PUBLICATION_EVIDENCE_V1 through the bounded extended readiness view. An older service leaves the exact approved report pending before submission. Repository changes do not establish hosted-service deployment or reconstruction of the original missing diagnostic observations.
+
+See [acceptance publication diagnostics](docs/repairs/acceptance-publication-evidence-2026-11-15.md). These corrections require qualification of the complete published candidate; earlier-head results do not qualify changed source.
+
 ## Final integration repairs
 
 Preserve the actual local-service connection phase and original cause through approved failure reports. Retain typed primary-answer allocation refusals and their allocation values while keeping earlier dispatch, output and unknown outcomes distinct. Existing capacity limits, cancellation, retry and privacy rules remain in force.

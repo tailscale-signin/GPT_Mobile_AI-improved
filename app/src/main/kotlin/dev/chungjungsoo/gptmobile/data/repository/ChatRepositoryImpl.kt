@@ -3154,7 +3154,7 @@ class ChatRepositoryImpl(
             AppLogRecorder.record("Recovery", "Saved response reused · chat=${latestUser?.chatId} · resourceChars=${recovery.contentLength} · inlineChars=${minOf(inlineCharacters, recovery.contentLength)}")
             emit(ApiState.Notice("Continuing from the saved partial response and tool results.", persistent = false))
         }
-        val engineeringContext = if (resolvedTools.any { it.isGitHubTool() }) engineeringMemoryContext(platform, chatToolConfig, latestUser, limits.contextTokens, emit) else ""
+        val engineeringContext = engineeringMemoryContext(platform, chatToolConfig, latestUser, limits.contextTokens, resolvedTools, runId, emit)
         val projectInstructions = latestUser?.let { knowledge?.scopeForChat(it.chatId) }
             ?.takeUnless { it.isTemporary }?.project?.instructions.orEmpty() + "\n" + engineeringContext
         val responseFeatures = settingRepository.getFeatureSettings()
@@ -6158,12 +6158,31 @@ class ChatRepositoryImpl(
         }
     }
 
-    private suspend fun engineeringMemoryContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, contextTokens: Int, emit: suspend (ApiState) -> Unit): String {
+    private suspend fun engineeringMemoryContext(platform: PlatformV2, tools: ChatMcpToolConfig?, user: MessageV2?, contextTokens: Int, resolvedTools: List<ResolvedAgentTool>, runId: String, emit: suspend (ApiState) -> Unit): String {
         val github = tools?.github ?: return ""
         if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(user?.content.orEmpty()) || dev.chungjungsoo.gptmobile.data.agent.CurrentRequestContract.from(user?.content.orEmpty()).conversational) return ""
+        val origin = dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots.captureOrigin()
         if (user == null || engineeringMemory == null || agentPersistenceDao.getChatRoom(user.chatId)?.isTemporary != false) return ""
         val preferences = settingRepository.getFeatureSettings().githubProfileOverrides[platform.uid] ?: dev.chungjungsoo.gptmobile.data.github.GitHubChatProfileOverride()
-        val text = engineeringMemory.prepare(github, user.chatId, "${user.chatId}:${user.id}", user.content, preferences, platform.isPrivateDestination(), minOf(12_000, contextTokens / 4))
+        val text = dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryPreparation.prepare(
+            github,
+            resolvedTools,
+            load = { engineeringMemory.prepare(github, user.chatId, "${user.chatId}:${user.id}", user.content, preferences, platform.isPrivateDestination(), minOf(12_000, contextTokens / 4)) },
+            unavailable = { rejected ->
+                dev.chungjungsoo.gptmobile.data.diagnostics.captureIssueReport {
+                    if (origin != null) {
+                        dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.failureFromOrigin(
+                            dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature.TOOLS,
+                            dev.chungjungsoo.gptmobile.data.github.GitHubEngineeringMemoryAccessRejected.ERROR_CODE,
+                            rejected,
+                            rejected.reportFields() + mapOf("run_id" to runId, "provider_kind" to platform.compatibleType.name),
+                            "STRUCTURED_EVENT"
+                        ) { dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots.isCurrent(origin) }
+                    }
+                }
+                emit(ApiState.Notice(rejected.notice, persistent = false))
+            }
+        )
         if (text.isNotBlank() && (platform.isPrivateDestination() || preferences.allowCloudEngineeringMemory)) {
             val labels = listOf(
                 dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance(sourceToolId = "github_engineering_memory", sourceProfileUid = platform.uid, sourceRef = dev.chungjungsoo.gptmobile.data.github.GitHubEvidenceBook.digest(text), categories = setOf(dev.chungjungsoo.gptmobile.data.permissions.PersonalDataCategory.PRIVATE_CONTENT), retentionChatId = user.chatId, localOnly = !preferences.allowCloudEngineeringMemory, sourceConnectionUid = github.connectionUid)

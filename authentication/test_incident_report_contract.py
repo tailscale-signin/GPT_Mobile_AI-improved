@@ -24,6 +24,80 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_acceptance_publication_preserves_closed_observations_and_exact_approved_payload(self):
+        legacy = self.capture("ACCEPTANCE")
+        self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        self.assertFalse(capsule.ACCEPTANCE_PUBLICATION_FIELDS & legacy["values"].keys())
+        samples = (
+            {"acceptance_publication_source": "PARTIAL_FALLBACK", "acceptance_extraction_observation": "NO_DRAFT",
+             "acceptance_draft_state": "ABSENT", "acceptance_receipt_snapshot_count": 3, "acceptance_claim_count": 0},
+            {"acceptance_publication_source": "PARTIAL_FALLBACK", "acceptance_extraction_observation": "PLAN_INPUT_LIMIT",
+             "acceptance_draft_state": "PRESENT", "acceptance_receipt_snapshot_count": 3,
+             "acceptance_extraction_planned_batches": 2, "acceptance_extraction_required_tokens": 4097,
+             "acceptance_extraction_input_limit_tokens": 4096},
+            {"acceptance_publication_source": "EVIDENCE_ADVANCED", "acceptance_receipt_snapshot_count": 4},
+            {"acceptance_publication_source": "CLAIM_EXTRACTION", "acceptance_extraction_observation": "COMPLETED",
+             "acceptance_draft_state": "EMPTY", "acceptance_receipt_snapshot_count": 0,
+             "acceptance_extraction_planned_batches": 1, "acceptance_claim_count": 0},
+        )
+        for values in samples:
+            with self.subTest(values=values):
+                capture = self.capture("ACCEPTANCE", values)
+                original = copy.deepcopy(capture)
+                self.assertEqual(original, validate_diagnostics(capture))
+                report = self.report(capture)
+                report.update({"feature": "chat", "errorCode": "GITHUB_TASK_INCOMPLETE"})
+                report["context"]["source"] = "CHAT_FAILURE"
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                for key in values:
+                    self.assertIn(key, issue["body"])
+                for key in ("dispatched", "remote_acceptance", "retryable", "request_replay_allowed"):
+                    self.assertNotIn(key, capture["values"])
+                self.assertLessEqual(len(json.dumps(capture, separators=(",", ":")).encode()), MAX_DIAGNOSTIC_BYTES)
+        for key in capsule.ACCEPTANCE_PUBLICATION_FIELDS:
+            if key in capsule.ACCEPTANCE_PUBLICATION_COUNTS:
+                valid = (0, 16_000_000)
+            elif key in capsule.ACCEPTANCE_PUBLICATION_TOKENS:
+                valid = (0, 2_147_483_647)
+            else:
+                valid = capsule.ENUMS[key]
+            for value in valid:
+                capture = self.capture("ACCEPTANCE", {key: value})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        omitted = self.capture("ACCEPTANCE")
+        omitted["omittedFields"] = sorted(capsule.ACCEPTANCE_PUBLICATION_FIELDS)
+        self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
+        _, issue = issue_from_report(self.report(omitted))
+        for key in omitted["omittedFields"]:
+            self.assertIn(key, issue["body"])
+
+    def test_acceptance_publication_rejects_malformed_private_and_wrong_area_fields(self):
+        for key in capsule.ACCEPTANCE_PUBLICATION_FIELDS:
+            if key in capsule.ACCEPTANCE_PUBLICATION_COUNTS:
+                valid, malformed = 0, [-1, 16_000_001, "1", 1.0, 1.5]
+            elif key in capsule.ACCEPTANCE_PUBLICATION_TOKENS:
+                valid, malformed = 0, [-1, 2_147_483_648, "1", 1.0, 1.5]
+            else:
+                valid, malformed = sorted(capsule.ENUMS[key])[0], [0, "UNKNOWN", "private draft"]
+            for value in (None, True, False, [], {}, *malformed):
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("ACCEPTANCE", {key: value}))
+            for area in CORE_FIELDS.keys() - {"ACCEPTANCE"}:
+                control = self.capture(area)
+                if area == "GATEWAY":
+                    from authentication.engineering_report_contract import GATEWAY_ADMISSION_CORE
+                    control["unavailableFields"] = sorted(set(control["unavailableFields"]) | GATEWAY_ADMISSION_CORE)
+                validate_diagnostics(control)
+                with self.subTest(key=key, area=area), self.assertRaises(ValueError):
+                    validate_diagnostics({**control, "values": {**control["values"], key: valid}})
+                with self.assertRaises(ValueError):
+                    validate_diagnostics({**control, "omittedFields": [key]})
+        for key in ("acceptance_draft", "acceptance_claims", "acceptance_receipts", "acceptance_connection", "acceptance_exception"):
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("ACCEPTANCE", {key: "private source or answer"}))
+
     def test_handoff_reconciliation_preserves_bounded_observations_and_omissions(self):
         counts = {"handoff_replay_receipt_count", "handoff_replay_matched_count", "handoff_durable_receipt_count",
                   "handoff_durable_matched_count", "handoff_retained_matched_count"}

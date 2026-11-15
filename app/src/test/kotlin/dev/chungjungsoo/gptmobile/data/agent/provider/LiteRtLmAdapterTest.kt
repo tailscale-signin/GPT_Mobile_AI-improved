@@ -2762,6 +2762,14 @@ class LiteRtLmAdapterTest {
                     if (rejectConversation) throw observedCapacityRejection()
                     native.createConversation(config)
                 }
+
+                override fun <T> runExclusiveFlow(
+                    onContended: suspend () -> Unit,
+                    block: suspend LocalRuntime.() -> kotlinx.coroutines.flow.Flow<T>
+                ): kotlinx.coroutines.flow.Flow<T> {
+                    val observedRuntime = this
+                    return native.runExclusiveFlow(onContended) { block(observedRuntime) }
+                }
             }
             val profile = localPlatform()
             val session = adapter(runtime).openSession(turns("PRIVATE_REQUEST"), profile)

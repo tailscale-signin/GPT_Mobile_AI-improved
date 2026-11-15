@@ -182,6 +182,48 @@ class DesktopNativeAcceptance(unittest.TestCase):
             self.assertFalse(panel.release_button.winfo_viewable())
             prepare.assert_not_called()
 
+    def test_repository_validation_status_and_busy_cancel_fit_at_minimum_size(self):
+        from desktop import repository_validation as validation
+        with patch.object(validation, 'setup') as prepare:
+            settings, panel = self.validation_window()
+            try:
+                self.assertIn('Prepare & save downloads them.', panel.status.get())
+                label = panel.status_label
+                self.assertGreaterEqual(label.winfo_width(), label.winfo_reqwidth(),
+                                        'The complete wrapped status must fit its allocated width')
+                self.assertGreaterEqual(label.winfo_height(), label.winfo_reqheight(),
+                                        'Every line of the status must fit its allocated height')
+                for busy in (False, True):
+                    with self.subTest(busy=busy):
+                        panel.set_busy(busy)
+                        self.window.update()
+                        self.assertFalse(panel.advanced.winfo_viewable())
+                        self.assertEqual(not busy, panel.cancel_button.instate(['disabled']))
+                        controls = [label, panel.prepare_button, panel.check_button,
+                                    panel.save_button, panel.reload_button]
+                        if busy:
+                            controls.append(panel.cancel_button)
+                        for control in controls:
+                            self.assertTrue(control.winfo_viewable(), str(control))
+                            self.assertGreater(control.winfo_width(), 40, str(control))
+                            self.assertGreater(control.winfo_height(), 12, str(control))
+                            self.assertGreaterEqual(control.winfo_rootx(), panel.viewport.winfo_rootx(), str(control))
+                            self.assertGreaterEqual(control.winfo_rooty(), panel.viewport.winfo_rooty(), str(control))
+                            self.assertLessEqual(control.winfo_rootx() + control.winfo_width(),
+                                                 panel.viewport.winfo_rootx() + panel.viewport.winfo_width(), str(control))
+                            self.assertLessEqual(control.winfo_rooty() + control.winfo_height(),
+                                                 panel.viewport.winfo_rooty() + panel.viewport.winfo_height(), str(control))
+                            self.assertIs(control, settings.winfo_containing(
+                                control.winfo_rootx() + control.winfo_width() // 2,
+                                control.winfo_rooty() + control.winfo_height() // 2),
+                                f'{control} must remain the topmost hit target at its visible center')
+                self.assertFalse(panel.cancel.is_set())
+                panel.cancel_button.invoke()
+                self.assertTrue(panel.cancel.is_set(), 'Visible Cancel must retain its cancellation action')
+                prepare.assert_not_called()
+            finally:
+                settings.destroy()
+
     def test_closing_settings_cancels_slow_setup_and_its_queued_callbacks(self):
         from desktop import repository_validation as validation
         settings, panel = self.validation_window()

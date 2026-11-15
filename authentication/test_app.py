@@ -464,10 +464,33 @@ class IssueReportHttpTest(unittest.TestCase):
         # The Android client bounds the readiness body before admitting a report.
         self.assertLessEqual(len(response.content), 1024)
         from scripts.check_issue_reporting_configuration import check_readiness
-        check_readiness(self.origin, lambda _: response.content)
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness(self.origin, lambda _: response.content)
         # Old clients may continue posting their original reports without a
         # capability negotiation or a synthetic empty context object.
         self.assertEqual(200, self.submit(self.manual()).status_code)
+
+    def test_extended_readiness_negotiates_publication_evidence_without_expanding_legacy_body(self):
+        legacy = self.client.get("/health/ready")
+        extended = self.client.get("/health/ready?capabilities=extended")
+        self.assertEqual(200, extended.status_code)
+        self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + ["ACCEPTANCE_PUBLICATION_EVIDENCE_V1"],
+                         extended.json()["reportDiagnosticFeatures"])
+        for key in ("service", "version", "reportContextVersions"):
+            self.assertEqual(legacy.json()[key], extended.json()[key])
+        self.assertLessEqual(len(legacy.content), 1024)
+        self.assertGreater(len(extended.content), 1024)
+        self.assertLessEqual(len(extended.content), 4096)
+        self.assertEqual(legacy.content, self.client.get("/health/ready?capabilities=unrecognized").content)
+        self.assertEqual("no-store", extended.headers["cache-control"])
+        from scripts.check_issue_reporting_configuration import check_readiness
+        requested = []
+        def fetch(url):
+            requested.append(url)
+            return self.client.get(url).content
+        check_readiness(self.origin, fetch)
+        self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
+        self.assertFalse(self.issued)
 
     def test_versioned_context_keeps_causal_facts_and_explicit_unavailable_fields(self):
         context = self.context(stage="provider_admission", provider="LLAMA", httpStatus=409, dispatched=False,

@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from scripts.check_issue_reporting_configuration import REQUIRED_DIAGNOSTIC_FEATURES, check_readiness, validate
+from scripts.check_issue_reporting_configuration import MAX_READINESS_BYTES, REQUIRED_DIAGNOSTIC_FEATURES, check_readiness, validate
 
 
 class IssueReportingConfigurationTest(unittest.TestCase):
@@ -32,7 +32,7 @@ class IssueReportingConfigurationTest(unittest.TestCase):
             return json.dumps({"service": "gpt-mobile-issue-reporter", "version": 2, "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
                                "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES)}, separators=(",", ":")).encode()
         check_readiness("https://reports.project.org/", fetch)
-        self.assertEqual(["https://reports.project.org/health/ready"], observed)
+        self.assertEqual(["https://reports.project.org/health/ready?capabilities=extended"], observed)
         for value in (
             {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, 5, 6]},
             {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, 5, 6, "7"]},
@@ -64,7 +64,7 @@ class IssueReportingConfigurationTest(unittest.TestCase):
         ready = {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
                  "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES)}
         for version in (None, True, False, "2", 2.0, [], {}, -1, 0, 1):
-            # Isolate the protocol check from the independent 1,024-byte bound.
+            # Isolate the protocol check from the independent readiness bound.
             value = {**ready, "reportDiagnosticFeatures": []}
             if version is not None:
                 value["version"] = version
@@ -78,6 +78,17 @@ class IssueReportingConfigurationTest(unittest.TestCase):
                 check_readiness("https://reports.project.org", lambda _: json.dumps(value, separators=(",", ":")).encode())
 
     def test_readiness_does_not_accept_unbounded_or_non_json_responses(self):
-        for body in (b"x" * 1025, b"not-json", b"[]"):
+        for body in (b"x" * (MAX_READINESS_BYTES + 1), b"not-json", b"[]"):
             with self.subTest(size=len(body)), self.assertRaises(ValueError):
                 check_readiness("https://reports.project.org", lambda _: body)
+
+    def test_extended_readiness_enforces_exact_response_boundary(self):
+        ready = json.dumps({"service": "gpt-mobile-issue-reporter", "version": 2,
+                            "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                            "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES)},
+                           separators=(",", ":")).encode()
+        self.assertGreater(len(ready), 1024)
+        bounded = ready + b" " * (MAX_READINESS_BYTES - len(ready))
+        check_readiness("https://reports.project.org", lambda _: bounded)
+        with self.assertRaisesRegex(ValueError, "response bound"):
+            check_readiness("https://reports.project.org", lambda _: bounded + b" ")

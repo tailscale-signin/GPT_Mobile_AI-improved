@@ -29,7 +29,7 @@ class WorkspaceChecksTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         source = self.root / 'source'
         source.mkdir()
-        (source / 'file.py').write_text('answer = 1\n')
+        (source / 'file.py').write_bytes(b'answer = 1\n')
         env = {key: value for key, value in os.environ.items() if not key.upper().startswith('GIT_')}
         env.update(GIT_CONFIG_NOSYSTEM='1', GIT_CONFIG_GLOBAL=os.devnull)
         for argv in (['git', 'init', '-q', str(source)], ['git', '-C', str(source), 'add', '.'],
@@ -129,6 +129,45 @@ class WorkspaceChecksTests(unittest.TestCase):
         with self.assertRaises(ExecutionBindingError) as missing:
             self.action(action='check_output', check_id=receipt['check_id'])
         self.assertEqual('EXECUTION_ARTIFACT_UNAVAILABLE', missing.exception.code)
+        self.assertEqual(1, len(self.calls))
+
+    def test_candidate_materialization_preserves_utf8_and_declared_line_endings(self):
+        from v14.engineering_workspace import record_model_exposure
+
+        self.policy['commands'][1] = [sys.executable, '-c',
+                                     'from pathlib import Path; import sys; sys.stdout.buffer.write(Path("file.py").read_bytes())']
+        self.write_policy()
+        self.enable_private_artifacts()
+        content = 'answer = 1\n'
+        sha = blob_sha(content)
+        self.job['data'].update(tree={'file.py': {'mode': '100644', 'sha': sha}},
+                                files={'file.py': {'sha': sha, 'content': content, 'preview_characters': 0}})
+        record_model_exposure(self.job['data'], {'messages': [{'content': json.dumps({'evidence': {
+            'head_sha': self.head, 'files': {'file.py': {'sha': sha, 'content': content}}}})}]})
+        replacement = "answer = 'caf\u00e9'\r\nsecond = 2\rtail = 3"
+        expected = (replacement + '\n').encode('utf-8')
+        proposal = {'changes': [{'path': 'file.py', 'expected_blob_sha': sha,
+                                 'edits': [{'old': 'answer = 1', 'new': replacement}]}]}
+        original_open = Path.open
+
+        def platform_text_open(path, mode='r', buffering=-1, encoding=None, errors=None, newline=None):
+            # Ambient text defaults must not rewrite the declared source bytes.
+            if path.name == 'file.py' and mode == 'w':
+                encoding = 'cp1252' if encoding in (None, 'locale') else encoding
+                newline = '\r\n' if newline is None else newline
+            return original_open(path, mode, buffering, encoding, errors, newline)
+
+        with patch('v14.engineering_source.prepare_source'), \
+                patch('v14.engineering_validation.run_bounded', side_effect=self.execute), \
+                patch.object(Path, 'open', platform_text_open):
+            receipt = self.action(action='check', check_index=1, proposal=proposal)
+        self.assertEqual('PASSED', receipt['status'])
+        self.assertEqual(expected, self.backend.private_artifacts.read_bytes(self.job, receipt['output_ref']))
+        self.assertEqual(len(expected), receipt['output_bytes'])
+        self.assertEqual(hashlib.sha256(expected).hexdigest(), receipt['output_sha256'])
+        saved = self.job['data']['workspace_checks'][receipt['check_id']]
+        candidate = self.backend.private_artifacts.json_value(self.job, saved['candidate_ref'])
+        self.assertEqual(expected.decode('utf-8'), candidate[0]['content'])
         self.assertEqual(1, len(self.calls))
 
     def test_candidate_reuse_is_bound_to_retained_patch_source_policy_and_selected_command(self):

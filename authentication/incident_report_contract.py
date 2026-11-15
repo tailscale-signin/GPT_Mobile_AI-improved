@@ -310,6 +310,9 @@ HANDOFF_RECONCILIATION_FIELDS = HANDOFF_RECONCILIATION_COUNTS | HANDOFF_RECONCIL
 CHAT_DELIVERY_COUNTS = {'chat_delivery_content_bytes', 'chat_delivery_thinking_bytes', 'chat_delivery_success_events', 'chat_delivery_tool_events', 'chat_delivery_progress_events', 'chat_delivery_github_rounds'}
 CHAT_DELIVERY_FIELDS = CHAT_DELIVERY_COUNTS | {'chat_delivery_terminal', 'chat_delivery_answer_state', 'chat_delivery_counts_capped'}
 CLAIM_FRESHNESS_FIELDS = {'acceptance_claim_freshness_predicates'}
+ACCEPTANCE_PUBLICATION_COUNTS = {'acceptance_extraction_planned_batches', 'acceptance_receipt_snapshot_count', 'acceptance_claim_count'}
+ACCEPTANCE_PUBLICATION_TOKENS = {'acceptance_extraction_required_tokens', 'acceptance_extraction_input_limit_tokens'}
+ACCEPTANCE_PUBLICATION_FIELDS = ACCEPTANCE_PUBLICATION_COUNTS | ACCEPTANCE_PUBLICATION_TOKENS | {'acceptance_publication_source', 'acceptance_extraction_observation', 'acceptance_draft_state'}
 PROVIDER_FIELDS = {'provider_route_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_wait_terminal_status', 'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
 VOICE_FIELDS = {'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase'}
 
@@ -370,7 +373,7 @@ COUNTS = {
     'unknown_field_count',
     'untested_capability_count',
     'verified_capability_count',
-} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS | CHAT_DELIVERY_COUNTS
+} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS | CHAT_DELIVERY_COUNTS | ACCEPTANCE_PUBLICATION_COUNTS
 
 TYPES = {
     'ARRAY',
@@ -516,6 +519,9 @@ ENUMS = {
     'voice_reply_failure_evidence': {'TYPED_INVOCATION_REFERENCE', 'CLASSIFICATION_ONLY', 'MISSING_FAILURE_RECORD'},
     'voice_chat_failure_phase': PHASES - {'unknown'},
     'receipt_count_scope': {'LINKED_CRITERION_EVIDENCE'},
+    'acceptance_publication_source': {'STATUS', 'COVERAGE', 'CI_OBSERVATION', 'CLAIM_EXTRACTION', 'PARTIAL_FALLBACK', 'EVIDENCE_ADVANCED'},
+    'acceptance_extraction_observation': {'NOT_NEEDED', 'NO_DRAFT', 'PLAN_BATCH_LIMIT', 'PLAN_INPUT_LIMIT', 'PLAN_LIMIT_CHANGED', 'COMPLETED', 'FAILED'},
+    'acceptance_draft_state': {'ABSENT', 'EMPTY', 'PRESENT'},
     'provider_wait_state': {'WAITING_PROVIDER_LIMIT', 'CHECKPOINT_UNAVAILABLE', 'AUTHORITY_CHANGED', 'PERSIST_FAILED', 'NOT_SCHEDULED', 'RESUMED'},
     'retry_delay_source': {'PROVIDER_HEADER', 'PROVIDER_BODY', 'LOCAL_BACKOFF', 'UNKNOWN'},
     'recovery_authority': {'VALID', 'CHANGED', 'UNVERIFIED'},
@@ -555,7 +561,7 @@ ENUM_LISTS = {
 
 
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
@@ -586,6 +592,8 @@ def valid_value(key, value):
         return 1 <= value <= 3
     if key in HANDOFF_RECONCILIATION_COUNTS:
         return 0 <= value <= 1024
+    if key in ACCEPTANCE_PUBLICATION_TOKENS:
+        return 0 <= value <= 2_147_483_647
     return key in COUNTS and 0 <= value <= 16_000_000
 
 

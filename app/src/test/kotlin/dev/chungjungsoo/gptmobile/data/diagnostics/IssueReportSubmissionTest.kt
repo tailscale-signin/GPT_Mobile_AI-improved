@@ -1,10 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptancePublicationEvidence
 import java.io.IOException
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
@@ -23,6 +26,177 @@ class IssueReportSubmissionTest {
     private fun response(request: Request, code: Int, body: String, retryAfter: String? = null) = Response.Builder().request(request).protocol(Protocol.HTTP_1_1).code(code).message("Fixture")
         .apply { retryAfter?.let { header("Retry-After", it) } }.body(body.toResponseBody("application/json".toMediaType())).build()
     private fun body(request: Request) = Buffer().also { request.body?.writeTo(it) }.readUtf8()
+
+    // Exact legacy endpoint feature inventory. The new capability is negotiated
+    // separately so the existing 1 KiB response remains compatible.
+    private val legacyReadyFeatures = listOf(
+        "GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1", "INCIDENT_FAILURE_DETAILS_V1", "DISPATCH_POLICY_DIAGNOSTICS_V1",
+        "CHANGED_POLICY_FIELDS_V1", "EXECUTION_OUTCOME_DIAGNOSTICS_V1", "RUN_FAILURE_EVIDENCE_V1", "RECOVERY_OBSERVATIONS_V1",
+        "ISSUE_RECOVERY_DETAILS_V1", "ADMISSION_DIAGNOSTICS_V1", "SESSION_RECOVERY_DIAGNOSTICS_V1", "VOICE_PLAYBACK_PHASE_V1",
+        "CAPACITY_ADMISSION_EVIDENCE_V1", "CONVERSATION_CONFLICT_EVIDENCE_V1", "ACCEPTANCE_SCOPE_EVIDENCE_V1", "VOICE_INSTALL_EVIDENCE_V1",
+        "GITHUB_SCHEMA_BUDGET_EVIDENCE_V1", "VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1", "COMPLETION_EVIDENCE_V1", "COMPOSER_IME_EVIDENCE_V1",
+        "GITHUB_PREREQUISITE_EVIDENCE_V1", "GITHUB_GRAPH_POLICY_EVIDENCE_V1", "ACCEPTANCE_RECOVERY_EVIDENCE_V1", "ISSUE_RECOVERY_CODES_V1",
+        "CAPTURE_BOUNDARY_EVIDENCE_V1", "HANDOFF_RECONCILIATION_EVIDENCE_V1", "CHAT_DELIVERY_EVIDENCE_V1", "CLAIM_FRESHNESS_EVIDENCE_V1",
+        "PROFILE_SELECTION_EVIDENCE_V1", "GH_COOLDOWN_V1"
+    )
+
+    private fun ready(extended: Boolean): String = buildJsonObject {
+        put("service", "gpt-mobile-issue-reporter")
+        put("version", 2)
+        put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+        val features = legacyReadyFeatures + if (extended) listOf(GitHubAcceptancePublicationEvidence.FEATURE) else emptyList()
+        put("reportDiagnosticFeatures", JsonArray(features.map(::JsonPrimitive)))
+    }.toString()
+
+    private fun publicationReport(): IssueReport = report.copy(
+        context = IssueReportContext.fromFields(
+            "CHAT_FAILURE",
+            mapOf("diagnostic_area" to "ACCEPTANCE", "acceptance_publication_source" to "PARTIAL_FALLBACK"),
+            1000L
+        )
+    )
+
+    @Test fun publicationEvidenceValuesAndOmissionsNegotiateExtendedReadinessBeforeUnchangedPost() {
+        assertEquals(1022, ready(false).encodeToByteArray().size)
+        assertTrue(ready(true).encodeToByteArray().size in 1025..4096)
+        var fixtures = 0
+        for (key in GitHubAcceptancePublicationEvidence.fields) {
+            val value = when (key) {
+                "acceptance_publication_source" -> JsonPrimitive("PARTIAL_FALLBACK")
+                "acceptance_extraction_observation" -> JsonPrimitive("PLAN_INPUT_LIMIT")
+                "acceptance_draft_state" -> JsonPrimitive("PRESENT")
+                else -> JsonPrimitive(0)
+            }
+            for (omitted in listOf(false, true)) {
+                val context = requireNotNull(publicationReport().context)
+                val base = requireNotNull(context.diagnostics)
+                val withoutPublication = base.values - GitHubAcceptancePublicationEvidence.fields
+                val diagnostics = if (omitted) {
+                    base.copy(values = withoutPublication, omittedFields = listOf(key))
+                } else {
+                    base.copy(values = withoutPublication + (key to value))
+                }
+                val approved = report.copy(context = context.withDiagnostics(diagnostics))
+                val payload = approved.approvedPayload()
+                assertTrue(GitHubAcceptancePublicationEvidence.FEATURE in diagnostics.requiredServiceFeatures())
+                var compatible = false
+                var dispatched = 0
+                val methods = mutableListOf<String>()
+                val posted = mutableListOf<String>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    methods += request.method
+                    if (request.method == "GET") {
+                        assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                        response(request, 200, ready(compatible))
+                    } else {
+                        posted += body(request)
+                        response(request, 200, """{"reportId":"${report.reportId}","number":1240}""")
+                    }
+                }.build()
+                val submission = IssueReportSubmission(origin, client)
+                val blocked = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+                assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+                assertFalse(blocked.automaticRetry)
+                assertEquals(listOf("GET"), methods)
+                assertEquals(0, dispatched)
+                assertTrue(posted.isEmpty())
+                assertEquals(payload, approved.approvedPayload())
+                compatible = true
+                assertEquals(IssueReportSubmission.Confirmed(1240), submission.send(report.reportId, payload) { dispatched++ })
+                assertEquals(listOf("GET", "GET", "POST"), methods)
+                assertEquals(1, dispatched)
+                assertEquals(listOf(payload), posted)
+                fixtures++
+            }
+        }
+        assertEquals(16, fixtures)
+    }
+
+    @Test fun extendedReadinessIsBoundedAtFourKiBAndOversizeNeverPosts() {
+        val payload = publicationReport().approvedPayload()
+        for (size in listOf(4096, 4097)) {
+            val ready = ready(true).let { it + " ".repeat(size - it.encodeToByteArray().size) }
+            assertEquals(size, ready.encodeToByteArray().size)
+            var dispatched = 0
+            var posts = 0
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                if (request.method == "GET") {
+                    assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                    response(request, 200, ready)
+                } else {
+                    posts++
+                    response(request, 200, """{"reportId":"${report.reportId}","number":1240}""")
+                }
+            }.build()
+            val outcome = IssueReportSubmission(origin, client).send(report.reportId, payload) { dispatched++ }
+            if (size == 4096) {
+                assertEquals(IssueReportSubmission.Confirmed(1240), outcome)
+                assertEquals(1, dispatched)
+                assertEquals(1, posts)
+            } else {
+                assertEquals("REPORT_SERVICE_UNAVAILABLE", (outcome as IssueReportSubmission.Failure).code)
+                assertEquals(0, dispatched)
+                assertEquals(0, posts)
+            }
+        }
+    }
+
+    @Test fun legacyReportsRetainPlainReadinessAndTheOneKiBBound() {
+        val approved = report.copy(context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "ACCEPTANCE"), 1000L))
+        val payload = approved.approvedPayload()
+        assertFalse(GitHubAcceptancePublicationEvidence.FEATURE in requireNotNull(approved.context?.diagnostics).requiredServiceFeatures())
+        for (size in listOf(1024, 1025)) {
+            val ready = ready(false).let { it + " ".repeat(size - it.encodeToByteArray().size) }
+            var posts = 0
+            var dispatched = 0
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                if (request.method == "GET") {
+                    assertEquals("$origin/health/ready", request.url.toString())
+                    response(request, 200, ready)
+                } else {
+                    posts++
+                    response(request, 200, """{"reportId":"${report.reportId}","number":1240}""")
+                }
+            }.build()
+            val outcome = IssueReportSubmission(origin, client).send(report.reportId, payload) { dispatched++ }
+            if (size == 1024) {
+                assertEquals(IssueReportSubmission.Confirmed(1240), outcome)
+                assertEquals(1, posts)
+                assertEquals(1, dispatched)
+            } else {
+                assertEquals("REPORT_SERVICE_UNAVAILABLE", (outcome as IssueReportSubmission.Failure).code)
+                assertEquals(0, posts)
+                assertEquals(0, dispatched)
+            }
+        }
+    }
+
+    @Test fun extendedReadinessDoesNotEnlargeTheSubmissionReceiptBound() {
+        val payload = publicationReport().approvedPayload()
+        for (size in listOf(1024, 1025)) {
+            val receipt = """{"reportId":"${report.reportId}","number":1240}""".let { it + " ".repeat(size - it.encodeToByteArray().size) }
+            var dispatched = 0
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                if (request.method == "GET") {
+                    response(request, 200, ready(true))
+                } else {
+                    assertEquals(payload, body(request))
+                    response(request, 200, receipt)
+                }
+            }.build()
+            val outcome = IssueReportSubmission(origin, client).send(report.reportId, payload) { dispatched++ }
+            assertEquals(1, dispatched)
+            if (size == 1024) {
+                assertEquals(IssueReportSubmission.Confirmed(1240), outcome)
+            } else {
+                assertEquals("REPORT_RECEIPT_UNAVAILABLE", (outcome as IssueReportSubmission.Failure).code)
+            }
+        }
+    }
 
     @Test fun newEvidenceValuesAndOmittedNamesWaitForCompatibleReporterWithoutChangingApproval() {
         var fixtures = 0

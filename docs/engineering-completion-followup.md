@@ -3,6 +3,37 @@
 This extends PR #1203. Source implementation, host regression evidence, hosted
 build evidence and installed-device qualification are separate claims.
 
+## Latest CI and reporting corrections
+
+Initial GitHub tool selection prefers an already authorized, visible compact
+inspection contract for the same operation and exact connection suffix. The
+full contract remains the fallback when no compact contract is eligible, and
+explicit discovery can still select the exact full contract. The complete
+authorized inventory and request admission limits remain unchanged.
+
+Supplemental engineering memory requires a selected native GitHub tool whose
+non-null connection identity matches the saved conversation context. A local
+decision tool cannot grant access to that history. A typed missing connection,
+wrong connection type or changed memory scope omits only the supplemental
+history and emits a notice. Fresh authorization, final scope revalidation,
+explicit public connections, cancellation and cloud-memory consent retain their
+existing behavior. Reports preserve the actual finite lookup/revalidation reason
+without inferring earlier dispatch or the cause of an old missing row.
+
+Acceptance reports now retain bounded observations from the exact delivered
+verdict, including why claim extraction was unavailable and the actual operands
+when a planning limit rejected it. Newer evidence discards observations belonging
+to the superseded snapshot. Existing reports without the marker remain unknown.
+The [publication diagnostic contract](repairs/acceptance-publication-evidence-2026-11-15.md)
+defines the eight fields, compatibility negotiation and unchanged report bounds.
+
+Gateway candidates are written as exact UTF-8 bytes so Windows does not change
+their declared line endings or content digests. Repository Validation status and
+actions span the complete compact viewport, with native layout and cancellation
+assertions in the existing Windows UI suite. The GenieX KAPT build step uses the
+existing 4 GiB compilation budget; this does not change application inference
+threads or establish device performance.
+
 ## Working context and coding loop
 
 Android primary-answer admission now passes the same `ReplayAllowance.Allocation`

@@ -18,7 +18,10 @@ REQUIRED_DIAGNOSTIC_FEATURES = frozenset({
     "GITHUB_GRAPH_POLICY_EVIDENCE_V1", "ACCEPTANCE_RECOVERY_EVIDENCE_V1", "ISSUE_RECOVERY_CODES_V1",
     "CAPTURE_BOUNDARY_EVIDENCE_V1", "HANDOFF_RECONCILIATION_EVIDENCE_V1", "CHAT_DELIVERY_EVIDENCE_V1",
     "CLAIM_FRESHNESS_EVIDENCE_V1", "PROFILE_SELECTION_EVIDENCE_V1", "GH_COOLDOWN_V1",
+    "ACCEPTANCE_PUBLICATION_EVIDENCE_V1",
 })
+
+MAX_READINESS_BYTES = 4096
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -44,9 +47,9 @@ def validate(origin, github_enabled):
 def check_readiness(origin, fetch=None):
     def network_fetch(url):
         with build_opener(NoRedirect()).open(url, timeout=15) as response:
-            return response.read(1025)
-    data = (fetch or network_fetch)(origin.rstrip("/") + "/health/ready")
-    if len(data) > 1024:
+            return response.read(MAX_READINESS_BYTES + 1)
+    data = (fetch or network_fetch)(origin.rstrip("/") + "/health/ready?capabilities=extended")
+    if len(data) > MAX_READINESS_BYTES:
         raise ValueError("Reporter readiness exceeded the app's response bound")
     value = json.loads(data)
     versions = value.get("reportContextVersions") if isinstance(value, dict) else None

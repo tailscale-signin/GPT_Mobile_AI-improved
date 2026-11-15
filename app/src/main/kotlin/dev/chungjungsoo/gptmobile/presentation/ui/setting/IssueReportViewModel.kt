@@ -144,7 +144,23 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
                         }
                     }
                     require(declared == null || declared!! <= IssueReportAttachment.MAX_ORIGINAL_BYTES)
-                    val bytes = requireNotNull(resolver.openInputStream(uri)).use { it.readNBytes((IssueReportAttachment.MAX_ORIGINAL_BYTES + 1).toInt()) }
+                    val bytes = requireNotNull(resolver.openInputStream(uri)).use { input ->
+                        val limit = (IssueReportAttachment.MAX_ORIGINAL_BYTES + 1).toInt()
+                        val buffer = ByteArray(limit)
+                        var size = 0
+                        while (size < limit) {
+                            val count = input.read(buffer, size, limit - size)
+                            if (count < 0) break
+                            if (count == 0) {
+                                val byte = input.read()
+                                if (byte < 0) break
+                                buffer[size++] = byte.toByte()
+                            } else {
+                                size += count
+                            }
+                        }
+                        buffer.copyOf(size)
+                    }
                     val mediaType = resolver.getType(uri)?.substringBefore(';')?.lowercase() ?: "text/plain"
                     IssueReportAttachmentCapture.fromBytes(name, mediaType, declared, bytes)
                 }

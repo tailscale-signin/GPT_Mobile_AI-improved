@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "dabb275afe22577ac9712cea0bdee32fcbd30bdc550631e47c963c4d51b86422",
+  "source_digest": "870383bc9de1d3f611d96d0d906b25d6577242148d2f12da36b93ebfcd982416",
   "file_count": 2636,
-  "indexed_line_count": 426018,
+  "indexed_line_count": 426051,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -124,13 +124,13 @@
       "id": "persistence",
       "label": "Databases, backup and storage",
       "file_count": 109,
-      "indexed_line_count": 14625
+      "indexed_line_count": 14640
     },
     {
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 13161
+      "indexed_line_count": 13179
     },
     {
       "id": "benchmark",
@@ -4812,8 +4812,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentPersistenceDao.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "767bd9a34281ce263e88b43b9fe937b372496f20715d6f2a77e3cd4558b66930",
-      "indexed_lines": 1800
+      "sha256": "428fce0ce17f3cc1ace1091cfb1e71dc14cee5f296a174ada3540b03e30435d1",
+      "indexed_lines": 1814
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/AgentRunDao.kt",
@@ -5631,7 +5631,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "6c8bf88957fb2d455f8f3e8cf1bdf79a194e9e68414705193f671498a20de122",
+      "sha256": "80ad1469a1d5c907b50978c1d24a2373a2f854d0ccc58c9cbb029cfdca307673",
       "indexed_lines": 593
     },
     {
@@ -5645,8 +5645,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentCapsule.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "ff943751a31a5d4fddea8e192c5c8fa921616394033908d880e595012aa33300",
-      "indexed_lines": 418
+      "sha256": "1e896889f349286a623f40cc08be7a4e7341acea4634082dd405ca6b25f13dec",
+      "indexed_lines": 436
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
@@ -10881,8 +10881,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
       "area_id": "persistence",
       "kind": "source",
-      "sha256": "abe5d80ecef98fa330b56a7163af9e51fd989f4b95f9524269bf055c6baf0b16",
-      "indexed_lines": 285
+      "sha256": "1981c008a4a1b70bd16a374cff21e42311d5664428ea337c5bbe4462fb54e19f",
+      "indexed_lines": 286
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolPrecheckEvidence.kt",

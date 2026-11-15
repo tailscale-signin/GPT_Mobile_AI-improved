@@ -114,6 +114,25 @@ class ProviderAdaptersTest {
         }
     }
 
+    @Test fun codeLessOpenRouterStreamErrorRetainsTypedProducerEvidence() = runBlocking {
+        val error = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(
+            message = "Provider response failed without a typed code",
+            retryable = false
+        )
+        val api = FakeOpenAIAPI(chatRounds = ArrayDeque(listOf(flowOf(ChatCompletionChunk(error = error)))))
+        val events = OpenAICompatibleAdapter(api, FakeGroqAPI(), attachmentEncoder())
+            .openSession(turns(), platform(ClientType.OPENROUTER))
+            .streamRound(emptyList(), emptyList())
+            .toList()
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals("PROVIDER_INVOCATION_FAILED", failure.errorCode)
+        assertEquals(JsonPrimitive("ABSENT"), failure.failureDetails?.get("provider_error_code_state"))
+        assertEquals(JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"), failure.failureDetails?.get("provider_error_origin"))
+        assertEquals(JsonPrimitive("model_invocation"), failure.failureDetails?.get("failed_stage"))
+        assertFalse(failure.failureDetails.toString().contains("Provider response failed without a typed code"))
+        assertFalse(events.contains(ProviderEvent.Completed))
+    }
+
     @Test fun benchmarkProgressCannotReplaceVerifiedJobAffinity() = runBlocking {
         for (role in listOf("benchmark", "benchmark-readiness")) {
             for (verified in listOf(null, false, true)) {

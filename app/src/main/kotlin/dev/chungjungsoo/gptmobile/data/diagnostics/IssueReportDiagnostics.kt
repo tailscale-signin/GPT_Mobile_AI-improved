@@ -114,7 +114,9 @@ internal data class IssueReportDiagnostics(
         ) {
             add("RUN_FAILURE_EVIDENCE_V1")
         }
-        if ("url_reader_availability" in values || "url_reader_availability" in omittedFields) add("URL_READER_AVAILABILITY_V1")
+        if ("url_reader_availability" in values || "url_reader_availability" in omittedFields) {
+            add(IssueReportIncidentCapsule.URL_READER_AVAILABILITY_FEATURE)
+        }
         if ((values.keys + omittedFields).any { it in recoveryObservationFields } ||
             (values["saved_view_restore_state"] as? JsonPrimitive)?.contentOrNull in setOf("BODY_MISSING", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID") ||
             "saved_view_restore_state" in omittedFields ||

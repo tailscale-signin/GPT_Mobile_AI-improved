@@ -131,7 +131,8 @@ class IssueReportSubmissionTest {
             Triple("INCIDENT", IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE, persistence),
             Triple("ACCEPTANCE", GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE, mapOf("acceptance_publication_entry" to JsonPrimitive("STATUS_COLLECTION"), "acceptance_claim_trust_failures" to JsonArray(listOf(JsonPrimitive("TARGET_OUTSIDE_ACCEPTED_SCOPE"))))),
             Triple("INCIDENT", GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE, mapOf("review_comparison_state" to JsonPrimitive("BASE_REF_BLOCKED"), "review_comparison_policy" to JsonPrimitive("EXPLICIT_BASE_REF"))),
-            Triple("INCIDENT", IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE, mapOf("sqlite_constraint_kind" to JsonPrimitive("UNKNOWN")))
+            Triple("INCIDENT", IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE, mapOf("sqlite_constraint_kind" to JsonPrimitive("UNKNOWN"))),
+            Triple("TOOL", IssueReportIncidentCapsule.URL_READER_AVAILABILITY_FEATURE, mapOf("url_reader_availability" to JsonPrimitive("NEGATIVE_CACHE")))
         )
         val newFeatures = families.map { it.second }.toSet()
         var fixtures = 0

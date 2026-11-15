@@ -74,12 +74,16 @@ internal object ToolReportDiagnostics {
             observation?.let { put("url_reader_availability", it) }
         }
         val reader = result.executionReceipt
-        if (event.modelToolName == "read_url" && result.isError && result.errorCode == "SOURCE_UNAVAILABLE" &&
+        if (event.modelToolName == "read_url" &&
+            result.isError &&
+            result.errorCode == "SOURCE_UNAVAILABLE" &&
             reader?.get("schema") == JsonPrimitive("gptmobile.search-operation.v1") &&
-            reader["provider"] == JsonPrimitive("read_url") && reader["callId"] == JsonPrimitive(result.callId) &&
+            reader["provider"] == JsonPrimitive("read_url") &&
+            reader["callId"] == JsonPrimitive(result.callId) &&
             reader["errorCode"] == JsonPrimitive(result.errorCode)
         ) {
-            val observation = if (result.dispatched && reader["requestSent"] == JsonPrimitive(true) &&
+            val observation = if (result.dispatched &&
+                reader["requestSent"] == JsonPrimitive(true) &&
                 reader["httpStatus"] in setOf(JsonPrimitive(404), JsonPrimitive(405), JsonPrimitive(410))
             ) {
                 JsonPrimitive("HTTP_UNAVAILABLE")

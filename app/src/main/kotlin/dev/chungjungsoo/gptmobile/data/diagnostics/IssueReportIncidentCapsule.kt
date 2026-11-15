@@ -80,6 +80,7 @@ internal object IssueReportIncidentCapsule {
     val repeatAdmissionFields = repeatAdmissionCounts + "dependency_repeat_scope"
     const val TOOL_EVENT_PERSISTENCE_FEATURE = "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1"
     const val SQLITE_CONSTRAINT_FEATURE = "SQLITE_CONSTRAINT_EVIDENCE_V1"
+    const val URL_READER_AVAILABILITY_FEATURE = "URL_READER_AVAILABILITY_V1"
     private val toolEventSignedSequences = setOf("tool_event_requested_sequence", "tool_event_previous_max_sequence")
     val toolEventPersistenceFields = toolEventSignedSequences + setOf("tool_event_persistence_operation", "tool_event_persistence_phase", "tool_event_persistence_failure", "tool_event_assigned_sequence", "tool_event_write_attempted")
     val reviewComparisonFields = setOf("review_comparison_state", "review_comparison_policy")

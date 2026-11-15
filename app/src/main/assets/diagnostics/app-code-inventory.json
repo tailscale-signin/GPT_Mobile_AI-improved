@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "1dc4f3ff938b146dee8a4ca56f101c3a40dbd5569b7acc1d62fdb6a7ed646039",
+  "source_digest": "6fcf21b51c770a982e7b5817144b5faca8f095a0d2b50beeae8c2ddc88b0570a",
   "file_count": 2629,
-  "indexed_line_count": 424318,
+  "indexed_line_count": 424326,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 153,
-      "indexed_line_count": 72883
+      "indexed_line_count": 72891
     },
     {
       "id": "authentication_service",
@@ -17426,8 +17426,8 @@
       "path": "gateway/desktop/acceptance_discovery_dialog.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "a63eb3db2e6ec0bca2f4f5a6032b4d9e8e27288b8a862d741513a2dd8f0974d1",
-      "indexed_lines": 154
+      "sha256": "87c70ec12bac255443b99044ff5ec68719e7d7c471a4dccd83aa2a853b31499f",
+      "indexed_lines": 155
     },
     {
       "path": "gateway/desktop/addons.py",
@@ -17559,8 +17559,8 @@
       "path": "gateway/desktop/release_checks_dialog.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "887f42397bca7e01a4bd196ede99049042d1d3d9c6e0461fe4dccb14648eb4b7",
-      "indexed_lines": 85
+      "sha256": "074e0c9c523027385f257fb6194a37132db744d2cb065b47faaa207e286c0da5",
+      "indexed_lines": 86
     },
     {
       "path": "gateway/desktop/releases.py",
@@ -17580,8 +17580,8 @@
       "path": "gateway/desktop/repository_validation_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ca8b0b1931b84b1da7f5edf50c28035f76dc13996d93e43116dfe13d7c7974a8",
-      "indexed_lines": 579
+      "sha256": "5d3556cdf55184f2820edc0562fdc8139dcd40a3a803656ad2fe49de61564138",
+      "indexed_lines": 581
     },
     {
       "path": "gateway/desktop/smoke_windows.py",
@@ -17615,8 +17615,8 @@
       "path": "gateway/desktop/ui.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "baea7d3bd80592e74f52f768607cb7845d5e93135bf98eb661d0e35188841450",
-      "indexed_lines": 419
+      "sha256": "840bfe279e66c03f3b9f4121d0b60ab956aac9490c4bf4be212f1067ddf80e20",
+      "indexed_lines": 423
     },
     {
       "path": "gateway/desktop/validation_policy.py",

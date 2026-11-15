@@ -52,6 +52,10 @@ def build_window(root, parent=None, section='General'):
     root = Path(root)
     cfg = load(root)
     window = tk.Toplevel(parent) if parent else tk.Tk()
+    if parent is not None:
+        # Keep settings above its owning dashboard on Windows. A plain Toplevel
+        # can otherwise map behind the parent despite visible child geometry.
+        window.transient(parent.winfo_toplevel())
     callbacks = WindowCallbacks(window)
     window.settings_callbacks = callbacks
     theme.apply(window)

@@ -16,6 +16,7 @@ def open_dialog(panel):
         panel.notice(str(error))
         return
     dialog = tk.Toplevel(panel.frame)
+    dialog.transient(panel.frame.winfo_toplevel())
     dialog.title('Choose task tests')
     dialog.geometry('740x620')
     dialog.columnconfigure(1, weight=1)

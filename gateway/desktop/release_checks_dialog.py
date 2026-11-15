@@ -22,6 +22,7 @@ def open_dialog(panel):
     previous = options.get('post_merge', {'artifacts': [], 'installation_checks': [], 'smoke_checks': []})
     artifacts = deepcopy(previous['artifacts'])
     window = tk.Toplevel(panel.frame)
+    window.transient(panel.frame.winfo_toplevel())
     window.title('Release verification')
     window.columnconfigure(1, weight=1)
     ttk.Label(window, text='Require these artifacts and checks on the actual merged revision. Downloads are digest-verified; '

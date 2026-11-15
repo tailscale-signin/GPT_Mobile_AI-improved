@@ -103,6 +103,7 @@ class DesktopNativeAcceptance(unittest.TestCase):
     def validation_window(self):
         from desktop.ui import build_window
         settings = build_window(self.root, self.window, section='GitHub')
+        self.assertEqual(str(self.window), str(settings.transient()))
         settings.geometry('660x500')
         tab = next(tab for tab in settings.github_tabs.tabs()
                    if settings.github_tabs.tab(tab, 'text') == 'Repository Validation')

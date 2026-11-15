@@ -4,7 +4,7 @@
 
 Prepare replay with the final uncertainty policy and recompact after a confirmed pre-dispatch capacity rejection. Keep selected LiteRT schemas, prioritize newly requested workspace pages, retain tested candidates and page complete bounded check output. Commit recovery links and final completion evidence with their owning SQLite transactions. Android Jobs and Windows Saved can review an exact recovery merge. Validation settings use a single scrollable viewport.
 
-Read-only acceptance discovery is pinned to the selected commit and proposes approved test cases for review. Windows repository-bound task composition and independent benchmark input-preservation proof still require implementation. Native Windows, installed Android, and live-model qualification are pending.
+Read-only acceptance discovery is pinned to the selected commit and proposes approved test cases for review. Windows Chat prepares repository-bound tasks, reviews approved acceptance cases, and continues saved engineering jobs using their original model binding. Independent benchmark input-preservation proof remains pending. Native Windows, installed Android, and live-model qualification are pending.
 
 ## November 15 engineering feature follow-up
 

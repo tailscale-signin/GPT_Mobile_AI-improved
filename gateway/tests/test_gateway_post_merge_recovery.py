@@ -90,6 +90,28 @@ class PostMergeRecoveryTests(unittest.TestCase):
             self.assertEqual('b' * 40, inspect(self.service, self.job)['qualified_revision'])
         self.assertIn('/compare/' + 'b' * 40, self.backend.api.call_args.args[0])
 
+    def test_six_hours_of_external_wait_preserve_productive_budget(self):
+        self.job['steps'] = 256
+        self.job['deadline'] = self.store.now() + 7 * 3600
+        self.store.complete(self.job, self.lease, 'VERIFY', {})
+        clock = self.store.now()
+        self.store.now = lambda: clock
+        self.service.completion_verification = Mock(return_value={'passed': True, 'failures': [], 'requirements': []})
+        self.backend.step = Mock(return_value={'post_merge': {'status': 'PENDING'}})
+        for hour in range(6):
+            clock += 3600
+            self.service.tick(self.job['id'])
+        waiting = self.store.get(self.job['id'])
+        self.assertEqual('VERIFY', waiting['state'])
+        self.assertEqual(256, waiting['steps'])
+        self.assertEqual(6, waiting['external_observations'])
+        clock += 120
+        self.backend.step.return_value = {'post_merge': {'status': 'PASSED', 'qualified_revision': 'c' * 40}}
+        self.service.tick(self.job['id'])
+        concluded = self.store.get(self.job['id'])
+        self.assertEqual('COMPLETED', concluded['state'])
+        self.assertEqual('c' * 40, concluded['data']['final_report']['qualified_revision'])
+
     def test_configuration_blocks_deadline_and_depth_do_not_spawn_more_jobs(self):
         self.assertIsNone(enqueue(self.service, self.job, dict(self.failed, status='BLOCKED')))
         self.job['recovery_depth'] = self.job['request']['repair_attempts']

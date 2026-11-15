@@ -59,7 +59,7 @@ class WorkspaceChecksTests(unittest.TestCase):
         self.calls.append(argv)
         mount = next(value for value in argv if value.startswith('--mount=type=bind,source='))
         checkout = mount.removeprefix('--mount=type=bind,source=').removesuffix(',target=/workspace')
-        return run_bounded(argv[argv.index(self.image) + 1:], checkout, timeout)
+        return run_bounded(argv[argv.index(self.image) + 1:], checkout, timeout, maximum, destination)
 
     def action(self, **values):
         return act(self.backend, self.job, dict(head_sha=self.head, **values))
@@ -83,6 +83,33 @@ class WorkspaceChecksTests(unittest.TestCase):
         self.assertEqual(19, page['output_bytes'])
         with self.assertRaises(ValueError):
             self.action(action='check_output', check_id=receipt['check_id'], start_line=8)
+
+    def test_fresh_attempt_reuses_candidate_and_retains_output_before_the_tail(self):
+        self.policy['commands'][1] = [sys.executable, '-c', 'print("first error"); print("padding\\n" * 2500)']
+        self.policy_path.write_text(json.dumps({'owner/repo': self.policy}))
+        self.job['data']['admission']['policy_sha256'] = hashlib.sha256(
+            json.dumps(self.policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+        retained = {}
+        def save(raw):
+            reference = {'id': len(retained)}
+            retained[reference['id']] = raw
+            return reference
+        self.backend.private_artifacts = SimpleNamespace(
+            put_json=lambda _, value, __: save(value),
+            put=lambda _, chunks, **__: save(b''.join(chunks)),
+            json_value=lambda _, ref: retained[ref['id']],
+            read_bytes=lambda _, ref: retained[ref['id']])
+        with patch('v14.engineering_source.prepare_source'), \
+                patch('v14.engineering_validation.run_bounded', side_effect=self.execute):
+            first = self.action(action='check', check_index=1)
+            self.assertIsNotNone(first['candidate_ref'])
+            self.assertEqual('first error\n', self.action(action='check_output', check_id=first['check_id'], line_count=1)['content'])
+            fresh = self.action(action='check', check_index=1, candidate_check_id=first['check_id'], attempt_id='fresh-1')
+            self.assertNotEqual(first['check_id'], fresh['check_id'])
+            self.assertEqual(first['patch_identity'], fresh['patch_identity'])
+            self.assertEqual(fresh, self.action(action='check', check_index=1, candidate_check_id=first['check_id'], attempt_id='fresh-1'))
+            self.assertEqual(2, len(self.calls))
+            self.assertEqual(2, self.job['data']['workspace_check_executions'])
 
     def test_check_executes_inspected_patch_and_preserves_real_source(self):
         content = 'answer = 1\n'

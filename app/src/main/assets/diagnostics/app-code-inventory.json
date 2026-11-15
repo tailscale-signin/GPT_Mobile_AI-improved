@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "471b9ead2b7e096df90162ce1ffd1efa4bd49e9eaaaf83aa456f852ecda8c70e",
-  "file_count": 2629,
-  "indexed_line_count": 424885,
+  "source_digest": "ee7936704e0093231387b21e52e3cd890f04c13a690786985db87ff2a78c09db",
+  "file_count": 2630,
+  "indexed_line_count": 425070,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -165,8 +165,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 153,
-      "indexed_line_count": 73210
+      "file_count": 154,
+      "indexed_line_count": 73395
     },
     {
       "id": "authentication_service",
@@ -17461,8 +17461,8 @@
       "path": "gateway/desktop/chat_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "a59d8fabc83f94d9a3344b9de768c2c5068c90ecf9f453ffe8078fd2888b5ca4",
-      "indexed_lines": 656
+      "sha256": "8e856fdee5958a8b0cc3976244b2098ce50b0f860e5b603d6943533a2680bc01",
+      "indexed_lines": 703
     },
     {
       "path": "gateway/desktop/chat_state.py",
@@ -17482,8 +17482,8 @@
       "path": "gateway/desktop/conversation_client.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "379afca8f7e1fcde61d59b629bce65bf549d59b077f3483f54ebce6b6b9ec061",
-      "indexed_lines": 332
+      "sha256": "006f376667ad1897e707310aa03d476597778ac107b4bea8defe3dce5b475904",
+      "indexed_lines": 379
     },
     {
       "path": "gateway/desktop/dashboard.py",
@@ -17498,6 +17498,13 @@
       "kind": "source",
       "sha256": "923fc110421376bc62c589df7c0f43c96730bd67b9055698cde66803f32ea8e3",
       "indexed_lines": 66
+    },
+    {
+      "path": "gateway/desktop/engineering_composer.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "af715fa26e68bc0247cbacf459c49263c1cae225a574149c1ae873356047df90",
+      "indexed_lines": 81
     },
     {
       "path": "gateway/desktop/entry.py",
@@ -17951,14 +17958,14 @@
       "path": "gateway/v14/engineering.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "f70e22fb85cc7a7b45e246357061453412e50c85b137cd2088d081e5489246ff",
-      "indexed_lines": 1365
+      "sha256": "bf109ef29b471bff640ae621f105b73538a24b4af903e1512043835863fd2575",
+      "indexed_lines": 1372
     },
     {
       "path": "gateway/v14/engineering_artifacts.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "b532a080b8e020fb8d27e4622207b5a900729e93f6a02ec88c244e11fb9752a6",
+      "sha256": "027a95eb0b6f1963243d638a404019645dd988c80f5020e9aad77b452397b04b",
       "indexed_lines": 177
     },
     {
@@ -18091,8 +18098,8 @@
       "path": "gateway/v14/engineering_specialists.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "ec0986726d6cfe9ec8553f64e7b7c1cc9266c7daf5f25e0e827d0be057125dd1",
-      "indexed_lines": 82
+      "sha256": "e65154a5aa98513614dac1fd9904f639907d88a71f41b668422faa3d995e61f6",
+      "indexed_lines": 85
     },
     {
       "path": "gateway/v14/engineering_validation.py",

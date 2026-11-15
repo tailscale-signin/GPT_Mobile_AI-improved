@@ -46,6 +46,8 @@ class ChatPanel(tk.Frame):
         head.pack(fill='x', pady=(0, 6))
         self.heading = theme.label(head, 'Chat', 23, bold=True)
         self.heading.pack(side='left')
+        self.compose_engineering_button = ttk.Button(head, text='Engineering task…', command=self.compose_engineering, state='disabled')
+        self.compose_engineering_button.pack(side='right', padx=5)
         ttk.Button(head, text='New prompt', command=self.new_chat, style='Accent.TButton').pack(side='right')
         self.privacy = theme.label(self, 'Connect to see where your conversations are saved.', color=theme.MUTED,
                                    justify='left', anchor='w', wraplength=720)
@@ -439,6 +441,42 @@ class ChatPanel(tk.Frame):
         if ident:
             self.launch('stopped', lambda: self.client().cancel(ident), quiet=True)
 
+    def compose_engineering(self):
+        if self.busy or self.sending or not self.identity or self.state.error or self.state.value.get('pending'):
+            return
+        from desktop.engineering_composer import EngineeringForm
+        origin = self.conversation if (self.conversation or {}).get('active_job_kind') == 'engineering' else None
+        form = EngineeringForm(self, self.model.get(), origin)
+        if form.result:
+            command = uuid.uuid4().hex
+            model = self.model.get()
+            self.launch('engineering-preflight', lambda: self.client().prepare_engineering(model, form.result, command, origin))
+
+    def show_engineering_preflight(self, payload, result):
+        if not self.visible:
+            return
+        if not result.get('ready'):
+            from desktop.engineering_composer import AcceptanceForm
+            proposal = result.get('acceptance_preparation') or {}
+            if proposal.get('source_sha') == payload.get('source_sha') and proposal.get('candidates'):
+                form = AcceptanceForm(self, proposal)
+                if form.result:
+                    updated = dict(payload, acceptance=[form.result])
+                    self.launch('engineering-preflight', lambda: (updated, self.client().engineering_preflight(updated)))
+                return
+            reasons = '\n'.join(row['message'] for row in result.get('blockers', [])[:6])
+            messagebox.showinfo('Engineering preparation', reasons or 'Review the Gateway validation setup.', parent=self)
+            return
+        summary = f"{payload['repository']} · {payload['branch']}\nSource: {payload['source_sha']}\nModel: {payload['model']}"
+        if not messagebox.askyesno('Start this engineering task?', summary, parent=self):
+            return
+        identity = dict(self.identity)
+        def dispatch():
+            self.state.save(pending={'command_id': payload['command_id'], 'identity': identity,
+                                     'conversation_id': payload.get('conversation_id')})
+            return Client(self.root, identity).submit_engineering(payload)
+        self.launch('engineering-submitted', dispatch)
+
     def review_engineering(self):
         if self.conversation and self.conversation.get('active_job_kind') == 'engineering':
             conversation = dict(self.conversation)
@@ -471,6 +509,11 @@ class ChatPanel(tk.Frame):
         self.stop_button.configure(state='normal' if (self.sending or active) and (getattr(self, 'active_job_id', None) or active) and not (original and original.get('active_job_kind') == 'engineering') else 'disabled')
         for button in (self.rename_button, self.archive_button, self.favorite_button):
             button.configure(state='normal' if original and not self.busy else 'disabled')
+        engineering = original and original.get('active_job_kind') == 'engineering'
+        continuable = not engineering or str(original.get('job_state', '')).upper() in TERMINAL | {'NEEDS_INPUT', 'MERGE_READY'}
+        can_prepare = bool(self.identity and not self.busy and not self.sending and not pending and not self.state.error and continuable)
+        self.compose_engineering_button.configure(text='Continue engineering…' if engineering else 'Engineering task…',
+                                                  state='normal' if can_prepare else 'disabled')
         self.engineering_button.configure(state='normal' if original and original.get('active_job_kind') == 'engineering' and not self.busy else 'disabled')
         self.archive_button.configure(text='Unarchive' if original and original.get('archived') else 'Archive')
         self.favorite_button.configure(text='Unfavorite' if original and original.get('favorite') else 'Favorite')
@@ -588,6 +631,10 @@ class ChatPanel(tk.Frame):
                 self.status.configure(text=f'{len(self.rows)} saved items shown.' if self.rows else 'Nothing here yet. Send a prompt or save a message from a conversation.')
             elif name == 'opened':
                 self.show_opened(value)
+            elif name == 'engineering-preflight':
+                self.show_engineering_preflight(*value)
+            elif name == 'engineering-submitted':
+                self.settle_send(value)
             elif name == 'engineering-reviewed':
                 self.show_engineering_review(*value)
             elif name == 'engineering-approved':

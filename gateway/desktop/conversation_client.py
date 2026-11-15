@@ -216,6 +216,53 @@ class Client:
     def cancel(self, job_id):
         return self.request('POST', '/gateway/jobs/' + quote(job_id, safe='') + '/cancel', payload={})
 
+    def prepare_engineering(self, model, values, command, conversation=None):
+        if not isinstance(model, str) or not 1 <= len(model) <= 200:
+            raise ClientError('Choose the exact model before preparing an engineering task.', not_dispatched=True)
+        payload = dict(values, model=model, request_id=command, command_id=command)
+        provider = payload.pop('provider')
+        if conversation:
+            current = self.engineering_job(conversation.get('active_job_id'))
+            if (conversation.get('active_job_kind') != 'engineering' or
+                    current.get('conversation_id') != conversation.get('conversation_id') or
+                    current.get('model') != model or current.get('state') not in {'NEEDS_INPUT', 'MERGE_READY', 'COMPLETED', 'FAILED', 'CANCELLED'}):
+                raise ClientError('Refresh the original engineering conversation before continuing.', not_dispatched=True)
+            payload.update(conversation_id=conversation['conversation_id'], expected_revision=conversation['revision'],
+                           repository=current['repository'], base=current['base'], branch=current['branch'],
+                           source_branch=current['branch'], source_sha=current.get('head_sha') or current['source_sha'],
+                           profile_id=current['profile_id'], execution_binding_id=current['execution_binding_id'])
+        else:
+            if provider not in {'LLAMA', 'OLLAMA'}:
+                raise ClientError('Choose the configured local inference provider.', not_dispatched=True)
+            profile = profile_id(model)
+            route_revision = hashlib.sha256(self.cfg['backend'].encode()).hexdigest()
+            selection = {'profile_uid': profile, 'profile_revision': hashlib.sha256(model.encode()).hexdigest(),
+                         'provider_connection_id': 'desktop-configured-model', 'provider_connection_revision': route_revision,
+                         'provider_kind': provider, 'configured_endpoint': self.cfg['backend'], 'requested_model_id': model,
+                         'generation_parameters': {}, 'privacy_scope': 'desktop-gateway',
+                         'tool_owner': 'GATEWAY', 'required_capability_policy': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET', 'JSON_OBJECT']}
+            receipt = self.request('POST', '/gateway/engineering/bindings', payload={'selection': selection})
+            binding = receipt.get('binding') or {}
+            if (binding.get('profile_uid') != profile or binding.get('requested_model_id') != model
+                    or not re.fullmatch(r'bind_[a-f0-9]{32}', binding.get('binding_id') or '')):
+                raise ClientError('The gateway did not verify that exact model binding.', not_dispatched=True)
+            payload.update(client_conversation_id='desktop-' + command, profile_id=profile,
+                           execution_binding_id=binding['binding_id'])
+        if not re.fullmatch(r'[a-f0-9]{40}', payload.get('source_sha') or ''):
+            raise ClientError('Use the exact source commit SHA before submitting an engineering task.', not_dispatched=True)
+        return payload, self.engineering_preflight(payload)
+
+    def engineering_preflight(self, payload):
+        return self.request('POST', '/gateway/engineering/preflight', payload=payload)
+
+    def submit_engineering(self, payload):
+        job = self.request('POST', '/gateway/engineering/jobs', payload=payload)
+        if (job.get('command_id') != payload['command_id'] or
+                job.get('execution_binding_id') != payload['execution_binding_id'] or
+                any(job.get(key) != self.expected_identity[key] for key in ('gateway_id', 'principal_id'))):
+            raise ClientError('The admission response needs reconciliation. Check the original command.')
+        return job
+
     def engineering_job(self, job_id):
         if not isinstance(job_id, str) or not re.fullmatch(r'eng_[a-f0-9]{32}', job_id):
             raise ClientError('The saved engineering job identity is unavailable.', not_dispatched=True)

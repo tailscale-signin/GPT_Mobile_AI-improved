@@ -75,6 +75,44 @@ class DesktopConversationTest(unittest.TestCase):
         session = Session(responses)
         return Client(self.root, IDENTITY, session_factory=lambda: session), session
 
+    def test_desktop_engineering_prepares_exact_route_then_explicitly_submits(self):
+        from desktop.conversation_client import profile_id
+        model = 'selected-model'
+        binding = 'bind_' + 'b' * 32
+        client, session = self.client([
+            Response({'binding': {'profile_uid': profile_id(model), 'requested_model_id': model, 'binding_id': binding}}),
+            Response({'ready': True}),
+            Response(dict(IDENTITY, command_id='task', execution_binding_id=binding, conversation_id='conversation'))])
+        values = {'repository': 'owner/repo', 'branch': 'feature', 'source_sha': 'a' * 40,
+                  'provider': 'LLAMA', 'task_scope': 'implement', 'objective': 'Fix validation'}
+        payload, preflight = client.prepare_engineering(model, values, 'task')
+        self.assertTrue(preflight['ready'])
+        self.assertEqual(2, len(session.calls))
+        self.assertTrue(session.calls[0][1].endswith('/bindings'))
+        self.assertTrue(session.calls[1][1].endswith('/preflight'))
+        selection = session.calls[0][2]['json']['selection']
+        self.assertEqual(model, selection['requested_model_id'])
+        self.assertEqual('a' * 40, payload['source_sha'])
+        self.assertEqual('conversation', client.submit_engineering(payload)['conversation_id'])
+        self.assertEqual(payload, session.calls[2][2]['json'])
+
+    def test_desktop_engineering_continuation_pins_saved_head_and_binding(self):
+        job_id = 'eng_' + 'c' * 32
+        binding = 'bind_' + 'a' * 32
+        source = 'd' * 40
+        stored = dict(IDENTITY, id=job_id, conversation_id='conversation', model='saved-model',
+                      repository='owner/repo', base='main', branch='feature', head_sha=source,
+                      profile_id='saved-profile', execution_binding_id=binding, state='NEEDS_INPUT')
+        client, session = self.client([Response(stored), Response({'ready': True})])
+        conversation = {'conversation_id': 'conversation', 'active_job_id': job_id,
+                        'active_job_kind': 'engineering', 'revision': 17}
+        payload, _ = client.prepare_engineering('saved-model', {'provider': None, 'objective': 'Follow up'}, 'next-task', conversation)
+        self.assertEqual(binding, payload['execution_binding_id'])
+        self.assertEqual(source, payload['source_sha'])
+        self.assertEqual(17, payload['expected_revision'])
+        self.assertEqual('feature', payload['source_branch'])
+        self.assertEqual(['GET', 'POST'], [row[0] for row in session.calls])
+
     def test_multipart_history_checks_utf8_hash_and_replaces_newer_revision(self):
         transcript = Transcript()
         transcript.add(message('old'))

@@ -231,6 +231,7 @@
     "Gateway Windows installer"
   ],
   "allowedPaths": [
+    "gateway/desktop/engineering_composer.py",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolicy.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolling.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringRoom.kt",

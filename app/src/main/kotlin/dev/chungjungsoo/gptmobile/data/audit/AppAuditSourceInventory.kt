@@ -9,15 +9,15 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "2bb52d37ea375d7b6ae10a554502629e0e6faff3f3ae6c54d35e3b198132fbb3"
-    val fileCount: Int = 2639
-    val lineCount: Int = 426561
+    val sourceDigest: String = "6192d50f4a869e8cf85c51bf59339297980f0c1e033c102892a18fc025c677f9"
+    val fileCount: Int = 2640
+    val lineCount: Int = 426740
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8623),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 553, 96340),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 553, 96399),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 198, 9234),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 231, 39173),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 231, 39188),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 22247),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4675),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
@@ -33,7 +33,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 93, 13262),
         AppAuditSourceArea("benchmark", "Benchmarks and app audit", 118, 17609),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1953),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 30, 5929),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 31, 6034),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
         AppAuditSourceArea("gateway_software", "Companion gateway software", 154, 73873),

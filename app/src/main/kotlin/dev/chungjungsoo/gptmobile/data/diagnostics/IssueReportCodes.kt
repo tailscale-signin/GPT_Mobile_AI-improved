@@ -271,7 +271,7 @@ internal object IssueReportCodes {
         "DNS_FAILED", "DNS_RECOVERY" -> "DNS_RESOLUTION_FAILED"
         "GITHUB_PR_VALIDATION_FAILED" -> "GITHUB_VALIDATION_FAILED"
         "GITHUB_SEARCH_CURSOR_UNAVAILABLE" -> "SAVED_VIEW_UNAVAILABLE"
-        "UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE" -> "TOOL_UNAVAILABLE"
+        "UNKNOWN_TOOL", "UNSUPPORTED_TOOL_CONTRACT", "MCP_CONNECTION_UNAVAILABLE", "STALE_INVENTORY" -> "TOOL_UNAVAILABLE"
         // Preserve only bounded native causes for the context-gated classifier; these are
         // still projected to supported public categories before approved bytes are built.
         else -> known(code) ?: code.takeIf { nativeGitHubPrecheckCategory(it) != null }

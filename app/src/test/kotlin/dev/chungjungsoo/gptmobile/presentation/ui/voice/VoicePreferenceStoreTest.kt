@@ -14,6 +14,8 @@ import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import com.google.common.util.concurrent.ListenableFuture
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
+import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import io.mockk.every
 import io.mockk.mockk
@@ -239,7 +241,10 @@ class VoicePreferenceStoreTest {
         assertFalse(value.online)
         assertFalse(value.captions)
         assertFalse(value.spokenReplies)
-        assertEquals(1f, value.rate)
+        assertEquals(1.25f, value.rate)
+        assertEquals(VoicePauseDuration.SHORT, value.pause)
+        assertEquals(VoicePerformanceMode.BALANCED, value.performance)
+        assertTrue(value.speakWhileGenerating)
         assertEquals(2, value.kokoroThreads)
         assertEquals("en-CA", value.language)
         assertEquals("", value.voice)
@@ -259,7 +264,16 @@ class VoicePreferenceStoreTest {
             val model = VoicePreferencesViewModel(context, store)
             views.put("voice", model)
             model.save(VoicePreferences(spokenReplies = true, kokoroThreads = 2))
-            val expected = VoicePreferences(spokenReplies = false, online = false, kokoroVoice = KokoroVoice.HEART, kokoroThreads = 4)
+            val expected = VoicePreferences(
+                spokenReplies = false,
+                online = false,
+                kokoroVoice = KokoroVoice.HEART,
+                kokoroThreads = 4,
+                rate = 1f,
+                pause = VoicePauseDuration.MINIMAL,
+                performance = VoicePerformanceMode.FAST,
+                speakWhileGenerating = false
+            )
             model.save(expected)
             views.clear()
             runCurrent()

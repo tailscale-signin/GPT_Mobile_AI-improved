@@ -7,7 +7,7 @@ internal class VoiceSpeechBuffer {
     private var consumed = 0
     private var startedSpeech = false
     private var announcedLimit = false
-    fun append(text: String, final: Boolean, earlyStart: Boolean = false): List<String>? {
+    fun append(text: String, final: Boolean, earlyStart: Boolean = false, followUpWords: Int = 12): List<String>? {
         val end = minOf(text.length, 12000).let { if (it > 0 && text[it - 1].isHighSurrogate()) it - 1 else it }
         val boundedText = text.substring(0, end)
         // Persistence may trim the trailing whitespace of the terminal message.
@@ -30,10 +30,10 @@ internal class VoiceSpeechBuffer {
             val chunks = mutableListOf<String>()
             while (consumed < speechEnd) {
                 val tail = visible.substring(consumed)
-                val wordLimit = if (startedSpeech) 12 else 4
+                val wordLimit = if (startedSpeech) followUpWords else 4
                 val words = completeWord.findAll(tail).take(wordLimit).toList()
                 val wordEnd = words.takeIf { it.size == wordLimit }?.last()?.range?.last?.plus(1)
-                val clause = clauseEnd.find(tail)?.range?.last?.plus(1)
+                val clause = (if (startedSpeech && followUpWords > 12) phraseEnd else clauseEnd).find(tail)?.range?.last?.plus(1)
                 val bounded = words.lastOrNull { it.range.last < 240 }?.range?.last?.plus(1)?.takeIf { tail.length >= 240 }
                 val boundary = clause?.takeIf { it <= 96 } ?: listOfNotNull(clause, wordEnd, bounded).minOrNull()?.takeIf { it <= 240 } ?: break
                 val chunk = tail.substring(0, boundary)
@@ -71,6 +71,7 @@ internal class VoiceSpeechBuffer {
     private companion object {
         val sentenceEnd = Regex("[.!?]\\s+")
         val clauseEnd = Regex("[.!?,;:]\\s+|\\n")
+        val phraseEnd = Regex("[.!?;:]\\s+|\\n")
         val completeWord = Regex("\\S+\\s+")
     }
 }

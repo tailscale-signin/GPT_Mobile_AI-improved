@@ -124,6 +124,11 @@ internal object ToolArgumentValidator {
             field.takeIf { validate(value, constraint, "$", 0).isNotEmpty() }
         }.toMutableSet()
         selector?.let { if (it.missing) missing += it.field else invalid += it.field }
+        if (schema["additionalProperties"] == JsonPrimitive(false)) {
+            invalid += arguments.keys.filter {
+                it !in properties && it in dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fieldNames
+            }
+        }
         val classes = linkedSetOf<String>()
         validate(arguments, schema, "$", 0, classes)
         if (operation == "github_context" && arguments["action"] == JsonPrimitive("repositories") && "view_cursor" !in arguments && "query" in properties) {

@@ -82,6 +82,8 @@ import dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlayback
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageReply
+import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
+import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudio
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
@@ -313,7 +315,10 @@ private fun VoiceChatSessionScreen(
     val feedback = remember(context) { VoiceButtonFeedback(context.applicationContext) }
     DisposableEffect(feedback) { onDispose { feedback.close() } }
     SideEffect { localRecognition.onManualCaptureReady = if (buttonSounds) feedback::start else null }
-    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1.25f) }
+    var pause by rememberSaveable { mutableStateOf(VoicePauseDuration.SHORT) }
+    var performance by rememberSaveable { mutableStateOf(VoicePerformanceMode.BALANCED) }
+    var speakWhileGenerating by rememberSaveable { mutableStateOf(true) }
     var preferencesInitialized by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(model, loaded, roomReady, selectedProfile, lifecycleState, settingsOpen) {
         profilePreflightReady = false
@@ -347,6 +352,9 @@ private fun VoiceChatSessionScreen(
                 spokenReplies = saved.spokenReplies
                 buttonSounds = saved.buttonSounds
                 rate = saved.rate
+                pause = saved.pause
+                performance = saved.performance
+                speakWhileGenerating = saved.speakWhileGenerating
                 kokoroVoice = saved.kokoroVoice ?: KokoroVoice.HEART
                 kokoroThreads = saved.kokoroThreads
                 preferencesInitialized = true
@@ -355,6 +363,9 @@ private fun VoiceChatSessionScreen(
             localRecognition.languageTag = language
             audio.kokoroVoice = kokoroVoice
             kokoroOutput?.configureThreads(kokoroThreads)
+            kokoroOutput?.configurePacing(pause, performance)
+            session.performanceMode = performance
+            session.speakWhileGenerating = speakWhileGenerating
             if (session.states.value.speaker != spokenReplies) session.speaker()
             // Configure before permitting the first listen, including after restoring the screen.
             systemAudio.languageTag = language
@@ -384,6 +395,9 @@ private fun VoiceChatSessionScreen(
         systemAudio.speechRate = rate
         audio.kokoroVoice = kokoroVoice
         kokoroOutput?.configureThreads(kokoroThreads)
+        kokoroOutput?.configurePacing(pause, performance)
+        session.performanceMode = performance
+        session.speakWhileGenerating = speakWhileGenerating
         session.editBeforeSend = editBeforeSend
         session.autoContinue = listeningEnabled && !playback.hasPending
     }
@@ -446,7 +460,7 @@ private fun VoiceChatSessionScreen(
         }
     }
     fun savePreferences() {
-        voiceSettings.save(VoicePreferences(language = language, captions = captions, review = editBeforeSend, rate = rate, kokoroVoice = kokoroVoice, spokenReplies = spokenReplies, kokoroThreads = kokoroThreads, buttonSounds = buttonSounds))
+        voiceSettings.save(VoicePreferences(language = language, captions = captions, review = editBeforeSend, rate = rate, kokoroVoice = kokoroVoice, spokenReplies = spokenReplies, kokoroThreads = kokoroThreads, buttonSounds = buttonSounds, pause = pause, performance = performance, speakWhileGenerating = speakWhileGenerating))
     }
     fun setSpokenReplies(value: Boolean) {
         spokenReplies = value
@@ -708,7 +722,10 @@ private fun VoiceChatSessionScreen(
                 buttonSounds = buttonSounds,
                 kokoroModel = kokoroModel,
                 kokoroThreads = kokoroThreads,
-                rate = rate
+                rate = rate,
+                pause = pause,
+                performance = performance,
+                speakWhileGenerating = speakWhileGenerating
             ),
             actions = VoiceSettingsActions(
                 done = ::closeSettings,
@@ -769,6 +786,25 @@ private fun VoiceChatSessionScreen(
                 },
                 changeRate = {
                     rate = it
+                    savePreferences()
+                },
+                changePause = {
+                    pause = it
+                    savePreferences()
+                },
+                changePerformance = {
+                    performance = it
+                    savePreferences()
+                },
+                useConversationalFast = {
+                    rate = 1.25f
+                    pause = VoicePauseDuration.SHORT
+                    performance = VoicePerformanceMode.FAST
+                    speakWhileGenerating = true
+                    savePreferences()
+                },
+                changeSpeakWhileGenerating = {
+                    speakWhileGenerating = it
                     savePreferences()
                 }
             )
@@ -903,7 +939,10 @@ private data class VoiceSettingsUiState(
     val buttonSounds: Boolean,
     val kokoroModel: LocalVoiceModelState,
     val kokoroThreads: Int,
-    val rate: Float
+    val rate: Float,
+    val pause: VoicePauseDuration,
+    val performance: VoicePerformanceMode,
+    val speakWhileGenerating: Boolean
 )
 
 private class VoiceSettingsActions(
@@ -923,7 +962,11 @@ private class VoiceSettingsActions(
     val cancelKokoroInstall: () -> Unit,
     val removeKokoroModel: () -> Unit,
     val previewKokoro: (KokoroVoice, (String?) -> Unit) -> Unit,
-    val changeRate: (Float) -> Unit
+    val changeRate: (Float) -> Unit,
+    val changePause: (VoicePauseDuration) -> Unit,
+    val changePerformance: (VoicePerformanceMode) -> Unit,
+    val useConversationalFast: () -> Unit,
+    val changeSpeakWhileGenerating: (Boolean) -> Unit
 )
 
 @Composable
@@ -976,8 +1019,12 @@ private fun VoiceSettingsScreen(
             },
             preview = { selected -> actions.previewKokoro(selected) { previewError = it } }
         )
-        Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.1f", state.rate)}×")
+        Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.2f", state.rate)}×")
         Slider(state.rate, actions.changeRate, valueRange = .5f..2f)
+        VoiceChoice("Pause duration", state.pause.name, VoicePauseDuration.entries.map { it.name to it.label }, { actions.changePause(VoicePauseDuration.valueOf(it)) })
+        VoiceChoice("Performance mode", state.performance.name, VoicePerformanceMode.entries.map { it.name to it.label }, { actions.changePerformance(VoicePerformanceMode.valueOf(it)) })
+        VoiceSettingSwitch("Speak while the reply is generating", state.speakWhileGenerating, actions.changeSpeakWhileGenerating)
+        OutlinedButton(onClick = actions.useConversationalFast) { Text("Use Conversational Fast") }
     }
 }
 

@@ -8,6 +8,8 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.voice.KokoroModelPack
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
 import dev.chungjungsoo.gptmobile.data.voice.LocalVoiceModelStore
+import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
+import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import java.io.File
 import javax.inject.Inject
@@ -25,13 +27,16 @@ internal data class VoicePreferences(
     val captions: Boolean = true,
     val review: Boolean = false,
     val automatic: Boolean = true,
-    val rate: Float = 1f,
+    val rate: Float = 1.25f,
     val voice: String = "",
     val recognitionBackend: VoiceRecognitionBackend = VoiceRecognitionBackend.LOCAL_MOONSHINE,
     val kokoroVoice: KokoroVoice? = null,
     val spokenReplies: Boolean = true,
     val kokoroThreads: Int = 2,
-    val buttonSounds: Boolean = false
+    val buttonSounds: Boolean = false,
+    val pause: VoicePauseDuration = VoicePauseDuration.SHORT,
+    val performance: VoicePerformanceMode = VoicePerformanceMode.BALANCED,
+    val speakWhileGenerating: Boolean = true
 )
 
 internal data class VoiceModelStores(val moonshine: LocalVoiceModelStore, val kokoro: LocalVoiceModelStore)

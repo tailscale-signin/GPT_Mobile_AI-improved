@@ -23,6 +23,7 @@ internal interface KokoroOutput {
     fun openReplyWithFailure(voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, canFallback: Boolean) -> Unit): VoiceReplyPlayback? =
         openReply(voice, complete) { message, canFallback -> error(VoicePlaybackFailure(message), canFallback) }
     fun configureThreads(value: Int) = Unit
+    fun configurePacing(pause: VoicePauseDuration, performance: VoicePerformanceMode) = Unit
     fun prewarm(voice: KokoroVoice) = Unit
     fun releaseWarmModel() = Unit
     fun stop()

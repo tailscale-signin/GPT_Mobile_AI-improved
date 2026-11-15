@@ -52,7 +52,6 @@ class ToolEventRecorder @Inject constructor(
         connectionName: String? = null,
         startedAt: Long
     ): ToolEvent {
-        dao.rawGetToolEventByCall(runId, callId)?.let { return it }
         val event = ToolEvent(
             eventId = eventIdFactory(),
             runId = runId,
@@ -68,9 +67,11 @@ class ToolEventRecorder @Inject constructor(
             status = ToolEventStatus.RUNNING,
             startedAt = startedAt
         )
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Tool", "Started $modelToolName · run $runId · call $callId")
-        dao.insertToolEvent(event)
-        return event
+        val stored = dao.insertOrGetToolEvent(event)
+        if (stored.eventId == event.eventId) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Tool", "Started $modelToolName · run $runId · call $callId")
+        }
+        return stored
     }
 
     private fun precheckArgumentShape(arguments: String?, result: AgentToolResult): String {

@@ -518,6 +518,15 @@ class ToolEventRecorderTest {
         assertEquals(event, dao.rows.single())
     }
 
+    @Test fun startTool_continuesSequenceWhenResumingAnExistingRun() = runBlocking {
+        val original = recorder.startTool("resumed-run", 6, "old-call", "search", "web__search", buildJsonObject {}, startedAt = 10L)
+        val resumed = recorder.startTool("resumed-run", 0, "new-call", "search", "web__search", buildJsonObject {}, startedAt = 20L)
+
+        assertEquals(6, original.sequence)
+        assertEquals(7, resumed.sequence)
+        assertEquals(listOf(6, 7), dao.rows.map(ToolEvent::sequence))
+    }
+
     @Test
     fun startTool_preservesCompleteUtf8Arguments() = runBlocking {
         val value = "a".repeat(65535) + "\uD83D\uDE00"
@@ -996,6 +1005,10 @@ private class FakeAgentPersistenceDao :
         .filter { it.runId == runId && it.callId == callId }
         .sortedBy { it.startedAt }
         .firstOrNull()
+
+    override suspend fun rawMaxToolEventSequence(runId: String): Int = rows
+        .filter { it.runId == runId }
+        .maxOfOrNull(ToolEvent::sequence) ?: -1
 
     override fun rawObserveToolEventsForChat(chatId: Int): Flow<List<ToolEvent>> {
         observedChatIds += chatId

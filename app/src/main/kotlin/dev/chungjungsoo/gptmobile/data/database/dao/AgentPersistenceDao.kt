@@ -257,6 +257,20 @@ interface AgentPersistenceDao :
     @Insert
     suspend fun insertToolEvent(event: ToolEvent)
 
+    @Query("SELECT COALESCE(MAX(sequence), -1) FROM tool_events WHERE run_id = :runId")
+    suspend fun rawMaxToolEventSequence(runId: String): Int
+
+    /** Continue a durable run after process recreation without reusing its event sequence. */
+    @Transaction
+    suspend fun insertOrGetToolEvent(event: ToolEvent): ToolEvent {
+        rawGetToolEventByCall(event.runId, event.callId)?.let { return it }
+        val lastSequence = rawMaxToolEventSequence(event.runId)
+        check(lastSequence < Int.MAX_VALUE) { "Tool event sequence exhausted for this run." }
+        val stored = event.copy(sequence = maxOf(event.sequence, lastSequence + 1))
+        insertToolEvent(stored)
+        return stored
+    }
+
     @Delete
     suspend fun deleteMessages(messages: List<MessageV2>)
 

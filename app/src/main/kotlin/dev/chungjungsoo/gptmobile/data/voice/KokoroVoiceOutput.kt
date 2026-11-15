@@ -450,7 +450,10 @@ internal class KokoroVoiceOutput(
                 if (parts == null) {
                     timing("pronunciation_unavailable", playback, "reason=${observation.failure?.name ?: "UNKNOWN"} · unknownWords=${playback.unknownWords} · normalizedFormats=${playback.removedFormatCharacters}")
                     main.post {
-                        fail(playback, "pronunciation_unavailable", "A word in this reply is not supported by the installed voice. The complete answer is available in chat.", canFallback = false)
+                        // A verified on-device speech fallback may read the complete buffered reply
+                        // only before the Kokoro output head has started. Replaying an
+                        // already audible phrase would duplicate private speech.
+                        fail(playback, "pronunciation_unavailable", "A word in this reply is not supported by the installed voice. The complete answer is available in chat.", canFallback = !playback.queuedAudio)
                     }
                     return
                 }

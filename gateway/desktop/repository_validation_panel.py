@@ -85,7 +85,7 @@ class RepositoryValidationPanel:
         self.inputs.append(choose)
         self.status = tk.StringVar(master=frame)
         self.status_label = ttk.Label(frame, textvariable=self.status, style='Muted.TLabel', wraplength=530, justify='left')
-        self.status_label.grid(row=2, column=0, columnspan=2, sticky='ew', pady=3)
+        self.status_label.grid(row=3, column=0, columnspan=2, sticky='ew', pady=3)
         self.advanced_visible = tk.BooleanVar(master=frame, value=False)
         self.advanced_toggle = ttk.Checkbutton(frame, text='Advanced validation settings', variable=self.advanced_visible,
                                                command=self.toggle_advanced)
@@ -146,10 +146,9 @@ class RepositoryValidationPanel:
         self.reset_button.grid(row=11, column=0, columnspan=3, sticky='w', pady=5)
         self.inputs.append(self.reset_button)
         buttons = ttk.Frame(frame)
-        # Keep the primary actions in the fixed portion of the page. On a
-        # minimum-height Windows window, placing them below the expandable
-        # editor can put their hit targets underneath Settings' footer.
-        buttons.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(4, 0))
+        # Reserve the upper visible portion for actual action hit targets. The
+        # longer dynamic status is below them and can scroll independently.
+        buttons.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(4, 0))
         for attr, label, command in [('prepare_button', 'Prepare & save', lambda: self.start(True)),
                                      ('check_button', 'Check setup', lambda: self.start(False)),
                                      ('save_button', 'Save policy', self.save), ('reload_button', 'Reload', self.reload)]:

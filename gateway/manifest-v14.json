@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "4403bb81cd408eb2ad92076ca210877fa612476f",
+  "sourceCommit": "24dae5c87f89b24f51df55e45f776f416ca510c8",
   "files": {
     "benchmark_selected_model.py": "74985610accaf4f5d173bd7a3729b53efdb97977a369622872f0a3e6ffc2e702",
     "benchmarks/__init__.py": "41272b2eea9583e478e1e0b5b060ec446c14871ff038feecc8e30fb3aae86a56",
@@ -107,7 +107,7 @@
     "desktop/README.md": "56699d810e19bc764fa16d470e4e8940bea9d57df2a36384abab52abb7fb3f47",
     "desktop/release_checks_dialog.py": "eb0ab8d2ea0681329ab3650f90e642a3e5b49a3efc90fb6adb2c3027b505e445",
     "desktop/releases.py": "f5cc699239f1eccdf987fd121c3aa1fc6d5b23de62150c70b917224e020855dc",
-    "desktop/repository_validation_panel.py": "4311d5063e0f5927e1144b3d62b728134745bc7a23b2cb2e240ffcaa86ceb87f",
+    "desktop/repository_validation_panel.py": "42e90cd64a7e12b019506534a0225ef3ee5d988ea1cf62904b774f8a96cc867d",
     "desktop/repository_validation.py": "986ba7a5cd1ae2165e7f658dccf139ab6ac52b44876840ed3b5a8c11c96ecae0",
     "desktop/requirements-build.txt": "bf443a749195361170b824b2018658e50e41e7f43ea11758a91648e96eae8426",
     "desktop/smoke_windows.py": "0b97f3ca73c158520d63dc71e4cf25412fd36acd471240ac986cf3a31a7d1e56",

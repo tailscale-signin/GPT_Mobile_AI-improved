@@ -2765,6 +2765,12 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidenceTest.kt",
     "docs/repairs/diagnostic-21c055de-2026-11-14-task.json",
-    "docs/repairs/diagnostic-21c055de-2026-11-14.md"
+    "docs/repairs/diagnostic-21c055de-2026-11-14.md",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalOutputAllocationTest.kt",
+    "gateway/tests/test_gateway_engineering_completion.py",
+    "gateway/v14/engineering_post_merge.py",
+    "gateway/v14/engineering_source.py",
+    "gateway/v14/engineering_workspace.py"
   ]
 }

@@ -17,6 +17,7 @@ import time
 import uuid
 
 from v14.engineering_validation import run_bounded
+from v14.validation_host import executable
 
 START_MARKER = 'GATEWAY_BENCHMARK_EVALUATOR_STARTED_V1'
 DRIVER = '''import json, sys
@@ -48,7 +49,17 @@ print(json.dumps({'outputs': outputs}, ensure_ascii=True, allow_nan=False))
 
 
 class SandboxUnavailable(ValueError):
-    pass
+    def __init__(self, message, reason='SANDBOX_NOT_READY'):
+        super().__init__(message)
+        self.reason = reason
+
+
+def local_docker():
+    """Reuse the trusted Docker Desktop discovery, including Windows fallback."""
+    try:
+        return executable('docker')
+    except ValueError:
+        return None
 
 
 class SandboxInterrupted(InterruptedError):
@@ -72,7 +83,7 @@ def remove_container(name, *, docker=None):
     if not isinstance(name, str) or not re.fullmatch(r'gateway-benchmark-[a-f0-9]{32}', name):
         raise ValueError('Invalid benchmark sandbox identity')
     receipt = {'kind': 'sandbox', 'outcome': 'unknown', 'container': name}
-    docker = docker or shutil.which('docker')
+    docker = docker or local_docker()
     if not docker:
         return receipt
     environment = {'PATH': os.defpath}
@@ -107,7 +118,7 @@ def confirm_container_absent(name, *, docker):
 
 def reconcile_container(name):
     """Bounded cleanup observation, never candidate execution or a new model call."""
-    docker = shutil.which('docker')
+    docker = local_docker()
     receipt = remove_container(name, docker=docker)
     if receipt['outcome'] == 'confirmed' or not docker:
         return receipt
@@ -117,25 +128,47 @@ def reconcile_container(name):
 def preflight(settings):
     image = settings['sandbox_image']
     if not image:
-        raise SandboxUnavailable('Configure a pinned local Python sandbox image in Settings → Advanced → Benchmarks.')
-    docker = shutil.which('docker')
+        raise SandboxUnavailable(
+            'Open Settings → Advanced → Benchmark settings → Prepare sandbox.',
+            'IMAGE_NOT_CONFIGURED')
+    docker = local_docker()
     if not docker:
-        raise SandboxUnavailable('Docker is unavailable. Install and start the local container runtime, then retry.')
+        raise SandboxUnavailable(
+            'Install and start Docker Desktop with Linux containers, then reopen Gateway.',
+            'DOCKER_NOT_INSTALLED')
     try:
         with docker_command(docker, 'image', 'inspect', '--format', '{{json .RepoDigests}}', image) as argv:
             result = run_bounded(argv, Path.cwd(), 10, 65536)
     except (OSError, TimeoutError, ValueError) as error:
-        raise SandboxUnavailable('The configured local sandbox image could not be verified.') from error
+        raise SandboxUnavailable(
+            'Local Docker or the sandbox image could not be inspected. Open Benchmark settings.',
+            'DOCKER_UNREACHABLE') from error
     if result['exit_code'] != 0:
-        raise SandboxUnavailable('The pinned sandbox image is not available locally. No image is downloaded automatically.')
+        try:
+            with docker_command(docker, 'info', '--format', '{{.OSType}}') as argv:
+                health = run_bounded(argv, Path.cwd(), 10, 4096)
+        except (OSError, TimeoutError, ValueError) as error:
+            raise SandboxUnavailable(
+                'Docker Desktop is not reachable on the local default context.',
+                'DOCKER_UNREACHABLE') from error
+        if health['exit_code'] != 0:
+            raise SandboxUnavailable(
+                'Start the local Docker Desktop Linux engine and try again.',
+                'DOCKER_UNREACHABLE')
+        if health['output_tail'].strip() != 'linux':
+            raise SandboxUnavailable('Switch Docker Desktop to Linux containers.', 'DOCKER_NOT_LINUX')
+        raise SandboxUnavailable(
+            'Approved Python image is missing locally. Use Benchmark settings → Prepare sandbox.',
+            'IMAGE_NOT_INSTALLED')
     try:
         digests = json.loads(result['output_tail'])
     except ValueError as error:
-        raise SandboxUnavailable('The sandbox image digest was not reported.') from error
+        raise SandboxUnavailable('Docker did not report a trusted image digest.', 'IMAGE_DIGEST_MISSING') from error
     if not isinstance(digests, list) or not any(isinstance(x, str) and x.endswith('@' + image.split('@', 1)[1]) for x in digests):
-        raise SandboxUnavailable('The local image does not match the configured immutable digest.')
+        raise SandboxUnavailable(
+            'Local image digest differs from the approved immutable digest.',
+            'IMAGE_DIGEST_MISMATCH')
     return docker
-
 
 def execute(sources, inputs, settings, cancel=None, *, docker=None, retain=None, release=None):
     docker = docker or preflight(settings)

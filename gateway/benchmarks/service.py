@@ -217,7 +217,8 @@ class BenchmarkService:
                               failure={'code': 'CANCELLATION_UNCONFIRMED' if unknown else 'BENCHMARK_STOPPED', 'cancellationReceipts': receipts})
         except (SandboxUnavailable, PermissionError) as error:
             self.store.update(ident, state='BLOCKED', endedAt=time.time(), progress=str(error)[:240],
-                              failure={'code': 'SANDBOX_SETUP_REQUIRED' if isinstance(error, SandboxUnavailable) else 'AUTHORITY_REVOKED'})
+                              failure={'code': 'SANDBOX_SETUP_REQUIRED' if isinstance(error, SandboxUnavailable) else 'AUTHORITY_REVOKED',
+                                        **({'reason': error.reason} if isinstance(error, SandboxUnavailable) else {})})
         except Exception as error:
             # Never persist exception text, server bodies or generated source.
             self.store.update(ident, state='FAILED', endedAt=time.time(), progress='The run stopped. Open Evidence for the retained outcome.',

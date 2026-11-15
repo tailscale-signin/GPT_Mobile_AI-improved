@@ -286,12 +286,28 @@ class RepositoryValidationPanel:
 
     def toggle_advanced(self):
         if self.advanced_visible.get():
-            # grid_remove retains a widget's layout, but explicitly restoring
-            # the slot is reliable across the Tk builds shipped with Windows.
+            # grid_remove retains layout but needs explicit restoration on Windows.
             self.advanced.grid(row=5, column=0, columnspan=2, sticky='ew', pady=4)
+            # Expanded Custom actions must be above the fixed Settings footer.
+            self.frame.after_idle(self.show_advanced_actions)
         else:
             self.advanced.grid_remove()
             self.viewport.yview_moveto(0)
+
+    def show_advanced_actions(self):
+        if self.closed or not self.advanced_visible.get():
+            return
+        try:
+            viewport = self.viewport
+            viewport.update_idletasks()
+            if not self.discovery_button.winfo_viewable():
+                return
+            top = self.discovery_button.winfo_rooty() - viewport.winfo_rooty()
+            offset = viewport.canvasy(0) + top - 12
+            viewport.yview_moveto(max(0, offset) / max(1, self.content.winfo_height()))
+            viewport.update_idletasks()
+        except tk.TclError:
+            pass
 
     def fill(self, options):
         self.loading = True

@@ -22,6 +22,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayDashboardClientTest {
+    @Test fun normalizedInventoryPreservesStableIdsAndOnlyMeasuredMetrics() {
+        val body = """{
+            "schema":"gptmobile.gateway.capability-inventory.v1","schemaVersion":1,"status":"PARTIAL",
+            "scope":"selected_gateway_authorized_mcp","visibleCount":1,"hasMore":false,
+            "cursorLineage":"${"b".repeat(64)}","reason":"Other sources are outside this snapshot.",
+            "tools":[{"id":"${"a".repeat(64)}","name":"github_read","sourceId":"github","category":"GitHub",
+              "contractVersion":"${"c".repeat(64)}","description":"Read repository data","inputFields":["ref"],
+              "authorized":true,"enabled":true,"executableNow":null,"blockedReason":null,
+              "metrics":{"scope":"retained_gateway_activity","total":3,"success":2,"failure":1,
+                "p50Millis":200,"p95Millis":1000,"sampleCount":2,"lastUsed":123.5}}]
+        }"""
+        val inventory = parseGatewayToolInventory(Json.parseToJsonElement(body) as JsonObject, 456L)
+        assertEquals("PARTIAL", inventory.status)
+        assertEquals("selected_gateway_authorized_mcp", inventory.scope)
+        assertEquals("a".repeat(64), inventory.tools.single().id)
+        assertEquals(3L, inventory.tools.single().metrics?.total)
+        assertEquals(1000L, inventory.tools.single().metrics?.p95Millis)
+        assertNull(inventory.tools.single().executableNow)
+    }
+
     @Test fun inventoryRejectsIncompleteOrDuplicateEvidence() {
         val tool = """{"type":"function","function":{"name":"github_read","parameters":{"properties":{"ref":{},"unsafe\nfield":{}}}}}"""
         fun parse(body: String) = parseGatewayToolInventory(Json.parseToJsonElement(body) as JsonObject, 123L)

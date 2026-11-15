@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -115,7 +117,7 @@ internal fun IssueReportHost(viewModel: IssueReportViewModel, showPrompts: Boole
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
     }
     when {
-        manual -> ManualIssueDialog(saving, error, manualPreview, reports, routes, route, draft, viewModel::updateDraft, viewModel::selectRoute, openGitHub, viewModel::closeManual, viewModel::submitManual, viewModel::previewManualDiagnostics, viewModel::selectReport)
+        manual -> ManualIssueDialog(saving, error, manualPreview, reports, routes, route, draft, viewModel::updateDraft, viewModel::selectManualAttachment, viewModel::selectRoute, openGitHub, viewModel::closeManual, viewModel::submitManual, viewModel::previewManualDiagnostics, viewModel::selectReport)
         submission != null -> submission?.let { report ->
             IssueSubmissionDialog(report, saving, error, routes, route, viewModel::selectRoute, openGitHub, viewModel::closeSubmission, { approvedRoute -> viewModel.retrySubmission(report.reportId, approvedRoute) }, { viewModel.removeFailed(report.reportId) }, { viewModel.followUpReport(report) }) {
                 report.issueNumber?.let { number -> runCatching { uriHandler.openUri("$ISSUE_TRACKER/$number") } }
@@ -165,6 +167,7 @@ private fun ManualIssueDialog(
     route: IssueReportRoute?,
     draft: IssueReportViewModel.ManualDraft,
     onDraft: (IssueReportViewModel.ManualDraft) -> Unit,
+    onAttachment: (android.net.Uri?) -> Unit,
     onRoute: (IssueReportRoute) -> Unit,
     onSetup: () -> Unit,
     onDismiss: () -> Unit,
@@ -177,17 +180,25 @@ private fun ManualIssueDialog(
     val includeDiagnostics = draft.includeDiagnostics
     val descriptionLimit = IssueReportManualCapture.descriptionLimit(draft.relatedIssueNumber)
     var reviewed by remember { mutableStateOf<IssueReport?>(null) }
+    val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(), onAttachment)
     val reviewing = reviewed != null && reviewed === preview
     val review = if (reviewing && preview != null) {
         remember(preview, draft) {
-            IssueReportManualCapture.submission(preview, title, description, includeDiagnostics, draft.relatedIssueNumber)
+            IssueReportManualCapture.submission(
+                preview,
+                title,
+                description,
+                includeDiagnostics,
+                draft.relatedIssueNumber,
+                draft.attachment.takeIf { draft.includeAttachment }
+            )
         }
     } else {
         null
     }
     AdaptiveIssueReportSurface(
         onDismissRequest = onDismiss,
-        title = { Text(if (reviewing) "Review report" else stringResource(R.string.issue_report_title), Modifier.semantics { heading() }) },
+        title = { Text(stringResource(if (reviewing) R.string.issue_report_review_title else R.string.issue_report_title), Modifier.semantics { heading() }) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ReportDestination(routes, route, saving, onRoute, onSetup)
@@ -236,6 +247,28 @@ private fun ManualIssueDialog(
                             }
                         }
                         TextButton(onClick = { onDiagnostics(true) }, enabled = !saving && draft.diagnosticArea != null) { Text(stringResource(R.string.issue_report_refresh_capture)) }
+                    }
+                    Text(stringResource(R.string.issue_report_attachment_optional), style = MaterialTheme.typography.titleSmall)
+                    TextButton(
+                        onClick = { attachmentPicker.launch(arrayOf("text/plain", "text/markdown", "application/json")) },
+                        enabled = !saving
+                    ) { Text(stringResource(R.string.issue_report_choose_attachment)) }
+                    draft.attachment?.let { attachment ->
+                        Text("${attachment.name} · ${attachment.originalBytes} bytes", style = MaterialTheme.typography.bodySmall)
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(draft.includeAttachment, enabled = !saving, role = Role.Checkbox) {
+                                onDraft(draft.copy(includeAttachment = it))
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Checkbox(draft.includeAttachment, onCheckedChange = null, enabled = !saving)
+                            Text(stringResource(R.string.issue_report_include_attachment))
+                        }
+                        Text(stringResource(R.string.issue_report_attachment_privacy), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (draft.includeAttachment) {
+                            Text(attachment.text, style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
                 Text(stringResource(R.string.issue_report_public), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
@@ -479,6 +512,10 @@ private fun ReportPreview(report: IssueReport) {
         } ?: Text(stringResource(R.string.issue_report_context_unavailable), style = MaterialTheme.typography.bodySmall)
         report.frames.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         report.events.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        report.attachment?.let { attachment ->
+            Text("Attachment · ${attachment.name} · ${attachment.mediaType} · ${attachment.originalBytes} bytes", style = MaterialTheme.typography.bodySmall)
+            Text(attachment.text, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -513,6 +550,7 @@ private fun SubmissionError(error: IssueReportViewModel.Notice?) {
         IssueReportViewModel.Notice.TooLarge -> R.string.issue_report_too_large
         IssueReportViewModel.Notice.StorageFull -> R.string.issue_report_storage_full
         IssueReportViewModel.Notice.DiagnosticsChanged -> R.string.issue_report_diagnostics_changed
+        IssueReportViewModel.Notice.AttachmentRejected -> R.string.issue_report_attachment_rejected
         else -> return
     }
     Text(stringResource(message), color = MaterialTheme.colorScheme.error)

@@ -56,6 +56,7 @@ def create_app(public_url, reporter, rate_key):
                 "GITHUB_CI_SEMANTIC_EVIDENCE_V1",
                 "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1",
                 "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1",
+                "REPORT_TEXT_ATTACHMENT_V1",
             ])
         return response
 

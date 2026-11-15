@@ -81,13 +81,16 @@ private fun GatewayCapabilityDashboard(inventory: GatewayCapabilityInventory?, r
     var selected by remember(inventory?.identity) { mutableStateOf<String?>(null) }
     val observation = inventory?.observation
     val tools = observation?.tools.orEmpty()
+    LaunchedEffect(inventory?.identity) {
+        if (inventory?.identity != null && observation == null && inventory.loading.not()) refresh()
+    }
     val categories = remember(tools) { tools.groupingBy { it.category }.eachCount() }
     val coverage = when {
         inventory?.loading == true && observation == null -> "Discovering"
         inventory?.error != null && observation == null -> "Blocked"
         observation == null -> "Not discovered"
-        inventory?.loading == true || inventory?.error != null -> "Stale · partial coverage"
-        else -> "Partial coverage"
+        inventory?.loading == true || inventory?.error != null -> "STALE · observed minimum"
+        else -> observation?.status?.replace('_', ' ') ?: "NOT DISCOVERED"
     }
     Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().testTag("github_capability_dashboard")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -95,8 +98,9 @@ private fun GatewayCapabilityDashboard(inventory: GatewayCapabilityInventory?, r
             Text("$coverage · Selected gateway", style = MaterialTheme.typography.labelMedium)
             inventory?.error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
             observation?.let {
-                Text("${it.tools.size} exposed tools · ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(it.observedAtMillis))}", style = MaterialTheme.typography.bodySmall)
-                Text("Execution permissions and per-tool usage are unverified.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("${it.tools.size} observed tools · ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(it.observedAtMillis))}", style = MaterialTheme.typography.bodySmall)
+                it.reason?.let { reason -> Text(reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (it.hasMore) Text("More capabilities exist beyond this bounded snapshot.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
                 if (categories.isNotEmpty()) {
                     val colors = MaterialTheme.colorScheme
                     val palette = listOf(colors.primaryContainer, colors.secondaryContainer, colors.tertiaryContainer)
@@ -149,7 +153,19 @@ private fun GatewayCapabilityDashboard(inventory: GatewayCapabilityInventory?, r
                                 if (selected == tool.name) {
                                     tool.description?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
                                     if (tool.inputFields.isNotEmpty()) Text("Inputs · ${tool.inputFields.joinToString()}", style = MaterialTheme.typography.bodySmall)
-                                    Text("Execution permissions and performance are unverified.", style = MaterialTheme.typography.bodySmall)
+                                    Text("Source · ${tool.sourceId} · ${if (tool.authorized == true) "authorized for discovery" else "authorization unverified"}", style = MaterialTheme.typography.bodySmall)
+                                    tool.metrics?.let { metric ->
+                                        Text(
+                                            if (metric.total == 0L) {
+                                                "Usage and latency not measured."
+                                            } else {
+                                                val latency = if (metric.sampleCount == 0L) "latency not measured" else "p50 ${metric.p50Millis} ms · p95 ${metric.p95Millis} ms"
+                                                "Observed retained activity · ${metric.total} calls · ${metric.success} succeeded · ${metric.failure} failed · $latency"
+                                            },
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    } ?: Text("Usage and latency not measured.", style = MaterialTheme.typography.bodySmall)
+                                    if (tool.executableNow != true) Text(tool.blockedReason ?: "Current execution readiness is unverified.", style = MaterialTheme.typography.bodySmall)
                                 }
                             }
                         }

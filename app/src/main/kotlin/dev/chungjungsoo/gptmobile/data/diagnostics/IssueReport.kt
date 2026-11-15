@@ -10,6 +10,29 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.jsonObject
 
 @Serializable
+internal data class IssueReportAttachment(
+    val name: String,
+    val mediaType: String,
+    val originalBytes: Long,
+    val sha256: String,
+    val text: String
+) {
+    fun valid(): Boolean = name.length in 1..100 &&
+        name.none(Char::isISOControl) &&
+        mediaType in MEDIA_TYPES &&
+        originalBytes in 1..MAX_ORIGINAL_BYTES &&
+        sha256.matches(Regex("[a-f0-9]{64}")) &&
+        text.length in 1..MAX_TEXT_CHARS &&
+        text.none { it.isISOControl() && it !in "\n\t" }
+
+    companion object {
+        const val MAX_ORIGINAL_BYTES = 4096L
+        const val MAX_TEXT_CHARS = 1536
+        val MEDIA_TYPES = setOf("text/plain", "text/markdown", "application/json")
+    }
+}
+
+@Serializable
 internal data class IssueReport(
     val reportId: String,
     val source: String,
@@ -26,7 +49,8 @@ internal data class IssueReport(
     val errorType: String? = null,
     val frames: List<String> = emptyList(),
     val events: List<String> = emptyList(),
-    val context: IssueReportContext? = null
+    val context: IssueReportContext? = null,
+    val attachment: IssueReportAttachment? = null
 ) {
     /** Preserve safe catch-site frames when a Flow error crosses the UI boundary without its throwable. */
     fun withCapturedException(fields: Map<String, Any?>): IssueReport {
@@ -46,6 +70,7 @@ internal data class IssueReport(
 
     /** Validate the exact approved bytes before durable delivery; retries keep these bytes and this ID. */
     fun approvedPayload(): String = json.encodeToString(serializer(), this).also {
+        require(attachment?.valid() != false) { "Invalid report attachment." }
         require(IssueReportContext.validDiagnosticsIn(json.parseToJsonElement(it).jsonObject["context"])) { "Invalid report diagnostics." }
         require(it.encodeToByteArray().size <= MAX_PAYLOAD_BYTES) { "The report exceeds the supported size. Shorten the description before sending." }
     }
@@ -105,6 +130,20 @@ internal data class IssueReport(
                 eventPattern.matches(event) && event.split(' ').getOrNull(3)?.let { it in IssueReportCodes.allowed } != false
             }.takeLast(EVENT_LIMIT)
         )
+    }
+}
+
+internal object IssueReportAttachmentCapture {
+    fun fromBytes(name: String, mediaType: String, declaredBytes: Long?, bytes: ByteArray): IssueReportAttachment {
+        require(mediaType in IssueReportAttachment.MEDIA_TYPES && bytes.isNotEmpty() && bytes.size <= IssueReportAttachment.MAX_ORIGINAL_BYTES)
+        require(declaredBytes == null || declaredBytes == bytes.size.toLong())
+        val safeName = name.filterNot(Char::isISOControl).trim().take(100).ifBlank { "report-evidence.txt" }
+        val decoded = bytes.toString(Charsets.UTF_8)
+        require(decoded.toByteArray(Charsets.UTF_8).contentEquals(bytes)) { "Attachment must be UTF-8 text." }
+        val redacted = diagnosticMessageForStorage(decoded).trim().issueReportPrefix(IssueReportAttachment.MAX_TEXT_CHARS)
+        require(redacted.isNotBlank())
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        return IssueReportAttachment(safeName, mediaType, bytes.size.toLong(), digest, redacted).also { require(it.valid()) }
     }
 }
 

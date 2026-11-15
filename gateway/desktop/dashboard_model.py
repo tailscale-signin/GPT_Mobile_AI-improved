@@ -28,6 +28,9 @@ def read_snapshot(root, now=None):
 def rows(snapshot, page, query=''):
     if page == 'Devices':
         candidates = snapshot.get('devices', [])
+    elif page == 'Tools':
+        inventory = snapshot.get('capabilityInventory', {})
+        candidates = inventory.get('tools', []) if isinstance(inventory, dict) else []
     elif page == 'Jobs':
         candidates = snapshot.get('jobs', []) + snapshot.get('engineering', [])
     elif page == 'Search jobs':
@@ -38,11 +41,13 @@ def rows(snapshot, page, query=''):
         candidates = snapshot.get('jobs', []) + snapshot.get('engineering', []) + snapshot.get('activities', [])
     query = query.strip().casefold()
     def matches(item):
-        return not query or query in ' '.join(str(item.get(key) or '') for key in ('id', 'title', 'status', 'address', 'agent', 'detail', 'branch', 'job', 'peer')).casefold()
+        return not query or query in ' '.join(str(item.get(key) or '') for key in ('id', 'name', 'sourceId', 'category', 'description', 'title', 'status', 'address', 'agent', 'detail', 'branch', 'job', 'peer')).casefold()
     def stamp(item):
-        value = item.get('updated', item.get('lastSeen', item.get('started', 0)))
+        metrics = item.get('metrics') if isinstance(item.get('metrics'), dict) else {}
+        value = item.get('updated', item.get('lastSeen', item.get('started', metrics.get('lastUsed', 0))))
         return value if isinstance(value, (int, float)) else 0
-    return sorted((item for item in candidates if isinstance(item, dict) and matches(item)), key=stamp, reverse=True)[:300]
+    limit = 2048 if page == 'Tools' else 300
+    return sorted((item for item in candidates if isinstance(item, dict) and matches(item)), key=lambda item: (stamp(item), str(item.get('name') or item.get('title') or '').casefold()), reverse=page != 'Tools')[:limit]
 
 
 def counters(snapshot):

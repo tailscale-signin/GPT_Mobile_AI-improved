@@ -1,3 +1,11 @@
+## Capability dashboard and consented report evidence
+
+Android and the Windows Gateway dashboard now share one normalized inventory of every authorized tool returned by the selected Gateway catalog, including stable contract-bound IDs, explicit complete/partial/blocked source states, and measured retained per-tool success, failure, and latency observations. Discovery does not claim live execution readiness, and capabilities outside the selected Gateway remain explicit.
+
+Manual public issue reports can optionally include a previewed UTF-8 text, Markdown, or JSON evidence file. Selection is off by default, limited to 4 KiB, redacted and bounded before review, and sent only after the user enables the attachment in the final preview. Images and arbitrary binary uploads remain unsupported until the reporting service has a safe attachment contract.
+
+Physical-device voice latency, underruns, sustained throughput, thermals, CPU-thread comparisons, and word timing remain unverified. Captions remain readable but untimed; the app does not fabricate word synchronization.
+
 ## November 15 autonomous engineering workflow
 
 Repository tasks gain pinned whole-repository search and graph lookup, approved adaptive test selection, versioned execution-budget receipts, bounded specialist reviews and exact patch iteration. Android and Windows can inspect retained candidates and restore eligible unpublished local work for revalidation. Existing-PR adoption checks actual head/base identities; generated agent instructions reject SDK/schema drift. A separate ten-scenario runner assesses durable production evidence.

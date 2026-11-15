@@ -15,11 +15,53 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop.configuration import atomic_json
 from desktop.dashboard_model import counters, read_snapshot, rows
 from v14.activity import ActivityMiddleware, ActivityTracker, MAX_ACTIVITIES, MAX_DEVICES, current_peer, desktop_snapshot, client_snapshot
+from v14.capability_inventory import capability_inventory
 from v14.actions import current_gateway_job_id
 from gateway_security import DeviceStore, current_device
 
 
 class ActivityTests(unittest.TestCase):
+    def test_normalized_inventory_ids_and_metrics_are_shared_without_claiming_completeness(self):
+        clock = [100.0]
+        tracker = ActivityTracker(now=lambda: clock[0])
+        identifier = tracker.begin('search', 'web_search')
+        clock[0] = 100.25
+        tracker.finish(identifier, 'completed')
+        runtime = SimpleNamespace(
+            get_all_mcp_tools=lambda: [
+                {'type': 'function', 'function': {'name': 'web_search', 'description': 'Search public pages',
+                    'parameters': {'type': 'object', 'properties': {'query': {'type': 'string'}}}}}
+            ],
+            mcp_tool_metadata={'web_search': {'server': 'public-web'}},
+        )
+        inventory = capability_inventory(runtime, tracker, now=lambda: 101.0)
+        self.assertEqual('PARTIAL', inventory['status'])
+        self.assertEqual(1, inventory['visibleCount'])
+        self.assertEqual(64, len(inventory['tools'][0]['id']))
+        self.assertEqual(1, inventory['tools'][0]['metrics']['success'])
+        self.assertEqual(250, inventory['tools'][0]['metrics']['p50Millis'])
+        self.assertIn('outside the selected Gateway', inventory['reason'])
+
+    def test_inventory_is_complete_only_for_fully_discovered_authorized_gateway_sources(self):
+        tracker = ActivityTracker(now=lambda: 100.0)
+        catalogue = SimpleNamespace(
+            key=lambda name, config: name,
+            health={'github': {'authorized': True, 'schemaKnown': True, 'connectionHealthy': True,
+                               'lastDiscoverySuccessAtMs': 99_000}},
+        )
+        runtime = SimpleNamespace(
+            get_all_mcp_tools=lambda: [
+                {'type': 'function', 'function': {'name': 'github_read', 'parameters': {'type': 'object'}}}
+            ],
+            mcp_tool_metadata={'github_read': {'server': 'github', 'tool': 'read'}},
+            gateway_catalogue=catalogue,
+            load_mcp_config=lambda: {'github': {'url': 'local'}},
+        )
+        inventory = capability_inventory(runtime, tracker, now=lambda: 101.0)
+        self.assertEqual('COMPLETE', inventory['status'])
+        self.assertEqual('COMPLETE', inventory['sources'][0]['discoveryState'])
+        self.assertEqual(99.0, inventory['sources'][0]['lastVerifiedAt'])
+
     def test_streaming_passthrough_tracks_socket_not_forwarded_identity(self):
         tracker = ActivityTracker(now=lambda: 100)
         sent = []
@@ -211,6 +253,16 @@ class PresentationTests(unittest.TestCase):
         self.assertEqual('owner/repo', rows(snapshot, 'Recent activity', 'FEATURE')[0]['title'])
         self.assertEqual(1, counters(snapshot)[1])
         self.assertEqual([], rows(snapshot, 'Devices'))
+
+    def test_tools_page_uses_the_same_normalized_inventory_and_searches_source(self):
+        snapshot = {'capabilityInventory': {'tools': [
+            {'id': 'a' * 64, 'name': 'github_read', 'sourceId': 'github', 'category': 'GitHub',
+             'description': 'Read repository data', 'metrics': {'lastUsed': 8}},
+            {'id': 'b' * 64, 'name': 'web_search', 'sourceId': 'public-web', 'category': 'Web',
+             'description': 'Search public pages', 'metrics': {'lastUsed': 9}},
+        ]}}
+        self.assertEqual(['github_read'], [item['name'] for item in rows(snapshot, 'Tools', 'repository')])
+        self.assertEqual(['web_search'], [item['name'] for item in rows(snapshot, 'Tools', 'public-web')])
 
     def test_dashboard_entry_dispatch_does_not_run_firewall(self):
         from desktop.entry import main

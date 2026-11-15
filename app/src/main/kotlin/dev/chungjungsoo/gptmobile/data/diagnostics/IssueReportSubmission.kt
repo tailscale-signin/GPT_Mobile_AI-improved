@@ -130,7 +130,8 @@ internal class IssueReportSubmission(
             IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE,
             IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE,
             IssueReportIncidentCapsule.URL_READER_AVAILABILITY_FEATURE,
-            IssueReportIncidentCapsule.GITHUB_POLICY_RESPONSE_FEATURE
+            IssueReportIncidentCapsule.GITHUB_POLICY_RESPONSE_FEATURE,
+            "REPORT_TEXT_ATTACHMENT_V1"
         )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
         private val RECOVERY_CODES = setOf(
@@ -156,6 +157,7 @@ internal class IssueReportSubmission(
                     code(event)?.let(REPORT_EVENT::matchEntire)?.groupValues?.get(1)
                 }
             return buildSet {
+                if ("attachment" in report) add("REPORT_TEXT_ATTACHMENT_V1")
                 if (codes.any { it in REVIEW_CODES }) add("REVIEW_COMPARISON_V1")
                 if (codes.any { it in RECOVERY_CODES }) add("ISSUE_RECOVERY_CODES_V1")
                 if ("GITHUB_TOOL_CONTEXT_BUDGET" in codes) add("GITHUB_SCHEMA_BUDGET_EVIDENCE_V1")

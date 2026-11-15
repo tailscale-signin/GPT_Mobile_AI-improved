@@ -102,6 +102,25 @@ class IssueReportHttpTest(unittest.TestCase):
         return {**self.metadata(), "source": "manual", "title": "Voice playback stopped",
                 "description": "Playback stopped when opening Voice Chat."}
 
+    def test_manual_text_attachment_is_explicit_bounded_and_rendered_without_active_content(self):
+        report = {**self.manual(), "attachment": {
+            "name": "voice-details.txt", "mediaType": "text/plain", "originalBytes": 24,
+            "sha256": "a" * 64, "text": "first step\nsecond step",
+        }}
+        response = self.submit(report)
+        self.assertEqual(200, response.status_code)
+        body = self.issued[-1]["body"]
+        self.assertIn("### Approved text attachment", body)
+        self.assertIn("voice-details.txt", body)
+        self.assertIn("    first step", body)
+        for malformed in (
+            {**report, "attachment": {**report["attachment"], "mediaType": "image/png"}},
+            {**report, "attachment": {**report["attachment"], "originalBytes": 4097}},
+            {**report, "attachment": {**report["attachment"], "extra": "private"}},
+            {**self.metadata(), "source": "debug", "feature": "app", "errorCode": "APP_ERROR", "attachment": report["attachment"]},
+        ):
+            self.assertEqual(422, self.submit(malformed).status_code)
+
     def context(self, **observed):
         result = {"schemaVersion": 1, "occurredAtMillis": self.now * 1000, "source": "CHAT_FAILURE", **observed}
         fields = CONTEXT_FIELDS_V5 if result["schemaVersion"] in (5, 6, 7) else CONTEXT_FIELDS_V4 if result["schemaVersion"] == 4 else CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
@@ -475,7 +494,7 @@ class IssueReportHttpTest(unittest.TestCase):
         extended = self.client.get("/health/ready?capabilities=extended")
         self.assertEqual(200, extended.status_code)
         additions = ["ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
-                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1"]
+                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1"]
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
                          extended.json()["reportDiagnosticFeatures"])
         for key in ("service", "version", "reportContextVersions"):

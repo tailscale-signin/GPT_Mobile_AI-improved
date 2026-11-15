@@ -75,3 +75,15 @@ internal class VoiceSpeechBuffer {
         val completeWord = Regex("\\S+\\s+")
     }
 }
+
+internal enum class VoicePauseDuration(val label: String, val maxQuietMs: Int?) {
+    NATURAL("Natural", null),
+    SHORT("Short", 140),
+    MINIMAL("Minimal", 70)
+}
+
+internal enum class VoicePerformanceMode(val label: String, val followUpWords: Int, val bufferMs: Int, val refillWaitMs: Long) {
+    QUALITY("Quality", 24, 180, 100),
+    BALANCED("Balanced", 16, 100, 60),
+    FAST("Fast", 12, 45, 0)
+}

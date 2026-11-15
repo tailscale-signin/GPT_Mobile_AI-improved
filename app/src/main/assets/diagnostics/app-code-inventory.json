@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6192d50f4a869e8cf85c51bf59339297980f0c1e033c102892a18fc025c677f9",
-  "file_count": 2640,
-  "indexed_line_count": 426740,
+  "source_digest": "9f92d38cf4730f7760054fe7901b9eab13b6af6dba7cab4d31c3a6553fc9b277",
+  "file_count": 2639,
+  "indexed_line_count": 426739,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -147,8 +147,8 @@
     {
       "id": "voice_and_media",
       "label": "Voice and media",
-      "file_count": 31,
-      "indexed_line_count": 6034
+      "file_count": 30,
+      "indexed_line_count": 6033
     },
     {
       "id": "portable_domain",
@@ -11826,8 +11826,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroPcmBatches.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "61501439fe06c5ebb5fd35afc72850f0412aaadd699bf47942e95710d3492cb2",
-      "indexed_lines": 21
+      "sha256": "86ac8c5d81ebcd989a3ecec4598253e9415297b1c6684f33347216b84f31d663",
+      "indexed_lines": 46
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroSpeechText.kt",
@@ -11980,15 +11980,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechBuffer.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "9584389b004ec1b9c2bf4d651d9b9aa96961f7977896d01447fe97ad2957b2c4",
-      "indexed_lines": 77
-    },
-    {
-      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechPacing.kt",
-      "area_id": "voice_and_media",
-      "kind": "source",
-      "sha256": "f51c6d4b3b752c6bc107c2a6808d06ae0d84b025f2c111009bfc0b13f4c8304f",
-      "indexed_lines": 38
+      "sha256": "f9856f51010d9724c616f4f41f08b36e2aa0f3ebe4b10e417fa559fc1f117a07",
+      "indexed_lines": 89
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceSpeechText.kt",

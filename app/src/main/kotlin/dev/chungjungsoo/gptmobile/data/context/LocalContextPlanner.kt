@@ -69,7 +69,12 @@ internal object LocalContextPlanner {
         // Tool definitions are charged below at their measured cost. Reserving another
         // tool block here double-counted the same tokens and caused local conversations
         // to silently receive zero tools on small-context models.
-        val templateReserve = 256 // Matches the minimum uncertainty reserve at physical dispatch.
+        // Final JSON admission reserves at least 25% of its estimated prompt for
+        // uncertainty. A plan that fills more than 80% of the model context before
+        // output cannot pass that check even if its own token estimate looks safe.
+        // Reserve the matching proportional headroom *before* selecting history and
+        // optional schemas; never trim the current task or required tool definitions.
+        val templateReserve = preflightSafetyReserve(contextTokens)
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
         var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
@@ -288,6 +293,10 @@ internal object LocalContextPlanner {
         val descriptor = (tool.name + " " + tool.description).lowercase()
         return words.count { it in descriptor }
     }
+
+    /** Conservative physical-admission safety when the final JSON has not yet been rendered. */
+    internal fun preflightSafetyReserve(contextTokens: Int): Int =
+        maxOf(256L, (contextTokens.toLong() + 4) / 5).toInt()
 
     // JSON/tool templates and multilingual input cost more than English prose.
     private fun estimate(text: String): Long = (text.toByteArray(Charsets.UTF_8).size.toLong() + 1) / 2

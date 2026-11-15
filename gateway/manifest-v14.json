@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "56d7c91c27a12dcab107df09ed9eff178becebbc",
+  "sourceCommit": "c3d18eb94def20f290d1a0d671a28379698c22d2",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -152,7 +152,7 @@
     "tests/test_gateway_acceptance_discovery.py": "c6d0ac396f60f0884f791a1f2b615446fc661e7598e798036543a634e5e717d2",
     "tests/test_gateway_adaptive_sampling.py": "c246b4e5c1f8822af877ce2a6c5fa8c6e03bacd7c9680ac054df112832a4e10b",
     "tests/test_gateway_autonomous_recovery.py": "389210b22b98f6053f12865254551e72c7c3261a7c46fb59789a9136ecf891d5",
-    "tests/test_gateway_autonomous_tools.py": "83325dcdd3b2178d92ed30b447e25d247a7093e2df0eed1137e3a64fda762d12",
+    "tests/test_gateway_autonomous_tools.py": "ea932291218da39c9ec233e21e390c5d9eaaae358ed16dca24bd97578f9f233b",
     "tests/test_gateway_backend_diagnostics.py": "e6161fb500ef293ad2490ce15af295b25ef5cbda44e70e072d4921da834ef340",
     "tests/test_gateway_batch_deferral.py": "5139c6f2d91130966b2a5fe1eaa999d938720ee385eb848c0edb1555af44d250",
     "tests/test_gateway_benchmark_cleanup.py": "899c8fb233e6f8bac6c5757c4abee922ccc122b4a1de2c548d092554dcfcd95d",
@@ -342,6 +342,6 @@
     "v14/tools.py": "528eeb0a680b257d3de4bb856afc67a1ddd493763a7d7ed0ba2e9c052fbceb63",
     "v14/usage.py": "78ed6358fe1ea50c045d41438aeb57d40ea1e6c2f84fd0f66d01b1204ae316c7",
     "v14/validation_host.py": "a06b03dcb7e5b31aa50a40de8ede44ef446c3922c33ca46033deccda4296632e",
-    "v14/workspace_search.py": "c1c61f8b549ad5a5417cd4638ad801305a047d7a9c63b418b1e8536ef8443705"
+    "v14/workspace_search.py": "47bbba7f524d52f20121e75a2ffcec69299bb39e623c40f4d468d4d963213821"
   }
 }

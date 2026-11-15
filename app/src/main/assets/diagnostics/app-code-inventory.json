@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "857ee4c164901c3da78ba1c9129965dc18420ad7d101a3cec28343358cd5fa8d",
+  "source_digest": "a66a459300ffef5407fde7884c4196b1072a7492c3ab6697b77a6f79ed6eee4b",
   "file_count": 2649,
   "indexed_line_count": 428221,
   "line_coverage_available": false,
@@ -18504,7 +18504,7 @@
       "path": "gateway/v14/workspace_search.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "de80182a1aeb208e599e9cb29058979379d79e43a5f622371a6a68e8e932611a",
+      "sha256": "47bbba7f524d52f20121e75a2ffcec69299bb39e623c40f4d468d4d963213821",
       "indexed_lines": 139
     },
     {

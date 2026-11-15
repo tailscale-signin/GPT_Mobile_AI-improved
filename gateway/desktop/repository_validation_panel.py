@@ -182,11 +182,12 @@ class RepositoryValidationPanel:
         self.dirty = True
         self.notice('Save policy to apply this choice. Disabling retains saved policies; read and plan remain available.')
 
-    @staticmethod
-    def focus_next(control, backwards=False):
+    def focus_next(self, control, backwards=False):
         target = control.tk_focusPrev() if backwards else control.tk_focusNext()
         if target is not None:
             target.focus_set()
+            if self.advanced_visible.get():
+                self.editor_canvas.after_idle(lambda focused=target: self.reveal(focused))
         return 'break'
 
     def reveal(self, control):
@@ -208,6 +209,7 @@ class RepositoryValidationPanel:
             max_top = max(bounds[1], bounds[3] - viewport_height)
             target_top = min(max(bounds[1], control_top - margin), max_top)
             canvas.yview_moveto((target_top - bounds[1]) / content_height)
+            canvas.update_idletasks()
 
     def discover_behavior_checks(self):
         from desktop.acceptance_discovery_dialog import open_dialog

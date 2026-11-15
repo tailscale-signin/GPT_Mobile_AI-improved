@@ -1,6 +1,7 @@
 """Graphical desktop client for gateway-owned, durable benchmark runs."""
 from datetime import datetime
 import json
+from pathlib import Path
 import queue
 import threading
 import time
@@ -81,6 +82,7 @@ class BenchmarkPanel(tk.Frame):
         self.preset.grid(row=0, column=2, padx=(0, 8))
         self.start = ttk.Button(controls, text='Run benchmark', style='Accent.TButton', command=self.run)
         self.start.grid(row=0, column=3)
+        ttk.Button(controls, text='Production tasks…', command=self.production_tasks).grid(row=1, column=0, columnspan=2, sticky='w', pady=6)
         self.model.bind('<<ComboboxSelected>>', lambda _: self.update_controls())
         self.suite.bind('<<ComboboxSelected>>', lambda _: self.explain())
         self.preset.bind('<<ComboboxSelected>>', lambda _: self.explain())
@@ -158,6 +160,44 @@ class BenchmarkPanel(tk.Frame):
         if event.widget is self:
             self.status.configure(wraplength=max(250, event.width - 12))
             self.summary_text.configure(wraplength=max(250, event.width - 24))
+
+    def production_tasks(self):
+        if self.busy:
+            return
+        path = filedialog.askopenfilename(parent=self, title='Open ten-scenario qualification manifest', filetypes=[('JSON', '*.json')])
+        if not path:
+            return
+        def inspect():
+            from desktop.conversation_client import Client
+            from desktop.configuration import atomic_json
+            from benchmarks.engineering_qualification import run_manifest
+            source = Path(path)
+            if source.stat().st_size > 1024 * 1024:
+                raise ValueError('Qualification manifest exceeds 1 MiB')
+            manifest = json.loads(source.read_text())
+            client = Client(self.root)
+            client.identity()
+            result = run_manifest(client, manifest)
+            atomic_json(source.with_suffix('.results.json'), result)
+            return result
+        self.launch('production-qualification', inspect, 'Reading exact production-job evidence…')
+
+    def show_qualification(self, report):
+        self.selected = None
+        self.metrics['score'].configure(text='Qualified' if report['qualified'] else 'Not qualified')
+        self.metrics['completion'].configure(text=str(report['passed']) + ' / 10')
+        self.metrics['latency'].configure(text='Not measured')
+        self.metrics['state'].configure(text='Production tasks')
+        measured = [row for row in report['cases'] if row.get('elapsed_seconds') is not None]
+        self.chart.set([(row['scenario'].replace('_', ' '), row['elapsed_seconds'], theme.CYAN if row['status'] == 'PASSED' else theme.ERROR) for row in measured], ' s')
+        self.summary_text.configure(text='Ten scenario-specific evidence gates. Missing runtime, recovery, device, or mutation observations remain unverified. Fixture scores are separate.')
+        self.case_table.delete(*self.case_table.get_children())
+        for index, row in enumerate(report['cases']):
+            self.case_table.insert('', 'end', iid=str(index), values=(row['scenario'].replace('_', ' '), row['status'],
+                'Not measured', 'Not measured', pretty(row.get('elapsed_seconds'), ' s')))
+        self.write_evidence(report)
+        self.tabs.select(self.pages['Overview'])
+        self.status.configure(text='Production evidence refreshed; results saved beside the selected manifest.')
 
     def activate(self):
         if not self.discovered and not self.busy:
@@ -275,6 +315,8 @@ class BenchmarkPanel(tk.Frame):
                     self.status.configure(text='The original result was removed. Its request identity cannot execute again.')
                 else:
                     self.status.configure(text='No original request receipt is visible. No new work was sent. Restore the original connection and check again.')
+            elif event == 'production-qualification':
+                self.show_qualification(value)
             elif event == 'exported':
                 self.status.configure(text='Results exported with retained measurements and provenance.')
             elif event == 'removed':

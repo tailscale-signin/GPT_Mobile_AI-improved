@@ -76,5 +76,7 @@ fun GatewayEngineeringBinding.budgetDescription(): String? {
     val duration = if (hours == 0) "bounded until-complete" else "up to $hours hours"
     val origin = if (accepted != null) "Accepted" else "Requested"
     val limitation = if (budgetSelection?.limitedByHost == true) " This gateway supports a lower allowance than the selected preset." else ""
-    return "$origin gateway allowance: $duration, ${budget.modelCalls} model calls and ${budget.modelTokens} model tokens.$limitation"
+    val allocation = job?.let { current -> current.executionBudgetReceipt?.takeIf { it.matches(current.executionBindingId, request.model) } }
+    val context = allocation?.let { " Context: ${it.inputTokens} input + ${it.outputTokens} response tokens of ${it.contextTokens}; ${if (it.countMode == "SELECTED_TOKENIZER") "measured" else "estimated"}." }.orEmpty()
+    return "$origin gateway allowance: $duration, ${budget.modelCalls} model calls and ${budget.modelTokens} model tokens.$limitation$context"
 }

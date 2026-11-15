@@ -466,6 +466,7 @@ class InferenceCapabilities:
                     'reasoning_parameters': [parameter for parameter in ('enable_thinking', 'thinking')
                                              if isinstance(template, str) and re.search(r'\b' + parameter + r'\b', template)],
                     'backend_build': build if isinstance(build, (str, int, dict)) and len(canonical(build).encode()) <= 4096 else None,
+                    'structured_output_formats': ['json_object'] + (['json_schema'] if props.get('supports_json_schema') is True else []),
                     'supported': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET', 'JSON_OBJECT'],
                     'model_aliases': selected.get('aliases', []), 'observed_at_ms': int(time.time() * 1000),
                     'evidence_origin': 'GATEWAY_OBSERVED_PROVIDER_METADATA', 'hardware': {},

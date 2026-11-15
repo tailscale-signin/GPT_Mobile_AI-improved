@@ -71,6 +71,35 @@ class GatewayEngineeringRepository @Inject constructor(
         check(!store.hasMigratedAdmission(chatId, profileUid)) { "A saved gateway submission from the earlier app still needs receipt reconciliation. Reconnect to its original job before sending another turn." }
     }
 
+    suspend fun checkpoints(requestId: String): GatewayEngineeringCheckpoints {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val config = config(binding)
+        check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
+        val job = requireNotNull(binding.job)
+        return client.checkpoints(config, job.id).also { check(it.jobId == job.id) }
+    }
+
+    suspend fun candidateDetails(requestId: String, checkId: String): String {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val config = config(binding)
+        check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
+        return client.candidateDetails(config, requireNotNull(binding.job).id, checkId)
+    }
+
+    suspend fun restoreCandidate(requestId: String, expected: GatewayEngineeringJob, checkId: String) = synchronization.withLock {
+        val binding = bindings().single { it.request.requestId == requestId }
+        check(binding.job?.id == expected.id && binding.job?.revision == expected.revision) { "Refresh the job before restoring." }
+        val config = config(binding)
+        check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
+        val identity = history.identity(config)
+        check(identity.principalId == binding.principalId && identity.gatewayId == binding.gatewayId) { "The original gateway changed." }
+        check(config(binding) == config) { "The gateway credentials changed." }
+        val result = client.restoreCandidate(config.withGatewayIdentity(identity), expected, checkId)
+        check(result.id == expected.id && result.revision > expected.revision)
+        save(binding.copy(job = result))
+        lastPoll.remove(requestId)
+    }
+
     suspend fun evidence(requestId: String, receiptId: String): String {
         val binding = bindings().single { it.request.requestId == requestId }
         val config = config(binding)

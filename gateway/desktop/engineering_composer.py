@@ -86,6 +86,11 @@ class EngineeringForm(_ThemedForm):
                                  selectforeground=theme.TEXT, relief='flat', highlightthickness=1,
                                  highlightbackground=theme.LINE, highlightcolor=theme.CYAN)
         self.objective.grid(row=8, column=1, sticky='ew', pady=4)
+        if not self.conversation:
+            for row, name, label in ((9, 'adopt_pr_number', 'Existing PR (optional)'), (10, 'adopt_base_sha', 'Reviewed PR base SHA')):
+                ttk.Label(frame, text=label).grid(row=row, column=0, sticky='w', pady=3)
+                self.fields[name] = tk.StringVar(master=frame)
+                ttk.Entry(frame, textvariable=self.fields[name], width=50).grid(row=row, column=1, sticky='ew')
         return self.objective
 
     def validate(self):
@@ -98,6 +103,13 @@ class EngineeringForm(_ThemedForm):
                                       or not re.fullmatch(r'[a-f0-9]{40}', values['source_sha'])):
             messagebox.showerror('Engineering task', 'Enter a repository and its exact 40-character source commit SHA.', parent=self)
             return False
+        number, base_sha = values.pop('adopt_pr_number', ''), values.pop('adopt_base_sha', '')
+        if number or base_sha:
+            if (not number.isdigit() or int(number) < 1 or not re.fullmatch(r'[a-f0-9]{40}', base_sha)
+                    or values['branch'] != values['source_branch'] or values['branch'] == values['base'] or self.scope.get() != 'implement'):
+                messagebox.showerror('Existing PR', 'Enter the PR number and reviewed base SHA. Working and source branches must both be the PR branch.', parent=self)
+                return False
+            values['adopt_pr'] = {'number': int(number), 'head_sha': values['source_sha'], 'base_sha': base_sha}
         self.result = dict({'provider': None}, **values, objective=prompt, task_scope=self.scope.get())
         return True
 

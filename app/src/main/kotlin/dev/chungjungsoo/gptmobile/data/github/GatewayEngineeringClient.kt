@@ -36,6 +36,7 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
@@ -55,7 +56,7 @@ class GatewayEngineeringClient internal constructor(
     private val capabilityCache = RouteCapabilityCache<CapabilityAttempt>({ System.nanoTime() / 1_000_000 }, positiveTtl = 10_000, negativeTtl = 60_000)
     private fun capabilityKey(config: ProviderRequestConfig) = "${selectionDigest(JsonPrimitive(config.buildEndpoint("gateway/engineering/capabilities")))}|${GatewaySurfacePolicy.identity(config)}"
 
-    private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering", operationId: String? = null): String {
+    private suspend fun request(config: ProviderRequestConfig, path: String, body: String? = null, approval: Boolean = false, root: String = "gateway/engineering", operationId: String? = null, userAction: String? = null): String {
         val diagnostic = GatewayClientDiagnostics.withHeaders(config, model = "", knownGateway = true)
         val endpoint = config.buildEndpoint("$root/$path")
         val bindingRead = body == null && path.startsWith("bindings/") && path.endsWith("/capabilities")
@@ -69,6 +70,7 @@ class GatewayEngineeringClient internal constructor(
                     headers.forEach { (key, value) -> header(key, value) }
                     if ((body == null || path in setOf("bindings", "preflight")) && LocalEndpointConnectionPolicy.freshConnection(endpoint)) header(HttpHeaders.Connection, "close")
                     if (approval) header("X-Gateway-User-Action", "approve-and-merge")
+                    if (userAction == "restore-local-candidate") header("X-Gateway-User-Action", userAction)
                     if (body != null) {
                         contentType(ContentType.Application.Json)
                         setBody(body)
@@ -416,6 +418,27 @@ class GatewayEngineeringClient internal constructor(
     suspend fun get(config: ProviderRequestConfig, id: String, afterRevision: Int): GatewayEngineeringJob {
         require(id.matches(Regex("eng_[a-f0-9]{32}")))
         return json.decodeFromString(request(config, "jobs/$id?after_revision=${afterRevision.coerceAtLeast(-1)}"))
+    }
+
+    suspend fun checkpoints(config: ProviderRequestConfig, jobId: String): GatewayEngineeringCheckpoints {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")))
+        return json.decodeFromString(request(config, "jobs/$jobId/checkpoints"))
+    }
+
+    suspend fun candidateDetails(config: ProviderRequestConfig, jobId: String, checkId: String): String {
+        require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && checkId.matches(Regex("[a-f0-9]{64}")))
+        val value = json.parseToJsonElement(request(config, "jobs/$jobId/checkpoints/$checkId")).jsonObject
+        check(value["job_id"]?.jsonPrimitive?.content == jobId && value["check_id"]?.jsonPrimitive?.content == checkId)
+        return value["diff"]?.jsonPrimitive?.content.orEmpty() + "\n\nTest output:\n" + value["output"]?.jsonPrimitive?.content.orEmpty()
+    }
+
+    suspend fun restoreCandidate(config: ProviderRequestConfig, job: GatewayEngineeringJob, checkId: String): GatewayEngineeringJob {
+        require(job.id.matches(Regex("eng_[a-f0-9]{32}")) && checkId.matches(Regex("[a-f0-9]{64}")))
+        val body = buildJsonObject {
+            put("revision", job.revision)
+            put("check_id", checkId)
+        }
+        return json.decodeFromString(request(config, "jobs/${job.id}/rewind", body.toString(), userAction = "restore-local-candidate"))
     }
 
     suspend fun evidence(config: ProviderRequestConfig, jobId: String, receiptId: String): String {

@@ -24,7 +24,8 @@ data class GatewayEngineeringUiState(
     val options: GatewayEngineeringSettings = GatewayEngineeringSettings(),
     val busy: Boolean = false,
     val error: String? = null,
-    val evidencePreview: String? = null
+    val evidencePreview: String? = null,
+    val checkpoints: Pair<GatewayEngineeringBinding, dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringCheckpoints>? = null
 )
 
 @HiltViewModel
@@ -45,7 +46,7 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
         val selectedEpoch = epoch.incrementAndGet()
         polling?.cancel()
         localRead?.cancel()
-        mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, error = null) }
+        mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, checkpoints = null, error = null) }
         localRead = viewModelScope.launch(Dispatchers.IO) {
             try {
                 val saved = repository.bindings(chatId)
@@ -119,6 +120,27 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
         val selectedEpoch = epoch.get()
         val text = repository.evidence(binding.request.requestId, receiptId)
         if (epoch.get() == selectedEpoch) mutable.update { it.copy(evidencePreview = text) }
+    }
+
+    fun checkpoints(binding: GatewayEngineeringBinding) = action {
+        val selectedEpoch = epoch.get()
+        val result = repository.checkpoints(binding.request.requestId)
+        if (epoch.get() == selectedEpoch) mutable.update { it.copy(checkpoints = binding to result) }
+    }
+
+    fun inspectCandidate(binding: GatewayEngineeringBinding, checkId: String) = action {
+        val selectedEpoch = epoch.get()
+        val text = repository.candidateDetails(binding.request.requestId, checkId)
+        if (epoch.get() == selectedEpoch) mutable.update { it.copy(evidencePreview = text) }
+    }
+
+    fun restoreCandidate(binding: GatewayEngineeringBinding, checkId: String) = action {
+        repository.restoreCandidate(binding.request.requestId, requireNotNull(binding.job), checkId)
+        mutable.update { it.copy(checkpoints = null) }
+    }
+
+    fun closeCheckpoints() {
+        mutable.update { it.copy(checkpoints = null) }
     }
 
     fun closeEvidence() {

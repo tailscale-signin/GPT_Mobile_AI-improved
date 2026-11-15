@@ -98,6 +98,7 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                                     val unread = binding.updates.count { it.revision > binding.seenRevision }
                                     Text(if (unread > 0) "Evidence ($unread new)" else "Evidence")
                                 }
+                                TextButton(onClick = { model.checkpoints(binding) }, enabled = !state.busy) { Text("Checkpoints") }
                                 job.prUrl?.takeIf { it.startsWith("https://") }?.let { url -> TextButton(onClick = { uri.openUri(url) }) { Text("Review PR") } }
                                 TextButton(onClick = { model.check(binding) }, enabled = !state.busy) { Text("Check saved job") }
                                 if (recovery.canCancel) TextButton(onClick = { model.control(binding, job, "cancel") }, enabled = !state.busy) { Text("Stop") }
@@ -151,6 +152,33 @@ fun GatewayEngineeringPanel(chatId: Int, context: GitHubConversationContext, pro
                     details = null
                 }) { Text("Close") }
             }
+        )
+    }
+    state.checkpoints?.let { (binding, history) ->
+        var selected by remember(history.jobId, history.revision) { mutableStateOf<String?>(null) }
+        AlertDialog(
+            onDismissRequest = model::closeCheckpoints,
+            title = { Text("Patch checkpoints") },
+            text = {
+                Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+                    Text("${history.state} · ${history.headSha?.take(12).orEmpty()}")
+                    history.candidates.forEach { candidate ->
+                        TextButton(onClick = { selected = candidate.checkId }) {
+                            Text("${if (selected == candidate.checkId) "Selected · " else ""}Check ${candidate.checkIndex}: ${candidate.status} · ${candidate.patchIdentity.take(12)}")
+                        }
+                    }
+                    TextButton(onClick = { selected?.let { model.inspectCandidate(binding, it) } }, enabled = selected != null && !state.busy) { Text("Inspect patch and test output") }
+                    if (history.candidates.isEmpty()) Text("No retained patch attempts yet.")
+                    Text("Restore reruns validation and review. Published history remains unchanged.")
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { selected?.let { model.restoreCandidate(binding, it) } },
+                    enabled = !state.busy && selected != null && !history.published && history.state == "NEEDS_INPUT" && history.revision == binding.job?.revision
+                ) { Text("Restore selected candidate") }
+            },
+            dismissButton = { TextButton(onClick = model::closeCheckpoints) { Text("Close") } }
         )
     }
     state.evidencePreview?.let { receipt ->

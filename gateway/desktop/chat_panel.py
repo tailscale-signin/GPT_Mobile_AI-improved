@@ -47,6 +47,7 @@ class ChatPanel(tk.Frame):
         head.pack(fill='x', pady=(0, 6))
         self.heading = theme.label(head, 'Chat', 23, bold=True)
         self.heading.pack(side='left')
+        ttk.Button(head, text='Checkpoints…', command=self.inspect_checkpoints).pack(side='right', padx=5)
         self.compose_engineering_button = ttk.Button(head, text='Engineering task…', command=self.compose_engineering, state='disabled')
         self.compose_engineering_button.pack(side='right', padx=5)
         ttk.Button(head, text='New prompt', command=self.new_chat, style='Accent.TButton').pack(side='right')
@@ -501,6 +502,23 @@ class ChatPanel(tk.Frame):
         if self.launch('engineering-submitted', dispatch) is False:
             self.status.configure(text='Another action started. Review this task again before submitting.')
 
+    def inspect_checkpoints(self):
+        if self.closed or not self.visible or self.busy or not self.conversation or self.conversation.get('active_job_kind') != 'engineering':
+            return
+        client, conversation = self.client(), dict(self.conversation)
+        self.launch('engineering-checkpoints', lambda: (conversation, client, client.engineering_checkpoints(conversation)))
+
+    def show_checkpoints(self, conversation, client, result):
+        from desktop.checkpoint_dialog import CheckpointDialog
+        from desktop.engineering_composer import modal_scope
+        if not self.conversation or self.conversation.get('conversation_id') != conversation.get('conversation_id'):
+            return
+        job, history = result
+        with modal_scope(self):
+            dialog = CheckpointDialog(self, history, lambda check_id: client.candidate_details(job, check_id))
+        if dialog.result and self.conversation.get('conversation_id') == conversation.get('conversation_id'):
+            self.launch('engineering-restored', lambda: client.restore_candidate(job, dialog.result))
+
     def review_engineering(self):
         if self.closed or not self.visible or getattr(self, 'engineering_modal', False):
             return
@@ -674,6 +692,11 @@ class ChatPanel(tk.Frame):
                 self.show_engineering_preflight(*value)
             elif name == 'engineering-submitted':
                 self.settle_send(value)
+            elif name == 'engineering-checkpoints':
+                self.show_checkpoints(*value)
+            elif name == 'engineering-restored':
+                self.status.configure(text='Local candidate restored. Validation and review are running again.')
+                self.refresh_list()
             elif name == 'engineering-reviewed':
                 self.show_engineering_review(*value)
             elif name == 'engineering-approved':

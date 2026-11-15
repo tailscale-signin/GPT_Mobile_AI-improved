@@ -45,10 +45,15 @@ def principal_authorized(config, principal, devices):
 
 
 def validate_request(request):
-    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'sampling_policy', 'execution_mode', 'batch_policy_version', 'batch_preferences'}
+    allowed = {'repository', 'branch', 'base', 'objective', 'model', 'duration_hours', 'repair_attempts', 'chat_id', 'request_id', 'acceptance', 'profile_id', 'memory_mode', 'execution_binding_id', 'execution_budget', 'task_scope', 'scope', 'profile_name', 'source_branch', 'source_sha', 'conversation_id', 'client_conversation_id', 'command_id', 'expected_revision', 'draft_repair', 'adopt_pr', 'sampling_policy', 'execution_mode', 'batch_policy_version', 'batch_preferences', 'specialist_roles'}
     if not isinstance(request, dict) or set(request) - allowed:
         raise ValueError('Unsupported engineering request fields')
     result = dict(request)
+    if 'specialist_roles' in result:
+        from v14.engineering_specialists import ROLES
+        roles = result['specialist_roles']
+        if not isinstance(roles, list) or len(roles) > 6 or any(not isinstance(role, str) or role not in ROLES for role in roles) or len(roles) != len(set(roles)):
+            raise ValueError('Choose up to six distinct read-only specialist roles')
     if 'sampling_policy' in result:
         result['sampling_policy'] = validate_policy(result['sampling_policy'])
     if 'execution_mode' in result and result['execution_mode'] not in {'standard', 'smart', 'full'}:
@@ -88,6 +93,14 @@ def validate_request(request):
         result[key] = value
     if accepted_scope(result) not in {'read', 'plan', 'implement'}:
         raise ValueError('Unsupported task scope')
+    if 'adopt_pr' in result:
+        adopt = result['adopt_pr']
+        if (not isinstance(adopt, dict) or set(adopt) != {'number', 'head_sha', 'base_sha'}
+                or type(adopt['number']) is not int or adopt['number'] < 1
+                or any(not isinstance(adopt[key], str) or not SHA.fullmatch(adopt[key]) or adopt[key] == '0' * 40 for key in ('head_sha', 'base_sha'))
+                or adopt['head_sha'] != result.get('source_sha') or result.get('source_branch') != result['branch']
+                or result['branch'] == result['base'] or accepted_scope(result) != 'implement' or 'draft_repair' in result):
+            raise ValueError('PR adoption requires exact head/base revisions and the selected writable source branch')
     if 'draft_repair' in result:
         repair = result['draft_repair']
         fields = {'repository', 'pull_number', 'head_sha', 'source_branch', 'base_branch'}
@@ -312,6 +325,8 @@ class EngineeringStore:
                     job['pr_owner_job_id'] = previous.get('pr_owner_job_id', previous['id'])
                     job['continuation_actor_id'] = previous.get('data', {}).get('actor_id')
                     job['continuation_pr'] = previous.get('data', {}).get('pr')
+                    if previous.get('data', {}).get('adopted_pr'):
+                        job['data']['adopted_pr'] = deepcopy(previous['data']['adopted_pr'])
                 head = previous.get('data', {}).get('head_sha')
                 if isinstance(head, str) and SHA.fullmatch(head):
                     job['continuation_head_sha'] = head
@@ -1011,6 +1026,17 @@ class EngineeringService:
             if row is not None and row['kind'] == 'requirement_evidence':
                 receipts.append(dict(row['payload'], receipt_id=row['receipt_id']))
         result = completion_gate(job, readiness, merged, semantic_receipts=receipts)
+        retained = job['data'].setdefault('criterion_receipts', {})
+        for requirement in result.get('requirements', []):
+            value = dict(requirement, source_sha=job['data'].get('head_sha'),
+                         evidence_digest=fingerprint(readiness), merged=merged)
+            identity = fingerprint(value)
+            previous = retained.get(requirement['id'], {})
+            if previous.get('identity') != identity:
+                saved = self.evidence.append(job, 'criterion_verdict', value)
+                retained[requirement['id']] = {'identity': identity, 'receipt': saved,
+                    'source_sha': value['source_sha'], 'status': requirement['status']}
+        result['criterion_receipts'] = deepcopy(retained)
         if merged and job['data'].get('post_merge', {}).get('status') != 'PASSED':
             result['passed'] = False
             result['failures'].append('POST_MERGE_EVIDENCE_REQUIRED')
@@ -1538,6 +1564,7 @@ def public_job(job):
             'execution_binding_id': job['request'].get('execution_binding_id'),
             'execution_binding': job.get('execution_binding'),
             'latest_execution_receipt': data.get('latest_execution_receipt'),
+            'execution_budget_receipt': data.get('execution_budget_receipt'),
             'graph_retrieval': public_graph_receipt(data.get('graph_retrieval')),
             'blocked_reason': data.get('blocked_reason'), 'latest_operation': data.get('latest_operation'),
             'final_report': data.get('final_report')}

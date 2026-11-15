@@ -14,6 +14,7 @@ from v14.adaptive_sampling import resolve_policy, generation_parameters
 from v14.execution_binding import ExecutionBindingError, canonical, fingerprint
 from v14.inference_budget import fit_engineering_payload, plan_tokens, stage_reserves
 from v14.graph_context import admitted_graph_receipt
+from v14.execution_budget_receipt import receipt as budget_receipt
 from v14.inference_scheduler import admission_context, bound_invocation
 from v14.debug import diagnostic_execution_event
 from gateway_v13_runtime import GatewayContractError, normalize_backend_messages
@@ -29,6 +30,12 @@ def observe_physical_response(data, response):
     invocation = bound_invocation.get()
     if invocation is not None:
         invocation.observe_response(data, response)
+
+
+def checkpoint_structured_stream(content):
+    invocation = bound_invocation.get()
+    if invocation is not None:
+        invocation.checkpoint_stream(content)
 
 
 def selected_dispatch_headers():
@@ -49,6 +56,8 @@ class BoundModelInvocation:
         self.physical_count, self.observed_count = 0, 0
         self.initial_budget = self.compaction = None
         self.graph_retrieval = None
+        self.budget_receipt = job['data'].get('execution_budget_receipt')
+        self.stream_checkpoint_size = 0
         self.started = time.monotonic()
         self.sampling_policy = resolve_policy(job['request'], role)
 
@@ -121,7 +130,10 @@ class BoundModelInvocation:
             if 'reasoning' in selected and payload.get('chat_template_kwargs', {}).get('enable_thinking') != selected['reasoning']:
                 raise ExecutionBindingError('EXECUTION_PARAMETERS_CHANGED', 'A transport attempted to change the selected reasoning policy.')
             budget = plan_tokens(payload, self.capability, lambda request: self.service.capabilities.count(request, self.capability), **stage_reserves(self.capability))
-            self.current.update(budget=budget, capability_revision=self.capability['capability_revision'],
+            self.budget_receipt = budget_receipt(payload, budget, self.binding, self.capability,
+                parent=self.budget_receipt, stage=self.role)
+            self.job['data']['execution_budget_receipt'] = self.budget_receipt
+            self.current.update(execution_budget_receipt=self.budget_receipt, budget=budget, capability_revision=self.capability['capability_revision'],
                                 state='DISPATCHED', dispatched=True,
                                 reserved_tokens=budget['input_tokens'] + budget['output_tokens'])
             if self.graph_retrieval is not None:
@@ -139,6 +151,20 @@ class BoundModelInvocation:
                                 error_code=getattr(error, 'code', type(error).__name__))
             self.persist()
             raise
+
+    def checkpoint_stream(self, content):
+        if not isinstance(content, str) or self.current is None or not self.current.get('dispatched'):
+            return
+        size = len(content.encode())
+        if size < self.stream_checkpoint_size + 8192 or size > 512 * 1024:
+            return
+        if self.stopped():
+            raise InterruptedError('Engineering stream cancelled')
+        reference = self.service.artifacts.put_json(self.job, {'protocol_version': 1, 'content': content,
+            'complete': False, 'executable': False, 'head_sha': self.job['data'].get('head_sha')}, 'structured-action-partial')
+        self.current['partial_action'] = {'reference': reference, 'bytes': size, 'executable': False}
+        self.stream_checkpoint_size = size
+        self.persist()
 
     def observe_response(self, data, response):
         if self.current is None or not self.current['dispatched']:
@@ -193,6 +219,12 @@ class BoundModelInvocation:
             raise ExecutionBindingError('EXECUTION_CONTEXT_CONFIGURATION_CHANGED', 'The selected context allocation differs from the running model allocation.')
         if 'reasoning' in selected:
             request['chat_template_kwargs'] = {'enable_thinking': selected['reasoning']}
+        if 'json_schema' in self.capability.get('structured_output_formats', []):
+            request['response_format'] = {'type': 'json_schema', 'json_schema': {'name': 'engineering_action_v1', 'strict': False,
+                'schema': {'type': 'object', 'required': ['protocol_version', 'head_sha'],
+                    'properties': {'protocol_version': {'type': 'integer', 'const': 1},
+                                   'head_sha': {'type': 'string', 'const': self.job['data'].get('head_sha')}},
+                    'additionalProperties': True}}}
         source_reference = self.service.artifacts.put_json(self.job, request, 'model-input')
         self.job['data']['latest_model_input'] = source_reference
         request, self.initial_budget, self.compaction = fit_engineering_payload(request, self.capability, lambda value: self.service.capabilities.count(value, self.capability))
@@ -200,6 +232,8 @@ class BoundModelInvocation:
             self.graph_retrieval = admitted_graph_receipt(self.job['data']['graph_retrieval'], request)
             self.job['data']['graph_retrieval'] = copy.deepcopy(self.graph_retrieval)
         request['max_tokens'] = self.initial_budget['output_tokens']
+        self.budget_receipt = budget_receipt(request, self.initial_budget, self.binding, self.capability,
+            parent=self.budget_receipt, stage='admission')
         if self.compaction:
             self.compaction['source_reference'] = source_reference
             self.job['data']['context_compaction'] = self.compaction

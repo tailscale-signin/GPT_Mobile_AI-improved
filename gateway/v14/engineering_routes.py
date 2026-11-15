@@ -374,6 +374,30 @@ def install_engineering_routes(app, service):
             return await asyncio.to_thread(service.artifact_page, principal(request), job_id, artifact_id, offset, length)
         return await execute(run)
 
+    @app.get('/gateway/engineering/jobs/{job_id}/qualification')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/qualification')
+    async def qualification(job_id: str, request: Request):
+        from benchmarks.engineering_qualification import snapshot
+        async def run():
+            return await asyncio.to_thread(snapshot, service, principal(request), job_id, request.query_params.get('scenario'))
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/checkpoints')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/checkpoints')
+    async def checkpoints(job_id: str, request: Request):
+        from v14.engineering_checkpoints import history
+        async def run():
+            return await asyncio.to_thread(history, service, principal(request), job_id)
+        return await execute(run)
+
+    @app.get('/gateway/engineering/jobs/{job_id}/checkpoints/{check_id}')
+    @app.get('/v1/gateway/engineering/jobs/{job_id}/checkpoints/{check_id}')
+    async def checkpoint_detail(job_id: str, check_id: str, request: Request):
+        from v14.engineering_checkpoints import candidate_details
+        async def run():
+            return await asyncio.to_thread(candidate_details, service, principal(request), job_id, check_id)
+        return await execute(run)
+
     @app.get('/gateway/engineering/jobs/{job_id}/operations')
     @app.get('/v1/gateway/engineering/jobs/{job_id}/operations')
     async def operations(job_id: str, request: Request):
@@ -390,7 +414,12 @@ def install_engineering_routes(app, service):
             revision = payload.get('revision')
             if type(revision) is not int or revision < 0:
                 raise ValueError('Missing exact job revision')
-            if action == 'approve':
+            if action == 'rewind':
+                from v14.engineering_checkpoints import rewind
+                if request.headers.get('X-Gateway-User-Action') != 'restore-local-candidate':
+                    raise PermissionError('Explicit local candidate selection required')
+                result = await asyncio.to_thread(rewind, service, owner, job_id, revision, payload.get('check_id'))
+            elif action == 'approve':
                 # No AI tool is registered for this endpoint. The Android UI
                 # supplies this marker only from its explicit confirmation action.
                 if request.headers.get('X-Gateway-User-Action') != 'approve-and-merge':

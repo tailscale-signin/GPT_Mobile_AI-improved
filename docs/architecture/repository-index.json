@@ -38,6 +38,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringStore.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringSyncWorker.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayExecutionBudgetReceipt.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayExecutionSelection.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphAdmissionException.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphFailure.kt",
@@ -252,6 +253,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringStoreTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringSubmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayExecutionBudgetReceiptTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayExecutionSelectionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayFullBatchContractTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphIndexCheckpointTest.kt",
@@ -639,7 +641,8 @@
         "gateway/gateway_v13.py",
         "gateway/gateway_v13_runtime.py",
         "gateway/gateway_v13_transport.py",
-        "gateway/gateway_v14.py"
+        "gateway/gateway_v14.py",
+        "gateway/qualify_engineering.py"
       ]
     },
     "local_inference": {

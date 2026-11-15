@@ -408,6 +408,7 @@ jobs:
       - name: Repository contracts and workflow policy
         run: |
           python3 scripts/check_ci_policy.py
+          python3 scripts/sync_agent_metadata.py --check
           python3 scripts/generate_architecture_index.py --check
           python3 scripts/check_unified_reliability_v2.py
           python3 scripts/check_android_regex.py

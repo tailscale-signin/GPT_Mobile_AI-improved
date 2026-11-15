@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ed8c07cb26bcfdeb6af577f1209ba7d8e63d86bcc246585fd64c341f436afe2c",
-  "file_count": 2655,
-  "indexed_line_count": 429715,
+  "source_digest": "2f84d593852860d1e18404a908a3149a632f21320ce74bfe7fe83391656fa729",
+  "file_count": 2657,
+  "indexed_line_count": 430339,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 553,
-      "indexed_line_count": 96881
+      "indexed_line_count": 96897
     },
     {
       "id": "accessibility_and_localization",
@@ -165,8 +165,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 164,
-      "indexed_line_count": 74914
+      "file_count": 166,
+      "indexed_line_count": 75522
     },
     {
       "id": "authentication_service",
@@ -14969,8 +14969,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/IssueReportViewModel.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "c269da60d56a78afd85139d8f417497e85402fe19aefed5a3dfd61938b19c3ce",
-      "indexed_lines": 357
+      "sha256": "afb1ca275ed957dc88c83d20a163bdb2132c3355195665a0040de208cc37d4ca",
+      "indexed_lines": 373
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/KnowledgeSourceActivity.kt",
@@ -17454,22 +17454,22 @@
       "path": "gateway/benchmarks/sandbox.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "dd55349ab09e203589a61bb33fcb4e863fb608a61072828e6a5bbc3d68a9e0c3",
-      "indexed_lines": 245
+      "sha256": "4b4e3ff6338ee6fb1dae30e8d67c2f215c8214c7536a2d80cb88fe2ae9ba0e87",
+      "indexed_lines": 278
     },
     {
       "path": "gateway/benchmarks/service.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "3c37c46a30f08b76c2155abc4c5370f1dc2eae1578aa8427ea94981549fcfc0b",
-      "indexed_lines": 308
+      "sha256": "74ea962ffdd78b0147947de05b2350559e1ed0c2b37f1bda60a58f729bfa4a28",
+      "indexed_lines": 309
     },
     {
       "path": "gateway/benchmarks/settings.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "68aa258b6d8e719badc07a24455c2c0e1a8bc3849cdc02eeda18df7ed251b502",
-      "indexed_lines": 39
+      "sha256": "ae0ed267e377c673cac908122b31c33df8aa8fe1bedae721b4d68afabc93f6d3",
+      "indexed_lines": 96
     },
     {
       "path": "gateway/benchmarks/store.py",
@@ -17503,7 +17503,7 @@
       "path": "gateway/desktop/Start-Gateway.ps1",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "25c71c918bf0eb85d1675aeb981e1b1ca013f894464925884f8403ba4e386bf7",
+      "sha256": "364414790dbe2eb5f19f08f6e441aa8ad2958666901c82802fd4ade2f3cc5ba1",
       "indexed_lines": 17
     },
     {
@@ -17552,8 +17552,8 @@
       "path": "gateway/desktop/benchmark_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "47e54e830412f8bb2ad621cff7b670bbc9ef68d287b33f5c26b00145b5bfe14c",
-      "indexed_lines": 459
+      "sha256": "ece06286868baad698211aa72560a8bf518711e4cc3237eae54e9ed7f71a4b06",
+      "indexed_lines": 575
     },
     {
       "path": "gateway/desktop/build_windows.py",
@@ -17619,11 +17619,25 @@
       "indexed_lines": 157
     },
     {
+      "path": "gateway/desktop/engineering_setup.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "53416c8baf338a4ce702f4648921d923e42ab4590ba010612f65861480b37471",
+      "indexed_lines": 155
+    },
+    {
+      "path": "gateway/desktop/engineering_setup_panel.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "05cad8695b81e57b7b0467db1cce0f2a4f5f406e85fa471da1b1b60bfed47ba9",
+      "indexed_lines": 203
+    },
+    {
       "path": "gateway/desktop/entry.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "917ca7c9c0ae1f1c17d46bf533f6a21767360c610e9eb1c2a637280a466ea3c0",
-      "indexed_lines": 174
+      "sha256": "c6906aac59a95ebc0b691922e035967ef21f4b2191480b58cd98658c2856b7a6",
+      "indexed_lines": 193
     },
     {
       "path": "gateway/desktop/export_icons.py",
@@ -17699,8 +17713,8 @@
       "path": "gateway/desktop/repository_validation_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "67fc72ccc66f368f9fe1464463b7753474b71dade61aee9d32915ca7187a1066",
-      "indexed_lines": 630
+      "sha256": "b080348de50f73dca4da1cd2c7da7e2f69f01f0ba833074782993a36a1075f7e",
+      "indexed_lines": 654
     },
     {
       "path": "gateway/desktop/smoke_windows.py",
@@ -18455,7 +18469,7 @@
       "path": "gateway/v14/package.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "218fd9d360da70d8d7c6478fb456ddfae94c2b552da249039905a5c984f55950",
+      "sha256": "a76847f996bb793f20737a7d14fa5df1280781f8c2d1328fe5386bebe29a66d6",
       "indexed_lines": 32
     },
     {

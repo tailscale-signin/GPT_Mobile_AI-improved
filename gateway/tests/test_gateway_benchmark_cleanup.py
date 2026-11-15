@@ -116,6 +116,7 @@ class SandboxCleanupTest(unittest.TestCase):
 
     def test_exact_container_absence_needs_a_successful_bounded_observation(self):
         name = 'gateway-benchmark-' + 'a' * 32
+        resolved_docker = str(Path('/local/docker').resolve())
         for exit_code, output, expected in ((1, '', 'unknown'), (0, name, 'unknown'), (0, '', 'confirmed')):
             with self.subTest(exit_code=exit_code, output=output), \
                     patch.object(sandbox.shutil, 'which', return_value='/local/docker'), \
@@ -123,7 +124,7 @@ class SandboxCleanupTest(unittest.TestCase):
                     patch.object(sandbox, 'run_bounded', return_value={'exit_code': exit_code, 'output_tail': output}) as observed:
                 self.assertEqual(expected, sandbox.reconcile_container(name)['outcome'])
                 argv, _, timeout, maximum = observed.call_args.args
-                self.assertEqual(['/local/docker', '--config'], argv[:2])
+                self.assertEqual([resolved_docker, '--config'], argv[:2])
                 self.assertEqual(['--context', 'default', 'container', 'ls', '--all', '--filter', 'name=^/' + name + '$', '--format', '{{.Names}}'], argv[3:])
                 self.assertEqual(10, timeout)
                 self.assertEqual(4096, maximum)
@@ -135,9 +136,10 @@ class SandboxCleanupTest(unittest.TestCase):
 
     def test_preflight_launch_removal_and_restart_observation_use_one_isolated_docker_context(self):
         seen = []
+        resolved_docker = str(Path('/local/docker').resolve())
         names = ('DOCKER_HOST', 'DOCKER_CONTEXT', 'DOCKER_CONFIG', 'DOCKER_TLS_VERIFY', 'DOCKER_CERT_PATH')
         def checked(argv, environment):
-            self.assertEqual(['/local/docker', '--config'], argv[:2])
+            self.assertEqual([resolved_docker, '--config'], argv[:2])
             self.assertTrue(Path(argv[2]).is_dir())
             self.assertEqual([], list(Path(argv[2]).iterdir()))
             self.assertEqual(['--context', 'default'], argv[3:5])
@@ -156,8 +158,8 @@ class SandboxCleanupTest(unittest.TestCase):
                 patch.object(sandbox.shutil, 'which', return_value='/local/docker'), \
                 patch.object(sandbox.subprocess, 'Popen', side_effect=process), \
                 patch.object(sandbox.subprocess, 'run', side_effect=removed):
-            self.assertEqual('/local/docker', sandbox.preflight(SETTINGS))
-            self.assertEqual('COMPLETED', sandbox.execute(SOURCES, [{}], SETTINGS, docker='/local/docker')['status'])
+            self.assertEqual(resolved_docker, sandbox.preflight(SETTINGS))
+            self.assertEqual('COMPLETED', sandbox.execute(SOURCES, [{}], SETTINGS, docker=resolved_docker)['status'])
             self.assertEqual('confirmed', sandbox.reconcile_container('gateway-benchmark-' + 'd' * 32)['outcome'])
         self.assertEqual(['image', 'run', 'rm', 'rm', 'container'], seen)
 

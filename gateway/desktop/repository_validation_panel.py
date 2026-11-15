@@ -45,7 +45,9 @@ class RepositoryValidationPanel:
         self.fields, self.inputs = {}, []
         frame.configure(padding=(14, 10))
         frame.columnconfigure(0, weight=1)
-        frame.rowconfigure(5, weight=1)
+        # Keep a usable strip for the editor at the minimum Settings height.
+        # The rest of its content scrolls inside the canvas.
+        frame.rowconfigure(5, weight=1, minsize=88)
         self.enabled = tk.BooleanVar(master=frame, value=False)
         self.enable_button = ttk.Checkbutton(frame, text='Enable repository validation', variable=self.enabled,
                                             command=self.enabled_changed)
@@ -242,7 +244,9 @@ class RepositoryValidationPanel:
 
     def toggle_advanced(self):
         if self.advanced_visible.get():
-            self.advanced.grid()
+            # grid_remove retains a widget's layout, but explicitly restoring
+            # the slot is reliable across the Tk builds shipped with Windows.
+            self.advanced.grid(row=5, column=0, sticky='nsew', pady=4)
         else:
             self.advanced.grid_remove()
 

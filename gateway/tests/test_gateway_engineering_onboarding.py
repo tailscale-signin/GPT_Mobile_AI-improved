@@ -8,6 +8,7 @@ import unittest
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop import engineering_setup as setup
+from desktop import github_setup
 
 
 class OnboardingTests(unittest.TestCase):
@@ -103,7 +104,7 @@ class OnboardingTests(unittest.TestCase):
                    return_value={'state':'OK', 'revision':'r1', 'repositories':{}}), \
              patch.object(validation, 'options_for', return_value={'repository':'o/r'}), \
              patch('desktop.configuration.load', return_value={}), \
-             patch('desktop.github_setup.configured_connection', return_value=('none', None)), \
+             patch.object(github_setup, 'configured_connection', return_value=('none', None)), \
              patch.object(validation, 'setup', side_effect=[
                  {'image':'image@sha256:'+'a'*64, 'snapshot':{'revision':'r2'}},
                  {'image':'image@sha256:'+'a'*64}]) as execute, \
@@ -120,7 +121,7 @@ class OnboardingTests(unittest.TestCase):
                    return_value={'state':'OK', 'revision':'r1', 'repositories':{}}), \
              patch.object(validation, 'options_for', return_value={'repository':'o/r'}), \
              patch('desktop.configuration.load', return_value={}), \
-             patch('desktop.github_setup.configured_connection', return_value=('none', None)), \
+             patch.object(github_setup, 'configured_connection', return_value=('none', None)), \
              patch.object(validation, 'setup', side_effect=[
                  {'image':'image@sha256:'+'a'*64, 'snapshot':{'revision':'r2'}},
                  {'image':'image@sha256:'+'a'*64}]), \

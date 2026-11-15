@@ -36,7 +36,7 @@ class WorkspaceChecksTests(unittest.TestCase):
         self.image = 'fixture@sha256:' + 'a' * 64
         self.policy = {'mirror': str(source / '.git'), 'image': self.image,
                        'commands': [[sys.executable, '-c', 'raise RuntimeError("unselected")'],
-                                    [sys.executable, '-c', 'print("first\\nsecond\\nthird")']],
+                                    [sys.executable, '-c', 'import sys; sys.stdout.buffer.write(b"first\\nsecond\\nthird\\n")']],
                        'acceptance_map': []}
         self.policy_path = self.root / 'policy.json'
         self.policy_path.write_text(json.dumps({'owner/repo': self.policy}))
@@ -85,7 +85,8 @@ class WorkspaceChecksTests(unittest.TestCase):
             self.action(action='check_output', check_id=receipt['check_id'], start_line=8)
 
     def test_fresh_attempt_reuses_candidate_and_retains_output_before_the_tail(self):
-        self.policy['commands'][1] = [sys.executable, '-c', 'print("first error"); print("padding\\n" * 2500)']
+        self.policy['commands'][1] = [sys.executable, '-c',
+                                      'import sys; sys.stdout.buffer.write(b"first error\\n" + b"padding\\n" * 2500)']
         self.policy_path.write_text(json.dumps({'owner/repo': self.policy}))
         self.job['data']['admission']['policy_sha256'] = hashlib.sha256(
             json.dumps(self.policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
@@ -115,7 +116,16 @@ class WorkspaceChecksTests(unittest.TestCase):
         content = 'answer = 1\n'
         sha = blob_sha(content)
         self.job['data'].update(tree={'file.py': {'mode': '100644', 'sha': sha}},
-                                files={'file.py': {'sha': sha, 'content': content, 'preview_characters': 0}})
+                                files={'file.py': {'sha': sha, 'content': content, 'preview_characters': 0}}, plan={})
+        retained = {}
+        def save(raw):
+            reference = {'id': len(retained)}
+            retained[reference['id']] = raw
+            return reference
+        self.backend.private_artifacts = SimpleNamespace(
+            put_json=lambda _, value, __: save(value),
+            put=lambda _, chunks, **__: save(b''.join(chunks)),
+            json_value=lambda _, ref: retained[ref['id']])
         proposal = {'changes': [{'path': 'file.py', 'expected_blob_sha': sha,
                                  'edits': [{'old': 'answer = 1', 'new': 'answer = 2'}]}]}
         with self.assertRaises(ValueError):
@@ -136,6 +146,15 @@ class WorkspaceChecksTests(unittest.TestCase):
             receipt = self.action(action='check', check_index=1, proposal=proposal)
         self.assertEqual('PASSED', receipt['status'])
         self.assertEqual(content, (self.root / 'source/file.py').read_text())
+        check_id = receipt['check_id']
+        self.assertEqual(check_id, self.action(action='candidates')['candidates'][0]['check_id'])
+        self.assertEqual('file.py', self.action(action='candidate_files', candidate_check_id=check_id)['files'][0]['path'])
+        self.backend.identity = Mock(return_value={'id': 1})
+        self.backend.model = Mock(return_value={'candidate_check_id': check_id})
+        finalized = self.backend.step(self.job, 'IMPLEMENT')
+        self.assertFalse(finalized['workspace_continue'])
+        self.assertEqual('answer = 2\n', finalized['changes'][0]['content'])
+        self.assertNotIn('local_validation', finalized)
 
     def test_stale_policy_and_unapproved_command_are_rejected_before_execution(self):
         for value in (-1, 2, True, '1'):

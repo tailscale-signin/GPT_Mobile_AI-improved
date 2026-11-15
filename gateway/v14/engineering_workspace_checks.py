@@ -22,6 +22,20 @@ def catalog(job):
                         for index, command in enumerate(commands)]
 
 
+def retained_candidate(backend, job, check_id):
+    data = job['data']
+    saved = data.get('workspace_checks', {}).get(check_id) if isinstance(check_id, str) else None
+    artifacts = backend.private_artifacts
+    policy_sha, _ = catalog(job)
+    if (not saved or saved['source_sha'] != data['head_sha'] or saved['policy_sha256'] != policy_sha
+            or not saved.get('candidate_ref') or artifacts is None):
+        raise ValueError('Select an exact retained candidate on the current source and validation policy')
+    changes = artifacts.json_value(job, saved['candidate_ref'])
+    if patch_identity(data['head_sha'], changes) != saved['patch_identity']:
+        raise ValueError('The retained candidate does not match the tested patch')
+    return changes
+
+
 def act(backend, job, action):
     from v14.engineering_backend import prepare_changes
     from v14.engineering_source import prepare_source
@@ -32,6 +46,18 @@ def act(backend, job, action):
     if kind == 'checks':
         policy_sha, checks = catalog(job)
         return {'policy_sha256': policy_sha, 'checks': checks, 'scope': 'exploratory'}
+    if kind == 'candidates':
+        policy_sha, _ = catalog(job)
+        return {'candidates': [
+            {key: saved[key] for key in ('check_id', 'patch_identity', 'check_index', 'status')}
+            for saved in data.get('workspace_checks', {}).values()
+            if saved.get('candidate_ref') and saved['source_sha'] == data['head_sha']
+            and saved['policy_sha256'] == policy_sha
+        ], 'scope': 'exploratory'}
+    if kind == 'candidate_files':
+        changes = retained_candidate(backend, job, action.get('candidate_check_id'))
+        return {'files': [{'path': change['path'], 'deleted': change['content'] is None,
+                           'expected_blob_sha': change['expected_blob_sha']} for change in changes]}
     if kind == 'check_output':
         check_id = action.get('check_id')
         saved = data.get('workspace_checks', {}).get(check_id)
@@ -72,13 +98,9 @@ def act(backend, job, action):
     saved_checks = data.setdefault('workspace_checks', {})
     candidate = action.get('candidate_check_id')
     if candidate is not None:
-        saved_candidate = saved_checks.get(candidate) if isinstance(candidate, str) else None
-        if (proposal is not None or not saved_candidate or saved_candidate['source_sha'] != data['head_sha']
-                or saved_candidate['policy_sha256'] != policy_sha or not saved_candidate.get('candidate_ref') or artifacts is None):
-            raise ValueError('Select an exact retained candidate on the current source and validation policy')
-        changes = artifacts.json_value(job, saved_candidate['candidate_ref'])
-        if patch_identity(data['head_sha'], changes) != saved_candidate['patch_identity']:
-            raise ValueError('The retained candidate does not match the tested patch')
+        if proposal is not None:
+            raise ValueError('Supply either a new proposal or a retained candidate')
+        changes = retained_candidate(backend, job, candidate)
     elif proposal is None:
         changes = []
     elif isinstance(proposal, dict):

@@ -26,7 +26,7 @@ class GitHubEngineeringCiPollingTest {
     @Test
     fun blockedStopsPolling() {
         assertEquals(
-            GitHubEngineeringCiPollingDecision.StopBlocked,
+            EngineeringCiPollingDecision.StopBlocked,
             GitHubEngineeringCiPolling.next(EngineeringCiVerdict.BLOCKED, state, 2_000L)
         )
     }

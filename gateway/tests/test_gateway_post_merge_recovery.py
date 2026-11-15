@@ -74,6 +74,45 @@ class PostMergeRecoveryTests(unittest.TestCase):
         self.assertEqual(child['id'], enqueue(self.service, restarted, dict(self.failed, branch_head='9' * 40))['id'])
         self.assertEqual(2, len(self.store.list('owner')))
 
+    def test_follow_up_replaces_paused_recovery_and_parent_qualifies_successor(self):
+        with patch('v14.engineering_source.prepare_source'):
+            child = enqueue(self.service, self.job, self.failed)
+        self.store.complete(self.job, self.lease, 'VERIFY', {})
+        claimed, lease, _ = self.store.claim(child['id'])
+        self.store.record_model_attempt(claimed, {
+            'attempt_id': 'initial-recovery-attempt', 'binding_id': child['request']['execution_binding_id'],
+            'state': 'DISPATCHED', 'dispatched': True, 'reserved_tokens': 4096,
+        })
+        self.store.complete(claimed, lease, 'NEEDS_INPUT', {})
+        conversation = self.store.conversations.snapshot('owner', child['conversation_id'])
+        request = dict(child['request'], request_id='more-recovery-instructions',
+                       conversation_id=child['conversation_id'], expected_revision=conversation['revision'],
+                       objective='Also check whether the build repair preserves the original behavior.')
+        request.pop('execution_budget')
+        successor = self.store.create('owner', request)
+        self.assertEqual(successor['id'], self.store.create('owner', request)['id'])
+        self.assertEqual(child['id'], successor['continuation_of'])
+        self.assertEqual(self.job['id'], successor['recovery_of'])
+        self.assertEqual(child['recovery_depth'], successor['recovery_depth'])
+        self.assertEqual(child['deadline'], successor['deadline'])
+        for key, spent in [('model_calls', 1), ('model_tokens', 4096)]:
+            self.assertEqual(child['request']['execution_budget'][key] - spent,
+                             successor['request']['execution_budget'][key])
+        self.assertEqual('CANCELLED', self.store.get(child['id'])['state'])
+        parent = self.store.get(self.job['id'])
+        self.assertEqual(successor['id'], parent['data']['post_merge_recovery_job_id'])
+        self.assertEqual('PENDING', inspect(self.service, parent)['status'])
+        claimed, lease, _ = self.store.claim(successor['id'])
+        claimed['data'].update(merge_sha='f' * 40, post_merge={'status': 'PASSED'})
+        self.store.complete(claimed, lease, 'COMPLETED', {})
+        self.backend.ref = Mock(return_value='1' * 40)
+        self.backend.api.return_value = {'status': 'ahead', 'merge_base_commit': {'sha': 'f' * 40}}
+        self.service.completion_verification = Mock(return_value={'passed': True, 'failures': [], 'requirements': []})
+        self.service.tick(parent['id'])
+        concluded = self.store.get(parent['id'])
+        self.assertEqual('COMPLETED', concluded['state'])
+        self.assertEqual('f' * 40, concluded['data']['final_report']['qualified_revision'])
+
     def test_nested_recovery_compares_only_the_final_qualified_revision(self):
         self.job['data']['post_merge_recovery_job_id'] = 'child'
         request = self.job['request']

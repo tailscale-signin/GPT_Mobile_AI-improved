@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import java.net.URI
@@ -123,7 +124,8 @@ class AgentRunner(
     private val effectiveReplayTokens = if (limits.contextTokens == Int.MAX_VALUE) {
         limits.maxReplayTokens
     } else {
-        minOf(limits.maxReplayTokens.toLong(), (limits.contextTokens.toLong() - limits.initialContextTokens - limits.finalResponseReserveTokens - 512).coerceAtLeast(0)).toInt()
+        val promptCapacity = RequestAdmission.maximumEstimatedPrompt(limits.contextTokens.toLong() - limits.finalResponseReserveTokens)
+        minOf(limits.maxReplayTokens.toLong(), (promptCapacity - limits.initialContextTokens.coerceAtLeast(0)).coerceAtLeast(0)).toInt()
     }
 
     /** Serialization, hashing, and replay projection can scan megabytes of evidence. */
@@ -437,7 +439,8 @@ class AgentRunner(
                     calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
                     initialSchemaTokens, replayTokens, toolCallsByName, consecutiveToolFailures, blockedReadScopes,
                     remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
-                    retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation
+                    retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
+                    admittedReplayLimit, consumedCallIds
                 ) ?: return
                 executableToolByName = completed.tools
                 exposedDefinitions = completed.definitions
@@ -984,7 +987,9 @@ class AgentRunner(
         unknownOutcomes: MutableSet<String>,
         retainedUnknownOutcome: Boolean,
         savedResultRecovery: GitHubReplayRecovery.State?,
-        ciInvestigation: GitHubCiInvestigationRecovery
+        ciInvestigation: GitHubCiInvestigationRecovery,
+        replayLimit: Int,
+        consumedCallIds: Set<String>
     ): ToolRoundCompletion? {
         var executableToolByName = initialTools
         var exposedDefinitions = initialDefinitions
@@ -1127,7 +1132,8 @@ class AgentRunner(
             canReadOtherSources, suppressedReadRounds >= 2 && !savedReadAvailable,
             roundLimitReached, toolCallCount, executionToolCallLimit,
             unproductiveDiscoveryRounds, finalResponseRequested, executableCalls.mapTo(hashSetOf()) { it.callId },
-            executableToolByName.values.any { it.definition.modelVisible && ProgressiveToolCatalog.isGitHubTool(it.definition) }
+            executableToolByName.values.any { it.definition.modelVisible && ProgressiveToolCatalog.isGitHubTool(it.definition) },
+            replayLimit, consumedCallIds
         )
         finalResponseRequested = completedBatch.finalResponseRequested
         if (finalResponseRequested) {
@@ -1349,8 +1355,10 @@ class AgentRunner(
         executionToolCallLimit: Int,
         previousDiscoveryRounds: Int,
         wasFinalResponseRequested: Boolean,
-        publishedCallIds: Set<String> = emptySet(),
-        hasActionableGitHubTools: Boolean = false
+        publishedCallIds: Set<String>,
+        hasActionableGitHubTools: Boolean,
+        replayLimit: Int,
+        consumedCallIds: Set<String>
     ): BatchCompletion {
         var finalResponseRequested = wasFinalResponseRequested
         val resultByCallId = producedResults.associateBy { it.callId }
@@ -1385,13 +1393,14 @@ class AgentRunner(
         val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
         val replayTokens = prepareReplay(
             exchanges = projectedExchanges,
-            maxReplayTokens = effectiveReplayTokens,
-            maxResultTokens = limits.maxReplayResultTokens
+            maxReplayTokens = replayLimit,
+            maxResultTokens = limits.maxReplayResultTokens,
+            consumedCallIds = consumedCallIds
         ).compactedTokens.toLong()
         val estimatedPrompt = limits.initialContextTokens.toLong().coerceAtLeast(0) + replayTokens
         val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
             estimatedPrompt + limits.finalResponseReserveTokens +
-            dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(estimatedPrompt) >= limits.contextTokens
+            RequestAdmission.estimateSafety(estimatedPrompt) > limits.contextTokens
         val repeatLimited = allResults.any { toolResultText(it).contains("reached the per-response repeat limit", ignoreCase = true) }
         val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
         val argumentRepairStalled = allResults.isNotEmpty() &&

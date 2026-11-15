@@ -298,6 +298,8 @@ class EngineeringStore:
                 previous = self.decode(prior)
                 if previous is None or prior[3] is not None or previous['state'] not in {'MERGE_READY', 'NEEDS_INPUT'}:
                     raise ConversationConflict('The preceding job is still active; wait for its safe checkpoint')
+                if previous.get('recovery_of'):
+                    self.replace_paused_recovery(db, previous, job, now)
                 previous.update(approval=None, updated_at=now, finished_at=now, superseded_by=job['id'],
                                 message='Stopped at its paused checkpoint by an explicit follow-up. Earlier operation receipts and uncertain outcomes remain retained.')
                 batch_control(previous, 'CANCELLED', 'superseded')
@@ -339,6 +341,55 @@ class EngineeringStore:
             return dict(job, state='PLAN', revision=0)
         return self.tx(insert)
 
+    def replace_paused_recovery(self, db, previous, successor, now):
+        """Transfer a recovery reservation in the conversation admission transaction."""
+        principal = previous['principal']
+        parent_id = previous['recovery_of']
+        row = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?',
+                         (parent_id, principal)).fetchone()
+        parent = self.decode(row)
+        previous_data = previous['data']
+        request = successor['request']
+        if (parent is None or parent['state'] != 'VERIFY' or row[3] is not None
+                or parent['data'].get('post_merge_recovery_job_id') != previous['id']
+                or previous_data.get('merge_sha') or previous_data.get('post_merge_recovery_job_id')
+                or any(previous['request'].get(key) != request.get(key) for key in ('repository', 'branch', 'base'))
+                or any(parent['request'][key] != request[key] for key in ('repository', 'base'))
+                or previous['execution_binding'] != successor['execution_binding']
+                or accepted_scope(request) != 'implement'):
+            raise ConversationConflict('Recovery ownership or its safe checkpoint changed. Refresh the original task before sending.')
+        accepted = effective_execution_budget(previous['request'])
+        requested = effective_execution_budget(request)
+        calls, tokens = db.execute(
+            'SELECT COUNT(*),COALESCE(SUM(reserved_tokens),0) FROM engineering_model_attempts WHERE job_id=? AND dispatched=1',
+            (previous['id'],)).fetchone()
+        accepted['model_calls'] -= calls
+        accepted['model_tokens'] -= tokens
+        remaining = {key: min(value, requested[key]) for key, value in accepted.items()}
+        deadline = min(successor['deadline'], previous['deadline'], parent['deadline'])
+        if (remaining['model_calls'] <= remaining['verification_calls'] + remaining['final_calls']
+                or remaining['model_tokens'] < 1024 or deadline <= now + remaining['final_seconds']):
+            raise ConversationConflict('The recovery has insufficient time or model budget for another instruction.')
+        successor.update(
+            recovery_of=parent_id, recovery_depth=previous['recovery_depth'],
+            recovery_objective=previous['recovery_objective'], deadline=deadline,
+            steps=previous['steps'], repairs=deepcopy(previous['repairs']),
+            submitted_execution_budget=request['execution_budget'],
+            submitted_repair_attempts=request['repair_attempts'])
+        successor['request'] = dict(request, execution_budget=remaining,
+                                    repair_attempts=min(request['repair_attempts'], previous['request']['repair_attempts']))
+        successor['data']['ci'] = deepcopy(parent['data']['post_merge'])
+        if request.get('execution_mode') == 'full':
+            successor['data']['integration_batch'] = new_plan(successor, load_batch_policy())
+        parent_data = parent['data']
+        parent_data['post_merge_recovery_job_id'] = successor['id']
+        post_merge = parent_data['post_merge']
+        for key in ('recovery_state', 'recovery_pr', 'recovery_action'):
+            post_merge.pop(key, None)
+        post_merge.update(status='PENDING', reason='MERGE_RECOVERY_RUNNING', recovery_job_id=successor['id'])
+        db.execute('UPDATE engineering_jobs SET data=?,next_at=MIN(next_at,?) WHERE id=?',
+                   (json.dumps(parent), now, parent_id))
+
     def get_in_transaction(self, db, job_id, principal):
         if not job_id:
             return None
@@ -351,7 +402,13 @@ class EngineeringStore:
             row = db.execute('SELECT data,state,revision,request_digest FROM engineering_jobs WHERE principal=? AND request_id=?',
                              (principal, request['request_id'])).fetchone()
             existing = self.decode(row[:3]) if row else None
-            normalized = validate_request(retained_request_defaults(request, existing['request'])) if existing else None
+            normalized = None
+            if existing:
+                accepted = existing['request']
+                if 'submitted_execution_budget' in existing:
+                    accepted = dict(accepted, execution_budget=existing['submitted_execution_budget'],
+                                    repair_attempts=existing['submitted_repair_attempts'])
+                normalized = validate_request(retained_request_defaults(request, accepted))
             if row and row[3] != digest(normalized):
                 raise ValueError('Request identity was reused with different settings')
             return existing

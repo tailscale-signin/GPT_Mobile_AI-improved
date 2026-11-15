@@ -495,12 +495,14 @@ class GitHubEngineeringBackend:
                        '"edits":[{"old":"unique exact anchor","new":"replacement"}]}],"summary":"..."}. '
                        'A new/small file may use content instead of edits. Use delete:true alone for deletion. '
                        'Existing files must have been read. Do not invent file contents; include meaningful tests. '
-                       'To investigate before editing, instead return {"workspace_action":{"action":"paths|search|read|checks|check|check_output","head_sha":"exact current head",'
+                       'To investigate before editing, instead return {"workspace_action":{"action":"paths|search|read|checks|check|check_output|candidates|candidate_files","head_sha":"exact current head",'
                        '"query":"literal search","paths":["paths for text search"],"path":"path for read","start_line":1,"line_count":80}}. '
                        'Paths accepts query and offset; search accepts query and 1-10 paths; read accepts path and an exact line range. '
                        'Use checks to list approved checks; check selects check_index and optionally proposal with the normal changes contract '
                        '(omitting proposal tests unchanged source). Use candidate_check_id to reuse the exact previously tested patch, and a unique attempt_id for a deliberate fresh execution. '
                        'check_output reads check_id with start_line and line_count. '
+                       'Use candidates to list retained patches and candidate_files with candidate_check_id to inspect changed paths. '
+                       'Finalize an unchanged candidate with {"candidate_check_id":"exact retained check ID","summary":"..."}. '
                        'Only host-approved commands execute; a selected check never replaces complete final validation. '
                        'Read relevant ranges before editing large files. Each action resumes this same task with bounded fresh context.')
         if role == 'planner' and 'proposed_options' in evidence:
@@ -725,7 +727,13 @@ class GitHubEngineeringBackend:
                         'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
                         'workspace_checks': data.get('workspace_checks', {}),
                         'workspace_check_executions': data.get('workspace_check_executions', 0)}
-            changes = prepare_changes(proposal, data['files'], data['tree'], head_sha=data['head_sha'])
+            if 'candidate_check_id' in proposal:
+                from v14.engineering_workspace_checks import retained_candidate
+                if set(proposal) - {'candidate_check_id', 'summary'}:
+                    raise ValueError('Final candidate selection cannot also change the patch')
+                changes = retained_candidate(self, job, proposal['candidate_check_id'])
+            else:
+                changes = prepare_changes(proposal, data['files'], data['tree'], head_sha=data['head_sha'])
             return {'workspace_continue': False, 'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
         if phase == 'REVIEW':
             patches = []

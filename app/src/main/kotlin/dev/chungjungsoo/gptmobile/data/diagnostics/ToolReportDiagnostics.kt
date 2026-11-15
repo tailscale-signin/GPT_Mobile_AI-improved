@@ -20,6 +20,9 @@ internal object ToolReportDiagnostics {
     private val actions = setOf("status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch")
     private val errors = setOf("APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_COOLDOWN_ACTIVE")
     private val reasons = setOf("BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH")
+    // Closed graph-specific codes are emitted only by an exact call-bound, source-owned graph receipt.
+    // Keep them separate from generic tool reasons so arbitrary tool receipts cannot impersonate graph evidence.
+    private val graphReasons = setOf("GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING")
     private val phases = setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED")
 
     /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */
@@ -121,6 +124,12 @@ internal object ToolReportDiagnostics {
             action != null &&
             receipt["action"] == JsonPrimitive(action)
         ) {
+            // The HTTP status and uncertainty belong to the original graph operation,
+            // not the report preview. A mismatched/edited receipt must not supply its cause.
+            if (result.isError && receipt["error_code"] == JsonPrimitive(result.errorCode)) {
+                (receipt["reason_code"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                    ?.takeIf { it in graphReasons }?.let { put("tool_reason_code", it) }
+            }
             (receipt["graph_index_attempt_hash"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
                 ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }?.let { put("graph_index_attempt_hash", it) }
         }

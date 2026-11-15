@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -60,6 +61,35 @@ class ToolReportIncidentProjectionTest {
         assertEquals("REPOSITORY_GRAPH_UNAVAILABLE", ToolReportDiagnostics.reportCode(event, result.copy(errorCode = "REPOSITORY_GRAPH_UNAVAILABLE")))
         assertNull(ToolReportDiagnostics.reportCode(event, result.copy(executionReceipt = null, content = ToolResultContent.Text("GRAPH_INDEX_OUTCOME_UNKNOWN CHECK_SAVED_INDEX requires_reconciliation=true"))))
         assertEquals(original, result.executionReceipt)
+    }
+
+    @Test fun http500IndexReportsExactBoundedGraphReasonWithoutDisclosingGatewayIdentity() = runBlocking {
+        val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
+        val attempted = "a".repeat(64)
+        val tool = RepositoryGraphTool(event.modelToolName) {
+            throw GatewayGraphOperationException(
+                GatewayGraphHttpFailure(500),
+                "private-gateway-host",
+                "private gateway name",
+                "CHECK_SAVED_INDEX",
+                true,
+                indexAttemptHash = attempted,
+                currentIndexOutcomeUnknown = true
+            )
+        }
+        val result = tool.execute(event.callId, buildJsonObject { put("action", "index") })
+        val fields = ToolReportDiagnostics.fields(event, result)
+        assertEquals("REPOSITORY_GRAPH_UNAVAILABLE", result.errorCode)
+        assertEquals("GRAPH_HTTP_REJECTED", fields["tool_reason_code"])
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("GRAPH_HTTP_REJECTED"), report.values["tool_reason_code"])
+        assertEquals(JsonPrimitive(attempted), report.values["graph_index_attempt_hash"])
+        assertFalse(report.toString().contains("private-gateway"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(callId = "different-call"), result).containsKey("tool_reason_code"))
+        val forged = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("call_id" to JsonPrimitive("other-call"))))
+        assertFalse(ToolReportDiagnostics.fields(event, forged).containsKey("tool_reason_code"))
+        val forgedReason = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("reason_code" to JsonPrimitive("UNTRUSTED_GRAPH_CAUSE"))))
+        assertFalse(ToolReportDiagnostics.fields(event, forgedReason).containsKey("tool_reason_code"))
     }
 
     @Test fun transportAndSavedCursorRejectionsKeepTypedReasonsWithoutArgumentValues() {

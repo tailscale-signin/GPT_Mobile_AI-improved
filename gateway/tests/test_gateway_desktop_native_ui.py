@@ -116,11 +116,13 @@ class DesktopNativeAcceptance(unittest.TestCase):
         with patch.object(validation, 'setup') as prepare:
             settings, panel = self.validation_window()
             self.assertFalse(panel.advanced_visible.get())
-            self.assertFalse(panel.commands.winfo_ismapped())
-            self.assertFalse(panel.contract.winfo_ismapped())
+            # Child mapping can survive a hidden ancestor; check actual viewability.
+            self.assertFalse(panel.advanced.winfo_viewable())
+            self.assertFalse(panel.commands.winfo_viewable())
+            self.assertFalse(panel.contract.winfo_viewable())
             for control in (panel.enable_button, panel.repository_picker, panel.profile_box, panel.advanced_toggle,
                             panel.prepare_button, panel.check_button, panel.save_button, panel.reload_button):
-                self.assertTrue(control.winfo_ismapped())
+                self.assertTrue(control.winfo_viewable())
                 self.assertGreater(control.winfo_width(), 40)
                 self.assertGreater(control.winfo_height(), 12)
                 self.assertGreaterEqual(control.winfo_rootx(), settings.winfo_rootx())
@@ -135,16 +137,21 @@ class DesktopNativeAcceptance(unittest.TestCase):
             settings.focus_force()
             panel.commands.focus_set()
             self.window.update()
+            self.assertTrue(panel.advanced.winfo_viewable())
+            self.assertTrue(panel.commands.winfo_viewable())
             original = panel.commands.get('1.0', 'end-1c')
             panel.commands.event_generate('<Tab>')
             self.window.update()
             self.assertEqual(original, panel.commands.get('1.0', 'end-1c'), 'Tab must move focus, not insert invisible JSON text')
             self.assertIs(panel.contract, settings.focus_get())
+            self.assertTrue(panel.contract.winfo_viewable())
             self.assertIs(panel.contract, settings.winfo_containing(panel.contract.winfo_rootx() + panel.contract.winfo_width() // 2,
                                                                    panel.contract.winfo_rooty() + panel.contract.winfo_height() // 2))
             panel.advanced_toggle.invoke()
             self.window.update()
-            self.assertFalse(panel.contract.winfo_ismapped())
+            self.assertFalse(panel.advanced.winfo_viewable())
+            self.assertFalse(panel.commands.winfo_viewable())
+            self.assertFalse(panel.contract.winfo_viewable())
             prepare.assert_not_called()
 
     def test_closing_settings_cancels_slow_setup_and_its_queued_callbacks(self):

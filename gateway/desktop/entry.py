@@ -101,10 +101,12 @@ def main():
                 window.update()
             panel = window.repository_validation_panel
             assert not panel.advanced_visible.get()
-            assert not panel.commands.winfo_ismapped() and not panel.contract.winfo_ismapped()
+            # Child mapping can survive a hidden ancestor; check actual viewability.
+            assert not panel.advanced.winfo_viewable()
+            assert not panel.commands.winfo_viewable() and not panel.contract.winfo_viewable()
 
             def visible(control):
-                assert control.winfo_ismapped(), str(control)
+                assert control.winfo_viewable(), str(control)
                 assert control.winfo_width() > 40 and control.winfo_height() > 12, str(control)
                 assert window.winfo_rootx() <= control.winfo_rootx()
                 assert window.winfo_rooty() <= control.winfo_rooty()
@@ -135,15 +137,17 @@ def main():
             capture('settings-repository-validation-basic-compact.png')
             panel.advanced_toggle.invoke()
             window.update()
+            assert panel.advanced.winfo_viewable() and panel.commands.winfo_viewable()
             panel.reveal(panel.contract)
             window.update()
-            assert panel.contract.winfo_ismapped()
+            assert panel.contract.winfo_viewable()
             assert window.winfo_containing(panel.contract.winfo_rootx() + panel.contract.winfo_width() // 2,
                                             panel.contract.winfo_rooty() + panel.contract.winfo_height() // 2) is panel.contract
             capture('settings-repository-validation-advanced-compact.png')
             panel.advanced_toggle.invoke()
             window.update()
-            assert not panel.contract.winfo_ismapped()
+            assert not panel.advanced.winfo_viewable()
+            assert not panel.commands.winfo_viewable() and not panel.contract.winfo_viewable()
         finally:
             window.destroy()
         return 0

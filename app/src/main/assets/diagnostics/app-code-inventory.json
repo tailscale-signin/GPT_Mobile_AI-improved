@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "2cab28eb4cca078d7912408aa5c8d31a0a3d37a3b0edeb6e10051acd38fe020c",
-  "file_count": 2609,
-  "indexed_line_count": 420275,
+  "source_digest": "443d57510d3ae4a4c6808dfcf0096ae153ef0e307198cc8f63574dcc077977a1",
+  "file_count": 2612,
+  "indexed_line_count": 420524,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 551,
-      "indexed_line_count": 95884
+      "indexed_line_count": 95885
     },
     {
       "id": "accessibility_and_localization",
@@ -165,8 +165,8 @@
     {
       "id": "gateway_software",
       "label": "Companion gateway software",
-      "file_count": 141,
-      "indexed_line_count": 70471
+      "file_count": 144,
+      "indexed_line_count": 70719
     },
     {
       "id": "authentication_service",
@@ -4581,8 +4581,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ReplayAllowance.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "84697d60afcb75ed5877a40a9f1fa049015144a51cebe6c497e9ee08a06d16d6",
-      "indexed_lines": 14
+      "sha256": "2be91407009bc8b6164d82d624f45d5dcd2989a9e3acfe542f37a61a71061417",
+      "indexed_lines": 15
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/RequestAdmission.kt",
@@ -10678,7 +10678,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ChatRepositoryImpl.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "6f69e2885d00de78c9564820f203f0cfa7340640970f43b4288642ba645831ee",
+      "sha256": "deb46cfa0557c7df917c4875be3c250387aa3f8af1bc870108eaaf6b76962e0b",
       "indexed_lines": 7804
     },
     {
@@ -17265,8 +17265,8 @@
       "path": "gateway/benchmarks/coding.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "df976f4737584ff78af0eb1ec1699531738199b42c71998ef440447fac479cac",
-      "indexed_lines": 167
+      "sha256": "30e38db127c0e9d03ae8380367e1fe820497dc125ec60c34e1364e94aeccbd12",
+      "indexed_lines": 168
     },
     {
       "path": "gateway/benchmarks/contracts.py",
@@ -17293,8 +17293,8 @@
       "path": "gateway/benchmarks/sandbox.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "630da11af0b18473db08be0b2d8a6e29f4aef9dab9c20b0505b2fea880ea5d70",
-      "indexed_lines": 234
+      "sha256": "3bb03ac72bb9be6bf94596b14b3908e6697258eb5eac9c9ba1236aed11463b67",
+      "indexed_lines": 235
     },
     {
       "path": "gateway/benchmarks/service.py",
@@ -17867,8 +17867,8 @@
       "path": "gateway/v14/engineering.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "eebe8f60eebfcf7c925a78a7eb1fd0c048700bd0113dbfa0d403f59d696b60ad",
-      "indexed_lines": 1181
+      "sha256": "262908881e9cc669c6567735a8c5b812827ec8aac9cabfd7858619f5a4f7b950",
+      "indexed_lines": 1202
     },
     {
       "path": "gateway/v14/engineering_artifacts.py",
@@ -17881,8 +17881,8 @@
       "path": "gateway/v14/engineering_backend.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "4871f328bf8656766352800a93be0a4ea4a601d52753087f0d4355529efbcb3d",
-      "indexed_lines": 848
+      "sha256": "885d68733c51697a22c274c18bc52bb828aa72c5a181804ba719c069d320cfa7",
+      "indexed_lines": 887
     },
     {
       "path": "gateway/v14/engineering_backup.py",
@@ -17941,6 +17941,13 @@
       "indexed_lines": 101
     },
     {
+      "path": "gateway/v14/engineering_post_merge.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "2f55f474019d543dd46357ab2fc3c0b9d1a36771a14c10c4f721a6060533db50",
+      "indexed_lines": 37
+    },
+    {
       "path": "gateway/v14/engineering_preflight.py",
       "area_id": "gateway_software",
       "kind": "source",
@@ -17976,11 +17983,25 @@
       "indexed_lines": 9
     },
     {
+      "path": "gateway/v14/engineering_source.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "7aa4530e19ce10210a5b7ab0e427e77b31b72580ef521bd650a592ed986f013f",
+      "indexed_lines": 50
+    },
+    {
       "path": "gateway/v14/engineering_validation.py",
       "area_id": "gateway_software",
       "kind": "source",
       "sha256": "1fff6857ff904b9c60cab32c3c0ee8a567defa09a6b868bf7402830195841f12",
       "indexed_lines": 352
+    },
+    {
+      "path": "gateway/v14/engineering_workspace.py",
+      "area_id": "gateway_software",
+      "kind": "source",
+      "sha256": "4895f6046462eda538d9f6316ae455d0e1a2bb8986339f9acf9d7be42ab09b6e",
+      "indexed_lines": 99
     },
     {
       "path": "gateway/v14/errors.py",

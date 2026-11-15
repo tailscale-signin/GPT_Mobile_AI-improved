@@ -199,7 +199,12 @@ class RepositoryValidationPanel:
             content_height = max(1, bounds[3] - bounds[1])
             viewport_height = max(1, canvas.winfo_height())
             margin = max(4, (viewport_height - control.winfo_height()) // 2)
-            control_top = canvas.canvasy(control.winfo_rooty() - canvas.winfo_rooty())
+            control_top = 0
+            current = control
+            while current is not self.editor:
+                control_top += current.winfo_y()
+                current = current.master
+            control_top += bounds[1]
             max_top = max(bounds[1], bounds[3] - viewport_height)
             target_top = min(max(bounds[1], control_top - margin), max_top)
             canvas.yview_moveto((target_top - bounds[1]) / content_height)

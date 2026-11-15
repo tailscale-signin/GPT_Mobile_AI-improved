@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "c3eed005e37f7b66bfe602a034e164241a4853f04446f45469e72495e4392e2c",
+  "source_digest": "5a1c5ce77e8e192b887b0a3cfc91b2db4181a8981442757ad14e88df91228890",
   "file_count": 2629,
-  "indexed_line_count": 424362,
+  "indexed_line_count": 424367,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 153,
-      "indexed_line_count": 72917
+      "indexed_line_count": 72922
     },
     {
       "id": "authentication_service",
@@ -17580,8 +17580,8 @@
       "path": "gateway/desktop/repository_validation_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "b834fe736fe7cf9b67772f3cbbfebaf21b07add694cdf1519bb6ae0c339ac885",
-      "indexed_lines": 597
+      "sha256": "5ccce1eea9cc62089a5580945400b4686a8eecf74dbb682935256303b2dfc99a",
+      "indexed_lines": 602
     },
     {
       "path": "gateway/desktop/smoke_windows.py",

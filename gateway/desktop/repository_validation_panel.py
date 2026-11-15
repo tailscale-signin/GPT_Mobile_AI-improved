@@ -145,7 +145,10 @@ class RepositoryValidationPanel:
         self.reset_button.grid(row=11, column=0, columnspan=3, sticky='w', pady=5)
         self.inputs.append(self.reset_button)
         buttons = ttk.Frame(frame)
-        buttons.grid(row=6, column=0, sticky='ew', pady=(4, 0))
+        # Keep the primary actions in the fixed portion of the page. On a
+        # minimum-height Windows window, placing them below the expandable
+        # editor can put their hit targets underneath Settings' footer.
+        buttons.grid(row=3, column=0, sticky='ew', pady=(4, 0))
         for attr, label, command in [('prepare_button', 'Prepare & save', lambda: self.start(True)),
                                      ('check_button', 'Check setup', lambda: self.start(False)),
                                      ('save_button', 'Save policy', self.save), ('reload_button', 'Reload', self.reload)]:

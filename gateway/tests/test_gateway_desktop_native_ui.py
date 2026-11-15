@@ -130,7 +130,8 @@ class DesktopNativeAcceptance(unittest.TestCase):
                 self.assertLessEqual(control.winfo_rootx() + control.winfo_width(), settings.winfo_rootx() + settings.winfo_width())
                 self.assertLessEqual(control.winfo_rooty() + control.winfo_height(), settings.winfo_rooty() + settings.winfo_height())
                 self.assertIs(control, settings.winfo_containing(control.winfo_rootx() + control.winfo_width() // 2,
-                                                                control.winfo_rooty() + control.winfo_height() // 2))
+                                                                control.winfo_rooty() + control.winfo_height() // 2),
+                              f'{control} must remain the topmost hit target at its visible center')
             panel.fields['profile'].set(validation.CUSTOM_PROFILE)
             panel.profile_changed()
             self.assertTrue(panel.advanced_visible.get())

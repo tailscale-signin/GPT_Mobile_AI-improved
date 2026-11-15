@@ -20,6 +20,7 @@ import androidx.compose.ui.unit.Velocity
 
 internal class ChatScrollInput {
     var dragging by mutableStateOf(false)
+    var pointerActive = false
     var modifier: Modifier = Modifier
 }
 
@@ -56,6 +57,13 @@ internal fun rememberChatScrollInput(
                 return Offset.Zero
             }
 
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                // Wheels can reach the edge without a pointer release or a fling.
+                // A held touch still waits for its release or completed fling.
+                if (!input.pointerActive && source == NestedScrollSource.UserInput && (consumed.y < 0f || available.y < 0f)) currentFollowIfAtBottom()
+                return Offset.Zero
+            }
+
             override suspend fun onPreFling(available: Velocity): Velocity {
                 gesture.endGesture()
                 return Velocity.Zero
@@ -73,6 +81,7 @@ internal fun rememberChatScrollInput(
         Modifier.nestedScroll(connection).pointerInput(gesture) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                input.pointerActive = true
                 gesture.followBottom()
                 var released = false
                 try {
@@ -81,6 +90,7 @@ internal fun rememberChatScrollInput(
                     } while (event.changes.any { it.pressed })
                     released = true
                 } finally {
+                    input.pointerActive = false
                     gesture.endGesture(cancelled = !released)
                     input.dragging = false
                     if (released) currentFollowIfAtBottom()

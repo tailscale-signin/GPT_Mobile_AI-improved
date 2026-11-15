@@ -31,9 +31,10 @@ internal object ToolArgumentValidator {
             }
             "github_read" ->
                 "Use one to eight ranges with a repository-relative path and start_line>=1. " +
-                    "Choose either max_lines (1..2000) or end_line, never both; end_line=-1 means bounded EOF. "
+                    "Choose either max_lines (1..2000) or end_line, never both; omit both for a bounded default read. end_line=-1 means bounded EOF. "
             "github_ci" ->
-                "For failed runs set status=failure. For longer job logs read successive windows of at most 2000 lines. "
+                "Use only the declared fields for the selected action. Runs filters use status; returned runs include conclusion. " +
+                    "For failed runs set status=failure. For logs use an observed job_id and positive ordered start_line/end_line spanning at most 2000 lines; read longer logs in successive windows. "
             "github_context" ->
                 "For saved content use only the exact view_cursor from continuation_call. " +
                     "For a fresh page use per_page=1..100. Do not copy an action from a different request. "
@@ -48,10 +49,10 @@ internal object ToolArgumentValidator {
     }
 
     /** A safe read recipe is constructed from the actual registered schema; no ID is inferred. */
-    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet()): AgentToolResult {
+    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet(), ciRejections: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.CiRejection> = emptySet(), searchValidationOwner: GitHubSearchValidationEvidence.Owner? = null): AgentToolResult {
         val correction = discoveryCorrection(toolName, arguments, schema)
         val selector = selectorProblem(toolName, arguments)
-        return AgentToolResult(
+        val rejected = AgentToolResult(
             callId,
             ToolResultContent.Json(
                 buildJsonObject {
@@ -106,11 +107,22 @@ internal object ToolArgumentValidator {
                     }
                     if (readRules.isNotEmpty()) {
                         put("semantic_read_rules", JsonArray(readRules.map { JsonPrimitive(it.name) }))
-                        put("validation_field_names", JsonArray(readRules.flatMap { it.fields.asList() }.distinct().sorted().map(::JsonPrimitive)))
                     }
+                    val declaredFields = (schema["properties"] as? JsonObject).orEmpty().keys
+                    val unknownFields = if (schema["additionalProperties"] == JsonPrimitive(false)) {
+                        arguments.keys.filter { it !in declaredFields && it in dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fieldNames }
+                    } else {
+                        emptyList()
+                    }
+                    val ci = ciRejections.takeIf { toolName.githubOperationFamily() == "github_ci" }.orEmpty()
+                        .filter { it.fields.isNotEmpty() && it.fields.all(declaredFields::contains) }
+                    if (ci.isNotEmpty()) put("semantic_ci_rules", JsonArray(ci.map { it.rule.name }.distinct().sorted().map(::JsonPrimitive)))
+                    val fields = (unknownFields + readRules.flatMap { it.fields.asList() } + ci.flatMap { it.fields }).distinct().sorted()
+                    if (fields.isNotEmpty()) put("validation_field_names", JsonArray(fields.take(12).map(::JsonPrimitive)))
                 }
             )
         )
+        return searchValidationOwner?.capture(rejected, toolName, arguments, schema) ?: rejected
     }
 
     /** Typed cause and constraint classes; no argument values enter public diagnostic fields. */
@@ -124,11 +136,6 @@ internal object ToolArgumentValidator {
             field.takeIf { validate(value, constraint, "$", 0).isNotEmpty() }
         }.toMutableSet()
         selector?.let { if (it.missing) missing += it.field else invalid += it.field }
-        if (schema["additionalProperties"] == JsonPrimitive(false)) {
-            invalid += arguments.keys.filter {
-                it !in properties && it in dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fieldNames
-            }
-        }
         val classes = linkedSetOf<String>()
         validate(arguments, schema, "$", 0, classes)
         if (operation == "github_context" && arguments["action"] == JsonPrimitive("repositories") && "view_cursor" !in arguments && "query" in properties) {

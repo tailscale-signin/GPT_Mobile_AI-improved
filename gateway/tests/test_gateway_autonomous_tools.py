@@ -34,9 +34,10 @@ class AutonomousToolsTests(unittest.TestCase):
         self.source = self.root / 'source'
         self.source.mkdir()
         self.git('init', '-q')
+        # Keep pinned Git fixture bytes identical across host newline conventions.
         for i in range(70):
-            (self.source / f'file{i:03}.py').write_text('target = 1\nsecond = 2\n')
-        (self.source / 'many.py').write_text('target = 1\n' * 100)
+            (self.source / f'file{i:03}.py').write_bytes(b'target = 1\nsecond = 2\n')
+        (self.source / 'many.py').write_bytes(b'target = 1\n' * 100)
         (self.source / 'binary.bin').write_bytes(b'\0target\n')
         self.git('add', '.')
         self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'fixture')

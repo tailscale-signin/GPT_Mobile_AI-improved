@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from .github_broker import NoRedirect
 from .engineering_report_contract import ENGINEERING_FIELDS, ENGINEERING_REASONS, MODEL_PREPARATION_REASONS
+from . import incident_report_contract as capsule
 from .issue_report_diagnostics import diagnostics_body, validate_diagnostics
 
 
@@ -466,6 +467,8 @@ def _report_context(value):
                 raise ValueError("diagnostic extension requires context version six")
             if version == 6 and diagnostic["schemaVersion"] == 3 or version == 7 and diagnostic["schemaVersion"] != 3:
                 raise ValueError("incident capsule requires context version seven")
+            if not capsule.repeat_history_aligned(diagnostic["values"], value.get("callIdHash")):
+                raise ValueError("repeat history links to the current call")
         except ValueError as error:
             raise ReportError(422, "INVALID_REPORT") from error
     return value

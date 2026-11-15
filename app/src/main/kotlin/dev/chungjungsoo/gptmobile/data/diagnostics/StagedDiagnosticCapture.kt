@@ -342,7 +342,8 @@ object StagedDiagnosticCapture {
         val stageElapsed = linkedMapOf<String, Long>()
         val collectionStarted = System.nanoTime()
         // Reserve useful evidence by capturing every cheap section before history can exhaust the archive budget.
-        val ordered = stages.sortedWith(compareBy<DiagnosticCaptureStage> { !it.critical }.thenBy { !it.lowMemorySafe })
+        // Prioritize configuration without changing its guard or the caller's durable stage plan.
+        val ordered = stages.sortedWith(compareBy<DiagnosticCaptureStage> { !it.critical }.thenBy { !it.lowMemorySafe }.thenBy { it.content != DiagnosticStageContent.CONFIGURATION })
         for (stage in ordered) {
             currentCoroutineContext().ensureActive()
             options.guard()
@@ -366,7 +367,16 @@ object StagedDiagnosticCapture {
                 // Check each stage independently because another retry may consume headroom.
                 val retryThreshold = if (stage.critical || stage.lowMemorySafe) minOf(options.minimumHeadroomBytes, 1024L * 1024) else options.minimumHeadroomBytes
                 val retryMemory = options.memorySampler()
-                if (retryMemory.javaHeadroomBytes < retryThreshold) continue
+                if (retryMemory.javaHeadroomBytes < retryThreshold) {
+                    receipts[index] = JsonObject(
+                        prior + buildJsonObject {
+                            put("heapPressureRetrySkipped", "HEADROOM_BELOW_REQUIRED")
+                            put("retryHeadroomBytes", retryMemory.javaHeadroomBytes)
+                            put("retryRequiredHeadroomBytes", retryThreshold)
+                        }
+                    )
+                    continue
+                }
                 val available = options.maxArchiveBytes - MANIFEST_LIMIT - receipts.sumOf { it.long("bytes") ?: 0 } + (prior.long("bytes") ?: 0)
                 val retryStarted = System.nanoTime()
                 // Keep source/record limits unchanged. Smaller source pages and yielding

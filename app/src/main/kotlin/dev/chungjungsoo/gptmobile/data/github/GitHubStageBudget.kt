@@ -1,10 +1,23 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
+import kotlinx.serialization.json.JsonPrimitive
 
 /** Evidence review, correction and claim rendering reserve their own bounded output. */
 internal object GitHubStageBudget {
     data class Allowance(val input: Int, val output: Int)
+
+    /** Input and output rejection ceilings cannot describe the complete request context. */
+    fun observedContext(admittedContext: Long?, failure: ProviderEvent.Failed?): Int? {
+        val rejection = failure?.takeIf { it.errorCode == "CONTEXT_CAPACITY_EXCEEDED" }?.failureDetails
+        val rejectedContext = if (rejection?.get("admission_capacity_provenance") in setOf(JsonPrimitive("VERIFIED_ROUTE"), JsonPrimitive("DECLARED"))) {
+            (rejection?.get("admission_capacity_tokens") as? JsonPrimitive)?.content?.toLongOrNull()
+        } else {
+            null
+        }
+        return (admittedContext ?: rejectedContext)?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()
+    }
 
     fun resolve(context: Int, outputCap: Int?, role: String): Allowance {
         val preferred = when {

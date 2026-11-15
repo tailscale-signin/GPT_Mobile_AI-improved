@@ -155,6 +155,7 @@ jobs:
           npm ci --ignore-scripts --no-audit --no-fund
           npm test
           npm run prepare-upstreams
+          npm run test:upstreams
 
       - name: Test bounded academic router and source lock
         run: |

@@ -8,8 +8,10 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringSettings
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
+import dev.chungjungsoo.gptmobile.di.IoDispatcher
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -29,7 +31,10 @@ data class GatewayEngineeringUiState(
 )
 
 @HiltViewModel
-class GatewayEngineeringViewModel @Inject constructor(private val repository: GatewayEngineeringRepository) : ViewModel() {
+class GatewayEngineeringViewModel @Inject constructor(
+    private val repository: GatewayEngineeringRepository,
+    @IoDispatcher private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+) : ViewModel() {
     private val mutable = MutableStateFlow(GatewayEngineeringUiState())
     val state = mutable.asStateFlow()
 
@@ -41,21 +46,24 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
 
     /** Cached jobs remain readable even when their original profile is unavailable. */
     fun bind(chatId: Int) {
-        if (chat == chatId) return
-        chat = chatId
-        val selectedEpoch = epoch.incrementAndGet()
+        val selectedEpoch = synchronized(epoch) {
+            if (chat == chatId) return
+            chat = chatId
+            epoch.incrementAndGet().also {
+                mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, checkpoints = null, error = null) }
+            }
+        }
         polling?.cancel()
         localRead?.cancel()
-        mutable.update { it.copy(bindings = emptyList(), evidencePreview = null, checkpoints = null, error = null) }
-        localRead = viewModelScope.launch(Dispatchers.IO) {
+        localRead = viewModelScope.launch(ioDispatcher) {
             try {
                 val saved = repository.bindings(chatId)
                 val options = repository.options()
-                if (epoch.get() == selectedEpoch) mutable.update { it.copy(bindings = saved, options = options) }
+                updateForEpoch(selectedEpoch) { it.copy(bindings = saved, options = options) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (epoch.get() == selectedEpoch) mutable.update { it.copy(error = failure.message) }
+                updateForEpoch(selectedEpoch) { it.copy(error = failure.message) }
             }
         }
     }
@@ -76,7 +84,7 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
 
     private fun observeVisible(chatId: Int) {
         val selectedEpoch = epoch.get()
-        polling = viewModelScope.launch(Dispatchers.IO) {
+        polling = viewModelScope.launch(ioDispatcher) {
             while (isActive && epoch.get() == selectedEpoch) {
                 var nextDelayMillis = 30_000L
                 try {
@@ -86,14 +94,14 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
                         repository.observe(binding.request.requestId)
                     }
                     val saved = repository.bindings(chatId)
-                    if (epoch.get() == selectedEpoch) mutable.update { it.copy(bindings = saved, error = null) }
+                    updateForEpoch(selectedEpoch) { it.copy(bindings = saved, error = null) }
                     val activeStates = setOf("QUEUED", "ACCEPTED", "STARTING", "RUNNING", "PLAN", "READ", "IMPLEMENT", "TEST", "COMMIT", "OPEN_PR", "CI", "WAIT_CI", "MERGE", "VERIFY")
                     val active = saved.any { binding -> binding.job == null || binding.job.state.uppercase() in activeStates }
                     nextDelayMillis = if (active) 5_000 else 30_000
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
-                    if (epoch.get() == selectedEpoch) mutable.update { it.copy(error = failure.message) }
+                    updateForEpoch(selectedEpoch) { it.copy(error = failure.message) }
                 }
                 delay(nextDelayMillis)
             }
@@ -116,27 +124,24 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
 
     fun markSeen(binding: GatewayEngineeringBinding) = action { repository.markSeen(binding.request.requestId) }
 
-    fun evidence(binding: GatewayEngineeringBinding, receiptId: String) = action {
-        val selectedEpoch = epoch.get()
+    fun evidence(binding: GatewayEngineeringBinding, receiptId: String) = action { selectedEpoch ->
         val text = repository.evidence(binding.request.requestId, receiptId)
-        if (epoch.get() == selectedEpoch) mutable.update { it.copy(evidencePreview = text) }
+        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text) }
     }
 
-    fun checkpoints(binding: GatewayEngineeringBinding) = action {
-        val selectedEpoch = epoch.get()
+    fun checkpoints(binding: GatewayEngineeringBinding) = action { selectedEpoch ->
         val result = repository.checkpoints(binding.request.requestId)
-        if (epoch.get() == selectedEpoch) mutable.update { it.copy(checkpoints = binding to result) }
+        updateForEpoch(selectedEpoch) { it.copy(checkpoints = binding to result) }
     }
 
-    fun inspectCandidate(binding: GatewayEngineeringBinding, checkId: String) = action {
-        val selectedEpoch = epoch.get()
+    fun inspectCandidate(binding: GatewayEngineeringBinding, checkId: String) = action { selectedEpoch ->
         val text = repository.candidateDetails(binding.request.requestId, checkId)
-        if (epoch.get() == selectedEpoch) mutable.update { it.copy(evidencePreview = text) }
+        updateForEpoch(selectedEpoch) { it.copy(evidencePreview = text) }
     }
 
-    fun restoreCandidate(binding: GatewayEngineeringBinding, checkId: String) = action {
+    fun restoreCandidate(binding: GatewayEngineeringBinding, checkId: String) = action { selectedEpoch ->
         repository.restoreCandidate(binding.request.requestId, requireNotNull(binding.job), checkId)
-        mutable.update { it.copy(checkpoints = null) }
+        updateForEpoch(selectedEpoch) { it.copy(checkpoints = null) }
     }
 
     fun closeCheckpoints() {
@@ -147,22 +152,31 @@ class GatewayEngineeringViewModel @Inject constructor(private val repository: Ga
         mutable.update { it.copy(evidencePreview = null) }
     }
 
-    private fun action(block: suspend () -> Unit) {
-        if (mutable.value.busy) return
-        val selectedChat = chat
-        val selectedEpoch = epoch.get()
-        // Reserve synchronously: two taps cannot enqueue competing domain operations.
-        mutable.update { it.copy(busy = true, error = null) }
-        viewModelScope.launch(Dispatchers.IO) {
+    private fun updateForEpoch(selectedEpoch: Long, update: (GatewayEngineeringUiState) -> GatewayEngineeringUiState) {
+        // A chat switch and its clear cannot interleave between this check and publication.
+        synchronized(epoch) {
+            if (epoch.get() == selectedEpoch) mutable.update(update)
+        }
+    }
+
+    private fun action(block: suspend (Long) -> Unit) {
+        val (selectedChat, selectedEpoch) = synchronized(epoch) {
+            if (mutable.value.busy) return
+            val selected = chat to epoch.get()
+            // Reserve synchronously: two taps cannot enqueue competing domain operations.
+            mutable.update { it.copy(busy = true, error = null) }
+            selected
+        }
+        viewModelScope.launch(ioDispatcher) {
             try {
-                block()
+                block(selectedEpoch)
                 val saved = repository.bindings(selectedChat)
                 val options = repository.options()
-                if (epoch.get() == selectedEpoch) mutable.update { it.copy(bindings = saved, options = options) }
+                updateForEpoch(selectedEpoch) { it.copy(bindings = saved, options = options) }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (epoch.get() == selectedEpoch) mutable.update { it.copy(error = failure.message) }
+                updateForEpoch(selectedEpoch) { it.copy(error = failure.message) }
             } finally {
                 mutable.update { it.copy(busy = false) }
             }

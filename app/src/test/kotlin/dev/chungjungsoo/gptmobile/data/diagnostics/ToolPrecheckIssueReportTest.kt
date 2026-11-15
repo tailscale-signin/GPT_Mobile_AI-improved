@@ -103,6 +103,65 @@ class ToolPrecheckIssueReportTest {
         assertFalse(report.approvedPayload().contains("private"))
     }
 
+    @Test fun lastAdmittedCiConstraintStaysPrimaryBesideTheExhaustedCallSnapshot() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "Fixture backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Neither rejected call may reach the backend")
+        }
+        val native = GitHubOperationTool("github_ci", backend, "private-budget-report", "github_ci__selected")
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 32), initialCalls = 31)
+        val tool = budget.bind(native)
+        val arguments = buildJsonObject {
+            put("action", "logs")
+            put("job_id", 7)
+            put("start_line", 20)
+            put("end_line", 10)
+        }
+        val rejected = tool.execute("private-last-admitted", arguments)
+        assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        assertTrue(rejected.toolCallBudgetExhausted)
+        assertFalse(rejected.dispatched)
+        val report = record(native.definition.name, rejected, arguments)
+        val values = requireNotNull(report.context?.diagnostics).values
+        assertEquals("INVALID_ARGUMENTS", report.errorCode)
+        assertEquals(false, report.context?.dispatched)
+        assertEquals(false, report.context?.requiresReconciliation)
+        assertEquals(JsonPrimitive("TOOL_ARGUMENT_CONSTRAINT_REJECTED"), values["tool_reason_code"])
+        assertEquals(JsonPrimitive("INVALID_ARGUMENTS"), values["tool_error_code"])
+        assertEquals(JsonPrimitive("CALLS"), values["tool_budget_kind"])
+        assertEquals(JsonPrimitive("BEFORE_DISPATCH"), values["tool_budget_phase"])
+        assertEquals(JsonPrimitive(32), values["tool_budget_calls_used"])
+        assertEquals(JsonPrimitive(32), values["tool_budget_calls_limit"])
+        assertFalse(report.approvedPayload().contains("private"))
+
+        val corrected = JsonObject(arguments + ("end_line" to JsonPrimitive(30)))
+        val denied = tool.execute("private-denied", corrected)
+        val deniedReport = record(native.definition.name, denied, corrected)
+        assertEquals("BUDGET_EXHAUSTED", denied.errorCode)
+        assertFalse(denied.dispatched)
+        assertEquals("TOOL_BUDGET_EXHAUSTED", deniedReport.errorCode)
+        assertEquals(JsonPrimitive("BUDGET_EXHAUSTED"), deniedReport.context?.diagnostics?.values?.get("tool_reason_code"))
+        assertEquals(32, budget.usedCalls())
+        assertFalse(deniedReport.approvedPayload().contains("private"))
+    }
+
+    @Test fun recognizedAuthorityAndUnknownOutcomeCausesAlsoPrecedeAnExhaustedBudgetSnapshot() = runBlocking {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for ((code, expected) in listOf("SAVED_VIEW_AUTHORIZATION_CHANGED" to "GITHUB_AUTHORIZATION_UNVERIFIED", "DISPATCH_OUTCOME_UNKNOWN" to "DISPATCH_OUTCOME_UNKNOWN")) {
+            val result = ToolResultEnvelope.error("private-$code", code, "private reason").copy(
+                toolCallBudgetExhausted = true,
+                toolCallBudgetUsed = 32,
+                toolCallBudgetLimit = 32
+            )
+            val report = record("github_ci", result)
+            assertEquals(expected, report.errorCode)
+            assertEquals(JsonPrimitive("CALLS"), report.context?.diagnostics?.values?.get("tool_budget_kind"))
+            if (code == "DISPATCH_OUTCOME_UNKNOWN") assertEquals(true, report.context?.requiresReconciliation)
+            assertFalse(report.approvedPayload().contains("private"))
+        }
+    }
+
     @Test fun completedReadWithheldOnlyAtDeliveryUsesThePublicBudgetCategory() = runBlocking {
         LocalDiagnosticsPolicy.setEnabled(true)
         val report = record(

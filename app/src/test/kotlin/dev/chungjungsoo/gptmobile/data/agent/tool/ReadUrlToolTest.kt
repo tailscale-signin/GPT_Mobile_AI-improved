@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.CombinedExecutionContext
 import dev.chungjungsoo.gptmobile.data.agent.CombinedHardLimits
 import dev.chungjungsoo.gptmobile.data.agent.CombinedPolicyResolver
@@ -18,8 +19,10 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
 import dev.chungjungsoo.gptmobile.data.model.ConversationCombinedSettings
 import java.net.InetAddress
 import java.net.InetSocketAddress
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
@@ -54,6 +57,143 @@ class ReadUrlToolTest {
             assertFalse(result.retainedContent.toString().contains("private-resource"))
             if (status == 402) assertTrue(result.retainedContent.toString().contains("payment_required"))
         }
+    }
+
+    @Test fun missingSourceCacheRetainsTypedFailureWithoutInventingAnotherRequest() = runBlocking {
+        for (status in listOf(404, 405, 410)) {
+            val requests = AtomicInteger()
+            val missingPath = "/missing-$status-private-resource"
+            val page = server { exchange ->
+                requests.incrementAndGet()
+                if (exchange.requestURI.path == missingPath) {
+                    exchange.respond(status, "text/plain", "private upstream response body")
+                } else {
+                    exchange.respond(200, "text/plain", "Distinct readable source.")
+                }
+            }
+            val missingArguments = args(page.url("fixture.test", missingPath))
+            val first = tool(allowTestLoopback = true).execute("first-$status", missingArguments)
+            assertTrue(first.isError)
+            assertTrue(first.dispatched)
+            assertEquals("SOURCE_UNAVAILABLE", first.errorCode)
+            assertEquals(JsonPrimitive(status), first.executionReceipt?.get("httpStatus"))
+            assertEquals(JsonPrimitive(true), first.executionReceipt?.get("requestSent"))
+            assertEquals(JsonPrimitive(false), first.executionReceipt?.get("retryable"))
+            assertEquals(1, requests.get())
+
+            val nextReader = tool(allowTestLoopback = true)
+            val cached = nextReader.execute("cached-$status", missingArguments)
+            assertTrue(cached.isError)
+            assertFalse(cached.dispatched)
+            assertEquals("SOURCE_UNAVAILABLE", cached.errorCode)
+            val receipt = requireNotNull(cached.executionReceipt)
+            assertEquals(JsonPrimitive("cached-$status"), receipt["callId"])
+            assertEquals(JsonPrimitive("SOURCE_UNAVAILABLE"), receipt["errorCode"])
+            assertEquals(JsonPrimitive("PRECHECK"), receipt["phase"])
+            assertEquals(JsonPrimitive(false), receipt["requestSent"])
+            assertEquals(JsonPrimitive("PRECHECK_REJECTED"), receipt["state"])
+            assertEquals(JsonPrimitive(false), receipt["retryable"])
+            assertEquals(JsonPrimitive("NEGATIVE_CACHE"), receipt["source_availability_observation"])
+            assertFalse(receipt.containsKey("httpStatus"))
+            val retained = (cached.retainedContent as ToolResultContent.Json).value.jsonObject
+            assertEquals(JsonPrimitive("SOURCE_UNAVAILABLE"), retained["failureCode"])
+            assertEquals(JsonPrimitive("unavailable"), retained["status"])
+            assertEquals(JsonPrimitive(""), retained["url"])
+            assertFalse(receipt.toString().contains(missingPath))
+            assertFalse(retained.toString().contains(missingPath))
+            assertFalse(retained.toString().contains("private upstream"))
+            assertEquals(1, requests.get())
+
+            val other = nextReader.execute("other-$status", args(page.url("fixture.test", "/available-$status")))
+            assertFalse(other.isError)
+            assertTrue(other.dispatched)
+            assertEquals("Distinct readable source.", other.text())
+            assertEquals(2, requests.get())
+        }
+    }
+
+    @Test fun turnSuppressionAfterDomainScopeRefusalDoesNotInventHttpEvidence() = runBlocking {
+        val requests = AtomicInteger()
+        val page = server { exchange ->
+            requests.incrementAndGet()
+            exchange.respond(200, "text/plain", "Distinct readable source.")
+        }
+        val reader = tool(
+            dns = dns("blocked.test" to listOf("127.0.0.1"), "fixture.test" to listOf("127.0.0.1")),
+            allowTestLoopback = true
+        )
+        val privatePath = "/scope-refused-private-resource"
+        val arguments = buildJsonObject {
+            put("url", page.url("blocked.test", privatePath))
+            put("includeDomains", JsonArray(listOf(JsonPrimitive("fixture.test"))))
+        }
+        val first = reader.execute("scope-first", arguments)
+        assertTrue(first.isError)
+        assertFalse(first.dispatched)
+        assertEquals("REDIRECT_FAILED", first.errorCode)
+        assertContains(first.text(), "domain scope")
+        val firstReceipt = requireNotNull(first.executionReceipt)
+        assertEquals(JsonPrimitive("REDIRECT_FAILED"), firstReceipt["errorCode"])
+        assertEquals(JsonPrimitive("PRECHECK"), firstReceipt["phase"])
+        assertEquals(JsonPrimitive(false), firstReceipt["requestSent"])
+        assertEquals(JsonPrimitive("PRECHECK_REJECTED"), firstReceipt["state"])
+        assertFalse(firstReceipt.containsKey("httpStatus"))
+        assertFalse(firstReceipt.containsKey("source_availability_observation"))
+        assertEquals(0, requests.get())
+
+        val suppressed = reader.execute("scope-suppressed", arguments)
+        assertLocalTurnSuppression(suppressed, "scope-suppressed", privatePath)
+        assertEquals(0, requests.get())
+
+        val other = reader.execute(
+            "scope-other",
+            buildJsonObject {
+                put("url", page.url("fixture.test", "/allowed"))
+                put("includeDomains", JsonArray(listOf(JsonPrimitive("fixture.test"))))
+            }
+        )
+        assertFalse(other.isError)
+        assertTrue(other.dispatched)
+        assertEquals("Distinct readable source.", other.text())
+        assertEquals(1, requests.get())
+    }
+
+    @Test fun turnSuppressionAfterUnsupportedBinaryDoesNotInventMissingSourceEvidence() = runBlocking {
+        val requests = AtomicInteger()
+        val privatePath = "/binary-private-resource"
+        val page = server { exchange ->
+            requests.incrementAndGet()
+            if (exchange.requestURI.path == privatePath) {
+                exchange.respond(200, "application/octet-stream", "private upstream response body")
+            } else {
+                exchange.respond(200, "text/plain", "Distinct readable source.")
+            }
+        }
+        val reader = tool(allowTestLoopback = true)
+        val arguments = args(page.url("fixture.test", privatePath))
+        val first = reader.execute("binary-first", arguments)
+        assertTrue(first.isError)
+        assertTrue(first.dispatched)
+        assertEquals("READER_FAILED", first.errorCode)
+        assertContains(first.text(), "binary content")
+        val firstReceipt = requireNotNull(first.executionReceipt)
+        assertEquals(JsonPrimitive("READER_FAILED"), firstReceipt["errorCode"])
+        assertEquals(JsonPrimitive("RETRIEVAL"), firstReceipt["phase"])
+        assertEquals(JsonPrimitive(true), firstReceipt["requestSent"])
+        assertEquals(JsonPrimitive("FAILED"), firstReceipt["state"])
+        assertFalse(firstReceipt.containsKey("source_availability_observation"))
+        assertFalse(first.text().contains("private upstream"))
+        assertEquals(1, requests.get())
+
+        val suppressed = reader.execute("binary-suppressed", arguments)
+        assertLocalTurnSuppression(suppressed, "binary-suppressed", privatePath)
+        assertEquals(1, requests.get())
+
+        val other = reader.execute("binary-other", args(page.url("fixture.test", "/available")))
+        assertFalse(other.isError)
+        assertTrue(other.dispatched)
+        assertEquals("Distinct readable source.", other.text())
+        assertEquals(2, requests.get())
     }
 
     @Test fun `research limits retain budget classification and actual dispatch evidence`() = runBlocking {
@@ -748,6 +888,29 @@ class ReadUrlToolTest {
     }
 
     private fun dev.chungjungsoo.gptmobile.data.agent.AgentToolResult.text(): String = (content as ToolResultContent.Text).text
+
+    private fun assertLocalTurnSuppression(result: AgentToolResult, callId: String, privatePath: String) {
+        assertTrue(result.isError)
+        assertFalse(result.dispatched)
+        assertEquals("SOURCE_UNAVAILABLE", result.errorCode)
+        val receipt = requireNotNull(result.executionReceipt)
+        assertEquals(JsonPrimitive(callId), receipt["callId"])
+        assertEquals(JsonPrimitive("SOURCE_UNAVAILABLE"), receipt["errorCode"])
+        assertEquals(JsonPrimitive("PRECHECK"), receipt["phase"])
+        assertEquals(JsonPrimitive(false), receipt["requestSent"])
+        assertEquals(JsonPrimitive("PRECHECK_REJECTED"), receipt["state"])
+        assertEquals(JsonPrimitive(false), receipt["retryable"])
+        assertEquals(JsonPrimitive("TURN_SUPPRESSION"), receipt["source_availability_observation"])
+        assertFalse(receipt.containsKey("httpStatus"))
+        val retained = (result.retainedContent as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("SOURCE_UNAVAILABLE"), retained["failureCode"])
+        assertEquals(JsonPrimitive("unavailable"), retained["status"])
+        assertEquals(JsonPrimitive(""), retained["url"])
+        val evidence = listOf(result.text(), receipt.toString(), retained.toString()).joinToString("\n")
+        assertFalse(evidence.contains(privatePath))
+        assertFalse(evidence.contains("private upstream"))
+        for (status in listOf("404", "405", "410")) assertFalse(evidence.contains(status))
+    }
 
     private fun assertContains(value: String, expected: String) {
         assertTrue("Expected <$value> to contain <$expected>", value.contains(expected))

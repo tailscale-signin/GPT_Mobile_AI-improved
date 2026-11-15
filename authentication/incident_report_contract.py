@@ -252,11 +252,19 @@ COMMON = {
 
 TOOL_REPEAT_COUNTS = {'dependency_repeat_prior_admissions', 'dependency_repeat_batch_admissions', 'dependency_repeat_used', 'dependency_repeat_limit'}
 TOOL_REPEAT_FIELDS = TOOL_REPEAT_COUNTS | {'dependency_repeat_scope'}
+REPEAT_HISTORY_HASH_FIELDS = {'dependency_repeat_prior_call_id_hashes', 'dependency_repeat_batch_call_id_hashes'}
+REPEAT_HISTORY_LIST_FIELDS = REPEAT_HISTORY_HASH_FIELDS | {'dependency_repeat_prior_outcomes'}
+REPEAT_HISTORY_FIELDS = REPEAT_HISTORY_LIST_FIELDS | {'dependency_repeat_prior_coverage', 'dependency_repeat_batch_coverage'}
+REPEAT_HISTORY_OUTCOMES = {'UNOBSERVED', 'DISPATCHED_SUCCESS', 'DISPATCHED_FAILURE', 'NOT_DISPATCHED', 'SHARED_RESULT', 'UNKNOWN_OUTCOME'}
+INVENTORY_PAGINATION_FIELDS = {'inventory_pagination_reason', 'inventory_restart_offered'}
+POLICY_RESPONSE_HEADER_ORDER = ('REPORTED_OAUTH_SCOPES', 'ACCEPTED_OAUTH_SCOPES', 'ACCEPTED_GITHUB_PERMISSIONS', 'SSO')
+POLICY_RESPONSE_HEADER_FIELDS = {'status_policy_protection_permission_header_names', 'status_policy_rules_permission_header_names'}
+POLICY_RESPONSE_FIELDS = POLICY_RESPONSE_HEADER_FIELDS | {'status_policy_protection_404_kind', 'status_policy_rules_404_kind'}
 
 TOOL_FIELDS = {
     'url_reader_dns_state', 'url_reader_availability', 'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
     'tool_budget_calls_used', 'tool_budget_calls_limit', 'tool_permission_scope',
-    'semantic_read_rules', 'dependency_admission_reasons',
+    'semantic_read_rules', 'semantic_ci_rules', 'search_validation_field_names', 'dependency_admission_reasons',
     'native_dependency_state', 'dependency_call_id_hashes', 'dependency_count', 'dependency_failed_count', 'search_cursor_state', 'search_id_hash', 'search_cursor_hash',
     'mcp_connection_hash', 'mcp_failure_phase', 'mcp_failure_category', 'mcp_connection_state', 'mcp_readiness_state', 'mcp_connection_health', 'mcp_health_observation', 'mcp_health_age_ms',
     'saved_view_restore_state', 'saved_view_restore_error_hash',
@@ -359,6 +367,7 @@ HASH_LISTS = {
 }
 
 FLAGS = {
+    'inventory_restart_offered',
     'tool_event_write_attempted',
     'chat_delivery_counts_capped',
     'tls_response_started', 'provider_local_budget_block',
@@ -485,6 +494,7 @@ OPERATIONS = {
 MCP_HEALTH = {'DNS_FAILED', 'DNS_RECOVERY', 'ROUTE_UNAVAILABLE', 'CONNECTION_REFUSED', 'AUTHENTICATION_FAILED', 'TLS_FAILED', 'CONNECT_TIMEOUT', 'HTTP_ERROR', 'MCP_HANDSHAKE_FAILED', 'STREAM_INTERRUPTED', 'STREAM_IDLE_TIMEOUT', 'REQUEST_TIMEOUT', 'HEALTHY', 'UNKNOWN'}
 
 ENUMS = {
+    'inventory_pagination_reason': {'MISSING_VERSION', 'VERSION_MISMATCH'},
     'sqlite_constraint_kind': {'UNIQUE', 'FOREIGN_KEY', 'NOT_NULL', 'CHECK', 'PRIMARY_KEY', 'TRIGGER', 'UNKNOWN'},
     'dependency_repeat_scope': {'TOOL_NAME', 'TOOL_NAME_AND_ARGUMENTS'},
     'tool_event_persistence_operation': {'START'},
@@ -507,6 +517,10 @@ ENUMS = {
     'fixture_approval_state': {'READY', 'CONDITIONAL', 'UNKNOWN'},
     'branch_protection_observation': POLICY_OBSERVATION,
     'branch_rules_observation': POLICY_OBSERVATION,
+    'dependency_repeat_prior_coverage': {'COMPLETE', 'PARTIAL', 'UNAVAILABLE'},
+    'dependency_repeat_batch_coverage': {'COMPLETE', 'PARTIAL', 'UNAVAILABLE'},
+    'status_policy_protection_404_kind': {'NOT_FOUND', 'OTHER_404', 'EXPLICIT_BRANCH_NOT_PROTECTED'},
+    'status_policy_rules_404_kind': {'NOT_FOUND', 'OTHER_404'},
     'provider_wait_terminal_status': {'COMPLETED', 'PARTIAL', 'FAILED', 'BLOCKED', 'INTERRUPTED', 'CANCELED', 'EVIDENCE_MISSING', 'WAITING_FOR_APPROVAL'},
     'changed_policy_observation': {'OBSERVED', 'PARTIAL', 'MALFORMED'},
     'incident_capture_site': {'CHAT_REPOSITORY_TERMINAL_CATCH', 'CHAT_REPOSITORY_PREFLIGHT', 'OPENAI_ADAPTER_STREAM_CATCH', 'PROVIDER_ADAPTER_STREAM_CATCH', 'CHAT_REPOSITORY_ERROR_VALUE', 'CHAT_FLOW_EMPTY_ANSWER'},
@@ -560,9 +574,13 @@ ENUMS = {
 }
 
 ENUM_LISTS = {
+    'status_policy_protection_permission_header_names': set(POLICY_RESPONSE_HEADER_ORDER),
+    'status_policy_rules_permission_header_names': set(POLICY_RESPONSE_HEADER_ORDER),
     'acceptance_claim_trust_failures': {'TOOL_NOT_IN_AUTHORIZED_CATALOG', 'UNRECOGNIZED_EVIDENCE_OPERATION', 'TARGET_OUTSIDE_ACCEPTED_SCOPE'},
     'acceptance_claim_freshness_predicates': {'OBSERVATION_TIME_UNAVAILABLE', 'OBSERVATION_TIME_FUTURE', 'MUTABLE_AGE_EXCEEDED', 'MUTABLE_EPOCH_MISMATCH'},
     'semantic_read_rules': {'RANGE_ARRAY', 'SOURCE_REQUIRED', 'RANGE_OBJECT', 'RANGE_FIELDS', 'REPOSITORY_FILE_PATH', 'RANGE_OFFSET', 'LINE_WINDOW'},
+    'semantic_ci_rules': {'BRANCH_NAME', 'COMMIT_SHA', 'POSITIVE_ID', 'WORKFLOW_SELECTOR', 'MISSING_SELECTOR', 'UNUSED_FIELD', 'LOG_START', 'LOG_ORDER', 'LOG_SPAN'},
+    'search_validation_field_names': {'fuzzy_threshold', 'context_lines', 'max_new_blobs', 'batch_size'},
     'dependency_admission_reasons': {'TOOL_UNAVAILABLE', 'REPEATED_FAILURE', 'REPEAT_LIMIT', 'CALL_ALLOWANCE', 'DECISION_REQUIRED', 'PREREQUISITE_DEFERRED'},
     'dispatch_policy_sections': {'PROFILE', 'BUDGET', 'SPEND', 'TOOLS', 'MCP', 'PERMISSIONS', 'ASSIST', 'DELEGATION', 'RESEARCH', 'GATEWAY', 'GITHUB', 'REASONING', 'ENGINEERING'},
     'changed_policy_fields': POLICY_FIELD_NAMES,
@@ -580,10 +598,30 @@ ENUM_LISTS = {
 
 
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | {'TOOL': TOOL_FIELDS | REPEAT_HISTORY_FIELDS | INVENTORY_PAGINATION_FIELDS, 'INCIDENT': COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS | POLICY_RESPONSE_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
+    if key == 'search_validation_field_names':
+        return isinstance(value, list) and 1 <= len(value) <= 4 and all(
+            isinstance(item, str) and item in ENUM_LISTS[key] for item in value
+        ) and len(set(value)) == len(value)
+    if key == 'semantic_ci_rules':
+        return isinstance(value, list) and 1 <= len(value) <= 9 and all(
+            isinstance(item, str) and item in ENUM_LISTS[key] for item in value
+        ) and len(set(value)) == len(value)
+    if key in REPEAT_HISTORY_LIST_FIELDS:
+        if not isinstance(value, list) or len(value) > 8 or not all(
+            isinstance(item, str) and (bool(re.fullmatch(r'[a-f0-9]{64}', item)) if key in REPEAT_HISTORY_HASH_FIELDS else item in REPEAT_HISTORY_OUTCOMES) for item in value
+        ):
+            return False
+        return key not in REPEAT_HISTORY_HASH_FIELDS or len(value) == len(set(value))
+    if key in POLICY_RESPONSE_HEADER_FIELDS:
+        # Preserve measured empty lists and ordered subsets, never a filtered
+        # replacement for malformed/noncanonical approved observations.
+        return isinstance(value, list) and len(value) <= 4 and all(
+            isinstance(item, str) and item in ENUM_LISTS[key] for item in value
+        ) and value == [item for item in POLICY_RESPONSE_HEADER_ORDER if item in value]
     if key == 'acceptance_claim_trust_failures':
         return isinstance(value, list) and 1 <= len(value) <= 3 and all(
             isinstance(item, str) and item in ENUM_LISTS[key] for item in value
@@ -625,6 +663,8 @@ def valid_value(key, value):
 
 
 def aligned(values):
+    if not repeat_history_aligned(values):
+        return False
     for used, limit in (('tool_result_bytes_used', 'tool_result_bytes_limit'), ('tool_budget_calls_used', 'tool_budget_calls_limit')):
         if used in values and limit in values and values[used] > values[limit]:
             return False
@@ -633,6 +673,31 @@ def aligned(values):
         if (names is None) != (types is None) or names is not None and len(names) != len(types):
             return False
     return policy_aligned(values)
+
+
+def repeat_history_aligned(values, current_call_id_hash=None):
+    if not REPEAT_HISTORY_FIELDS & values.keys():
+        return True
+    if not (REPEAT_HISTORY_FIELDS | TOOL_REPEAT_FIELDS) <= values.keys():
+        return False
+    if not isinstance(values['dependency_repeat_scope'], str) or values['dependency_repeat_scope'] not in {'TOOL_NAME', 'TOOL_NAME_AND_ARGUMENTS'}:
+        return False
+    if any(type(values[key]) is not int or not 0 <= values[key] <= 16_000_000 for key in TOOL_REPEAT_COUNTS):
+        return False
+    prior_count, batch_count, used, limit = (values[key] for key in ('dependency_repeat_prior_admissions', 'dependency_repeat_batch_admissions', 'dependency_repeat_used', 'dependency_repeat_limit'))
+    if prior_count + batch_count != used or used < limit or any(not valid_value(key, values[key]) for key in REPEAT_HISTORY_LIST_FIELDS):
+        return False
+    prior, batch, outcomes = (values[key] for key in ('dependency_repeat_prior_call_id_hashes', 'dependency_repeat_batch_call_id_hashes', 'dependency_repeat_prior_outcomes'))
+    if (len(prior) != len(outcomes) or len(set(prior + batch)) != len(prior) + len(batch) or
+            any(current in prior + batch for current in (values.get('call_id_hash'), current_call_id_hash) if current is not None)):
+        return False
+    def covered(key, retained, count):
+        coverage = values[key]
+        return (coverage == 'COMPLETE' and retained == count or
+                coverage == 'PARTIAL' and 0 < retained < count or
+                coverage == 'UNAVAILABLE' and count > 0 and retained == 0)
+    return (covered('dependency_repeat_prior_coverage', len(prior), prior_count) and
+            covered('dependency_repeat_batch_coverage', len(batch), batch_count))
 
 
 def policy_aligned(values):

@@ -207,6 +207,7 @@ internal class ResponseRecoveryContext(
                 schemaProjection = AgentToolSchemaProjection(tool.definition.contractSchema, schema)
             )
         }
+        override val searchValidationOwner get() = tool.searchValidationOwner
         override val managesExecutionBudget get() = tool.managesExecutionBudget
         override val coordinatesChildWork get() = tool.coordinatesChildWork
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {

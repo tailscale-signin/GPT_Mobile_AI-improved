@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
+import io.ktor.http.HttpMethod
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.coroutines.AbstractCoroutineContextElement
@@ -20,7 +21,25 @@ import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
 /** An observed rejection proves this request did not apply; a lost response does not. */
-internal class GitHubRequestRejected(val status: Int, message: String, val evidence: JsonObject? = null) : IllegalStateException(message)
+internal class GitHubRequestRejected private constructor(
+    val status: Int,
+    message: String,
+    val evidence: JsonObject?,
+    private val policyObservation: GitHubPolicyResponseObservation?
+) : IllegalStateException(message) {
+    constructor(status: Int, message: String, evidence: JsonObject? = null) : this(status, message, evidence, null)
+
+    fun policyObservationFor(path: String): JsonObject? = policyObservation?.forEndpoint(path, status)
+
+    companion object {
+        fun observedResponse(message: String, evidence: JsonObject?, path: String, method: HttpMethod, expectedUrl: String, response: GitHubBoundedResponse) = GitHubRequestRejected(
+            response.status.value,
+            message,
+            evidence,
+            response.policyObservationFor(path, method, expectedUrl)
+        )
+    }
+}
 
 /** Nested HTTP claims report to the enclosing compound operation before any write can escape. */
 internal class GitHubMutationAttempts(private val parent: GitHubMutationAttempts?) : AbstractCoroutineContextElement(Key) {

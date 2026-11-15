@@ -38,6 +38,7 @@ internal object GitHubStatusPolicyEvidence {
         for ((source, destination) in listOf("protection" to "status_policy_protection_http_status", "rules" to "status_policy_rules_http_status")) {
             (policy?.get(source) as? JsonObject)?.httpStatus()?.let { put(destination, it) }
         }
+        GitHubPolicyResponseObservation.policyFields(policy).forEach { (key, value) -> put(key, value) }
         // protected=false cannot prove absence when either policy endpoint is unavailable.
         ((policy?.get("branch") as? JsonObject)?.get("protected") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("status_branch_protected", it) }
         ((policy?.get("policy") as? JsonObject)?.get("required_checks_complete") as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put("status_policy_complete", it) }

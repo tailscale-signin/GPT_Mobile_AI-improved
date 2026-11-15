@@ -46,6 +46,8 @@ npm start
 
 Choose **Airbnb · Self-hosted OpenBnB** in Marketplace and enter the reachable endpoint and token. The preparation script checks out [openbnb-org/mcp-server-airbnb](https://github.com/openbnb-org/mcp-server-airbnb) at `d5a8f18f5978b0a33dea4b3ec130c389bad845cc`. Its adapter preserves listing photos and review text from pages the upstream already fetched, while retaining robots checks, argument validation and error handling. Re-running preparation at the same pinned revision is supported. Unexpected source contracts stop the build.
 
+The adapter supplies the full listing/search URL to the upstream robots parser. This lets loaded rules distinguish allowed and blocked paths while preserving query parameters. It does not enable `ignoreRobotsText` or change the upstream fallback when robots text cannot be retrieved.
+
 Listings use canonical IDs and URLs. Deduplication distinguishes dates and party size. Popups request additional details only through the originating profile's assigned Airbnb tools, with the same dates and guests. Prices, fee lines, review text and photos are provider observations; unavailable fields remain unknown. English review keyword signals include supporting excerpts and simple negation handling. They are not a complete sentiment model or a safety assessment. Booking opens Airbnb in the browser.
 
 ## Transport and validation
@@ -55,9 +57,20 @@ The bridge requires a 24–512 character Bearer token, checks hosts/origins, lim
 ```sh
 npm test
 npm run prepare-upstreams
+npm run test:upstreams
 ```
 
 Contract tests use real stdio MCP fixture servers and an HTTP client to check multi-provider routing, optional credential handling, authentication and media extraction. Preparation builds the pinned Airbnb and Hacker News sources. Live upstream searches require network access and may be blocked or rate limited by providers. Upstream license notices remain in their checkouts; this project does not vendor their source.
+
+`test:upstreams` runs the prepared servers through the real HTTP bridge with fixed provider-response fixtures. It checks tool schemas, Hacker News parsing, Airbnb media/review extraction, and both allowed and blocked robots paths without live provider requests. It also checks that preparation preserves custom source and dependency files.
+
+### Reviewed dependency locks
+
+`upstream-dependencies/` contains exact package manifests and lockfiles for the two pinned source checkouts. Its manifest records the original file digests, reviewed replacement digests, and the supported original/prior/current Airbnb adapter states. Preparation verifies the commit and source files, rejects custom or unreviewed changes, then installs with `npm ci --ignore-scripts` and runs the explicit build. It never resolves newer dependency versions during preparation. Preserve custom upstream changes separately before retrying a rejected preparation.
+
+The 2026-11-15 dependency review pins the MCP SDK to 1.32.2 in both upstreams and both repository-owned bridges, Zod to 4.6.7 in the bridges, and Airbnb's build helper to `shx` 0.4.0. The refreshed locks address the retained npm advisories, including [SDK redirect forwarding](https://github.com/advisories/GHSA-6prh-2h8m-c8cw), [Zod collection validation](https://github.com/advisories/GHSA-mrhx-c7xc-m3w5), and vulnerable transitive dependencies. Future updates require fresh package-signature/audit review, builds and these compatibility checks; preparation does not silently update the locks.
+
+This dependency review covers the two repository-owned npm bridges and their pinned Airbnb/Hacker News npm children. It does not audit the separate optional `uvx` Google News or `npx` SerpApi providers. Updating the repository or APK does not redeploy an already running host service; rerun preparation and restart the affected host bridge after upgrading.
 
 ## Deep Research academic facade
 

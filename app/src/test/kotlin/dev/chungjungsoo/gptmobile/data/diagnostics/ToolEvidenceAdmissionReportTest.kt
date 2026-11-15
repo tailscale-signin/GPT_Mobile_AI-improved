@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.RemoteRequestAcceptance
+import dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity
+import dev.chungjungsoo.gptmobile.data.context.CapacityProvenance
 import dev.chungjungsoo.gptmobile.data.context.ReplayAllowance
 import dev.chungjungsoo.gptmobile.data.context.RequestCapacityException
 import dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException
@@ -9,11 +11,14 @@ import dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail
 import dev.chungjungsoo.gptmobile.data.model.ClientType
 import dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails
+import dev.chungjungsoo.gptmobile.data.network.toolEvidenceAdmissionFailure
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -33,6 +38,77 @@ class ToolEvidenceAdmissionReportTest {
         "configured_output_limit", "effective_output_limit", "admission_configured_context_tokens", "admission_route_context_tokens",
         "admission_catalog_context_tokens", "admission_input_ceiling_tokens", "admission_output_ceiling_tokens", "measurement", "admission_measurement"
     )
+
+    @Test fun ownedFallbackSnapshotRetainsConfigurationBesideZeroAllocatedReply() {
+        val capacity = ProviderRouteCapacity.PrimaryContextDecision(Int.MAX_VALUE, null, null, null, CapacityProvenance.UNKNOWN)
+        for (configuredOutput in listOf(0, 2048)) {
+            val observed = ToolEvidenceContextBudgetException.Observation.capture(profile.uid, profile.model, configuredOutput, capacity, Int.MAX_VALUE)
+            val (allocation, detail) = mappedObservation(Int.MAX_VALUE, 10431, 4096, observed)
+            val fields = requireNotNull(detail.failureDetails)
+            assertEquals(0, allocation.output)
+            assertEquals(0, allocation.replay)
+            assertEquals(4096, allocation.ceiling)
+            assertEquals(JsonPrimitive("CONSERVATIVE_POLICY"), fields["admission_capacity_provenance"])
+            assertEquals(JsonPrimitive(configuredOutput), fields["configured_output_limit"])
+            assertEquals(JsonPrimitive(researchHash(profile.uid)), fields["profile_hash"])
+            assertEquals(JsonPrimitive(researchHash(profile.model)), fields["model_hash"])
+            assertTrue(listOf("admission_configured_context_tokens", "admission_catalog_context_tokens", "admission_route_context_tokens").none { it in fields })
+            assertNoAggregateFacts(fields)
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1000)
+            assertDispatchUnavailable(context)
+            val values = approvedContext(requireNotNull(detail.code), context).getValue("diagnostics").jsonObject.getValue("values").jsonObject
+            assertBudget(values, allocation, "CONSERVATIVE_POLICY")
+            assertEquals(JsonPrimitive(configuredOutput), values["configured_output_limit"])
+            assertEquals(JsonPrimitive(researchHash(profile.uid)), values["profile_hash"])
+            assertEquals(JsonPrimitive(researchHash(profile.model)), values["model_hash"])
+        }
+    }
+
+    @Test fun ownedFiniteSnapshotKeepsSourceCeilingsAfterLaterConfigurationChanges() {
+        val consumed = ProviderRouteCapacity.PrimaryContextDecision(5632, 8192, 5632, 6144, CapacityProvenance.VERIFIED_ROUTE)
+        val observed = ToolEvidenceContextBudgetException.Observation.capture(profile.uid, profile.model, 2048, consumed, 5632)
+        val later = consumed.copy(tokens = 32768, configuredTokens = 65536, verifiedRouteTokens = 32768, catalogTokens = 49152)
+        val laterProfile = profile.copy(uid = "PRIVATE_LATER_PROFILE", model = "PRIVATE_LATER_MODEL", maxTokens = 8192)
+        val (allocation, detail) = mappedObservation(5632, 9043, 4096, observed)
+        val fields = requireNotNull(detail.failureDetails)
+        assertEquals(JsonPrimitive(8192), fields["admission_configured_context_tokens"])
+        assertEquals(JsonPrimitive(5632), fields["admission_route_context_tokens"])
+        assertEquals(JsonPrimitive(6144), fields["admission_catalog_context_tokens"])
+        assertEquals(JsonPrimitive(2048), fields["configured_output_limit"])
+        assertFalse(fields["admission_route_context_tokens"] == JsonPrimitive(later.verifiedRouteTokens))
+        assertFalse(fields["model_hash"] == JsonPrimitive(researchHash(laterProfile.model)))
+        assertNoAggregateFacts(fields)
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1000)
+        assertDispatchUnavailable(context)
+        val values = approvedContext(requireNotNull(detail.code), context).getValue("diagnostics").jsonObject.getValue("values").jsonObject
+        assertBudget(values, allocation, "VERIFIED_ROUTE")
+        assertEquals(JsonPrimitive(8192), values["admission_configured_context_tokens"])
+        assertEquals(JsonPrimitive(5632), values["admission_route_context_tokens"])
+        assertEquals(JsonPrimitive(6144), values["admission_catalog_context_tokens"])
+        assertEquals(JsonPrimitive(2048), values["configured_output_limit"])
+        assertEquals(JsonPrimitive(researchHash(profile.uid)), values["profile_hash"])
+        assertEquals(JsonPrimitive(researchHash(profile.model)), values["model_hash"])
+    }
+
+    @Test fun unboundOrMismatchedSnapshotCannotAddSettingsOrDispatchFacts() {
+        val capacity = ProviderRouteCapacity.PrimaryContextDecision(4096, 4096, null, null, CapacityProvenance.DECLARED)
+        val wrongBoundary = ToolEvidenceContextBudgetException.Observation.capture(profile.uid, profile.model, 2048, capacity, 2048)
+        val enlargedBoundary = ToolEvidenceContextBudgetException.Observation.capture(profile.uid, profile.model, 2048, capacity.copy(tokens = 2048), 4096)
+        for (observed in listOf(null, wrongBoundary, enlargedBoundary)) {
+            val (allocation, detail) = mappedObservation(4096, 5000, 1024, observed)
+            val fields = requireNotNull(detail.failureDetails)
+            assertTrue(unobservedSettingsAndMeasurement.none { it in fields })
+            assertTrue(setOf("profile_hash", "model_hash").none { it in fields })
+            assertNoAggregateFacts(fields)
+            val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1000)
+            assertDispatchUnavailable(context)
+            val serialized = approvedContext(requireNotNull(detail.code), context)
+            val diagnostics = serialized.getValue("diagnostics").jsonObject
+            assertBudget(diagnostics.getValue("values").jsonObject, allocation, "UNKNOWN")
+            val unavailable = diagnostics.getValue("unavailableFields").jsonArray.map { it.jsonPrimitive.content }.toSet()
+            assertTrue(unavailable.containsAll(setOf("profile_hash", "model_hash", "configured_output_limit")))
+        }
+    }
 
     @Test fun actualGuardExportsItsAllocationWithoutInventingDispatchOrSettings() {
         for (partial in listOf(false, true)) {
@@ -184,6 +260,14 @@ class ToolEvidenceAdmissionReportTest {
                 assertNoAggregateFacts(fields)
             }
         }
+    }
+
+    private fun mappedObservation(resolved: Int, input: Int, requested: Int, observation: ToolEvidenceContextBudgetException.Observation?): Pair<ReplayAllowance.Allocation, ErrorDetail> {
+        val allocation = ReplayAllowance.allocate(resolved, input, requested, 4096)
+        val failure = assertThrows(ToolEvidenceContextBudgetException::class.java) {
+            ToolEvidenceContextBudgetException.requireAllocation(allocation, resolved, requested, observation)
+        }
+        return allocation to requireNotNull(toolEvidenceAdmissionFailure(failure))
     }
 
     private fun mapped(resolved: Int, input: Int, requested: Int, partial: Boolean): Pair<ReplayAllowance.Allocation, ErrorDetail> {

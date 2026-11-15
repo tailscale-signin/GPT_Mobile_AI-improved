@@ -154,7 +154,9 @@ data class AgentToolResult(
     val personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList(),
     val executionReceipt: JsonObject? = null,
     val combinedWorkBudgetExhausted: Boolean = false,
-    val repeatAdmissionEvidence: ToolRepeatAdmissionEvidence? = null
+    val repeatAdmissionEvidence: ToolRepeatAdmissionEvidence? = null,
+    val inventoryPaginationEvidence: ToolInventoryPaginationEvidence? = null,
+    val searchValidationEvidence: GitHubSearchValidationEvidence? = null
 )
 
 /** Managed content reference, never an arbitrary local path or remote download instruction. */
@@ -184,6 +186,9 @@ enum class AgentRunStatus {
 interface AgentTool {
     fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = this
     val definition: AgentToolDefinition
+
+    /** Local diagnostic ownership only; this never grants execution or changes the tool contract. */
+    val searchValidationOwner: GitHubSearchValidationEvidence.Owner? get() = null
 
     /** The shared budget times execution only; waiting for a user decision must not time out. */
     val managesExecutionBudget: Boolean get() = false

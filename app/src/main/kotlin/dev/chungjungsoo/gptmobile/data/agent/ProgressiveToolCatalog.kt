@@ -457,7 +457,13 @@ class ProgressiveToolCatalog(
                         put("retryable", false)
                         put("requires_argument_correction", offerRestart)
                         put("permissions_changed", false)
-                    }
+                    },
+                    inventoryPaginationEvidence = ToolInventoryPaginationEvidence.capture(
+                        callId,
+                        arguments,
+                        if (expectedVersion == null) ToolInventoryPaginationEvidence.Reason.MISSING_VERSION else ToolInventoryPaginationEvidence.Reason.VERSION_MISMATCH,
+                        offerRestart
+                    )
                 )
             }
             if (cursor > inventory.size) return@synchronized invalidInventoryCursor(callId)

@@ -378,7 +378,7 @@ def validate_diagnostics(value):
     if version == 3 and not capsule.aligned(values):
         raise ValueError("unaligned argument shape observations")
     unavailable, omitted = value["unavailableFields"], value.get("omittedFields", [])
-    optional_unavailable = (REASONING_PROBE_FIELDS & allowed) - values.keys()
+    optional_unavailable = ((REASONING_PROBE_FIELDS | capsule.POLICY_RESPONSE_FIELDS | capsule.REPEAT_HISTORY_FIELDS) & allowed) - values.keys()
     if not _string_list(unavailable, core | optional_unavailable) or not core - values.keys() <= set(unavailable) or set(unavailable) & values.keys():
         raise ValueError("invalid diagnostic availability")
     if not _string_list(omitted, allowed) or set(omitted) & values.keys():
@@ -399,7 +399,7 @@ def diagnostics_body(value):
         ("Observation time (epoch ms)", str(value["capturedAtMillis"])),
     ]
     for key, item in sorted(value["values"].items()):
-        rendered = ", ".join(item) if isinstance(item, list) else str(item).lower() if type(item) is bool else str(item)
+        rendered = ("[]" if not item and key in capsule.POLICY_RESPONSE_HEADER_FIELDS | capsule.REPEAT_HISTORY_LIST_FIELDS else ", ".join(item)) if isinstance(item, list) else str(item).lower() if type(item) is bool else str(item)
         rows.append((key, rendered))
     body = "\n\n### Additional diagnostic observation\n\n| Field | Recorded value |\n| --- | --- |\n"
     body += "\n".join(f"| {key} | `{item}` |" for key, item in rows)

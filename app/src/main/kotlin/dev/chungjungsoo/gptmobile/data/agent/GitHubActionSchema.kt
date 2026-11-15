@@ -108,8 +108,14 @@ internal object GitHubActionSchema {
             (value as? JsonObject)?.let { JsonObject(it.filterKeys { key -> key != "description" }) } ?: value
         }.toMutableMap()
         properties["action"] = JsonObject(selector + ("enum" to JsonArray(listOf(JsonPrimitive(action)))))
+        val guidance = when (operation to action) {
+            "github_read" to "ranges" -> " Choose end_line or max_lines, never both; omit both for a bounded default read. end_line=-1 means bounded EOF."
+            "github_ci" to "runs" -> " Runs filters use status; returned runs include conclusion."
+            "github_ci" to "logs" -> " Supply an observed job_id. Line bounds must be positive, ordered and span at most 2000 lines."
+            else -> ""
+        }
         return tool.copy(
-            description = "$operation action=$action. Use only this selected action, or discover another action. Current revision guards and approvals still apply. Follow exact continuation_call.",
+            description = "$operation action=$action. Use only this selected action, or discover another action. Current revision guards and approvals still apply. Follow exact continuation_call.$guidance",
             inputSchema = buildJsonObject {
                 put("type", "object")
                 put("properties", JsonObject(properties))

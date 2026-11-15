@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "reviewedAt": "2026-11-15",
+  "purpose": "Reproducible reviewed dependency overlays; upstream application source remains pinned.",
+  "upstreams": {
+    "airbnb": {
+      "repository": "https://github.com/openbnb-org/mcp-server-airbnb",
+      "revision": "d5a8f18f5978b0a33dea4b3ec130c389bad845cc",
+      "upstreamSha256": {
+        "package.json": "eb018fc279b049c0a2f9e153d1deb36a3f31e8dc9817f1ccad0fe35d4165a57e",
+        "package-lock.json": "f5079510c01ce27a8201e01f32274171a3359ded6a7a2ba334f6106d32684ef8"
+      },
+      "overlaySha256": {
+        "package.json": "77af4909e56774b6b994fbb28e6138d1643cdd42e9501cc68874aa60fa36ee1d",
+        "package-lock.json": "dee9f478ca0a04c9561872d8fa9ba0e6f2bd573ead3d8767b172141d6313355e"
+      },
+      "allowedModifiedSources": {
+        "index.ts": [
+          "d23bb441f118c116427c8237f89a8810bc083dfdf1ca5f7f09a9b6c31ef0065e",
+          "7fa3a49f4e4823ce5feb1968e552888d121a1f8656401a43907bdd2eedf59d06"
+        ]
+      },
+      "textFiles": [
+        ".gitignore",
+        ".mcpbignore",
+        "Dockerfile",
+        "LICENSE",
+        "README.md",
+        "index.ts",
+        "manifest.json",
+        "package-lock.json",
+        "package.json",
+        "smithery.yaml",
+        "sync-version.js",
+        "test-amenities.js",
+        "test-extension.js",
+        "tsconfig.json",
+        "types.d.ts",
+        "util.ts"
+      ]
+    },
+    "hn-server": {
+      "repository": "https://github.com/pskill9/hn-server",
+      "revision": "ed1a4b951e9a7cdd7de0575a16d53bbe53330a9d",
+      "upstreamSha256": {
+        "package.json": "acf2877ee113120e9437f3d8d2e49c784e5c5e1fb359222a07fb1d29f72cb830",
+        "package-lock.json": "9a01b5d62b8d7f7164926a72060ad8ad37889db0deb575800cb8d94fc2e3275e"
+      },
+      "overlaySha256": {
+        "package.json": "f2f93753c3384e69566707aa3f23c5acedca41aca03e03e483d335f15fd0aa66",
+        "package-lock.json": "5baa02f9d392ce3877721beed1da694f505c64050630561f6859eb78eff43604"
+      },
+      "allowedModifiedSources": {},
+      "textFiles": [
+        ".gitignore",
+        "LICENSE",
+        "README.md",
+        "package-lock.json",
+        "package.json",
+        "src/index.ts",
+        "tsconfig.json"
+      ]
+    }
+  }
+}

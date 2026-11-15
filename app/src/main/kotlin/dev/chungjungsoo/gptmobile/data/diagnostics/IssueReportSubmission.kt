@@ -123,9 +123,14 @@ internal class IssueReportSubmission(
             GitHubAcceptancePublicationEvidence.FEATURE,
             GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE,
             IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE,
+            IssueReportIncidentCapsule.REPEAT_HISTORY_FEATURE,
+            IssueReportIncidentCapsule.GITHUB_CI_SEMANTIC_FEATURE,
+            IssueReportIncidentCapsule.GITHUB_SEARCH_VALIDATION_FEATURE,
+            IssueReportIncidentCapsule.TOOL_INVENTORY_PAGINATION_FEATURE,
             IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE,
             IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE,
-            IssueReportIncidentCapsule.URL_READER_AVAILABILITY_FEATURE
+            IssueReportIncidentCapsule.URL_READER_AVAILABILITY_FEATURE,
+            IssueReportIncidentCapsule.GITHUB_POLICY_RESPONSE_FEATURE
         )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
         private val RECOVERY_CODES = setOf(

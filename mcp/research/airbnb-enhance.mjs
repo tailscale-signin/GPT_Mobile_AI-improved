@@ -25,12 +25,14 @@ export function extractListingMedia(root) {
 export function enhanceAirbnbSource(source) {
   const search = '.map((result: any) => flattenArraysInObject(pickBySchema(result, allowSearchResultSchema)))';
   const details = 'details = extracted;';
-  if (!source.includes(search) || !source.includes(details)) throw new Error('Pinned Airbnb source contract changed; review the extraction adapter before building.');
+  const robots = 'robots.isAllowed(path, USER_AGENT)';
+  if (!source.includes(search) || !source.includes(details) || source.split(robots).length !== 2) throw new Error('Pinned Airbnb source contract changed; review the extraction adapter before building.');
   const helper = extractListingMedia.toString().replace('function extractListingMedia(root)', 'function extractListingMedia(root: any): { photos: string[]; reviews: { comments: string }[] }')
     .replace('new Set()', 'new Set<string>()').replace('new Set()', 'new Set<string>()')
     .replace('function visit(value, path = [], depth = 0)', 'function visit(value: any, path: string[] = [], depth = 0)')
     .replace('if (Array.isArray(value)) {', 'if (Array.isArray(value)) {');
   // Preserve all upstream robots.txt checks, schema validation, date/guest parameters and error handling.
-  return source.replace(search, '.map((result: any) => ({ ...flattenArraysInObject(pickBySchema(result, allowSearchResultSchema)), ...extractListingMedia(result) }))')
+  return source.replace(robots, 'robots.isAllowed(new URL(path, BASE_URL).href, USER_AGENT)')
+    .replace(search, '.map((result: any) => ({ ...flattenArraysInObject(pickBySchema(result, allowSearchResultSchema)), ...extractListingMedia(result) }))')
     .replace(details, 'details = [...extracted, { id: "GPTMOBILE_MEDIA", ...extractListingMedia(clientData) }];') + '\n' + helper + '\n';
 }

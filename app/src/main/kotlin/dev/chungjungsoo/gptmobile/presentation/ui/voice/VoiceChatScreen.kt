@@ -706,7 +706,7 @@ private fun VoiceChatSessionScreen(
             pauseCapture = { latestPauseCapture.value() }
         )
     }
-    VoiceSessionDestination(
+    VoiceChatSessionPresentation(
         settingsOpen = settingsOpen,
         chatView = chatView,
         routeOpen = routeOpen,
@@ -900,8 +900,10 @@ private fun VoiceChatSessionScreen(
                     openChat = ::openChat,
                     toggleMicrophone = ::toggleMicrophone,
                     toggleCaptions = {
-                        captions = !captions
-                        savePreferences()
+                        if (preferencesApplied) {
+                            captions = !captions
+                            savePreferences()
+                        }
                     },
                     openAudioRoute = {
                         session.pause()
@@ -912,7 +914,7 @@ private fun VoiceChatSessionScreen(
                 )
             )
         },
-        route = {
+        audioRoute = {
             VoiceRouteDialog(
                 route = route,
                 routes = systemAudio.routes(),
@@ -929,21 +931,25 @@ private fun VoiceChatSessionScreen(
 }
 
 @Composable
-private fun VoiceSessionDestination(
+private fun VoiceChatSessionPresentation(
     settingsOpen: Boolean,
     chatView: Boolean,
     routeOpen: Boolean,
     settings: @Composable () -> Unit,
     transcript: @Composable () -> Unit,
     conversation: @Composable () -> Unit,
-    route: @Composable () -> Unit
+    audioRoute: @Composable () -> Unit
 ) {
-    when {
-        settingsOpen -> settings()
-        chatView -> transcript()
-        else -> conversation()
+    if (settingsOpen) {
+        settings()
+        return
     }
-    if (!settingsOpen && routeOpen) route()
+    if (chatView) {
+        transcript()
+    } else {
+        conversation()
+    }
+    if (routeOpen) audioRoute()
 }
 
 internal fun playKokoroPreview(output: KokoroOutput, voice: KokoroVoice, error: (String, Boolean) -> Unit) {

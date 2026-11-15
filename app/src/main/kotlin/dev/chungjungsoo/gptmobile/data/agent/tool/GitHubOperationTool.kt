@@ -33,6 +33,11 @@ internal class GitHubOperationTool(
     override val definition = definition(if (modelName.substringBefore("__").endsWith("_inspect")) operation + "_inspect" else operation, modelName).let { definition ->
         (backend as? GitHubTool)?.let { definition.copy(description = definition.description + it.planningDescription()) } ?: definition
     }
+    override val searchValidationOwner = if (operation == "github_search" && backend is GitHubTool) {
+        dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.Owner.nativeDefinition(definition)
+    } else {
+        null
+    }
     private val connectionSuffix = modelName.indexOf("__").let { if (it < 0) "" else modelName.substring(it) }
     private fun relatedToolName(name: String) = if (name == operation) definition.name else name + connectionSuffix
     private val pagination = GitHubPaginationBoundary()
@@ -49,7 +54,7 @@ internal class GitHubOperationTool(
         // behalf: saved-view selectors are an authorization boundary, and only
         // the caller can submit the exact cursor-only correction.
         val result = dev.chungjungsoo.gptmobile.data.agent.currentGitHubInvocationReceipt(
-            previous?.copy(callId = callId, sharedResult = true) ?: executeOperation(callId, arguments)
+            previous?.copy(callId = callId, sharedResult = true, searchValidationEvidence = null) ?: executeOperation(callId, arguments)
         )
         if (result.isError && !result.dispatched && result.errorCode in setOf("INVALID_ARGUMENTS", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED")) {
             synchronized(rejectedCalls) {
@@ -96,7 +101,7 @@ internal class GitHubOperationTool(
         } catch (invalid: IllegalArgumentException) {
             return AgentToolResult(callId, ToolResultContent.Text(invalid.message.orEmpty()), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
-        return executeNormalized(callId, normalized)
+        return dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.rebindRepositoryArguments(executeNormalized(callId, normalized), definition.name, normalized, arguments)
     }
 
     private suspend fun executeNormalized(callId: String, arguments: JsonObject): AgentToolResult {
@@ -202,13 +207,14 @@ internal class GitHubOperationTool(
         }
         if (operation in names) {
             val readRules = linkedSetOf<GitHubOperationArguments.ReadRule>()
+            val ciRejections = linkedSetOf<GitHubOperationArguments.CiRejection>()
             val errors = ToolArgumentValidator.errors(arguments, definition.inputSchema).ifEmpty {
-                GitHubOperationArguments.errors(operation, arguments, readRules)
+                GitHubOperationArguments.errors(operation, arguments, readRules, ciRejections)
             }
             if (errors.isNotEmpty()) {
                 val budget = currentCoroutineContext()[ToolArgumentRepairScope]?.budget
-                return budget?.rejection(callId, definition, arguments, errors, readRules)
-                    ?: ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, errors, readRules)
+                return budget?.rejection(callId, definition, arguments, errors, readRules, ciRejections, searchValidationOwner)
+                    ?: ToolArgumentValidator.rejection(callId, definition.name, arguments, definition.inputSchema, errors, readRules, ciRejections, searchValidationOwner)
             }
         }
         if (operation == "github_write") {
@@ -896,6 +902,23 @@ internal class GitHubOperationTool(
                                 )
                                 put("required", JsonArray(listOf("path").map(::JsonPrimitive)))
                                 put("additionalProperties", false)
+                                // The third branch preserves bounded default reads when neither limit is supplied.
+                                put(
+                                    "oneOf",
+                                    JsonArray(
+                                        listOf("end_line", "max_lines").map { limit ->
+                                            buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive(limit)))) }
+                                        } + buildJsonObject {
+                                            put(
+                                                "properties",
+                                                buildJsonObject {
+                                                    listOf("path", "start_line", "start_offset").forEach { put(it, buildJsonObject {}) }
+                                                }
+                                            )
+                                            put("additionalProperties", false)
+                                        }
+                                    )
+                                )
                             }
                         )
                     }
@@ -1149,12 +1172,12 @@ internal class GitHubOperationTool(
                 "github_repository" -> "Create a repository, fork upstream, import an independent snapshot/history, or clone on the gateway. Explicit destination_owner, destination_repo, owner_type and visibility are required for remote creation; source_owner/source_repo stay separate. Import requires source_ref and copy_mode. Snapshot copies the exact file tree without history; history, Git LFS and local clone require a qualified Git gateway. Status uses expected_repository_id for native creation or operation_id for a gateway transfer, plus operation from the retained receipt. Asynchronous acceptance alone is not completion. Creation never changes the selected workspace."
                 "github_context" -> "Changes:base_sha; fixture recovery:base_sha=origin,commit_sha=head."
                 "github_search" -> "Pinned glob search using exact continuation_call."
-                "github_read" -> "No end_line+max_lines. -1=bounded EOF. Use source_coverage.next_action."
+                "github_read" -> "Choose end_line or max_lines, never both. Omit both for a bounded default read. end_line=-1 means bounded EOF. Use source_coverage.next_action."
                 "github_stage_patch" -> "Stage an exact replacement with target_file, search_snippet and replacement_snippet, or SHA-checked edits. Reads the pinned blob and rejects ambiguous anchors. Returns immutable version/stage_id and preserves publication receipts. Supply restore_stage_id alone to select a saved local patch at the same branch/base. Commit on a permitted working branch using its current expected_head_sha."
                 "github_commit" -> "Create a working branch, commit a validated stage_id, or delete_branch with expected_head_sha after dependency inspection. Ordinary deletion blocks selected/default/protected branches, unmerged commits, open PRs and active runs. delete_fixture_branch additionally requires durable same-task ownership from fixture_plan=content_v1, origin_head_sha and a verified chain containing only its exact synthetic file; it never grants generic unmerged-branch deletion. GitHub deletion is not an atomic SHA lease."
                 "github_write" -> "Every files item requires a repository-relative path (for example app/src/main/kotlin/.../MainActivity.kt), never an absolute path or directory. Stage up to 20 UTF-8 file creations, replacements or deletions for exact user approval and one atomic commit on a working branch. Supply expected_head_sha and expected_blob_sha for existing files. Replacements require content; deletions require delete=true and no content. Never write to the default branch."
                 "github_pr" -> "Canonical pull-request tool (also known as github_pull_request). Start with {\"action\":\"list\"} when the PR number is unknown. For one known PR use {\"action\":\"context\",\"pull_number\":<observed positive number>}. Use list to discover pull_number. Prefer headers for title/state/head/base only; it uses a minimal API field selection with no bodies or threads. Use context for files/checks and include_health=true for merge readiness. Use github_watch_checks once for ongoing CI; do not repeatedly poll from the model. Writes require the current expected head SHA. Use ready/draft for explicit draft transitions; update does not change draft state. threads returns observed thread IDs for resolve_thread/reopen_thread; follow its pageInfo using after. edit_comment changes discussion comments; edit_review_comment changes inline comments and both require expected_comment_updated_at. enable_auto_merge queues GitHub auto-merge under repository rules and is not evidence that a merge completed."
-                "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
+                "github_ci" -> "For repository summaries, inspect the selected branch/head and recent relevant runs; traverse full history only when requested. Discover workflows, then runs (100/page), then jobs using run_id. Runs filters use status; returned runs include conclusion. job/logs require job_id; artifacts requires run_id. status inspects run_id/job_id or selected commit/ref checks. Empty collections are valid. definitions reads pinned YAML outlines. Logs use start_line/end_line/start_offset continuations, with positive ordered line bounds spanning at most 2000 lines. dispatch requires a discovered workflow_id and explicit ref; a run_id is not a workflow_id. rerun/rerun_failed_jobs retries failed jobs only; rerun_all retries the full completed run. Never cancel an active run to force a retry. Follow continuation_call exactly."
                 "github_watch_checks" -> "Watch pr_number and/or run_id at its exact head. Omit wait_timeout_seconds for background updates in a saved chat; supply 1..30 for bounded inline reads and polling, returning an observed outcome or pending timeout without creating a subscription. Optional follow_pr=true follows new PR revisions."
                 "github_issue" -> "Discover issues with action=list and optional state=open (PRs excluded). action=headers reads ONE observed issue and requires issue_number; it is not an inventory or listing action. After listing, use headers for title/state/updated_at, or context/comments/history when needed. Create/update requires exact approval; update needs expected_updated_at. Timeline is not a full body-edit history."
                 else -> "Inspect release notes (detail), tags/annotations (tag), paginated tags/list, create_tag or explicitly publish the selected release."

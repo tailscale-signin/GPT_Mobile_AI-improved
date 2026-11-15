@@ -49,7 +49,7 @@ internal object ToolDependencyDiagnostics {
         return AgentToolResult(callId, ToolResultContent.Text(message), true, errorCode = "DEPENDENCY_${state.name}", dispatched = false, executionReceipt = receipt)
     }
 
-    private fun callHash(value: String): String = MessageDigest.getInstance("SHA-256")
+    internal fun callHash(value: String): String = MessageDigest.getInstance("SHA-256")
         .digest("gptmobile.issue-context.v1:call:$value".toByteArray(Charsets.UTF_8))
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }

@@ -3,6 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { existsSync, writeFileSync } from 'node:fs';
 import { enhanceAirbnbSource } from './airbnb-enhance.mjs';
+import { installUpstreamDependencies } from './upstream-dependencies.mjs';
 
 const root = dirname(fileURLToPath(import.meta.url));
 const revisions = [
@@ -18,6 +19,7 @@ for (const [name, url, revision] of revisions) {
   }
   const current = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: folder, encoding: 'utf8' }).trim();
   if (current !== revision) throw new Error(`Unexpected ${name} revision; move the upstream checkout aside and run preparation again.`);
+  installUpstreamDependencies(name, folder, revision);
   execFileSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['ci', '--ignore-scripts'], { cwd: folder, stdio: 'inherit' });
   if (name === 'airbnb') {
     const source = resolve(folder, 'index.ts');

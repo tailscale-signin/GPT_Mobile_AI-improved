@@ -38,7 +38,7 @@ internal data class IssueReportDiagnostics(
         values.forEach { (key, value) -> copied[key] = validatedValue(key, value) ?: return null }
         if (!alignedCriteria(copied) || !alignedComposer(copied) || schemaVersion == 3 && !IssueReportIncidentCapsule.aligned(copied)) return null
         val expectedUnavailable = requiredFields(area, schemaVersion).filterNot { it in copied }
-        val optionalUnavailable = reasoningProbeFields.intersect(allowed) - copied.keys
+        val optionalUnavailable = (reasoningProbeFields + IssueReportIncidentCapsule.policyResponseFields + IssueReportIncidentCapsule.repeatHistoryFields).intersect(allowed) - copied.keys
         if (!unavailableFields.containsAll(expectedUnavailable) || unavailableFields.any { it !in expectedUnavailable && it !in optionalUnavailable } || unavailableFields.distinct().size != unavailableFields.size) return null
         val snapshot = copy(values = copied.toMap(), unavailableFields = unavailableFields.toList(), omittedFields = omittedFields.toList())
         return snapshot.takeIf { IssueReport.json.encodeToString(serializer(), it).encodeToByteArray().size <= MAX_BYTES }
@@ -55,6 +55,11 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.policyResponseFields }) add(IssueReportIncidentCapsule.GITHUB_POLICY_RESPONSE_FEATURE)
+        if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.repeatHistoryFields }) add(IssueReportIncidentCapsule.REPEAT_HISTORY_FEATURE)
+        if ("semantic_ci_rules" in values || "semantic_ci_rules" in omittedFields) add(IssueReportIncidentCapsule.GITHUB_CI_SEMANTIC_FEATURE)
+        if ("search_validation_field_names" in values || "search_validation_field_names" in omittedFields) add(IssueReportIncidentCapsule.GITHUB_SEARCH_VALIDATION_FEATURE)
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.inventoryPaginationFields }) add(IssueReportIncidentCapsule.TOOL_INVENTORY_PAGINATION_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.repeatAdmissionFields }) add(IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.toolEventPersistenceFields }) add(IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE)
         if ("sqlite_constraint_kind" in values || "sqlite_constraint_kind" in omittedFields) add(IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE)
@@ -440,7 +445,7 @@ internal data class IssueReportDiagnostics(
             val values = linkedMapOf<String, JsonElement>()
             if (mode != "NO_CAPTURE") {
                 allowed.forEach { key ->
-                    element(fields[key])?.let { validatedValue(key, it) }?.let { values[key] = it }
+                    element(fields[key], if (key == "semantic_ci_rules") 9 else MAX_CRITERIA)?.let { validatedValue(key, it) }?.let { values[key] = it }
                 }
             }
             val omitted = mutableListOf<String>()
@@ -462,6 +467,11 @@ internal data class IssueReportDiagnostics(
                     values.remove(it)
                     omitted.add(it)
                 }
+            }
+            // Filtering an invalid member must not turn a partial history into
+            // observed empty/complete history or invalidate unrelated operands.
+            if (!IssueReportIncidentCapsule.repeatHistoryAligned(values)) {
+                IssueReportIncidentCapsule.repeatHistoryFields.forEach(values::remove)
             }
             if (version == 3 && !IssueReportIncidentCapsule.aligned(values)) {
                 listOf("argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types").filter { it in values }.forEach {
@@ -493,7 +503,14 @@ internal data class IssueReportDiagnostics(
                     shapePair != null -> listOf("${shapePair}_field_names", "${shapePair}_field_types").filter { it in values }
                     else -> listOf(key)
                 }
-                remove.forEach {
+                val removedFields = if (IssueReportIncidentCapsule.repeatHistoryFields.any { it in values } &&
+                    remove.any { it in IssueReportIncidentCapsule.repeatHistoryFields || it in IssueReportIncidentCapsule.repeatAdmissionFields }
+                ) {
+                    (remove + IssueReportIncidentCapsule.repeatHistoryFields).distinct()
+                } else {
+                    remove
+                }
+                removedFields.forEach {
                     values.remove(it)
                     omitted.add(it)
                 }
@@ -587,13 +604,13 @@ internal data class IssueReportDiagnostics(
             else -> null
         }
 
-        private fun element(value: Any?): JsonElement? = when (value) {
+        private fun element(value: Any?, maxListItems: Int = MAX_CRITERIA): JsonElement? = when (value) {
             is JsonElement -> value
             is String -> value.takeIf { it.length <= 128 }?.let(::JsonPrimitive)
             is Boolean -> JsonPrimitive(value)
             is Int -> JsonPrimitive(value)
             is Long -> JsonPrimitive(value)
-            is List<*> -> value.takeIf { it.size <= MAX_CRITERIA }?.let { JsonArray(it.map { item -> string(item)?.let(::JsonPrimitive) ?: return null }) }
+            is List<*> -> value.takeIf { it.size <= maxListItems }?.let { JsonArray(it.map { item -> string(item)?.let(::JsonPrimitive) ?: return null }) }
             else -> null
         }
     }

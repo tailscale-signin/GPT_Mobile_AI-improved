@@ -36,6 +36,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -278,7 +279,22 @@ private fun VoiceConversationControls(state: VoiceConversationUiState, actions: 
         VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, false, Modifier.weight(1f))
         VoiceMicrophoneControl(state, actions.toggleMicrophone)
         VoiceControl("Audio", if (state.session.speaker) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff, actions.openAudioRoute, !state.session.speaker, Modifier.weight(1f))
-        VoiceControl("Captions", Icons.Rounded.Subtitles, actions.toggleCaptions, state.captions, Modifier.weight(1f))
+        VoiceCaptionsControl(state, actions.toggleCaptions, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun VoiceCaptionsControl(state: VoiceConversationUiState, toggle: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        IconToggleButton(
+            checked = state.captions,
+            onCheckedChange = { toggle() },
+            enabled = state.preferencesApplied,
+            modifier = Modifier.size(52.dp).testTag("voice_captions_toggle")
+        ) {
+            Icon(Icons.Rounded.Subtitles, "Captions", Modifier.size(24.dp))
+        }
+        Text("Captions", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
     }
 }
 

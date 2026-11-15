@@ -59,7 +59,9 @@ def snapshot(service, principal, job_id, scenario):
         'terminal_ci_blocker': job['state'] in {'NEEDS_INPUT', 'FAILED'} and bool(data.get('ci')) and not completed and 'terminal_ci_blocker' in accepted,
         'post_merge_failure': bool(data.get('merge_sha')) and data.get('post_merge', {}).get('status') == 'FAILED' and not completed,
     }
-    passed = signals[scenario] and complete_records and not false_completion
+    # Completion metadata alone does not measure a production model attempt.
+    attempts_measured = complete_records and bool(dispatched)
+    passed = signals[scenario] and attempts_measured and not false_completion
     latest = dispatched[-1] if dispatched else {}
     return {'schema': 'gateway.production-qualification.v1', 'scenario': scenario, 'title': SCENARIOS[scenario],
             'job_id': job_id, 'repository': job['request']['repository'], 'source_sha': job['request'].get('source_sha'),
@@ -69,7 +71,8 @@ def snapshot(service, principal, job_id, scenario):
             'execution_mode': job['request'].get('execution_mode', 'standard'),
             'status': 'PASSED' if passed else 'FAILED' if false_completion else 'NOT_VERIFIED',
             'liveGitHub': 'OBSERVED' if writes else 'NOT_EXECUTED', 'completion': completed,
-            'first_attempt_success': completed and not bool(job.get('repairs')) and all(row.get('state') == 'COMPLETED' for row in dispatched),
+            'first_attempt_success': (completed and not bool(job.get('repairs')) and
+                                      all(row.get('state') == 'COMPLETED' for row in dispatched)) if attempts_measured else None,
             'repair_attempts': sum(job.get('repairs', {}).values()), 'duplicate_writes': duplicates,
             'duplicate_write_measurement': 'REPEATED_IDENTICAL_DISPATCH_INTENTS' if duplicates is not None else 'NOT_MEASURED',
             'false_completion': false_completion, 'elapsed_seconds': max(0, job.get('finished_at', service.store.now()) - job['created_at']),

@@ -195,7 +195,15 @@ internal object IssueReportIncidents {
                 evidence
             }
             val toolBudget = toolPrecheck && toolContext?.diagnostics?.values?.get("tool_budget_kind") != null
-            val publicCode = if (toolBudget) "TOOL_BUDGET_EXHAUSTED" else precheck?.code ?: IssueReportCodes.select(code, if (toolPrecheck) "TOOL_FAILURE" else "APP_ERROR")
+            // Exhaustion can accompany the last admitted call's specific failure; it is not its cause.
+            val fallbackCode = if (toolBudget) {
+                "TOOL_BUDGET_EXHAUSTED"
+            } else if (toolPrecheck) {
+                "TOOL_FAILURE"
+            } else {
+                "APP_ERROR"
+            }
+            val publicCode = precheck?.code ?: IssueReportCodes.select(code, fallbackCode)
             failure(feature, publicCode, error, reportEvidence, reportSource)
         } else {
             synchronized(lock) {

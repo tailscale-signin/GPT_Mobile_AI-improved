@@ -73,6 +73,21 @@ internal object GitHubOperationArguments {
         LINE_WINDOW("ranges", "start_line", "end_line", "max_lines")
     }
 
+    enum class CiRule {
+        BRANCH_NAME,
+        COMMIT_SHA,
+        POSITIVE_ID,
+        WORKFLOW_SELECTOR,
+        MISSING_SELECTOR,
+        UNUSED_FIELD,
+        LOG_START,
+        LOG_ORDER,
+        LOG_SPAN
+    }
+
+    /** Only fixed rule and field identities from the enforcing branch, never argument values. */
+    data class CiRejection(val rule: CiRule, val fields: Set<String>)
+
     /** Fixed constraint names only; source paths and requested text never enter reports. */
     fun readWindowFailures(range: JsonObject): Set<String> = buildSet {
         fun number(key: String) = (range[key] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
@@ -85,30 +100,34 @@ internal object GitHubOperationArguments {
         if ("end_line" in range && (end == null || end != -1 && start != null && (end < start || end.toLong() - start >= 2000))) add("BAD_END")
     }
 
-    fun errors(operation: String, args: JsonObject, readRules: MutableSet<ReadRule>? = null): List<String> {
+    fun errors(operation: String, args: JsonObject, readRules: MutableSet<ReadRule>? = null, ciRejections: MutableSet<CiRejection>? = null): List<String> {
         fun text(key: String) = (args[key] as? JsonPrimitive)?.content.orEmpty()
         val errors = mutableListOf<String>()
         fun readError(rule: ReadRule, message: String) {
             errors += message
             readRules?.add(rule)
         }
+        fun ciError(rule: CiRule, fields: Set<String>, message: String) {
+            errors += message
+            if (operation == "github_ci") ciRejections?.add(CiRejection(rule, fields))
+        }
         fun required(vararg keys: String) {
-            keys.filter { text(it).isBlank() }.forEach { errors += "$it is required" }
+            keys.filter { text(it).isBlank() }.forEach { ciError(CiRule.MISSING_SELECTOR, setOf(it), "$it is required") }
         }
         fun positive(key: String) {
-            if (key in args && text(key).toLongOrNull()?.let { it > 0 } != true) errors += "$key must be a positive integer ID returned by discovery"
+            if (key in args && text(key).toLongOrNull()?.let { it > 0 } != true) ciError(CiRule.POSITIVE_ID, setOf(key), "$key must be a positive integer ID returned by discovery")
         }
         fun unused(vararg keys: String) {
-            keys.filter { it in args }.forEach { errors += "$it is not used by this action; choose the intended action or remove the field before dispatch" }
+            keys.filter { it in args }.forEach { ciError(CiRule.UNUSED_FIELD, setOf(it), "$it is not used by this action; choose the intended action or remove the field before dispatch") }
         }
         for (key in listOf("branch", "from_branch")) {
             if (key in args && runCatching { dev.chungjungsoo.gptmobile.data.github.normalizeGitHubBranch(text(key)) }.isFailure) {
-                errors += "$key must be a valid branch name or refs/heads/name; do not use a tag or revision expression"
+                ciError(CiRule.BRANCH_NAME, setOf(key), "$key must be a valid branch name or refs/heads/name; do not use a tag or revision expression")
             }
         }
         for (key in listOf("commit_sha", "source_commit_sha", "expected_head_sha", "expected_base_sha", "head_sha", "tree_sha", "origin_head_sha")) {
             if (key in args && (!text(key).matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) || text(key).all { it == '0' })) {
-                errors += "$key must be a real commit/tree SHA, not a placeholder; discover the current head with github_context action=branch before retrying"
+                ciError(CiRule.COMMIT_SHA, setOf(key), "$key must be a real commit/tree SHA, not a placeholder; discover the current head with github_context action=branch before retrying")
             }
         }
         when (operation) {
@@ -216,24 +235,31 @@ internal object GitHubOperationArguments {
                     if ((!id.isString && id.content.toLongOrNull()?.let { it > 0 } != true) ||
                         runCatching { dev.chungjungsoo.gptmobile.data.github.normalizeGitHubWorkflowSelector(id.content) }.isFailure
                     ) {
-                        errors += "workflow_id must be a positive integer or a discovered workflow filename"
+                        ciError(CiRule.WORKFLOW_SELECTOR, setOf("workflow_id"), "workflow_id must be a positive integer or a discovered workflow filename")
                     }
                 }
                 when (text("action")) {
                     "run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel" -> required("run_id")
                     "job", "logs" -> required("job_id")
-                    "jobs" -> if ("run_id" !in args && "job_id" !in args) errors += "jobs requires run_id to list jobs, or job_id to inspect one job; obtain IDs from action=runs"
+                    "jobs" -> if ("run_id" !in args && "job_id" !in args) ciError(CiRule.MISSING_SELECTOR, setOf("run_id", "job_id"), "jobs requires run_id to list jobs, or job_id to inspect one job; obtain IDs from action=runs")
                     "dispatch" -> {
                         required("workflow_id", "ref", "expected_head_sha")
                         unused("run_id", "job_id", "run_attempt")
                     }
                 }
                 if (text("action") != "dispatch") unused("inputs")
-                if ("expected_head_sha" in args && !text("expected_head_sha").matches(Regex("[a-fA-F0-9]{40}"))) errors += "expected_head_sha must be the current 40-character workflow head"
+                if ("expected_head_sha" in args && !text("expected_head_sha").matches(Regex("[a-fA-F0-9]{40}"))) ciError(CiRule.COMMIT_SHA, setOf("expected_head_sha"), "expected_head_sha must be the current 40-character workflow head")
                 val start = text("start_line").ifBlank { "1" }.toLongOrNull()
                 val end = text("end_line").toLongOrNull()
                 if (start == null || start !in 1..Int.MAX_VALUE.toLong() || end != null && (end < start || end - start >= 2000)) {
                     errors += "log start_line/end_line must be positive and ordered, spanning at most 2000 lines"
+                    val rule = when {
+                        start == null || start !in 1..Int.MAX_VALUE.toLong() -> CiRule.LOG_START
+                        end != null && end < start -> CiRule.LOG_ORDER
+                        else -> CiRule.LOG_SPAN
+                    }
+                    val fields = if (rule == CiRule.LOG_START) setOf("start_line") else setOf("start_line", "end_line")
+                    ciRejections?.add(CiRejection(rule, fields))
                 }
             }
             "github_pr" -> {

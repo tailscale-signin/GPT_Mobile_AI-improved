@@ -105,11 +105,15 @@ class EngineeringForm(_ThemedForm):
             return False
         number, base_sha = values.pop('adopt_pr_number', ''), values.pop('adopt_base_sha', '')
         if number or base_sha:
-            if (not number.isdigit() or int(number) < 1 or not re.fullmatch(r'[a-f0-9]{40}', base_sha)
+            try:
+                pr_number = int(number) if number.isdigit() else 0
+            except ValueError:
+                pr_number = 0
+            if (pr_number < 1 or not re.fullmatch(r'[a-f0-9]{40}', base_sha)
                     or values['branch'] != values['source_branch'] or values['branch'] == values['base'] or self.scope.get() != 'implement'):
                 messagebox.showerror('Existing PR', 'Enter the PR number and reviewed base SHA. Working and source branches must both be the PR branch.', parent=self)
                 return False
-            values['adopt_pr'] = {'number': int(number), 'head_sha': values['source_sha'], 'base_sha': base_sha}
+            values['adopt_pr'] = {'number': pr_number, 'head_sha': values['source_sha'], 'base_sha': base_sha}
         self.result = dict({'provider': None}, **values, objective=prompt, task_scope=self.scope.get())
         return True
 

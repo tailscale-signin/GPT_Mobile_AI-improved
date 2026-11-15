@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolInventoryPaginationEvidence
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import java.security.MessageDigest
@@ -52,6 +53,8 @@ internal object ToolReportDiagnostics {
         put("run_id_hash", IssueReportContext.identifierHash("run", event.runId))
         put("call_id_hash", IssueReportContext.identifierHash("call", event.callId))
         put("tool_name_hash", IssueReportContext.identifierHash("tool-name", event.modelToolName))
+        putAll(ToolInventoryPaginationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
+        putAll(dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
         result.errorCode?.takeIf { it in errors }?.let { put("tool_error_code", it) }
         if (event.modelToolName == "read_url" &&
             result.errorCode in setOf("DNS_FAILED", "DNS_RECOVERY") &&

@@ -51,6 +51,9 @@ class ToolEventRecorderTest {
             put("dependency_repeat_batch_admissions", 1)
             put("dependency_repeat_used", 3)
             put("dependency_repeat_limit", 3)
+            put("inventory_pagination_reason", "VERSION_MISMATCH")
+            put("inventory_restart_offered", true)
+            put("search_validation_field_names", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("max_new_blobs"))))
             put("tool_event_persistence_operation", "START")
             put("tool_event_persistence_phase", "INSERT")
             put("tool_event_persistence_failure", "RUN_FOREIGN_KEY")
@@ -85,6 +88,107 @@ class ToolEventRecorderTest {
                 assertEquals(event.callId, fields["call_id"])
                 assertEquals(event.modelToolName, fields["tool"])
                 assertEquals(IssueReportContext.identifierHash("tool-error-code", code), fields["original_error_code_hash"])
+            }
+            assertEquals(2, reports.size)
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
+    @Test fun nativeSearchValidationProjectionRequiresTheOriginalPersistedCall() = runBlocking {
+        val reports = mutableListOf<Map<String, Any?>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg(5))
+                Unit
+            }
+            dev.chungjungsoo.gptmobile.data.agent.NativeSearchValidationFixture().use { fixture ->
+                for ((index, scenario) in listOf("matching", "reconstructed", "other_arguments", "other_connection").withIndex()) {
+                    val arguments = kotlinx.serialization.json.JsonObject(dev.chungjungsoo.gptmobile.data.agent.searchValidationArguments() + ("query" to kotlinx.serialization.json.JsonPrimitive("private-query-$index")))
+                    val persistedArguments = if (scenario == "other_arguments") kotlinx.serialization.json.JsonObject(arguments + ("query" to kotlinx.serialization.json.JsonPrimitive("other-private-query"))) else arguments
+                    val name = if (scenario == "other_connection") "github_search__foreign" else fixture.name
+                    val event = recorder.startTool("search-run", index, "search-call-$index", "github_search", name, persistedArguments, startedAt = 10L)
+                    val original = fixture.tool.execute(event.callId, arguments)
+                    val receipt = kotlinx.serialization.json.JsonObject(original.executionReceipt.orEmpty() + ("search_validation_field_names" to kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("batch_size")))))
+                    val result = if (scenario == "reconstructed") {
+                        AgentToolResult(original.callId, original.content, original.isError, errorCode = original.errorCode, dispatched = original.dispatched, executionReceipt = receipt)
+                    } else {
+                        original.copy(executionReceipt = receipt)
+                    }
+                    val saved = requireNotNull(recorder.finishTool(event.eventId, result, 20L))
+                    assertEquals(ToolEventStatus.FAILED, saved.status)
+                    val stored = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(saved))
+                    assertEquals(receipt["search_validation_field_names"], stored["search_validation_field_names"])
+                    val fields = reports.last()
+                    if (scenario == "matching") {
+                        assertEquals(listOf("max_new_blobs"), fields["search_validation_field_names"])
+                    } else {
+                        assertFalse("search_validation_field_names" in fields)
+                    }
+                    assertEquals(event.callId, fields["call_id"])
+                    assertFalse(fields.toString().contains("private-query"))
+                }
+                assertEquals(0, fixture.requests)
+            }
+            assertEquals(4, reports.size)
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
+    @Test fun inventoryPaginationProjectionRequiresFreshOwnedEvidenceAfterPersistence() = runBlocking {
+        val reserved = setOf("inventory_pagination_reason", "inventory_restart_offered")
+        val reports = mutableListOf<Pair<String?, Map<String, Any?>>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg<String?>(3) to arg<Map<String, Any?>>(5))
+                Unit
+            }
+            for (typed in listOf(true, false)) {
+                val name = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME
+                val catalog = dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog(
+                    List(2) { dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition("inventory_$it", "Inventory fixture", kotlinx.serialization.json.JsonObject(emptyMap())) },
+                    "Inspect tool inventory"
+                )
+                val arguments = buildJsonObject { put("inventory_cursor", 1) }
+                val event = recorder.startTool("owned-run", if (typed) 0 else 1, "catalog-$typed", name, name, arguments, startedAt = 10L)
+                val original = catalog.execute(event.callId, arguments)
+                val result = if (typed) {
+                    original.copy()
+                } else {
+                    AgentToolResult(
+                        original.callId,
+                        original.content,
+                        true,
+                        errorCode = original.errorCode,
+                        dispatched = false,
+                        executionReceipt = kotlinx.serialization.json.JsonObject(
+                            original.executionReceipt.orEmpty() + buildJsonObject {
+                                put("inventory_pagination_reason", "VERSION_MISMATCH")
+                                put("inventory_restart_offered", false)
+                            }
+                        )
+                    )
+                }
+                val expectedCategory = ToolReportDiagnostics.reportCode(event, result)
+                val saved = requireNotNull(recorder.finishTool(event.eventId, result, 20L))
+                val stored = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(saved))
+                assertEquals("STALE_INVENTORY", stored["error_code"]?.jsonPrimitive?.content)
+                assertEquals(false, stored["dispatched"]?.jsonPrimitive?.content?.toBooleanStrict())
+                assertEquals(expectedCategory, reports.last().first)
+                val fields = reports.last().second
+                if (typed) {
+                    assertEquals("MISSING_VERSION", fields["inventory_pagination_reason"])
+                    assertEquals(true, fields["inventory_restart_offered"])
+                    assertTrue(reserved.none { it in stored })
+                } else {
+                    assertTrue(reserved.none { it in fields })
+                    assertTrue(reserved.all { it in stored })
+                }
+                assertEquals(event.callId, fields["call_id"])
+                assertEquals(event.runId, fields["run_id"])
             }
             assertEquals(2, reports.size)
         } finally {

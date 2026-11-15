@@ -1,0 +1,257 @@
+{
+  "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+  "base_branch": "main",
+  "base_sha": "e9610259b7238043de7aaad937a865c65976ff5b",
+  "base_tree": "60c5e1ced286fd4cfd9898e234cb3469f009c11a",
+  "working_branch": "fix/post-1203-diagnostics-2026-11-15",
+  "predecessor_pr": 1203,
+  "pull_request": 1299,
+  "state": "FINAL_SOURCE_PREPARATION",
+  "task_store": "engineering_agent_checkpoints",
+  "task_store_key": "post-merge-report-diagnostics-2026-11-15",
+  "runtime_task_store": "The app task database is unavailable in this checkout. This versioned development checkpoint does not claim runtime receipts.",
+  "intent": [
+    "Classify cached unavailable URL reads without fabricating a new HTTP request or status",
+    "Retain bounded observed policy-404 facts for next-report diagnosis without changing access or completeness semantics",
+    "Retain only necessary typed same-run prior-admission linkage for repeated-call diagnosis",
+    "Review schema and budget reports1294\u20131297; correct concrete producer defects or add necessary bounded evidence",
+    "Remediate retained optional-companion npm audit findings if reproducible supported dependency overlays qualify",
+    "Keep all follow-up changes on one successor PR; qualify current head and merge normally when green"
+  ],
+  "intake": {
+    "initial_issue_numbers": [
+      1276,
+      1277,
+      1278,
+      1279,
+      1280,
+      1281,
+      1282,
+      1283,
+      1284,
+      1285,
+      1286,
+      1287,
+      1288,
+      1289,
+      1290,
+      1291,
+      1292,
+      1293,
+      1294,
+      1295,
+      1296,
+      1297
+    ],
+    "original173_complete": true,
+    "remaining_intake": true,
+    "latest_observed_at": "2026-11-15T15:49:15.926231+00:00",
+    "current_reviewed_frontier": [
+      1276,
+      1277,
+      1278,
+      1279,
+      1280,
+      1281,
+      1282,
+      1283,
+      1284,
+      1285,
+      1286,
+      1287,
+      1288,
+      1289,
+      1290,
+      1291,
+      1292,
+      1293,
+      1294,
+      1295,
+      1296,
+      1297,
+      1298,
+      1300,
+      1301,
+      1302,
+      1303,
+      1304,
+      1305,
+      1306,
+      1307,
+      1308,
+      1309,
+      1310,
+      1311,
+      1312
+    ],
+    "review_scope": "All36 retained reports have source-bound findings and complete conditional disposition bodies; final qualification and individual closure are pending."
+  },
+  "components": [
+    {
+      "name": "existing-pr-behavior",
+      "source": "d2682f6c75539b04e10e4b02c5972641df1ea797"
+    },
+    {
+      "name": "policy-response-producer",
+      "source": "ce957119698ed1f4df5218ac8ec958670fc78d8b"
+    },
+    {
+      "name": "policy-schema-isolation",
+      "source": "734ab7ea6f6310590d914cf04b354b8be935e246"
+    },
+    {
+      "name": "policy-report-consumer",
+      "source": "d8a734caee3cc945c9be46720c200840e77f6867"
+    },
+    {
+      "name": "repeat-history-producer",
+      "source": "4a1fe841a402007d0e505bb9c2001b956a51c64f"
+    },
+    {
+      "name": "repeat-history-consumer",
+      "source": "4afacd67a5793828a35ec04b93b977adcde2dc89"
+    },
+    {
+      "name": "schema-and-primary-cause",
+      "source": "664a03fafba08e97b512006605c3cbb4690a22ff"
+    },
+    {
+      "name": "partial-export-observations",
+      "source": "63b6f06a2f4605947e15a7d9877cf319653e6472"
+    },
+    {
+      "name": "companion-dependencies",
+      "source": "0ddd1eaf7679ba6b1356c6cbe7436c10cf5f1e0e"
+    },
+    {
+      "name": "concurrent-voice-catalog-source",
+      "source": "64f2aee10a05ae843d003c9bd446c4492490b8c0"
+    },
+    {
+      "name": "concurrent-pacing-relocation",
+      "source": "210d378cba98c2cd9f2ba2a596204df2dfae94bb"
+    },
+    {
+      "name": "ci-semantic-consumer",
+      "source": "ec1bd07543fdfe257ffde90a862c7ff7a906d3e2"
+    },
+    {
+      "name": "catalog-pagination-consumer",
+      "source": "e6f7ee0754d3ebc1ab6e392dead095a91902c3b8"
+    },
+    {
+      "name": "repeat-history-persisted-freshness",
+      "source": "ec7abea0faff5a0a62ad2aeaf212755b33e73b0f"
+    },
+    {
+      "name": "catalog-pagination-producer",
+      "source": "92cb03b2324581505bcf8d9742fde0fc1f1e6f55"
+    },
+    {
+      "name": "unknown-public-field-classification",
+      "source": "8c9404439bb61e495571d224c64358b1f94f49f3"
+    },
+    {
+      "name": "context-admission-observations",
+      "source": "0a843d8015fd4e38f176c59a17a8109708a6aef4"
+    },
+    {
+      "name": "concurrent-bounded-continuation-and-search",
+      "source": "56d7c91c27a12dcab107df09ed9eff178becebbc"
+    },
+    {
+      "name": "search-validation-consumer",
+      "source": "dbe1cf9d7a9a8025fb675286e1e36d83f86a9769"
+    },
+    {
+      "name": "voice-session-presentation-extraction",
+      "source": "f7eb83d851de704a536bb20a6ef454edee01c623"
+    },
+    {
+      "name": "typed-rejected-context-selection",
+      "source": "add6d95bc7b3607e74af792860e6dd22c4682ba4"
+    },
+    {
+      "name": "native-search-validation-producer",
+      "source_freeze_sha256": "656bca2028cd35aa06e12b4342e8d14484009d293fa84a1ecab57a5073b7b5d6",
+      "patch_sha256": "3fe98330b7db1ff9e1f4ff8ac64cbec7464768b0bd6b24a1b506871b1cdfd380",
+      "source": "274afadc3ef83723b5f7c0d3557434d3a656b4ca",
+      "final_manifest_sha256": "ee85166b04184a568cafaa2322a45676893f858010e02a6f48b12a63525cc3c8",
+      "owner_packet_pending": false
+    },
+    {
+      "name": "concurrent-voice-spectrum-and-adaptive-chat-ui",
+      "source": "7ec748f811f68e38ed521b648659d166576cc702"
+    },
+    {
+      "name": "concurrent-autonomous-engineering-workflows",
+      "source": "396ee7d3b9c67301b78ec9eba1e2d901a63c4a62"
+    },
+    {
+      "name": "wheel-arrival-and-held-touch-scroll-reconciliation",
+      "source": "cb4ce1942af54d09b7c02fc5425d2e7e8c961189"
+    },
+    {
+      "name": "caption-restoration-guard-and-checked-state",
+      "source_manifest_sha256": "bfab85fa0fe912b1dd3d071f3ccb92a70fd7ec557d1eb67ed91279291564fb9a"
+    },
+    {
+      "name": "gateway-checkpoint-originating-epoch",
+      "source": "fa514593251f60809f4edd7014318e910895e140"
+    },
+    {
+      "name": "production-qualification-measurement-completeness",
+      "manifest_sha256": "a783d94673515d30d00a2c798e60adcda51ffc57473b9122ba7e5b19156ea944",
+      "patch_sha256": "f0aae1d9969fd33f6d273d6c1767edcd413d44e760ba66fc47820269bdc3df86"
+    },
+    {
+      "name": "concurrent-autonomous-engineering-release-scope",
+      "source": "a7cb9d2572893c7927d076d7a12b7682f8caaf86"
+    },
+    {
+      "name": "desktop-existing-pr-number-validation",
+      "manifest_sha256": "c8af82a5c6126c0523711b9fd0ecf2545a934d4086c647df7bd693a7b578464b"
+    },
+    {
+      "name": "windows-committed-search-fixture-bytes",
+      "source": "0c81eb21f8163b7a54fc2c4915bee08c3fcd6933"
+    },
+    {
+      "name": "concurrent-compiler-and-crlf-search-correction",
+      "source": "c3d18eb94def20f290d1a0d671a28379698c22d2",
+      "voice_reconciliation": "Retain the equivalent f7 presentation extraction and startup caption preference guard."
+    },
+    {
+      "name": "concurrent-generated-package-metadata",
+      "source": "aaa3bcd8c4fd188598c0849ac6fa83fe7d686a75"
+    }
+  ],
+  "validation": {
+    "targeted": "Frozen source and focused execution receipts retained; exact scope and unexecuted Android boundaries remain explicit",
+    "canonical_fast": "PASS on localfa3:512 script tests and canonical fast checks; rechecking composed7ec source before publication",
+    "canonical_full": "PENDING_HOSTED_ANDROID_SDK",
+    "hosted_current_head": "PENDING_PUBLICATION_AND_CURRENT_HEAD_RUNS",
+    "physical_device": "NOT_RUN",
+    "reporting_service": "129 composed Python checks passed with all five consumer additions and the adopted URL capability; deployed service and Android remain separate",
+    "changed_kotlin_formatting": "PASS: all116 changed Kotlin paths after c3 composition; no Android execution",
+    "gateway_focused": "PASS: all18 methods in the final composed recovery, autonomous-tools and canonical qualification-measurements modules; zero failures/errors/skips/timeouts. Source-bound to78579b2b; hosted Gateway/installer remains pending.",
+    "gateway_windows_fixture": "Actual prior Windows failure reproduced with CRLF committed bytes; explicit-LF fixture correction passes9 existing methods locally. Final native Windows execution remains pending."
+  },
+  "remote": {
+    "main_verified_at": "2026-11-15T15:49:15.926245+00:00",
+    "active_pull_requests": [
+      1299
+    ],
+    "successor_branch_created": false,
+    "successor_branch_created_by_this_coordinator": false,
+    "last_observed_head": "aaa3bcd8c4fd188598c0849ac6fa83fe7d686a75"
+  },
+  "constraints": [
+    "No repeat-limit or budget relaxation",
+    "No raw URLs, private arguments, auth headers or response prose in public diagnostics",
+    "Historical HTTP/status data must not be represented as a new dispatched response",
+    "Prior PR/main results are baseline evidence and do not qualify new source changes",
+    "No branch deletion or force push"
+  ],
+  "composition_baseline": "aaa3bcd8c4fd188598c0849ac6fa83fe7d686a75"
+}

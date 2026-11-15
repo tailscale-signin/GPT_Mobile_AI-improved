@@ -141,7 +141,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 
@@ -2549,7 +2548,7 @@ class ChatRepositoryImpl(
                         emitAll(
                             streamPrimaryAnswer(
                                 platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
-                                budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
+                                budgetSettings, limits, admission.capacityDecision, customRunner, delegationSettings, effectiveTools, exposedTools,
                                 resolvedTools, taskRoutedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
                                 localResearch, processingOwnership, reservedFinalToolCalls, followUps,
                                 remainingToolCalls = toolBudget::remainingCalls,
@@ -4770,6 +4769,7 @@ class ChatRepositoryImpl(
         chatToolConfig: ChatMcpToolConfig?,
         contextPlan: dev.chungjungsoo.gptmobile.data.context.ContextPlan,
         limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
+        capacityDecision: dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.PrimaryContextDecision,
         effectiveTools: List<ResolvedAgentTool>,
         exposedTools: List<ResolvedAgentTool>,
         localResearch: Boolean,
@@ -4802,7 +4802,8 @@ class ChatRepositoryImpl(
         val requestedCap = if (writerPlan != null) routeOutputCap else dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(limits.copy(outputTokens = requestedOutputTokens ?: limits.outputTokens), routeOutputCap)
         val toolContext = if (chatToolConfig?.github != null || exposedTools.isNotEmpty()) {
             dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.allocate(limits.contextTokens, contextPlan.promptTokens, requestedCap, 4096).also {
-                dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.requireAllocation(it, limits.contextTokens, requestedCap ?: 4096)
+                val observation = dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.Observation.capture(platform.uid, platform.model, platform.maxTokens, capacityDecision, limits.contextTokens)
+                dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.requireAllocation(it, limits.contextTokens, requestedCap ?: 4096, observation)
             }
         } else {
             null
@@ -4874,6 +4875,7 @@ class ChatRepositoryImpl(
 
     /** Allocate execution limits and persisted ownership outside the large response-stream state machine. */
     private suspend fun streamPrimaryAnswerRunner(
+        runId: String,
         platform: PlatformV2,
         latestUser: MessageV2?,
         chatToolConfig: ChatMcpToolConfig?,
@@ -4966,7 +4968,8 @@ class ChatRepositoryImpl(
                 }
                 outputContinuation?.restoreToolResults(exchanges)
             },
-            remainingTaskMillis = verifiedEvidence?.let { it::remainingTaskMillis }
+            remainingTaskMillis = verifiedEvidence?.let { it::remainingTaskMillis },
+            diagnosticRunId = dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionHistory.runIdWithoutPriorEvents(runId, agentPersistenceDao::rawMaxToolEventSequence)
         )
     }
 
@@ -5073,6 +5076,7 @@ class ChatRepositoryImpl(
         contextPlan: dev.chungjungsoo.gptmobile.data.context.ContextPlan,
         budgetSettings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
         limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
+        capacityDecision: dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.PrimaryContextDecision,
         customRunner: dev.chungjungsoo.gptmobile.data.agent.AgentRunner,
         delegationSettings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
         effectiveTools: List<ResolvedAgentTool>,
@@ -5105,7 +5109,7 @@ class ChatRepositoryImpl(
         validateSavedEvidence: suspend () -> Boolean = { true }
     ): Flow<ApiState> = channelFlow {
         val admission = streamPrimaryAnswerAdmission(
-            platform, latestUser, runId, chatToolConfig, contextPlan, limits, authorizedEvidenceTools, exposedTools,
+            platform, latestUser, runId, chatToolConfig, contextPlan, limits, capacityDecision, authorizedEvidenceTools, exposedTools,
             localResearch, processingOwnership, toolBudgetSourceMessageId, acceptanceRequest, restoreGatewayHandoffRequested
         )
         val dispatchAuthority = admission.dispatchAuthority
@@ -5240,13 +5244,7 @@ class ChatRepositoryImpl(
                     raw.streamRound(tools, exchanges).map { event ->
                         if (chatToolConfig?.github != null && kind in setOf("primary", "github-output-continuation", "github-task-resume", "github-execution-continuation")) {
                             val observed = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.receipts?.lastOrNull()?.contextTokens
-                            val rejection = (event as? ProviderEvent.Failed)?.failureDetails
-                            val rejectedCapacity = if (rejection?.get("admission_capacity_provenance") in setOf(JsonPrimitive("VERIFIED_ROUTE"), JsonPrimitive("DECLARED"))) {
-                                (rejection?.get("admission_capacity_tokens") as? JsonPrimitive)?.content?.toLongOrNull()
-                            } else {
-                                null
-                            }
-                            (observed ?: rejectedCapacity)?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { capacity ->
+                            dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.observedContext(observed, event as? ProviderEvent.Failed)?.let { capacity ->
                                 observedRequestContext.updateAndGet { previous -> minOf(previous ?: Int.MAX_VALUE, capacity) }
                             }
                         }
@@ -6136,7 +6134,7 @@ class ChatRepositoryImpl(
         recordPrimaryToolCatalog(catalog, runnerTools, executableTools)
 
         val runner = streamPrimaryAnswerRunner(
-            platform, latestUser, chatToolConfig, contextPlan, limits, budgetSettings, customRunner,
+            runId, platform, latestUser, chatToolConfig, contextPlan, limits, budgetSettings, customRunner,
             delegationSettings, effectiveTools, githubEffectiveTask, resolvedOutputCap, admission.toolContext, reservedFinalToolCalls,
             toolBudgetSourceMessageId, dispatchAuthority, catalog, retryUndispatchedBudgetFailures,
             resumeToolBudget, toolCallsAlreadyUsed, reviewEvidence, verifiedEvidence,

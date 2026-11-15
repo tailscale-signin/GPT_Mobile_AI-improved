@@ -189,6 +189,7 @@ internal data class IssueReportContext(
             val diagnostics = context["diagnostics"]?.let { IssueReportDiagnostics.fromJson(it) ?: return false }
             if (version == 5 && diagnostics?.schemaVersion != 1) return false
             if (version == 6 && diagnostics?.schemaVersion == 3 || version == 7 && diagnostics?.schemaVersion != 3) return false
+            if (diagnostics != null && !IssueReportIncidentCapsule.repeatHistoryAligned(diagnostics.values, context["callIdHash"])) return false
             return names.distinct().size == names.size && names.toSet() == fields - context.keys
         }
 

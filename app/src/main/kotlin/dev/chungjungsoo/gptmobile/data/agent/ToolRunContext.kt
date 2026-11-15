@@ -14,6 +14,7 @@ fun AgentTool.withRunContext(runId: String): AgentTool {
     return object : OwnedAgentTool {
         override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = original.withChildBudget(bind).withRunContext(runId)
         override val definition = original.definition
+        override val searchValidationOwner get() = original.searchValidationOwner
         override val managesExecutionBudget = original.managesExecutionBudget
         override val coordinatesChildWork = original.coordinatesChildWork
         override val executionOwner = (original as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT

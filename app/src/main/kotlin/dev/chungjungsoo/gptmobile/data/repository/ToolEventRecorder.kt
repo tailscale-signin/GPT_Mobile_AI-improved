@@ -206,7 +206,9 @@ class ToolEventRecorder @Inject constructor(
                                 "tool_event_persistence_operation", "tool_event_persistence_phase", "tool_event_persistence_failure",
                                 "tool_event_requested_sequence", "tool_event_assigned_sequence", "tool_event_previous_max_sequence", "tool_event_write_attempted"
                             ) &&
-                                it !in dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionEvidence.FIELD_NAMES
+                                it !in dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionEvidence.REPORT_FIELD_NAMES &&
+                                it !in dev.chungjungsoo.gptmobile.data.agent.ToolInventoryPaginationEvidence.REPORT_FIELD_NAMES &&
+                                it !in dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.REPORT_FIELD_NAMES
                         }
                     )
                     if ("reason_code" !in this && "reasonCode" !in this) {
@@ -220,7 +222,7 @@ class ToolEventRecorder @Inject constructor(
                         ToolReportDiagnostics.fields(startedEvent, result, ToolPrecheckEvidence.reasonCode(result))
                     }?.let { putAll(it) }
                     captureIssueReport {
-                        dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionEvidence.reportFields(result, startedEvent?.callId, startedEvent?.modelToolName, startedEvent?.arguments)
+                        dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionEvidence.reportFields(result, startedEvent?.callId, startedEvent?.modelToolName, startedEvent?.arguments, startedEvent?.runId)
                     }?.let { putAll(it) }
                     put("dispatched", normalizedResult.dispatched)
                     if (withheldRead) put("failed_stage", "delivery")

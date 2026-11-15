@@ -15,9 +15,13 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertTextEquals
 import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -25,6 +29,7 @@ import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
@@ -65,6 +70,41 @@ class VoiceConversationInstrumentedTest {
         assertEquals(initialBounds, microphone.fetchSemanticsNode().boundsInRoot)
         microphone.performClick()
         compose.runOnIdle { assertEquals(1, stops) }
+    }
+
+    @Test fun captionsWaitForRestoredPreferencesAndExposeCheckedState() {
+        val initial = state(VoiceState()).copy(preferencesApplied = false, captions = true)
+        val current = mutableStateOf(initial)
+        var changes = 0
+        compose.setContent {
+            MaterialTheme {
+                VoiceConversationScreen(
+                    current.value,
+                    actions(captions = {
+                        changes++
+                        current.value = current.value.copy(captions = !current.value.captions)
+                    })
+                )
+            }
+        }
+        val captions = compose.onNodeWithTag("voice_captions_toggle")
+        captions.assertIsDisplayed().assertIsNotEnabled().assertIsOn().performTouchInput { click() }
+        compose.runOnIdle {
+            assertEquals(0, changes)
+            assertEquals(initial, current.value)
+            current.value = initial.copy(preferencesApplied = true, captions = false)
+        }
+        captions.assertIsEnabled().assertIsOff().performClick()
+        compose.runOnIdle {
+            assertEquals(1, changes)
+            assertEquals(initial.copy(preferencesApplied = true, captions = true), current.value)
+        }
+        captions.assertIsOn().performClick()
+        compose.runOnIdle {
+            assertEquals(2, changes)
+            assertEquals(initial.copy(preferencesApplied = true, captions = false), current.value)
+        }
+        captions.assertIsOff()
     }
 
     @Test fun theProfilePickerChangesProfileOnlyBetweenTurns() {
@@ -212,7 +252,7 @@ class VoiceConversationInstrumentedTest {
         draft = ""
     )
 
-    private fun actions(stop: () -> Unit = {}, select: (String) -> Unit = {}) = VoiceConversationActions(
+    private fun actions(stop: () -> Unit = {}, select: (String) -> Unit = {}, captions: () -> Unit = {}) = VoiceConversationActions(
         selectProfile = select,
         openTranscript = {},
         openSettings = {},
@@ -228,6 +268,7 @@ class VoiceConversationInstrumentedTest {
         replay = {},
         openChat = {},
         toggleMicrophone = stop,
+        toggleCaptions = captions,
         openAudioRoute = {},
         end = {}
     )

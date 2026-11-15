@@ -133,6 +133,7 @@ class ToolExecutionBudget(
         definitionOverride: AgentToolDefinition? = null
     ): AgentTool = object : PreparableAgentTool, OwnedAgentTool, ApprovedReadOnlyAgentTool {
         override val definition = definitionOverride ?: tool.definition
+        override val searchValidationOwner get() = tool.searchValidationOwner
         override val approvedReadOnly = (tool as? ApprovedReadOnlyAgentTool)?.approvedReadOnly == true
         override val managesExecutionBudget = true
         override val coordinatesChildWork = tool.coordinatesChildWork
@@ -174,11 +175,11 @@ class ToolExecutionBudget(
                 }
             }
             if (invalid.isNotEmpty()) {
-                val rejected = argumentRepairs.rejection(callId, definition, arguments, invalid)
+                val rejected = argumentRepairs.rejection(callId, definition, arguments, invalid, searchValidationOwner = tool.searchValidationOwner)
                 return { withBudgetState(rejected) }
             }
             semanticArgumentRejections[signature]?.let { previous ->
-                return { withBudgetState(previous.copy(callId = callId, sharedResult = true)) }
+                return { withBudgetState(previous.copy(callId = callId, sharedResult = true, searchValidationEvidence = null)) }
             }
             if (!separateResultAllowance && remainingBytes.get() <= 0) {
                 val message = outputBudgetMessage()

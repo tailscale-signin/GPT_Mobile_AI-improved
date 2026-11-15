@@ -95,7 +95,7 @@ class ProgressiveToolCatalogTest {
         val operations = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) }
         val catalog = ProgressiveToolCatalog(operations, "List GitHub issues and inspect PR checks", githubMode = true)
         val initial = catalog.selected(operations + catalog.definition).map { it.name }
-        assertTrue("Initial GitHub context missing: $initial", "github_context" in initial)
+        assertTrue("Initial GitHub context missing: $initial", initial.any { GitHubOperationTool.operationName(it) == "github_context" })
         assertFalse("Write schemas should be deferred: $initial", "github_write" in initial)
         assertTrue(initial.size < operations.size + 1)
         val discovery = catalog.execute(
@@ -324,7 +324,7 @@ class ProgressiveToolCatalogTest {
         for (task in listOf("check repo status", "inspect git", "show branches", "inspect commits", "review repositories")) {
             val catalog = ProgressiveToolCatalog(tools + native + gateway, task)
             val selected = catalog.selected(tools + native + gateway)
-            assertEquals("github_context", selected.first().name)
+            assertEquals("github_context", GitHubOperationTool.operationName(selected.first().name))
             assertTrue(selected.any { it.name == gateway.name })
         }
     }

@@ -1253,7 +1253,7 @@ class AgentRunner(
         val selected = selectDefinitions(definitions)
         if (!limits.githubMode) return selected
         val authorized = definitions.filter { it.modelVisible }.associateBy { it.name }
-        return selected.mapNotNull { authorized[it.name] }.distinctBy { it.name }
+        return selected.mapNotNull { choice -> authorized[choice.name]?.let { GitHubActionSchema.authorized(it, choice) } }.distinctBy { it.name }
     }
 
     /** Dynamic discovery has an independent coroutine to stay below ART's method-size ceiling. */

@@ -44,6 +44,20 @@ class LocalOutputAllocationTest {
         assertEquals(128, failure.allowedValue)
     }
 
+    @Test fun oneAdmissionRecordCarriesInputReplyEvidenceAndSafetyAcrossRoutes() {
+        for ((context, prompt) in listOf(5632 to 2400, 8192 to 4000, 131072 to 40000)) {
+            val allocation = ReplayAllowance.allocate(context, prompt, 4096, 4096)
+            assertEquals(prompt, allocation.input)
+            assertEquals(context, allocation.ceiling)
+            assertTrue(allocation.output > 0 && allocation.replay > 0)
+            assertTrue(allocation.input.toLong() + allocation.output + allocation.replay + allocation.safety <= allocation.ceiling)
+        }
+        val overflow = ReplayAllowance.allocate(5632, 9043, 4096, 4096)
+        assertEquals(0, overflow.output)
+        assertEquals(0, overflow.replay)
+        assertEquals(9043, overflow.input)
+    }
+
     @Test fun continuationManifestIsBoundedAndKeepsLastCommittedTextAndReader() {
         val text = dev.chungjungsoo.gptmobile.data.agent.recoveryManifest("run:generation", "Old text ".repeat(10000) + "Last committed finding.", listOf("Research complete=false; partial coverage"), listOf("recovery://1/run"), 500000, 6000)
         assertTrue(text.length <= 6000)

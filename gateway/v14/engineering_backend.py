@@ -158,6 +158,7 @@ class GitHubEngineeringBackend:
         self.recall_graph = lambda job, query, **selection: {'status': 'NOT_INDEXED'}
         self.model_executor = None
         self.save_adaptive_planning = None
+        self.save_specialists = None
         self.before_mutation = None
         self.operations = None
 
@@ -480,6 +481,12 @@ class GitHubEngineeringBackend:
         elif role == 'planner':
             system += ('Return {"paths":[up to 30 exact repository paths],"plan":"concise implementation and test plan"}.' if accepted_scope(job['request']) == 'implement' else
                        'Return {"paths":[up to 30 exact repository paths],"plan":"concise inspection plan for the accepted objective"}.')
+        elif role in {'source explorer', 'test investigator', 'failure investigator'}:
+            system += ('Investigate only the supplied narrow question. Return {"findings":[up to 12 concise findings],'
+                       '"paths":[up to 20 existing repository paths]}. Findings are suggestions, never execution proof. '
+                       'You may instead request {"workspace_action":{"action":"paths|search|read","head_sha":"exact current head",'
+                       '"query":"literal text","paths":["exact files"],"path":"exact file","start_line":1,"line_count":80}}. '
+                       'At most three calls are available. You cannot edit, run commands, approve or publish changes.')
         elif role in {'independent reviewer', 'selected-model reviewer'}:
             system += 'Perform a separate review pass using the selected model. Inspect the proposed diff and objective for correctness, missing tests, regressions and security issues. Return {"approved":boolean,"issues":[strings]}. This is supplemental same-model review only, never merge authorization or independent model validation.'
         else:
@@ -487,9 +494,12 @@ class GitHubEngineeringBackend:
                        '"edits":[{"old":"unique exact anchor","new":"replacement"}]}],"summary":"..."}. '
                        'A new/small file may use content instead of edits. Use delete:true alone for deletion. '
                        'Existing files must have been read. Do not invent file contents; include meaningful tests. '
-                       'To investigate before editing, instead return {"workspace_action":{"action":"paths|search|read","head_sha":"exact current head",'
+                       'To investigate before editing, instead return {"workspace_action":{"action":"paths|search|read|checks|check|check_output","head_sha":"exact current head",'
                        '"query":"literal search","paths":["paths for text search"],"path":"path for read","start_line":1,"line_count":80}}. '
                        'Paths accepts query and offset; search accepts query and 1-10 paths; read accepts path and an exact line range. '
+                       'Use checks to list approved checks; check selects check_index and optionally proposal with the normal changes contract '
+                       '(omitting proposal tests the unchanged source). check_output reads check_id with start_line and line_count. '
+                       'Only host-approved commands execute; a selected check never replaces complete final validation. '
                        'Read relevant ranges before editing large files. Each action resumes this same task with bounded fresh context.')
         if role == 'planner' and 'proposed_options' in evidence:
             system += SELECTION_INSTRUCTION
@@ -587,8 +597,13 @@ class GitHubEngineeringBackend:
             # These are freshly observed selection facts, not a completed PLAN.
             # Recall and model admission need them before selecting source paths.
             # The supervisor alone records successful stage completion.
-            data.update(actor_id=actor['id'], head_sha=head)
-            plan = self.model(job, 'planner', {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'head_sha': head})
+            data.update(actor_id=actor['id'], head_sha=head, tree=tree)
+            from v14.engineering_specialists import investigate
+            selection = {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'head_sha': head}
+            specialists = investigate(self, job, [
+                {'role': 'source explorer', 'evidence': dict(selection, focus='Locate implementation and repository conventions for the objective')},
+                {'role': 'test investigator', 'evidence': dict(selection, focus='Locate relevant tests, validation entry points and missing coverage')}])
+            plan = self.model(job, 'planner', dict(selection, specialist_findings=specialists))
             merge_method = next((method for method in ('squash', 'merge', 'rebase') if metadata.get('allow_' + method + '_merge')), None)
             if writable and merge_method is None:
                 raise ValueError('No supported merge method is enabled')
@@ -601,7 +616,11 @@ class GitHubEngineeringBackend:
             saved_batch = data.get('read_batch')
             batch_id = saved_batch.get('id') if isinstance(saved_batch, dict) and saved_batch.get('input') == read_input else None
             if data.get('ci') and not batch_id:
-                plan = self.model(job, 'planner', {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'previous_plan': plan, 'ci': data['ci']})
+                from v14.engineering_specialists import investigate
+                specialists = investigate(self, job, [{'role': 'failure investigator', 'evidence': {
+                    'ci': data['ci'], 'paths': self.planning_paths(job, tree), 'focus': 'Trace the observed failure to relevant source and tests'}}])
+                plan = self.model(job, 'planner', {'paths': self.planning_paths(job, tree), 'total_paths': len(tree),
+                    'previous_plan': plan, 'ci': data['ci'], 'specialist_findings': specialists})
             paths = plan.get('paths')
             if not isinstance(paths, list) or not 1 <= len(paths) <= 30 or any(not isinstance(path, str) or path not in tree or tree[path]['mode'] not in {'100644', '100755'} for path in paths):
                 raise ValueError('Planner must select existing file paths')
@@ -701,7 +720,8 @@ class GitHubEngineeringBackend:
                 receipt = act(self, job, proposal['workspace_action'])
                 self.record_evidence(job, {'workspace_receipt': receipt})
                 return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
-                        'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files']}
+                        'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
+                        'workspace_checks': data.get('workspace_checks', {})}
             changes = prepare_changes(proposal, data['files'], data['tree'], head_sha=data['head_sha'])
             return {'workspace_continue': False, 'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
         if phase == 'REVIEW':
@@ -736,6 +756,8 @@ class GitHubEngineeringBackend:
             validation = data.get('local_validation', {})
             if validation.get('status') != 'PASSED' or validation.get('patch_identity') != patch_identity(data['head_sha'], data['changes']):
                 raise ValueError('Exact patch has no passing isolated validation receipt')
+            if validation.get('scope', 'complete') != 'complete':
+                raise ValueError('Exploratory checks cannot authorize publication')
             current = self.ref(job, job['request']['branch'])
             if current is not None and current != data['head_sha']:
                 raise ValueError('Working branch moved before publication')

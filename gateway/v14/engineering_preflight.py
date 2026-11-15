@@ -57,6 +57,8 @@ def preflight(request, *, runner=None):
     result['checks']['validation_policy'] = 'ready'
     result['validation_policy_state'] = 'VALIDATED'
     result['policy_sha256'] = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    from v14.engineering_release_checks import contract
+    result['post_merge_contract'] = contract(policy.get('post_merge'), len(commands))
     if not result['acceptance'] and request.get('draft_repair'):
         try:
             result['acceptance'] = validate_request(dict(request, acceptance=policy.get('draft_repair_requirements', []))).get('acceptance', [])

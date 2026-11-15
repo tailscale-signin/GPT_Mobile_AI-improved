@@ -35,7 +35,10 @@ def act(backend, job, action):
         raise ValueError('Workspace action must name the current pinned head_sha')
     kind = action.get('action')
     receipt = {'action': kind, 'head_sha': job['data']['head_sha']}
-    if kind == 'paths':
+    if kind in {'checks', 'check', 'check_output'}:
+        from v14.engineering_workspace_checks import act as check_action
+        receipt.update(check_action(backend, job, action))
+    elif kind == 'paths':
         query = action.get('query', '')
         offset = action.get('offset', 0)
         if not isinstance(query, str) or len(query) > 200 or type(offset) is not int or offset < 0:
@@ -80,7 +83,7 @@ def act(backend, job, action):
                 break
         receipt.update(matches=matches, truncated=len(matches) >= 40)
     else:
-        raise ValueError('Unknown workspace action; use paths, search or read')
+        raise ValueError('Unknown workspace action; use paths, search, read, checks, check or check_output')
     receipt['receipt_sha256'] = hashlib.sha256(json.dumps(receipt, sort_keys=True).encode()).hexdigest()
     return receipt
 

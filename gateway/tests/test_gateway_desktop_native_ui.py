@@ -120,7 +120,7 @@ class DesktopNativeAcceptance(unittest.TestCase):
             self.assertFalse(panel.advanced.winfo_viewable())
             self.assertFalse(panel.commands.winfo_viewable())
             self.assertFalse(panel.contract.winfo_viewable())
-            for control in (panel.enable_button, panel.repository_picker, panel.profile_box, panel.advanced_toggle,
+            for control in (panel.enable_button, panel.repository_picker, panel.profile_box, panel.discovery_button, panel.release_button, panel.advanced_toggle,
                             panel.prepare_button, panel.check_button, panel.save_button, panel.reload_button):
                 self.assertTrue(control.winfo_viewable())
                 self.assertGreater(control.winfo_width(), 40)

@@ -107,6 +107,7 @@ def defaults(root, repository=DEFAULT_REPOSITORY):
             'profile': SOURCE_PROFILE, 'commands': copy.deepcopy(SOURCE_COMMANDS),
             'acceptance_map': [], 'parallel_command_groups': [],
             'allowed_checks': ['Required verification', 'Analyze (java-kotlin)'] if repository == DEFAULT_REPOSITORY else [],
+            'post_merge': {'artifacts': [], 'installation_checks': [], 'smoke_checks': []},
             'acceptance_templates': [], 'draft_repair_requirements': []}
 
 
@@ -228,6 +229,7 @@ def entry_from_options(options, existing=None):
     for key in ('mirror', 'image', 'commands', 'timeout_seconds', 'acceptance_map', 'parallel_command_groups',
                 'allowed_checks', 'acceptance_templates', 'draft_repair_requirements'):
         entry[key] = copy.deepcopy(options.get(key, [] if key not in {'mirror', 'image', 'timeout_seconds'} else ''))
+    entry['post_merge'] = copy.deepcopy(options.get('post_merge', {'artifacts': [], 'installation_checks': [], 'smoke_checks': []}))
     entry['desktop_setup'] = dict(metadata, schema=1, image_source=options['image_source'], profile=options['profile'])
     return entry
 

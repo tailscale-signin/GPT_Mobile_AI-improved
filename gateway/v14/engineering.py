@@ -6,6 +6,7 @@ import os
 import re
 import threading
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 import sqlite3
 import time
 import uuid
@@ -216,7 +217,7 @@ class EngineeringStore:
         return self.tx(lambda db: [json.loads(row[0]) for row in db.execute(
             'SELECT data FROM engineering_events WHERE job_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 201', (job_id, after, through))])
 
-    def create(self, principal, request, *, admission=None):
+    def create(self, principal, request, *, admission=None, recovery_of=None):
         existing = self.existing_request(principal, request)
         if existing:
             return existing
@@ -239,6 +240,13 @@ class EngineeringStore:
                'updated_at': now, 'steps': 0, 'milestones': [], 'repairs': {}, 'patches': [], 'stalls': 0,
                'message': 'Queued for repository inspection', 'data': {}, 'approval': None,
                'execution_binding': binding}
+        if recovery_of is not None:
+            if recovery_of['principal'] != principal or recovery_of['request']['repository'] != request['repository']:
+                raise ValueError('Recovery cannot change repository or owner')
+            job.update(recovery_of=recovery_of['id'], recovery_depth=recovery_of.get('recovery_depth', 0) + 1,
+                       recovery_objective=recovery_of.get('recovery_objective', recovery_of['request']['objective']),
+                       deadline=min(job['deadline'], recovery_of['deadline']))
+            job['data']['ci'] = deepcopy(recovery_of['data'].get('post_merge', {}))
         if request.get('execution_mode') == 'full':
             job['data']['integration_batch'] = new_plan(job, batch_policy)
         if admission is not None:
@@ -247,6 +255,13 @@ class EngineeringStore:
         if capture is not None:
             job['diagnostic_capture'] = capture
         def insert(db):
+            if recovery_of is not None:
+                parent = db.execute('SELECT state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?',
+                                    (recovery_of['id'], principal)).fetchone()
+                epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (recovery_of['id'],)).fetchone()
+                if (not parent or tuple(parent) != (recovery_of['state'], recovery_of['revision'], recovery_of.get('_execution_lease'))
+                        or parent[2] is None or not epoch or epoch[0] != recovery_of.get('_owner_epoch')):
+                    raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'Recovery admission lost its original job owner.')
             old = db.execute('SELECT data,state,revision,request_digest FROM engineering_jobs WHERE principal=? AND request_id=?', (principal, request['request_id'])).fetchone()
             if old:
                 if old[3] != request_hash:
@@ -464,6 +479,19 @@ class EngineeringStore:
                        (record['attempt_id'], job['id'], record['binding_id'], job['revision'], record['state'], int(record.get('dispatched') is True), record.get('reserved_tokens', 0), raw))
         self.tx(save)
 
+    def save_specialists(self, job, value):
+        raw, _ = canonical_json(value, maximum_bytes=128 * 1024)
+        def save(db):
+            row = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?', (job['id'], job['principal'])).fetchone()
+            epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job['id'],)).fetchone()
+            if not row or tuple(row[1:]) != (job['state'], job['revision'], job.get('_execution_lease')) or row[3] is None or not epoch or epoch[0] != job.get('_owner_epoch'):
+                raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'The investigator checkpoint owner changed.')
+            stored = json.loads(row[0])
+            stored.setdefault('data', {})['specialists'] = json.loads(raw)
+            db.execute('UPDATE engineering_jobs SET data=? WHERE id=? AND lease=?', (json.dumps(stored), job['id'], job['_execution_lease']))
+        self.tx(save)
+        job['data']['specialists'] = json.loads(raw)
+
     def model_attempts(self, job_id, after=None, limit=100):
         limit = max(1, min(100, limit))
         return self.tx(lambda db: [json.loads(row[0]) for row in db.execute('SELECT payload FROM engineering_model_attempts WHERE job_id=? AND rowid>COALESCE((SELECT rowid FROM engineering_model_attempts WHERE id=? AND job_id=?),0) ORDER BY rowid LIMIT ?', (job_id, after, job_id, limit))])
@@ -508,6 +536,32 @@ class EngineeringStore:
             db.execute('UPDATE engineering_jobs SET data=?,state=?,revision=revision+1,next_at=?,lease=NULL WHERE id=?', (json.dumps(job), state, self.now(), job_id))
             self.event(db, job, state, job['revision'] + 1, self.now())
             self.conversations.engineering_projection(db, job, state)
+            if action == 'cancel':
+                descendants = {job_id}
+                active = db.execute("SELECT data,state,revision,lease FROM engineering_jobs WHERE principal=? AND state NOT IN ('CANCELLED','COMPLETED','FAILED')", (principal,)).fetchall()
+                for _ in range(6):
+                    found = False
+                    for child_row in active:
+                        child = self.decode(child_row)
+                        if child['id'] in descendants or child.get('recovery_of') not in descendants:
+                            continue
+                        descendants.add(child['id'])
+                        found = True
+                        child_state = 'CANCELLING' if child_row[3] else 'CANCELLED'
+                        epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (child['id'],)).fetchone()
+                        child.update(approval=None, cancellation_requested=child_state == 'CANCELLING',
+                                     cancellation_outcome='pending' if child_state == 'CANCELLING' else 'confirmed',
+                                     cancellation_owner_epoch=epoch[0] if epoch else None, updated_at=self.now(),
+                                     message='Recovery cancelled with its original engineering job; dispatched receipts remain retained.')
+                        if child_state == 'CANCELLED':
+                            child['finished_at'] = self.now()
+                        batch_control(child, child_state, 'cancel')
+                        db.execute('UPDATE engineering_jobs SET data=?,state=?,revision=revision+1,next_at=?,lease=NULL WHERE id=?',
+                                   (json.dumps(child), child_state, self.now(), child['id']))
+                        self.event(db, child, child_state, child['revision'] + 1, self.now())
+                        self.conversations.engineering_projection(db, child, child_state)
+                    if not found:
+                        break
             return dict(job, state=state, revision=job['revision'] + 1)
         return self.tx(update)
 
@@ -610,6 +664,7 @@ class EngineeringService:
         self.thread = None
         self.authorized = lambda job: True
         backend.model_executor = self.execute_model
+        backend.save_specialists = self.store.save_specialists
         backend.save_adaptive_planning = self.store.save_adaptive_planning
         backend.before_mutation = self.validate_mutation
         backend.operations = self.operations
@@ -878,7 +933,14 @@ class EngineeringService:
                 # authority from today's settings or a reused display name.
                 if phase in {'PLAN', 'READ', 'IMPLEMENT', 'REVIEW'}:
                     self.validate_execution(job, force=recovering)
-                output = self.backend.step(job, phase)
+                if phase == 'VERIFY' and job['data'].get('post_merge_recovery_job_id'):
+                    from v14.engineering_post_merge_recovery import inspect as inspect_recovery
+                    recovered = inspect_recovery(self, job)
+                    output = {'post_merge': recovered, 'result': dict(job['data'].get('result', {}),
+                        qualification=recovered['status'], recovery_job_id=recovered.get('recovery_job_id'),
+                        recovery_merge_sha=recovered.get('recovery_merge_sha'))}
+                else:
+                    output = self.backend.step(job, phase)
                 job['data'].update(output)
                 if phase == 'READ' and accepted_scope(job['request']) in {'read', 'plan'}:
                     phase = 'COMPLETED'
@@ -902,6 +964,14 @@ class EngineeringService:
                 elif phase == 'VERIFY':
                     gate = self.completion_verification(job, job['data'].get('readiness', {}), merged=True)
                     post_merge = output.get('post_merge', {})
+                    if post_merge.get('status') == 'FAILED' and not job['data'].get('post_merge_recovery_job_id'):
+                        from v14.engineering_post_merge_recovery import enqueue
+                        recovery = enqueue(self, job, post_merge)
+                        if recovery is not None:
+                            job['data']['post_merge_recovery_job_id'] = recovery['id']
+                            post_merge = dict(post_merge, status='PENDING', original_status='FAILED',
+                                              reason='MERGE_RECOVERY_RUNNING', recovery_job_id=recovery['id'])
+                            job['data']['post_merge'] = post_merge
                     if post_merge.get('status') == 'PENDING' and self.store.now() < job['deadline']:
                         phase, delay = 'VERIFY', 30
                         job['message'] = 'Merge confirmed; verifying workflows on the resulting revision'
@@ -1224,6 +1294,8 @@ def public_job(job):
             'merge_ready': state == 'MERGE_READY' and bool(EngineeringSupervisor.readiness(readiness)),
             'approval_expires_at': (job.get('approval') or {}).get('expires_at'),
             'merge_sha': data.get('merge_sha'), 'review': data.get('review', {}),
+            'post_merge': data.get('post_merge'), 'recovery_of': job.get('recovery_of'),
+            'recovery_job_id': data.get('post_merge_recovery_job_id'),
             'acceptance': job['request'].get('acceptance', []), 'admission': data.get('admission'),
             'execution_owner': 'GATEWAY' if job.get('detach_safe') else 'NOT_CONFIRMED',
             'completion_verification': data.get('completion_verification'), 'evidence_policy': 'github.evidence.v1',

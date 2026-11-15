@@ -73,6 +73,12 @@ class RepositoryValidationPanel:
         choose = ttk.Button(basic, text='Load / add', command=self.load_repository)
         choose.grid(row=0, column=2, padx=(6, 0))
         self.inputs.append(choose)
+        self.discovery_button = ttk.Button(basic, text='Choose task tests…', command=self.discover_behavior_checks)
+        self.discovery_button.grid(row=2, column=0, columnspan=3, sticky='w', pady=5)
+        self.inputs.append(self.discovery_button)
+        self.release_button = ttk.Button(basic, text='Release verification…', command=self.configure_release_checks)
+        self.release_button.grid(row=3, column=0, columnspan=3, sticky='w', pady=5)
+        self.inputs.append(self.release_button)
         self.status = tk.StringVar(master=frame)
         self.status_label = ttk.Label(frame, textvariable=self.status, style='Muted.TLabel', wraplength=530, justify='left')
         self.status_label.grid(row=2, column=0, sticky='ew', pady=3)
@@ -181,6 +187,14 @@ class RepositoryValidationPanel:
             self.editor.update_idletasks()
             margin = (self.editor_canvas.winfo_height() - control.winfo_height()) // 2
             self.editor_canvas.yview_moveto(max(0, control.winfo_y() - margin) / max(1, self.editor.winfo_height()))
+
+    def discover_behavior_checks(self):
+        from desktop.acceptance_discovery_dialog import open_dialog
+        return open_dialog(self)
+
+    def configure_release_checks(self):
+        from desktop.release_checks_dialog import open_dialog
+        return open_dialog(self)
 
     def add_behavior_check(self):
         if self.busy or self.closed or self.conflicted or self.revision is None:
@@ -459,7 +473,7 @@ class RepositoryValidationPanel:
             if self.fields['profile'].get() == validation.SOURCE_PROFILE:
                 self.commands.configure(state='disabled')
             if self.conflicted or self.revision is None:
-                for control in (self.prepare_button, self.check_button, self.save_button, self.reset_button, self.behavior_button):
+                for control in (self.prepare_button, self.check_button, self.save_button, self.reset_button, self.behavior_button, self.discovery_button, self.release_button):
                     control.configure(state='disabled')
         self.cancel_button.configure(state='normal' if value else 'disabled')
 

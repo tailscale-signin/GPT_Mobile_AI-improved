@@ -49,4 +49,10 @@ def inspect(backend, job):
     prior_signature = sorted((row['workflow_id'], row['id'], row['attempt']) for row in previous.get('workflows', []))
     if previous.get('merge_sha') != sha or signature != prior_signature or result['observed_at'] - previous.get('observed_at', result['observed_at']) < 20:
         return dict(result, reason='MERGE_WORKFLOW_INVENTORY_SETTLING')
+    from v14.engineering_release_checks import verify
+    release = verify(backend, job, latest)
+    result.update(release_checks=release, artifact_verification=release['artifact_verification'],
+                  installation_verification=release['installation_verification'], smoke_verification=release['smoke_verification'])
+    if release['status'] != 'PASSED':
+        return dict(result, status=release['status'], reason=release['reason'])
     return dict(result, status='PASSED', reason='MERGE_REVISION_WORKFLOWS_VERIFIED')

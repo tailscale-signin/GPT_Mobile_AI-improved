@@ -270,7 +270,10 @@ private fun VoiceChatSessionScreen(
         createKokoroVoiceOutput(context.applicationContext, stores.kokoro, systemAudio::playbackAttributes) { systemAudio.speechRate }
     }
     val audio = remember(systemAudio, localRecognition, kokoroOutput) {
-        VoicePluginAudio(systemAudio, localRecognition, kokoroOutput, systemAudio::speakOffline, systemAudio::releaseRecognition).apply { requireLocalOutput = true }
+        // The fallback is AndroidVoiceAudio.speakOffline, which accepts installed
+        // on-device voices only. Kokoro keeps priority and already-started
+        // speech is never replayed through the alternate engine.
+        VoicePluginAudio(systemAudio, localRecognition, kokoroOutput, systemAudio::speakOffline, systemAudio::releaseRecognition)
     }
     val localModel by stores.moonshine.state.collectAsStateWithLifecycle()
     val kokoroModel by stores.kokoro.state.collectAsStateWithLifecycle()

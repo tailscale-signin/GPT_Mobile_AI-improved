@@ -244,7 +244,9 @@ class VoicePluginAudioTest {
             ): VoiceReplyPlayback {
                 kokoroFailure = error
                 return object : VoiceReplyPlayback {
-                    override fun enqueue(text: String) { bufferedByKokoro += text }
+                    override fun enqueue(text: String) {
+                        bufferedByKokoro += text
+                    }
                     override fun finish() = Unit
                 }
             }
@@ -284,7 +286,9 @@ class VoicePluginAudioTest {
         val output = object : KokoroOutput {
             override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) = Unit
             override fun openReplyWithFailure(
-                voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit
+                voice: KokoroVoice,
+                complete: () -> Unit,
+                error: (VoicePlaybackFailure, Boolean) -> Unit
             ): VoiceReplyPlayback {
                 kokoroFailure = error
                 return object : VoiceReplyPlayback {

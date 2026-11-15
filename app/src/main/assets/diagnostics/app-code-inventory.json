@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "4a7911cd9f3bab6405abd049dc6aa8f07207736fe41def663412b9426a579284",
+  "source_digest": "ed8c07cb26bcfdeb6af577f1209ba7d8e63d86bcc246585fd64c341f436afe2c",
   "file_count": 2655,
   "indexed_line_count": 429715,
   "line_coverage_available": false,
@@ -17706,7 +17706,7 @@
       "path": "gateway/desktop/smoke_windows.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "6e9d2e062537ef6ac386458b7da72e05761cf6578823bdb239c4e2dc9586edce",
+      "sha256": "0b97f3ca73c158520d63dc71e4cf25412fd36acd471240ac986cf3a31a7d1e56",
       "indexed_lines": 158
     },
     {

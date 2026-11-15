@@ -2726,6 +2726,7 @@
     "gateway/v14/__init__.py",
     "gateway/v14/actions.py",
     "gateway/v14/activity.py",
+    "gateway/v14/capability_inventory.py",
     "gateway/v14/adaptive_sampling.py",
     "gateway/v14/backend_observation.py",
     "gateway/v14/batch.py",

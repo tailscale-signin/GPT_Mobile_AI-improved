@@ -1,5 +1,13 @@
 # GPT Mobile 0.9.66.7
 
+## November 15 engineering feature follow-up
+
+Add approved workspace check selection and bounded output paging, ordinary behavior-test discovery and release-check settings, bounded selected-model investigators, one primary-answer allocation, compact action contracts, and gated recovery of failed main builds. Artifact verification now downloads and checks declared current-attempt artifacts against the exact merged revision before configured container installation and smoke checks.
+
+The separate ten-scenario production engineering benchmark remains unimplemented pending its original scenario specification and designated test repository/runtime. A live 9,043-token request replay on the 5,632-token route, installed phone/Windows gateway acceptance, physical installation and smoke qualification remain unverified. Configured container release checks do not establish physical-device coverage.
+
+See [implementation and qualification limits](docs/engineering-completion-followup.md). New source requires checks on its exact published head.
+
 ## November 15 successor repairs on PR #1203
 
 Complete the PR #1203 successor union: preserve terminal voice ownership and original privacy authority, add finite admission and caught-cause observations, retain measured context/probe/search evidence, and collect bounded keyboard and operation-frame timing data.

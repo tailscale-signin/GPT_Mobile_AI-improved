@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "4e3a79e1aca5bffd4537bf1c4ef303e05c95fb58",
+  "sourceCommit": "52db91be0b1d9e0e5d64e2cc1a6f5fe17e3825d0",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -119,7 +119,7 @@
     "desktop/repository_validation.py": "986ba7a5cd1ae2165e7f658dccf139ab6ac52b44876840ed3b5a8c11c96ecae0",
     "desktop/repository_validation_panel.py": "67fc72ccc66f368f9fe1464463b7753474b71dade61aee9d32915ca7187a1066",
     "desktop/requirements-build.txt": "bf443a749195361170b824b2018658e50e41e7f43ea11758a91648e96eae8426",
-    "desktop/smoke_windows.py": "6e9d2e062537ef6ac386458b7da72e05761cf6578823bdb239c4e2dc9586edce",
+    "desktop/smoke_windows.py": "0b97f3ca73c158520d63dc71e4cf25412fd36acd471240ac986cf3a31a7d1e56",
     "desktop/theme.py": "ee11163be7b5602e40038067b2133b71566d7ad1e98edb15ec4b6b0f85a2f9ab",
     "desktop/token_history.py": "14f5a5ac84f9b04349c0972a0260ff4673cd7b56b774fdb407bd9498d48ee484",
     "desktop/tray.py": "953e572fdecf557b7535f07c5e851513cefafcac98e3f7ff3ae9dc322ea269e6",

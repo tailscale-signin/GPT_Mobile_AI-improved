@@ -21,6 +21,8 @@ import org.junit.Test
 class IssueReportIncidentCapsuleTest {
     private val time = 1_800_000_000_000L
 
+    private class SQLiteConstraintException(message: String) : RuntimeException(message)
+
     @Test fun handoffProducerProjectsRemainingPendingEvidenceIntoApprovedBytesWithoutRawIdentities() {
         val checkpoint = buildJsonObject {
             put("state", "TOOL_HANDOFF")
@@ -345,6 +347,23 @@ class IssueReportIncidentCapsuleTest {
         assertFalse(approved.contains("ChatRepositoryImpl.completeChat"))
         assertFalse(approved.contains("cause_types"))
         assertEquals(approved, report(context).approvedPayload())
+    }
+
+    @Test fun sqliteConstraintReportsOnlyAClosedConstraintCategory() {
+        val error = IllegalStateException(
+            "private run details",
+            SQLiteConstraintException("UNIQUE constraint failed: tool_events.run_id, tool_events.sequence (code 2067 SQLITE_CONSTRAINT_UNIQUE)")
+        )
+        val observed = IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_TERMINAL_CATCH)
+        val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", observed)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("UNIQUE"), diagnostic.values["sqlite_constraint_kind"])
+        assertTrue("INCIDENT_FAILURE_DETAILS_V1" in diagnostic.requiredServiceFeatures())
+        assertNull(IssueReportIncidentCapsule.validValue("sqlite_constraint_kind", JsonPrimitive("tool_events.run_id")))
+        val approved = report(context).approvedPayload()
+        assertTrue(approved.contains("\"sqlite_constraint_kind\":\"UNIQUE\""))
+        assertFalse(approved.contains("tool_events"))
+        assertFalse(approved.contains("private run details"))
     }
 
     @Test fun newCaptureBoundariesPreserveTheObservedSiteWithoutInventingAThrowableOrDispatch() {

@@ -61,7 +61,7 @@ internal object IssueReportIncidentCapsule {
         "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash", "crash_surface", "crash_boundary"
     )
     private val policyObservation = setOf("OBSERVED", "UNOBSERVED", "INVALID_RESPONSE", "ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE", "RATE_LIMITED", "UNAVAILABLE", "HTTP_FAILURE")
-    private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
+    private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
     val toolFailureFields = setOf("url_reader_dns_state", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
     val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection")
@@ -108,6 +108,7 @@ internal object IssueReportIncidentCapsule {
         "fixture_decision_mode" to setOf("AUTO_APPROVE", "SUGGESTED", "ASK", "UNKNOWN"),
         "crash_surface" to setOf("CHAT", "DEBUG_LOGS", "GITHUB_WORKSPACE"),
         "crash_boundary" to setOf("ANDROID_VIEW_DRAW"),
+        "sqlite_constraint_kind" to setOf("UNIQUE", "FOREIGN_KEY", "NOT_NULL", "CHECK", "PRIMARY_KEY", "TRIGGER", "UNKNOWN"),
         "pending_tool_receipt_state" to setOf("CHECKPOINT_STATE_INCONSISTENT", "TERMINAL_RECEIPTS_MISSING", "SOME_TERMINAL_RECEIPTS_MISSING", "OUTCOMES_UNRESOLVED"),
         "local_readiness_failure" to setOf("INSUFFICIENT_MEMORY", "PENDING_CLEANUP", "VERIFICATION_REQUIRED", "UNSUPPORTED_BACKEND", "INCOMPATIBLE_MODEL", "MISSING_RUNTIME", "INITIALIZATION_TIMEOUT", "UNKNOWN"),
         "fixture_approval_state" to setOf("READY", "CONDITIONAL", "UNKNOWN"),
@@ -181,7 +182,7 @@ internal object IssueReportIncidentCapsule {
         "receipt_exclusion_reasons" to setOf("WRONG_OPERATION", "WRONG_ACTION", "WRONG_REVISION", "WRONG_SCOPE", "PRECHECK_ONLY", "NOT_SUCCESSFUL", "UNKNOWN_OUTCOME", "STALE", "MISSING_IDENTITY", "UNVERIFIED")
     )
     val coreFields = listOf("incident_phase", "causal_id_hash", "causal_provenance", "incident_evidence_status")
-    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields + GitHubAcceptancePublicationEvidence.fields
+    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes", "sqlite_constraint_kind") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields + GitHubAcceptancePublicationEvidence.fields
 
     enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH, PROVIDER_ADAPTER_STREAM_CATCH, CHAT_REPOSITORY_ERROR_VALUE, CHAT_FLOW_EMPTY_ANSWER }
 
@@ -195,11 +196,28 @@ internal object IssueReportIncidentCapsule {
     fun exceptionFields(error: Throwable, site: ExceptionCaptureSite): JsonObject = buildJsonObject {
         boundaryFields(site).forEach { (key, value) -> put(key, value) }
         put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).map(::JsonPrimitive)))
+        sqliteConstraintKind(error)?.let { put("sqlite_constraint_kind", it) }
         IssueReportContext.exceptionFingerprint(error)?.let { put("exception_fingerprint", it) }
         val (type, frames) = IssueReport.exceptionMetadata(error)
         type?.let { put("exception_report_type", it) }
         val applicationFrames = frames.filter { it.startsWith("dev.chungjungsoo.gptmobile.") || it.startsWith("dev.melo.gptmobile.") }
         if (applicationFrames.isNotEmpty()) put("exception_application_frames", JsonArray(applicationFrames.map(::JsonPrimitive)))
+    }
+
+    private fun sqliteConstraintKind(error: Throwable): String? {
+        val constraint = generateSequence(error) { it.cause }
+            .take(8)
+            .firstOrNull { it.javaClass.simpleName == "SQLiteConstraintException" } ?: return null
+        val message = constraint.message.orEmpty().uppercase(Locale.ROOT)
+        return when {
+            "SQLITE_CONSTRAINT_PRIMARYKEY" in message || "PRIMARY KEY CONSTRAINT FAILED" in message -> "PRIMARY_KEY"
+            "SQLITE_CONSTRAINT_UNIQUE" in message || "UNIQUE CONSTRAINT FAILED" in message -> "UNIQUE"
+            "SQLITE_CONSTRAINT_FOREIGNKEY" in message || "FOREIGN KEY CONSTRAINT FAILED" in message -> "FOREIGN_KEY"
+            "SQLITE_CONSTRAINT_NOTNULL" in message || "NOT NULL CONSTRAINT FAILED" in message -> "NOT_NULL"
+            "SQLITE_CONSTRAINT_CHECK" in message || "CHECK CONSTRAINT FAILED" in message -> "CHECK"
+            "SQLITE_CONSTRAINT_TRIGGER" in message || "TRIGGER" in message -> "TRIGGER"
+            else -> "UNKNOWN"
+        }
     }
 
     fun fieldsFor(area: String): Set<String> = common + when (area) {

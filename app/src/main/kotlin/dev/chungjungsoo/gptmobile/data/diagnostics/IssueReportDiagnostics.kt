@@ -209,7 +209,7 @@ internal data class IssueReportDiagnostics(
                 IssueReportIncidentCapsule.combinedDeliveryFields +
                 IssueReportIncidentCapsule.acceptanceBlockerFields
         }
-        val failureDetailFields = setOf("provider_failure_stage", "provider_failure_domain", "provider_failure_code", "voice_reply_state", "voice_reply_characters", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "chat_failure_code_state", "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections", "unmet_requirement_count", "unmet_capability_count")
+        val failureDetailFields = setOf("provider_failure_stage", "provider_failure_domain", "provider_failure_code", "voice_reply_state", "voice_reply_characters", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "chat_failure_code_state", "sqlite_constraint_kind", "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections", "unmet_requirement_count", "unmet_capability_count")
         private val newEvidenceFieldNames = setOf("end_line", "max_lines", "start_offset", "ranges", "evidence_id").map(::JsonPrimitive).toSet()
         const val MAX_BYTES = 3072
         const val MAX_CRITERIA = 8

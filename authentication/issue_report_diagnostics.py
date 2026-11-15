@@ -126,6 +126,12 @@ COUNTS.add("acceptance_unresolved_claim_count")
 ENUM_LISTS["acceptance_claim_failure_reasons"] = {'EXACT_RECEIPT_MATCH', 'CLAIM_VALUE_MISSING', 'OPERATION_FAILED', 'POINTER_NOT_IN_EVIDENCE', 'RECEIPT_NOT_FOUND', 'OBSERVATION_TIME_UNKNOWN', 'AUTHORIZATION_REVALIDATION_REQUIRED', 'UNTRUSTED_RECEIPT', 'VALUE_MISMATCH', 'FIELD_SEMANTICS_MISMATCH', 'HISTORICAL_OBSERVATION', 'MUTABLE_EVIDENCE_EXPIRED_OR_REVISION_CHANGED'}
 FIELDS_BY_AREA["ACCEPTANCE"].update({"acceptance_unresolved_claim_count", "acceptance_claim_failure_reasons"})
 
+# Protocol 2: source HTTP request starts (not adapter retries), separate probe and metadata ages.
+REASONING_PROBE_FIELDS = {"reasoning_probe_outcome", "reasoning_probe_attempts", "reasoning_probe_age_ms", "reasoning_metadata_age_ms"}
+ENUMS["reasoning_probe_outcome"] = {"VERIFIED", "IDENTICAL_PROMPTS", "MISSING_THINK_MARKER", "PREFIX_MISMATCH", "SUFFIX_MISMATCH", "INVALID_PROMPT", "METADATA_CHANGED", "PROBE_UNAVAILABLE", "PROBE_DEADLINE", "MIXED_NEGATIVE_RESULTS"}
+DURATIONS.update({"reasoning_probe_age_ms", "reasoning_metadata_age_ms"})
+FIELDS_BY_AREA["PROVIDER"].update(REASONING_PROBE_FIELDS)
+
 # Bounded admission observations; raw requests and host paths are never accepted.
 COUNTS.update({"reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
 ENUMS["admission_measurement"] = {"SERVING_TOKENIZER", "UTF8_ESTIMATE"}
@@ -219,11 +225,22 @@ COUNTS.add("voice_install_elapsed_ms")
 FIELDS_BY_AREA["VOICE"].update(VOICE_INSTALL_EVIDENCE_FIELDS)
 
 VOICE_CAPTURE_PLAYBACK_FIELDS = {"voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment"}
-ENUMS["voice_playback_failure"] = {"AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED"}
+ENUMS["voice_playback_failure"] = {"AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED", "PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE"}
 ENUMS["voice_capture_silenced_stage"] = {"CAPTURE_START", "CAPTURE_READ"}
 ENUMS["voice_caption_alignment"] = {"NO_TIMING", "EXACT_RANGE", "TEXT_UNMAPPED"}
-COMPOSER_EVIDENCE_FIELDS = {"composer_focus_transitions", "composer_ime_transitions", "composer_focused", "composer_ime_visible"}
-FLAGS.update({"composer_focused", "composer_ime_visible"})
+COMPOSER_EVENT_FIELDS = {f"composer_event_{slot}" for slot in range(1, 9)}
+COMPOSER_AGE_FIELDS = {f"composer_event_{slot}_age_ms" for slot in range(1, 9)}
+COMPOSER_SLOT_FIELDS = COMPOSER_EVENT_FIELDS | COMPOSER_AGE_FIELDS
+COMPOSER_TIMELINE_FIELDS = COMPOSER_SLOT_FIELDS | {"composer_generation", "composer_events_dropped", "composer_enabled", "composer_window_focused", "composer_lifecycle", "composer_input_mode"}
+COMPOSER_EVIDENCE_FIELDS = COMPOSER_TIMELINE_FIELDS | {"composer_focus_transitions", "composer_ime_transitions", "composer_focused", "composer_ime_visible"}
+COMPOSER_EVENTS = {"ATTACHED", "DETACHED", "EDITOR_FOCUSED", "EDITOR_UNFOCUSED", "IME_VISIBLE", "IME_HIDDEN", "WINDOW_FOCUSED", "WINDOW_UNFOCUSED", "CHAT_ENABLED", "CHAT_DISABLED", "INPUT_TOUCH", "INPUT_KEYBOARD", "LIFECYCLE_CREATE", "LIFECYCLE_START", "LIFECYCLE_RESUME", "LIFECYCLE_PAUSE", "LIFECYCLE_STOP", "LIFECYCLE_DESTROY", "RELEASE_SEND", "RELEASE_SHORTCUT", "RELEASE_BACKGROUND_TAP", "RELEASE_DISABLED", "RELEASE_LIFECYCLE_STOP", "RELEASE_DISPOSE"}
+ENUMS.update({field: COMPOSER_EVENTS for field in COMPOSER_EVENT_FIELDS})
+ENUMS["composer_lifecycle"] = {"INITIALIZED", "CREATED", "STARTED", "RESUMED", "DESTROYED"}
+ENUMS["composer_input_mode"] = {"TOUCH", "KEYBOARD"}
+FLAGS.update({"composer_focused", "composer_ime_visible", "composer_enabled", "composer_window_focused"})
+COUNTS.add("tool_budget_bytes_available")
+FIELDS_BY_AREA["TOOL"].update({"tool_budget_bytes_available", "graph_index_attempt_hash"})
+HASH_FIELDS.add("graph_index_attempt_hash")
 FIELDS_BY_AREA["APP"].update(COMPOSER_EVIDENCE_FIELDS)
 COMPLETION_EVIDENCE_FIELDS = {"empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts"}
 ATTEMPTS.update(COMPLETION_EVIDENCE_FIELDS)
@@ -280,6 +297,12 @@ def _valid_value(key, value):
         return type(value) is bool
     if type(value) is not int:
         return False
+    if key == "composer_generation":
+        return 1 <= value <= 16_000_000
+    if key == "composer_events_dropped":
+        return 0 <= value <= 16_000_000
+    if key in COMPOSER_AGE_FIELDS:
+        return 0 <= value <= 600_000
     if key in {"composer_focus_transitions", "composer_ime_transitions"}:
         return 0 <= value <= 255
     if key == "voice_playback_focus_attempts":
@@ -298,6 +321,8 @@ def _valid_value(key, value):
         return 1 <= value <= 16_000_000
     if key in CAPACITY_CEILING_FIELDS:
         return 1 <= value <= 16_000_000
+    if key == "reasoning_probe_attempts":
+        return 0 <= value <= 4
     if key in ATTEMPTS:
         return 0 <= value <= 10_000
     if key in DURATIONS:
@@ -309,6 +334,18 @@ def _valid_value(key, value):
     if key == "voice_install_http_status":
         return 100 <= value <= 599
     return key in COUNTS and 0 <= value <= 16_000_000
+
+
+def _aligned_composer(values):
+    slots = [slot for slot in range(1, 9) if f"composer_event_{slot}" in values or f"composer_event_{slot}_age_ms" in values]
+    if not slots:
+        return True
+    if not {"composer_generation", "composer_events_dropped"} <= values.keys() or slots != list(range(1, len(slots) + 1)):
+        return False
+    if any(f"composer_event_{slot}" not in values or f"composer_event_{slot}_age_ms" not in values for slot in slots):
+        return False
+    ages = [values[f"composer_event_{slot}_age_ms"] for slot in slots]
+    return ages[-1] == 0 and all(older >= newer for older, newer in zip(ages, ages[1:]))
 
 
 def validate_diagnostics(value):
@@ -331,6 +368,8 @@ def validate_diagnostics(value):
     values = value["values"]
     if not isinstance(values, dict) or set(values) - allowed or not all(_valid_value(key, item) for key, item in values.items()):
         raise ValueError("invalid diagnostic values")
+    if not _aligned_composer(values):
+        raise ValueError("unaligned composer observations")
     if area != "INCIDENT" and values.get("incident_capture_site") == "CHAT_FLOW_EMPTY_ANSWER":
         raise ValueError("invalid chat delivery diagnostic area")
     lengths = {len(values[key]) for key in CRITERION_FIELDS & values.keys()}
@@ -339,10 +378,13 @@ def validate_diagnostics(value):
     if version == 3 and not capsule.aligned(values):
         raise ValueError("unaligned argument shape observations")
     unavailable, omitted = value["unavailableFields"], value.get("omittedFields", [])
-    if not _string_list(unavailable, core) or set(unavailable) != core - values.keys():
+    optional_unavailable = (REASONING_PROBE_FIELDS & allowed) - values.keys()
+    if not _string_list(unavailable, core | optional_unavailable) or not core - values.keys() <= set(unavailable) or set(unavailable) & values.keys():
         raise ValueError("invalid diagnostic availability")
     if not _string_list(omitted, allowed) or set(omitted) & values.keys():
         raise ValueError("invalid diagnostic omissions")
+    if COMPOSER_SLOT_FIELDS & values.keys() and COMPOSER_SLOT_FIELDS & set(omitted):
+        raise ValueError("partially omitted composer observations")
     if mode == "NO_CAPTURE" and (values or omitted):
         raise ValueError("no-capture observation contains data")
     if len(json.dumps(value, separators=(",", ":"), ensure_ascii=False).encode()) > MAX_DIAGNOSTIC_BYTES:

@@ -272,29 +272,37 @@ class ConversationHTTPTests(unittest.TestCase):
 
     def test_nonstream_observer_cancellation_does_not_own_final_commit(self):
         started, release = threading.Event(), threading.Event()
-        def completion(payload, cancel, progress, hard):
-            started.set()
-            self.assertTrue(release.wait(5))
-            self.assertFalse(hard.is_set())
-            return self.completion(payload, cancel, progress, hard)
         async def run():
+            loop = asyncio.get_running_loop()
+            def completion(payload, cancel, progress, hard):
+                started.set()
+                # Admission performs real durable writes before creating this
+                # worker. Cancel at model entry instead of timing those writes
+                # with an unrelated executor-thread Event.wait deadline.
+                loop.call_soon_threadsafe(request.cancel)
+                self.assertTrue(release.wait(5))
+                self.assertFalse(hard.is_set())
+                return self.completion(payload, cancel, progress, hard)
             transport = httpx.ASGITransport(app=self.gateway.app, client=('127.0.0.1', 2222))
-            async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8090') as client:
-                request = asyncio.create_task(client.post('/v1/chat/completions', json=self.payload()))
-                self.assertTrue(await asyncio.to_thread(started.wait, 5))
-                request.cancel()
-                with self.assertRaises(asyncio.CancelledError):
-                    await request
-                release.set()
-                worker = next(iter(self.runtime.singleflight_workers.values()))['task']
-                await asyncio.shield(worker)
-                result = await client.get('/gateway/commands/turn-one')
-                job_id = result.json()['job_id']
-                saved = await client.get('/gateway/jobs/' + job_id + '/result')
-                self.assertEqual('SQLite reply', saved.json()['result']['choices'][0]['message']['content'])
-                messages = (await client.get('/gateway/conversations/' + result.json()['conversation_id'] + '/messages')).json()['messages']
-                self.assertEqual(1, sum(message['role'] == 'assistant' and message['content'] == 'SQLite reply' for message in messages))
-        with self.client(), patch.object(self.runtime, 'process_chat_payload', side_effect=completion):
+            with patch.object(self.runtime, 'process_chat_payload', side_effect=completion) as model:
+                async with httpx.AsyncClient(transport=transport, base_url='http://127.0.0.1:8090') as client:
+                    request = asyncio.create_task(client.post('/v1/chat/completions', json=self.payload()))
+                    try:
+                        with self.assertRaises(asyncio.CancelledError):
+                            await request
+                        self.assertTrue(started.is_set())
+                    finally:
+                        release.set()
+                    worker = next(iter(self.runtime.singleflight_workers.values()))['task']
+                    await asyncio.shield(worker)
+                    result = await client.get('/gateway/commands/turn-one')
+                    job_id = result.json()['job_id']
+                    saved = await client.get('/gateway/jobs/' + job_id + '/result')
+                    self.assertEqual('SQLite reply', saved.json()['result']['choices'][0]['message']['content'])
+                    messages = (await client.get('/gateway/conversations/' + result.json()['conversation_id'] + '/messages')).json()['messages']
+                    self.assertEqual(1, sum(message['role'] == 'assistant' and message['content'] == 'SQLite reply' for message in messages))
+                    model.assert_called_once()
+        with self.client():
             asyncio.run(run())
 
     def test_accepted_generation_waits_for_capacity_after_phone_disconnect(self):

@@ -19,7 +19,7 @@ internal object GitHubContentFixture {
     private fun String.sha() = matches(Regex("[a-f0-9]{40}"))
     private data class Recipe(val tool: String, val arguments: JsonObject)
 
-    fun isCreation(receipt: JsonObject): Boolean = receipt.text("tool").substringBefore("__") == "github_commit" && arguments(receipt)?.text("action") == "branch" && arguments(receipt)?.text("fixture_plan") == GitHubOwnedFixtures.PLAN
+    fun isCreation(receipt: JsonObject): Boolean = receipt.text("tool").githubOperationFamily() == "github_commit" && arguments(receipt)?.text("action") == "branch" && arguments(receipt)?.text("fixture_plan") == GitHubOwnedFixtures.PLAN
 
     private fun cleanup(branch: String, origin: String, head: String) = Recipe(
         "github_commit",
@@ -138,8 +138,8 @@ internal object GitHubContentFixture {
         )
     )
 
-    private fun tool(recipe: Recipe, tools: List<AgentToolDefinition>) = tools.firstOrNull {
-        it.modelVisible && it.name.substringBefore("__") == recipe.tool && ToolArgumentValidator.errors(recipe.arguments, it.inputSchema).isEmpty()
+    private fun tool(recipe: Recipe, tools: List<AgentToolDefinition>) = githubFamilyTools(tools, recipe.tool).firstOrNull {
+        ToolArgumentValidator.errors(recipe.arguments, it.inputSchema).isEmpty()
     }
 
     fun available(tools: List<AgentToolDefinition>, branch: String, source: String, sha: String): Boolean {
@@ -223,7 +223,7 @@ internal object GitHubContentFixture {
             return null
         }
         val deletions = observations.filter {
-            it.text("tool").substringBefore("__") == "github_commit" &&
+            it.text("tool").githubOperationFamily() == "github_commit" &&
                 arguments(it)?.text("action") == "delete_fixture_branch" &&
                 arguments(it)?.text("branch") == branch &&
                 arguments(it)?.text("origin_head_sha") == origin &&
@@ -361,7 +361,7 @@ internal object GitHubContentFixture {
         val branch = (args["branch"] as? JsonPrimitive)?.content.orEmpty()
         val origin = (args["expected_head_sha"] as? JsonPrimitive)?.content.orEmpty()
         val observations = GitHubSelfTestFixtures.lifecycle(creation, receipts).filter(::eligible)
-        val source = receipts.values.firstOrNull { it.text("tool").substringBefore("__") == "github_context" && arguments(it)?.text("action") == "status" && owned(it, creation) }
+        val source = receipts.values.firstOrNull { it.text("tool").githubOperationFamily() == "github_context" && arguments(it)?.text("action") == "status" && owned(it, creation) }
         val ownership = owned(source, creation)
         val writeProposal = prior(write(branch, origin), observations)
         val written = resolvedApproval(writeProposal, observations)
@@ -399,19 +399,19 @@ internal object GitHubContentFixture {
             val arguments = arguments(it) ?: return@filter false
             arguments.text("branch") == branch &&
                 (
-                    it.text("tool").substringBefore("__") == "github_commit" &&
+                    it.text("tool").githubOperationFamily() == "github_commit" &&
                         arguments.text("action") == "delete_fixture_branch" ||
-                        it.text("tool").substringBefore("__") == "github_context" &&
+                        it.text("tool").githubOperationFamily() == "github_context" &&
                         arguments.text("action") == "recovery" &&
                         arguments.text("fixture_plan") == GitHubOwnedFixtures.PLAN
                     )
         }
-        fun cleanupHead(cleanup: JsonObject) = arguments(cleanup)?.text(if (cleanup.text("tool").substringBefore("__") == "github_context") "commit_sha" else "expected_head_sha")
-        fun cleanupOrigin(cleanup: JsonObject) = arguments(cleanup)?.text(if (cleanup.text("tool").substringBefore("__") == "github_context") "base_sha" else "origin_head_sha")
+        fun cleanupHead(cleanup: JsonObject) = arguments(cleanup)?.text(if (cleanup.text("tool").githubOperationFamily() == "github_context") "commit_sha" else "expected_head_sha")
+        fun cleanupOrigin(cleanup: JsonObject) = arguments(cleanup)?.text(if (cleanup.text("tool").githubOperationFamily() == "github_context") "base_sha" else "origin_head_sha")
         fun verified(cleanup: JsonObject) = ownership && successful(cleanup) && (!complete || cleanupHead(cleanup) == final) && cleanupOrigin(cleanup) == origin && root(cleanup)?.text("origin_head_sha") == origin && root(cleanup)?.text("branch") == branch && root(cleanup)?.text("observed_head_sha") == cleanupHead(cleanup) && root(cleanup)?.get("ownership_verified") == JsonPrimitive(true) && root(cleanup)?.get("deleted") == JsonPrimitive(true) && root(cleanup)?.get("absence_verified") == JsonPrimitive(true)
         val verifiedCleanup = cleanups.lastOrNull(::verified)
         val cleaned = verifiedCleanup != null
-        val reconciledDeletions = if (verifiedCleanup?.text("tool")?.substringBefore("__") == "github_context") {
+        val reconciledDeletions = if (verifiedCleanup?.text("tool")?.githubOperationFamily() == "github_context") {
             val expected = requireNotNull(cleanupHead(verifiedCleanup))
             cleanups.takeWhile { it != verifiedCleanup }.filter {
                 GitHubActionIdentity.matches("github_commit", cleanup(branch, origin, expected).arguments, it)

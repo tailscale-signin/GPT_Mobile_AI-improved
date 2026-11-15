@@ -154,6 +154,7 @@ interface ChatRepository {
     suspend fun fetchMessagesV2(chatId: Int): List<MessageV2>
     suspend fun fetchMessageReferencesV2(chatId: Int): List<MessageV2> = fetchMessagesV2(chatId)
     suspend fun resolveCombinedMessage(message: MessageV2): MessageV2 = message
+    suspend fun terminalVoiceReply(chatId: Int, messageId: Int, runId: String, expectedFence: Long): dev.chungjungsoo.gptmobile.data.voice.VoiceTerminalReply? = null
     suspend fun combinedDocumentBlocks(reference: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = emptyList()
     suspend fun combinedSourceBlocks(reference: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, source: dev.chungjungsoo.gptmobile.data.database.entity.CombinedModelResponse, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> = emptyList()
 

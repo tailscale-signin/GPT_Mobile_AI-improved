@@ -15,6 +15,7 @@ import androidx.compose.ui.test.assertHeightIsAtLeast
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
 import androidx.compose.ui.test.assertWidthIsAtLeast
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -24,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.presentation.common.GlassBackdropHost
 import dev.chungjungsoo.gptmobile.presentation.common.glassBackdropSource
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
@@ -98,19 +100,33 @@ class ComposerControlsInstrumentedTest {
     fun typingFollowUpKeepsStopAndSendIndependent() {
         var stopped = 0
         var sent = 0
+        val diagnosticEvents = mutableListOf<String>()
+        val diagnostics = ComposerInputDiagnostics(
+            generation = 1,
+            originIsCurrent = { true },
+            publish = { fields, _ -> diagnosticEvents += (1..8).mapNotNull { fields["composer_event_$it"] as? String } },
+            elapsedMillis = android.os.SystemClock::elapsedRealtime
+        )
         composeRule.setContent {
             MaterialTheme {
                 ChatInputBox(
                     inputState = rememberTextFieldState("Follow up"),
                     isRunning = true,
+                    diagnostics = diagnostics,
                     onCancelButtonClick = { stopped++ },
-                    onSendButtonClick = { sent++ }
+                    onSendButtonClick = {
+                        assertTrue(diagnosticEvents.contains("RELEASE_SEND"))
+                        sent++
+                    }
                 )
             }
         }
+        composeRule.onNodeWithContentDescription("Message input").performClick().assertIsFocused()
         composeRule.onNodeWithTag("chat_stop").assertIsDisplayed().assertIsEnabled()
         composeRule.onNodeWithTag("chat_send").assertIsDisplayed().assertIsEnabled().performClick()
+        composeRule.onNodeWithContentDescription("Message input").assertIsNotFocused()
         composeRule.runOnIdle {
+            assertTrue(diagnosticEvents.contains("EDITOR_FOCUSED"))
             assertEquals(0, stopped)
             assertEquals(1, sent)
         }

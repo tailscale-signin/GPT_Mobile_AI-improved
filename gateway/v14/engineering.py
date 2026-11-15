@@ -2,8 +2,11 @@
 from v14.engineering_scope import accepted_scope
 from v14.adaptive_sampling import validate_policy
 import json
+import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 import sqlite3
 import time
 import uuid
@@ -174,6 +177,8 @@ class EngineeringStore:
                                'job_id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(job_id,revision))')
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_webhooks (principal TEXT NOT NULL, delivery TEXT NOT NULL, digest TEXT NOT NULL, received_at REAL NOT NULL, PRIMARY KEY(principal,delivery))')
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_owner_epochs (job_id TEXT PRIMARY KEY, epoch INTEGER NOT NULL)')
+                    db.execute('CREATE TABLE IF NOT EXISTS engineering_recoveries ('
+                               'parent_job_id TEXT PRIMARY KEY, child_job_id TEXT NOT NULL UNIQUE)')
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_model_attempts ('
                                'id TEXT PRIMARY KEY, job_id TEXT NOT NULL, binding_id TEXT NOT NULL, revision INTEGER NOT NULL, '
                                'state TEXT NOT NULL, dispatched INTEGER NOT NULL, reserved_tokens INTEGER NOT NULL, payload TEXT NOT NULL)')
@@ -214,8 +219,16 @@ class EngineeringStore:
         return self.tx(lambda db: [json.loads(row[0]) for row in db.execute(
             'SELECT data FROM engineering_events WHERE job_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 201', (job_id, after, through))])
 
-    def create(self, principal, request, *, admission=None):
-        existing = self.existing_request(principal, request)
+    def create(self, principal, request, *, admission=None, recovery_of=None):
+        if recovery_of is not None:
+            self.assert_claim(recovery_of)
+            if (recovery_of['principal'] != principal or
+                    any(recovery_of['request'].get(key) != request.get(key)
+                        for key in ('repository', 'base', 'execution_binding_id'))):
+                raise ValueError('Recovery cannot change repository, owner or execution authority')
+            existing = self.recovery_for(recovery_of)
+        else:
+            existing = self.existing_request(principal, request)
         if existing:
             return existing
         request = validate_request(new_request_defaults(request))
@@ -237,6 +250,13 @@ class EngineeringStore:
                'updated_at': now, 'steps': 0, 'milestones': [], 'repairs': {}, 'patches': [], 'stalls': 0,
                'message': 'Queued for repository inspection', 'data': {}, 'approval': None,
                'execution_binding': binding}
+        if recovery_of is not None:
+            if recovery_of['principal'] != principal or recovery_of['request']['repository'] != request['repository']:
+                raise ValueError('Recovery cannot change repository or owner')
+            job.update(recovery_of=recovery_of['id'], recovery_depth=recovery_of.get('recovery_depth', 0) + 1,
+                       recovery_objective=recovery_of.get('recovery_objective', recovery_of['request']['objective']),
+                       deadline=min(job['deadline'], recovery_of['deadline']))
+            job['data']['ci'] = deepcopy(recovery_of['data'].get('post_merge', {}))
         if request.get('execution_mode') == 'full':
             job['data']['integration_batch'] = new_plan(job, batch_policy)
         if admission is not None:
@@ -245,8 +265,20 @@ class EngineeringStore:
         if capture is not None:
             job['diagnostic_capture'] = capture
         def insert(db):
+            if recovery_of is not None:
+                parent = db.execute('SELECT state,revision,lease,data FROM engineering_jobs WHERE id=? AND principal=?',
+                                    (recovery_of['id'], principal)).fetchone()
+                epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (recovery_of['id'],)).fetchone()
+                if (not parent or tuple(parent[:3]) != (recovery_of['state'], recovery_of['revision'], recovery_of.get('_execution_lease'))
+                        or parent[2] is None or not epoch or epoch[0] != recovery_of.get('_owner_epoch')):
+                    raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'Recovery admission lost its original job owner.')
+                retained = self._recovery_in_transaction(db, recovery_of)
+                if retained is not None:
+                    return retained
             old = db.execute('SELECT data,state,revision,request_digest FROM engineering_jobs WHERE principal=? AND request_id=?', (principal, request['request_id'])).fetchone()
             if old:
+                if recovery_of is not None:
+                    raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The recovery request belongs to another retained job.')
                 if old[3] != request_hash:
                     raise ValueError('Request identity was reused with different settings')
                 return self.decode(old[:3])
@@ -259,6 +291,8 @@ class EngineeringStore:
                 previous = self.decode(prior)
                 if previous is None or prior[3] is not None or previous['state'] not in {'MERGE_READY', 'NEEDS_INPUT'}:
                     raise ConversationConflict('The preceding job is still active; wait for its safe checkpoint')
+                if previous.get('recovery_of'):
+                    self.replace_paused_recovery(db, previous, job, now)
                 previous.update(approval=None, updated_at=now, finished_at=now, superseded_by=job['id'],
                                 message='Stopped at its paused checkpoint by an explicit follow-up. Earlier operation receipts and uncertain outcomes remain retained.')
                 batch_control(previous, 'CANCELLED', 'superseded')
@@ -273,6 +307,11 @@ class EngineeringStore:
             previous = self.get_in_transaction(db, receipt.get('previous_job_id'), principal)
             if previous:
                 job.update(continuation_of=previous['id'], continuation_branch=previous['request']['branch'])
+                same_target = all(previous['request'].get(key) == request.get(key) for key in ('repository', 'branch', 'base'))
+                if same_target and previous.get('conversation_id') == receipt['conversation_id'] and previous.get('data', {}).get('actor_id') is not None:
+                    job['pr_owner_job_id'] = previous.get('pr_owner_job_id', previous['id'])
+                    job['continuation_actor_id'] = previous.get('data', {}).get('actor_id')
+                    job['continuation_pr'] = previous.get('data', {}).get('pr')
                 head = previous.get('data', {}).get('head_sha')
                 if isinstance(head, str) and SHA.fullmatch(head):
                     job['continuation_head_sha'] = head
@@ -284,9 +323,170 @@ class EngineeringStore:
             job.update(title=short_title(request['objective']), queued_at=now, started_at=None)
             db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?,?,0,?,NULL,?)',
                        (job['id'], principal, request['request_id'], request_hash, 'PLAN', now, json.dumps(job)))
+            if recovery_of is not None:
+                self._record_recovery(db, recovery_of, job, origin=recovery_of['data'].get('post_merge'))
             self.event(db, job, 'PLAN', 0, now)
             return dict(job, state='PLAN', revision=0)
-        return self.tx(insert)
+        created = self.tx(insert)
+        if recovery_of is not None:
+            self.recovery_for(recovery_of)
+        return created
+
+    def replace_paused_recovery(self, db, previous, successor, now):
+        """Transfer a recovery reservation in the conversation admission transaction."""
+        principal = previous['principal']
+        parent_id = previous['recovery_of']
+        row = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?',
+                         (parent_id, principal)).fetchone()
+        parent = self.decode(row)
+        previous_data = previous['data']
+        request = successor['request']
+        if (parent is None or parent['state'] != 'VERIFY' or row[3] is not None
+                or parent['data'].get('post_merge_recovery_job_id') != previous['id']
+                or previous_data.get('merge_sha') or previous_data.get('post_merge_recovery_job_id')
+                or any(previous['request'].get(key) != request.get(key) for key in ('repository', 'branch', 'base'))
+                or any(parent['request'][key] != request[key] for key in ('repository', 'base'))
+                or previous['execution_binding'] != successor['execution_binding']
+                or accepted_scope(request) != 'implement'):
+            raise ConversationConflict('Recovery ownership or its safe checkpoint changed. Refresh the original task before sending.')
+        retained = self._recovery_in_transaction(db, parent)
+        if retained is None or retained['id'] != previous['id']:
+            raise ConversationConflict('The retained recovery changed. Refresh the original task before sending.')
+        accepted = effective_execution_budget(previous['request'])
+        requested = effective_execution_budget(request)
+        calls, tokens = db.execute(
+            'SELECT COUNT(*),COALESCE(SUM(reserved_tokens),0) FROM engineering_model_attempts WHERE job_id=? AND dispatched=1',
+            (previous['id'],)).fetchone()
+        accepted['model_calls'] -= calls
+        accepted['model_tokens'] -= tokens
+        remaining = {key: min(value, requested[key]) for key, value in accepted.items()}
+        deadline = min(successor['deadline'], previous['deadline'], parent['deadline'])
+        if (remaining['model_calls'] <= remaining['verification_calls'] + remaining['final_calls']
+                or remaining['model_tokens'] < 1024 or deadline <= now + remaining['final_seconds']):
+            raise ConversationConflict('The recovery has insufficient time or model budget for another instruction.')
+        successor.update(
+            recovery_of=parent_id, recovery_depth=previous['recovery_depth'],
+            recovery_objective=previous['recovery_objective'], deadline=deadline,
+            steps=previous['steps'], repairs=deepcopy(previous['repairs']),
+            submitted_execution_budget=request['execution_budget'],
+            submitted_repair_attempts=request['repair_attempts'])
+        successor['request'] = dict(request, execution_budget=remaining,
+                                    repair_attempts=min(request['repair_attempts'], previous['request']['repair_attempts']))
+        successor['data']['ci'] = deepcopy(parent['data'].get('post_merge_recovery_origin', {}))
+        if request.get('execution_mode') == 'full':
+            successor['data']['integration_batch'] = new_plan(successor, load_batch_policy())
+        parent_data = parent['data']
+        changed = db.execute(
+            'UPDATE engineering_recoveries SET child_job_id=? WHERE parent_job_id=? AND child_job_id=?',
+            (successor['id'], parent_id, previous['id'])).rowcount
+        if changed != 1:
+            raise ConversationConflict('The retained recovery changed. Refresh the original task before sending.')
+        parent_data['post_merge_recovery_job_id'] = successor['id']
+        parent_data['recovery_budget_reservation'] = deepcopy(remaining)
+        post_merge = parent_data['post_merge']
+        for key in ('recovery_state', 'recovery_pr', 'recovery_action'):
+            post_merge.pop(key, None)
+        post_merge.update(status='PENDING', reason='MERGE_RECOVERY_RUNNING', recovery_job_id=successor['id'])
+        db.execute('UPDATE engineering_jobs SET data=?,next_at=MIN(next_at,?) WHERE id=?',
+                   (json.dumps(parent), now, parent_id))
+
+    def _record_recovery(self, db, parent, child, origin=None):
+        """The mapping and failed observation survive a lost parent phase result."""
+        db.execute('INSERT OR IGNORE INTO engineering_recoveries VALUES(?,?)', (parent['id'], child['id']))
+        mapped = db.execute('SELECT child_job_id FROM engineering_recoveries WHERE parent_job_id=?', (parent['id'],)).fetchone()
+        if mapped is None or mapped[0] != child['id']:
+            raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The recovery binding conflicts with retained ownership.')
+        row = db.execute('SELECT data FROM engineering_jobs WHERE id=? AND principal=?',
+                         (parent['id'], parent['principal'])).fetchone()
+        if row is None:
+            raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The recovery parent is unavailable.')
+        stored = json.loads(row[0])
+        linked = stored['data'].get('post_merge_recovery_job_id')
+        if linked is not None and linked != child['id']:
+            raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The parent already names another recovery.')
+        stored['data']['post_merge_recovery_job_id'] = child['id']
+        budget = child['request'].get('execution_budget')
+        if isinstance(budget, dict):
+            reserved = stored['data'].get('recovery_budget_reservation')
+            if reserved is not None and reserved != budget:
+                raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The retained recovery budget differs from its child.')
+            stored['data']['recovery_budget_reservation'] = deepcopy(budget)
+        if origin is not None:
+            if (origin.get('status') != 'FAILED' or origin.get('reason') != 'MERGE_WORKFLOW_FAILED'
+                    or origin.get('merge_sha') != parent['data'].get('merge_sha')):
+                raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The original merge failure is not bound to this parent.')
+            stored['data'].setdefault('post_merge_recovery_origin', deepcopy(origin))
+            stored['data']['post_merge'] = dict(
+                stored['data']['post_merge_recovery_origin'], status='PENDING', original_status='FAILED',
+                reason='MERGE_RECOVERY_RUNNING', recovery_job_id=child['id'])
+        db.execute('UPDATE engineering_jobs SET data=? WHERE id=?', (json.dumps(stored), parent['id']))
+
+    def _recovery_in_transaction(self, db, parent):
+        rows = db.execute("SELECT data,state,revision FROM engineering_jobs WHERE json_extract(data, '$.recovery_of')=? LIMIT 4097",
+                          (parent['id'],)).fetchall()
+        mapped = db.execute('SELECT child_job_id FROM engineering_recoveries WHERE parent_job_id=?', (parent['id'],)).fetchone()
+        linked = parent.get('data', {}).get('post_merge_recovery_job_id')
+        if not rows and not mapped and not linked:
+            return None
+        children = {child['id']: child for child in map(self.decode, rows)}
+        child = children.get(mapped[0]) if mapped else next(iter(children.values()), None)
+        if len(children) > 1:
+            # Explicit paused follow-ups retain their original parent identity.
+            # Accept only the complete cancelled predecessor chain ending at
+            # the canonical child; unrelated legacy children stay ambiguous.
+            seen, current, terminated = set(), child, False
+            while current is not None and current['id'] not in seen:
+                seen.add(current['id'])
+                predecessor = children.get(current.get('continuation_of'))
+                if predecessor is None:
+                    terminated = current.get('continuation_of') is None
+                    break
+                if (predecessor['state'] != 'CANCELLED' or predecessor.get('approval') is not None
+                        or predecessor.get('superseded_by') != current['id']
+                        or predecessor.get('conversation_id') != current.get('conversation_id')
+                        or any(predecessor['request'].get(key) != current['request'].get(key)
+                               for key in ('repository', 'branch', 'base'))
+                        or current.get('continuation_branch') != predecessor['request']['branch']
+                        or predecessor['data'].get('merge_sha') or predecessor['data'].get('post_merge_recovery_job_id')
+                        or current['deadline'] > predecessor['deadline'] or current['steps'] < predecessor['steps']
+                        or any(value > effective_execution_budget(predecessor['request'])[key]
+                               for key, value in effective_execution_budget(current['request']).items())):
+                    break
+                current = predecessor
+            if not mapped or not terminated or len(children) > 4096 or seen != set(children):
+                raise ExecutionBindingError('POST_MERGE_RECOVERY_AMBIGUOUS', 'Multiple retained recoveries need reconciliation; no new recovery was admitted.')
+        if (child is None
+                or any(candidate['principal'] != parent['principal']
+                       or any(candidate['request'].get(key) != parent['request'].get(key)
+                              for key in ('repository', 'base', 'execution_binding_id'))
+                       or candidate.get('execution_binding') != parent.get('execution_binding')
+                       or candidate.get('recovery_depth') != parent.get('recovery_depth', 0) + 1
+                       for candidate in children.values())
+                or mapped is not None and mapped[0] != child['id']
+                or linked is not None and linked != child['id']):
+            raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The retained recovery identity does not match its parent.')
+        # Also binds a unique child retained by an older version before its
+        # parent checkpoint. Never choose arbitrarily among historical children.
+        self._record_recovery(db, parent, child)
+        return child
+
+    def recovery_for(self, parent):
+        def read(db):
+            child = self._recovery_in_transaction(db, parent)
+            stored = self.get_in_transaction(db, parent['id'], parent['principal'])
+            origin = stored.get('data', {}).get('post_merge_recovery_origin') if stored else None
+            budget = stored.get('data', {}).get('recovery_budget_reservation') if stored else None
+            return child, deepcopy(origin), deepcopy(budget)
+        child, origin, budget = self.tx(read)
+        if child is not None:
+            parent['data']['post_merge_recovery_job_id'] = child['id']
+            if budget is not None:
+                parent['data']['recovery_budget_reservation'] = budget
+            if origin is not None:
+                parent['data']['post_merge_recovery_origin'] = origin
+            else:
+                parent['data'].pop('post_merge_recovery_origin', None)
+        return child
 
     def get_in_transaction(self, db, job_id, principal):
         if not job_id:
@@ -300,7 +500,13 @@ class EngineeringStore:
             row = db.execute('SELECT data,state,revision,request_digest FROM engineering_jobs WHERE principal=? AND request_id=?',
                              (principal, request['request_id'])).fetchone()
             existing = self.decode(row[:3]) if row else None
-            normalized = validate_request(retained_request_defaults(request, existing['request'])) if existing else None
+            normalized = None
+            if existing:
+                accepted = existing['request']
+                if 'submitted_execution_budget' in existing:
+                    accepted = dict(accepted, execution_budget=existing['submitted_execution_budget'],
+                                    repair_attempts=existing['submitted_repair_attempts'])
+                normalized = validate_request(retained_request_defaults(request, accepted))
             if row and row[3] != digest(normalized):
                 raise ValueError('Request identity was reused with different settings')
             return existing
@@ -316,8 +522,15 @@ class EngineeringStore:
     def list(self, principal):
         return self.tx(lambda db: [self.decode(row) for row in db.execute('SELECT data,state,revision FROM engineering_jobs WHERE principal=? ORDER BY next_at DESC LIMIT 100', (principal,))])
 
-    def due(self):
-        return self.tx(lambda db: [row[0] for row in db.execute("SELECT id FROM engineering_jobs WHERE lease IS NULL AND next_at<=? AND state NOT IN ('MERGE_READY','NEEDS_INPUT','COMPLETED','CANCELLED','FAILED','CANCELLING') ORDER BY next_at LIMIT 2", (self.now(),))])
+    def due(self, *, exclude_branches=()):
+        query = "SELECT id FROM engineering_jobs WHERE lease IS NULL AND next_at<=? AND state NOT IN ('MERGE_READY','NEEDS_INPUT','COMPLETED','CANCELLED','FAILED','CANCELLING')"
+        parameters = [self.now()]
+        # Filter occupied branches before the bounded window, otherwise their
+        # queued jobs can hide independent work while another worker is free.
+        for repository, branch in sorted(exclude_branches):
+            query += " AND NOT (LOWER(json_extract(data, '$.request.repository'))=? AND json_extract(data, '$.request.branch')=?)"
+            parameters.extend((repository.lower(), branch))
+        return self.tx(lambda db: [row[0] for row in db.execute(query + ' ORDER BY next_at LIMIT 2', parameters)])
 
     def recover(self):
         # The composition root holds the process-wide state-directory lock.
@@ -361,12 +574,25 @@ class EngineeringStore:
         if phase in {'COMPLETED', 'CANCELLED', 'FAILED'}:
             job['finished_at'] = self.now()
         artifacts = EngineeringArtifacts(self)
-        output_json, _ = canonical_json(artifacts.checkpoint(job, output, 'phase-result'), maximum_bytes=2 * 1024 * 1024)
+        phase_result = artifacts.checkpoint(job, output, 'phase-result')
         checkpoint = {key: value for key, value in job.items() if not key.startswith('_')}
         checkpoint['data'] = artifacts.checkpoint(job, job['data'], 'checkpoint')
-        payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
         def save(db):
-            nonlocal phase, payload
+            nonlocal phase
+            recovery = db.execute('SELECT child_job_id FROM engineering_recoveries WHERE parent_job_id=?', (job['id'],)).fetchone()
+            if recovery is not None:
+                retained = self.get_in_transaction(db, job['id'], job['principal'])
+                job['data']['post_merge_recovery_job_id'] = recovery[0]
+                checkpoint['data']['post_merge_recovery_job_id'] = recovery[0]
+                origin = retained['data'].get('post_merge_recovery_origin')
+                budget = retained['data'].get('recovery_budget_reservation')
+                for data in (job['data'], checkpoint['data']):
+                    if budget is not None:
+                        data['recovery_budget_reservation'] = deepcopy(budget)
+                    if origin is not None:
+                        data['post_merge_recovery_origin'] = deepcopy(origin)
+                    else:
+                        data.pop('post_merge_recovery_origin', None)
             if phase == 'COMPLETED' and job.get('conversation_id') and db.execute("SELECT 1 FROM gateway_pending_instructions WHERE conversation_id=? AND status='pending' LIMIT 1", (job['conversation_id'],)).fetchone():
                 # A last-moment instruction was accepted before terminal commit.
                 # Preserve it visibly; never silently drop it or replay a write.
@@ -378,11 +604,38 @@ class EngineeringStore:
                 # phase so the UI cannot claim Full Batch completion while the
                 # durable job is actually waiting for a user continuation.
                 batch_transition(job, phase, dict(output, error_code='PENDING_INSTRUCTIONS'))
+                from v14.engineering_report import build_report
+                prior_report = job['data'].get('final_report') or {}
+                verification = dict(job['data'].get('completion_verification') or {},
+                                    passed=False, failures=['PENDING_INSTRUCTIONS'])
+                report = build_report(job, phase, verification, committed_revision=job['revision'] + 1)
+                report.update(summary=job['message'], prior_objective_status=prior_report.get('status'))
+                job['data']['completion_verification'] = verification
+                checkpoint['data']['completion_verification'] = verification
+                job['data']['final_report'] = report
+                phase_result['error_code'] = 'PENDING_INSTRUCTIONS'
                 checkpoint.update(message=job['message'])
                 checkpoint.pop('finished_at', None)
-                # The checkpoint shares the updated batch plan and already
-                # holds the artifact references prepared before this write.
-                payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
+            report = job['data'].get('final_report') if phase in PAUSED else None
+            if report:
+                owner = db.execute('SELECT revision,lease FROM engineering_jobs WHERE id=?', (job['id'],)).fetchone()
+                if not owner or tuple(owner) != (job['revision'], lease):
+                    self._confirm_cancellation(db, job['id'], job.get('_owner_epoch'))
+                    return False
+                db.execute('SAVEPOINT final_report_artifact')
+                try:
+                    reference = artifacts.put_json(job, report, 'final-report', transaction=db)
+                    report = dict(report, artifact=reference)
+                except (ExecutionBindingError, OSError, sqlite3.Error) as error:
+                    db.execute('ROLLBACK TO final_report_artifact')
+                    report = dict(report, artifact_availability='UNAVAILABLE',
+                                  artifact_error=getattr(error, 'code', type(error).__name__))
+                finally:
+                    db.execute('RELEASE final_report_artifact')
+                job['data']['final_report'] = checkpoint['data']['final_report'] = report
+                phase_result['terminal_receipt'] = report['terminal_receipt']
+            payload, _ = canonical_json(checkpoint, maximum_bytes=4 * 1024 * 1024)
+            output_json, _ = canonical_json(phase_result, maximum_bytes=2 * 1024 * 1024)
             # Keep every meaningful update, without thousands of identical CI
             # polls filling Android history during a multi-day job.
             unchanged = False
@@ -397,6 +650,10 @@ class EngineeringStore:
                 self._confirm_cancellation(db, job['id'], job.get('_owner_epoch'))
                 return False  # Cancel/revoke won the race; never resurrect it.
             self.conversations.engineering_projection(db, job, phase)
+            if job.get('recovery_of') and phase != job['state']:
+                db.execute("UPDATE engineering_jobs SET next_at=MIN(next_at,?) WHERE id=? AND principal=? "
+                           "AND state='VERIFY' AND json_extract(data, '$.data.post_merge_recovery_job_id')=?",
+                           (self.now(), job['recovery_of'], job['principal'], job['id']))
             if not unchanged:
                 self.event(db, job, phase, job['revision'] + 1, self.now())
             db.execute("UPDATE engineering_receipts SET status='CONFIRMED',output_json=? WHERE job_id=? AND revision=?", (output_json, job['id'], job['revision']))
@@ -450,6 +707,19 @@ class EngineeringStore:
                        (record['attempt_id'], job['id'], record['binding_id'], job['revision'], record['state'], int(record.get('dispatched') is True), record.get('reserved_tokens', 0), raw))
         self.tx(save)
 
+    def save_specialists(self, job, value):
+        raw, _ = canonical_json(value, maximum_bytes=128 * 1024)
+        def save(db):
+            row = db.execute('SELECT data,state,revision,lease FROM engineering_jobs WHERE id=? AND principal=?', (job['id'], job['principal'])).fetchone()
+            epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (job['id'],)).fetchone()
+            if not row or tuple(row[1:]) != (job['state'], job['revision'], job.get('_execution_lease')) or row[3] is None or not epoch or epoch[0] != job.get('_owner_epoch'):
+                raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'The investigator checkpoint owner changed.')
+            stored = json.loads(row[0])
+            stored.setdefault('data', {})['specialists'] = json.loads(raw)
+            db.execute('UPDATE engineering_jobs SET data=? WHERE id=? AND lease=?', (json.dumps(stored), job['id'], job['_execution_lease']))
+        self.tx(save)
+        job['data']['specialists'] = json.loads(raw)
+
     def model_attempts(self, job_id, after=None, limit=100):
         limit = max(1, min(100, limit))
         return self.tx(lambda db: [json.loads(row[0]) for row in db.execute('SELECT payload FROM engineering_model_attempts WHERE job_id=? AND rowid>COALESCE((SELECT rowid FROM engineering_model_attempts WHERE id=? AND job_id=?),0) ORDER BY rowid LIMIT ?', (job_id, after, job_id, limit))])
@@ -494,6 +764,32 @@ class EngineeringStore:
             db.execute('UPDATE engineering_jobs SET data=?,state=?,revision=revision+1,next_at=?,lease=NULL WHERE id=?', (json.dumps(job), state, self.now(), job_id))
             self.event(db, job, state, job['revision'] + 1, self.now())
             self.conversations.engineering_projection(db, job, state)
+            if action == 'cancel':
+                descendants = {job_id}
+                active = db.execute("SELECT data,state,revision,lease FROM engineering_jobs WHERE principal=? AND state NOT IN ('CANCELLED','COMPLETED','FAILED')", (principal,)).fetchall()
+                for _ in range(6):
+                    found = False
+                    for child_row in active:
+                        child = self.decode(child_row)
+                        if child['id'] in descendants or child.get('recovery_of') not in descendants:
+                            continue
+                        descendants.add(child['id'])
+                        found = True
+                        child_state = 'CANCELLING' if child_row[3] else 'CANCELLED'
+                        epoch = db.execute('SELECT epoch FROM engineering_owner_epochs WHERE job_id=?', (child['id'],)).fetchone()
+                        child.update(approval=None, cancellation_requested=child_state == 'CANCELLING',
+                                     cancellation_outcome='pending' if child_state == 'CANCELLING' else 'confirmed',
+                                     cancellation_owner_epoch=epoch[0] if epoch else None, updated_at=self.now(),
+                                     message='Recovery cancelled with its original engineering job; dispatched receipts remain retained.')
+                        if child_state == 'CANCELLED':
+                            child['finished_at'] = self.now()
+                        batch_control(child, child_state, 'cancel')
+                        db.execute('UPDATE engineering_jobs SET data=?,state=?,revision=revision+1,next_at=?,lease=NULL WHERE id=?',
+                                   (json.dumps(child), child_state, self.now(), child['id']))
+                        self.event(db, child, child_state, child['revision'] + 1, self.now())
+                        self.conversations.engineering_projection(db, child, child_state)
+                    if not found:
+                        break
             return dict(job, state=state, revision=job['revision'] + 1)
         return self.tx(update)
 
@@ -549,7 +845,7 @@ class EngineeringSupervisor:
             return 'Job duration limit reached; confirmed work is retained'
         if job['state'] not in {'MERGE', 'VERIFY'} and now >= job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30):
             return 'The remaining duration is reserved for verification and a durable partial report'
-        if job['steps'] >= 256:
+        if job['steps'] >= 256 and job['state'] not in {'CI', 'MERGE', 'VERIFY'}:
             return 'Step budget reached'
         if job['stalls'] >= 3:
             return 'Three attempts made no verified progress'
@@ -596,9 +892,11 @@ class EngineeringService:
         self.thread = None
         self.authorized = lambda job: True
         backend.model_executor = self.execute_model
+        backend.save_specialists = self.store.save_specialists
         backend.save_adaptive_planning = self.store.save_adaptive_planning
         backend.before_mutation = self.validate_mutation
         backend.operations = self.operations
+        backend.private_artifacts = self.artifacts
 
     def prepare_binding(self, principal, selection, gateway_endpoint=None):
         return self.bindings.prepare(principal, selection, gateway_endpoint)
@@ -712,7 +1010,11 @@ class EngineeringService:
             row = self.evidence.read(job['id'], reference)
             if row is not None and row['kind'] == 'requirement_evidence':
                 receipts.append(dict(row['payload'], receipt_id=row['receipt_id']))
-        return completion_gate(job, readiness, merged, semantic_receipts=receipts)
+        result = completion_gate(job, readiness, merged, semantic_receipts=receipts)
+        if merged and job['data'].get('post_merge', {}).get('status') != 'PASSED':
+            result['passed'] = False
+            result['failures'].append('POST_MERGE_EVIDENCE_REQUIRED')
+        return result
 
     def readiness(self, *, public_only=False):
         """Local engineering prerequisites; this never implies model or GitHub API success."""
@@ -826,6 +1128,10 @@ class EngineeringService:
                     job['approval'] = None
                     job['message'] = 'The working branch changed outside this job. Review the new head before continuing.'
                     phase = 'NEEDS_INPUT'
+                elif output.get('checks_blocked'):
+                    job['data']['ci'] = output
+                    job['message'] = output.get('message', 'A completed CI check needs attention')
+                    phase = 'NEEDS_INPUT'
                 elif output.get('checks_failed'):
                     fingerprint = output['failure_fingerprint']
                     job['data']['ci'] = output
@@ -851,15 +1157,28 @@ class EngineeringService:
                     job['data']['readiness'] = output
                     job['message'] = output.get('message', 'Waiting for checks, required reviews or merge policy')
                     delay = 30
+                    job['external_observations'] = job.get('external_observations', 0) + 1
             else:
                 # Legacy jobs remain readable but cannot acquire new model
                 # authority from today's settings or a reused display name.
                 if phase in {'PLAN', 'READ', 'IMPLEMENT', 'REVIEW'}:
                     self.validate_execution(job, force=recovering)
-                output = self.backend.step(job, phase)
+                if phase == 'VERIFY':
+                    self.store.recovery_for(job)
+                if phase == 'VERIFY' and job['data'].get('post_merge_recovery_job_id'):
+                    from v14.engineering_post_merge_recovery import inspect as inspect_recovery
+                    recovered = inspect_recovery(self, job)
+                    output = {'post_merge': recovered, 'result': dict(job['data'].get('result', {}),
+                        qualification=recovered['status'], recovery_job_id=recovered.get('recovery_job_id'),
+                        recovery_merge_sha=recovered.get('recovery_merge_sha'),
+                        qualified_revision=recovered.get('qualified_revision'))}
+                else:
+                    output = self.backend.step(job, phase)
                 job['data'].update(output)
                 if phase == 'READ' and accepted_scope(job['request']) in {'read', 'plan'}:
                     phase = 'COMPLETED'
+                elif phase == 'IMPLEMENT' and output.get('workspace_continue'):
+                    phase = 'IMPLEMENT'
                 elif phase == 'IMPLEMENT':
                     patch = digest(output.get('changes', []))
                     if not output.get('changes') or patch in job['patches']:
@@ -877,16 +1196,40 @@ class EngineeringService:
                     phase = 'IMPLEMENT' if EngineeringSupervisor.repair(job, fingerprint) else 'NEEDS_INPUT'
                 elif phase == 'VERIFY':
                     gate = self.completion_verification(job, job['data'].get('readiness', {}), merged=True)
+                    post_merge = output.get('post_merge', {})
+                    if post_merge.get('status') == 'FAILED' and not job['data'].get('post_merge_recovery_job_id'):
+                        from v14.engineering_post_merge_recovery import enqueue
+                        recovery = enqueue(self, job, post_merge)
+                        if recovery is not None:
+                            job['data']['post_merge_recovery_job_id'] = recovery['id']
+                            post_merge = dict(post_merge, status='PENDING', original_status='FAILED',
+                                              reason='MERGE_RECOVERY_RUNNING', recovery_job_id=recovery['id'])
+                            job['data']['post_merge'] = post_merge
+                    if post_merge.get('status') == 'PENDING' and self.store.now() < job['deadline']:
+                        observations = job.get('external_observations', 0)
+                        phase, delay = 'VERIFY', min(120, 30 * (1 + observations // 10),
+                                                     job['deadline'] - self.store.now())
+                        job['message'] = ('The linked recovery needs attention' if post_merge.get('recovery_state') in {'MERGE_READY', 'NEEDS_INPUT'}
+                                          else 'Merge confirmed; verifying workflows on the resulting revision')
+                    elif post_merge.get('status') != 'PASSED':
+                        phase = 'NEEDS_INPUT'
+                        gate['passed'] = False
+                        gate['failures'].append(post_merge.get('reason', 'POST_MERGE_EVIDENCE_REQUIRED'))
+                        job['message'] = 'Merge confirmed; resulting revision is not qualified: ' + post_merge.get('reason', 'POST_MERGE_EVIDENCE_REQUIRED')
+                    else:
+                        phase = 'COMPLETED' if gate['passed'] else 'NEEDS_INPUT'
+                    if not gate['passed'] and post_merge.get('status') == 'PASSED':
+                        job['message'] = 'Merge occurred but completion evidence is incomplete: ' + '; '.join(gate['failures'])
                     job['data']['completion_verification'] = gate
                     self.evidence.append(job, 'completion_gate', gate)
-                    phase = 'COMPLETED' if gate['passed'] else 'NEEDS_INPUT'
-                    if not gate['passed']:
-                        job['message'] = 'Merge occurred but completion evidence is incomplete: ' + '; '.join(gate['failures'])
                 else:
                     phase = 'CI' if phase == 'PROMOTE' else PHASES[PHASES.index(phase) + 1]
                 job['stalls'] = 0
-                job['steps'] += 1
-                if phase not in PAUSED:
+                if phase == 'VERIFY' and delay:
+                    job['external_observations'] = job.get('external_observations', 0) + 1
+                else:
+                    job['steps'] += 1
+                if phase not in PAUSED and phase != 'VERIFY':
                     job['message'] = {'READ': 'Reading selected repository files in batches', 'IMPLEMENT': 'Preparing coordinated changes',
                                       'REVIEW': 'Selected-model review of proposed changes', 'COMMIT': 'Publishing the reviewed branch changes',
                                       'OPEN_PR': 'Preparing the draft pull request', 'CI': 'Waiting for CI validation',
@@ -1079,14 +1422,9 @@ class EngineeringService:
             job['data']['graph_status'] = 'UNAVAILABLE:' + type(error).__name__
         if phase in PAUSED:
             from v14.engineering_report import build_report
-            report = build_report(job, phase, self.completion_verification(job, job['data'].get('readiness', {}), merged=phase == 'COMPLETED'))
-            try:
-                reference = self.artifacts.put_json(job, report, 'final-report')
-                job['data']['final_report'] = dict(report, artifact=reference)
-            except (ExecutionBindingError, OSError, sqlite3.Error) as error:
-                # Final delivery has an inline bounded fallback; an artifact
-                # quota must not erase the reason a retained job stopped.
-                job['data']['final_report'] = dict(report, artifact_availability='UNAVAILABLE', artifact_error=getattr(error, 'code', type(error).__name__))
+            report = build_report(job, phase, self.completion_verification(job, job['data'].get('readiness', {}), merged=phase == 'COMPLETED'),
+                                  committed_revision=job['revision'] + 1)
+            job['data']['final_report'] = report
         self.store.complete(job, lease, phase, output, delay)
 
     def start(self):
@@ -1098,25 +1436,46 @@ class EngineeringService:
             if graph is not None:
                 graph.start_jobs()
         def work():
+            # Stages on independent branches may proceed while another job validates.
+            # Publication for one repository/branch is always serialized.
             recovery_pending = False
-            while not self.stop.is_set():
-                try:
-                    if recovery_pending:
-                        self.store.recover()
-                        recovery_pending = False
-                    for job_id in ([] if getattr(self.store.runtime, "gateway_draining", False) else self.store.due()):
-                        if self.stop.is_set():
-                            break
-                        self.tick(job_id)
-                except Exception as error:
-                    # Only this worker owns leases under the process state lock.
-                    # A failed journal save must not strand a job until restart.
-                    logging.getLogger(__name__).warning('Engineering checkpoint unavailable: %s', type(error).__name__)
-                    # Keep retrying recovery before admitting work: a transient
-                    # recovery failure otherwise leaves leases hidden from due().
-                    recovery_pending = True
-                self.wake.wait(2)
-                self.wake.clear()
+            pending = {}
+            configured = os.getenv('GATEWAY_ENGINEERING_WORKERS', '2')
+            workers = max(1, min(4, int(configured))) if configured.isdigit() else 2
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='engineering-stage') as pool:
+                while not self.stop.is_set():
+                    for job_id, (future, _) in list(pending.items()):
+                        if future.done():
+                            del pending[job_id]
+                            try:
+                                future.result()
+                            except Exception as error:
+                                logging.getLogger(__name__).warning('Engineering checkpoint unavailable: %s', type(error).__name__)
+                                recovery_pending = True
+                    try:
+                        # recover() clears leases, so never run it over another
+                        # live worker's publication or validation stage.
+                        if recovery_pending and not pending:
+                            self.store.recover()
+                            recovery_pending = False
+                        if not recovery_pending and not getattr(self.store.runtime, 'gateway_draining', False):
+                            occupied = {key for _, key in pending.values()}
+                            for job_id in self.store.due(exclude_branches=occupied):
+                                if len(pending) >= workers or self.stop.is_set():
+                                    break
+                                if job_id in pending:
+                                    continue
+                                job = self.store.get(job_id)
+                                key = (job['request']['repository'].lower(), job['request']['branch'])
+                                if key in occupied:
+                                    continue
+                                pending[job_id] = (pool.submit(self.tick, job_id), key)
+                                occupied.add(key)
+                    except Exception as error:
+                        logging.getLogger(__name__).warning('Engineering scheduling unavailable: %s', type(error).__name__)
+                        recovery_pending = True
+                    self.wake.wait(.2 if pending else 2)
+                    self.wake.clear()
         self.thread = threading.Thread(target=work, name='engineering-supervisor', daemon=True)
         self.thread.start()
 
@@ -1169,6 +1528,9 @@ def public_job(job):
             'merge_ready': state == 'MERGE_READY' and bool(EngineeringSupervisor.readiness(readiness)),
             'approval_expires_at': (job.get('approval') or {}).get('expires_at'),
             'merge_sha': data.get('merge_sha'), 'review': data.get('review', {}),
+            'post_merge': data.get('post_merge'), 'recovery_of': job.get('recovery_of'),
+            'recovery_job_id': data.get('post_merge_recovery_job_id'),
+            'qualified_revision': (data.get('post_merge') or {}).get('qualified_revision'),
             'acceptance': job['request'].get('acceptance', []), 'admission': data.get('admission'),
             'execution_owner': 'GATEWAY' if job.get('detach_safe') else 'NOT_CONFIRMED',
             'completion_verification': data.get('completion_verification'), 'evidence_policy': 'github.evidence.v1',

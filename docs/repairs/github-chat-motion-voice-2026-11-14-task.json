@@ -1,13 +1,13 @@
 {
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
   "base_branch": "main",
-  "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
-  "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
-  "source_sha": "46736a827a500ba25930edb55d93b4722227cf1c",
-  "pull_request": 1122,
+  "base_sha": "485515d3d63010aceb217ac0988ba28fff7eabf4",
+  "working_branch": "fix/durable-engineering-completion-2026-11-14",
+  "source_sha": "11fd245f787a6482996d501dabe7cc8843b2cff8",
+  "pull_request": 1203,
   "task_store": "engineering_agent_checkpoints",
   "task_store_key": "github-chat-motion-voice-2026-11-14",
-  "state": "LOCAL_PASSED_FINAL_SHARED_HEAD_QUALIFICATION_PENDING",
+  "state": "COMPLETE_SOURCE_COMPOSED_FINAL_QUALIFICATION_PENDING",
   "intent": [
     "Review all open issues and branch work",
     "Verify expanding top fade and +3% screen-height baseline",
@@ -15,7 +15,7 @@
     "Pace GitHub follow at 1.5 s for one line, 1 s per line for multiline",
     "Redesign theme-aware voice UI and seamless live captions",
     "Repair reports or add specific diagnostic evidence, validate, merge, close addressed issues",
-    "Keep all follow-up fixes on existing PR 1122",
+    "Keep all follow-up fixes on the latest existing PR #1203 after the external merge of #1122",
     "Add themed per-response playback and automatic reading throughout voice chat",
     "Fix ordinary-word pronunciation and measured bounded voice latency",
     "Diagnose reports 1127 and 1128 and newest partial diagnostic archive",
@@ -329,7 +329,7 @@
       ]
     }
   },
-  "previous_checkpoint_source_sha": "2f7d5826c4ab043c628fae5f54caf32cdd8349d3",
+  "previous_checkpoint_source_sha": "46736a827a500ba25930edb55d93b4722227cf1c",
   "independent_reporter_map_review": {
     "base_sha": "b279eddfe41edd23602aacd811c881defa3b1aea",
     "state": "PENDING_FINAL_SHARED_HEAD_QUALIFICATION",
@@ -359,5 +359,95 @@
     "integration_parent": "b1a0ea71ce748a04d50b0d85fa4c301032c57107",
     "combined_canonical_host_tests_passed": 509,
     "combined_auth_reporter_tests_passed": 100
+  },
+  "final_intake_reconciliation": {
+    "cutoff_at": "2026-11-14T23:14:21Z",
+    "issues": 67,
+    "last_issue": 1168,
+    "source_parent": "b553525da42a9f6d24c56f249355a7ef03bf3f13",
+    "composed_components": [
+      "440e9e5a092aab78e04ccda84b4d50c00140459f",
+      "7267e4d0e820bb8455aae3ae605bd8fa13084f76",
+      "a1145abc2e279e47f121ed421615993e12ef59fa",
+      "1cb41cc45b17853284b16bf9c96ba850b16cc912",
+      "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
+      "b386e71fc3efa95f77bc99b33167fd3196a394ac",
+      "a6a073a2c6bf5661f4af755d1f9655d50e3ae21d",
+      "3dd6a84759db2778f631d10d403c5bf0d8fc05b3",
+      "bb1df089030b5d0bbe4e9c44cc3b7fadfca167a5",
+      "8cf49646a360341b1048fda087452f7bdb016adb",
+      "9b9ddcf457e9ae9f3ca89f9f8f9c5d518af8ff57",
+      "31d8f06bb56e4c8fca747f4577085625c05fddae",
+      "10edcbeaca7f8847104ae471ae40ee5fa027b44f",
+      "255af95e4b1077bf04ca3d251265e6c8573380d4",
+      "35f802af62c212a207e1653b6cc1c5ad65d2d08e",
+      "e8b19e36b61036ebaf29ba461a1d7edd30199904",
+      "c1bf1fc788ee066c2ccf309db4247a358bd20128",
+      "b805043f5a0eccc8b82d5b6ff00d9a13145d6194",
+      "4659ef33935220401a1478f6eaae6737b2dd0fc3",
+      "9896eb8fd4a6cfc395acd1fad63797e6688bb237"
+    ],
+    "status": "TWENTY_ACCEPTED_COMPONENTS_COMPOSED_LATEST_DRAFT1203_RECONCILIATION_PENDING",
+    "later_reports": "Review individually; new source defects hold merge, covered reports use tested fixes and individual addenda without count-only source publication.",
+    "branch_inventory": {
+      "remote_branches": 748,
+      "reachable_from_main": 384,
+      "active_pr_branch": 1,
+      "historical_divergent": 363,
+      "qualification": "Historical refs preserved, relevant recent production tips reconciled by merge or patch equivalence; not an independent rebuild of every historical branch."
+    },
+    "gateway_check_state_correction": "Conflict/missing revision disables Check consistently; existing native conflict/reload test asserts recovery.",
+    "additional_attachment": {
+      "sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+      "selected_stages_complete": 20,
+      "qualification": "Separate complete selected capture of bounded retained history; not historical task completion or original graph wire evidence."
+    },
+    "successor_base": "485515d3d63010aceb217ac0988ba28fff7eabf4",
+    "prior_pr_merge": {
+      "number": 1122,
+      "commit": "485515d3d63010aceb217ac0988ba28fff7eabf4",
+      "head": "b553525da42a9f6d24c56f249355a7ef03bf3f13",
+      "at": "2026-11-15T01:36:50Z",
+      "pending_repairs_included": false
+    },
+    "later_report_dispositions": "All later reports are individually reviewed and conditionally drafted; publish final source/CI/merge-linked notes after successor qualification. Committed67-report cutoff is unchanged.",
+    "historical_local_authentication_tests": 119,
+    "historical_formatted_handwritten_kotlin_files": 51,
+    "auth_selection": "All127 package-qualified test identities selected; fresh final-source local run and hosted logs pending.",
+    "latest_existing_pr": 1203,
+    "latest_published_head": "11fd245f787a6482996d501dabe7cc8843b2cff8"
+  },
+  "historical_pull_request": 1122,
+  "successor_pull_request": 1203,
+  "historical_parent_pull_request": 1122,
+  "source_sha_role": "Published parent before the complete successor source; actual final source and CI identities are recorded in the PR qualification receipt.",
+  "latest_intake_status": "The committed101-report cutoff remains immutable. Later reports receive individual bounded intake and qualified issue dispositions without count-only source updates.",
+  "runtime_task_store_qualification": "This committed task record is a repository artifact. No live application Room checkpoint write is claimed.",
+  "final_local_qualification": {
+    "canonical_fast": {
+      "tests": 511,
+      "failures": 0
+    },
+    "gateway": {
+      "python_cases": 1277,
+      "python_passed": 1250,
+      "python_skipped": 27,
+      "browser_passed": 7,
+      "package_source_files": 312,
+      "source_checkpoint": "8a676434958854127c3ea9cad5366f7a3e545be4",
+      "qualification": "Linux local source scope; native Windows, actual Docker and final hosted head remain separate."
+    },
+    "authentication": {
+      "tests": 127,
+      "bound_inputs": 25,
+      "unchanged": true,
+      "reexecuted": false
+    },
+    "changed_kotlin_ktlint": {
+      "files": 106,
+      "version": "1.3.1",
+      "failures": 0
+    },
+    "hosted_final_head": "PENDING"
   }
 }

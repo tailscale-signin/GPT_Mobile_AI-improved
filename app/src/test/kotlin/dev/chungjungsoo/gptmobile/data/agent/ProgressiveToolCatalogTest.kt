@@ -17,11 +17,63 @@ import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProgressiveToolCatalogTest {
+    @Test fun fullFirstGitHubDefinitionsPreferCompactInitialContracts() {
+        val requests = mapOf(
+            "check repo status" to setOf("github_context_inspect", "github_pr_inspect"),
+            "show git branches" to setOf("github_context_inspect", "github_search", "github_read"),
+            "inspect commits" to setOf("github_context_inspect", "github_search", "github_read"),
+            dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt to setOf("github_context_inspect", "github_pr_inspect", "github_ci")
+        )
+        for (suffix in listOf("", "__native")) {
+            val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it, it + suffix) }.sortedBy { it.name }
+            for ((task, expected) in requests) {
+                val catalog = ProgressiveToolCatalog(definitions, task, githubMode = suffix.isNotEmpty())
+                val selected = catalog.selected(definitions + catalog.definition)
+                assertEquals(task, expected.map { it + suffix }.toSet() + ProgressiveToolCatalog.NAME, selected.map { it.name }.toSet())
+                assertTrue(selected.sumOf { ProgressiveToolCatalog.schemaTokens(it) } <= ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
+                selected.filterNot { it.name == ProgressiveToolCatalog.NAME }.forEach { definition ->
+                    assertSame(definitions.single { it.name == definition.name }, definition)
+                }
+            }
+        }
+    }
+
+    @Test fun compactInitialSelectionPreservesConnectionFallbackAndExactFullDiscovery() = runTest {
+        val primary = GitHubOperationTool.definition("github_context", "github_context__primary")
+        val secondary = GitHubOperationTool.definition("github_context", "github_context__secondary")
+        val compactSecondary = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__secondary")
+        val hiddenPrimary = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__primary").copy(modelVisible = false)
+        for (hidden in listOf(emptyList(), listOf(hiddenPrimary))) {
+            val definitions = (listOf(primary, secondary, compactSecondary) + hidden).sortedBy { it.name }
+            val catalog = ProgressiveToolCatalog(definitions, "check repo status", githubMode = true)
+            val allowed = definitions + catalog.definition
+            val initial = catalog.selected(allowed)
+            assertEquals(setOf(primary.name, compactSecondary.name, ProgressiveToolCatalog.NAME), initial.map { it.name }.toSet())
+            assertSame(primary, initial.single { it.name == primary.name })
+            assertSame(compactSecondary, initial.single { it.name == compactSecondary.name })
+            val inventory = catalog.execute("inventory", JsonObject(emptyMap()))
+            assertFalse(inventory.isError)
+            assertFalse(inventory.dispatched)
+            val names = (inventory.content as ToolResultContent.Json).value.jsonObject.getValue("authorized_inventory").jsonArray
+                .map { it.jsonObject.getValue("name").jsonPrimitive.content }.toSet()
+            assertEquals(setOf(primary.name, secondary.name, compactSecondary.name), names)
+            val discovered = catalog.execute("full-secondary", buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(secondary.name)))) })
+            assertFalse(discovered.isError)
+            assertFalse(discovered.dispatched)
+            val selected = catalog.selected(allowed)
+            assertSame(primary, selected.single { it.name == primary.name })
+            assertSame(secondary, selected.single { it.name == secondary.name })
+            assertFalse(selected.any { it.name == compactSecondary.name || it.name == hiddenPrimary.name })
+            assertFalse(catalog.selected(allowed - secondary).any { it.name == secondary.name })
+        }
+    }
+
     @Test fun omissionsRemainVisibleAfterTheOuterPlannerHasAlreadyFilteredSchemas() {
         val catalog = ProgressiveToolCatalog(tools, "task_1")
         val planned = catalog.selected(tools + catalog.definition).take(2)
@@ -95,7 +147,7 @@ class ProgressiveToolCatalogTest {
         val operations = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) }
         val catalog = ProgressiveToolCatalog(operations, "List GitHub issues and inspect PR checks", githubMode = true)
         val initial = catalog.selected(operations + catalog.definition).map { it.name }
-        assertTrue("Initial GitHub context missing: $initial", "github_context" in initial)
+        assertTrue("Initial GitHub context missing: $initial", initial.any { GitHubOperationTool.operationName(it) == "github_context" })
         assertFalse("Write schemas should be deferred: $initial", "github_write" in initial)
         assertTrue(initial.size < operations.size + 1)
         val discovery = catalog.execute(
@@ -324,7 +376,7 @@ class ProgressiveToolCatalogTest {
         for (task in listOf("check repo status", "inspect git", "show branches", "inspect commits", "review repositories")) {
             val catalog = ProgressiveToolCatalog(tools + native + gateway, task)
             val selected = catalog.selected(tools + native + gateway)
-            assertEquals("github_context", selected.first().name)
+            assertEquals("github_context", GitHubOperationTool.operationName(selected.first().name))
             assertTrue(selected.any { it.name == gateway.name })
         }
     }

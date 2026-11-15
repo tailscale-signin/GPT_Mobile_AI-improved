@@ -479,6 +479,12 @@ class ChatViewModel @Inject constructor(
 
     private val _agentRunsById = MutableStateFlow<Map<String, AgentRun>>(emptyMap())
     val agentRunsById = _agentRunsById.asStateFlow()
+
+    suspend fun terminalVoiceReply(messageId: Int, runId: String, expectedFence: Long): dev.chungjungsoo.gptmobile.data.voice.VoiceTerminalReply? {
+        val chatId = _chatRoom.value.id
+        val snapshot = chatRepository.terminalVoiceReply(chatId, messageId, runId, expectedFence) ?: return null
+        return snapshot.takeIf { _chatRoom.value.id == chatId }
+    }
     private val providerWaitDeadlinesByRun = MutableStateFlow<Map<String, ProviderWaitDeadline>>(emptyMap())
     val providerWaitDeadlines = providerWaitDeadlinesByRun.asStateFlow()
 

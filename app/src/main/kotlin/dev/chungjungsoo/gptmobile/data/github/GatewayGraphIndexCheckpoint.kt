@@ -13,7 +13,17 @@ import kotlinx.serialization.json.put
 internal class GatewayGraphIndexCheckpoint(private val store: GitHubRepositoryStateStore, private val scope: String) {
     private val key = "execution:" + GitHubRepositoryStateStore.digest("repository-graph-index-v1")
 
+    data class Observation(val unresolved: Boolean, val attemptHash: String? = null, val confirmedAttemptHash: String? = null)
+
     suspend fun unresolved(): Boolean = pending() != null
+
+    suspend fun observation(): Observation {
+        val retained = pending()
+        return Observation(retained != null, retained?.text("attempt")?.takeIf(String::isNotBlank)?.let(::attemptHash))
+    }
+
+    /** A local join token, never a remote job identifier or evidence that an HTTP request ran. */
+    fun attemptHash(attempt: String): String = GitHubRepositoryStateStore.digest("gptmobile.graph-index-attempt.v1:$scope:$attempt")
 
     suspend fun begin(cursor: String?, previousStatus: JsonObject? = null): String {
         val attempt = UUID.randomUUID().toString()
@@ -32,22 +42,33 @@ internal class GatewayGraphIndexCheckpoint(private val store: GitHubRepositorySt
         return attempt
     }
 
-    suspend fun confirm(attempt: String) {
+    suspend fun confirm(attempt: String): String? {
+        var confirmed: String? = null
         store.update(scope, key) { previous ->
-            if (previous?.text("attempt") == attempt) buildJsonObject { put("status", "CONFIRMED") } else requireNotNull(previous)
+            if (previous?.text("attempt") == attempt) {
+                if (isPending(previous)) confirmed = attemptHash(attempt)
+                buildJsonObject { put("status", "CONFIRMED") }
+            } else {
+                requireNotNull(previous)
+            }
         }
+        return confirmed
     }
 
     /** An absent or unchanged snapshot cannot prove that a timed-out first batch was not accepted. */
-    suspend fun reconcile(result: JsonObject): Boolean {
-        val previous = pending() ?: return false
+    suspend fun reconcile(result: JsonObject): Boolean = reconcileObserved(result).unresolved
+
+    /** Observe the existing transition; no payload-supplied identifier can manufacture its proof. */
+    suspend fun reconcileObserved(result: JsonObject): Observation {
+        val previous = pending() ?: return Observation(false)
+        val observed = Observation(true, previous.text("attempt")?.takeIf(String::isNotBlank)?.let(::attemptHash))
         val job = result["index_job"] as? JsonObject
         val accepted = (job?.get("accepted_request_ids") as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.contentOrNull }
         if (previous.text("attempt")?.let { it == job?.text("request_id") || it in accepted } == true) {
-            confirm(requireNotNull(previous.text("attempt")))
-            return unresolved()
+            val confirmed = confirm(requireNotNull(previous.text("attempt")))
+            return observation().copy(confirmedAttemptHash = confirmed)
         }
-        if (result["graph"] !is JsonObject) return true
+        if (result["graph"] !is JsonObject) return observed
         val more = result["has_more"]
         val next = result.text("index_cursor")?.takeIf(String::isNotBlank)
         val previousCursor = previous.text("index_cursor")
@@ -56,12 +77,18 @@ internal class GatewayGraphIndexCheckpoint(private val store: GitHubRepositorySt
         val before = (previous["previous_parsed_files"] as? JsonPrimitive)?.nonnegativeCount()
         val rebuilt = before != null && parsedFiles(result)?.let { it > before } == true
         val completed = more == JsonPrimitive(false) && (previous["previously_complete"] != JsonPrimitive(true) || rebuilt)
+        var confirmed: String? = null
         if (knownAttempt && (completed || progressed)) {
             store.update(scope, key) { current ->
-                if (current == previous) buildJsonObject { put("status", "CONFIRMED") } else requireNotNull(current)
+                if (current == previous) {
+                    confirmed = observed.attemptHash
+                    buildJsonObject { put("status", "CONFIRMED") }
+                } else {
+                    requireNotNull(current)
+                }
             }
         }
-        return unresolved()
+        return observation().copy(confirmedAttemptHash = confirmed)
     }
 
     private suspend fun pending(): JsonObject? = store.read(scope, key)?.takeIf(::isPending)

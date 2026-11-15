@@ -1547,6 +1547,11 @@ class ChatRepositoryImplTest {
         coEvery { resolver.resolve(any(), any(), any(), any(), any(), any(), any(), any()) } returns listOf(
             ResolvedAgentTool(dateTool, null, null, dateTool.definition.name, dateTool.definition.name)
         )
+        val settings = mockk<SettingRepository>(relaxed = true)
+        // Match the 12 GB runtime's context so the unknown-route 4096 fallback does not reduce this fixture's reply.
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            tokenBudget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(contextTokens = 8192)
+        )
         val runtime = FakeLocalRuntime().apply {
             // The native planner retains the date tool while respecting this model's context.
             deviceRamGb = 12L
@@ -1564,6 +1569,7 @@ class ChatRepositoryImplTest {
         val traceDao = RecordingToolEventDao()
         val repository = createRepository(
             localRuntime = runtime,
+            settingsOverride = settings,
             localModelRepository = FakeLocalModelRepository(
                 downloadedPaths = mapOf("gemma3-1b-it" to "/models/gemma.litertlm")
             ),
@@ -2241,7 +2247,12 @@ class ChatRepositoryImplTest {
             deepResearch = dev.chungjungsoo.gptmobile.data.model.DeepResearchSettings(schemaVersion = 3, customSourceTarget = 12, effort = 50, concurrency = 1)
         ).normalized()
         val settings = mockk<SettingRepository>(relaxed = true)
-        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(delegation = config, profileBehavior = mapOf(primary.uid to dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings(delegationEnabled = true)))
+        // Give the writer an explicit route capacity so the unknown-route 4096 fallback does not mask the scripted 403.
+        coEvery { settings.getFeatureSettings() } returns dev.chungjungsoo.gptmobile.data.model.AppFeatureSettings(
+            delegation = config,
+            tokenBudget = dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings(profileContextCeilings = mapOf(primary.uid to 32768)),
+            profileBehavior = mapOf(primary.uid to dev.chungjungsoo.gptmobile.data.model.ProfileBehaviorSettings(delegationEnabled = true))
+        )
         coEvery { settings.fetchPlatformV2s() } returns listOf(primary, helper)
         val persistence = mockk<dev.chungjungsoo.gptmobile.data.database.dao.AgentPersistenceDao>(relaxed = true)
         coEvery { persistence.getIncompleteRuns(any(), any()) } returns emptyList()
@@ -2923,6 +2934,23 @@ private class RecordingToolEventDao {
                     events += args!![0] as ToolEvent
                     Unit
                 }
+
+                "startToolEvent" -> synchronized(events) {
+                    val event = args!![0] as ToolEvent
+                    events.firstOrNull { it.runId == event.runId && it.callId == event.callId } ?: run {
+                        val previousMaximum = events.filter { it.runId == event.runId }.maxOfOrNull(ToolEvent::sequence)
+                        val nextSequence = maxOf(event.sequence.toLong(), (previousMaximum?.toLong() ?: -1L) + 1L, 0L)
+                        if (nextSequence > Int.MAX_VALUE) {
+                            throw dev.chungjungsoo.gptmobile.data.database.ToolEventPersistenceFailure.sequenceExhausted(event.sequence, previousMaximum)
+                        }
+                        event.copy(sequence = nextSequence.toInt()).also(events::add)
+                    }
+                }
+
+                "rawMaxToolEventSequence" ->
+                    events
+                        .filter { it.runId == args!![0] }
+                        .maxOfOrNull(ToolEvent::sequence)
 
                 "finishToolEvent" -> {
                     val eventId = args!![0] as String

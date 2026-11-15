@@ -16,6 +16,12 @@ internal interface KokoroOutput {
     fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit)
     fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit) = speak(text, voice, complete, error)
     fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit): VoiceReplyPlayback? = null
+    fun speakWithFailure(text: String, voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, canFallback: Boolean) -> Unit) =
+        speak(text, voice, complete) { message, canFallback -> error(VoicePlaybackFailure(message), canFallback) }
+    fun speakProjectedWithFailure(text: String, voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, canFallback: Boolean) -> Unit) =
+        speakProjected(text, voice, complete) { message, canFallback -> error(VoicePlaybackFailure(message), canFallback) }
+    fun openReplyWithFailure(voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, canFallback: Boolean) -> Unit): VoiceReplyPlayback? =
+        openReply(voice, complete) { message, canFallback -> error(VoicePlaybackFailure(message), canFallback) }
     fun configureThreads(value: Int) = Unit
     fun prewarm(voice: KokoroVoice) = Unit
     fun releaseWarmModel() = Unit
@@ -68,7 +74,10 @@ internal class VoicePluginAudio(
 
     override val streamsReplies: Boolean get() = !closed && kokoro != null && kokoroVoice != null && LocalVoiceModelStore.supportsLanguage(local.languageTag)
 
-    override fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? {
+    override fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? =
+        openReplyWithFailure(complete) { error(it.message) }
+
+    override fun openReplyWithFailure(complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit): VoiceReplyPlayback? {
         if (!streamsReplies) return null
         val output = kokoro ?: return null
         val voice = kokoroVoice ?: return null
@@ -83,15 +92,15 @@ internal class VoicePluginAudio(
         output.bindPlaybackStarted { if (current() && !useFallback) started?.invoke() }
         system.bindPlaybackStarted { if (current() && useFallback) started?.invoke() }
         fun finishFallback() {
-            offlineSpeech(fallbackText.toString(), { if (current()) complete() }, { if (current()) error(it) })
+            offlineSpeech(fallbackText.toString(), { if (current()) complete() }, { if (current()) error(VoicePlaybackFailure(it)) })
         }
-        val reply = output.openReply(voice, complete = { if (current()) complete() }, error = { message, canFallback ->
+        val reply = output.openReplyWithFailure(voice, complete = { if (current()) complete() }, error = { failure, canFallback ->
             if (current()) {
                 if (canFallback && !requireLocalOutput) {
                     useFallback = true
                     if (finished) finishFallback()
                 } else {
-                    error(message)
+                    error(failure)
                 }
             }
         }) ?: return null
@@ -127,7 +136,10 @@ internal class VoicePluginAudio(
         }
     }
 
-    override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) {
+    override fun speak(text: String, complete: () -> Unit, error: (String) -> Unit) =
+        speakWithFailure(text, complete) { error(it.message) }
+
+    override fun speakWithFailure(text: String, complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit) {
         if (closed) return
         local.stop()
         val ticket = ++playbackGeneration
@@ -137,36 +149,36 @@ internal class VoicePluginAudio(
         val voice = kokoroVoice
         if (voice == null) {
             if (requireLocalOutput) {
-                error("Choose a Kokoro voice in Voice settings to read this response.")
+                error(VoicePlaybackFailure("Choose a Kokoro voice in Voice settings to read this response."))
                 return
             }
-            system.speak(text, { if (current()) complete() }, { if (current()) error(it) })
+            system.speakWithFailure(text, { if (current()) complete() }, { if (current()) error(it) })
             return
         }
         if (kokoro == null || !LocalVoiceModelStore.supportsLanguage(local.languageTag)) {
             if (requireLocalOutput) {
-                error("Local voice playback is unavailable. Check Kokoro in Voice settings; your response is kept in chat.")
+                error(VoicePlaybackFailure("Local voice playback is unavailable. Check Kokoro in Voice settings; your response is kept in chat."))
                 return
             }
-            offlineSpeech(text, { if (current()) complete() }, { if (current()) error(it) })
+            offlineSpeech(text, { if (current()) complete() }, { if (current()) error(VoicePlaybackFailure(it)) })
             return
         }
         system.stop()
         kokoro.bindPlaybackStarted { if (current()) started?.invoke() }
-        kokoro.speakProjected(text, voice, complete = {
+        kokoro.speakProjectedWithFailure(text, voice, complete = {
             if (!closed && ticket == playbackGeneration) {
                 playbackGeneration++
                 complete()
             }
-        }, error = { message, canFallback ->
+        }, error = { failure, canFallback ->
             if (!closed && ticket == playbackGeneration) {
                 val fallbackTicket = ++playbackGeneration
                 fun fallbackCurrent() = !closed && fallbackTicket == playbackGeneration
                 if (canFallback && !requireLocalOutput) {
                     system.bindPlaybackStarted { if (fallbackCurrent()) started?.invoke() }
-                    offlineSpeech(text, { if (fallbackCurrent()) complete() }, { if (fallbackCurrent()) error(it) })
+                    offlineSpeech(text, { if (fallbackCurrent()) complete() }, { if (fallbackCurrent()) error(VoicePlaybackFailure(it)) })
                 } else {
-                    error(message)
+                    error(failure)
                 }
             }
         })

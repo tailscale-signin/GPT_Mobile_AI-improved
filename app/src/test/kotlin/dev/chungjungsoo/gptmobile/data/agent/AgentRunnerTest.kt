@@ -22,6 +22,42 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AgentRunnerTest {
+    @Test fun repeatedContextCompactionKeepsAuthorizedToolsUntilTaskCompletion() = runBlocking {
+        var requests = 0
+        var executions = 0
+        val reader = tool("read_fixture") { id, _ ->
+            executions++
+            AgentToolResult(id, ToolResultContent.Text("inspected evidence ".repeat(1800)), false)
+        }
+        val provider = session { definitions, _ ->
+            flow {
+                requests++
+                assertTrue("Compaction must preserve the authorized tool", definitions.any { it.name == reader.definition.name })
+                if (executions < 12) {
+                    emit(ProviderEvent.ToolCall("read-$requests", reader.definition.name, buildJsonObject { put("page", requests) }))
+                } else {
+                    emit(ProviderEvent.TextDelta("All twelve inspections completed."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(
+            AgentRunLimits(
+                contextTokens = 4096,
+                initialContextTokens = 1600,
+                finalResponseReserveTokens = 512,
+                maxReplayTokens = 24000,
+                maxReplayResultTokens = 256,
+                maxRounds = 20,
+                maxToolCalls = 24
+            )
+        ).run(provider, listOf(reader)).toList()
+        assertEquals(12, executions)
+        assertEquals(13, requests)
+        assertFalse(events.filterIsInstance<AgentRunEvent.Provider>().any { it.event is ProviderEvent.Failed })
+        assertTrue(events.filterIsInstance<AgentRunEvent.Provider>().any { (it.event as? ProviderEvent.TextDelta)?.text == "All twelve inspections completed." })
+    }
+
     @Test fun oversizedPendingToolIdentityBlocksBeforeAnotherProviderRequest() = runBlocking {
         var requests = 0
         var executions = 0
@@ -614,29 +650,16 @@ class AgentRunnerTest {
     }
 
     @Test
-    fun `context guard reserves a final answer and asks to continue`() = runBlocking {
-        val exposed = mutableListOf<Int>()
-        var rounds = 0
-        val session = session { tools, exchanges ->
-            exposed += tools.size
-            if (rounds++ == 0) {
-                flow {
-                    emit(toolCall("context-call"))
-                    emit(ProviderEvent.Completed)
-                }
-            } else {
-                flow {
-                    assertTrue(exchanges.last().results.last().content.toString().contains("ask whether the user wants to continue"))
-                    emit(ProviderEvent.TextDelta("Here are my findings. Continue?"))
-                    emit(ProviderEvent.Completed)
-                }
-            }
+    fun `irreducible context is rejected before dispatch`() = runBlocking {
+        var dispatched = false
+        val session = session { _, _ ->
+            dispatched = true
+            flow { emit(ProviderEvent.Completed) }
         }
-        val tool = tool { id, _ -> AgentToolResult(id, ToolResultContent.Text("source ".repeat(40)), false) }
+        val tool = tool { id, _ -> AgentToolResult(id, ToolResultContent.Text("source"), false) }
         val events = AgentRunner(AgentRunLimits(contextTokens = 2048, initialContextTokens = 1600, finalResponseReserveTokens = 256)).run(session, listOf(tool)).toList()
-        assertEquals(listOf(1, 0), exposed)
-        assertEquals(AgentRunEvent.Provider(ProviderEvent.Completed), events.last())
-        assertFalse(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
+        assertFalse(dispatched)
+        assertTrue(events.any { it is AgentRunEvent.Provider && it.event is ProviderEvent.Failed })
     }
 
     @Test

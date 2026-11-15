@@ -2,9 +2,11 @@
 from pathlib import Path
 import sys
 import tempfile
+import threading
 import tkinter as tk
 from tkinter import ttk
 import unittest
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop.configuration import atomic_json, DEFAULTS
@@ -98,6 +100,166 @@ class DesktopNativeAcceptance(unittest.TestCase):
         self.assertEqual(advanced, tabs.select())
         settings.destroy()
 
+    def validation_window(self):
+        from desktop.ui import build_window
+        settings = build_window(self.root, self.window, section='GitHub')
+        self.assertEqual(str(self.window), str(settings.transient()))
+        settings.geometry('660x500')
+        tab = next(tab for tab in settings.github_tabs.tabs()
+                   if settings.github_tabs.tab(tab, 'text') == 'Repository Validation')
+        settings.github_tabs.select(tab)
+        self.window.update()
+        return settings, settings.repository_validation_panel
+
+    def test_repository_validation_basic_actions_and_keyboard_disclosure_at_minimum_size(self):
+        from desktop import repository_validation as validation
+        with patch.object(validation, 'setup') as prepare:
+            settings, panel = self.validation_window()
+            self.assertFalse(panel.advanced_visible.get())
+            # Child mapping can survive a hidden ancestor; check actual viewability.
+            self.assertFalse(panel.advanced.winfo_viewable())
+            self.assertFalse(panel.commands.winfo_viewable())
+            self.assertFalse(panel.contract.winfo_viewable())
+            self.assertFalse(panel.discovery_button.winfo_viewable())
+            self.assertFalse(panel.release_button.winfo_viewable())
+            for control in (panel.enable_button, panel.repository_picker, panel.profile_box, panel.advanced_toggle,
+                            panel.prepare_button, panel.check_button, panel.save_button, panel.reload_button):
+                self.assertTrue(control.winfo_viewable())
+                self.assertGreater(control.winfo_width(), 40)
+                self.assertGreater(control.winfo_height(), 12)
+                self.assertGreaterEqual(control.winfo_rootx(), settings.winfo_rootx())
+                self.assertGreaterEqual(control.winfo_rooty(), settings.winfo_rooty())
+                self.assertLessEqual(control.winfo_rootx() + control.winfo_width(), settings.winfo_rootx() + settings.winfo_width())
+                self.assertLessEqual(control.winfo_rooty() + control.winfo_height(), settings.winfo_rooty() + settings.winfo_height())
+                self.assertIs(control, settings.winfo_containing(control.winfo_rootx() + control.winfo_width() // 2,
+                                                                control.winfo_rooty() + control.winfo_height() // 2),
+                              f'{control} must remain the topmost hit target at its visible center')
+            panel.fields['profile'].set(validation.CUSTOM_PROFILE)
+            panel.profile_changed()
+            self.assertTrue(panel.advanced_visible.get())
+            self.window.update()
+            for control in (panel.discovery_button, panel.release_button):
+                self.assertTrue(control.winfo_viewable())
+                self.assertGreater(control.winfo_width(), 40)
+                self.assertGreater(control.winfo_height(), 12)
+                self.assertGreaterEqual(control.winfo_rootx(), settings.winfo_rootx())
+                self.assertGreaterEqual(control.winfo_rooty(), settings.winfo_rooty())
+                self.assertLessEqual(control.winfo_rootx() + control.winfo_width(), settings.winfo_rootx() + settings.winfo_width())
+                self.assertLessEqual(control.winfo_rooty() + control.winfo_height(), settings.winfo_rooty() + settings.winfo_height())
+                self.assertIs(control, settings.winfo_containing(control.winfo_rootx() + control.winfo_width() // 2,
+                                                                control.winfo_rooty() + control.winfo_height() // 2))
+            for open_dialog in (panel.discover_behavior_checks, panel.configure_release_checks):
+                dialog = open_dialog()
+                self.assertIsNotNone(dialog)
+                self.assertEqual(str(settings), str(dialog.transient()))
+                dialog.destroy()
+            settings.focus_force()
+            panel.commands.focus_set()
+            self.window.update()
+            self.assertTrue(panel.advanced.winfo_viewable())
+            self.assertTrue(panel.commands.winfo_viewable())
+            original = panel.commands.get('1.0', 'end-1c')
+            panel.commands.event_generate('<Tab>')
+            self.window.update()
+            self.assertEqual(original, panel.commands.get('1.0', 'end-1c'), 'Tab must move focus, not insert invisible JSON text')
+            self.assertIs(panel.contract, settings.focus_get())
+            self.assertTrue(panel.contract.winfo_viewable())
+            self.assertIs(panel.contract, settings.winfo_containing(panel.contract.winfo_rootx() + panel.contract.winfo_width() // 2,
+                                                                   panel.contract.winfo_rooty() + panel.contract.winfo_height() // 2),
+                          'Focused contract editor must be the topmost hit target; '
+                          f'canvasRoot=({panel.viewport.winfo_rootx()},{panel.viewport.winfo_rooty()}), '
+                          f'canvasSize=({panel.viewport.winfo_width()},{panel.viewport.winfo_height()}), '
+                          f'editorSize=({panel.editor.winfo_width()},{panel.editor.winfo_height()}), '
+                          f'contractRoot=({panel.contract.winfo_rootx()},{panel.contract.winfo_rooty()}), '
+                          f'contractSize=({panel.contract.winfo_width()},{panel.contract.winfo_height()}), '
+                          f'scroll={panel.viewport.yview()}, region={panel.viewport.bbox("all")}')
+            panel.advanced_toggle.invoke()
+            self.window.update()
+            self.assertFalse(panel.advanced.winfo_viewable())
+            self.assertFalse(panel.commands.winfo_viewable())
+            self.assertFalse(panel.contract.winfo_viewable())
+            self.assertFalse(panel.discovery_button.winfo_viewable())
+            self.assertFalse(panel.release_button.winfo_viewable())
+            prepare.assert_not_called()
+
+    def test_repository_validation_status_and_busy_cancel_fit_at_minimum_size(self):
+        from desktop import repository_validation as validation
+        with patch.object(validation, 'setup') as prepare:
+            settings, panel = self.validation_window()
+            try:
+                self.assertIn('Prepare & save downloads them.', panel.status.get())
+                label = panel.status_label
+                self.assertGreaterEqual(label.winfo_width(), label.winfo_reqwidth(),
+                                        'The complete wrapped status must fit its allocated width')
+                self.assertGreaterEqual(label.winfo_height(), label.winfo_reqheight(),
+                                        'Every line of the status must fit its allocated height')
+                for busy in (False, True):
+                    with self.subTest(busy=busy):
+                        panel.set_busy(busy)
+                        self.window.update()
+                        self.assertFalse(panel.advanced.winfo_viewable())
+                        self.assertEqual(not busy, panel.cancel_button.instate(['disabled']))
+                        controls = [label, panel.prepare_button, panel.check_button,
+                                    panel.save_button, panel.reload_button]
+                        if busy:
+                            controls.append(panel.cancel_button)
+                        for control in controls:
+                            self.assertTrue(control.winfo_viewable(), str(control))
+                            self.assertGreater(control.winfo_width(), 40, str(control))
+                            self.assertGreater(control.winfo_height(), 12, str(control))
+                            self.assertGreaterEqual(control.winfo_rootx(), panel.viewport.winfo_rootx(), str(control))
+                            self.assertGreaterEqual(control.winfo_rooty(), panel.viewport.winfo_rooty(), str(control))
+                            self.assertLessEqual(control.winfo_rootx() + control.winfo_width(),
+                                                 panel.viewport.winfo_rootx() + panel.viewport.winfo_width(), str(control))
+                            self.assertLessEqual(control.winfo_rooty() + control.winfo_height(),
+                                                 panel.viewport.winfo_rooty() + panel.viewport.winfo_height(), str(control))
+                            self.assertIs(control, settings.winfo_containing(
+                                control.winfo_rootx() + control.winfo_width() // 2,
+                                control.winfo_rooty() + control.winfo_height() // 2),
+                                f'{control} must remain the topmost hit target at its visible center')
+                self.assertFalse(panel.cancel.is_set())
+                panel.cancel_button.invoke()
+                self.assertTrue(panel.cancel.is_set(), 'Visible Cancel must retain its cancellation action')
+                prepare.assert_not_called()
+            finally:
+                settings.destroy()
+
+    def test_closing_settings_cancels_slow_setup_and_its_queued_callbacks(self):
+        from desktop import repository_validation as validation
+        settings, panel = self.validation_window()
+        started = threading.Event()
+        finished = threading.Event()
+        def waiting(*args, **kwargs):
+            started.set()
+            kwargs['cancel'].wait(5)
+            finished.set()
+            raise validation.SetupCancelled('Setup cancelled')
+        with patch.object(validation, 'setup', side_effect=waiting):
+            panel.start(False)
+            self.assertTrue(started.wait(2))
+            self.assertFalse(panel.worker.daemon, 'Process cleanup must outlive the Settings window')
+            self.assertTrue(panel.busy)
+            callbacks = settings.settings_callbacks
+            pending = set(callbacks.pending)
+            self.assertTrue(pending)
+            child = tk.Frame(panel.frame)
+            child.destroy()
+            self.assertFalse(panel.closed)
+            self.assertFalse(panel.cancel.is_set(), 'Destroying a child must not cancel setup')
+            self.assertEqual(pending, callbacks.pending)
+            settings.destroy()
+            self.assertTrue(panel.closed)
+            self.assertTrue(panel.cancel.is_set())
+            self.assertTrue(finished.wait(2))
+            panel.worker.join(2)
+            self.assertFalse(panel.worker.is_alive())
+            self.assertTrue(callbacks.closed)
+            self.assertFalse(callbacks.pending)
+            scheduled = set(self.window.tk.splitlist(self.window.tk.call('after', 'info')))
+            self.assertFalse(pending & scheduled, 'Settings must cancel its Tcl callbacks before destroy')
+            panel.results.put(('progress', 'late result'))
+            panel.refresh()  # Closed panels never access destroyed Tk widgets.
+
     def test_chat_and_window_destruction_remove_their_queued_callbacks(self):
         from desktop.chat_panel import ChatPanel
         from desktop.chat_state import ChatState
@@ -123,6 +285,83 @@ class DesktopNativeAcceptance(unittest.TestCase):
         self.assertEqual('Draft retained on close', ChatState(self.root).value['draft'])
         self.window.destroy()
         self.assertFalse(watch_callbacks & scheduled(), 'Destroy must cancel the watched window callback')
+
+
+class SettingsWorkerOwnerTests(unittest.TestCase):
+    def assert_owner_waits_for_cleanup(self, kind):
+        from desktop import repository_validation_panel as panels
+        from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            cancel, cleanup, started, finished = (threading.Event() for _ in range(4))
+            panel = object.__new__(panels.RepositoryValidationPanel)
+            panel.root, panel.closed, panel.cancel = root, True, cancel
+            def work():
+                started.set()
+                cancel.wait(5)
+                cleanup.wait(5)
+            panel.worker = threading.Thread(target=work, daemon=False)
+            live = object.__new__(panels.RepositoryValidationPanel)
+            live.root, live.closed, live.cancel, live.worker = root, False, threading.Event(), None
+            other = object.__new__(panels.RepositoryValidationPanel)
+            other.root, other.closed, other.cancel, other.worker = root / 'other', True, threading.Event(), None
+            for candidate in (panel, live, other):
+                panels._PANELS.add(candidate)
+            failures = []
+            if kind == 'settings':
+                from desktop import ui
+                call = lambda: ui.show(root)
+                target = 'desktop.ui.build_window'
+                class ClosedWindow:
+                    def mainloop(self):
+                        return None
+                replacement = ClosedWindow()
+            else:
+                from desktop import dashboard
+                call = lambda: dashboard.show(root)
+                target = 'desktop.dashboard._show'
+                replacement = None
+            def owner():
+                try:
+                    call()
+                except BaseException as error:
+                    failures.append(error)
+                finally:
+                    finished.set()
+            owner_thread = threading.Thread(target=owner)
+            probe = StateDirectoryLock(root / (kind + '-ui') / 'owner')
+            panel.worker.start()
+            try:
+                self.assertTrue(started.wait(2))
+                with patch(target, return_value=replacement):
+                    owner_thread.start()
+                    self.assertTrue(cancel.wait(2), 'Owner shutdown must cancel its closed Settings worker')
+                    self.assertFalse(finished.is_set(), 'Owner must wait for pending process cleanup')
+                    with self.assertRaises(StateDirectoryAlreadyOwned):
+                        probe.acquire()
+                    self.assertFalse(live.cancel.is_set(), 'A live unrelated Settings window remains active')
+                    self.assertFalse(other.cancel.is_set(), 'Another installation is not part of this shutdown')
+                    cleanup.set()
+                    owner_thread.join(3)
+                self.assertFalse(owner_thread.is_alive())
+                self.assertFalse(failures, failures)
+                probe.acquire()
+                probe.release()
+            finally:
+                cancel.set()
+                cleanup.set()
+                if owner_thread.ident is not None:
+                    owner_thread.join(3)
+                panel.worker.join(3)
+                probe.release()
+                for candidate in (panel, live, other):
+                    panels._PANELS.discard(candidate)
+
+    def test_standalone_settings_owner_stays_locked_until_setup_cleanup_finishes(self):
+        self.assert_owner_waits_for_cleanup('settings')
+
+    def test_dashboard_owner_stays_locked_until_child_settings_cleanup_finishes(self):
+        self.assert_owner_waits_for_cleanup('dashboard')
 
 
 if __name__ == '__main__':

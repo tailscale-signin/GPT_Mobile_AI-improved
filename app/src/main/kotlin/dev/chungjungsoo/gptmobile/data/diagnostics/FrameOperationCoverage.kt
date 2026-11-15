@@ -24,6 +24,9 @@ internal class FrameOperationCoverage(private val capacity: Int = 128) {
                 val context = buildJsonObject {
                     put("traceId", sample.traceId)
                     put("operation", sample.operation.take(96))
+                    // Keep the original span when it overlaps a reporting-window boundary.
+                    put("startMonoNs", sample.startedNanos)
+                    put("endMonoNs", sample.endedNanos)
                     put("durationNs", sample.endedNanos - sample.startedNanos)
                     owner.frameContext().forEach { (key, value) -> put(key, value) }
                 }

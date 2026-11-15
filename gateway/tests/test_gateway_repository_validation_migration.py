@@ -11,7 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop import repository_validation as setup
 from desktop.configuration import atomic_json, environment, validate
-from desktop.validation_policy import SETTING, selected_policy_path
+from desktop.validation_policy import SETTING, load_policy_snapshot, save_policy_path, selected_policy_path
 
 PIN = 'python@sha256:' + 'a' * 64  # Test receipt only.
 
@@ -60,10 +60,21 @@ class ManagedFormatMigrationTests(unittest.TestCase):
     def test_disable_never_reactivates_first_managed_format(self):
         from desktop.validation_policy import managed_policy_path, active_policy_path
         atomic_json(managed_policy_path(self.root), {setup.DEFAULT_REPOSITORY: self.entry()})
-        setup.reset_settings(self.root)
+        setup.reset_settings(self.root, expected_revision=load_policy_snapshot(self.root)['revision'])
         self.assertEqual('', active_policy_path(self.root))
-        self.assertEqual({}, setup.read_settings(self.root)[0])
+        self.assertFalse(load_policy_snapshot(self.root)['enabled'])
+        self.assertIn(setup.DEFAULT_REPOSITORY, setup.read_settings(self.root)[0])
         self.assertNotIn(SETTING, environment(self.root, validate({})))
+
+    def test_explicit_external_selection_wins_over_a_first_format_managed_file(self):
+        from desktop.validation_policy import managed_policy_path, active_policy_path
+        atomic_json(managed_policy_path(self.root), {setup.DEFAULT_REPOSITORY: self.entry()})
+        external = self.root / 'selected.json'
+        atomic_json(external, {'other/repo': self.entry()})
+        save_policy_path(self.root, str(external))
+        self.assertEqual(str(external), active_policy_path(self.root))
+        self.assertEqual({'other/repo'}, set(setup.read_settings(self.root)[0]))
+        self.assertEqual(str(external), environment(self.root, validate({}))[SETTING])
 
     def test_corrupt_selector_is_not_hidden_by_first_managed_format(self):
         from desktop.validation_policy import managed_policy_path

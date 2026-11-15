@@ -1,7 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation
-import dev.chungjungsoo.gptmobile.data.context.GitHubProfileLockedException
 import dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
@@ -9,7 +8,6 @@ import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.data.github.GatewayExecutionRejected
 import dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
-import dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitAdmissionException
 import dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitManager
 import io.ktor.http.headersOf
 import kotlinx.serialization.json.Json
@@ -87,32 +85,6 @@ class AgentFailureEvidenceTest {
     }
 
     private fun profileLock() = GitHubProfileSelectionRejected(false, true, true, "a".repeat(64), "b".repeat(64), "c".repeat(64), "d".repeat(64))
-
-    @Test fun localGitHubCooldownPreservesTheDelayWithoutClaimingAnHttpResponse() {
-        val error = GitHubRateLimitAdmissionException("GITHUB_PRIMARY_RATE_LIMITED", 12_000)
-        val event = requireNotNull(AgentFailureEvidence.exception(error))
-        val details = requireNotNull(event.failureDetails)
-        assertEquals("GITHUB_PRIMARY_RATE_LIMITED", event.errorCode)
-        assertEquals("BLOCKED", event.taskOutcome)
-        assertEquals(JsonPrimitive(12_000L), details["retry_after_ms"])
-        assertEquals(JsonPrimitive("tool_precheck"), details["failed_stage"])
-        assertEquals(JsonPrimitive(false), details["dispatched"])
-        assertEquals(JsonPrimitive(false), details["request_replay_allowed"])
-        assertFalse(details.containsKey("http_status"))
-        val partial = requireNotNull(AgentFailureEvidence.exception(error, partialOutput = true))
-        assertEquals("PARTIAL", partial.taskOutcome)
-        assertFalse(requireNotNull(partial.failureDetails).containsKey("dispatched"))
-    }
-
-    @Test fun profileLockReportsPolicyAdmissionWithoutUsingAnotherProfile() {
-        val event = requireNotNull(AgentFailureEvidence.exception(GitHubProfileLockedException()))
-        val details = requireNotNull(event.failureDetails)
-        assertEquals("POLICY_STALE", event.errorCode)
-        assertEquals("BLOCKED", event.taskOutcome)
-        assertEquals(JsonPrimitive("provider_admission"), details["failed_stage"])
-        assertEquals(JsonPrimitive("NO"), details["remote_acceptance"])
-        assertEquals(JsonPrimitive(false), details["request_replay_allowed"])
-    }
 
     @Test fun localRecoveryFailureKeepsTheEarlierInterruptionSeparateFromTheUnsentWake() {
         val original = json("""{"code":"429","details":{"http_status":429,"dispatched":true,"invocation_id":"earlier-invocation","retry_after_ms":30156}}""")

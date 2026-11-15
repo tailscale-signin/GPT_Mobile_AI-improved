@@ -52,6 +52,8 @@ class GatewayGraphRepository @Inject constructor(
             response.result + (
                 "index_checkpoint" to buildJsonObject {
                     put("index_outcome_unknown", response.indexOutcomeUnknown)
+                    response.indexAttemptHash?.let { put("graph_index_attempt_hash", it) }
+                    response.confirmedIndexAttemptHash?.let { put("confirmed_index_attempt_hash", it) }
                     if (response.indexOutcomeUnknown) put("repair_action", "CHECK_SAVED_INDEX")
                 }
                 )
@@ -67,6 +69,7 @@ class GatewayGraphRepository @Inject constructor(
         var gateway: PlatformV2? = null
         var checkpoint: GatewayGraphIndexCheckpoint? = null
         var attempt: String? = null
+        var observedCheckpoint: GatewayGraphIndexCheckpoint.Observation? = null
         var dispatched = false
         try {
             val admitted = admission(context, expectedGatewayProfileUid)
@@ -89,6 +92,7 @@ class GatewayGraphRepository @Inject constructor(
             )
             val retained = GatewayGraphIndexCheckpoint(state, scope)
             checkpoint = retained
+            observedCheckpoint = retained.observation()
             var payload = boundRequest(context, arguments)
             val action = payload.text("action") ?: error("Select a repository graph operation.")
             val cancelJob = action == "index" && payload.text("job_action") == "cancel"
@@ -110,8 +114,11 @@ class GatewayGraphRepository @Inject constructor(
                 if (jobGeneration == null || jobGeneration < 1 || payload["job_generation"] != job?.get("generation")) throw GatewayGraphIntegrityException("GRAPH_JOB_CHANGED", "The saved indexing job was replaced. Refresh its status before stopping the current job.")
                 verifyAdmission(context, expectedGatewayProfileUid, admitted)
             }
-            if (action == "index" && !cancelJob && retained.unresolved()) {
-                throw GatewayGraphAdmissionException("GRAPH_INDEX_OUTCOME_UNKNOWN", "The previous index request is unconfirmed. Check the saved index on this gateway before continuing.", "CHECK_SAVED_INDEX")
+            if (action == "index" && !cancelJob) {
+                observedCheckpoint = retained.observation()
+                if (observedCheckpoint.unresolved) {
+                    throw GatewayGraphAdmissionException("GRAPH_INDEX_OUTCOME_UNKNOWN", "The previous index request is unconfirmed. Check the saved index on this gateway before continuing.", "CHECK_SAVED_INDEX")
+                }
             }
             // A retained cursor is a server-side precondition. A fresh build first reads
             // the existing snapshot, so reopening the map never restarts saved work.
@@ -158,9 +165,19 @@ class GatewayGraphRepository @Inject constructor(
                 // The POST already ran; this is no longer a pre-dispatch rejection.
                 throw IllegalStateException(changed.message, changed)
             }
-            attempt?.let { retained.confirm(it) }
-            val unresolved = if (action == "status") retained.reconcile(result) else retained.unresolved()
-            GatewayGraphResponse(result, action, admitted.gateway.uid, admitted.gateway.name, unresolved, durableJobs, modelAccess)
+            val confirmed = attempt?.let { retained.confirm(it) }
+            val observed = if (action == "status") retained.reconcileObserved(result) else retained.observation()
+            GatewayGraphResponse(
+                result,
+                action,
+                admitted.gateway.uid,
+                admitted.gateway.name,
+                observed.unresolved,
+                durableJobs,
+                modelAccess,
+                observed.attemptHash ?: confirmed ?: observed.confirmedAttemptHash,
+                confirmed ?: observed.confirmedAttemptHash
+            )
         } catch (cancelled: CancellationException) {
             if (!dispatched) attempt?.let { token -> withContext(NonCancellable) { checkpoint?.confirm(token) } }
             throw cancelled
@@ -176,7 +193,15 @@ class GatewayGraphRepository @Inject constructor(
                 else -> failure
             }
             if (unavailable !== failure) unavailable.initCause(failure)
-            val unknown = checkpoint?.unresolved() == true
+            val currentCheckpoint = checkpoint?.observation()
+            val refusedPendingIndex = failure is GatewayGraphAdmissionException && failure.code == "GRAPH_INDEX_OUTCOME_UNKNOWN"
+            val observed = if (refusedPendingIndex) observedCheckpoint else currentCheckpoint
+            val unknown = observed?.unresolved == true
+            val dispatchedAttemptHash = attempt?.let { checkpoint?.attemptHash(it) }
+            // The prior checkpoint may have been confirmed and replaced during this call.
+            // Never pair a newer checkpoint's unknown flag with the dispatched attempt's token.
+            val attemptHash = if (unknown) observed?.attemptHash else dispatchedAttemptHash
+            val currentIndexUnknown = dispatched && dispatchedAttemptHash != null && unknown && observed?.attemptHash == dispatchedAttemptHash
             val repair = when (unavailable) {
                 is GatewayGraphUnavailableException -> unavailable.prerequisites.firstOrNull()?.nextAction
                 is GatewayGraphAdmissionException -> unavailable.repairAction
@@ -189,7 +214,15 @@ class GatewayGraphRepository @Inject constructor(
                 is javax.net.ssl.SSLException -> "REVIEW_SELECTED_GATEWAY_CERTIFICATE"
                 else -> null
             }
-            throw GatewayGraphOperationException(unavailable, gateway?.uid ?: expectedGatewayProfileUid, gateway?.name, if (unknown) "CHECK_SAVED_INDEX" else repair, unknown)
+            throw GatewayGraphOperationException(
+                unavailable,
+                gateway?.uid ?: expectedGatewayProfileUid,
+                gateway?.name,
+                if (unknown) "CHECK_SAVED_INDEX" else repair,
+                unknown,
+                indexAttemptHash = attemptHash,
+                currentIndexOutcomeUnknown = currentIndexUnknown
+            )
         }
     }
 

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.network.error.ErrorClassification
 import java.net.URI
@@ -54,6 +55,8 @@ data class AgentRunLimits(
     val detectRepetition: Boolean = false,
     val researchAcquisition: Boolean = false,
     val githubTask: Boolean = false,
+    /** Trusted accepted objective; retained tool output never supplies investigation intent. */
+    val githubTaskRequest: String? = null,
     /** GitHub retains its full authorized inventory but advertises fitting schemas per round. */
     val githubMode: Boolean = false,
     /** Optional objective for reading a saved batch; this is not an end-to-end recovery target. */
@@ -118,6 +121,12 @@ class AgentRunner(
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
+    private val effectiveReplayTokens = if (limits.contextTokens == Int.MAX_VALUE) {
+        limits.maxReplayTokens
+    } else {
+        val promptCapacity = RequestAdmission.maximumEstimatedPrompt(limits.contextTokens.toLong() - limits.finalResponseReserveTokens)
+        minOf(limits.maxReplayTokens.toLong(), (promptCapacity - limits.initialContextTokens.coerceAtLeast(0)).coerceAtLeast(0)).toInt()
+    }
 
     /** Serialization, hashing, and replay projection can scan megabytes of evidence. */
     private suspend fun prepareReplay(
@@ -172,7 +181,7 @@ class AgentRunner(
             }
             return@flow
         }
-        if (tools.isNotEmpty() && !session.handlesToolsInternally && limits.maxReplayTokens <= 0) {
+        if (tools.isNotEmpty() && !session.handlesToolsInternally && effectiveReplayTokens <= 0) {
             emit(
                 AgentRunEvent.Provider(
                     ProviderEvent.Failed(
@@ -248,14 +257,18 @@ class AgentRunner(
     ) {
         val initialSchemaTokens = selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
         val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
+        val ciInvestigation = GitHubCiInvestigationRecovery(limits.githubTaskRequest)
         val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery, retainedUnknownOutcome)
         if (state.restoredCalls.isNotEmpty() && recovery != null) {
             AppLogRecorder.record("Recovery", "TOOL_BATCH_RESTORED · checkpointVersion=1 · pendingCalls=${state.restoredCalls.size} · previouslyDispatched=${state.restoredDispatched.size} · completed=${recovery.completedCount} · failed=${recovery.failedCount} · uncertain=${recovery.unknownCount} · queued=${recovery.queuedCount} · rejected=${recovery.rejectedCount} · snapshotLoadMs=${recovery.loadMillis} · objectiveMs=${recovery.objectiveMillis ?: "none"} · objectiveStatus=${recovery.objectiveStatus} · measurement=checkpoint_load_only")
         }
         val executionToolCallLimit = ToolBudgetPolicy.executionLimit(limits)
         if (!restoreCompletedExchanges(recovery, toolByName, exchanges, state)) return
-        state.replayTokens = prepareReplay(exchanges, limits.maxReplayTokens, limits.maxReplayResultTokens).compactedTokens.toLong()
+        exchanges.forEach(ciInvestigation::observe)
+        state.replayTokens = prepareReplay(exchanges, effectiveReplayTokens, limits.maxReplayResultTokens).compactedTokens.toLong()
 
+        var admittedReplayLimit = effectiveReplayTokens
+        var capacityReplans = 0
         with(state) {
             while (true) {
                 if (!prepareNextRound(session, exchanges, state, executionToolCallLimit)) return
@@ -287,7 +300,21 @@ class AgentRunner(
                 } else {
                     null
                 }
-                val savedRead = if (automaticRecovery != null && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions, minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2), automaticRecovery) else null
+                val savedRead = if (automaticRecovery != null && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions, minOf(limits.maxReplayResultTokens, admittedReplayLimit / 2), automaticRecovery) else null
+                val ciRead = if (automaticRecovery != null &&
+                    !session.handlesToolsInternally &&
+                    !retainedUnknownOutcome &&
+                    unknownOutcomes.isEmpty() &&
+                    limits.combined?.requested?.singlePass != true &&
+                    !finalResponseRequested &&
+                    !restoringBatch &&
+                    observedToolCalls < observedLimit &&
+                    ToolBudgetPolicy.remainingAllowance(executionToolCallLimit, toolCallCount) > 0
+                ) {
+                    ciInvestigation.nextCall(roundDefinitions.filter { it.name in executableToolByName })
+                } else {
+                    null
+                }
                 val round = if (restoringBatch) {
                     RoundResult(calls = restoredCalls, completed = true, observedCalls = restoredCalls.size).also { restoredCalls = emptyList() }
                 } else if (remoteRead != null) {
@@ -296,8 +323,11 @@ class AgentRunner(
                 } else if (savedRead != null) {
                     emit(AgentRunEvent.Notice("Reading the saved GitHub result; the remote operation is not being repeated.", persistent = false))
                     RoundResult(calls = listOf(savedRead), completed = true, observedCalls = 1)
+                } else if (ciRead != null) {
+                    emit(AgentRunEvent.Notice("Continuing CI diagnosis with the next revision-bound run, job or log observation.", persistent = false))
+                    RoundResult(calls = listOf(ciRead), completed = true, observedCalls = 1)
                 } else {
-                    collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, retainedUnknownOutcome || unknownOutcomes.isNotEmpty())
+                    collectRound(session, roundDefinitions, exchanges, (observedLimit - observedToolCalls).coerceAtLeast(0), searchContext.successful, searchContext.names, consumedCallIds, retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), admittedReplayLimit)
                 }
                 observedToolCalls += round.observedCalls
                 if (round.batchRejected) {
@@ -333,6 +363,37 @@ class AgentRunner(
                     return
                 }
                 if (round.failure != null) {
+                    val admission = round.failureDetails
+                    if (capacityReplans < 2 &&
+                        !session.handlesToolsInternally &&
+                        !retainedUnknownOutcome &&
+                        unknownOutcomes.isEmpty() &&
+                        admission?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
+                        !round.textEmitted &&
+                        round.calls.isEmpty() &&
+                        exchanges.isNotEmpty() &&
+                        round.errorCode in setOf("CONTEXT_CAPACITY_EXCEEDED", "INPUT_CAPACITY_EXCEEDED") &&
+                        (admission?.get("attempt_dispatch_state") as? JsonPrimitive)?.content == "NOT_DISPATCHED"
+                    ) {
+                        fun count(key: String) = (admission?.get(key) as? JsonPrimitive)?.content?.toLongOrNull()
+                            ?.takeIf { it in 0..Int.MAX_VALUE }
+                        val prompt = count("prompt_tokens")
+                        val safety = count("safety_tokens")
+                        val ceiling = count("capacity_tokens")
+                        val output = if (round.errorCode == "INPUT_CAPACITY_EXCEEDED") 0L else count("output_allowance") ?: 0L
+                        if (prompt != null && safety != null && ceiling != null) {
+                            val overage = (prompt + safety + output - ceiling).coerceAtLeast(1)
+                            val requested = (minOf(replayTokens, admittedReplayLimit.toLong()) - overage - 64).coerceAtLeast(0).toInt()
+                            val fit = prepareReplay(exchanges, requested, limits.maxReplayResultTokens, consumedCallIds)
+                            if (requested > 0 && fit.compactedTokens <= requested && fit.compactedTokens.toLong() < replayTokens) {
+                                admittedReplayLimit = requested
+                                replayTokens = fit.compactedTokens.toLong()
+                                capacityReplans++
+                                rounds--
+                                continue
+                            }
+                        }
+                    }
                     val recovery = recoverFailedRound(round, session, exposedDefinitions, finalResponseRequested, exchanges.isNotEmpty() || round.calls.isNotEmpty(), retainedUnknownOutcome || unknownOutcomes.isNotEmpty(), recoveryState) ?: return
                     exposedDefinitions = recovery.definitions
                     if (recovery.restoreRound) rounds--
@@ -381,7 +442,8 @@ class AgentRunner(
                     calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
                     initialSchemaTokens, replayTokens, toolCallsByName, consecutiveToolFailures, blockedReadScopes,
                     remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
-                    retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery
+                    retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
+                    admittedReplayLimit, consumedCallIds
                 ) ?: return
                 executableToolByName = completed.tools
                 exposedDefinitions = completed.definitions
@@ -397,14 +459,44 @@ class AgentRunner(
                 unsuccessfulGitHubRounds = if (limits.githubTask && !completed.batch.hasSuccessfulResult) unsuccessfulGitHubRounds + 1 else 0
                 val stalled = if (limits.githubTask) exchanges.lastOrNull()?.let(investigation::observe) else null
                 if ((unsuccessfulGitHubRounds >= 3 || stalled != null) && !finalResponseRequested && limits.combined?.requested?.singlePass != true) {
-                    finalResponseRequested = true
-                    exposedDefinitions = emptyList()
-                    executableToolByName = emptyMap()
-                    instructFinalResponse(exchanges, consumedCallIds)
-                    emit(AgentRunEvent.Notice(stalled ?: "GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
+                    val replan = if (automaticRecovery != null && !session.handlesToolsInternally && !retainedUnknownOutcome && unknownOutcomes.isEmpty()) {
+                        resumeGitHubInvestigation(investigation, ciInvestigation, exposedDefinitions.filter { it.name in executableToolByName }, exchanges, consumedCallIds)
+                    } else {
+                        null
+                    }
+                    if (replan != null) {
+                        unsuccessfulGitHubRounds = 0
+                        emit(AgentRunEvent.Notice(replan, persistent = false))
+                    } else {
+                        finalResponseRequested = true
+                        exposedDefinitions = emptyList()
+                        executableToolByName = emptyMap()
+                        instructFinalResponse(exchanges, consumedCallIds)
+                        emit(AgentRunEvent.Notice(stalled ?: "GitHub operations failed for three consecutive rounds. Finishing with saved results and the remaining blockers.", persistent = false))
+                    }
                 }
             }
         }
+    }
+
+    private fun resumeGitHubInvestigation(
+        progress: GitHubInvestigationProgress,
+        ci: GitHubCiInvestigationRecovery,
+        tools: List<AgentToolDefinition>,
+        exchanges: MutableList<AgentToolExchange>,
+        consumedCallIds: MutableSet<String>
+    ): String? {
+        val instruction = if (ci.activate(tools)) {
+            progress.resume()
+            "Repeated workflow discovery did not inspect executed CI. Continue the accepted diagnosis with bounded, revision-pinned runs, observed run attempts, failed jobs and log ranges. Existing authorization and task budgets still apply. Retain unavailable observations and do not claim unexecuted tests passed."
+        } else {
+            progress.replan(exchanges, tools) ?: return null
+        }
+        val last = exchanges.lastOrNull() ?: return null
+        val result = last.results.lastOrNull() ?: return null
+        exchanges[exchanges.lastIndex] = last.copy(results = last.results.dropLast(1) + appendInstruction(result, instruction))
+        consumedCallIds.remove(result.callId)
+        return "The investigation stalled on repeated reads. Continuing with remaining authorized observations."
     }
 
     /** One execution's mutable state; keeping it together avoids coroutine spill growth. */
@@ -897,7 +989,10 @@ class AgentRunner(
         unproductiveDiscoveryRounds: Int,
         unknownOutcomes: MutableSet<String>,
         retainedUnknownOutcome: Boolean,
-        savedResultRecovery: GitHubReplayRecovery.State?
+        savedResultRecovery: GitHubReplayRecovery.State?,
+        ciInvestigation: GitHubCiInvestigationRecovery,
+        replayLimit: Int,
+        consumedCallIds: Set<String>
     ): ToolRoundCompletion? {
         var executableToolByName = initialTools
         var exposedDefinitions = initialDefinitions
@@ -1007,13 +1102,16 @@ class AgentRunner(
                     blocked.mapTo(linkedSetOf(), ::admissionReason)
                 )
             } else if (result.isError && !result.dispatched) {
-                result.copy(
-                    executionReceipt = JsonObject(
-                        result.executionReceipt.orEmpty() + buildJsonObject {
-                            put("failed_stage", "tool_precheck")
-                            put("dependency_admission_reasons", JsonArray(listOf(JsonPrimitive(admissionReason(result.callId).name))))
-                        }
-                    )
+                ToolRepeatAdmissionEvidence.attachTo(
+                    result.copy(
+                        executionReceipt = JsonObject(
+                            result.executionReceipt.orEmpty() + buildJsonObject {
+                                put("failed_stage", "tool_precheck")
+                                put("dependency_admission_reasons", JsonArray(listOf(JsonPrimitive(admissionReason(result.callId).name))))
+                            }
+                        )
+                    ),
+                    plan.repeatLimitSnapshots[result.callId]
                 )
             } else {
                 result
@@ -1024,7 +1122,7 @@ class AgentRunner(
             GitHubReplayRecovery.nextSavedRead(
                 exchanges + AgentToolExchange(calls, executedResults + deferredResults),
                 exposedDefinitions.filter { it.name in executableToolByName },
-                minOf(limits.maxReplayResultTokens, limits.maxReplayTokens / 2),
+                minOf(limits.maxReplayResultTokens, replayLimit / 2),
                 savedResultRecovery
             ) != null
         val canReadOtherSources = savedReadAvailable ||
@@ -1034,12 +1132,14 @@ class AgentRunner(
         // Give a scoped read one round to choose another source, then stop
         // paying for provider rounds that only repeat already-suppressed work.
         suppressedReadRounds = if (executableCalls.isEmpty() && canReadOtherSources) suppressedReadRounds + 1 else 0
+        ciInvestigation.observe(AgentToolExchange(calls, executedResults + deferredResults))
         val completedBatch = finishBatch(
             calls, executedResults + deferredResults, exchanges, executableCalls.isEmpty(),
             canReadOtherSources, suppressedReadRounds >= 2 && !savedReadAvailable,
             roundLimitReached, toolCallCount, executionToolCallLimit,
             unproductiveDiscoveryRounds, finalResponseRequested, executableCalls.mapTo(hashSetOf()) { it.callId },
-            executableToolByName.values.any { it.definition.modelVisible && ProgressiveToolCatalog.isGitHubTool(it.definition) }
+            executableToolByName.values.any { it.definition.modelVisible && ProgressiveToolCatalog.isGitHubTool(it.definition) },
+            replayLimit, consumedCallIds
         )
         finalResponseRequested = completedBatch.finalResponseRequested
         if (finalResponseRequested) {
@@ -1195,7 +1295,7 @@ class AgentRunner(
         val selected = selectDefinitions(definitions)
         if (!limits.githubMode) return selected
         val authorized = definitions.filter { it.modelVisible }.associateBy { it.name }
-        return selected.mapNotNull { authorized[it.name] }.distinctBy { it.name }
+        return selected.mapNotNull { choice -> authorized[choice.name]?.let { GitHubActionSchema.authorized(it, choice) } }.distinctBy { it.name }
     }
 
     /** Dynamic discovery has an independent coroutine to stay below ART's method-size ceiling. */
@@ -1261,8 +1361,10 @@ class AgentRunner(
         executionToolCallLimit: Int,
         previousDiscoveryRounds: Int,
         wasFinalResponseRequested: Boolean,
-        publishedCallIds: Set<String> = emptySet(),
-        hasActionableGitHubTools: Boolean = false
+        publishedCallIds: Set<String>,
+        hasActionableGitHubTools: Boolean,
+        replayLimit: Int,
+        consumedCallIds: Set<String>
     ): BatchCompletion {
         var finalResponseRequested = wasFinalResponseRequested
         val resultByCallId = producedResults.associateBy { it.callId }
@@ -1297,11 +1399,14 @@ class AgentRunner(
         val projectedExchanges = exchanges + AgentToolExchange(calls, allResults)
         val replayTokens = prepareReplay(
             exchanges = projectedExchanges,
-            maxReplayTokens = limits.maxReplayTokens,
-            maxResultTokens = limits.maxReplayResultTokens
+            maxReplayTokens = replayLimit,
+            maxResultTokens = limits.maxReplayResultTokens,
+            consumedCallIds = consumedCallIds
         ).compactedTokens.toLong()
+        val estimatedPrompt = limits.initialContextTokens.toLong().coerceAtLeast(0) + replayTokens
         val contextNearLimit = limits.contextTokens != Int.MAX_VALUE &&
-            limits.initialContextTokens.toLong() + replayTokens + limits.finalResponseReserveTokens + 256 >= limits.contextTokens
+            estimatedPrompt + limits.finalResponseReserveTokens +
+            RequestAdmission.estimateSafety(estimatedPrompt) > limits.contextTokens
         val repeatLimited = allResults.any { toolResultText(it).contains("reached the per-response repeat limit", ignoreCase = true) }
         val unavailableCallsOnly = noExecutableCalls && calls.isNotEmpty() && !canReadOtherSources
         val argumentRepairStalled = allResults.isNotEmpty() &&
@@ -1399,7 +1504,7 @@ class AgentRunner(
                 repeatedReadsRequireFinalization -> appendInstruction(allResults.last(), "Repeated reads were skipped without acquiring new evidence. Summarize the results already collected and identify remaining gaps. Do not request more tools in this response.")
                 discoveryRequiresFinalization -> appendInstruction(allResults.last(), "No more tools became available. Do not call discovery again; summarize completed findings and clearly identify any gaps.")
                 roundLimitReached -> appendInstruction(allResults.last(), ROUND_LIMIT_FINAL_RESPONSE_INSTRUCTION)
-                contextNearLimit -> appendInstruction(allResults.last(), "The context limit is approaching. Use the available findings to give a final response now and ask whether the user wants to continue. Do not call more tools.")
+                contextNearLimit -> appendInstruction(allResults.last(), "The current task cannot fit its irreducible request and tool receipt in the resolved context allowance after compaction. Report the exact context blocker and retained work. Do not ask for a manual continuation that would repeat the same oversized request.")
                 outputBudgetExhausted && toolCallBudgetExhausted ->
                     appendInstruction(allResults.last(), COMBINED_BUDGET_FINAL_RESPONSE_INSTRUCTION)
                 outputBudgetExhausted -> appendInstruction(allResults.last(), OUTPUT_BUDGET_FINAL_RESPONSE_INSTRUCTION)
@@ -1484,7 +1589,8 @@ class AgentRunner(
         successfulSearch: Boolean,
         searchToolNames: Set<String>,
         consumedCallIds: MutableSet<String>,
-        hasUnknownOutcome: Boolean
+        hasUnknownOutcome: Boolean,
+        replayLimit: Int = effectiveReplayTokens
     ): RoundResult {
         val calls = mutableListOf<ProviderEvent.ToolCall>()
         val admission = ToolRoundAdmission(minOf(MAX_BUFFERED_TOOL_CALLS, remainingObserved), maxSameTool = MAX_SAME_TOOL_CALLS_PER_RUN)
@@ -1544,7 +1650,7 @@ class AgentRunner(
         // Keep provider failures separate from downstream collector failures. In
         // particular, never emit usage from finally after cancellation or a failed emit.
         flow {
-            if (exchanges.isNotEmpty() && limits.maxReplayTokens <= 0) {
+            if (exchanges.isNotEmpty() && replayLimit <= 0) {
                 emit(
                     ProviderEvent.Failed(
                         "No actionable tool receipt fits this request. Lower the stage output reservation or narrow the schemas before continuing; saved evidence was retained.",
@@ -1559,7 +1665,7 @@ class AgentRunner(
             }
             val replay = prepareReplay(
                 exchanges = exchanges,
-                maxReplayTokens = limits.maxReplayTokens,
+                maxReplayTokens = replayLimit,
                 maxResultTokens = limits.maxReplayResultTokens,
                 consumedCallIds = consumedCallIds
             )
@@ -1572,13 +1678,13 @@ class AgentRunner(
             if (rawReplayTokens > compactedReplayTokens && replayCompactionLogGate.shouldLog(rawReplayTokens, exchanges.size, compactionMicros)) {
                 AppLogRecorder.record(
                     "Agent",
-                    "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=${limits.maxReplayTokens} · compactionUs=$compactionMicros · tokenCounts=ESTIMATED · retainedEvidenceIndependent=true · logPolicy=EXPONENTIAL_HIGH_WATER"
+                    "PRIMARY_REPLAY_COMPACTED · rawTokens=$rawReplayTokens · replayTokens=$compactedReplayTokens · savedTokens=${rawReplayTokens - compactedReplayTokens} · exchanges=${exchanges.size} · budget=$replayLimit · compactionUs=$compactionMicros · tokenCounts=ESTIMATED · retainedEvidenceIndependent=true · logPolicy=EXPONENTIAL_HIGH_WATER"
                 )
             }
-            if (compactedReplayTokens > limits.maxReplayTokens) {
+            if (compactedReplayTokens > replayLimit) {
                 AppLogRecorder.record(
                     "Agent",
-                    "PRIMARY_REPLAY_BUDGET_OVERRUN · replayTokens=$compactedReplayTokens · budget=${limits.maxReplayTokens} · exchanges=${exchanges.size}",
+                    "PRIMARY_REPLAY_BUDGET_OVERRUN · replayTokens=$compactedReplayTokens · budget=$replayLimit · exchanges=${exchanges.size}",
                     "W"
                 )
                 emit(
@@ -1591,7 +1697,7 @@ class AgentRunner(
                             put("dispatched", false)
                             put("retryable", false)
                             put("replay_tokens", compactedReplayTokens)
-                            put("replay_allowance", limits.maxReplayTokens)
+                            put("replay_allowance", replayLimit)
                         }
                     )
                 )

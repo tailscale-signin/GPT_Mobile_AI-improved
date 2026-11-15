@@ -140,6 +140,3 @@ class GitHubRateLimitManager {
         )
     }
 }
-
-/** Minimal cached admission facts for callers without a complete resource snapshot. */
-internal class GitHubRateLimitAdmissionException(val code: String, val retryAfterMillis: Long) : IllegalStateException("$code: GitHub is cooling down. Wait for the recorded deadline before resuming saved work.")

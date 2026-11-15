@@ -19,10 +19,25 @@ internal object ToolResultEnvelope {
 
     fun executionState(result: AgentToolResult): String = when {
         result.errorCode in unknownOutcomeCodes -> "UNKNOWN_OUTCOME"
+        currentGraphIndexUnknown(result) -> "UNKNOWN_OUTCOME"
         searchReceiptState(result) != null -> requireNotNull(searchReceiptState(result))
         result.isError && !result.dispatched -> "PRECHECK_REJECTED"
         result.isError -> "FAILED"
         else -> "COMPLETED"
+    }
+
+    /** An unresolved earlier index does not change a status read or unsent guard's current outcome. */
+    private fun currentGraphIndexUnknown(result: AgentToolResult): Boolean {
+        val receipt = result.executionReceipt ?: return false
+        return result.isError &&
+            result.dispatched &&
+            receipt["schema"] == JsonPrimitive("gptmobile.repository-graph.v1") &&
+            receipt["call_id"] == JsonPrimitive(result.callId) &&
+            receipt["action"] == JsonPrimitive("index") &&
+            receipt["phase"] == JsonPrimitive("UNKNOWN_OUTCOME") &&
+            receipt["current_index_outcome_unknown"] == JsonPrimitive(true) &&
+            receipt["index_outcome_unknown"] == JsonPrimitive(true) &&
+            receipt["requires_reconciliation"] == JsonPrimitive(true)
     }
 
     /** Only our structured search adapter supplies this receipt; arbitrary payload prose is ignored. */
@@ -65,7 +80,7 @@ internal object ToolResultEnvelope {
                 put("retryable", ToolFailureMetadata.retryable(ToolFailureMetadata.normalize(result)))
                 // Exact GitHub continuation recipes are durable verifier evidence,
                 // not part of the bounded model-visible display page.
-                result.executionReceipt?.let { put("receipt", JsonObject(it - "retained_remote_continuations")) }
+                result.executionReceipt?.let { put("receipt", JsonObject(it - "retained_remote_continuations" - ToolRepeatAdmissionEvidence.FIELD_NAMES)) }
                 put(
                     "outcome",
                     when {

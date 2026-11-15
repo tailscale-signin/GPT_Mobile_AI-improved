@@ -61,8 +61,13 @@ def main():
             assert capabilities.json()['code_graph']['enabled']
             assert not capabilities.json()['enabled']
             results.append('public repository map is ready by default without a GitHub credential')
-            subprocess.run([str(exe), 'validate-ui', '--root', str(root), '--quiet'], check=True, timeout=20)
-            results.append('General, Advanced, Add-ons and GitHub render at minimum size')
+            subprocess.run([str(exe), 'validate-ui', '--root', str(root), '--quiet'], check=True, timeout=90)
+            settings_captures = list(root.glob('settings-*.png'))
+            assert {'settings-repository-validation-basic-compact.png',
+                    'settings-repository-validation-advanced-compact.png'} <= {capture.name for capture in settings_captures}
+            for capture in settings_captures:
+                shutil.copy2(capture, output / capture.name)
+            results.append('General, Advanced, Add-ons and GitHub render at minimum size; Repository Validation basic and Advanced captures retained')
             deadline = time.monotonic() + 20
             while not (root / 'dashboard.json').exists() and time.monotonic() < deadline:
                 time.sleep(.2)

@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.tool.ResolvedAgentTool
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
+import dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
@@ -13,12 +14,13 @@ import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubStatusCatalogTest {
     private val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it, it + "__github_api") }
-    private val initialNames = setOf("github_context__github_api", "github_pr__github_api", ProgressiveToolCatalog.NAME)
+    private val initialNames = setOf("github_context_inspect__github_api", "github_pr_inspect__github_api", ProgressiveToolCatalog.NAME)
 
     @Test fun explicitStatusUsesTwoSchemasAndDiscoveryWithoutDiscardingAuthorization() = runTest {
         val task = "Inspect the GitHub repository status and open PRs"
@@ -44,7 +46,7 @@ class GitHubStatusCatalogTest {
             val resolved = (operations + catalog).map { tool -> ResolvedAgentTool(tool, null, "GitHub", tool.definition.name, tool.definition.name, progressiveCatalog = catalog.takeIf { tool === catalog }) }
             val turn = ConversationTurn(MessageV2(content = task, platformType = null), null, true)
             val plan = planAuthorizedToolContext(listOf(turn), "Inspect the exact repository status.", resolved, TokenBudgetSettings(contextTokens = 8192, outputTokens = 1024, adaptiveToolCatalog = adaptive), externalTools = true, githubMode = true)
-            assertEquals(setOf("github_context", "github_pr", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
+            assertEquals(setOf("github_context_inspect", "github_pr_inspect", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
             assertEquals(resolved.map { it.tool.definition.name }.toSet(), plan.authorizedTools.map { it.name }.toSet())
             assertTrue(plan.tools.sumOf { ProgressiveToolCatalog.schemaTokens(it) } < operations.sumOf { ProgressiveToolCatalog.schemaTokens(it.definition) } / 2)
         }
@@ -68,5 +70,43 @@ class GitHubStatusCatalogTest {
         val recovery = AgentToolDefinition("read_recovery_context", "Read the retained receipt for this task", buildJsonObject { put("type", "object") })
         val catalog = ProgressiveToolCatalog(definitions + recovery, "repo status", githubMode = true)
         assertEquals(initialNames + recovery.name, catalog.selected(definitions + recovery + catalog.definition).map { it.name }.toSet())
+    }
+
+    @Test fun healthAdmitsRecentFailureReadsThroughBothCatalogAndContextBudgetPlanning() {
+        val task = GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt
+        assertEquals(setOf("github_context", "github_pr", "github_ci"), GitHubOperationTool.taskTools(task))
+        for (adaptive in listOf(true, false)) {
+            val operations = GitHubTool().operations()
+            val catalog = ProgressiveToolCatalog(operations.map { it.definition }, task, githubMode = true)
+            val resolved = (operations + catalog).map { tool -> ResolvedAgentTool(tool, null, "GitHub", tool.definition.name, tool.definition.name, progressiveCatalog = catalog.takeIf { tool === catalog }) }
+            val turn = ConversationTurn(MessageV2(content = task, platformType = null), null, true)
+            val plan = planAuthorizedToolContext(listOf(turn), "Inspect the selected repository health.", resolved, TokenBudgetSettings(contextTokens = 8192, outputTokens = 1024, adaptiveToolCatalog = adaptive), externalTools = true, githubMode = true)
+            assertEquals(setOf("github_context_inspect", "github_pr_inspect", "github_ci", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
+            assertEquals(resolved.map { it.tool.definition.name }.toSet(), plan.authorizedTools.map { it.name }.toSet())
+            assertFalse(plan.tools.any { it.name in setOf("github_write", "github_commit", "github_stage_patch") })
+        }
+    }
+
+    @Test fun optionalRoundSchemasCannotEvictRequiredHealthCiReads() {
+        val task = GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt
+        val required = definitions.filter { GitHubOperationTool.operationName(it.name) in setOf("github_context", "github_pr", "github_ci") }
+        val discovery = ProgressiveToolCatalog(definitions, task, githubMode = true).definition
+        val requiredCost = (required + discovery).sumOf { providerSchemaTokens(it, true) }.toInt()
+        val optional = AgentToolDefinition("large_optional", "Optional schema ".repeat(1000), buildJsonObject {})
+        val limits = AgentRunLimits(githubTask = true, githubMode = true, githubTaskRequest = task, contextTokens = 16_384, initialContextTokens = 16_384 - 1024 - 256 - requiredCost, finalResponseReserveTokens = 1024)
+        val selected = fitProviderToolSchemas(listOf(optional) + required + discovery, limits, 0, 0)
+        assertEquals((required + discovery).map { it.name }.toSet(), selected.map { it.name }.toSet())
+        assertEquals(required.filterNot { GitHubOperationTool.operationName(it.name) == "github_ci" }.map { it.name }.toSet(), fitProviderToolSchemas(required.filterNot { GitHubOperationTool.operationName(it.name) == "github_ci" }, limits, 0, 0).map { it.name }.toSet())
+    }
+
+    @Test fun insufficientHealthSchemaRoomFailsWithTheMeasuredAllowance() {
+        val task = GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt
+        val required = definitions.filter { GitHubOperationTool.operationName(it.name) in setOf("github_context", "github_pr", "github_ci") }
+        val cost = required.sumOf { providerSchemaTokens(it, true) }
+        val limits = AgentRunLimits(githubTask = true, githubMode = true, githubTaskRequest = task, contextTokens = 16_384, initialContextTokens = 16_384 - 1024 - 256 - cost.toInt() + 1, finalResponseReserveTokens = 1024)
+        val error = assertThrows(GitHubToolContextBudgetException::class.java) { fitProviderToolSchemas(required, limits, 0, 0) }
+        assertEquals(cost, error.requiredSchemaTokens)
+        assertEquals(cost - 1, error.availableSchemaTokens)
+        assertEquals(JsonPrimitive(false), error.providerFailure().failureDetails?.get("dispatched"))
     }
 }

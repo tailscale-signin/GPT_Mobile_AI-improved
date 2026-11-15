@@ -103,4 +103,117 @@ class GitHubInventoryObservationTest {
         assertEquals(7, runs.count { it["conclusion"] == JsonPrimitive("success") })
         assertEquals(JsonPrimitive(18), GitHubInventoryObservation.of(observed)?.get("fetched"))
     }
+
+    @Test fun completeRunCoverageDoesNotSplitWhenContinuationAddsSelectedRef() {
+        val receipts = linkedMapOf<String, JsonObject>()
+        for (page in 1..7) {
+            val original = buildJsonObject {
+                put("page", page)
+                put("per_page", 30)
+                put("total_count", 206)
+                put("has_more", page < 7)
+                put("workflow_runs", JsonArray(((page - 1) * 30 + 1..minOf(page * 30, 206)).map { buildJsonObject { put("id", it) } }))
+            }
+            receipts["page-$page"] = JsonObject(
+                receipt(original) + mapOf(
+                    "arguments" to buildJsonObject {
+                        put("action", "runs")
+                        put("page", page)
+                        put("per_page", 30)
+                        put("commit_sha", "a".repeat(40))
+                        if (page > 1) put("ref", "main")
+                    },
+                    "repository" to JsonPrimitive("owner/repo"),
+                    "binding" to JsonPrimitive("same-task")
+                )
+            )
+        }
+        val row = GitHubTestChecklist.inventoryCoverage(receipts).single().jsonObject
+        assertEquals(JsonPrimitive(206), row["retrieved"])
+        assertEquals(JsonPrimitive(206), row["fetched"])
+        assertEquals(JsonPrimitive(7), row["page_count"])
+        assertEquals(JsonPrimitive("retrieval complete at observation"), row["coverage"])
+        assertEquals(JsonPrimitive("a".repeat(40)), row.getValue("filters").jsonObject["head_sha"])
+        val foreign = JsonObject(receipts.getValue("page-7") + ("repository" to JsonPrimitive("owner/other")))
+        assertEquals(2, GitHubTestChecklist.inventoryCoverage(receipts + ("other" to foreign)).size)
+    }
+
+    @Test fun changedUpstreamInventoryRemainsIncompleteEvenWhenCountsMatch() {
+        val changed = JsonObject(
+            source() + (
+                "pagination_progress" to buildJsonObject {
+                    put("upstream_changed_during_traversal", true)
+                }
+                )
+        )
+        val observed = receipt(changed)
+        assertEquals(JsonPrimitive(true), GitHubInventoryObservation.of(observed)?.get("upstream_changed_during_traversal"))
+        val row = GitHubTestChecklist.inventoryCoverage(mapOf("runs" to observed)).single().jsonObject
+        assertEquals(JsonPrimitive(18), row["retrieved"])
+        assertTrue(row["coverage"] != JsonPrimitive("retrieval complete at observation"))
+    }
+
+    @Test fun aFreshFirstPageCannotBorrowAnEarlierTraversalsFinalPage() {
+        fun page(id: String, page: Int, ids: List<Int>, at: Long, cached: Boolean = false) = buildJsonObject {
+            put("receipt_id", id)
+            put("tool", "github_ci")
+            put("trusted", true)
+            put("success", true)
+            put("shared_result", cached)
+            put("evidence_origin", if (cached) "CACHED" else "LIVE")
+            put("observed_at_ms", at)
+            put(
+                "arguments",
+                buildJsonObject {
+                    put("action", "runs")
+                    put("page", page)
+                    put("per_page", 2)
+                }
+            )
+            put(
+                "result",
+                buildJsonObject {
+                    put("page", page)
+                    put("total_count", 4)
+                    put("has_more", page == 1)
+                    put("workflow_runs", JsonArray(ids.map { buildJsonObject { put("id", it) } }))
+                }
+            )
+        }
+        val before = linkedMapOf(
+            "old-one" to page("old-one", 1, listOf(1, 2), 100),
+            "old-two" to page("old-two", 2, listOf(3, 4), 110)
+        )
+        assertEquals(JsonPrimitive("retrieval complete at observation"), GitHubTestChecklist.inventoryCoverage(before).single().jsonObject["coverage"])
+        val refreshed = before + ("new-one" to page("new-one", 1, listOf(5, 6), 200))
+        val first = GitHubTestChecklist.inventoryCoverage(refreshed).single().jsonObject
+        assertEquals(JsonPrimitive(1), first["page_count"])
+        assertEquals(JsonPrimitive(2), first["retrieved"])
+        assertTrue(first["coverage"] != JsonPrimitive("retrieval complete at observation"))
+        val cached = refreshed + ("cached-old-two" to page("cached-old-two", 2, listOf(3, 4), 110, cached = true))
+        val stale = GitHubTestChecklist.inventoryCoverage(cached).single().jsonObject
+        assertEquals(JsonPrimitive(1), stale["cached_page_freshness_unverified"])
+        assertTrue(stale["coverage"] != JsonPrimitive("retrieval complete at observation"))
+        val final = cached + ("new-two" to page("new-two", 2, listOf(7, 8), 210))
+        val complete = GitHubTestChecklist.inventoryCoverage(final).single().jsonObject
+        assertEquals(JsonPrimitive(4), complete["retrieved"])
+        assertEquals(JsonPrimitive(0), complete["cached_page_freshness_unverified"])
+        assertEquals(JsonPrimitive("retrieval complete at observation"), complete["coverage"])
+    }
+
+    @Test fun anotherRepositoryOrTaskCannotClearAnInventoryReadFailure() {
+        val original = JsonObject(receipt(source()) + mapOf("repository" to JsonPrimitive("owner/repo"), "binding" to JsonPrimitive("task-a")))
+        val failed = JsonObject(original + mapOf("success" to JsonPrimitive(false), "result" to JsonObject(emptyMap())))
+        for (foreign in listOf(
+            JsonObject(original + ("repository" to JsonPrimitive("owner/other"))),
+            JsonObject(original + ("binding" to JsonPrimitive("task-b")))
+        )) {
+            val coverage = GitHubTestChecklist.inventoryCoverage(linkedMapOf("old" to original, "failed" to failed, "foreign" to foreign))
+            assertEquals(2, coverage.size)
+            assertTrue(coverage.first().jsonObject["coverage"] != JsonPrimitive("retrieval complete at observation"))
+            assertEquals(JsonPrimitive("retrieval complete at observation"), coverage.last().jsonObject["coverage"])
+        }
+        val recovered = GitHubTestChecklist.inventoryCoverage(linkedMapOf("old" to original, "failed" to failed, "recovered" to original))
+        assertEquals(JsonPrimitive("retrieval complete at observation"), recovered.single().jsonObject["coverage"])
+    }
 }

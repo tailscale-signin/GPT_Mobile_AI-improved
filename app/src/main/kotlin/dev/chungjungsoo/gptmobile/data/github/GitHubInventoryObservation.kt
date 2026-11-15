@@ -48,6 +48,8 @@ internal object GitHubInventoryObservation {
             put("consumed", JsonNull)
             put("consumption_status", "NOT_RECORDED")
             for (key in listOf("page", "per_page", "total_count", "has_more", "complete")) value[key]?.let { put(key, it) }
+            value["pagination_inconsistent"]?.let { put("pagination_inconsistent", it) }
+            (value["pagination_progress"] as? JsonObject)?.get("upstream_changed_during_traversal")?.let { put("upstream_changed_during_traversal", it) }
             put("scope", "CANONICAL_RETURNED_PAGE_BEFORE_PROJECTION")
         }
     }

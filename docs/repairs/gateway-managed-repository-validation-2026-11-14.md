@@ -1,81 +1,117 @@
 # Built-in Windows repository validation
 
-Requested follow-up to PR #1122, on its existing branch
+This feature stays on PR #1122 and its existing branch,
 `fix/github-context-and-voice-reliability-2026-11-14`.
-The source baseline for this implementation is
-`cef330f93ed2af9fae334b38acc5eb25b087159d`.
+The combined correction preserves the published feature at
+`fdc808976f1df2024856dac01ffd2a0a1dddbda2` and its subsequent inventory-only update.
+It retains the repository/profile setup, private-repository connection, immutable
+image pins, migration, read-only readiness and real-Docker CI producer while
+reconciling every editor through one revision-checked persistence contract.
 
-## Delivered behavior
+## User experience
 
-GitHub settings now contains Connection and Repository Validation subtabs. The
-validation form owns repository, mirror folder, profile and timeout inputs. Its
-advanced area owns image selection/repinning, approved argument arrays and
-acceptance/CI mappings. Prepare & save creates or verifies a dedicated bare
-mirror, prepares a real registry-digest-pinned Python image and saves a managed
-internal snapshot. No user-authored external JSON file is required.
+GitHub settings contains **Connection** and **Repository Validation** subtabs.
+The normal form owns the enable choice, repository and validation profile.
+Advanced validation settings contain the mirror folder, command timeout, image selection and repinning, approved
+argument arrays, exact CI check names, acceptance mappings, parallel groups,
+objective templates and draft-repair requirements. A normal setup does not require
+an external policy file or terminal command. Existing custom contracts retain their
+unknown valid host fields and other repository entries.
 
-Legacy selected policies migrate on explicit successful preparation, preserving
-other repositories, acceptance mappings and unknown host policy fields. The
-original file is not changed. Both launcher stages keep the existing selector
-contract. Immutable snapshots preserve running jobs' original approval; restart
-uses the existing active-work guard. Failed setup, cancellation, corrupt settings
-or concurrent writes never silently activate defaults or bypass admission.
+Preparation explicitly creates or refreshes a dedicated bare GitHub mirror and
+resolves an installed registry image to a real SHA-256 digest. Existing approved
+image pins remain fixed until the user asks to refresh them. Read-only setup checks
+inspect the existing mirror and image without fetching, pulling, saving or running
+repository commands. Both paths report prerequisites separately from repository
+tests and task acceptance. Cancellation and closing Settings stop pending setup
+work; a completed mirror fetch or image download can remain cached.
 
-Git runs with hooks, ambient configuration and interactive credentials disabled.
-The selected GitHub credential is scoped to the child's HTTPS environment rather
-than a saved remote URL. Preparation and execution use the same isolated local
-Docker context and resolve installed host executables before stripping child
-PATH. No repository code runs on the host during setup. Normal validation keeps
-its existing offline, unprivileged, read-only-root container limits.
+Recommended source checks parse Python source, check diagnostic-schema consistency
+and check repository CI policy. They need only Python's standard library inside
+the validation image. Their configured remote CI names do not claim that Android,
+CodeQL, Windows or required GitHub checks ran. Implementation admission still needs
+real behavior producers and explicit acceptance requirements. A generic repository
+must use its own Custom commands and offline image dependencies.
 
-The recommended source profile checks syntax, schema drift and checked-in CI
-policy with Python's standard library. It does not invent arbitrary feature
-acceptance. Per-task implementation still needs real behavior producers; remote
-required checks, review rules and merge authorization remain independent.
+## One selection and save contract
 
-## Local observations
+Every cooperating Settings writer uses the same cross-process editor lock and a
+revision derived from the observed selector, selected policy, draft pointer and
+draft bytes. A stale window cannot replace another window's new repository or
+contract. The editor preserves unsaved values when a save conflicts and offers an
+explicit reload. Invalid on-disk state remains visible and repairable.
 
-The Gateway sources were extracted from the successful Windows artifact for the
-baseline above. All 297 original source-manifest hashes were verified before
-editing; the resulting package inventory contains 304 source files.
+A valid first-generation managed policy remains selected only when no schema-1
+selector and no inherited explicit selection exist. This preserves that earlier
+format's actual Save/startup behavior. Once a selector exists, its empty value,
+external path or immutable managed path is authoritative. Invalid explicit state
+fails closed; the mere presence of an old managed file cannot override it.
 
-| Isolated test suite | Result |
-| --- | --- |
-| Managed repository setup / first-format migration | 31 + 3 passed |
-| New native Tk settings UI, with Linux Xvfb | 10 passed |
-| Existing desktop validation-policy compatibility | 13 passed |
-| Existing isolated validation/execution/report tests | 16 passed |
-| Existing engineering admission/preflight | 10 passed |
-| Existing engineering retention and selected-execution tests | 26 passed |
+Saving writes a content-addressed immutable policy revision under
+`data/validation-policies/`, retains the editable draft reference and finally
+atomically replaces the existing schema-1 selector. The selector replacement is
+the activation point. A failed replacement preserves the old active policy bytes.
+Disable writes an explicit empty selector while retaining valid drafts, original
+external policies, images, mirrors and prior revisions. Old policy revisions are
+not garbage-collected while saved work or a rollback reader could reference them.
 
-Total focused test invocations: 109 passed. Some existing suites import shared
-test classes, so this is not a unique overall product-coverage count. Setup tests
-mock external downloads and Docker responses; the Git mirror and subprocess
-fixtures execute real local processes. Native UI tests render actual Tk windows,
-including minimum-width layout and cancellation of the current worker.
+The unchanged selector format supports launcher and rollback readers that honor
+that selector. The historically buggy intermediate build which prioritizes the
+old mutable file cannot be made to obey newer disable semantics by changing the
+newer code. Compatibility does not claim otherwise. Restart remains governed by
+the existing active-work guard; setup never cancels engineering jobs.
 
-Package hashes and Python syntax compile checks passed. The broader local daemon
-suite did not complete within the local execution window, and no full Android,
-Windows installation or live Docker success is claimed here.
+## Host and execution boundaries
 
-## Concurrent-source reconciliation
+Git uses the selected repository's fixed GitHub HTTPS origin, disabled hooks,
+disabled ambient Git configuration and noninteractive credentials. Existing
+mirrors are checked before fetching. Local URL redirects, includes, custom HTTP
+settings and worktree configuration are rejected; a worktree-scoped URL rewrite
+cannot bypass the effective-origin check. The selected GitHub credential is scoped
+to the Git child's HTTPS environment and is never saved in a URL or policy.
 
-The same branch advanced through `6e1ee03687cebd87975d92a9913ba3fd2db8742b`
-while the feature was being tested. The integration preserves its app inventories,
-managed-policy APIs and shared `validate_policy_entry` parser. Its first mutable
-managed settings format migrates into immutable snapshots; explicit disable and
-corrupt-selector failure cannot fall back to that older file. The 109 focused
-invocations above were rerun after this reconciliation. The enhanced panel
-replaces the overlapping form, retaining its editable commands and mappings.
+Preparation and actual validation resolve installed Git/Docker executables before
+stripping child PATH and use the same isolated local/default Docker endpoint.
+Setup does not start a container or execute repository code on the host. Actual
+validation retains its offline, unprivileged, read-only-root container limits.
+Subprocess output and duration are bounded; Windows process ownership and Unix
+process groups provide cancellation cleanup.
 
-## Final-head requirements
+Desktop form validation can parse a not-yet-prepared empty image through an
+explicit opt-in parser argument. Every runtime policy loader and validation caller
+keeps the strict default requiring a digest. Commands, acceptance mappings, groups,
+templates and repair requirements use the same runtime grammar. This does not
+relax any execution, CI or acceptance gate.
 
-Gateway stability adds an explicit real-Docker job. It builds an exact-checkout
-mirror, resolves the real default image digest, loads managed settings and runs
-the default source commands inside the canonical offline validation sandbox.
-The receipt includes source SHA, image digest and command outcomes. This is
-source-check qualification, not per-feature behavior acceptance.
+## Validation and final qualification
 
-The existing Ubuntu/Windows and Python 3.12/3.13 Gateway matrix, Windows installer,
-Android, security and applicable PR checks must qualify the final published head.
-Prior baseline successes and the local observations above do not authorize merge.
+The combined local run passed **84 isolated Python suites: 1,198 cases collected,
+1,171 passed and 27 declared platform/environment skips**, followed by all seven
+browser tests. The 50,000-event, 782-commit restart/digest-expiry stress case is
+included in that Python total. Canonical fast checks passed 510 tests, and the
+current-base authentication suite passed 111. These authentication results do not
+qualify separately composed Android/reporting components; the complete PR must
+rerun its final checks.
+
+The focused settings/backend suites are included in the broad Gateway run, not
+added to its count. Five display-independent UI/parser/owner-lock cases passed;
+24 native Tk interaction cases were skipped because this local environment has no
+X display. Two Windows-only desktop cases and one unavailable LAN IPv4 environment
+case account for the other three skips. Windows native layout and actual Docker
+execution remain final CI gates. The later canonical Windows path assertion,
+smoke-image capture/copy steps and documentation wording were checked separately;
+they do not alter the runtime source exercised by the full run.
+
+Earlier prototype results and the published feature's 109 focused test invocations
+are historical observations. They are not summed into this final local coverage.
+
+Gateway stability includes **Managed repository validation (real Docker)**. It
+installs the pinned Gateway host dependencies, creates a mirror of the exact CI
+checkout, pins the real default image and executes the three recommended source
+commands in the canonical offline sandbox. The retained receipt includes source
+SHA, image digest and command outcomes, with no feature-acceptance claim.
+
+The final source must pass that job, all four Ubuntu/Windows and Python 3.12/3.13
+Gateway jobs, the packaged Windows smoke including both nested GitHub tabs at the
+minimum window size, and all applicable Android, report, build-download, security
+and PR checks. Historical partial-head successes do not authorize merge.

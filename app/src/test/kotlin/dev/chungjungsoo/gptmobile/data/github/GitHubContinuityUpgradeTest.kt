@@ -282,15 +282,17 @@ class GitHubContinuityUpgradeTest {
         val cases = Json.parseToJsonElement(fixture.readText()).jsonObject["cases"] as JsonArray
         for (raw in cases) {
             val case = raw.jsonObject
-            val node = JsonObject(case.filterKeys { it != "passed" } + ("__typename" to JsonPrimitive("CheckRun")))
-            val response = """{"data":{"repository":{"pullRequest":{"state":"OPEN","isDraft":false,"headRefOid":"${"a".repeat(40)}","baseRefOid":"${"b".repeat(40)}","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"oid":"${"a".repeat(40)}","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":2,"pageInfo":{"hasNextPage":false},"nodes":[$node,{"__typename":"CheckRun","name":"baseline","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true}]}}}}]}}}}}"""
+            val node = JsonObject(case.filterKeys { it != "passed" } + mapOf("__typename" to JsonPrimitive("CheckRun"), "id" to JsonPrimitive("case-check"), "checkSuite" to healthCheckSuite("a".repeat(40))))
+            val response = """{"data":{"repository":{"pullRequest":{"state":"OPEN","isDraft":false,"headRefOid":"${"a".repeat(40)}","baseRefOid":"${"b".repeat(40)}","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"oid":"${"a".repeat(40)}","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":2,"pageInfo":{"hasNextPage":false},"nodes":[$node,{"id":"baseline-check","__typename":"CheckRun","name":"baseline","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true,"checkSuite":${healthCheckSuite("a".repeat(40))}}]}}}}]}}}}}"""
             val result = gitHubPullRequestHealth(Json.parseToJsonElement(response).jsonObject, "a".repeat(40))
             assertEquals(case["name"].toString(), case["passed"], JsonPrimitive(result.requestedValidationPassed))
         }
     }
 
+    private fun healthCheckSuite(head: String): JsonObject = Json.parseToJsonElement("""{"id":"suite","app":{"id":"app"},"commit":{"oid":"$head"},"branch":{"id":"branch"},"workflowRun":{"id":"run","runNumber":1,"runAttempt":1,"event":"pull_request","workflow":{"id":"workflow"}}}""").jsonObject
+
     private fun healthPage(start: Int, end: Int, more: Boolean, head: String = "a".repeat(40), requiredConclusion: String = "SUCCESS"): JsonObject {
-        val nodes = (start until end).joinToString(",") { """{"id":"check-$it","__typename":"CheckRun","name":"check-$it","status":"COMPLETED","conclusion":"${if (it == 0) requiredConclusion else "SUCCESS"}","isRequired":true}""" }
+        val nodes = (start until end).joinToString(",") { """{"id":"check-$it","__typename":"CheckRun","name":"check-$it","status":"COMPLETED","conclusion":"${if (it == 0) requiredConclusion else "SUCCESS"}","isRequired":true,"checkSuite":${healthCheckSuite(head)}}""" }
         return Json.parseToJsonElement("""{"data":{"repository":{"pullRequest":{"state":"OPEN","isDraft":false,"headRefOid":"$head","baseRefOid":"${"b".repeat(40)}","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"oid":"$head","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":150,"pageInfo":{"hasNextPage":$more,"endCursor":"$end"},"nodes":[$nodes]}}}}]}}}}}""").jsonObject
     }
 

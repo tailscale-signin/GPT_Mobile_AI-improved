@@ -605,11 +605,118 @@ class GitHubOperationToolTest {
     private fun continuation(value: JsonObject) = value.getValue("continuation_call").jsonObject.getValue("arguments").jsonObject
     private fun valid(operation: String, value: JsonObject) = assertEquals("Advertised continuation must validate against its own facade", emptyList<String>(), ToolArgumentValidator.errors(value, GitHubOperationTool.definition(operation).inputSchema))
 
+    @Test fun compactInspectionContractsKeepReadsAndRejectWrites() {
+        val pr = GitHubOperationTool.definition("github_pr_inspect")
+        assertEquals("github_pr", GitHubOperationTool.operationName(pr.name))
+        valid(
+            "github_pr_inspect",
+            buildJsonObject {
+                put("action", "context")
+                put("pull_number", 7)
+            }
+        )
+        assertTrue(
+            ToolArgumentValidator.errors(
+                buildJsonObject {
+                    put("action", "merge")
+                    put("pull_number", 7)
+                },
+                pr.inputSchema
+            ).isNotEmpty()
+        )
+        val broad = GitHubOperationTool.definition("github_pr")
+        assertTrue(ProgressiveToolCatalog.schemaTokens(pr) < ProgressiveToolCatalog.schemaTokens(broad) / 2)
+    }
+
+    @Test fun compactPrContinuationsKeepTheirAdvertisedAliasAndExecutePinnedReadArguments() = runBlocking {
+        for (suffix in listOf("", "__selected_inspect")) {
+            val backend = Backend().also {
+                it.body = args("""{"files_continuation":{"action":"pr_context","pull_number":17,"page":2,"expected_head":"$sha","expected_base_sha":"${"b".repeat(40)}","include_patches":false,"include_files":true,"include_checks":false},"checks_continuation":{"action":"pr_context","pull_number":17,"page":1,"check_page":3,"expected_head":"$sha","expected_base_sha":"${"b".repeat(40)}","include_patches":false,"include_files":false,"include_checks":true}}""")
+            }
+            val name = "github_pr_inspect$suffix"
+            val tool = GitHubOperationTool("github_pr", backend, "compact-pr-$suffix", name)
+            val initial = result(tool.execute("first", args("""{"action":"context","pull_number":17}""")))
+            val continuations = initial.getValue("remote_continuations").jsonArray
+            assertEquals(2, continuations.size)
+            for ((index, entry) in continuations.withIndex()) {
+                val call = entry.jsonObject.getValue("call").jsonObject
+                assertEquals(JsonPrimitive(name), call["tool"])
+                val arguments = call.getValue("arguments").jsonObject
+                assertEquals(emptyList<String>(), ToolArgumentValidator.errors(arguments, tool.definition.inputSchema))
+                assertEquals(JsonPrimitive(sha), arguments["expected_head_sha"])
+                assertEquals(JsonPrimitive("b".repeat(40)), arguments["expected_base_sha"])
+                assertEquals(JsonPrimitive(false), arguments["include_patches"])
+                val executed = tool.execute("page-$index", arguments)
+                assertFalse(executed.isError)
+                assertEquals(JsonPrimitive("pr_context"), backend.calls.last()["action"])
+                assertEquals(JsonPrimitive(sha), backend.calls.last()["expected_head"])
+                for (field in listOf("include_files", "include_checks", "check_page")) assertEquals(arguments[field], backend.calls.last()[field])
+            }
+            val count = backend.calls.size
+            val write = tool.execute("write", args("""{"action":"merge","pull_number":17,"expected_head_sha":"$sha"}"""))
+            assertTrue(write.isError)
+            assertFalse(write.dispatched)
+            assertEquals(count, backend.calls.size)
+        }
+    }
+
+    @Test fun compactContextCorrectionsRouteOnlyToRealToolsOnTheSameConnection() = runBlocking {
+        for (suffix in listOf("", "__selected_inspect")) {
+            val read = args("""{"commit_sha":"$sha","ranges":[{"path":"File.kt","start_line":1,"end_line":5}]}""")
+            val search = args("""{"commit_sha":"$sha","query":"*.kt","mode":"paths"}""")
+            val context = args("""{"action":"resolve"}""")
+            val corrections = listOf("github_read" to read, "github_search" to search, "github_context" to context)
+            val observed = mutableListOf<JsonObject>()
+            val backend = object : AgentTool {
+                override val definition = AgentToolDefinition("github$suffix", "Read correction fixture", buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    observed += arguments
+                    if (observed.size > 1) return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("ok", true) }), false)
+                    return AgentToolResult(
+                        callId,
+                        ToolResultContent.Json(
+                            buildJsonObject {
+                                put("schema", "github.read_validation.v1")
+                                put(
+                                    "corrective_actions",
+                                    JsonArray(
+                                        corrections.map { (name, args) ->
+                                            buildJsonObject {
+                                                put("tool", name)
+                                                put("arguments", args)
+                                            }
+                                        }
+                                    )
+                                )
+                            }
+                        ),
+                        true,
+                        errorCode = "INVALID_ARGUMENTS",
+                        dispatched = false
+                    )
+                }
+            }
+            val inspect = GitHubOperationTool("github_context", backend, "corrections-$suffix", "github_context_inspect$suffix")
+            val targets = listOf(inspect, GitHubOperationTool("github_read", backend, "corrections-$suffix", "github_read$suffix"), GitHubOperationTool("github_search", backend, "corrections-$suffix", "github_search$suffix"))
+            val first = result(inspect.execute("initial", args("""{"action":"status"}"""))).getValue("data").jsonObject
+            val calls = first.getValue("corrective_actions").jsonArray.map { it.jsonObject }
+            assertEquals(setOf("github_read$suffix", "github_search$suffix", "github_context_inspect$suffix"), calls.map { it.getValue("tool").jsonPrimitive.content }.toSet())
+            for ((index, call) in calls.withIndex()) {
+                val target = targets.single { it.definition.name == call.getValue("tool").jsonPrimitive.content }
+                val arguments = call.getValue("arguments").jsonObject
+                assertEquals(emptyList<String>(), ToolArgumentValidator.errors(arguments, target.definition.inputSchema))
+                val result = target.execute("corrected-$index", arguments)
+                assertFalse(result.isError)
+            }
+            assertEquals(listOf("repo_status", "read_ranges", "search_repository", "resolve_context"), observed.map { it.getValue("action").jsonPrimitive.content })
+        }
+    }
+
     @Test fun ordinaryRepositorySchemasStayBelowOneThousandEstimatedTokensAndHideTheLegacyMonolith() {
         val definitions = GitHubOperationTool.names.map { GitHubOperationTool.definition(it) }
         val catalog = requireNotNull(ProgressiveToolCatalog.create(listOf(Backend().definition) + definitions, "Inspect this repository"))
         val selected = catalog.selected(listOf(Backend().definition) + definitions).filter { GitHubOperationTool.operationName(it.name) != null }
-        assertEquals(setOf("github_context", "github_search", "github_read"), selected.map { it.name }.toSet())
+        assertEquals(setOf("github_context_inspect", "github_search", "github_read"), selected.map { it.name }.toSet())
         val wire = JsonArray(
             selected.map {
                 buildJsonObject {

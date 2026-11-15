@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import base64
 import copy
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -15,7 +14,9 @@ import threading
 import time
 from urllib.parse import urlsplit
 
-from desktop.validation_policy import active_policy_path, check_policy_file, save_policy_path
+from desktop.validation_policy import (
+    PolicyConflictError, load_policy_snapshot, save_policy_snapshot, validate_policy_fields, validated_policy_bytes,
+)
 from v14.state_lock import StateDirectoryLock
 from v14.validation_host import executable, command as host_command, environment as host_environment
 
@@ -96,30 +97,26 @@ def image_repository(value):
 
 def defaults(root, repository=DEFAULT_REPOSITORY):
     repository = repository_name(repository)
-    # Honor the common user-selected location when present; do not assume D: exists.
-    preferred = Path('D:/MCP')
-    base = preferred if repository == DEFAULT_REPOSITORY and os.name == 'nt' and preferred.is_dir() else Path(root).resolve() / 'data' / 'mirrors' / repository.split('/')[0]
-    return {'repository': repository, 'mirror': str(base / (repository.split('/')[1] + '.git')),
+    # Preserve the first built-in default location. Explicit saved locations,
+    # including a user-selected D: folder, are retained by options_for below.
+    mirrors = Path(root).resolve() / 'data' / 'mirrors'
+    mirror = (mirrors / 'GPT_Mobile_AI-improved.git' if repository == DEFAULT_REPOSITORY else
+              mirrors / repository.split('/')[0] / (repository.split('/')[1] + '.git'))
+    return {'repository': repository, 'mirror': str(mirror),
             'image_source': DEFAULT_IMAGE, 'image': '', 'timeout_seconds': 600,
             'profile': SOURCE_PROFILE, 'commands': copy.deepcopy(SOURCE_COMMANDS),
             'acceptance_map': [], 'parallel_command_groups': [],
             'allowed_checks': ['Required verification', 'Analyze (java-kotlin)'] if repository == DEFAULT_REPOSITORY else [],
+            'post_merge': {'artifacts': [], 'installation_checks': [], 'smoke_checks': []},
             'acceptance_templates': [], 'draft_repair_requirements': []}
 
 
 def read_settings(root):
     """Read legacy or managed settings without writing, downloading, or executing."""
-    selected = active_policy_path(root)
-    if not selected:
-        return {}, hashlib.sha256(b'no-policy').hexdigest()
-    check_policy_file(selected)
-    with Path(selected).open('rb') as stream:
-        raw = stream.read(MAX_POLICY_BYTES + 1)
-    if len(raw) > MAX_POLICY_BYTES:
-        raise ValueError('Saved validation settings exceed 64 KiB.')
-    document = json.loads(raw)
-    revision = hashlib.sha256(selected.encode('utf-8') + b'\0' + raw).hexdigest()
-    return document, revision
+    snapshot = load_policy_snapshot(root)
+    if snapshot['error']:
+        raise ValueError(snapshot['error'])
+    return snapshot['repositories'], snapshot['revision']
 
 
 def options_for(root, repository, document):
@@ -127,17 +124,58 @@ def options_for(root, repository, document):
     result = defaults(root, name)
     saved = document.get(name)
     if saved is not None:
+        if not isinstance(saved, dict):
+            raise ValueError('Saved repository policy is invalid.')
+        repairs = []
         result.update(copy.deepcopy(saved))
+        for key in ('mirror', 'image', 'commands'):
+            if key not in saved:
+                repairs.append(key)
+        if not isinstance(result['mirror'], str):
+            result['mirror'] = defaults(root, name)['mirror']
+            repairs.append('mirror')
+        if type(result['timeout_seconds']) is not int:
+            result['timeout_seconds'] = 600
+            repairs.append('timeout')
+        if not isinstance(result.get('image'), str) or not PIN.fullmatch(result['image']):
+            result['image'] = ''
+            repairs.append('image')
+        if 'commands' not in saved:
+            result['commands'] = []
+        # Missing optional imported fields retain their unconfigured state;
+        # suggested defaults apply only to a genuinely new repository entry.
+        for key in ('allowed_checks', 'acceptance_map', 'parallel_command_groups',
+                    'acceptance_templates', 'draft_repair_requirements'):
+            result.setdefault(key, [])
+            if key not in saved:
+                result[key] = []
         meta = saved.get('desktop_setup', {})
         if not isinstance(meta, dict):
-            raise ValueError('Saved desktop validation metadata is invalid.')
-        result['image_source'] = meta.get('image_source', saved['image'])
-        result['profile'] = SOURCE_PROFILE if saved['commands'] == SOURCE_COMMANDS and not saved.get('acceptance_map') and not saved.get('parallel_command_groups') else CUSTOM_PROFILE
+            meta = {}
+            repairs.append('setup metadata')
+            result['desktop_setup'] = {}
+        source = meta.get('image_source', result['image'] or DEFAULT_IMAGE)
+        try:
+            result['image_source'] = image_source(source)
+        except ValueError:
+            result['image_source'] = result['image'] or DEFAULT_IMAGE
+            repairs.append('image source')
+        try:
+            validate_policy_fields(saved)
+        except (ValueError, KeyError, TypeError):
+            repairs.append('saved policy fields')
+        result['profile'] = (SOURCE_PROFILE if not repairs and saved.get('commands') == SOURCE_COMMANDS
+                             and not saved.get('acceptance_map') and not saved.get('parallel_command_groups') else CUSTOM_PROFILE)
+        if repairs:
+            result['repair_notice'] = ('Saved entry needs repair: ' + ', '.join(dict.fromkeys(repairs)) +
+                                       '. Review these unsaved fields before saving.')
     result['repository'] = name
     return result
 
 
 def validate_options(options):
+    if not isinstance(options, dict):
+        raise ValueError('Validation settings must be a JSON object.')
     result = copy.deepcopy(options)
     result['repository'] = repository_name(result.get('repository'))
     result['mirror'] = str(mirror_path(result.get('mirror')))
@@ -164,53 +202,131 @@ def validate_options(options):
     checks = result.get('allowed_checks', [])
     if any(not isinstance(c, str) or not 1 <= len(c) <= 400 for c in checks):
         raise ValueError('Allowed CI checks must contain exact, nonempty check names.')
-    if len(json.dumps(result).encode('utf-8')) > MAX_POLICY_BYTES:
+    if len(json.dumps(result, allow_nan=False).encode('utf-8')) > MAX_POLICY_BYTES:
         raise ValueError('Validation settings exceed 64 KiB.')
     pin = result.get('image', '')
     if pin and (not isinstance(pin, str) or not PIN.fullmatch(pin)):
         raise ValueError('Saved image digest is invalid. Clear it and prepare the image again.')
+    if pin and (image_repository(pin) != image_repository(result['image_source']) or
+                PIN.fullmatch(result['image_source']) and pin.split('@')[1] != result['image_source'].split('@')[1]):
+        raise ValueError('Image source changed. Use Refresh image to approve a new digest.')
+    validate_policy_fields(dict(result, image=pin), allow_unprepared_image=True)
     return result
+
+
+def entry_from_options(options, existing=None):
+    """One pure mapper for direct Save and setup; no provision or activation."""
+    options = validate_options(options)
+    entry = copy.deepcopy(existing or {})
+    if not isinstance(entry, dict):
+        raise ValueError('Saved repository policy is invalid.')
+    metadata = entry.get('desktop_setup', {})
+    if not isinstance(metadata, dict):
+        # This pure mapper is used only for an explicit reviewed Save/Prepare.
+        # The original selected file is immutable and remains available; valid
+        # metadata dictionaries and all their unknown keys are retained.
+        metadata = {}
+    for key in ('mirror', 'image', 'commands', 'timeout_seconds', 'acceptance_map', 'parallel_command_groups',
+                'allowed_checks', 'acceptance_templates', 'draft_repair_requirements'):
+        entry[key] = copy.deepcopy(options.get(key, [] if key not in {'mirror', 'image', 'timeout_seconds'} else ''))
+    entry['post_merge'] = copy.deepcopy(options.get('post_merge', {'artifacts': [], 'installation_checks': [], 'smoke_checks': []}))
+    entry['desktop_setup'] = dict(metadata, schema=1, image_source=options['image_source'], profile=options['profile'])
+    return entry
 
 
 def run(argv, *, timeout=60, env=None, cancel=None, label='Setup command'):
     """Bounded subprocess output; no shell, secret arguments or raw failures in the UI."""
+    import queue
     from desktop import windows_job
     cancelled(cancel)
     job = windows_job.create()
     process = None
+    reader = None
+    blocks = queue.Queue(maxsize=2)
+    stopped = threading.Event()
+    read_failure = object()
+
+    def send(value):
+        while not stopped.is_set():
+            try:
+                blocks.put(value, timeout=.05)
+                return
+            except queue.Full:
+                pass
+
+    def read_output():
+        try:
+            while not stopped.is_set():
+                block = process.stdout.read1(8192)
+                send(block)
+                if not block:
+                    break
+        except Exception:
+            send(read_failure)
+        finally:
+            # The reader owns the pipe; do not close it under a blocked read.
+            try:
+                process.stdout.close()
+            except OSError:
+                pass
+
     try:
-        with tempfile.TemporaryFile() as output:
-            process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT,
-                                       env=env, shell=False, start_new_session=os.name != 'nt',
-                                       creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
-            windows_job.attach(job, process)
-            deadline = time.monotonic() + timeout
-            while process.poll() is None:
-                cancelled(cancel)
-                if time.monotonic() >= deadline:
-                    raise ValueError(label + ' timed out. Settings were not changed; check connectivity and try again.')
-                if os.fstat(output.fileno()).st_size > 1024 * 1024:
-                    raise ValueError(label + ' exceeded its output budget. Settings were not changed.')
-                time.sleep(.1)
+        process = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                   env=env, shell=False, start_new_session=os.name != 'nt',
+                                   creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0)
+        windows_job.attach(job, process)
+        deadline = time.monotonic() + timeout
+        reader = threading.Thread(target=read_output, name='validation-setup-output', daemon=True)
+        reader.start()
+        raw = bytearray()
+        eof = False
+        while not eof or process.poll() is None:
             cancelled(cancel)
-            if process.returncode:
-                raise ValueError(f'{label} failed (exit {process.returncode}). Check GitHub access, Git and Docker Desktop. Settings were not changed.')
-            output.seek(0)
-            raw = output.read(1024 * 1024 + 1)
-            if len(raw) > 1024 * 1024:
-                raise ValueError(label + ' exceeded its output budget.')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ValueError(label + ' timed out. Settings were not changed; check connectivity and try again.')
+            if eof:
+                # Closed stdout does not mean the child has exited. Keep both
+                # cancellation and the deadline active until it actually does.
+                time.sleep(min(.05, remaining))
+                continue
+            try:
+                block = blocks.get(timeout=min(.05, remaining))
+            except queue.Empty:
+                continue
+            if block is read_failure:
+                raise ValueError(label + ' output could not be read. Settings were not changed.')
+            if not block:
+                eof = True
+                continue
+            if len(raw) + len(block) > 1024 * 1024:
+                raise ValueError(label + ' exceeded its output budget. Settings were not changed.')
+            raw.extend(block)
+        cancelled(cancel)
+        if process.returncode:
+            raise ValueError(f'{label} failed (exit {process.returncode}). Check GitHub access, Git and Docker Desktop. Settings were not changed.')
+        try:
             return raw.decode('utf-8', errors='strict').strip()
+        except UnicodeDecodeError:
+            raise ValueError(label + ' returned invalid text. Settings were not changed.') from None
     finally:
-        windows_job.close(job)
-        if process is not None:
-            if os.name != 'nt':
-                try:
-                    os.killpg(process.pid, signal.SIGKILL)
-                except ProcessLookupError:
-                    pass
-            elif process.poll() is None:
-                process.kill()
-            process.wait(timeout=15)
+        stopped.set()
+        try:
+            windows_job.close(job)
+            if process is not None:
+                if os.name != 'nt':
+                    try:
+                        os.killpg(process.pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                elif process.poll() is None:
+                    process.kill()
+                process.wait(timeout=15)
+        finally:
+            if reader is not None and reader.ident is not None:
+                reader.join(timeout=.25)
+            elif process is not None and process.stdout is not None:
+                process.stdout.close()
 
 
 def git_environment(token=None):
@@ -239,6 +355,10 @@ def check_mirror(git, repository, mirror, *, cancel=None):
     prefix = git_prefix(git) + ['--git-dir=' + str(mirror)]
     env = git_environment()
     config = run(prefix + ['config', '--no-includes', '--local', '--list'], env=env, cancel=cancel, label='Read mirror configuration')
+    for line in config.splitlines():
+        key, _, value = line.partition('=')
+        if key.casefold() == 'extensions.worktreeconfig' and value.strip().casefold() not in {'false', 'no', 'off', '0'}:
+            raise ValueError('Mirror has separate worktree configuration. Use a clean dedicated mirror.')
     if any(line.lower().startswith(('include.', 'includeif.', 'url.', 'http.', 'core.sshcommand=')) for line in config.splitlines()):
         raise ValueError('Mirror has custom redirect, include or HTTP settings. Use a clean dedicated mirror.')
     if run(prefix + ['rev-parse', '--is-bare-repository'], env=env, cancel=cancel, label='Check bare mirror') != 'true':
@@ -313,34 +433,36 @@ def pin_image(docker, source, existing='', *, prepare=False, cancel=None):
     return pinned
 
 
-def save_snapshot(root, repository, entry, revision, *, cancel=None):
-    from desktop.configuration import atomic_json
+def save_snapshot(root, repository, entry, revision, *, cancel=None, enabled=True):
+    """Merge one reviewed entry only against its observed snapshot, then use the shared CAS."""
     cancelled(cancel)
-    document, current = read_settings(root)
-    if current != revision:
-        raise ValueError('Validation settings changed in another window. Reload before saving; newer settings were preserved.')
-    document[repository] = entry
-    raw = json.dumps(document, indent=2).encode('utf-8')
-    if len(raw) > MAX_POLICY_BYTES or len(document) > 256:
-        raise ValueError('Validation settings exceed the 256-repository / 64 KiB limit.')
-    # Immutable snapshots keep active jobs bound to their original approved policy.
-    target = Path(root).resolve() / 'data' / 'repository-validation' / (hashlib.sha256(raw).hexdigest() + '.json')
-    atomic_json(target, document)
-    check_policy_file(str(target))
-    cancelled(cancel)
-    save_policy_path(root, str(target))
-    return target
+    observed = load_policy_snapshot(root)
+    if observed['revision'] != revision:
+        raise PolicyConflictError('Validation settings changed in another window. Reload before saving; newer settings were preserved.')
+    document = copy.deepcopy(observed['repositories'])
+    document[repository_name(repository)] = entry
+    # Prepare & save promises to retain this reviewed draft. The separate UI
+    # disable path deliberately tolerates broken drafts; setup never claims it
+    # saved an invalid one merely because disabling the selector succeeded.
+    validated_policy_bytes(document)
+    try:
+        return save_policy_snapshot(root, document, enabled=enabled, expected_revision=revision, cancel=cancel)
+    except InterruptedError as failure:
+        raise SetupCancelled(str(failure)) from failure
 
 
-def setup(root, options, revision, *, prepare, token=None, cancel=None, progress=lambda message: None):
+def setup(root, options, revision, *, prepare, token=None, cancel=None, progress=lambda message: None, enabled=True):
     options = validate_options(options)
     root = Path(root).resolve()
     lock = StateDirectoryLock(root / 'data' / 'repository-validation-setup' / 'owner')
     lock.acquire()
     try:
-        _, current = read_settings(root)
-        if current != revision:
-            raise ValueError('Validation settings changed. Reload before preparing or saving.')
+        observed = load_policy_snapshot(root)
+        if observed['revision'] != revision:
+            raise PolicyConflictError('Validation settings changed. Reload before preparing or saving.')
+        # Validate the complete edited entry before any external command. An
+        # unprepared image is allowed here only; persistence remains strict.
+        entry_from_options(options, observed['repositories'].get(options['repository'], {}))
         progress('Checking Git and Docker Desktop…')
         git, docker = executable('git'), executable('docker')
         check_docker(docker, cancel=cancel)
@@ -350,30 +472,24 @@ def setup(root, options, revision, *, prepare, token=None, cancel=None, progress
                 else check_mirror(git, repository, mirror, cancel=cancel))
         progress('Preparing the digest-pinned image…' if prepare else 'Checking the pinned image…')
         pinned = pin_image(docker, options['image_source'], options.get('image', ''), prepare=prepare, cancel=cancel)
-        # Retain every imported acceptance/group mapping and unknown host policy field.
-        document, _ = read_settings(root)
-        entry = copy.deepcopy(document.get(repository, {}))
-        entry.update(mirror=str(mirror), image=pinned, commands=options['commands'],
-                     timeout_seconds=options['timeout_seconds'], acceptance_map=options.get('acceptance_map', []),
-                     parallel_command_groups=options.get('parallel_command_groups', []),
-                     allowed_checks=options.get('allowed_checks', []),
-                     acceptance_templates=options.get('acceptance_templates', []),
-                     draft_repair_requirements=options.get('draft_repair_requirements', []),
-                     desktop_setup={'schema': 1, 'image_source': options['image_source'], 'profile': options['profile']})
+        entry = entry_from_options(dict(options, image=pinned, mirror=str(mirror)),
+                                   observed['repositories'].get(repository, {}))
+        snapshot = None
         if prepare:
-            save_snapshot(root, repository, entry, revision, cancel=cancel)
+            snapshot = save_snapshot(root, repository, entry, revision, cancel=cancel, enabled=enabled)
         return {'repository': repository, 'image': pinned, 'mirror_head': head, 'saved': prepare,
                 'state': 'PREREQUISITES_READY', 'tests_executed': False,
-                'acceptance_mappings': len(entry['acceptance_map'])}
+                'acceptance_mappings': len(entry['acceptance_map']), 'snapshot': snapshot, 'entry': entry}
     finally:
         lock.release()
 
 
-def reset_settings(root):
-    """Serialize explicit disable with preparation in every Settings window."""
-    lock = StateDirectoryLock(Path(root) / 'data' / 'repository-validation-setup' / 'owner')
-    lock.acquire()
+def reset_settings(root, *, expected_revision):
+    """Explicit revision-checked disable; pending preparation cannot re-enable it."""
+    snapshot = load_policy_snapshot(root)
+    if snapshot['revision'] != expected_revision:
+        raise PolicyConflictError('Validation settings changed. Reload before disabling.')
     try:
-        save_policy_path(root, '')
-    finally:
-        lock.release()
+        return save_policy_snapshot(root, snapshot['repositories'], enabled=False, expected_revision=expected_revision)
+    except InterruptedError as failure:
+        raise SetupCancelled(str(failure)) from failure

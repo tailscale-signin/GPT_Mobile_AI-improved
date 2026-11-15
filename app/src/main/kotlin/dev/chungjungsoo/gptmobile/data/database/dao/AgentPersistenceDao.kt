@@ -257,6 +257,27 @@ interface AgentPersistenceDao :
     @Insert
     suspend fun insertToolEvent(event: ToolEvent)
 
+    @Query("SELECT MAX(sequence) FROM tool_events WHERE run_id = :runId")
+    suspend fun rawMaxToolEventSequence(runId: String): Int?
+
+    /** A resumed collection has a fresh caller counter, but retains this run's event rows. */
+    @Transaction
+    suspend fun startToolEvent(event: ToolEvent): ToolEvent {
+        rawGetToolEventByCall(event.runId, event.callId)?.let { return it }
+        val previousMaximum = rawMaxToolEventSequence(event.runId)
+        val next = maxOf(event.sequence.toLong(), (previousMaximum?.toLong() ?: -1L) + 1L, 0L)
+        if (next > Int.MAX_VALUE) {
+            throw dev.chungjungsoo.gptmobile.data.database.ToolEventPersistenceFailure.sequenceExhausted(event.sequence, previousMaximum)
+        }
+        val assigned = event.copy(sequence = next.toInt())
+        try {
+            insertToolEvent(assigned)
+        } catch (failure: android.database.sqlite.SQLiteConstraintException) {
+            throw dev.chungjungsoo.gptmobile.data.database.ToolEventPersistenceFailure.constraint(failure, event.sequence, assigned.sequence, previousMaximum)
+        }
+        return assigned
+    }
+
     @Delete
     suspend fun deleteMessages(messages: List<MessageV2>)
 
@@ -552,6 +573,17 @@ interface AgentPersistenceDao :
 
     @Query("SELECT * FROM messages_v2 WHERE message_id = :messageId")
     suspend fun rawRecoveryMessage(messageId: Int): MessageV2?
+
+    /** UI collectors may publish message and run changes at different times. */
+    @Transaction
+    suspend fun terminalVoiceReply(chatId: Int, messageId: Int, runId: String, expectedFence: Long): dev.chungjungsoo.gptmobile.data.voice.VoiceTerminalReply? {
+        if (chatId <= 0 || messageId <= 0 || expectedFence < 0) return null
+        val run = rawRecoveryRun(runId) ?: return null
+        if (run.chatId != chatId || run.assistantMessageId != messageId || run.ownershipFence != expectedFence || run.status !in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal) return null
+        val message = rawRecoveryMessage(messageId) ?: return null
+        if (message.chatId != chatId || message.currentRunId != runId || message.ownershipFence != expectedFence || message.platformType == null) return null
+        return dev.chungjungsoo.gptmobile.data.voice.VoiceTerminalReply(message.decodedArchiveText(), run)
+    }
 
     @Transaction
     suspend fun restoreCombinedCandidate(runId: String): MessageV2? {

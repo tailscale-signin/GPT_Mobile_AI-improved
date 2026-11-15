@@ -30,11 +30,20 @@ class ProgressiveToolCatalog(
     private val schemaAllowance get() = if (advanced) MAX_SCHEMA_TOKEN_ALLOWANCE else SCHEMA_TOKEN_ALLOWANCE
     private val taskText = task
     private val candidates = definitions.filter { it.modelVisible }.associateBy { it.name }.toMutableMap()
+    private val actionSelections = mutableMapOf<String, Pair<String, String>>()
+    private fun presented(tool: AgentToolDefinition): AgentToolDefinition {
+        val selected = actionSelections[tool.name] ?: return tool
+        if (selected.first != contractFingerprint(tool)) return tool
+        return GitHubActionSchema.project(tool, selected.second) ?: tool
+    }
+    private fun presentedSchemas(): Map<String, String> = active.mapNotNull(candidates::get)
+        .associate { it.name to ToolContractFingerprint.schema(presented(it).inputSchema) }
     private data class ExecutionBinding(val source: AgentToolDefinition, val executable: AgentToolDefinition)
     private val executionBindings = mutableMapOf<String, ExecutionBinding>()
     private val deferredEngineering = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
     private val taskRequired = definitions.filter { definition ->
-        !conversational &&
+        definition.modelVisible &&
+            !conversational &&
             (
                 definition.name == "read_recovery_context" ||
                     AgentToolCapability.USER_DECISION in definition.capabilities ||
@@ -44,6 +53,15 @@ class ProgressiveToolCatalog(
                             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) !in deferredEngineering
                         )
                 )
+    }.groupBy { definition ->
+        val name = definition.name
+        dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
+            ?.let { it + name.removePrefix(name.substringBefore("__")) } ?: name
+    }.values.map { alternatives ->
+        // Preserve exact planned schemas, then prefer a compact initial contract
+        // when both facades are eligible. Explicit discovery still selects the exact name.
+        val initial = alternatives.filter { it.name in initialNames.orEmpty() }.ifEmpty { alternatives }
+        initial.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: initial.first()
     }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()
@@ -147,7 +165,7 @@ class ProgressiveToolCatalog(
     }
     override val definition = AgentToolDefinition(
         NAME,
-        "List authorized tools with empty arguments, or search by task or exact names. Omit inventory_version on the first page; later pages must use the exact returned continuation_call. Inventory versions are opaque, never invent one. Found tools become available next round. This cannot grant permissions or install tools.",
+        "List authorized tools with empty arguments, or search by task or exact names. For a compact GitHub action contract use one exact name plus action (for example names=[github_ci], action=logs). Omit action to restore the complete contract. Omit inventory_version on the first page; later pages use the exact continuation_call. Found tools become available next round. This cannot grant permissions or install tools.",
         buildJsonObject {
             put("type", "object")
             put(
@@ -166,6 +184,13 @@ class ProgressiveToolCatalog(
                             put("type", "array")
                             put("maxItems", 12)
                             put("items", buildJsonObject { put("type", "string") })
+                        }
+                    )
+                    put(
+                        "action",
+                        buildJsonObject {
+                            put("type", "string")
+                            put("description", "One supported GitHub action for exactly one tool in names.")
                         }
                     )
                     put(
@@ -193,7 +218,7 @@ class ProgressiveToolCatalog(
     fun selected(allowed: List<AgentToolDefinition>): List<AgentToolDefinition> {
         val definitions = allowed.filter { it.modelVisible }.associateBy { it.name }
         // Preserve task/discovery priority when the outer context planner has less room.
-        return (active + NAME).distinct().mapNotNull(definitions::get)
+        return (active + NAME).distinct().mapNotNull(definitions::get).map(::presented)
     }
 
     /** Reflect trusted execution wrappers without adding names or changing discovery selection. */
@@ -277,7 +302,7 @@ class ProgressiveToolCatalog(
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
-        if (("inventory_cursor" in arguments || "inventory_version" in arguments) && (query.isNotBlank() || names.isNotEmpty())) {
+        if (("inventory_cursor" in arguments || "inventory_version" in arguments) && (query.isNotBlank() || names.isNotEmpty() || "action" in arguments)) {
             return AgentToolResult(callId, ToolResultContent.Text("Use inventory_cursor alone to continue the tool inventory; query/names start a separate discovery."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
         }
         if (acquireCold != null && "inventory_cursor" !in arguments) {
@@ -344,8 +369,21 @@ class ProgressiveToolCatalog(
     private fun selectResult(callId: String, arguments: JsonObject): AgentToolResult = synchronized(this) {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
+        // An action switch can change the advertised contract without adding a tool name.
+        // Capture the old wire schemas before changing or restoring that selection.
+        val previousActive = active.toSet()
+        val previousSchemas = presentedSchemas()
+        if ("action" in arguments) {
+            val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString }?.content
+            val tool = names.singleOrNull()?.let(candidates::get)
+            if (tool == null || action == null || GitHubActionSchema.project(tool, action) == null) {
+                return@synchronized AgentToolResult(callId, ToolResultContent.Text("Choose exactly one authorized GitHub tool name and an action from its contract. No selection changed."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            }
+            actionSelections[tool.name] = contractFingerprint(tool) to action
+        } else {
+            names.forEach(actionSelections::remove)
+        }
         if (query.isBlank() && names.isEmpty()) {
-            val previousActive = active.toSet()
             // Cold inventory must seed an executable window, otherwise an empty call can
             // discover tools forever while every subsequent request advertises only us.
             if (active.isEmpty() && !conversational) {
@@ -479,7 +517,7 @@ class ProgressiveToolCatalog(
                         )
                         put("authorized_tool_count", inventory.size)
                         put("available_next_round", JsonArray(active.map { name -> buildJsonObject { put("name", name) } }))
-                        put("catalog_unchanged", previousActive == active)
+                        put("catalog_unchanged", previousActive == active && previousSchemas == presentedSchemas())
                         put("newly_advertised", JsonArray(active.filterNot { it in previousActive }.map(::JsonPrimitive)))
                         put("inventory_version", version)
                         put("contract_version", 1)
@@ -529,7 +567,6 @@ class ProgressiveToolCatalog(
         if (advancedTask(query) || names.any { it in candidates && it.contains("github", true) } || exact?.name?.contains("github", true) == true) advanced = true
         val undiscovered = if (query.isNotBlank()) ranked(query) else emptyList()
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
-        val previousActive = active.toSet()
         val pinned = requiredCapabilities.mapNotNull { capability ->
             (active.mapNotNull(candidates::get) + ranked(taskText)).firstOrNull { capability in it.capabilities }
         }
@@ -541,6 +578,7 @@ class ProgressiveToolCatalog(
         active.addAll(selected.map { it.name })
         val admitted = found.filter { it.name in active }
         discovered.addAll(admitted.map { it.name })
+        val unchanged = previousActive == active && previousSchemas == presentedSchemas()
         val result = buildJsonObject {
             put(
                 "available_next_round",
@@ -548,7 +586,7 @@ class ProgressiveToolCatalog(
                     admitted.map { tool ->
                         buildJsonObject {
                             put("name", tool.name)
-                            put("description", tool.description.take(800))
+                            put("description", presented(tool).description.take(800))
                         }
                     }
                 )
@@ -567,7 +605,8 @@ class ProgressiveToolCatalog(
                     "REQUEST_REQUIRED_SCHEMAS_FIRST"
                 }
             )
-            put("wire_schema_estimate_tokens", (active.mapNotNull(candidates::get) + definition).sumOf { schemaTokens(it).toLong() })
+            put("wire_schema_estimate_tokens", (active.mapNotNull(candidates::get) + definition).sumOf { schemaTokens(presented(it)).toLong() })
+            put("selected_actions", JsonObject(active.mapNotNull { name -> actionSelections[name]?.takeIf { it.first == candidates[name]?.let(::contractFingerprint) }?.let { name to JsonPrimitive(it.second) } }.toMap()))
             put("wire_context_budget_enforced", true)
             put("selection_policy", "Explicitly requested capabilities receive priority; other authorized capabilities remain discoverable. Availability still requires the next request's context admission. Executable permissions are unchanged.")
             val incompleteDiscovery = acquisitionState?.invoke()?.readinessCode != null
@@ -579,9 +618,9 @@ class ProgressiveToolCatalog(
             put("advertised_tool_count", active.size)
             put("coverage", coverage())
             acquisitionState?.invoke()?.let { put("connection_discovery", it.receipt()) }
-            put("catalog_unchanged", previousActive == active)
+            put("catalog_unchanged", unchanged)
             put("newly_advertised", JsonArray(active.filterNot { it in previousActive }.map(::JsonPrimitive)))
-            if (previousActive == active) put("next_step", "No new schemas became available. Use an advertised tool or produce a partial answer; do not repeat this identical discovery.")
+            if (unchanged) put("next_step", "No new schemas became available. Use an advertised tool or produce a partial answer; do not repeat this identical discovery.")
         }
         AgentToolResult(callId, ToolResultContent.Json(result), false, dispatched = false)
     }
@@ -600,10 +639,10 @@ class ProgressiveToolCatalog(
         var tokens = 256L
         val selected = mutableListOf<AgentToolDefinition>()
         omissions.clear()
-        for (tool in (listOfNotNull(candidates["read_recovery_context"]) + ordered).distinctBy { it.name }) {
+        for (tool in (listOfNotNull(candidates["read_recovery_context"]) + ordered).distinctBy { if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null) it.name.replace("_inspect__", "__").removeSuffix("_inspect") else it.name }) {
             // An individual authorized GitHub schema may exceed the soft discovery
             // window. Hard provider context admission still precedes all dispatch.
-            val cost = schemaTokens(tool)
+            val cost = schemaTokens(presented(tool))
             val singleGitHubContract = (githubMode || integrationPreset) && isGitHubTool(tool) && selected.all { it.name == "read_recovery_context" }
             val reason = when {
                 cost + 256 > schemaAllowance && !singleGitHubContract -> "SCHEMA_TOO_LARGE"

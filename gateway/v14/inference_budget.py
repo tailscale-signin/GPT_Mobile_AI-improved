@@ -129,7 +129,23 @@ def fit_engineering_payload(payload, capability, counter):
         # container must not consume the entire traversal before graph context.
         graph_budget = min(4096, max(1024, limit))
         graph_view = project_graph(retained['code_graph'], graph_budget)
-        projected, omissions = compact_evidence({name: value for name, value in retained.items() if name != 'code_graph'}, limit, nodes=nodes)
+        sources = {name: value for name, value in retained.items() if name != 'code_graph'}
+        evidence = sources.get('evidence')
+        windows = evidence.get('workspace_receipts') if isinstance(evidence, dict) else None
+        if windows:
+            # Reserve independent slices for the latest actions before sharing
+            # space with older file prefixes and contextual metadata.
+            receipts, receipt_omissions = [], []
+            for index, receipt in enumerate(windows[:2]):
+                page, omitted = compact_evidence(receipt, limit if index == 0 else max(128, limit // 2), nodes=64)
+                receipts.append(page)
+                receipt_omissions.extend(dict(row, pointer='/evidence/workspace_receipts/' + str(index) + row['pointer']) for row in omitted[:12])
+            sources['evidence'] = {key: value for key, value in evidence.items() if key != 'workspace_receipts'}
+            projected, omissions = compact_evidence(sources, max(128, limit // 2), nodes=nodes)
+            projected.setdefault('evidence', {})['workspace_receipts'] = receipts
+            omissions = (receipt_omissions + omissions)[:32]
+        else:
+            projected, omissions = compact_evidence(sources, limit, nodes=nodes)
         projected['code_graph'] = graph_view
         # Replace every retained source, including fields omitted at the root,
         # so exhaustion never restores the unbounded original into the view.

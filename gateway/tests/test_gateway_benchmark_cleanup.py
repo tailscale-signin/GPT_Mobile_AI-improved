@@ -215,7 +215,7 @@ class BenchmarkCleanupOwnershipTest(unittest.TestCase):
                     launches.append(name)
                     if len(launches) == 1:
                         values = json.loads((cwd / 'evaluator/inputs.json').read_text())
-                        raw = (sandbox.START_MARKER + '\n' + json.dumps({'outputs': [{'output': fixtures.expected(task, value)} for value in values]})).encode()
+                        raw = (sandbox.START_MARKER + '\n' + json.dumps({'outputs': [{'output': fixtures.expected(task, value), 'input_preserved': True} for value in values]})).encode()
                         destination.write(raw)
                         return {'exit_code': 0, 'output_sha256': hashlib.sha256(raw).hexdigest(), 'elapsed_ms': 6}
                     destination.write(STARTED)

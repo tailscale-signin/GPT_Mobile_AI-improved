@@ -6,12 +6,14 @@ shared-network principal as other admitted clients, not a private desktop owner.
 import base64
 import hashlib
 import json
+import re
 import time
 from urllib.parse import quote
 
 import requests
 
 from desktop.configuration import authority, control_host, load
+from v14.execution_binding import endpoint as binding_endpoint, fingerprint as binding_fingerprint
 
 MAX_RESPONSE = 2 * 1024 * 1024
 MAX_TRANSCRIPT = 16 * 1024 * 1024
@@ -92,7 +94,8 @@ class Transcript:
 
 class Client:
     def __init__(self, root, identity=None, session_factory=requests.Session):
-        self.root, self.expected_identity, self.session_factory = root, identity, session_factory
+        self.root, self.session_factory = root, session_factory
+        self.expected_identity = dict(identity) if identity else None
         self.cfg = load(root)
         self.origin = 'http://' + authority(control_host(self.cfg), self.cfg['port'])
 
@@ -138,10 +141,12 @@ class Client:
                               not_dispatched=error.get('dispatch_state') == 'not_dispatched')
         return value
 
-    def request(self, method, path, *, params=None, payload=None):
+    def request(self, method, path, *, params=None, payload=None, user_action=None):
         if self.cfg != load(self.root):
             raise ClientError('Gateway settings changed. Reconnect before continuing.', code='identity_changed', not_dispatched=True)
         headers = self.headers() if method != 'GET' else {}
+        if user_action:
+            headers['X-Gateway-User-Action'] = user_action
         try:
             with self.session() as session:
                 with session.request(method, self.origin + path, params=params, json=payload, headers=headers,
@@ -212,6 +217,110 @@ class Client:
 
     def cancel(self, job_id):
         return self.request('POST', '/gateway/jobs/' + quote(job_id, safe='') + '/cancel', payload={})
+
+    def prepare_engineering(self, model, values, command, conversation=None):
+        if not isinstance(model, str) or not 1 <= len(model) <= 200:
+            raise ClientError('Choose the exact model before preparing an engineering task.', not_dispatched=True)
+        payload = dict(values, model=model, request_id=command, command_id=command)
+        provider = payload.pop('provider')
+        if conversation:
+            current = self.engineering_job(conversation.get('active_job_id'))
+            if (conversation.get('active_job_kind') != 'engineering' or
+                    current.get('conversation_id') != conversation.get('conversation_id') or
+                    current.get('model') != model or current.get('state') not in {'NEEDS_INPUT', 'MERGE_READY', 'COMPLETED', 'FAILED', 'CANCELLED'}):
+                raise ClientError('Refresh the original engineering conversation before continuing.', not_dispatched=True)
+            payload.update(conversation_id=conversation['conversation_id'], expected_revision=conversation['revision'],
+                           repository=current['repository'], base=current['base'], branch=current['branch'],
+                           source_branch=current['branch'], source_sha=current.get('head_sha') or current['source_sha'],
+                           profile_id=current['profile_id'], execution_binding_id=current['execution_binding_id'])
+        else:
+            if provider not in {'LLAMA', 'OLLAMA'}:
+                raise ClientError('Choose the configured local inference provider.', not_dispatched=True)
+            profile = profile_id(model)
+            route_revision = hashlib.sha256(self.cfg['backend'].encode()).hexdigest()
+            selection = {'profile_uid': profile, 'profile_revision': hashlib.sha256(model.encode()).hexdigest(),
+                         'provider_connection_id': 'desktop-configured-model', 'provider_connection_revision': route_revision,
+                         'provider_kind': provider, 'configured_endpoint': self.cfg['backend'], 'requested_model_id': model,
+                         'generation_parameters': {}, 'privacy_scope': 'desktop-gateway',
+                         'tool_owner': 'GATEWAY', 'required_capability_policy': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET', 'JSON_OBJECT']}
+            receipt = self.request('POST', '/gateway/engineering/bindings', payload={'selection': selection})
+            binding = receipt.get('binding') or {}
+            expected = {key: value for key, value in selection.items() if key != 'configured_endpoint'}
+            expected.update(required_capability_policy=sorted(selection['required_capability_policy']),
+                            routing_policy='SELECTED_ONLY',
+                            configured_endpoint_identity=binding_fingerprint(binding_endpoint(selection['configured_endpoint'])),
+                            generation_parameters_digest=binding_fingerprint(selection['generation_parameters']))
+            if (not isinstance(binding, dict) or not isinstance(binding.get('binding_id'), str) or
+                    not re.fullmatch(r'bind_[a-f0-9]{32}', binding['binding_id']) or
+                    any(binding.get(key) != value for key, value in expected.items())):
+                raise ClientError('The gateway did not verify that exact model binding.', not_dispatched=True)
+            payload.update(client_conversation_id='desktop-' + command, profile_id=profile,
+                           execution_binding_id=binding['binding_id'])
+        if not re.fullmatch(r'[a-f0-9]{40}', payload.get('source_sha') or ''):
+            raise ClientError('Use the exact source commit SHA before submitting an engineering task.', not_dispatched=True)
+        return payload, self.engineering_preflight(payload)
+
+    def engineering_preflight(self, payload):
+        result = self.request('POST', '/gateway/engineering/preflight', payload=payload)
+        if (result.get('source_sha') != payload.get('source_sha') or
+                result.get('objective_sha256') != hashlib.sha256(payload['objective'].encode()).hexdigest()):
+            raise ClientError('The preparation response does not match this task. Prepare it again.', not_dispatched=True)
+        return result
+
+    def submit_engineering(self, payload):
+        job = self.request('POST', '/gateway/engineering/jobs', payload=payload)
+        if (job.get('command_id') != payload['command_id'] or
+                job.get('execution_binding_id') != payload['execution_binding_id'] or
+                any(job.get(key) != payload[key] for key in (
+                    'repository', 'profile_id', 'model', 'source_sha', 'base', 'source_branch') if key in payload) or
+                any(job.get(key) != self.expected_identity[key] for key in ('gateway_id', 'principal_id'))):
+            raise ClientError('The admission response needs reconciliation. Check the original command.')
+        return job
+
+    def engineering_job(self, job_id):
+        if not isinstance(job_id, str) or not re.fullmatch(r'eng_[a-f0-9]{32}', job_id):
+            raise ClientError('The saved engineering job identity is unavailable.', not_dispatched=True)
+        job = self.request('GET', '/gateway/engineering/jobs/' + job_id)
+        if (not self.expected_identity or job.get('id') != job_id or
+                any(job.get(key) != self.expected_identity[key] for key in ('gateway_id', 'principal_id'))):
+            raise ClientError('The original saved job identity changed.', not_dispatched=True)
+        return job
+
+    def engineering_review(self, conversation):
+        parent = self.engineering_job(conversation.get('active_job_id'))
+        if parent.get('conversation_id') != conversation.get('conversation_id'):
+            raise ClientError('The job is attached to a different conversation.', not_dispatched=True)
+        seen = {parent['id']}
+        for _ in range(5):
+            child_id = parent.get('recovery_job_id')
+            if not child_id:
+                return parent
+            if child_id in seen:
+                raise ClientError('The linked recovery identity could not be verified.', not_dispatched=True)
+            child = self.engineering_job(child_id)
+            if child.get('recovery_of') != parent['id'] or any(
+                    child.get(key) != parent.get(key) for key in ('repository', 'base', 'execution_binding_id')):
+                raise ClientError('The linked recovery identity could not be verified.', not_dispatched=True)
+            seen.add(child_id)
+            parent = child
+        if parent.get('recovery_job_id'):
+            raise ClientError('The recovery chain exceeds its supported depth.', not_dispatched=True)
+        return parent
+
+    def approve_engineering(self, conversation, reviewed):
+        job = self.engineering_review(conversation)
+        if (not isinstance(reviewed, dict) or job.get('merge_ready') is not True or
+                type(job.get('revision')) is not int or job['revision'] < 0 or
+                type(job.get('pr')) is not int or job['pr'] < 1 or
+                not isinstance(job.get('head_sha'), str) or not re.fullmatch(r'[a-f0-9]{40}', job['head_sha']) or
+                not isinstance(job.get('execution_binding_id'), str) or not job['execution_binding_id'] or
+                any(job.get(key) != reviewed.get(key) for key in (
+                    'id', 'revision', 'pr', 'head_sha', 'execution_binding_id', 'gateway_id',
+                    'principal_id', 'repository', 'base', 'branch', 'conversation_id'))):
+            raise ClientError('The reviewed revision changed. Refresh before approving the merge.', not_dispatched=True)
+        return self.request('POST', '/gateway/engineering/jobs/' + job['id'] + '/approve',
+                            payload={key: job[key] for key in ('revision', 'pr', 'head_sha')},
+                            user_action='approve-and-merge')
 
     def send(self, model, prompt, command_id, *, conversation=None, history=(), on_event=lambda *_: None):
         if not isinstance(prompt, str) or not prompt.strip() or len(prompt) > 32000:

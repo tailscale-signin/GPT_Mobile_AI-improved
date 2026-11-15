@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import android.database.sqlite.SQLiteConstraintException
+import dev.chungjungsoo.gptmobile.data.database.ToolEventPersistenceFailure
+import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptancePublicationEvidence
 import java.util.Locale
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -60,7 +63,7 @@ internal object IssueReportIncidentCapsule {
         "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash", "crash_surface", "crash_boundary"
     )
     private val policyObservation = setOf("OBSERVED", "UNOBSERVED", "INVALID_RESPONSE", "ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE", "RATE_LIMITED", "UNAVAILABLE", "HTTP_FAILURE")
-    private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
+    private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
     val toolFailureFields = setOf("url_reader_dns_state", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
     val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection")
@@ -72,6 +75,14 @@ internal object IssueReportIncidentCapsule {
     val chatDeliveryFields = chatDeliveryCounts + setOf("chat_delivery_terminal", "chat_delivery_answer_state", "chat_delivery_counts_capped")
     val claimFreshnessFields = setOf("acceptance_claim_freshness_predicates")
     val acceptanceBlockerFields = setOf("fixture_approval_blocked_count", "owned_fixture_blocked_count", "pending_local_fragments", "pending_remote_continuations")
+    const val REPEAT_ADMISSION_FEATURE = "TOOL_REPEAT_ADMISSION_EVIDENCE_V1"
+    private val repeatAdmissionCounts = setOf("dependency_repeat_prior_admissions", "dependency_repeat_batch_admissions", "dependency_repeat_used", "dependency_repeat_limit")
+    val repeatAdmissionFields = repeatAdmissionCounts + "dependency_repeat_scope"
+    const val TOOL_EVENT_PERSISTENCE_FEATURE = "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1"
+    const val SQLITE_CONSTRAINT_FEATURE = "SQLITE_CONSTRAINT_EVIDENCE_V1"
+    private val toolEventSignedSequences = setOf("tool_event_requested_sequence", "tool_event_previous_max_sequence")
+    val toolEventPersistenceFields = toolEventSignedSequences + setOf("tool_event_persistence_operation", "tool_event_persistence_phase", "tool_event_persistence_failure", "tool_event_assigned_sequence", "tool_event_write_attempted")
+    val reviewComparisonFields = setOf("review_comparison_state", "review_comparison_policy")
     private val toolFields = setOf(
         "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count",
         "argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types", "resolved_argument_shape_hash",
@@ -93,12 +104,19 @@ internal object IssueReportIncidentCapsule {
     private val voiceFields = setOf("run_id_hash", "invocation_id_hash", "voice_reply_failed", "voice_reply_terminal_status", "voice_reply_failure_evidence", "voice_chat_failure_code", "voice_chat_failure_code_hash", "voice_chat_failure_phase")
     private val hashes = setOf("causal_id_hash", "action_schema_generation_hash", "resolved_argument_shape_hash", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_restore_error_hash", "server_request_id_hash", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash", "argument_repair_signature_hash", "provider_error_type_hash", "provider_parameter_path_hash", "voice_chat_failure_code_hash", "mcp_connection_hash", "search_id_hash", "search_cursor_hash", "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_route_hash") + handoffReconciliationHashes
     private val hashLists = setOf("validation_path_hashes", "unknown_field_hashes", "evidence_ref_hashes", "exception_type_hashes", "dependency_call_id_hashes", "pending_tool_identity_hashes")
-    private val flags = setOf("tls_response_started", "provider_local_budget_block", "saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required", "chat_delivery_counts_capped")
+    private val flags = setOf("tls_response_started", "provider_local_budget_block", "saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required", "chat_delivery_counts_capped", "tool_event_write_attempted")
     private val counts = setOf("recovery_attempt_count", "unknown_field_count", "eligible_receipt_count", "excluded_receipt_count", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count", "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count", "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "dependency_count", "dependency_failed_count", "pending_tool_count") + policyCounts
     private val executionCounts = setOf("tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "combined_issue_count") + acceptanceBlockerFields
     private val types = setOf("STRING", "NUMBER", "BOOLEAN", "OBJECT", "ARRAY", "NULL")
     private val mcpHealth = setOf("DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "TLS_FAILED", "CONNECT_TIMEOUT", "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT", "HEALTHY", "UNKNOWN")
     private val enums = mapOf(
+        "sqlite_constraint_kind" to setOf("UNIQUE", "FOREIGN_KEY", "NOT_NULL", "CHECK", "PRIMARY_KEY", "TRIGGER", "UNKNOWN"),
+        "dependency_repeat_scope" to setOf("TOOL_NAME", "TOOL_NAME_AND_ARGUMENTS"),
+        "tool_event_persistence_operation" to setOf("START"),
+        "tool_event_persistence_phase" to setOf("ALLOCATE_SEQUENCE", "INSERT"),
+        "tool_event_persistence_failure" to setOf("RUN_SEQUENCE_CONFLICT", "EVENT_ID_CONFLICT", "RUN_FOREIGN_KEY", "NOT_NULL", "UNKNOWN_CONSTRAINT", "SEQUENCE_EXHAUSTED"),
+        "review_comparison_state" to setOf("HEAD_REQUIRED", "BASELINE_REQUIRED", "BASE_REF_REQUIRED", "BASE_REF_BLOCKED", "PR_BASE_LOOKUP", "PR_BASE_UNVERIFIED", "BASE_SHA_REQUIRED", "COMPARISON_PAGES_PENDING", "READ_CHANGED_SOURCE", "COMPARE_REQUIRED"),
+        "review_comparison_policy" to setOf("UNRESOLVED", "EXPLICIT_BASE_SHA", "EXPLICIT_BASE_REF", "OBSERVED_PR_BASE", "DEFAULT_BRANCH_HEAD"),
         "chat_delivery_terminal" to setOf("DONE"),
         "chat_delivery_answer_state" to setOf("EMPTY_CONTENT", "NO_ANSWER_CONTENT", "GITHUB_ANSWER_PENDING"),
         "handoff_checkpoint_state" to setOf("TOOL_HANDOFF", "TOOL_RESULTS_READY"),
@@ -180,7 +198,7 @@ internal object IssueReportIncidentCapsule {
         "receipt_exclusion_reasons" to setOf("WRONG_OPERATION", "WRONG_ACTION", "WRONG_REVISION", "WRONG_SCOPE", "PRECHECK_ONLY", "NOT_SUCCESSFUL", "UNKNOWN_OUTCOME", "STALE", "MISSING_IDENTITY", "UNVERIFIED")
     )
     val coreFields = listOf("incident_phase", "causal_id_hash", "causal_provenance", "incident_evidence_status")
-    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields
+    val priorityFields = coreFields.toSet() + setOf("run_id_hash", "causal_failure_code", "incident_origin", "incident_capture_site", "incident_phase_provenance", "exception_type_hashes", "sqlite_constraint_kind") + policyDiagnostics + runEvidenceFields + handoffReconciliationFields + chatDeliveryFields + claimFreshnessFields + GitHubAcceptancePublicationEvidence.fields
 
     enum class ExceptionCaptureSite { CHAT_REPOSITORY_TERMINAL_CATCH, CHAT_REPOSITORY_PREFLIGHT, OPENAI_ADAPTER_STREAM_CATCH, PROVIDER_ADAPTER_STREAM_CATCH, CHAT_REPOSITORY_ERROR_VALUE, CHAT_FLOW_EMPTY_ANSWER }
 
@@ -193,7 +211,12 @@ internal object IssueReportIncidentCapsule {
     /** Captured at the actual catch. A boundary identifies where observed, not where dispatched. */
     fun exceptionFields(error: Throwable, site: ExceptionCaptureSite): JsonObject = buildJsonObject {
         boundaryFields(site).forEach { (key, value) -> put(key, value) }
+        generateSequence(error) { it.cause }.take(4).filterIsInstance<ToolEventPersistenceFailure>().firstOrNull()
+            ?.evidence?.forEach { (key, value) ->
+                if (key in toolEventPersistenceFields) validValue(key, value)?.let { put(key, it) }
+            }
         put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).map(::JsonPrimitive)))
+        sqliteConstraintKind(error)?.let { put("sqlite_constraint_kind", it) }
         IssueReportContext.exceptionFingerprint(error)?.let { put("exception_fingerprint", it) }
         val (type, frames) = IssueReport.exceptionMetadata(error)
         type?.let { put("exception_report_type", it) }
@@ -201,10 +224,33 @@ internal object IssueReportIncidentCapsule {
         if (applicationFrames.isNotEmpty()) put("exception_application_frames", JsonArray(applicationFrames.map(::JsonPrimitive)))
     }
 
+    private fun sqliteConstraintKind(error: Throwable): String? {
+        val constraint = generateSequence(error) { it.cause }.take(4).filterIsInstance<SQLiteConstraintException>().firstOrNull() ?: return null
+        val raw = constraint.message ?: return "UNKNOWN"
+        if (raw.length > 1024) return "UNKNOWN"
+        val message = raw.trim().uppercase(Locale.ROOT)
+        val prefix = Regex("^(UNIQUE|FOREIGN KEY|NOT NULL|CHECK|PRIMARY KEY|TRIGGER) CONSTRAINT FAILED(?=:|$| \\(CODE )")
+            .find(message)?.groupValues?.get(1)?.replace(' ', '_')
+        // Match SQLite's extended error marker, not a table name, SQL string or incidental trigger word.
+        val marker = Regex("(?:^SQLITE_CONSTRAINT_(UNIQUE|FOREIGNKEY|NOTNULL|CHECK|PRIMARYKEY|TRIGGER)(?=[: \\[\\(]|$)|\\(CODE [0-9]{1,6} SQLITE_CONSTRAINT_(UNIQUE|FOREIGNKEY|NOTNULL|CHECK|PRIMARYKEY|TRIGGER)(?:\\[[0-9]{1,6}])?\\))")
+        val kinds = marker.findAll(message).map { match ->
+            when (val kind = match.groupValues[1].ifEmpty { match.groupValues[2] }) {
+                "FOREIGNKEY" -> "FOREIGN_KEY"
+                "NOTNULL" -> "NOT_NULL"
+                "PRIMARYKEY" -> "PRIMARY_KEY"
+                else -> kind
+            }
+        }.distinct().toList()
+        if (kinds.size > 1) return "UNKNOWN"
+        val observed = kinds.singleOrNull() ?: return prefix ?: "UNKNOWN"
+        // SQLite describes a primary-key collision with a UNIQUE human prefix.
+        return if (prefix == null || prefix == observed || prefix == "UNIQUE" && observed == "PRIMARY_KEY") observed else "UNKNOWN"
+    }
+
     fun fieldsFor(area: String): Set<String> = common + when (area) {
-        "TOOL" -> toolFields + toolFailureFields
-        "INCIDENT" -> combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure")
-        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
+        "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields
+        "INCIDENT" -> combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure")
+        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + GitHubAcceptancePublicationEvidence.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
         "GATEWAY" -> gatewayFields
         "PROVIDER" -> providerFields + setOf("provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash")
         "APP" -> setOf("crash_surface", "crash_boundary")
@@ -213,6 +259,7 @@ internal object IssueReportIncidentCapsule {
     }
 
     fun validValue(key: String, value: JsonElement): JsonElement? {
+        if (key in GitHubAcceptancePublicationEvidence.fields) return GitHubAcceptancePublicationEvidence.validValue(key, value)
         if (key in hashLists || key in enumLists) {
             val items = value as? JsonArray ?: return null
             if (key in claimFreshnessFields) {
@@ -232,8 +279,10 @@ internal object IssueReportIncidentCapsule {
             "retry_delay_ms", "privacy_metadata_age_ms", "mcp_health_age_ms" -> 0L..86_400_000L
             "tool_contract_version" -> 1L..1000L
             "argument_repair_attempt" -> 1L..3L
+            in toolEventSignedSequences -> Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()
+            "tool_event_assigned_sequence" -> 0L..Int.MAX_VALUE.toLong()
             in handoffReconciliationCounts -> 0L..1024L
-            in counts, in executionCounts, in chatDeliveryCounts -> 0L..16_000_000L
+            in counts, in executionCounts, in chatDeliveryCounts, in repeatAdmissionCounts -> 0L..16_000_000L
             else -> return null
         }
         return number.takeIf { it in range }?.let(::JsonPrimitive)
@@ -318,6 +367,8 @@ internal object IssueReportIncidentCapsule {
         // Only the original structured list supplies policy-change evidence. Never publish arbitrary names.
         policyDiagnostics.forEach(::remove)
         if (fields.containsKey("changed_policy_fields")) putAll(policyFields(fields["changed_policy_fields"]))
+        // These public aliases come only from the actual comparison failure's checkpoint.
+        reviewComparisonFields.forEach(::remove)
         val area = text(fields["diagnostic_area"])?.takeIf { it in IssueReportDiagnostics.areas } ?: when (feature) {
             ReportFeature.TOOLS -> "TOOL"
             ReportFeature.GATEWAY -> "GATEWAY"
@@ -328,6 +379,11 @@ internal object IssueReportIncidentCapsule {
         val phase = listOf("failed_stage", "failedStage", "failurePhase", "phase", "stage").firstNotNullOfOrNull { text(fields[it]) }
             ?.lowercase(Locale.ROOT)?.takeIf { it in phases } ?: "unknown"
         put("incident_phase", phase)
+        if (area == "INCIDENT" && source == "CHAT_FAILURE" && text(fields["failed_stage"]) == "review_comparison") {
+            for ((sourceKey, reportKey) in listOf("state" to "review_comparison_state", "comparison_policy" to "review_comparison_policy")) {
+                text(fields[sourceKey])?.let { validValue(reportKey, JsonPrimitive(it)) }?.let { put(reportKey, it) }
+            }
+        }
         val policyCode = text(fields["authority_invalidation_code"]) ?: code
         if (policyCode in setOf("DISPATCH_POLICY_CHANGED", "POLICY_STALE")) {
             val changes = fields["changed_policy_fields"]

@@ -224,11 +224,18 @@ class GraphService:
 
         rate_wait = None
         rate_wait_until = 0
+        interruption = None
         with concurrent.futures.ThreadPoolExecutor(max_workers=4) as pool:
             futures = [pool.submit(read_isolated, path) for path in batch]
             for future in concurrent.futures.as_completed(futures):
                 try:
                     path, fragment = future.result()
+                except InterruptedError as error:
+                    # The executor already waits for all bounded source reads.
+                    # Collect their observed rate metadata even when cancellation
+                    # wins; no fragments are published after an interruption.
+                    interruption = error
+                    continue
                 except requests.HTTPError as error:
                     response = error.response
                     observed_at = time.time()
@@ -244,8 +251,8 @@ class GraphService:
                 snapshot['index_metrics']['parsed_files'] += 1
                 snapshot['index_metrics']['read_bytes'] += fragment['source_bytes']
         snapshot['index_metrics']['index_ms'] += round((time.perf_counter() - started) * 1000, 2)
-        if cancelled():
-            raise InterruptedError('Graph preparation cancelled')
+        if interruption is not None or cancelled():
+            raise (interruption or InterruptedError('Graph preparation cancelled')) from rate_wait
         self.store.save(namespace, snapshot)
         if rate_wait is not None:
             # Successful siblings are durable; throttled files remain pending,

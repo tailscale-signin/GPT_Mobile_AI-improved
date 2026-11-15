@@ -13,10 +13,51 @@ from desktop import theme
 from desktop.theme import BG as BACKGROUND, PANEL as SURFACE, TEXT, MUTED, CYAN as ACCENT
 
 
+class WindowCallbacks:
+    """Own scheduled Settings callbacks until this exact window is destroyed."""
+    def __init__(self, window):
+        self.window = window
+        self.pending = set()
+        self.closed = False
+        window.bind('<Destroy>', self._destroyed, add='+')
+
+    def schedule(self, milliseconds, callback):
+        if self.closed:
+            return None
+        handle = None
+        def run():
+            self.pending.discard(handle)
+            if not self.closed:
+                callback()
+        handle = self.window.after(milliseconds, run)
+        self.pending.add(handle)
+        return handle
+
+    def cancel(self, handle):
+        if handle in self.pending:
+            self.pending.remove(handle)
+            try:
+                self.window.after_cancel(handle)
+            except tk.TclError:
+                pass
+
+    def _destroyed(self, event):
+        if event.widget is self.window:
+            self.closed = True
+            for handle in tuple(self.pending):
+                self.cancel(handle)
+
+
 def build_window(root, parent=None, section='General'):
     root = Path(root)
     cfg = load(root)
     window = tk.Toplevel(parent) if parent else tk.Tk()
+    if parent is not None:
+        # Keep settings above its owning dashboard on Windows. A plain Toplevel
+        # can otherwise map behind the parent despite visible child geometry.
+        window.transient(parent.winfo_toplevel())
+    callbacks = WindowCallbacks(window)
+    window.settings_callbacks = callbacks
     theme.apply(window)
     window.title('GPT Mobile Gateway')
     width = min(900, max(660, window.winfo_screenwidth() - 32))
@@ -49,19 +90,26 @@ def build_window(root, parent=None, section='General'):
     style.configure('Treeview.Heading', background='#263336', foreground=MUTED, padding=7)
     style.map('Treeview', background=[('selected', '#365860')])
 
-    header = ttk.Frame(window, padding=(24, 18))
+    header = ttk.Frame(window, padding=(24, 12))
     header.pack(fill='x')
     ttk.Label(header, text='GPT  /  GATEWAY', foreground=ACCENT, font=('Segoe UI', 15, 'bold')).pack(side='left')
     state_text = tk.StringVar(value='Connecting to your gateway…')
     ttk.Label(header, textvariable=state_text, style='Muted.TLabel').pack(side='right')
+    footer = ttk.Frame(window, padding=(24, 10))
+    footer.pack(side='bottom', fill='x')
+    notice = tk.StringVar(value='Settings apply after Restart. Active work is preserved.')
+    ttk.Label(footer, textvariable=notice, style='Muted.TLabel').pack(anchor='w', pady=(0, 10))
+    actions = ttk.Frame(footer)
+    actions.pack(fill='x')
     tabs = ttk.Notebook(window)
+    window.settings_tabs = tabs
     tabs.pack(fill='both', expand=True, padx=20)
     advanced_visible = tk.BooleanVar(value=section == 'Advanced')
     advanced_shell = None
     scroll_surfaces = {}
-    def page(name):
-        shell = ttk.Frame(tabs)
-        tabs.add(shell, text=name)
+    def page(name, notebook=tabs):
+        shell = ttk.Frame(notebook)
+        notebook.add(shell, text=name)
         canvas = tk.Canvas(shell, bg=BACKGROUND, highlightthickness=0)
         scrollbar = ttk.Scrollbar(shell, orient='vertical', command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -85,7 +133,7 @@ def build_window(root, parent=None, section='General'):
 
     window.bind('<MouseWheel>', scroll)
     sections = {}
-    for title in ('General', 'Advanced', 'Add-ons', 'GitHub'):
+    for title in ('General', 'Advanced', 'Add-ons'):
         canvas = page(title)
         if title == 'Advanced':
             advanced_shell = canvas.master
@@ -95,6 +143,10 @@ def build_window(root, parent=None, section='General'):
         sections[title] = frame
         if title == section:
             tabs.select(canvas.master)
+    github = ttk.Frame(tabs)
+    tabs.add(github, text='GitHub')
+    if section == 'GitHub':
+        tabs.select(github)
     def toggle_advanced():
         if advanced_visible.get():
             tabs.insert(1, advanced_shell, text='Advanced')
@@ -254,14 +306,14 @@ def build_window(root, parent=None, section='General'):
 
     from desktop.github_setup import build_github_settings
     from desktop.repository_validation_panel import RepositoryValidationPanel
-    github = sections['GitHub']
-    title(github, 'GitHub', 'Connect your account and prepare repository validation on this PC.')
     github_tabs = ttk.Notebook(github)
-    github_tabs.grid(row=2, column=0, columnspan=3, sticky='nsew')
-    connection = ttk.Frame(github_tabs, padding=12)
+    github_tabs.pack(fill='both', expand=True)
+    window.github_tabs = github_tabs
+    connection_canvas = page('Connection', github_tabs)
+    connection = ttk.Frame(connection_canvas, padding=14)
     connection.columnconfigure(1, weight=1)
-    validation_frame = ttk.Frame(github_tabs, padding=12)
-    github_tabs.add(connection, text='Connection')
+    attach(connection_canvas, connection)
+    validation_frame = ttk.Frame(github_tabs)
     github_tabs.add(validation_frame, text='Repository Validation')
     public_maps_saved = public_repository_maps(root)
     public_maps = tk.BooleanVar(value=public_maps_saved)
@@ -269,12 +321,8 @@ def build_window(root, parent=None, section='General'):
     validation_panel = RepositoryValidationPanel(validation_frame, root, cfg)
     window.repository_validation_panel = validation_panel
 
-    footer = ttk.Frame(window, padding=(24, 16))
-    footer.pack(fill='x')
-    notice = tk.StringVar(value='Settings apply after Restart. Active work is preserved.')
-    ttk.Label(footer, textvariable=notice, style='Muted.TLabel').pack(anchor='w', pady=(0, 10))
-    actions = ttk.Frame(footer)
-    actions.pack(fill='x')
+    scroll_surfaces[validation_panel.viewport] = validation_panel.viewport
+
     messages = queue.Queue()
     busy = False
 
@@ -301,7 +349,7 @@ def build_window(root, parent=None, section='General'):
             if public_maps.get() != public_maps_saved:
                 save_public_repository_maps(root, public_maps.get())
                 public_maps_saved = public_maps.get()
-            notice.set('General settings saved. Repository validation uses its own Prepare & save action. Restart when idle.')
+            notice.set('General settings saved. Repository validation uses its own Save policy / Prepare & save actions. Restart when idle.')
         except Exception as error:
             messagebox.showerror('Check settings', str(error))
 
@@ -340,7 +388,7 @@ def build_window(root, parent=None, section='General'):
         except (OSError, ValueError):
             state_text.set('Start Gateway to connect')
             state = {}
-        window.after(2000, refresh)
+        callbacks.schedule(2000, refresh)
     def firewall(remove=False):
         def work():
             try:
@@ -355,6 +403,16 @@ def build_window(root, parent=None, section='General'):
     refresh()
     from desktop.window_lifecycle import watch
     watch(window, root, window.destroy)
+    if parent is not None:
+        # Tk can map a transient Toplevel behind its owner on Windows when the
+        # owner has not processed geometry yet. Map the owner first, finish the
+        # child layout, then raise the settings window before returning it to
+        # the dashboard's click handler.
+        owner = parent.winfo_toplevel()
+        owner.update_idletasks()
+        window.update_idletasks()
+        window.lift()
+        window.focus_set()
     return window
 
 
@@ -370,4 +428,6 @@ def show(root, parent=None, section='General'):
     try:
         build_window(root, section=section).mainloop()
     finally:
+        from desktop.repository_validation_panel import settle_setup_workers
+        settle_setup_workers(root)
         lock.release()

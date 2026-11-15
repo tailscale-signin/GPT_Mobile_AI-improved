@@ -34,6 +34,7 @@ internal fun CombinedProfileFailure.shortStatus(now: Long): String = when {
     category == "STREAM_DEGRADED" -> "Reply partially recovered"
     category == "NO_VISIBLE_ANSWER" -> "No answer returned"
     category == "REASONING_BUDGET_EXHAUSTED" -> "No answer within output allowance"
+    category == "GITHUB_TOOL_CONTEXT_BUDGET" -> "Context too small for required tools"
     category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request unavailable"
     applicationFailure -> "App paused"
     (retryAfterMillis ?: 0) > now -> {
@@ -108,6 +109,7 @@ internal fun combinedProfileFailures(
         classified.category == "CACHED_UNUSABLE_RESPONSE" -> "The provider replayed the same cached generation without an answer. Choose a different model, supported settings or provider."
         savedPolicyUnavailable || classified.category == "SAVED_POLICY_UNAVAILABLE" -> "Saved request data is unavailable. Restore its complete backup or start a new request; other replies are saved."
         appFailure -> "App execution paused. Open the app to resume."
+        classified.category == "GITHUB_TOOL_CONTEXT_BUDGET" -> "The required tool definitions do not fit the context allowance remaining after input and reserved tokens. Review this profile's supported context or reduce the included input, then start a new request. Saved replies and tool results remain."
         Regex("REASONING_(?:ON|OFF)_UNSUPPORTED", RegexOption.IGNORE_CASE).containsMatchIn(details) -> "Choose Auto in this profile’s reasoning settings, or change to a profile with a verified reasoning toggle. Completed tool results are saved. Retry after changing the configuration."
         incompatible -> "This model or configuration is incompatible. Change it before retrying."
         details.contains("Tool choice is none", true) -> "The provider returned a tool call although tools were disabled."

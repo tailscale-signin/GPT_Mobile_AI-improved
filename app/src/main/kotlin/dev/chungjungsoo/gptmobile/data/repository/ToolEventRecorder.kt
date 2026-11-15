@@ -52,7 +52,6 @@ class ToolEventRecorder @Inject constructor(
         connectionName: String? = null,
         startedAt: Long
     ): ToolEvent {
-        dao.rawGetToolEventByCall(runId, callId)?.let { return it }
         val event = ToolEvent(
             eventId = eventIdFactory(),
             runId = runId,
@@ -68,9 +67,11 @@ class ToolEventRecorder @Inject constructor(
             status = ToolEventStatus.RUNNING,
             startedAt = startedAt
         )
-        dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Tool", "Started $modelToolName · run $runId · call $callId")
-        dao.insertToolEvent(event)
-        return event
+        val persisted = dao.startToolEvent(event)
+        if (persisted.eventId == event.eventId) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder.record("Tool", "Started $modelToolName · run $runId · call $callId")
+        }
+        return persisted
     }
 
     private fun precheckArgumentShape(arguments: String?, result: AgentToolResult): String {
@@ -200,8 +201,12 @@ class ToolEventRecorder @Inject constructor(
                                 "run_id", "runId", "call_id", "callId", "toolCallId", "tool", "tool_name", "operation", "retryable", "requires_reconciliation",
                                 "diagnostic_area", "diagnostic_capture_mode", "run_id_hash", "call_id_hash", "tool_name_hash", "tool_action_hash",
                                 "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase",
-                                "argument_shape_hash", "original_error_code_hash", "original_reason_code_hash"
-                            )
+                                "argument_shape_hash", "original_error_code_hash", "original_reason_code_hash",
+                                "graph_index_attempt_hash", "tool_budget_bytes_available", "sqlite_constraint_kind",
+                                "tool_event_persistence_operation", "tool_event_persistence_phase", "tool_event_persistence_failure",
+                                "tool_event_requested_sequence", "tool_event_assigned_sequence", "tool_event_previous_max_sequence", "tool_event_write_attempted"
+                            ) &&
+                                it !in dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionEvidence.FIELD_NAMES
                         }
                     )
                     if ("reason_code" !in this && "reasonCode" !in this) {
@@ -213,6 +218,9 @@ class ToolEventRecorder @Inject constructor(
                     put("tool", startedEvent?.modelToolName)
                     captureIssueReport {
                         ToolReportDiagnostics.fields(startedEvent, result, ToolPrecheckEvidence.reasonCode(result))
+                    }?.let { putAll(it) }
+                    captureIssueReport {
+                        dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionEvidence.reportFields(result, startedEvent?.callId, startedEvent?.modelToolName, startedEvent?.arguments)
                     }?.let { putAll(it) }
                     put("dispatched", normalizedResult.dispatched)
                     if (withheldRead) put("failed_stage", "delivery")

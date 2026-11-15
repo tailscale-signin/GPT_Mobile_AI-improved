@@ -438,7 +438,7 @@ jobs:
           python3 -m pip install --require-hashes -r gateway/requirements.txt
           python3 -m py_compile gateway/gateway*.py
           python3 gateway/check_gateway.py
-          python3 -m unittest authentication.test_github_broker authentication.test_app authentication.test_ticket_broker authentication.test_incident_report_contract
+          python3 -m unittest discover -s authentication -t . -p 'test_*.py' -v
 
   format:
     name: Changed Kotlin formatting

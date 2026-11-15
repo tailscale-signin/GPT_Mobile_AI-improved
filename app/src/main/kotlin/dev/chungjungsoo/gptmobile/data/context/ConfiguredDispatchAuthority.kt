@@ -47,7 +47,7 @@ internal object ConfiguredDispatchAuthority {
         val capturedProfileRevision = registered?.let(::profileRevision)
         val capturedFeatures = settings.getFeatureSettings()
         chatId?.let { capturedFeatures.conversationGitHub[it] }?.let { github ->
-            if (github.mainProfileUid != platform.uid || registered == null || registered.model != platform.model) {
+            if (!(github.mainProfileUid == platform.uid && registered != null && registered.model == platform.model)) {
                 throw GitHubProfileSelectionRejected(
                     profileMatches = github.mainProfileUid == platform.uid,
                     registeredProfilePresent = registered != null,
@@ -183,5 +183,3 @@ internal class DispatchPolicyChangedException(val fields: List<String>) :
         "DISPATCH_POLICY_CHANGED: changed fields=${fields.joinToString(",")}. " +
             "Resume the unfinished task to revalidate saved results under the current settings; no stale request was sent."
     )
-
-internal class GitHubProfileLockedException : IllegalStateException("GITHUB_PROFILE_LOCKED: Use the AI profile and model selected in GitHub settings. No substitute profile was dispatched.")

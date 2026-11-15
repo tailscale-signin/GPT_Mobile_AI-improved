@@ -47,6 +47,7 @@ internal class GitHubEvidenceBook(
     private val attempts = mutableMapOf<AttemptKey, AttemptHistory>()
     private val mutex = Mutex()
     private val records = linkedMapOf<String, JsonObject>()
+    private val trustObservations = mutableMapOf<String, GitHubAcceptancePublicationEvidence.TrustFailure>()
     private var bytes = 0L
     private var epoch = 0L
     private var observedHead: String? = null
@@ -152,7 +153,8 @@ internal class GitHubEvidenceBook(
             is ToolResultContent.ResourceLinks -> JsonNull
         }
         val operation = GitHubOperationTool.operationName(call.name) ?: "github".takeIf { call.name.substringBefore("__") == it }
-        val trusted = call.name in trustedTools && (operation != null || call.name == "discover_available_tools" || call.name.substringBefore("__") == "repository_graph")
+        val authorizedTool = call.name in trustedTools
+        val trusted = authorizedTool && (operation != null || call.name == "discover_available_tools" || call.name.substringBefore("__") == "repository_graph")
         val effectiveArguments = (result.executionReceipt?.get("corrected_arguments") as? JsonObject) ?: call.arguments
         val owner = (effectiveArguments["owner"] as? JsonPrimitive)?.contentOrNull
         val repo = (effectiveArguments["repo"] as? JsonPrimitive)?.contentOrNull
@@ -197,6 +199,13 @@ internal class GitHubEvidenceBook(
         }
         val sourceSerialization = content.toString()
         val sourceDigest = digest(sourceSerialization)
+        val trustedTarget = trusted && (selected || sourceRead || lifecycleRepository != null)
+        val trustFailure = when {
+            !authorizedTool -> GitHubAcceptancePublicationEvidence.TrustFailure.TOOL_NOT_IN_AUTHORIZED_CATALOG
+            !trusted -> GitHubAcceptancePublicationEvidence.TrustFailure.UNRECOGNIZED_EVIDENCE_OPERATION
+            !trustedTarget -> GitHubAcceptancePublicationEvidence.TrustFailure.TARGET_OUTSIDE_ACCEPTED_SCOPE
+            else -> null
+        }
         val receipt = buildJsonObject {
             put("schema", "github.evidence.v1")
             put("receipt_id", id)
@@ -253,8 +262,8 @@ internal class GitHubEvidenceBook(
             put("source_head_sha", head?.let(::JsonPrimitive) ?: JsonNull)
             put("head_observation", selected && !lifecycle && (headObservation || remoteChange))
             put("immutable", immutable)
-            put("trusted", trusted && (selected || sourceRead || lifecycleRepository != null))
-            put("verification_eligible", trusted && (selected || sourceRead || lifecycleRepository != null))
+            put("trusted", trustedTarget)
+            put("verification_eligible", trustedTarget)
             put("success", !result.isError && result.errorCode == null)
             put("dispatched", result.dispatched)
             put("shared_result", result.sharedResult)
@@ -299,19 +308,32 @@ internal class GitHubEvidenceBook(
         // The bounded review projection must not discard the durable receipt of an
         // already executed mutation. Persist first; capacity only blocks verification.
         val classified = JsonObject(receipt + ("operation_outcome" to GitHubOperationOutcome.snapshot(receipt)))
+        val observed = trustFailure?.let { withTrustObservation(classified, it) } ?: classified
         try {
-            saveReceipt(id, classified)
+            saveReceipt(id, observed)
         } catch (failure: Exception) {
             overflow = true // A transient storage error must not turn an unpersisted receipt into proof.
             throw failure
         }
-        retain(id, classified)
+        retain(id, observed)
+    }
+
+    private fun withTrustObservation(receipt: JsonObject, failure: GitHubAcceptancePublicationEvidence.TrustFailure): JsonObject {
+        val observed = JsonObject(receipt + (GitHubAcceptancePublicationEvidence.TRUST_KEY to GitHubAcceptancePublicationEvidence.trustObservation(failure)))
+        val originalBytes = receipt.toString().encodeToByteArray().size
+        val observedBytes = observed.toString().encodeToByteArray().size
+        // Optional diagnostics cannot reject an otherwise retainable original or
+        // switch its existing single-record write into a chunked write.
+        return if (observedBytes > ORIGINAL_RECEIPT_MAX_BYTES || originalBytes <= SIMPLE_RECEIPT_MAX_BYTES && observedBytes > SIMPLE_RECEIPT_MAX_BYTES) receipt else observed
     }
 
     private fun retain(id: String, value: JsonObject) {
+        // Diagnostic provenance belongs to the durable original, not the proof
+        // working set. Its bytes cannot change catalog admission or projection.
+        val proof = if (GitHubAcceptancePublicationEvidence.TRUST_KEY in value) JsonObject(value - GitHubAcceptancePublicationEvidence.TRUST_KEY) else value
         // Large source text belongs to the durable tier. Keep exact structural
         // facts and already bounded source excerpts in the review working set.
-        val projected = if (value.toString().encodeToByteArray().size > 64 * 1024) GitHubEvidenceProjection.receipt(value) else value
+        val projected = if (proof.toString().encodeToByteArray().size > 64 * 1024) GitHubEvidenceProjection.receipt(proof) else proof
         val size = projected.toString().encodeToByteArray().size
         if (bytes + size > retentionLimitBytes || records.size >= retentionLimitRecords) {
             overflow = true
@@ -319,6 +341,9 @@ internal class GitHubEvidenceBook(
         }
         records[id] = projected
         bytes += size
+        if (value["binding"] == JsonPrimitive(binding) && value["receipt_id"] == JsonPrimitive(id)) {
+            GitHubAcceptancePublicationEvidence.recordedTrustFailure(value)?.let { trustObservations[id] = it }
+        }
         val tool = (value["tool"] as? JsonPrimitive)?.contentOrNull
         val arguments = value["arguments"] as? JsonObject
         if (tool != null && arguments != null) {
@@ -328,16 +353,28 @@ internal class GitHubEvidenceBook(
         }
     }
 
+    /** Same-verdict unresolved claims only; an older missing observation stays unknown. */
+    suspend fun claimTrustFailures(verdict: JsonObject, publicationReceipts: Map<String, JsonObject>): List<GitHubAcceptancePublicationEvidence.TrustFailure> = mutex.withLock {
+        (verdict["unresolved_claims"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+            .filter { it["reason"] == JsonPrimitive("UNTRUSTED_RECEIPT") && it["status"] == JsonPrimitive("NOT_MEASURED") }
+            .mapNotNull { claim ->
+                val id = (claim["receipt_id"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull ?: return@mapNotNull null
+                val receipt = publicationReceipts[id] ?: return@mapNotNull null
+                if (receipt["trusted"] != JsonPrimitive(false) || receipt["receipt_id"] != JsonPrimitive(id) || receipt["binding"] != JsonPrimitive(binding)) return@mapNotNull null
+                trustObservations[id]
+            }.distinct()
+    }
+
     /** The existing encrypted workspace store has a per-record bound, not a total-result bound. */
     private suspend fun saveReceipt(id: String, receipt: JsonObject) {
         val text = receipt.toString()
-        if (text.encodeToByteArray().size <= 1_400_000) {
+        if (text.encodeToByteArray().size <= SIMPLE_RECEIPT_MAX_BYTES) {
             save(id, receipt)
             return
         }
         // A provider response is bounded at 4 MiB. This also admits its argument
         // and receipt envelope without ever publishing an unbounded manifest.
-        require(text.encodeToByteArray().size <= 8 * 1024 * 1024) { "GitHub original receipt exceeds its bounded source allowance" }
+        require(text.encodeToByteArray().size <= ORIGINAL_RECEIPT_MAX_BYTES) { "GitHub original receipt exceeds its bounded source allowance" }
         val originalHash = digest(text)
         val chunks = mutableListOf<JsonObject>()
         var start = 0
@@ -878,6 +915,9 @@ internal class GitHubEvidenceBook(
     }
 
     companion object {
+        private const val SIMPLE_RECEIPT_MAX_BYTES = 1_400_000
+        private const val ORIGINAL_RECEIPT_MAX_BYTES = 8 * 1024 * 1024
+
         fun currentSnapshot(id: String): Boolean = id.matches(Regex("(?:verification|checklist|answer|claim_extraction)_current_[a-f0-9]{24}"))
 
         /** Preparing a verdict does not prove that its visible delivery completed. */

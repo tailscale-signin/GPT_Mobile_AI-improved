@@ -1,11 +1,17 @@
 package dev.chungjungsoo.gptmobile.data.localmodel
 
+import io.mockk.every
+import io.mockk.mockkObject
+import io.mockk.unmockkObject
+import io.mockk.verify
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 import kotlinx.serialization.json.Json
+import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -31,6 +37,21 @@ class ModelArtifactManifestTest {
     private fun artifact(root: File): ModelArtifactManifest {
         val file = File(root, "weights.gguf").apply { writeText("GGUF-test-fixture") }
         return ModelArtifactManifest(familyId = "qwen3-0.6b", artifactId = "test", runtime = ArtifactRuntime.GENIEX_LLAMA_CPP, format = "gguf", entryFile = file.name, files = listOf(ArtifactFile(file.name, file.length(), PackageDigest.sha256(file))), contextTokens = 4096, supportedBackends = setOf("cpu"), runtimeVersion = "0.8.0")
+    }
+
+    private fun bundle(manifest: ModelArtifactManifest, contents: Map<String, ByteArray>): ByteArray {
+        val bytes = ByteArrayOutputStream()
+        ZipOutputStream(bytes).use { archive ->
+            archive.putNextEntry(ZipEntry("manifest.json"))
+            archive.write(Json.encodeToString(manifest).toByteArray())
+            archive.closeEntry()
+            contents.forEach { (path, content) ->
+                archive.putNextEntry(ZipEntry(path))
+                archive.write(content)
+                archive.closeEntry()
+            }
+        }
+        return bytes.toByteArray()
     }
 
     @Test fun corruptedShardAndUnsafePathsFailBeforeNativeEntry() {
@@ -95,21 +116,107 @@ class ModelArtifactManifestTest {
         val source = temporary.newFolder()
         val valid = artifact(source)
         val storage = temporary.newFolder()
-        val escaped = File(storage, "models/escape.gguf")
-        for (path in listOf("../escape.gguf", "nested/../../escape.gguf", escaped.absolutePath)) {
+        val escaped = File(storage, "models/escape.gguf").apply {
+            check(parentFile!!.mkdirs())
+            writeText("outside staging sentinel")
+        }
+        val sentinel = escaped.readBytes()
+        val paths = listOf("../escape.gguf", "nested/../../escape.gguf", escaped.absolutePath, "C:/escape.gguf", "nested\\escape.gguf", "./escape.gguf", "nested//escape.gguf", "nested/./escape.gguf", "nested/libevil.so")
+        for (path in paths) {
             val manifest = valid.copy(entryFile = path, files = listOf(valid.files.single().copy(path = path)))
-            val bytes = ByteArrayOutputStream()
-            ZipOutputStream(bytes).use { out ->
-                out.putNextEntry(ZipEntry("manifest.json"))
-                out.write(Json.encodeToString(manifest).toByteArray())
-                out.closeEntry()
-                out.putNextEntry(ZipEntry(path))
-                out.write(File(source, "weights.gguf").readBytes())
-                out.closeEntry()
+            val bytes = bundle(manifest, mapOf(path to File(source, "weights.gguf").readBytes()))
+            var admitted = 0
+            val result = ModelBundleInstaller.install(ByteArrayInputStream(bytes), storage, runtimeAdmission = {
+                assertEquals(ArtifactRuntime.GENIEX_LLAMA_CPP, it)
+                admitted++
+            })
+            assertEquals(path, 1, admitted)
+            assertTrue(path, result is LocalModelImportResult.Failure)
+            result as LocalModelImportResult.Failure
+            assertEquals(path, LocalModelImportResult.Failure.Reason.INVALID_MODEL, result.reason)
+            assertEquals(path, if (path.endsWith(".so")) "Imported code is not a model asset" else "Unsafe package path", result.message)
+            assertArrayEquals(path, sentinel, escaped.readBytes())
+            assertEquals(path, setOf("escape.gguf"), File(storage, "models").listFiles().orEmpty().map { it.name }.toSet())
+        }
+    }
+
+    @Test fun nestedArchiveValidationCannotUseLinkedSourcesOrTrustCorruptedExistingFiles() {
+        val source = temporary.newFolder()
+        val original = artifact(source)
+        val path = "nested/weights.gguf"
+        val content = File(source, "weights.gguf").readBytes()
+        val manifest = original.copy(entryFile = path, files = listOf(original.files.single().copy(path = path)))
+        val bytes = bundle(manifest, mapOf(path to content))
+        val storage = temporary.newFolder()
+        var admitted = 0
+        fun install() = ModelBundleInstaller.install(ByteArrayInputStream(bytes), storage, runtimeAdmission = {
+            assertEquals(ArtifactRuntime.GENIEX_LLAMA_CPP, it)
+            admitted++
+        })
+        mockkObject(LinkedModelSources)
+        try {
+            every { LinkedModelSources.resolveAsset(any(), any(), any()) } throws AssertionError("Archive validation must not resolve a linked source")
+            val first = install()
+            assertTrue(first.toString(), first is LocalModelImportResult.Success)
+            first as LocalModelImportResult.Success
+            val installedRoot = File(first.absoluteFilePath).parentFile!!
+            val installed = File(installedRoot, path)
+            assertArrayEquals(content, installed.readBytes())
+            val second = install()
+            assertTrue(second.toString(), second is LocalModelImportResult.Success)
+            assertEquals(first.absoluteFilePath, (second as LocalModelImportResult.Success).absoluteFilePath)
+            val corrupted = content.copyOf().also { it[4] = (it[4].toInt() xor 1).toByte() }
+            installed.writeBytes(corrupted)
+            val rejected = install()
+            assertTrue(rejected.toString(), rejected is LocalModelImportResult.Failure)
+            assertTrue((rejected as LocalModelImportResult.Failure).message.contains("checksum", ignoreCase = true))
+            assertArrayEquals(corrupted, installed.readBytes())
+            assertEquals(3, admitted)
+            assertTrue(File(storage, "models").listFiles().orEmpty().none { it.name.startsWith(".staging-") })
+            verify(exactly = 0) { LinkedModelSources.resolveAsset(any(), any(), any()) }
+        } finally {
+            unmockkObject(LinkedModelSources)
+        }
+    }
+
+    @Test fun qairtArchiveValidationStaysLocalWhileNormalReadsKeepLinkedResolution() {
+        val content = linkedMapOf(
+            "genie_config.json" to """{"dialog":{"context":{"size":2048},"tokenizer":{"path":"tokenizer.json"},"engine":{"model":{"type":"binary","binary":{"ctx-bins":["shards/part.bin"]}}}}}""".toByteArray(),
+            "tokenizer.json" to "{}".toByteArray(),
+            "shards/part.bin" to "compiled context fixture".toByteArray()
+        )
+        val manifest = ModelArtifactManifest(
+            familyId = "fixture", artifactId = "qairt", runtime = ArtifactRuntime.GENIEX_QAIRT,
+            format = "qairt_context", entryFile = "genie_config.json", contextTokens = 2048,
+            supportedBackends = setOf("npu"), soc = "SM8750", tokenizerFile = "tokenizer.json",
+            files = content.map { (path, bytes) -> ArtifactFile(path, bytes.size.toLong(), PackageDigest.sha256(bytes)) }
+        )
+        val bytes = bundle(manifest, content)
+        val storage = temporary.newFolder()
+        var admitted = 0
+        mockkObject(LinkedModelSources)
+        try {
+            every { LinkedModelSources.resolveAsset(any(), any(), any()) } throws AssertionError("Linked read resolver invoked")
+            val installed = (1..2).map {
+                val result = ModelBundleInstaller.install(ByteArrayInputStream(bytes), storage, runtimeAdmission = { runtime ->
+                    assertEquals(ArtifactRuntime.GENIEX_QAIRT, runtime)
+                    admitted++
+                })
+                assertTrue(result.toString(), result is LocalModelImportResult.Success)
+                result as LocalModelImportResult.Success
             }
-            assertTrue(path, ModelBundleInstaller.install(ByteArrayInputStream(bytes.toByteArray()), storage) is LocalModelImportResult.Failure)
-            assertFalse(path, escaped.exists())
-            assertTrue(File(storage, "models").listFiles().orEmpty().isEmpty())
+            assertEquals(2, admitted)
+            assertEquals(installed[0].absoluteFilePath, installed[1].absoluteFilePath)
+            val root = File(installed[0].absoluteFilePath).parentFile!!
+            content.forEach { (path, expected) -> assertArrayEquals(path, expected, File(root, path).readBytes()) }
+            verify(exactly = 0) { LinkedModelSources.resolveAsset(any(), any(), any()) }
+            val stored = ArtifactManifestStore.read(File(root, "manifest.json"))
+            val failure = runCatching { stored.validate(root) }.exceptionOrNull()
+            assertTrue(failure is AssertionError)
+            assertEquals("Linked read resolver invoked", failure?.message)
+            verify(exactly = 1) { LinkedModelSources.resolveAsset(any(), any(), any()) }
+        } finally {
+            unmockkObject(LinkedModelSources)
         }
     }
 

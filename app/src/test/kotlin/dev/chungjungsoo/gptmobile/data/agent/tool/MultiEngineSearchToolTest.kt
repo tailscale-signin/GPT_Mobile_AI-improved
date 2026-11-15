@@ -27,6 +27,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -907,6 +908,169 @@ class MultiEngineSearchToolTest {
         assertEquals(0, calls)
         assertTrue(result.isError)
         assertTrue(result.outputBudgetExhausted)
+    }
+
+    @Test fun searchGuardRetainsItsSnapshotBeforeAnotherCallConsumesTheSharedBudget() = runBlocking {
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 4, maxToolOutputBytes = 2048))
+        val arguments = buildJsonObject { put("query", "private search terms") }
+        val prior = engine("prior") { id, _ -> AgentToolResult(id, ToolResultContent.Text("x".repeat(1536)), false) }
+        budget.bind(prior.tool).execute("prior", arguments)
+        assertEquals(512, budget.remainingOutputBytes())
+        var authorizationChecks = 0
+        var engineCalls = 0
+        var snapshots = 0
+        val selected = engine("selected") { id, _ ->
+            engineCalls++
+            AgentToolResult(id, ToolResultContent.Text("unexpected engine result"), false)
+        }.let {
+            it.copy(
+                tool = budget.bind(it.tool, authorize = { _, _ ->
+                    authorizationChecks++
+                    true
+                })
+            )
+        }
+        val other = budget.bind(engine("other") { id, _ -> AgentToolResult(id, ToolResultContent.Text("y".repeat(256)), false) }.tool)
+        val result = MultiEngineSearchTool(
+            listOf(selected),
+            canExecute = {
+                check(snapshots == 1)
+                budget.canExecute()
+            },
+            remainingBytes = {
+                check(snapshots == 1)
+                budget.remainingOutputBytes()
+            },
+            budgetSnapshot = {
+                budget.snapshot().also {
+                    snapshots++
+                    // A different call finishes after this guard's observation was taken.
+                    runBlocking { other.execute("concurrent", arguments) }
+                }
+            }
+        ).execute("guarded", arguments)
+        assertEquals(1, snapshots)
+        assertEquals(0, authorizationChecks)
+        assertEquals(0, engineCalls)
+        assertFalse(result.dispatched)
+        assertTrue(result.outputBudgetExhausted)
+        assertFalse(result.toolCallBudgetExhausted)
+        assertEquals(1536, result.toolResultBudgetUsedBytes)
+        assertEquals(2048, result.toolResultBudgetLimitBytes)
+        assertEquals(JsonPrimitive(512), result.executionReceipt?.get("tool_budget_bytes_available"))
+        assertEquals(1, result.toolCallBudgetUsed)
+        assertEquals(4, result.toolCallBudgetLimit)
+        assertEquals(2, budget.usedCalls())
+        assertEquals(256, budget.remainingOutputBytes())
+    }
+
+    @Test fun searchGuardSnapshotPreservesTheByteThresholdAndUnknownLegacyCounters() = runBlocking {
+        val arguments = buildJsonObject { put("query", "private search terms") }
+        for ((limit, remaining) in listOf(0 to 0, 2048 to 0, 2048 to 1023, 2048 to 1024)) {
+            val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 4, maxToolOutputBytes = limit))
+            if (limit > remaining) {
+                budget.bind(engine("prior") { id, _ -> AgentToolResult(id, ToolResultContent.Text("x".repeat(limit - remaining)), false) }.tool)
+                    .execute("prior", arguments)
+            }
+            val initialCalls = budget.usedCalls()
+            var authorizationChecks = 0
+            var engineCalls = 0
+            val selected = engine("selected") { id, _ ->
+                engineCalls++
+                AgentToolResult(id, ToolResultContent.Text("observed result"), false)
+            }.let {
+                it.copy(
+                    tool = budget.bind(it.tool, authorize = { _, _ ->
+                        authorizationChecks++
+                        true
+                    })
+                )
+            }
+            val result = MultiEngineSearchTool(listOf(selected), budgetSnapshot = budget::snapshot).execute("guarded", arguments)
+            val allowed = remaining >= 1024
+            assertEquals(allowed, result.dispatched)
+            assertEquals(if (allowed) 1 else 0, engineCalls)
+            assertEquals(engineCalls, authorizationChecks)
+            assertEquals(initialCalls + engineCalls, budget.usedCalls())
+            if (!allowed) {
+                assertEquals("BUDGET_EXHAUSTED", result.errorCode)
+                assertTrue(result.outputBudgetExhausted)
+                assertFalse(result.toolCallBudgetExhausted)
+                assertEquals(limit - remaining, result.toolResultBudgetUsedBytes)
+                assertEquals(limit, result.toolResultBudgetLimitBytes)
+                assertEquals(initialCalls, result.toolCallBudgetUsed)
+                assertEquals(JsonPrimitive(remaining), result.executionReceipt?.get("tool_budget_bytes_available"))
+            }
+        }
+        val legacy = MultiEngineSearchTool(
+            listOf(engine("legacy") { _, _ -> error("No engine may run") }),
+            canExecute = { true },
+            remainingBytes = { 512 }
+        ).execute("legacy", arguments)
+        assertTrue(legacy.outputBudgetExhausted)
+        assertFalse(legacy.dispatched)
+        assertNull(legacy.toolResultBudgetUsedBytes)
+        assertNull(legacy.toolResultBudgetLimitBytes)
+        assertNull(legacy.toolCallBudgetUsed)
+        assertNull(legacy.toolCallBudgetLimit)
+        assertNull(legacy.executionReceipt?.get("tool_budget_bytes_available"))
+    }
+
+    @Test fun searchGuardRecordsSeparateAllowanceWithoutInventingCumulativeSpend() = runBlocking {
+        val arguments = buildJsonObject { put("query", "private search terms") }
+        for (available in listOf(0, 1023, 1024)) {
+            val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 4, maxToolOutputBytes = available, researchAcquisition = true))
+            var authorizationChecks = 0
+            var engineCalls = 0
+            val selected = engine("selected") { id, _ ->
+                engineCalls++
+                AgentToolResult(id, ToolResultContent.Text("observed result"), false)
+            }.let {
+                it.copy(
+                    tool = budget.bind(it.tool, authorize = { _, _ ->
+                        authorizationChecks++
+                        true
+                    })
+                )
+            }
+            val result = MultiEngineSearchTool(listOf(selected), budgetSnapshot = budget::snapshot).execute("guarded", arguments)
+            assertEquals(if (available < 1024) 0 else 1, engineCalls)
+            assertEquals(engineCalls, authorizationChecks)
+            assertEquals(engineCalls, budget.usedCalls())
+            assertNull(result.toolResultBudgetUsedBytes)
+            assertNull(result.toolResultBudgetLimitBytes)
+            assertNull(result.toolCallBudgetLimit)
+            assertEquals(available, budget.remainingOutputBytes())
+            if (available < 1024) {
+                assertEquals("BUDGET_EXHAUSTED", result.errorCode)
+                assertFalse(result.dispatched)
+                assertTrue(result.outputBudgetExhausted)
+                assertEquals(JsonPrimitive(available), result.executionReceipt?.get("tool_budget_bytes_available"))
+            } else {
+                assertTrue(result.dispatched)
+                assertNull(result.executionReceipt?.get("tool_budget_bytes_available"))
+            }
+        }
+    }
+
+    @Test fun searchGuardSnapshotKeepsCallExhaustionDistinctWithoutNewApprovalOrReservation() = runBlocking {
+        val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1, maxToolOutputBytes = 4096))
+        val arguments = buildJsonObject { put("query", "private search terms") }
+        budget.bind(engine("prior") { id, _ -> AgentToolResult(id, ToolResultContent.Text("x".repeat(128)), false) }.tool)
+            .execute("prior", arguments)
+        val selected = engine("selected") { _, _ -> error("No engine may run") }
+            .let { it.copy(tool = budget.bind(it.tool, authorize = { _, _ -> error("No approval may be requested") })) }
+        val result = MultiEngineSearchTool(listOf(selected), budgetSnapshot = budget::snapshot).execute("guarded", arguments)
+        assertFalse(result.dispatched)
+        assertTrue(result.toolCallBudgetExhausted)
+        assertFalse(result.outputBudgetExhausted)
+        assertEquals(1, result.toolCallBudgetUsed)
+        assertEquals(1, result.toolCallBudgetLimit)
+        assertEquals(128, result.toolResultBudgetUsedBytes)
+        assertEquals(4096, result.toolResultBudgetLimitBytes)
+        assertEquals(1, budget.usedCalls())
+        assertEquals(3968, budget.remainingOutputBytes())
+        assertNull(result.executionReceipt?.get("tool_budget_bytes_available"))
     }
 
     @Test fun `explicit web search descriptions are eligible even with a nonstandard name`() {

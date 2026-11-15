@@ -165,14 +165,14 @@ internal object GitHubReviewComparison {
         }
         fun data(row: JsonObject) = GitHubSemanticSummary.data(row["result"] as? JsonObject ?: JsonObject(emptyMap()))
         val comparisons = eligible.filter { row ->
-            row.text("tool").substringBefore("__") == "github_context" && (row["arguments"] as? JsonObject)?.text("action") == "changes" && data(row).text("base_sha") == base && data(row).text("head_sha") == head
+            row.text("tool").githubOperationFamily() == "github_context" && (row["arguments"] as? JsonObject)?.text("action") == "changes" && data(row).text("base_sha") == base && data(row).text("head_sha") == head
         }
         val changed = comparisons.flatMap { (data(it)["files"] as? JsonArray).orEmpty() }.filterIsInstance<JsonObject>().mapNotNull { it.text("filename").takeIf(String::isNotBlank) }.toSet()
         if (changed.isEmpty() && comparisons.any { (data(it)["files_total"] as? JsonPrimitive)?.intOrNull == 0 && data(it)["has_more"] != JsonPrimitive(true) }) return null
         val sourceRead = eligible.any { row ->
             val args = row["arguments"] as? JsonObject ?: return@any false
             val pinned = args.text("commit_sha").ifBlank { data(row).text("commit_sha").ifBlank { row.text("resource_sha") } }
-            row.text("tool").substringBefore("__") == "github_read" &&
+            row.text("tool").githubOperationFamily() == "github_read" &&
                 pinned in setOf(base, head) &&
                 (args["ranges"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any { it.text("path") in changed }
         }
@@ -182,7 +182,7 @@ internal object GitHubReviewComparison {
     fun plan(task: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>): Plan? {
         if (!matches(task)) return null
         val eligible = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) && it["success"] == JsonPrimitive(true) }
-        fun operation(row: JsonObject) = row.text("tool").substringBefore("__")
+        fun operation(row: JsonObject) = row.text("tool").githubOperationFamily()
         fun args(row: JsonObject) = row["arguments"] as? JsonObject ?: JsonObject(emptyMap())
         fun data(row: JsonObject) = GitHubSemanticSummary.data(row["result"] as? JsonObject ?: JsonObject(emptyMap()))
         fun lookupMatches(row: JsonObject, ref: String): Boolean {
@@ -198,9 +198,11 @@ internal object GitHubReviewComparison {
         var targetRepository = ""
         fun targetReceipt(row: JsonObject) = row["repository_role"] != JsonPrimitive("READ_SOURCE") &&
             (targetRepository.isBlank() || row.text("repository") == targetRepository)
-        fun call(operation: String, arguments: JsonObject): ProviderEvent.ToolCall? {
-            val tool = tools.firstOrNull { it.name.substringBefore("__") == operation } ?: return null
-            if (ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) return null
+        fun call(operation: String, arguments: JsonObject, issuedToolName: String? = null): ProviderEvent.ToolCall? {
+            // A retained page belongs to its issued facade and connection, even
+            // when another family member accepts the same arguments.
+            val candidates = if (issuedToolName == null) githubFamilyTools(tools, operation) else tools.filter { it.modelVisible && it.name == issuedToolName }
+            val tool = candidates.firstOrNull { ToolArgumentValidator.errors(arguments, it.inputSchema).isEmpty() } ?: return null
             if (receipts.values.any { targetReceipt(it) && it["trusted"] == JsonPrimitive(true) && it["tool"] == JsonPrimitive(tool.name) && it["arguments"] == arguments && it["verification_eligible"] != JsonPrimitive(false) }) return null
             return ProviderEvent.ToolCall("review-base-${receipts.size}-${GitHubEvidenceBook.digest(arguments.toString()).take(8)}", tool.name, arguments)
         }
@@ -311,7 +313,7 @@ internal object GitHubReviewComparison {
                     )
                 }
                 val pending = GitHubTestChecklist.pendingPages(receipts.filterValues { targetReceipt(it) && operation(it) == "github_pr" && args(it).text("action") == "list" }).firstOrNull()
-                if (pending != null) return state("PR_BASE_LOOKUP", "Finish the exact retained PR inventory page before excluding a PR base.", (pending["arguments"] as? JsonObject)?.let { call(pending.text("tool").substringBefore("__"), it) })
+                if (pending != null) return state("PR_BASE_LOOKUP", "Finish the exact retained PR inventory page before excluding a PR base.", (pending["arguments"] as? JsonObject)?.let { call(pending.text("tool").githubOperationFamily(), it, issuedToolName = pending.text("tool")) })
                 if (inventory.none { data(it)["has_more"] == JsonPrimitive(false) }) return state("PR_BASE_UNVERIFIED", "PR inventory completeness is unverified; reuse its exact continuation or establish the intended baseline.")
                 if (branch.isBlank() || default.isBlank()) return state("BASELINE_REQUIRED", "The selected/default branch identity is incomplete. Choose the baseline for the captured head.")
                 if (branch == default) return state("BASELINE_REQUIRED", "The selected branch is also the default branch ($branch). Which commit or tag should be the review baseline? Send the review request again with Baseline: <commit, tag or branch>. Saved observations remain retained.")
@@ -335,7 +337,7 @@ internal object GitHubReviewComparison {
         val comparison = eligible.lastOrNull { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }
         if (comparison != null) {
             val pending = GitHubTestChecklist.pendingPages(receipts.filterValues { targetReceipt(it) && operation(it) == "github_context" && args(it).text("action") == "changes" && data(it).text("base_sha") == base && data(it).text("head_sha") == head }).firstOrNull()
-            if (pending != null) return state("COMPARISON_PAGES_PENDING", "The comparison has unread changed-file pages; retain the exact pair while following its continuation.", (pending["arguments"] as? JsonObject)?.let { call(pending.text("tool").substringBefore("__"), it) })
+            if (pending != null) return state("COMPARISON_PAGES_PENDING", "The comparison has unread changed-file pages; retain the exact pair while following its continuation.", (pending["arguments"] as? JsonObject)?.let { call(pending.text("tool").githubOperationFamily(), it, issuedToolName = pending.text("tool")) })
             if (data(comparison)["has_more"] == JsonPrimitive(true)) return state("COMPARISON_PAGES_PENDING", "The comparison has unread changed-file pages; restore its exact continuation before asserting coverage.")
             return state("READ_CHANGED_SOURCE", "The exact comparison is retained. Inspect its changed files and relevant source at the pinned base/head before reporting correctness findings.")
         }

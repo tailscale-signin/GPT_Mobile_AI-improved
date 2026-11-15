@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import android.app.Application
+import android.database.sqlite.SQLiteConstraintException
 import dev.chungjungsoo.gptmobile.data.agent.GitHubHandoffReconciliationEvidence
 import dev.chungjungsoo.gptmobile.data.agent.GitHubToolHandoff
 import dev.chungjungsoo.gptmobile.data.agent.ToolHandoffReceipt
@@ -17,9 +19,32 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [35], application = Application::class)
 class IssueReportIncidentCapsuleTest {
     private val time = 1_800_000_000_000L
+
+    @Test fun sqliteConstraintReportsOnlyAClosedConstraintCategory() {
+        val error = IllegalStateException(
+            "private run details",
+            SQLiteConstraintException("UNIQUE constraint failed: tool_events.run_id, tool_events.sequence (code 2067 SQLITE_CONSTRAINT_UNIQUE)")
+        )
+        val observed = IssueReportIncidentCapsule.exceptionFields(error, IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_TERMINAL_CATCH)
+        val context = capture(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", observed)
+        val diagnostic = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("UNIQUE"), diagnostic.values["sqlite_constraint_kind"])
+        assertTrue("INCIDENT_FAILURE_DETAILS_V1" in diagnostic.requiredServiceFeatures())
+        assertTrue(IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE in diagnostic.requiredServiceFeatures())
+        assertNull(IssueReportIncidentCapsule.validValue("sqlite_constraint_kind", JsonPrimitive("tool_events.run_id")))
+        val approved = report(context).approvedPayload()
+        assertTrue(approved.contains("\"sqlite_constraint_kind\":\"UNIQUE\""))
+        assertFalse(approved.contains("tool_events"))
+        assertFalse(approved.contains("private run details"))
+    }
 
     @Test fun handoffProducerProjectsRemainingPendingEvidenceIntoApprovedBytesWithoutRawIdentities() {
         val checkpoint = buildJsonObject {

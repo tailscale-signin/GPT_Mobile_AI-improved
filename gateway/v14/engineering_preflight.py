@@ -57,6 +57,8 @@ def preflight(request, *, runner=None):
     result['checks']['validation_policy'] = 'ready'
     result['validation_policy_state'] = 'VALIDATED'
     result['policy_sha256'] = hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    from v14.engineering_release_checks import contract
+    result['post_merge_contract'] = contract(policy.get('post_merge'), len(commands))
     if not result['acceptance'] and request.get('draft_repair'):
         try:
             result['acceptance'] = validate_request(dict(request, acceptance=policy.get('draft_repair_requirements', []))).get('acceptance', [])
@@ -127,5 +129,23 @@ def preflight(request, *, runner=None):
         result['checks']['validation_runtime'] = 'ready'
     except (OSError, ValueError, TimeoutError):
         block('validation_runtime', 'VALIDATION_RUNTIME_UNAVAILABLE', 'Start Docker and pre-provision the approved digest-pinned validation image.', 'PROVISION_VALIDATION_RUNTIME')
+    if (head and result['checks'].get('source_revision') == 'ready' and coverage
+            and any(row['reason_code'] == 'ACCEPTANCE_CONTRACT_REQUIRED' for row in result['blockers'])):
+        from desktop.acceptance_discovery import discover
+        try:
+            discovery = discover({'mirror': str(mirror)}, source_sha=head,
+                                 approved_cases={item['case_id'] for item in coverage})
+        except (OSError, ValueError, TimeoutError):
+            result['acceptance_preparation'] = {'status': 'DISCOVERY_UNAVAILABLE', 'source_sha': head}
+        else:
+            mapped = {}
+            for item in coverage:
+                mapped.setdefault(item['case_id'], set()).add(item['requirement_id'])
+            result['acceptance_preparation'] = {
+                'status': 'REVIEW_REQUIRED', 'source_sha': head, 'executed': False,
+                'allowed_checks': allowed_checks,
+                'candidates': [dict(candidate, requirement_ids=sorted(mapped[candidate['case_id']]))
+                               for candidate in discovery['candidates']],
+                'truncated': discovery['truncated']}
     result['ready'] = not result['blockers']
     return result

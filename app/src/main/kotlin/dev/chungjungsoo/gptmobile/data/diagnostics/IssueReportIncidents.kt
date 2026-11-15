@@ -206,10 +206,14 @@ internal object IssueReportIncidents {
 
     fun failure(feature: ReportFeature, code: String) = failure(feature, code, null)
 
-    fun failure(feature: ReportFeature, code: String, error: Throwable?, fields: Map<String, Any?> = emptyMap(), source: String? = null) {
+    fun failure(feature: ReportFeature, code: String, error: Throwable?, fields: Map<String, Any?> = emptyMap(), source: String? = null) =
+        failureFromOrigin(feature, code, error, fields, source) { true }
+
+    /** Recheck asynchronous producer authority under the same lock as privacy and publication. */
+    internal fun failureFromOrigin(feature: ReportFeature, code: String, error: Throwable?, fields: Map<String, Any?>, source: String?, originAllowed: () -> Boolean) {
         if (!LocalDiagnosticsPolicy.enabled || isPrivate || context == null) return
         synchronized(lock) {
-            if (!LocalDiagnosticsPolicy.enabled || isPrivate) return
+            if (!LocalDiagnosticsPolicy.enabled || isPrivate || !originAllowed()) return
             val now = System.nanoTime() / 1_000_000L
             val publicCode = IssueReportCodes.select(code, fallbackCode(feature))
             val reportSource = source ?: if (fields.isNotEmpty()) {

@@ -253,7 +253,11 @@ data class GatewayEngineeringJob(
     val admission: JsonObject? = null,
     @SerialName("provider_retry_at") val providerRetryAt: Double? = null,
     @SerialName("execution_mode") val executionMode: String? = null,
-    @SerialName("batch_progress") val batchProgress: GatewayIntegrationBatchProgress? = null
+    @SerialName("batch_progress") val batchProgress: GatewayIntegrationBatchProgress? = null,
+    @SerialName("post_merge") val postMerge: JsonObject? = null,
+    @SerialName("recovery_of") val recoveryOf: String? = null,
+    @SerialName("recovery_job_id") val recoveryJobId: String? = null,
+    @SerialName("qualified_revision") val qualifiedRevision: String? = null
 ) {
     val ownershipLabel: String get() = if (detachSafe && acceptedAt != null && id.isNotBlank()) {
         when {

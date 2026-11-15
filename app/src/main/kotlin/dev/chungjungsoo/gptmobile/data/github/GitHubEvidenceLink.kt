@@ -18,7 +18,7 @@ internal object GitHubEvidenceLink {
         val parentPointer = pointer.substringBeforeLast('/', "")
         val result = receipt["result"] as? JsonObject ?: return null
         val parent = at(result, parentPointer) as? JsonObject
-        val tool = receipt.text("tool").substringBefore("__")
+        val tool = receipt.text("tool").githubOperationFamily()
         val action = (receipt["arguments"] as? JsonObject)?.text("action").orEmpty()
         val file = parent?.takeIf { it.text("path").isNotBlank() || it.text("filename").isNotBlank() }
         return when {

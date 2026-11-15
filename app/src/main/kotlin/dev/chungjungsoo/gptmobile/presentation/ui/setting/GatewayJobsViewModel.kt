@@ -11,6 +11,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayAdmissionRetryability
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationConflict
 import dev.chungjungsoo.gptmobile.data.github.GatewayConversationRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob
 import dev.chungjungsoo.gptmobile.data.github.GatewayHistoryUnsupported
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobControl
 import dev.chungjungsoo.gptmobile.data.github.GatewayJobCounts
@@ -56,6 +57,7 @@ class GatewayJobsViewModel @Inject constructor(
     private var bindingGeneration = 0L
     private var cachedRows = emptyList<GatewayJobRecord>()
     private var stopAction: Job? = null
+    private var approvalAction: Job? = null
     private var boundRoute: GatewayJobRoute? = null
     private var visibleEpoch = 0L
     private var consecutiveCatalogFailures = 0
@@ -69,6 +71,7 @@ class GatewayJobsViewModel @Inject constructor(
         epoch++
         observer?.cancel()
         stopAction?.cancel()
+        approvalAction?.cancel()
         cachedRows = emptyList()
         boundRoute = null
         consecutiveCatalogFailures = 0
@@ -80,6 +83,7 @@ class GatewayJobsViewModel @Inject constructor(
                     if (binding != bindingGeneration) return@collectLatest
                     val generation = ++epoch
                     stopAction?.cancel()
+                    approvalAction?.cancel()
                     cachedRows = emptyList()
                     boundRoute = route
                     consecutiveCatalogFailures = 0
@@ -391,6 +395,49 @@ class GatewayJobsViewModel @Inject constructor(
         mutable.update { it.copy(transcriptKey = null) }
     }
 
+    fun showRecoveryApproval(candidate: GatewayJobRow) {
+        val row = currentRow(candidate) ?: return
+        if (mutable.value.approval != null) return
+        val draft = GatewayRecoveryApproval(row)
+        mutable.update { it.copy(approval = draft.copy(busy = true)) }
+        val generation = epoch
+        approvalAction = viewModelScope.launch(ioDispatcher) {
+            try {
+                val job = control.inspectRecoveryApproval(row.record)
+                if (generation == epoch) mutable.update { it.copy(approval = draft.copy(job = job)) }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (generation == epoch) mutable.update { it.copy(approval = draft.copy(error = failure.message)) }
+            }
+        }
+    }
+
+    fun confirmRecoveryApproval() {
+        val draft = mutable.value.approval?.takeUnless { it.busy } ?: return
+        val job = draft.job ?: return
+        if (currentRow(draft.row) == null) return
+        mutable.update { it.copy(approval = draft.copy(busy = true)) }
+        val generation = epoch
+        approvalAction = viewModelScope.launch(ioDispatcher) {
+            try {
+                control.approveRecovery(draft.row.record, job)
+                if (generation == epoch) {
+                    mutable.update { it.copy(approval = null) }
+                    refresh()
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (generation == epoch) mutable.update { it.copy(approval = draft.copy(job = null, error = failure.message)) }
+            }
+        }
+    }
+
+    fun dismissRecoveryApproval() {
+        if (mutable.value.approval?.busy != true) mutable.update { it.copy(approval = null) }
+    }
+
     fun showStop(candidate: GatewayJobRow) {
         val row = currentRow(candidate) ?: return
         if (mutable.value.stop?.busy == true) return
@@ -444,6 +491,8 @@ data class GatewayInstructionDraft(val row: GatewayJobRow, val commandId: String
 
 data class GatewayJobRow(val record: GatewayJobRecord, val summary: GatewayJobSummary, val observedAtElapsed: Long = 0)
 
+data class GatewayRecoveryApproval(val row: GatewayJobRow, val job: GatewayEngineeringJob? = null, val busy: Boolean = false, val error: String? = null)
+
 data class GatewayStopDraft(val row: GatewayJobRow, val review: GatewayJobStopReview? = null, val busy: Boolean = false, val result: GatewayJobStopResult? = null, val error: String? = null)
 
 enum class GatewayCatalogState { UNCHECKED, CURRENT, TRANSIENT_FAILURE, UNSUPPORTED, REPAIR_REQUIRED, CONFIGURATION_REQUIRED }
@@ -479,6 +528,7 @@ data class GatewayJobsState(
     val instruction: GatewayInstructionDraft? = null,
     val instructionQueued: Boolean = false,
     val stop: GatewayStopDraft? = null,
+    val approval: GatewayRecoveryApproval? = null,
     val partialHistoryKeys: Set<String> = emptySet(),
     val readingTranscript: String? = null,
     val transcriptKey: String? = null

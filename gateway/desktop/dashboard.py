@@ -376,6 +376,8 @@ def show(root, smoke=False):
     try:
         _show(root, smoke)
     finally:
+        from desktop.repository_validation_panel import settle_setup_workers
+        settle_setup_workers(root)
         lock.release()
 
 

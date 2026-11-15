@@ -17,6 +17,7 @@ internal object GitHubAcceptanceReportDiagnostics {
         put("diagnostic_area", "ACCEPTANCE")
         put("diagnostic_capture_mode", "INCIDENT")
         put("acceptance_evidence_scope", if (retainedReport) "RETAINED_VERDICT" else "CURRENT_VERDICT")
+        GitHubAcceptancePublicationEvidence.fields(verdict).forEach { (key, value) -> put(key, value) }
         GitHubAcceptanceRecoveryEvidence.fields(verdict).forEach { (key, value) -> put(key, value) }
         (verdict["unresolved_claims"] as? JsonArray)?.let { claims ->
             put("acceptance_unresolved_claim_count", claims.size)

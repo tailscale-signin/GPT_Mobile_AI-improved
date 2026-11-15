@@ -63,7 +63,7 @@ class InferenceCapabilities:
                                      reasoningControlState='UNVERIFIED')
             raise error
 
-    def _json(self, method, url, *, body=None, params=None, maximum=1024 * 1024, deadline_at=None):
+    def _json(self, method, url, *, body=None, params=None, maximum=1024 * 1024, deadline_at=None, on_start=None):
         if self.deadline_at is not None:
             deadline_at = min(deadline_at, self.deadline_at) if deadline_at is not None else self.deadline_at
         get = getattr(self.runtime, 'http_get', requests.get)
@@ -84,6 +84,8 @@ class InferenceCapabilities:
                       else 'selected_model' if url.endswith(('/models/load', '/tokenize')) else 'backend_properties')
         response = None
         try:
+            if on_start is not None:
+                on_start()
             response = call(url, **kwargs)
             if not 200 <= response.status_code < 300:
                 details = response_failure(response, dependency, (params or {}).get('model') or (body or {}).get('model'))
@@ -227,16 +229,18 @@ class InferenceCapabilities:
                           observationAgeMs=observed.get('observation_age_ms', 0),
                           modelAdvertised=True, modelLoaded=True, modelState='LOADED',
                           evidenceOrigin='GATEWAY_OBSERVED_PROVIDER_METADATA')
-            control = self.reasoning_control(route, model, observed, generation=generation)
-            if control is not None:
-                result['reasoningControl'] = control
-                result['reasoningControlState'] = 'VERIFIED'
-            else:
-                key = (route['runtime_config_revision'], model, observed['capability_revision'])
-                with self.lock:
-                    result['reasoningControlState'] = self.reasoning_states.get(key, 'UNVERIFIED')
+            reasoning = self._reasoning_observation(route, model, observed, generation=generation)
             with self.lock:
                 self._require_generation((route['runtime_config_revision'], model), generation)
+                if reasoning is not None:
+                    # One copied observation owns the verdict and its evidence.
+                    # A concurrent same-key refresh cannot attach a newer probe
+                    # to the control snapshot this call actually obtained.
+                    completed, control, probe, state = reasoning
+                    result['reasoningControlState'] = state
+                    if control is not None:
+                        result['reasoningControl'] = control
+                    result['reasoningProbe'] = dict(probe, observationAgeMs=max(0, int((self.clock() - completed) * 1000)))
         except ExecutionBindingError as error:
             result = unverified
             result['failureCode'] = error.code
@@ -253,7 +257,31 @@ class InferenceCapabilities:
         return (on >= 0 and on == off and enabled[:on] == disabled[:off]
                 and not enabled[on + 7:].strip() and disabled[off + 7:].strip() == '</think>')
 
+    @staticmethod
+    def _negative_reasoning_outcome(enabled, disabled):
+        # Only classify the synthetic renders already used by the proof above.
+        # Neither this closed diagnostic vocabulary nor its cache grants control.
+        if not isinstance(enabled, str) or not isinstance(disabled, str):
+            return 'INVALID_PROMPT'
+        if enabled == disabled:
+            return 'IDENTICAL_PROMPTS'
+        on, off = enabled.rfind('<think>'), disabled.rfind('<think>')
+        if on < 0 or off < 0:
+            return 'MISSING_THINK_MARKER'
+        if on != off or enabled[:on] != disabled[:off]:
+            return 'PREFIX_MISMATCH'
+        return 'SUFFIX_MISMATCH'
+
+    @staticmethod
+    def _reasoning_failure_outcome(error):
+        return ('PROBE_DEADLINE' if isinstance(error, ExecutionBindingError) and
+                error.code == 'EXECUTION_METADATA_DEADLINE' else 'PROBE_UNAVAILABLE')
+
     def reasoning_control(self, route, model, observed, *, generation=None):
+        observation = self._reasoning_observation(route, model, observed, generation=generation)
+        return observation[1] if observation is not None else None
+
+    def _reasoning_observation(self, route, model, observed, *, generation=None):
         """Verify only synthetic template rendering, never inference or hardware use.
 
         The proof is tied to the exact model/template/runtime metadata revision.
@@ -268,7 +296,7 @@ class InferenceCapabilities:
             self._require_generation(key[:2], generation)
             cached = self.reasoning_cache.get(key)
             if cached and self.clock() - cached[0] < (60 if cached[1] is not None else 30):
-                return copy.deepcopy(cached[1])
+                return copy.deepcopy(cached)
             gate, count = self.reasoning_refreshes.get(key, (threading.Lock(), 0))
             self.reasoning_refreshes[key] = gate, count + 1
         try:
@@ -277,7 +305,7 @@ class InferenceCapabilities:
                     self._require_generation(key[:2], generation)
                     cached = self.reasoning_cache.get(key)
                     if cached and self.clock() - cached[0] < (60 if cached[1] is not None else 30):
-                        return copy.deepcopy(cached[1])
+                        return copy.deepcopy(cached)
                 return self._reasoning_probe(route, model, observed, key, candidates, generation)
         finally:
             with self.lock:
@@ -292,6 +320,14 @@ class InferenceCapabilities:
         # readiness remains responsive while this optional proof is measured.
         result = None
         measured, invalidated = 0, False
+        attempts, outcomes, outcome = 0, set(), None
+
+        def request_started():
+            # Source HTTP requests, including calls that time out. Adapter-level
+            # transport retries are not visible here and are not counted.
+            nonlocal attempts
+            attempts += 1
+
         deadline = time.monotonic() + 2
         try:
             for parameter in candidates:
@@ -302,17 +338,20 @@ class InferenceCapabilities:
                     response = self._json('POST', route['metadata_base'] + '/apply-template',
                         body={'model': model, 'messages': [{'role': 'user', 'content': 'Template capability check.'}],
                               'chat_template_kwargs': {parameter: enabled}, 'add_generation_prompt': True},
-                        params={'model': model, 'autoload': 'false'}, maximum=65536, deadline_at=deadline)
+                        params={'model': model, 'autoload': 'false'}, maximum=65536, deadline_at=deadline,
+                        on_start=request_started)
                     prompts.append(response.get('prompt'))
                 if all(isinstance(prompt, str) for prompt in prompts):
                     measured += 1
                 if not self._verifies_thinking_toggle(*prompts):
+                    outcomes.add(self._negative_reasoning_outcome(*prompts))
                     continue
                 current = self._probe(route, model, deadline_at=deadline)
                 self.require(current, {'requested_model_id': model,
                                        'required_capability_policy': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET']})
                 if current['capability_revision'] != observed['capability_revision']:
                     invalidated = True
+                    outcome = 'METADATA_CHANGED'
                     break
                 result = {'schemaVersion': 1, 'parameter': parameter, 'templateProbeVerified': True,
                           'evidenceOrigin': 'GATEWAY_OBSERVED_TEMPLATE_PROBE',
@@ -320,27 +359,36 @@ class InferenceCapabilities:
                           'templateDigest': observed['template_digest'],
                           'enabledPromptDigest': fingerprint(prompts[0]), 'disabledPromptDigest': fingerprint(prompts[1]),
                           'observedAtMillis': int(time.time() * 1000), 'observedComputationEnabled': None}
+                outcome = 'VERIFIED'
                 break
-        except (ExecutionBindingError, requests.RequestException, ValueError, KeyError, TypeError):
+        except (ExecutionBindingError, requests.RequestException, ValueError, KeyError, TypeError) as error:
             invalidated = True
+            outcome = self._reasoning_failure_outcome(error)
         if result is None and measured == len(candidates) and not invalidated:
             try:
                 current = self._probe(route, model, deadline_at=deadline)
                 self.require(current, {'requested_model_id': model,
                                        'required_capability_policy': ['SELECTED_ONLY', 'MODEL_IDENTITY', 'CONTEXT_BUDGET']})
                 invalidated = current['capability_revision'] != observed['capability_revision']
-            except (ExecutionBindingError, requests.RequestException, ValueError, KeyError, TypeError):
+                if invalidated:
+                    outcome = 'METADATA_CHANGED'
+            except (ExecutionBindingError, requests.RequestException, ValueError, KeyError, TypeError) as error:
                 invalidated = True
+                outcome = self._reasoning_failure_outcome(error)
+        if outcome is None:
+            outcome = next(iter(outcomes)) if len(outcomes) == 1 else 'MIXED_NEGATIVE_RESULTS'
         with self.lock:
             self._require_generation(key[:2], generation)
-            self.reasoning_states[key] = ('VERIFIED' if result is not None else
-                                          'UNSUPPORTED' if measured == len(candidates) and not invalidated else 'UNVERIFIED')
-            self.reasoning_cache[key] = self.clock(), result
+            state = ('VERIFIED' if result is not None else
+                     'UNSUPPORTED' if measured == len(candidates) and not invalidated else 'UNVERIFIED')
+            self.reasoning_states[key] = state
+            entry = self.clock(), result, {'outcome': outcome, 'attempts': attempts}, state
+            self.reasoning_cache[key] = entry
             self.reasoning_cache.move_to_end(key)
             while len(self.reasoning_cache) > 64:
                 expired, _ = self.reasoning_cache.popitem(last=False)
                 self.reasoning_states.pop(expired, None)
-            return copy.deepcopy(result)
+            return copy.deepcopy(entry)
 
     def _probe(self, route, model, deadline_at=None):
         root = route['metadata_base']

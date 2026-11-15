@@ -239,6 +239,13 @@ data class LocalRuntimeState(
 
 private val EMPTY_RUNTIME_STATE: StateFlow<LocalRuntimeState> = MutableStateFlow(LocalRuntimeState())
 
+/** The current service connection failed before returning a messenger; native dispatch is unobserved. */
+internal class LocalRuntimeConnectionException(cause: Exception) :
+    IllegalStateException(
+        cause.message ?: "Could not connect to inference service",
+        cause
+    )
+
 class LocalRuntimeFallbackDisabledException(
     cause: Throwable
 ) : IllegalStateException(

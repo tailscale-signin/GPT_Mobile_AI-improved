@@ -29,7 +29,7 @@ internal object GitHubTaskCoverage {
         .map { it.value }
         .groupBy { receipt ->
             val args = receipt["arguments"] as? JsonObject
-            val tool = receipt.text("tool").substringBefore("__")
+            val tool = receipt.text("tool").githubOperationFamily()
             val action = args?.text("action").orEmpty().ifBlank {
                 when {
                     args?.containsKey("view_cursor") == true -> "saved page"

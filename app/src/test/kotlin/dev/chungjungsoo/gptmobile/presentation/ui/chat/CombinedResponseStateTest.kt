@@ -1,6 +1,9 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
 import dev.chungjungsoo.gptmobile.data.agent.COMBINED_RECOVERY_MARKER
+import dev.chungjungsoo.gptmobile.data.agent.GitHubSchemaBudget
+import dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException
+import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
 import dev.chungjungsoo.gptmobile.data.database.entity.AssistantRevision
@@ -14,6 +17,33 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CombinedResponseStateTest {
+    @Test fun schemaCapacityFailureKeepsItsOwnerAndSavedRepliesWhileRequiringAChangedRequest() {
+        val event = GitHubToolContextBudgetException(2481, 1675, GitHubSchemaBudget(5632, 2485, 512, 256, 704)).providerFailure()
+        val failure = ProfileFailureRecord.fromProvider(event.message, event.errorCode, event.failureDetails)
+        val message = response("lead", "Retained unfinished response", "capacity-failure").copy(
+            timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, profileFailure = failure))
+        )
+        val failed = run("capacity-failure", AgentRunStatus.FAILED).copy(terminalError = event.message)
+        val saved = response("other", "The completed answer remains saved.", "completed")
+        val completed = run("completed", AgentRunStatus.COMPLETED).copy(profileUid = "other")
+        val decision = combinedProfileFailures(1, "Inspect the repository", listOf(message, saved), mapOf(failed.runId to failed, completed.runId to completed), mapOf("lead" to "Selected profile"), emptyMap()).single()
+        assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", decision.category)
+        assertEquals("capacity-failure", decision.attemptId)
+        assertEquals("lead", decision.profileUid)
+        assertEquals("Selected profile", decision.profileName)
+        assertEquals(1, decision.userMessageId)
+        assertEquals(event.message, decision.details)
+        assertEquals("Context too small for required tools", decision.shortStatus(0))
+        assertTrue(decision.reason.contains("context allowance"))
+        assertTrue(decision.reason.contains("start a new request"))
+        assertFalse(decision.reason.contains("incompatible"))
+        assertFalse(decision.retryAllowed)
+        assertFalse(decision.applicationFailure)
+        assertEquals(ProfileRecoveryKind.SETTINGS, profileRecoveryKind(decision.category, decision.details))
+        assertEquals("The completed answer remains saved.", saved.content)
+        assertEquals("Retained unfinished response", message.content)
+    }
+
     @Test fun pendingRemoteJobIsPausedAndOffersStatusWithoutDuplicateRetry() {
         val message = response("lead", "", "waiting")
         val waiting = run("waiting", AgentRunStatus.WAITING_REMOTE_JOB).copy(terminalError = "QUEUE_JOB_PENDING: Job receipt saved")

@@ -233,7 +233,7 @@ internal object GitHubAcceptanceDiagnostics {
     }
 
     private fun operation(id: String): String? {
-        val tool = id.substringBefore(':').substringBefore("__")
+        val tool = id.substringBefore(':').githubOperationFamily()
         val action = id.substringAfter(':', "default").ifBlank { "default" }
         if (tool in setOf("github", "github_repository")) lifecycleActions[action]?.let { return "github_repository:$it" }
         return "$tool:$action".takeIf { tool in tools && (action in actions || action in nativeActions[tool].orEmpty() || tool == "github_repository" && action in repositoryActions) }
@@ -268,7 +268,7 @@ internal object GitHubAcceptanceDiagnostics {
 
     private fun evidenceClasses(receipt: JsonObject): Set<String> {
         if (receipt["trusted"] != JsonPrimitive(true)) return setOf("NOT_TESTED")
-        val tool = receipt.text("tool").substringBefore("__")
+        val tool = receipt.text("tool").githubOperationFamily()
         val action = (receipt["arguments"] as? JsonObject)?.text("action")
         return buildSet {
             add(

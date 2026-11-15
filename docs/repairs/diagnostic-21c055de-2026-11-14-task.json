@@ -192,9 +192,21 @@
   "limitations": [
     "No gateway-side journal or wire capture in archive; cannot prove exact origin of IllegalStateException or attribute entire account quota consumption to this app",
     "No model_invocations rows for this deterministic preset; not evidence of model generation failure",
-    "27 public issue correlations span other chats; earlier context/reasoning failures are retained app history, not all attributed to chat 3",
+    "27 retained app-wide reports:19 hash-join the ten captured runs and8 do not. Missing report chat identities prevent assigning unmatched history to this conversation.",
     "Historical live CI reads are not current-device tests; target observed SHA is distinct from app build SHA",
     "Archive capture completed all selected stages; retained ring/database history is bounded, not all historical activity",
     "Exact new HTTP-header response evidence is wired to REST requestUntracked; GraphQL retains typed cached-admission causes but does not gain that response-evidence helper."
-  ]
+  ],
+  "coordinator_reconciliation": {
+    "source_parent": "b553525da42a9f6d24c56f249355a7ef03bf3f13",
+    "committed_issue_cutoff": 67,
+    "last_committed_issue": 1168,
+    "post_cutoff_dispositions": "Individual PR/issue addenda; no count-only source restarts.",
+    "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+    "source_holds": [
+      "Observed quota must survive shutdown/cancel without reviving cancelled work.",
+      "Voice evidence must retain actual cause/category and exclude stale prior-reply joins."
+    ],
+    "qualification": "Earlier host runs remain source-scoped discovery. Complete-source final CI is pending."
+  }
 }

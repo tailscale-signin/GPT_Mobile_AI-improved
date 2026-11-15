@@ -72,7 +72,7 @@ internal object GitHubTestChecklist {
         )
     }
     private fun trusted(receipts: Map<String, JsonObject>) = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
-    private fun matches(receipt: JsonObject, capability: Capability): Boolean = receipt.text("tool").substringBefore("__") == capability.tool &&
+    private fun matches(receipt: JsonObject, capability: Capability): Boolean = receipt.text("tool").githubOperationFamily() == capability.tool &&
         (receipt["arguments"] as? JsonObject)?.containsKey("view_cursor") != true &&
         (capability.action.isBlank() || (receipt["arguments"] as? JsonObject)?.text("action") == capability.action)
 
@@ -186,7 +186,7 @@ internal object GitHubTestChecklist {
                 val cursor = rejected["view_cursor"] as? JsonPrimitive ?: return null
                 if (receipt["dispatched"] != JsonPrimitive(false) ||
                     root.text("schema") != "github.arguments.v1" ||
-                    root.text("operation") != receipt.text("tool").substringBefore("__") ||
+                    root.text("operation") != receipt.text("tool").githubOperationFamily() ||
                     root["correction_call"] != recovery ||
                     name != receipt.text("tool") ||
                     !cursor.isString ||
@@ -201,7 +201,7 @@ internal object GitHubTestChecklist {
         }
         if (!dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(name, args) ||
             dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isBranchSelection(name, args) ||
-            name.substringBefore("__") == "repository_graph" &&
+            name.githubOperationFamily() == "repository_graph" &&
             args.text("action") in setOf("index", "note")
         ) {
             return null
@@ -240,7 +240,7 @@ internal object GitHubTestChecklist {
         return observations.count { receipt ->
             val args = receipt["arguments"] as? JsonObject ?: return@count false
             "view_cursor" !in args &&
-                !(receipt.text("tool").substringBefore("__") == "github_ci" && args.text("action") == "definitions" && "index_cursor" in args) &&
+                !(receipt.text("tool").githubOperationFamily() == "github_ci" && args.text("action") == "definitions" && "index_cursor" in args) &&
                 ((args["page"] as? JsonPrimitive)?.longOrNull?.let { it > 1 } == true || issued.any { (issuer, recipe) -> sameCall(receipt, recipe, issuer) })
         }
     }
@@ -249,17 +249,17 @@ internal object GitHubTestChecklist {
     private fun pagePriority(recipe: JsonObject, observations: List<JsonObject>): Int {
         val arguments = recipe["arguments"] as? JsonObject ?: return 4
         if ("view_cursor" in arguments) return 0
-        val tool = recipe.text("tool").substringBefore("__")
+        val tool = recipe.text("tool").githubOperationFamily()
         val action = arguments.text("action")
         val head = observations.asReversed().firstNotNullOfOrNull { receipt ->
-            if (receipt["success"] == JsonPrimitive(true) && receipt.text("tool").substringBefore("__") == "github_context" && (receipt["arguments"] as? JsonObject)?.text("action") == "status") data(receipt)?.get("commit_sha") else null
+            if (receipt["success"] == JsonPrimitive(true) && receipt.text("tool").githubOperationFamily() == "github_context" && (receipt["arguments"] as? JsonObject)?.text("action") == "status") data(receipt)?.get("commit_sha") else null
         }
         if (tool == "github_ci" && action == "definitions") return 1
         if (tool == "github_issue" &&
             action == "list" &&
             observations.none { receipt ->
                 receipt["success"] == JsonPrimitive(true) &&
-                    receipt.text("tool").substringBefore("__") == tool &&
+                    receipt.text("tool").githubOperationFamily() == tool &&
                     data(receipt)?.let { root ->
                         listOf("issues", "items").any { key -> (root[key] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().any { "pull_request" !in it } }
                     } == true
@@ -279,7 +279,7 @@ internal object GitHubTestChecklist {
         fun permitted(recipe: JsonObject): Boolean {
             val args = recipe["arguments"] as? JsonObject ?: return false
             val name = recipe.text("tool")
-            val graphWrite = name.substringBefore("__") == "repository_graph" && args.text("action") in setOf("index", "note")
+            val graphWrite = name.githubOperationFamily() == "repository_graph" && args.text("action") in setOf("index", "note")
             return !graphWrite &&
                 tools.any { it.modelVisible && it.name == name && dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(args, it.inputSchema).isEmpty() } &&
                 dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(name, args) &&
@@ -319,10 +319,10 @@ internal object GitHubTestChecklist {
             if (workflowDependency) return call(page.text("tool"), args)
             // Required local fragments and issue dependencies are never stopped by
             // an unrelated inventory's sampling allowance.
-            val issueDependency = page.text("tool").substringBefore("__") == "github_issue" &&
+            val issueDependency = page.text("tool").githubOperationFamily() == "github_issue" &&
                 args.text("action") == "list" &&
                 observations.none { receipt ->
-                    receipt.text("tool").substringBefore("__") == "github_issue" &&
+                    receipt.text("tool").githubOperationFamily() == "github_issue" &&
                         receipt["success"] == JsonPrimitive(true) &&
                         data(receipt)?.let { root ->
                             listOf("issues", "items").any { field ->
@@ -330,7 +330,7 @@ internal object GitHubTestChecklist {
                             }
                         } == true
                 }
-            val definitionPage = page.text("tool").substringBefore("__") == "github_ci" && args.text("action") == "definitions" && "index_cursor" in args
+            val definitionPage = page.text("tool").githubOperationFamily() == "github_ci" && args.text("action") == "definitions" && "index_cursor" in args
             val definitionPagesRead = observations.count {
                 it.text("tool") == page.text("tool") &&
                     (it["arguments"] as? JsonObject)?.let { prior ->
@@ -374,7 +374,7 @@ internal object GitHubTestChecklist {
         val retiredRead = GitHubSelfTestFixtures.retiredReadPredicate(receipts)
         if (GitHubIntegrationAcceptance.requiresBuildBinding(task) && GitHubIntegrationAcceptance.binding(observations)["verified"] != JsonPrimitive(true)) {
             val runtime = GitHubRuntimeIdentity.current()
-            val status = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == "github_context" && (it.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true }
+            val status = tools.firstOrNull { it.modelVisible && it.name.githubOperationFamily() == "github_context" && (it.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true }
             val args = buildJsonObject {
                 put("action", "status")
                 put("verify_live", true)
@@ -395,7 +395,7 @@ internal object GitHubTestChecklist {
         val liveRead = observations.asReversed().takeIf { liveVerificationAllowed }?.firstNotNullOfOrNull { receipt ->
             if (receipt["success"] != JsonPrimitive(true) || GitHubEvidenceOrigin.of(receipt) == "LIVE" || retiredRead(receipt)) return@firstNotNullOfOrNull null
             val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
-            if (!requiresLiveTransport(Capability(receipt.text("tool").substringBefore("__"), args.text("action"), ""))) return@firstNotNullOfOrNull null
+            if (!requiresLiveTransport(Capability(receipt.text("tool").githubOperationFamily(), args.text("action"), ""))) return@firstNotNullOfOrNull null
             if (definitionTransportVerified(receipt, args, observations)) return@firstNotNullOfOrNull null
             if ("view_cursor" in args || args["verify_live"] == JsonPrimitive(true) || !dev.chungjungsoo.gptmobile.data.permissions.GitHubAuthorizationBoundary.isReplayableRead(receipt.text("tool"), args)) return@firstNotNullOfOrNull null
             val refreshed = JsonObject(args + ("verify_live" to JsonPrimitive(true)))
@@ -407,7 +407,7 @@ internal object GitHubTestChecklist {
         if (liveRead != null) return liveRead
         if (cleanup != null) return cleanup
         if (acquisitionAllowed) continuation(task, tools, receipts, localOnly = true)?.let { return it }
-        val watch = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == "github_watch_checks" }
+        val watch = tools.firstOrNull { it.modelVisible && it.name.githubOperationFamily() == "github_watch_checks" }
         val selectedHead = observations.asReversed().firstNotNullOfOrNull { receipt ->
             if (!matches(receipt, capabilities.first()) || receipt["success"] != JsonPrimitive(true)) null else data(receipt)?.get("commit_sha")
         }
@@ -426,21 +426,22 @@ internal object GitHubTestChecklist {
         for (capability in capabilities.filter { it.automatic }) {
             if (!acquisitionAllowed && capability.action != "checks") continue
             if (observations.any { matches(it, capability) }) continue
-            val tool = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == capability.tool } ?: continue
             val head = observations.asReversed().firstNotNullOfOrNull { receipt ->
                 if (!matches(receipt, capabilities.first()) || receipt["success"] != JsonPrimitive(true)) return@firstNotNullOfOrNull null
                 val root = receipt["result"] as? JsonObject
                 ((root?.get("data") as? JsonObject) ?: root)?.get("commit_sha")
             }
-            val arguments = buildJsonObject {
-                put("action", capability.action)
-                if (requiresLiveTransport(capability) && (tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true) put("verify_live", true)
-                if (capability.action in setOf("branches", "workflows", "list", "commits", "runs")) put("per_page", if (capability.action == "workflows" || GitHubChecklistScope.exhaustive(task)) 100 else 30)
-                if ((capability.action in setOf("checks", "commits") || capability.action == "runs" && !GitHubChecklistScope.exhaustive(task)) && head != null) put("commit_sha", head)
-                if (capability.action == "list") put("state", "all")
+            for (tool in githubFamilyTools(tools, capability.tool)) {
+                val arguments = buildJsonObject {
+                    put("action", capability.action)
+                    if (requiresLiveTransport(capability) && (tool.inputSchema["properties"] as? JsonObject)?.containsKey("verify_live") == true) put("verify_live", true)
+                    if (capability.action in setOf("branches", "workflows", "list", "commits", "runs")) put("per_page", if (capability.action == "workflows" || GitHubChecklistScope.exhaustive(task)) 100 else 30)
+                    if ((capability.action in setOf("checks", "commits") || capability.action == "runs" && !GitHubChecklistScope.exhaustive(task)) && head != null) put("commit_sha", head)
+                    if (capability.action == "list") put("state", "all")
+                }
+                if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) continue
+                return call(tool.name, arguments)
             }
-            if (dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, tool.inputSchema).isNotEmpty()) continue
-            return call(tool.name, arguments)
         }
         if (!acquisitionAllowed) return null
         val read = GitHubSelfTestReads.next(tools, observations)
@@ -465,7 +466,7 @@ internal object GitHubTestChecklist {
      * Mutable inventories and fixture existence reads retain their exact checks.
      */
     private fun definitionTransportVerified(receipt: JsonObject, args: JsonObject, observations: List<JsonObject>): Boolean {
-        if (receipt.text("tool").substringBefore("__") != "github_ci" ||
+        if (receipt.text("tool").githubOperationFamily() != "github_ci" ||
             args.text("action") != "definitions" ||
             !args.text("commit_sha").matches(Regex("[a-fA-F0-9]{40}")) ||
             receipt.text("binding").isBlank() ||
@@ -486,8 +487,8 @@ internal object GitHubTestChecklist {
 
     private fun catalog(tools: List<AgentToolDefinition>): List<Capability> {
         if (tools.isEmpty()) return capabilities
-        return tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.substringBefore("__") == "repository_graph") }.flatMap { tool ->
-            val name = tool.name.substringBefore("__")
+        return tools.filter { it.modelVisible && (it.name.githubOperationFamily().startsWith("github_") || it.name.githubOperationFamily() == "repository_graph") }.flatMap { tool ->
+            val name = tool.name.githubOperationFamily()
             val properties = tool.inputSchema["properties"] as? JsonObject
             val actions = ((properties?.get("action") as? JsonObject)?.get("enum") as? JsonArray)?.map { (it as JsonPrimitive).content }.orEmpty().ifEmpty { listOf(((properties?.get("action") as? JsonObject)?.get("const") as? JsonPrimitive)?.content.orEmpty()) }
             actions.map { action -> capabilities.firstOrNull { it.tool == name && it.action == action } ?: Capability(name, action, "$name / ${action.ifBlank { "default" }}") }
@@ -496,7 +497,7 @@ internal object GitHubTestChecklist {
 
     private fun requiresLiveTransport(capability: Capability): Boolean = requiresLiveTransport(capability.tool, capability.action)
 
-    internal fun requiresLiveTransport(tool: String, action: String): Boolean = when (tool.substringBefore("__")) {
+    internal fun requiresLiveTransport(tool: String, action: String): Boolean = when (tool.githubOperationFamily()) {
         "github_context" -> action !in setOf("status", "resolve", "index", "efficiency", "capabilities", "recovery")
         "github_repository" -> action != "capabilities"
         "github_search", "github_read", "github_stage_patch", "repository_graph" -> false
@@ -515,8 +516,8 @@ internal object GitHubTestChecklist {
         val historical = receipts.values.filter { it["trusted"] == JsonPrimitive(true) || it["success"] == JsonPrimitive(false) && it["dispatched"] == JsonPrimitive(false) }
         val active = catalog(tools)
         val union = (
-            active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").substringBefore("__") == "repository_graph") && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
-                val name = it.text("tool").substringBefore("__")
+            active + historical.filter { (it.text("tool").startsWith("github_") || it.text("tool").githubOperationFamily() == "repository_graph") && (it["arguments"] as? JsonObject)?.containsKey("view_cursor") != true }.map {
+                val name = it.text("tool").githubOperationFamily()
                 val action = (it["arguments"] as? JsonObject)?.text("action").orEmpty()
                 Capability(name, action, "$name / ${action.ifBlank { "default" }}")
             }
@@ -536,13 +537,13 @@ internal object GitHubTestChecklist {
         if (selected.isEmpty()) return JsonArray(emptyList())
         val allTrusted = trusted(receipts)
         val graphObservation = GitHubSelfTestPrerequisites.graphObservation(allTrusted)
-        val readyReads = GitHubSelfTestReads.available(tools, allTrusted).associateBy { it.name.substringBefore("__") to it.arguments.text("action") }
+        val readyReads = GitHubSelfTestReads.available(tools, allTrusted).associateBy { it.name.githubOperationFamily() to it.arguments.text("action") }
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()
         val integrationCoverage = integration(task)
         return JsonArray(
             selected.map { capability ->
                 val observed = historical.filter { matches(it, capability) }
-                val discovered = tools.any { it.name.substringBefore("__") == capability.tool }
+                val discovered = tools.any { it.name.githubOperationFamily() == capability.tool }
                 fun permitted(receipt: JsonObject): Boolean {
                     val arguments = receipt["arguments"] as? JsonObject ?: return false
                     return tools.any { it.modelVisible && it.name == receipt.text("tool") && dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator.errors(arguments, it.inputSchema).isEmpty() }
@@ -634,7 +635,7 @@ internal object GitHubTestChecklist {
                     successes.isNotEmpty() -> "PASSED"
                     failures.isNotEmpty() && failures.all { it["dispatched"] == JsonPrimitive(false) } -> "PREFLIGHT_REJECTED"
                     failures.isNotEmpty() -> "FAILED"
-                    readyCall != null || conditionalDecision || capability.automatic && tools.any { it.name.substringBefore("__") == capability.tool } -> "UNTESTED"
+                    readyCall != null || conditionalDecision || capability.automatic && tools.any { it.name.githubOperationFamily() == capability.tool } -> "UNTESTED"
                     else -> "BLOCKED"
                 }
                 val blockerCode = when {
@@ -836,7 +837,7 @@ internal object GitHubTestChecklist {
                 else -> "Review required inputs and approvals in the results."
             }
         } else {
-            val tool = next.name.substringBefore("__")
+            val tool = next.name.githubOperationFamily()
             val action = next.arguments.text("action")
             val scope = rows.firstOrNull { it.text("id") == "$tool:$action" }?.text("scope")
             val label = scope?.takeUnless { it.startsWith("github_") }
@@ -971,7 +972,7 @@ internal object GitHubTestChecklist {
             val item = raw as JsonObject
             val filters = item["filters"] as? JsonObject
             val scope = filters.orEmpty().entries.joinToString(", ") { (key, value) -> "$key=${(value as? JsonPrimitive)?.contentOrNull.orEmpty().replace(Regex("[\\p{Cntrl}<>`*\\[\\]|]"), " ")}" }
-            append("\n**${item.text("tool").substringBefore("__")} / ${item.text("operation")} inventory:** ${inventorySummary(item)}." + scope.takeIf(String::isNotBlank)?.let { " Filters: $it." }.orEmpty() + "\n")
+            append("\n**${item.text("tool").githubOperationFamily()} / ${item.text("operation")} inventory:** ${inventorySummary(item)}." + scope.takeIf(String::isNotBlank)?.let { " Filters: $it." }.orEmpty() + "\n")
         }
         val pages = pendingPages(receipts)
         if (pages.isNotEmpty()) {
@@ -1001,7 +1002,7 @@ internal object GitHubTestChecklist {
             put("cleanup_reserve", GitHubChecklistBudget.cleanupReserve(receipts))
             GitHubSelfTestWorkflowJobs.dependencyObservation(tools, observations)?.let { observed ->
                 val current = GitHubSelfTestPrerequisites.selected(observations)
-                val runPage = next?.name?.substringBefore("__") == "github_ci" && next.arguments.text("action") == "runs" && current != null && next.arguments["commit_sha"] == current.head
+                val runPage = next?.name?.githubOperationFamily() == "github_ci" && next.arguments.text("action") == "runs" && current != null && next.arguments["commit_sha"] == current.head
                 put("workflow_dependency_observation", if (observed == "MISSING_EXECUTED_JOB" && runPage) "RUN_PAGE_AVAILABLE" else observed)
             }
             next?.let {
@@ -1038,24 +1039,41 @@ internal object GitHubTestChecklist {
         val trusted = trusted(receipts)
         fun filters(receipt: JsonObject): JsonObject {
             val args = receipt["arguments"] as? JsonObject
-            val selected = args.orEmpty().filterKeys { it in setOf("state", "ref", "branch", "commit_sha", "head_sha", "workflow_id", "head", "base", "per_page", "actor", "event", "created", "status") }
             val pageSize = args?.get("per_page") ?: data(receipt)?.get("per_page")
-            return JsonObject(if (pageSize == null) selected else selected + ("per_page" to pageSize))
+            val query = GitHubInventoryQuery.arguments(receipt.text("tool"), JsonObject(args.orEmpty() + if (pageSize == null) emptyMap() else mapOf("per_page" to pageSize)))
+            return JsonObject(query.filterKeys { it !in setOf("action", "owner", "repo") })
         }
+        data class InventoryKey(val first: String, val second: String?, val third: JsonObject, val repository: String, val binding: String)
         val groups = trusted.filter { receipt ->
             receipt["success"] == JsonPrimitive(true) &&
                 data(receipt)?.text("schema") != "github.repeat.v1" &&
                 (receipt["arguments"] as? JsonObject)?.text("action") in setOf("workflows", "branches", "list", "commits", "runs", "tags")
         }.groupBy {
             val args = it["arguments"] as? JsonObject
-            Triple(it.text("tool"), args?.text("action"), filters(it))
+            InventoryKey(it.text("tool"), args?.text("action"), filters(it), it.text("repository").lowercase(java.util.Locale.ROOT), it.text("binding"))
         }
         return JsonArray(
             groups.mapNotNull { (key, observations) ->
-                val byPage = observations.groupBy { receipt ->
+                fun page(receipt: JsonObject) =
                     ((receipt["arguments"] as? JsonObject)?.get("page") as? JsonPrimitive)?.longOrNull
                         ?: (data(receipt)?.get("page") as? JsonPrimitive)?.longOrNull ?: 1L
-                }.mapValues { (_, versions) -> versions.last() }
+                fun reused(receipt: JsonObject) = receipt["shared_result"] == JsonPrimitive(true) ||
+                    GitHubEvidenceOrigin.of(receipt) == "CACHED" ||
+                    (receipt["execution"] as? JsonObject)?.get("observation_origin") == JsonPrimitive("RETAINED_OBSERVATION")
+                // A deliberate page-one refresh starts another traversal. Earlier pages
+                // remain in the evidence book, but cannot complete the fresh inventory.
+                val start = observations.indexOfLast { page(it) == 1L && !reused(it) }
+                val traversal = observations.drop(start.coerceAtLeast(0))
+                val anchorTime = observations.getOrNull(start)?.get("observed_at_ms")?.let { (it as? JsonPrimitive)?.longOrNull }?.takeIf { it > 0 }
+                val byPage = traversal.groupBy(::page).mapValues { (_, versions) -> versions.lastOrNull { !reused(it) } ?: versions.last() }
+                val staleCachedPages = if (start < 0) {
+                    0
+                } else {
+                    byPage.values.count { receipt ->
+                        val observedAt = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull
+                        reused(receipt) && (anchorTime == null || observedAt == null || observedAt < anchorTime)
+                    }
+                }
                 val pages = byPage.toSortedMap().values.mapNotNull(GitHubInventoryObservation::planningRoot)
                 val inventories = byPage.toSortedMap().values.map(GitHubInventoryObservation::of)
                 val counted = inventories.all { it != null }
@@ -1074,6 +1092,13 @@ internal object GitHubTestChecklist {
                 }.toSet()
                 fun belongs(recipe: JsonObject): Boolean {
                     if (recipe.text("tool") != key.first) return false
+                    if ("repository" in recipe &&
+                        recipe.text("repository").lowercase(java.util.Locale.ROOT) != key.repository ||
+                        "binding" in recipe &&
+                        recipe.text("binding") != key.binding
+                    ) {
+                        return false
+                    }
                     val args = recipe["arguments"] as? JsonObject ?: return false
                     if ("view_cursor" in args) return args.text("view_cursor").substringBefore(':') in viewIds
                     val selected = filters(recipe)
@@ -1093,12 +1118,14 @@ internal object GitHubTestChecklist {
                     if (failed["success"] == JsonPrimitive(true) || !belongs(failed)) return@any false
                     val later = trusted.drop(index + 1)
                     val recovery = savedReadRecovery(failed)
-                    val reopened = recovery != null && later.any { it["success"] == JsonPrimitive(true) && it["tool"] == recovery["tool"] && it["arguments"] == recovery["arguments"] }
-                    !reopened && later.none { it["success"] == JsonPrimitive(true) && it["tool"] == failed["tool"] && it["arguments"] == failed["arguments"] }
+                    val reopened = recovery != null && later.any { it["success"] == JsonPrimitive(true) && sameCall(it, recovery, failed) }
+                    !reopened && later.none { it["success"] == JsonPrimitive(true) && sameCall(it, failed, failed) }
                 }
                 val complete = contiguous &&
+                    staleCachedPages == 0 &&
                     coveragePages.lastOrNull()?.get("has_more") == JsonPrimitive(false) &&
                     coveragePages.none { it["complete"] == JsonPrimitive(false) } &&
+                    coveragePages.none { it["pagination_inconsistent"] == JsonPrimitive(true) || it["upstream_changed_during_traversal"] == JsonPrimitive(true) } &&
                     canonical &&
                     inventories.all { it?.get("record_keys_complete") == JsonPrimitive(true) } &&
                     identities.size.toLong() == fetched &&
@@ -1110,6 +1137,8 @@ internal object GitHubTestChecklist {
                     put("tool", key.first)
                     put("operation", key.second.orEmpty())
                     put("page_count", byPage.size)
+                    put("prior_traversal_observations", start.coerceAtLeast(0))
+                    put("cached_page_freshness_unverified", staleCachedPages)
                     put("pending_continuations", pending.count(::belongs))
                     put("filters", key.third)
                     put("retrieved", identities.size)
@@ -1140,7 +1169,7 @@ internal object GitHubTestChecklist {
     fun workflowExecutions(receipts: Map<String, JsonObject>): JsonArray = JsonArray(
         trusted(receipts).filter {
             it["success"] == JsonPrimitive(true) &&
-                it.text("tool").substringBefore("__") == "github_ci" &&
+                it.text("tool").githubOperationFamily() == "github_ci" &&
                 (it["arguments"] as? JsonObject)?.text("action") in setOf("dispatch", "rerun", "rerun_all", "rerun_failed_jobs")
         }.map { mutation ->
             val args = mutation["arguments"] as? JsonObject
@@ -1153,7 +1182,7 @@ internal object GitHubTestChecklist {
                 val readTime = (read["observed_at_ms"] as? JsonPrimitive)?.longOrNull
                 // A rerun reuses a run ID; without an attempt fence its old terminal state is not new execution evidence.
                 if (mutationTime == null || readTime == null || readTime <= mutationTime) return@firstNotNullOfOrNull null
-                if (read["success"] != JsonPrimitive(true) || read.text("tool").substringBefore("__") != "github_ci" || (read["arguments"] as? JsonObject)?.text("action") !in setOf("run", "status")) return@firstNotNullOfOrNull null
+                if (read["success"] != JsonPrimitive(true) || read.text("tool").githubOperationFamily() != "github_ci" || (read["arguments"] as? JsonObject)?.text("action") !in setOf("run", "status")) return@firstNotNullOfOrNull null
                 data(read)?.takeIf {
                     val expectedAttempt = (result?.get("expected_run_attempt") as? JsonPrimitive)?.longOrNull
                     val attempt = (it["run_attempt"] as? JsonPrimitive)?.longOrNull
@@ -1175,7 +1204,7 @@ internal object GitHubTestChecklist {
                     sha != null &&
                     expectedAttempt != null &&
                     value?.get("run_attempt") == expectedAttempt &&
-                    read.text("tool").substringBefore("__") == "github_ci" &&
+                    read.text("tool").githubOperationFamily() == "github_ci" &&
                     (read["arguments"] as? JsonObject)?.text("action") == "jobs"
             }.mapNotNull(::data)
             val jobs = GitHubWorkflowJobEvidence.completeJobs(jobPages)

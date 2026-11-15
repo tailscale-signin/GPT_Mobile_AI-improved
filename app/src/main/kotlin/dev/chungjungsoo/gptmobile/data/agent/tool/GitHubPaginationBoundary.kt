@@ -16,12 +16,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
     private val ends = linkedMapOf<String, End>()
     private val traversals = linkedMapOf<String, Traversal>()
 
-    private fun key(operation: String, args: JsonObject): String {
-        val workflowInventory = args["action"] == JsonPrimitive("list_workflows")
-        val ignored = setOf("page", "response_detail", "verify_live") + if (workflowInventory) setOf("ref", "commit_sha") else emptySet()
-        val normalized = args.filterKeys { it !in ignored } + if (workflowInventory) mapOf("per_page" to (args["per_page"] ?: JsonPrimitive(30))) else emptyMap()
-        return operation + JsonObject(normalized.toSortedMap())
-    }
+    private fun key(operation: String, args: JsonObject): String = operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args)
     private fun page(args: JsonObject) = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
     private fun numberedRemotePage(args: JsonObject) = "view_cursor" !in args && "index_cursor" !in args && args["action"] !in setOf(JsonPrimitive("workflow_catalog"), JsonPrimitive("search_repository"))
 

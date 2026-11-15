@@ -118,7 +118,11 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
             ?: listOf(result.retainedContent, result.content).firstNotNullOfOrNull { content ->
                 (((content as? ToolResultContent.Json)?.value as? JsonObject)?.get("semantic_summary") as? JsonObject)
             } ?: return null
-        if (facts["schema"] != JsonPrimitive("github.semantic-summary.v1") || facts["operation"] != JsonPrimitive(call.name.substringBefore("__"))) return null
+        if (facts["schema"] != JsonPrimitive("github.semantic-summary.v1") ||
+            (facts["operation"] as? JsonPrimitive)?.content?.githubOperationFamily() != call.name.githubOperationFamily()
+        ) {
+            return null
+        }
         val saved = result.sharedResult || result.executionReceipt?.get("read_source") == JsonPrimitive("RETAINED")
         val observation = semanticObservation(call.name, call.arguments, facts, saved) ?: return null
         resultObservations[call.callId] = observation
@@ -344,7 +348,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
 
         private fun operation(name: String, args: JsonObject?): Operation {
             val action = (GitHubActionIdentity.canonicalArguments(name, args ?: JsonObject(emptyMap()))["action"] as? JsonPrimitive)?.contentOrNull.orEmpty()
-            return when (name.substringBefore("__")) {
+            return when (name.githubOperationFamily()) {
                 "github_read" -> Operation("Reading source", "source read", "compare the implementation with the reported behavior and identify the next relevant source")
                 "github_search" -> Operation("Searching repository", "repository search", "open the matching implementation and check how it connects to the requested behavior")
                 "github_context" -> when (action) {

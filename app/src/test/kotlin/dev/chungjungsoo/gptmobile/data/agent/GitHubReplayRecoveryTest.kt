@@ -256,6 +256,37 @@ class GitHubReplayRecoveryTest {
         assertEquals(null, GitHubReplayRecovery.repeated(call.copy(arguments = buildJsonObject { put("path", "B.kt") }), exchanges, "Repeat limit"))
     }
 
+    @Test fun repeatedSuppressionKeepsTheOriginalReferenceAndDoesNotNestWrappers() {
+        val call = ProviderEvent.ToolCall("original", "github_read__github_api", buildJsonObject { put("path", "A.kt") })
+        val original = AgentToolResult(call.callId, content, false)
+        val history = mutableListOf(AgentToolExchange(listOf(call), listOf(original)))
+        var initialSize = 0
+        repeat(8) { index ->
+            val repeatedCall = call.copy(callId = "repeat-$index")
+            val result = requireNotNull(GitHubReplayRecovery.repeated(repeatedCall, history, "Repeat limit"))
+            val body = (result.content as ToolResultContent.Json).value.jsonObject
+            assertEquals(JsonPrimitive("original"), body["previous_call_id"])
+            assertEquals(next, body["continuation_call"])
+            assertFalse(body.getValue("retained_result_preview").toString().contains("github.repeat.v1"))
+            if (index == 0) initialSize = body.toString().length
+            assertEquals(initialSize, body.toString().length)
+            assertFalse(result.dispatched)
+            history += AgentToolExchange(listOf(repeatedCall), listOf(result))
+        }
+    }
+
+    @Test fun aSuppressionStillPointsAtItsSourceAfterTheOriginalLeavesReplay() {
+        val call = ProviderEvent.ToolCall("original", "github_read__github_api", buildJsonObject { put("path", "A.kt") })
+        val firstCall = call.copy(callId = "repeat-one")
+        val first = requireNotNull(GitHubReplayRecovery.repeated(firstCall, listOf(AgentToolExchange(listOf(call), listOf(AgentToolResult(call.callId, content, false)))), "Repeat limit"))
+        val second = requireNotNull(GitHubReplayRecovery.repeated(call.copy(callId = "repeat-two"), listOf(AgentToolExchange(listOf(firstCall), listOf(first))), "Repeat limit"))
+        val prior = (first.content as ToolResultContent.Json).value.jsonObject
+        val current = (second.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(prior, current)
+        assertEquals(JsonPrimitive("original"), current["previous_call_id"])
+        assertFalse(second.dispatched)
+    }
+
     @Test fun olderStructuredErrorsKeepExecutableCorrectionsIntact() {
         val error = ToolResultContent.Json(
             buildJsonObject {

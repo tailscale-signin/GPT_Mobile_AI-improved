@@ -10,6 +10,27 @@ import kotlinx.serialization.json.put
 internal object ToolDependencyDiagnostics {
     enum class State { DEFERRED, FAILED }
     enum class Admission { TOOL_UNAVAILABLE, REPEATED_FAILURE, REPEAT_LIMIT, CALL_ALLOWANCE, DECISION_REQUIRED, PREREQUISITE_DEFERRED }
+    enum class RepeatScope { TOOL_NAME, TOOL_NAME_AND_ARGUMENTS }
+
+    /** Original admission operands, before dependency closure or tool execution. */
+    data class RepeatLimitSnapshot(val scope: RepeatScope, val priorAdmissions: Int, val batchAdmissions: Int, val used: Int, val limit: Int)
+
+    fun repeatLimitDetails(snapshot: RepeatLimitSnapshot?): Map<String, Any> {
+        if (snapshot == null ||
+            listOf(snapshot.priorAdmissions, snapshot.batchAdmissions, snapshot.used, snapshot.limit).any { it !in 0..16_000_000 } ||
+            snapshot.priorAdmissions.toLong() + snapshot.batchAdmissions.toLong() != snapshot.used.toLong() ||
+            snapshot.used.toLong() < snapshot.limit.toLong()
+        ) {
+            return emptyMap()
+        }
+        return mapOf(
+            "dependency_repeat_scope" to snapshot.scope.name,
+            "dependency_repeat_prior_admissions" to snapshot.priorAdmissions,
+            "dependency_repeat_batch_admissions" to snapshot.batchAdmissions,
+            "dependency_repeat_used" to snapshot.used,
+            "dependency_repeat_limit" to snapshot.limit
+        )
+    }
 
     fun rejection(callId: String, state: State, dependencies: Set<String>, blocked: Set<String>, message: String, admission: Set<Admission> = emptySet()): AgentToolResult {
         require(dependencies.containsAll(blocked) && blocked.isNotEmpty())

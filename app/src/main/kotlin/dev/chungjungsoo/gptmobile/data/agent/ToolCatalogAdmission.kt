@@ -11,6 +11,8 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.put
 
 internal class GitHubToolContextBudgetException(
@@ -19,7 +21,7 @@ internal class GitHubToolContextBudgetException(
     private val budget: GitHubSchemaBudget? = null,
     private val admissionEvidence: JsonObject? = null
 ) : IllegalArgumentException(
-    "GITHUB_TOOL_CONTEXT_BUDGET: Required GitHub, recovery and discovery schemas need approximately $requiredSchemaTokens tokens, but $availableSchemaTokens remain. Use a larger context or reduce the output allowance, attachments, or instructions. This provider request was not dispatched."
+    githubSchemaBudgetMessage(requiredSchemaTokens, availableSchemaTokens, budget, admissionEvidence)
 ) {
     val admissionCapacityTokens: Int? get() = budget?.capacity
 
@@ -62,6 +64,53 @@ internal class GitHubToolContextBudgetException(
     )
 }
 
+/** Explain only the consumed admission snapshot; settings changes cannot rewrite this failure. */
+private fun githubSchemaBudgetMessage(requiredSchemaTokens: Long, availableSchemaTokens: Long, measuredBudget: GitHubSchemaBudget?, evidence: JsonObject?): String = buildString {
+    append("GITHUB_TOOL_CONTEXT_BUDGET: Required GitHub, recovery and discovery schemas need approximately $requiredSchemaTokens tokens, but $availableSchemaTokens remain.")
+    val budget = measuredBudget?.takeIf {
+        it.capacity in 1..16_000_000 &&
+            it.input in 0L..16_000_000L &&
+            it.output in 0..16_000_000 &&
+            it.safety in 0..16_000_000 &&
+            (it.toolResults == null || it.toolResults in 0..16_000_000)
+    }
+    fun observedCount(key: String): Int? = (evidence?.get(key) as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull?.takeIf { it in 1..16_000_000 }
+    val reductions = mutableListOf<String>()
+    if (budget != null) {
+        val provenance = (evidence?.get("admission_capacity_provenance") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+        val route = observedCount("admission_route_context_tokens")
+        if (provenance == "VERIFIED_ROUTE" && route == budget.capacity) {
+            append(" The selected route was verified for $route context tokens.")
+            observedCount("admission_configured_context_tokens")?.takeIf { it >= budget.capacity }?.let { configured ->
+                append(" The app's configured allowance is $configured tokens; increasing it does not enlarge that route.")
+            }
+        } else {
+            append(" This attempt used a context allowance of ${budget.capacity} tokens.")
+        }
+        append(" It reserved ${budget.input} for input, ${budget.output} for the reply and ${budget.safety} for safety")
+        budget.toolResults?.let { append(", plus $it for tool results") }
+        append(" (token estimates).")
+        if (requiredSchemaTokens in 0L..16_000_000L && availableSchemaTokens in 0L..16_000_000L && requiredSchemaTokens > availableSchemaTokens) {
+            val shortfall = requiredSchemaTokens - availableSchemaTokens
+            append(" The required schemas are short by $shortfall tokens.")
+            if (budget.available == availableSchemaTokens && shortfall > budget.output) {
+                append(" Reducing the reply allowance alone cannot cover this shortfall.")
+            }
+        }
+        budget.promptCosts?.takeIf { costs ->
+            costs.toolSchemas == 0 && listOf(costs.system, costs.currentMessage, costs.history, costs.attachments).all { it in 0..16_000_000 } && costs.total.toLong() == budget.input
+        }?.let { costs ->
+            if (costs.system > 0) reductions += "instructions"
+            if (costs.currentMessage > 0) reductions += "request input"
+            if (costs.history > 0) reductions += "included history"
+            if (costs.attachments > 0) reductions += "attachments"
+        }
+    }
+    append(" Review this profile's supported context in settings")
+    if (reductions.isNotEmpty()) append(", or explicitly reduce ${reductions.joinToString(", ")}")
+    append(", then start a new request. This provider request was not dispatched.")
+}
+
 internal data class GitHubSchemaBudget(val capacity: Int, val input: Long, val output: Int, val safety: Int, val toolResults: Int? = null, val promptCosts: ContextCostBreakdown? = null) {
     val available: Long get() = (capacity.toLong() - input - output - safety - (toolResults ?: 0)).coerceAtLeast(0)
 }
@@ -75,9 +124,16 @@ internal fun fitProviderToolSchemas(definitions: List<AgentToolDefinition>, limi
     val base = (limits.initialContextTokens.toLong() - initialSchemaTokens).coerceAtLeast(0)
     val budget = GitHubSchemaBudget(limits.contextTokens, base + replayTokens, limits.finalResponseReserveTokens, minOf(256, limits.contextTokens / 16))
     var remaining = budget.available
-    // Only the recovery reader is mandatory every round. The full GitHub
-    // inventory remains authorized, but optional operations are staged on demand.
-    val required = visible.filter { (limits.githubMode || limits.githubTask) && it.name == "read_recovery_context" }
+    // The native status plan needs every admitted status/health read even when
+    // replay grows. Other engineering operations remain staged on demand.
+    val statusOperations = limits.githubTaskRequest?.takeIf {
+        dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(it) &&
+            it.lineSequence().none { line -> line.trim() == "[github-workflow-preset:test_integration]" }
+    }?.let(dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest::requiredOperations).orEmpty()
+    val required = visible.filter {
+        (limits.githubMode || limits.githubTask) &&
+            (it.name == "read_recovery_context" || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in statusOperations)
+    }
     val requiredSchemaTokens = required.sumOf { providerSchemaTokens(it, limits.githubMode) }
     if (requiredSchemaTokens > remaining) throw GitHubToolContextBudgetException(requiredSchemaTokens, remaining, budget)
     remaining -= requiredSchemaTokens
@@ -152,7 +208,7 @@ internal fun planAuthorizedToolContext(
     val requiredGitHubSchemas = when {
         !requireToolExecution -> emptyList()
         scopedGitHubStatus -> advertised.filter {
-            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in setOf("github_context", "github_pr")
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) in dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.requiredOperations(task)
         }
         fullGitHubCatalog -> advertised.filter {
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) == "github_context"
@@ -161,11 +217,14 @@ internal fun planAuthorizedToolContext(
             dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(definition.name) in requestedGitHubOperations
         }
     }
+    val immediateGitHubSchemas = requiredGitHubSchemas.groupBy {
+        it.name.replace("_inspect__", "__").removeSuffix("_inspect")
+    }.values.map { alternatives -> alternatives.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: alternatives.first() }
     // The staged inventory is still authorized only while its discovery path
     // survives initial planning. Charge that path before optional schemas rather
     // than silently reducing executable authority to the schemas that happen to fit.
     val requiredDiscovery = catalog?.definition?.takeIf { effectiveGitHubMode || requiredGitHubSchemas.isNotEmpty() }
-    val pinnedSchemas = (requiredGitHubSchemas + required + listOfNotNull(requiredDiscovery)).distinctBy { it.name }
+    val pinnedSchemas = (immediateGitHubSchemas + required + listOfNotNull(requiredDiscovery)).distinctBy { it.name }
     val normalized = limits.normalized()
     var effectiveLimits = normalized
     var admittedGitHubBudget: GitHubSchemaBudget? = null

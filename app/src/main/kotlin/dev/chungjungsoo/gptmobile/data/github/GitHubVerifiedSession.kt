@@ -104,7 +104,7 @@ internal class GitHubVerifiedSession(
         }
         exchanges.forEach { exchange -> exchange.results.forEach { result -> exchange.calls.firstOrNull { it.callId == result.callId }?.let { evidence.observe(it, result) } } }
         if (!evidence.complete()) {
-            emitAll(publish(null, failureCode = "GITHUB_EVIDENCE_RETENTION_INCOMPLETE"))
+            emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.EVIDENCE_RETENTION_INCOMPLETE, failureCode = "GITHUB_EVIDENCE_RETENTION_INCOMPLETE"))
             return@flow
         }
         if (GitHubTaskContinuity.diagnostic(currentRequest)) {
@@ -123,6 +123,7 @@ internal class GitHubVerifiedSession(
             emitAll(
                 publish(
                     null,
+                    GitHubAcceptancePublicationEvidence.Entry.TASK_DEADLINE,
                     failureCode = "GITHUB_TASK_INCOMPLETE",
                     originalFailure = GitHubExecutionLimits.expiredTaskFailure()
                 )
@@ -192,7 +193,7 @@ internal class GitHubVerifiedSession(
                 emit(ProviderEvent.TextDelta(text, dev.chungjungsoo.gptmobile.data.diagnostics.OutputLineage(dev.chungjungsoo.gptmobile.data.diagnostics.OutputOrigin.RETAINED_CONTENT)))
                 emit(ProviderEvent.Failed("Review the saved change to continue.", errorCode = "WAITING_FOR_APPROVAL", transportComplete = true, taskOutcome = "WAITING_FOR_APPROVAL"))
             } else {
-                emitAll(publish(null))
+                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.APPROVAL_CHECKPOINT))
             }
             return@flow
         }
@@ -206,7 +207,7 @@ internal class GitHubVerifiedSession(
             val saved = evidence.retainedClaimExtraction()
             val draft = (saved?.get("draft") as? JsonPrimitive)?.content?.takeIf(String::isNotBlank)
             if (draft != null) {
-                emitAll(publish(draft))
+                emitAll(publish(draft, GitHubAcceptancePublicationEvidence.Entry.SAVED_CLAIM_EXTRACTION))
                 return@flow
             }
         }
@@ -225,7 +226,7 @@ internal class GitHubVerifiedSession(
             if (observed != null) {
                 // Complete this bounded factual diagnosis directly from retained
                 // evidence; another model request cannot discover a missing failure.
-                emitAll(publish(null))
+                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.CI_OBSERVATION))
                 return@flow
             }
         }
@@ -273,6 +274,7 @@ internal class GitHubVerifiedSession(
                         emitAll(
                             publish(
                                 null,
+                                GitHubAcceptancePublicationEvidence.Entry.INTEGRATION_COOLDOWN,
                                 originalFailure = ProviderEvent.Failed(
                                     "GitHub transport is cooling down. Resume the saved task after the retry time.",
                                     errorCode = "GITHUB_CIRCUIT_OPEN",
@@ -310,11 +312,12 @@ internal class GitHubVerifiedSession(
                 else -> null
             }
             if (executionBlocker == null) {
-                emitAll(publish(null))
+                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.INTEGRATION_CHECKPOINT))
             } else {
                 emitAll(
                     publish(
                         null,
+                        GitHubAcceptancePublicationEvidence.Entry.INTEGRATION_BLOCKED,
                         failureCode = executionBlocker,
                         originalFailure = ProviderEvent.Failed(
                             if (executionBlocker == "TOOL_BUDGET_EXHAUSTED") {
@@ -347,7 +350,7 @@ internal class GitHubVerifiedSession(
                 return@flow
             }
             if (receipts.isNotEmpty()) {
-                emitAll(publish(null))
+                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.STATUS_COLLECTION))
                 return@flow
             }
         }
@@ -357,14 +360,14 @@ internal class GitHubVerifiedSession(
                 (receipt["arguments"] as? JsonObject)?.get("action") == kotlinx.serialization.json.JsonPrimitive("status")
             }
             if (hasStatusSnapshot) {
-                emitAll(publish(null))
+                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.STATUS_SNAPSHOT))
                 return@flow
             }
         }
         if (tools.isEmpty() && GitHubTaskCoverage.matches(task) && evidence.snapshot().first.values.any { it["trusted"] == kotlinx.serialization.json.JsonPrimitive(true) }) {
             // Tool coverage is computed from receipts; another prose review cannot
             // establish test execution that the receipts do not contain.
-            emitAll(publish(null))
+            emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.COVERAGE_CHECKPOINT))
             return@flow
         }
         if (GitHubReviewComparison.matches(task)) {
@@ -384,6 +387,7 @@ internal class GitHubVerifiedSession(
                 emitAll(
                     publish(
                         null,
+                        GitHubAcceptancePublicationEvidence.Entry.REVIEW_COMPARISON_BLOCKED,
                         failureCode = blocked.errorCode,
                         originalFailure = blocked
                     )
@@ -412,7 +416,7 @@ internal class GitHubVerifiedSession(
             if (!round.calls && round.completed && !round.failed) {
                 // A correction can resume operations, but its raw prose has not passed
                 // the selected review pipeline. Publish only the application ledger.
-                emitAll(publish(null, failureCode = "GITHUB_TASK_INCOMPLETE"))
+                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.PROSE_ONLY_CORRECTION, failureCode = "GITHUB_TASK_INCOMPLETE"))
                 return@flow
             }
         }
@@ -436,7 +440,7 @@ internal class GitHubVerifiedSession(
             emit(ProviderEvent.Completed)
             return
         }
-        emitAll(publish(draft, continuationTools = tools, continuationExchanges = exchanges))
+        emitAll(publish(draft, GitHubAcceptancePublicationEvidence.Entry.COMPLETED_DRAFT, continuationTools = tools, continuationExchanges = exchanges))
     }
 
     private data class DraftRound(val draft: String, val calls: Boolean, val completed: Boolean, val failed: Boolean, val failure: ProviderEvent.Failed?)
@@ -449,7 +453,7 @@ internal class GitHubVerifiedSession(
         validatePublication()
         val saved = evidence.retainedAnswer()
         if (saved == null) {
-            emitAll(publish(null))
+            emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.RETAINED_REPORT_UNAVAILABLE))
             return@flow
         }
         val (body, verdict) = saved
@@ -586,13 +590,14 @@ internal class GitHubVerifiedSession(
                 }
                 emit(failure)
             } else {
-                emitAll(publish(null, failureCode = failure.errorCode, originalFailure = failure))
+                emitAll(publish(null, GitHubAcceptancePublicationEvidence.Entry.RETAINED_FAILURE, failureCode = failure.errorCode, originalFailure = failure))
             }
         }
     }
 
     private fun publish(
         draft: String?,
+        entry: GitHubAcceptancePublicationEvidence.Entry,
         failureCode: String? = null,
         originalFailure: ProviderEvent.Failed? = null,
         continuationTools: List<AgentToolDefinition> = emptyList(),
@@ -607,6 +612,7 @@ internal class GitHubVerifiedSession(
             emitAll(
                 publish(
                     draft = draft,
+                    entry = entry,
                     failureCode = failureCode,
                     originalFailure = originalFailure,
                     continuationTools = continuationTools,
@@ -651,12 +657,13 @@ internal class GitHubVerifiedSession(
             } else {
                 null
             }
-            val requests = if (draft == null || status != null || coverage != null || ciObservation != null) {
+            val verificationPlan = if (draft == null || status != null || coverage != null || ciObservation != null) {
                 null
             } else {
                 progress("Verifying factual claims against exact tool receipts")
                 withContext(computationDispatcher) { verificationRequests(draft, receipts) }
             }
+            val requests = (verificationPlan as? VerificationPlan.Ready)?.requests
             val extraction = requests?.let { extract(requireNotNull(draft), it, receipts, epoch) }
             val rendered = status ?: coverage ?: ciObservation ?: extraction?.rendered ?: partial(receipts, epoch, publicationFailureCode ?: "GITHUB_EXTRACTION_UNAVAILABLE")
             // Claim extraction and deterministic rendering can be slower than an
@@ -713,6 +720,7 @@ internal class GitHubVerifiedSession(
             val partial = !retentionComplete || originalFailure != null || publicationFailureCode != null || report["task_outcome"] != kotlinx.serialization.json.JsonPrimitive("COMPLETED") || report["completion_verified"] != kotlinx.serialization.json.JsonPrimitive(true)
             val oversizedWithoutEvidence = draft != null && status == null && coverage == null && ciObservation == null && requests == null && receipts.isEmpty()
             check(!oversizedWithoutEvidence) { "No retained GitHub evidence is available for publication" }
+            val trustFailures = evidence.claimTrustFailures(report, publicationReceipts)
             val retained = JsonObject(
                 report + buildJsonObject {
                     progressDigest?.let { put("checklist_progress_digest", it) }
@@ -783,6 +791,38 @@ internal class GitHubVerifiedSession(
                             }
                         )
                     }
+                    val publicationSource = when {
+                        evidenceAdvanced -> GitHubAcceptancePublicationEvidence.Source.EVIDENCE_ADVANCED
+                        status != null -> GitHubAcceptancePublicationEvidence.Source.STATUS
+                        coverage != null -> GitHubAcceptancePublicationEvidence.Source.COVERAGE
+                        ciObservation != null -> GitHubAcceptancePublicationEvidence.Source.CI_OBSERVATION
+                        extraction != null -> GitHubAcceptancePublicationEvidence.Source.CLAIM_EXTRACTION
+                        else -> GitHubAcceptancePublicationEvidence.Source.PARTIAL_FALLBACK
+                    }
+                    val rejectedPlan = verificationPlan as? VerificationPlan.Rejected
+                    val extractionObservation = when {
+                        evidenceAdvanced -> null
+                        status != null || coverage != null || ciObservation != null -> GitHubAcceptancePublicationEvidence.Extraction.NOT_NEEDED
+                        draft == null -> GitHubAcceptancePublicationEvidence.Extraction.NO_DRAFT
+                        rejectedPlan != null -> rejectedPlan.observation
+                        extraction?.failure != null -> GitHubAcceptancePublicationEvidence.Extraction.FAILED
+                        extraction != null -> GitHubAcceptancePublicationEvidence.Extraction.COMPLETED
+                        else -> null
+                    }
+                    put(
+                        GitHubAcceptancePublicationEvidence.KEY,
+                        GitHubAcceptancePublicationEvidence.record(
+                            publicationSource,
+                            publicationReceipts.size,
+                            draft,
+                            extractionObservation,
+                            verificationPlan?.plannedBatches,
+                            rejectedPlan?.requiredTokens,
+                            rejectedPlan?.inputLimitTokens,
+                            entry,
+                            trustFailures
+                        )
+                    )
                 }
             )
             val execution = GitHubExecutionLedger.attach(GitHubAcceptanceLedger.attach(retained, publicationReceipts), publicationReceipts)
@@ -1151,13 +1191,28 @@ internal class GitHubVerifiedSession(
         }
     }
 
-    private fun verificationRequests(draft: String, receipts: Map<String, JsonObject>): List<GitHubClaimBatches.Request>? {
+    private sealed interface VerificationPlan {
+        val plannedBatches: Int
+
+        data class Ready(val requests: List<GitHubClaimBatches.Request>) : VerificationPlan {
+            override val plannedBatches: Int get() = requests.size
+        }
+
+        data class Rejected(
+            val observation: GitHubAcceptancePublicationEvidence.Extraction,
+            override val plannedBatches: Int,
+            val requiredTokens: Int? = null,
+            val inputLimitTokens: Int? = null
+        ) : VerificationPlan
+    }
+
+    private fun verificationRequests(draft: String, receipts: Map<String, JsonObject>): VerificationPlan {
         val hardLimit = inputLimit()
         val groups = GitHubRequestCompletion.requirements(task).distinct().chunked(GitHubClaimBatches.REQUIREMENTS_PER_BATCH)
         // Never let the extraction bound silently remove acceptance criteria. A task
         // that exceeds the bounded batch plan remains incomplete until it is split or
         // a larger, explicitly supported plan is introduced.
-        if (groups.size > GitHubClaimBatches.MAX_BATCHES) return null
+        if (groups.size > GitHubClaimBatches.MAX_BATCHES) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_BATCH_LIMIT, groups.size)
         val catalog by lazy { JsonArray(GitHubEvidencePolicy.catalog(receipts).reversed()) }
         val requests = groups.mapIndexed { index, requirements ->
             // Never replay a history-sized saved report into the extractor. Completed
@@ -1189,7 +1244,7 @@ internal class GitHubVerifiedSession(
             }.toString()
             var request = payload(emptyList())
             val baseTokens = TextTokenEstimate.estimate(request)
-            if (baseTokens > hardLimit) return null
+            if (baseTokens > hardLimit) return VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_INPUT_LIMIT, groups.size, baseTokens, hardLimit)
             val limit = minOf(hardLimit, maxOf(6_000, baseTokens + 2_048))
             val query = "$task\n${requirements.joinToString("\n")}\n$candidate"
             val selected = mutableListOf<kotlinx.serialization.json.JsonElement>()
@@ -1203,7 +1258,14 @@ internal class GitHubVerifiedSession(
             GitHubClaimBatches.Request(request, ids.toSet())
         }
         val currentLimit = inputLimit()
-        return requests.takeIf { batch -> batch.all { TextTokenEstimate.estimate(it.payload) <= currentLimit } }
+        var rejection: VerificationPlan.Rejected? = null
+        val admitted = requests.all { request ->
+            val estimate = TextTokenEstimate.estimate(request.payload)
+            (estimate <= currentLimit).also { fits ->
+                if (!fits) rejection = VerificationPlan.Rejected(GitHubAcceptancePublicationEvidence.Extraction.PLAN_LIMIT_CHANGED, groups.size, estimate, currentLimit)
+            }
+        }
+        return if (admitted) VerificationPlan.Ready(requests) else requireNotNull(rejection)
     }
 
     private fun draftExcerpt(draft: String, requirements: List<String>): String {

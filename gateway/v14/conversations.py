@@ -479,7 +479,7 @@ class Conversations:
         if not job.get('conversation_id'):
             return
         data, command = job.get('data', {}), job['command_id']
-        content = data.get('answer') or data.get('final_report') or data.get('summary') or ''
+        content = (data.get('final_report') if state in {'COMPLETED', 'NEEDS_INPUT', 'MERGE_READY'} else None) or data.get('answer') or data.get('summary') or ''
         if isinstance(content, dict):
             content = content.get('summary') or json.dumps(content, ensure_ascii=False)
         if not isinstance(content, str):

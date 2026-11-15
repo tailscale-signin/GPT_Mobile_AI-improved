@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -71,7 +72,7 @@ internal object GitHubStatusEvidence {
     }
 
     fun operation(receipt: JsonObject, tool: String, action: String): Boolean =
-        receipt.text("tool").substringBefore("__") == tool && (receipt["arguments"] as? JsonObject)?.text("action") == action
+        GitHubOperationTool.operationName(receipt.text("tool")) == tool && (receipt["arguments"] as? JsonObject)?.text("action") == action
 
     fun checks(receipts: Map<String, JsonObject>, head: String, now: Long, epoch: Long?): CheckInventory {
         if (!head.matches(Regex("[a-fA-F0-9]{40}"))) return CheckInventory()

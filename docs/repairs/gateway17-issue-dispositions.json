@@ -1,9 +1,9 @@
 {
   "schema": "gateway17.issue-dispositions.v1",
   "repository": "tailscale-signin/GPT_Mobile_AI-improved",
-  "pull_request": 1122,
-  "working_branch": "fix/github-context-and-voice-reliability-2026-11-14",
-  "base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
+  "pull_request": 1203,
+  "working_branch": "fix/durable-engineering-completion-2026-11-14",
+  "base_sha": "485515d3d63010aceb217ac0988ba28fff7eabf4",
   "audit_started_from_sha": "6d56939a5811c7779e49a072d8d1e3c08cf8fdd3",
   "concurrent_source_sha_reviewed": "aad56e7f6b9bbac05ca905907cdd627e2bb36244",
   "reconciled_source_heads": [
@@ -19,8 +19,8 @@
     "9ce9808f593ab2a50f3d4658a4baf10485475303"
   ],
   "prepared_at_utc_date": "2026-11-14",
-  "intent": "Audit all 47 open non-PR reports through #1148, preserve existing fixes and concurrent source changes, improve missing diagnosis, and provide honest per-issue closure evidence. Each disposition remains conditional on the complete composed source and final-head qualification.",
-  "issue_count": 68,
+  "intent": "Audit all67 open non-PR reports through#1168; preserve published work and actual evidence, fix defects or improve missing diagnosis, and close each addressed report after complete-source final-head qualification and merge.",
+  "issue_count": 67,
   "remote_mutations_performed_by_this_audit": true,
   "closure_policy": "The requested closure may include diagnostic resolutions. Each note must preserve its remaining qualification; issue closure is not a declaration of full live/device acceptance.",
   "privacy": "No original prompts, private endpoints, repository names from report payloads, identifiers, credentials, raw tool arguments or raw logs are stored in this audit.",
@@ -177,107 +177,61 @@
       "diff_check": "passed",
       "qualification": "Local checks qualify the complete graph/capacity composition only within their stated host scope. Full Android compilation/unit/heap/emulator, lint, CodeQL, packaging, Gateway/Windows, Marketplace and aggregate verification remain required on the final published head and current main."
     },
-    "diagnostic_21c055de_followup": {
-      "status": "SOURCE_REVIEWED_GATEWAY_CANONICAL_RUNNING_FINAL_CI_PENDING",
-      "acceptance_report_host": {
-        "passed": 19,
-        "failed": 0
-      },
-      "physical_device": "NOT_RUN",
-      "historical_live_replay": "NOT_RUN",
-      "final_head_ci": "NOT_RUN",
-      "live_provider": "NOT_RUN",
-      "graph_native_report_host": {
-        "passed": 41,
-        "failed": 0
-      },
-      "rate_http_host": {
-        "passed": 18,
-        "failed": 0
-      },
-      "rate_typed_guard_host": {
-        "passed": 25,
-        "failed": 0,
-        "scope": "Final absolute-deadline tie correction included."
-      },
-      "coordinator_host": {
-        "passed": 6,
-        "failed": 0
-      },
-      "report_submission_host": {
-        "passed": 68,
-        "failed": 0
-      },
-      "python_report_contracts": {
-        "passed": 94,
-        "failed": 0
-      },
-      "reporter_readiness": {
-        "bytes": 1022,
-        "limit_bytes": 1024,
-        "features": 30
-      },
-      "host_boundary": "Actual changed producers with explicit cached/platform substitutes; counts overlap and must not be summed as unique cases. Final full Android and CI required.",
-      "issue_reconciliation": {
-        "open_snapshot": 68,
-        "ledger_entries": 68,
-        "unique_entries": 68,
-        "missing_issues": [],
-        "extra_issues": [],
-        "missing_source_paths": [],
-        "scope": "Source/test path and observed title/code/stage/operation review; final exact-head execution still pending."
-      },
-      "graph_replay_authorization_host": {
-        "passed": 57,
-        "failed": 0
-      },
-      "focused_gateway_host": {
-        "passed": 117,
-        "failed": 0,
-        "scope": "Earlier controlled governor/backend/service/job/routes component receipt; final canonical suite supersedes this overlapping count."
-      },
-      "canonical_fast": {
-        "passed": 510,
-        "failed": 0,
-        "status": "passed",
-        "command": "bash scripts/validate-local.sh fast"
-      },
-      "authentication_canonical": {
-        "passed": 119,
-        "failed": 0,
-        "status": "passed",
-        "scope": "All five authentication test modules, including failure details."
-      },
-      "changed_kotlin_format": {
-        "status": "passed",
-        "version": "1.3.1",
-        "paths": 56,
-        "qualification": "All changed Kotlin paths passed; the final two-file rate correction also passed afterward."
-      },
-      "independent_review": {
-        "status": "passed",
-        "remaining_blockers": 0,
-        "followups": [
-          "Exact absolute cooldown deadline selection",
-          "Finite extreme wait conversion",
-          "Durable wake at job budget without losing server retry deadline",
-          "Graph-only rate response preserves non-graph unknown admission outcome"
-        ]
-      },
-      "post_review_gateway_http": {
-        "passed": 24,
-        "failed": 0,
-        "scope": "Final graph-only rate mapping, extreme waits and accepted command recovery."
-      },
-      "post_review_gateway_bounds": {
-        "passed": 49,
-        "failed": 0,
-        "scope": "Job/HTTP bounds receipt before the final graph-only route correction; overlaps other suites."
-      },
-      "gateway_canonical": {
-        "status": "RUNNING",
-        "qualification": "Canonical final result and exact published head will be recorded in PR qualification comment before merge and issue closure."
-      }
+    "current_cooldown_response_followup": {
+      "component_commit": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
+      "component_tree": "2c9dd9d6f6a90f703ec20538f6ac208b91c43770",
+      "parent": "440e9e5a092aab78e04ccda84b4d50c00140459f",
+      "status": "source_scoped_frozen_component_accepted_final_android_pending",
+      "typed_guard_projector_classifier_passed": 23,
+      "actual_client_response_passed": 18,
+      "report_contract_passed": 68,
+      "coordinator_helper_passed": 4,
+      "python_report_http_passed": 94,
+      "canonical_fast_passed": 510,
+      "count_qualification": "Overlapping host executions; not a summed unique coverage total. Three new collector methods remain Android-only until final-head execution.",
+      "controls": "Exact original manager:5 expected failures; exact440e client:7 expected failures; exact0d097 helper and manager: shared coordinator oracle fails on false/NO.",
+      "readiness_http_status": 200,
+      "readiness_bytes": 1022,
+      "readiness_features": 30,
+      "readiness_bound_bytes": 1024,
+      "timing_qualification": "The actual ApiState.Error/incident/approved-report path preserves the six immutable observations. ProfileFailureRecord is a minimal nonretryable timeline summary; no new durable retry countdown or automatic-resume schedule is asserted."
+    },
+    "current_graph_native_followup": {
+      "status": "accepted_frozen_source_composed_final_android_pending",
+      "component_commit": "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
+      "required_dependency": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
+      "handwritten_files": 13,
+      "added_test_methods": 14,
+      "focused_host_tests": 39,
+      "focused_host_failures": 0,
+      "scope": "15 native, 15 graph repository, 7 graph and two verbatim recorder bodies using explicit in-memory/log ports; counts overlap broader checks and are not summed.",
+      "historical_control": "Exact two 7267 native/accounting source blobs restore six expected evidence-loss failures in seven selected cases. This is not a whole historical Android build.",
+      "qualification": "Original Android/Room fixtures and all complete final-head checks are required. No historical cause, private-provider request or remote index outcome was reproduced."
+    },
+    "complete_local_authentication": {
+      "status": "passed",
+      "tests": 119,
+      "command": "python3 -m unittest discover -s authentication -p 'test_*.py'",
+      "qualification": "Actual composed source; service deployment is not implied."
+    },
+    "complete_handwritten_kotlin_format": {
+      "status": "passed",
+      "paths": 51,
+      "version": "1.3.1",
+      "qualification": "Exact composed handwritten Kotlin files; hosted repository-wide lint remains required."
+    },
+    "additional_archive_review": {
+      "status": "complete_integrity_and_record_review",
+      "zip_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+      "stages_verified": 20,
+      "logical_chunk_groups_reassembled": 31,
+      "runs": 10,
+      "tool_rows": 180,
+      "journal_events": 2080,
+      "app_wide_reports_matching_captured_runs": 19,
+      "app_wide_reports_without_captured_run_match": 8,
+      "scope": "All selected stages complete; bounded retained history, not all historical activity. Exact archived receipt joins strengthen1155\u20131159 local-cooldown diagnoses. Generic graph remote causes remain unavailable.",
+      "record": "docs/repairs/diagnostic-21c055de-2026-11-14.md"
     }
   },
   "reporter_contract": {
@@ -289,9 +243,7 @@
       "CAPTURE_BOUNDARY_EVIDENCE_V1",
       "HANDOFF_RECONCILIATION_EVIDENCE_V1",
       "CHAT_DELIVERY_EVIDENCE_V1",
-      "CLAIM_FRESHNESS_EVIDENCE_V1",
-      "GH_COOLDOWN_V1",
-      "PROFILE_SELECTION_EVIDENCE_V1"
+      "CLAIM_FRESHNESS_EVIDENCE_V1"
     ],
     "client": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
     "server": [
@@ -396,9 +348,9 @@
       "issue": 1104,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1104",
       "disposition": "code_fix_and_diagnostics",
-      "observed_problem": "An ordinary-chat pre-dispatch GitHub admission failure was presented as generic CHAT_FAILED.",
+      "observed_problem": "The approved #1104 report exposed CHAT_FAILED with original-code UNKNOWN and unavailable causal/dispatch metadata. Its exact run hash independently joins the supplied archive\u2019s durable FAILED run, whose terminal error records GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET for github_context/github_pr and states that no GitHub write was dispatched. The same run records failed context assembly 21 ms before the report.",
       "resolution": "Preserve the typed GitHub admission rejection through the ordinary chat failure boundary and attach the actual request budget and dispatch observation. A later-session failure cannot relabel earlier generation as unsent.",
-      "remaining_qualification": "This repairs classification and actionable evidence. The admission boundary remains enforced, and the original private endpoint was not replayed.",
+      "remaining_qualification": "The approved capsule alone reports UNKNOWN/CHAT_FAILED. An exact archived run-hash join establishes the retained GitHub schema-budget rejection and same-run failed context assembly; no matching exception stack/fingerprint or broader provider non-dispatch is established. The private request was not replayed and later task completion remains unproved.",
       "closure_basis": "Source repair with regression evidence; environment qualifications remain explicit.",
       "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
       "historical_incident_reproduced": false,
@@ -415,7 +367,19 @@
       ],
       "validation_refs": [
         "existing_pr_regressions"
-      ]
+      ],
+      "historical_evidence_binding": {
+        "archive_sha256": "a3a30d802606cecd2d1b4d3384c91b1416a635b3601e57f80b73ff804d0dfcda",
+        "verified_stage_hashes": 20,
+        "run_record": "runs.jsonl:7",
+        "same_run_journal": "journal.jsonl:194",
+        "journal_precedes_report_ms": 21,
+        "public_error_code": "UNKNOWN",
+        "archive_terminal_code": "GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET",
+        "exact_run_hash_join": true,
+        "exception_stack_recovered": false,
+        "independent_review_sha256": "346b20d194c6971286b7c640474cdadf66023d3fae8183820c150c0d665fdf1c"
+      }
     },
     {
       "issue": 1105,
@@ -1686,16 +1650,16 @@
       }
     },
     {
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_and_independently_reviewed",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
+      "source_integration_status": "reviewed_handwritten_component_composed_locally_final_source_and_ci_pending",
+      "execution_qualification": "The complete successor, including overlapping report/cooldown reconciliation, must pass all applicable checks on its final head and current main before merge and individual closure.",
       "issue": 1149,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1149",
       "disposition": "capacity_constraint_and_diagnostic_resolution",
-      "observed_problem": "The selected LLAMA request was safely rejected before dispatch: 1,014 required schema tokens versus 260 available, a 754-token shortfall. Capacity was 5,632, prompt 3,900, tool-result reserve 704, safety 256 and output 512 under UTF8_ESTIMATE. The historical capsule lacks the selected identity and enforced ceiling provenance.",
+      "observed_problem": "A distinct cd216/build141 LLAMA request was rejected before dispatch with GITHUB_TOOL_CONTEXT_BUDGET, retryable=false and remote acceptance NO. The UTF8_ESTIMATE budget is capacity 5,632 minus current-only prompt 3,900, tool-result reserve 704, safety 256 and output 512, leaving 260 schema tokens against 1,014 required: a 754-token deficit. Selected identity and original capacity provenance are absent. The source predates cef admission diagnostics.",
       "resolution": "Capture the typed capacity decision at preparePrimaryAdmission from the same selected profile, normalized configuration, catalog observation and freshness-checked route readiness used by primaryContext. Carry the immutable decision through both context-preparation paths to the exact schema-budget exception; retain hashed identity, separate configured/verified-route/catalog ceilings and closed winning provenance. Retain the current-only numeric system/request/history/attachment breakdown measured by the rejecting allocator. A later smaller explicit or engineering planning limit cannot be relabeled as verified remote capacity; missing or mismatched observations remain unavailable/UNKNOWN. Projection uses the existing approved CAPACITY_ADMISSION_EVIDENCE_V1 contract without enlarging readiness or collecting raw prompts/model names/endpoints. Admission, reserves, authorized schemas, output limits, final request measurement and replay/permission rules remain unchanged.",
-      "remaining_qualification": "The historical request and selected model/capacity source are unavailable. The report does not establish an unnecessary required schema, a larger supported context, or a lossless fitting transformation. Old history and optional catalog entries are outside this initial required-cost guard. Removing one reserve does not prove the later replay allocator and final physical request would fit. The original provider request is not replayed, and no live model or quota repair is claimed. Hosted submission of these fields requires the existing GITHUB_SCHEMA_BUDGET_EVIDENCE_V1 and CAPACITY_ADMISSION_EVIDENCE_V1 capabilities; native authenticated GitHub delivery remains independent. The recorded 512-token output origin is not inferred from the historical capsule.",
+      "remaining_qualification": "The historical request and selected model/capacity source are unavailable. The report does not establish an unnecessary required schema, a larger supported context, or a lossless fitting transformation. Old history and optional catalog entries are outside this initial required-cost guard. Removing one reserve does not prove the later replay allocator and final physical request would fit. The original provider request is not replayed, and no live model or quota repair is claimed. Hosted submission of these fields requires the existing GITHUB_SCHEMA_BUDGET_EVIDENCE_V1 and CAPACITY_ADMISSION_EVIDENCE_V1 capabilities; native authenticated GitHub delivery remains independent. The recorded 512-token output origin is not inferred from the historical capsule. Even removing the entire 704-token initial result reserve would leave 50 tokens over this guard; later replay and final physical admission still apply.",
       "closure_basis": "The observed capacity rejection remains valid and safely pre-dispatch; the requested diagnostic fallback preserves the missing admission-time identity and ceiling evidence for a recurrence.",
       "sources": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/GitHubSchemaAdmissionEvidence.kt",
@@ -1710,8 +1674,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderRouteCapacityTest.kt"
       ],
       "validation_refs": [
-        "current_capacity_admission_followup",
-        "diagnostic_21c055de_followup"
+        "current_capacity_admission_followup"
       ],
       "pending_source_followup": false,
       "component_commit": "d3842baa72aeb1b75d716387bcbfb69f2acf0e43",
@@ -1755,655 +1718,964 @@
     {
       "issue": 1150,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1150",
-      "disposition": "selected_profile_guard_and_diagnostic_resolution",
-      "observed_problem": "CHAT_FAILED retained a ConfiguredDispatchAuthority selected-profile rejection, but omitted which identity comparison failed.",
-      "resolution": "Retain a typed GITHUB_PROFILE_LOCKED failure with independent profile-match, registration and model-match observations and hashed identities. Preserve the selected-profile admission condition; report the mismatch instead of replacing the chosen model.",
-      "remaining_qualification": "The old capsule cannot identify the original mismatching setting. No live model substitution or successful historical dispatch is asserted. Hosted report submission negotiates PROFILE_SELECTION_EVIDENCE_V1.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+      "observed_original_code": "UNKNOWN",
+      "original_code_hash": "6d682eee668a20260c09f7e9e384651d964cfd38d951ac71317f3bbf7bca4bc0",
+      "source_guard": "ConfiguredDispatchAuthority.captureOnce:50",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
-      "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "disposition": "typed_selection_classification_fix_and_diagnostic_resolution",
+      "component_commit": "440e9e5a092aab78e04ccda84b4d50c00140459f",
+      "source_integration_status": "reviewed_handwritten_component_composed_locally_final_source_and_ci_pending",
+      "remaining_qualification": "The old capsule does not identify the failed comparison or the reason for selection mismatch. Full actual Android capture/collector tests and all gates on the complete combined head remain required before merge/closure.",
+      "closure_body": "Resolved the loss of the selected-profile admission reason in PR #1122. The installed-source stack and original-code hash locate the existing GitHub profile/model lock and its conversion to UNKNOWN/CHAT_FAILED. The app now carries an application-owned typed failure from that exact guard through classification and approved reports. It records the configured GitHub profile/requested profile comparison, whether the requested profile is registered, and the registered/requested model comparison, plus hashed identities captured from those same reads. Missing registration leaves the model comparison unavailable; later settings do not rewrite the observation.\n\nThe original conjunction, earlier privacy/profile checks and immediate rejection remain enforced. The repair adds no profile/model substitution, settings read, retry or replay permission. The selection rejection itself does not establish whole-run dispatch or acceptance. Earlier known provider evidence remains authoritative, and a fresh collection is not treated as proof that earlier work was unsent. No attempt-state alias supplies unsupported aggregate facts. The report has no raw profile IDs, model names, endpoints, credentials or prompt text.\n\nThe historical capsule does not identify which comparison failed or why the selection differed; that original state has not been reproduced. This closes the concrete classification fix and requested diagnostic follow-up without claiming the prior request should have been dispatched. Hosted delivery requires PROFILE_SELECTION_EVIDENCE_V1, including code-only/nested/event and omitted-field forms; an older service retains the exact approved report without POST, and native authenticated GitHub reporting stays independent.",
       "sources": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthority.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/GitHubProfileSelectionRejected.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ErrorClassification.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/ConfiguredDispatchAuthorityTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/context/GitHubProfileSelectionRejectedTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnosticsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportGitHubSubmissionTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt"
-      ]
+        "authentication/test_app.py",
+        "authentication/test_incident_report_contract.py"
+      ],
+      "superseded_component": "6b74fd2462f1ed4d84ab00c28a2b6fb463c6b8c3",
+      "pending_source_followup": false,
+      "execution_qualification": "The complete successor, including overlapping report/cooldown reconciliation, must pass all applicable checks on its final head and current main before merge and individual closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge"
     },
     {
       "issue": 1151,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1151",
-      "disposition": "graph_index_replay_and_scheduling_repair",
-      "observed_problem": "A graph index deadline was labeled READ_DEADLINE with retryable=true and requiresReconciliation=false even though indexing changes durable gateway state. The archive shows 111 indexing calls before independent capability work completed.",
-      "resolution": "Exclude graph indexing, including its background job controls, from read-only replay authority. Preserve local indexing authorization and exact request/checkpoint identity; reconcile unknown outcomes through status before continuing. Schedule independent reads and source dependencies before each expensive indexing batch.",
-      "remaining_qualification": "The timed-out historical batch outcome remains unknown. A safe status query does not establish completion unless its returned checkpoint/acknowledgement matches. No automatic replay or permission expansion is introduced.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "code_fix_for_index_timeout_replay_classification",
+      "state": "FROZEN_REVIEWED_PENDING_INTEGRATION_AND_FINAL_CI",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "reviewed_handwritten_component_composed_locally_final_source_and_ci_pending",
+      "component_commit": "7267e4d0e820bb8455aae3ae605bd8fa13084f76",
+      "observed_problem": "The approved report from installed cd2162725f303108b22d7b5f3678e32e23b65abd/build141 records a repository_graph TOOL_RESULT with READ_DEADLINE at tool_execution, dispatched=true, retryable=true and requiresReconciliation=false. The documented domain-separated hash of the public action index exactly matches the retained tool_action_hash, and the original error-code hash matches READ_DEADLINE. The retained argument shape contains only action:STRING. The dispatched flag is tool-boundary evidence; it does not establish underlying HTTP dispatch, server acceptance or completion.",
+      "confirmed_source_defect": "The installed and cef source classified graph index as a replayable read through GitHubAuthorizationBoundary and ToolReplaySafety. ToolExecutionBudget and direct AgentRunner timeout handling therefore selected READ_DEADLINE/read-retry behavior, while GatewayGraphRepository and GatewayGraphIndexCheckpoint already retained an uncertain index attempt and required scoped status reconciliation before another index. A generic ApprovedReadOnlyAgentTool wrapper could override a simple boundary-only exclusion, and graph alias/native authorization needed the same canonical duplicate-action classification.",
+      "resolution": "Exclude the exact local graph index operation from automatic replay classification, with an explicit veto before the generic approved-read-only wrapper fallback. Use the existing TIMEOUT_OUTCOME_UNKNOWN, non-retryable and reconciliation-required behavior after an uncertain timed-out invocation; an identical fresh call must not reach the index query again. Canonicalize the exact repository_graph family and its aliases to the existing native GitHub graph form for authorization and prior-action checks. Preserve existing READ_ONLY grants for local graph preparation separately from replay authority, without inventing a read grant or adding a GitHub fixture-write approval. Preserve local index as non-fixture work in the checklist and integration-acceptance classifiers. Pure graph status/query reads retain their existing bounded read retries, and the existing selected scope, checkpoint, job and reconciliation fences remain authoritative. Independent reads and workflow-definition dependencies now precede each continuing graph-index batch; saved-index reconciliation retains priority. This does not remove acceptance prerequisites or authorize index replay.",
+      "remaining_qualification": "The capsule does not identify the HTTP dispatch phase, backend acceptance/completion, duplicate execution, actual elapsed timeout budget or which preparation/source step consumed the deadline. The source trace identifies a reachable mismatch between a synchronous index path and available tool budgets, but does not prove that mismatch caused this historical timeout. This correction does not claim a timeout-duration, batch-size or synchronous/background-default fix, faster indexing, completed durable jobs, original-incident reproduction or whole-run replay authority. A durable acknowledgment alone is not graph completeness. The existing read authorization and fixture-policy semantics must remain covered by the final regressions.",
+      "closure_basis": "Repair the confirmed outer replay-classification mismatch and preserve the inner uncertainty fence, native/alias duplicate checks, existing local read authorization and non-fixture checklist semantics. Close only after the component is frozen and independently reviewed, the complete published successor passes its required Android and other applicable gates against current main, and the sole coordinator merges the PR.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolReplaySafety.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/GitHubAuthorizationBoundary.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/permissions/ToolApprovalManager.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolReplaySafety.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptance.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubTestChecklist.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRunner.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolFailureMetadata.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphIndexCheckpoint.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt"
       ],
       "regression_tests": [
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolAuthorizationOutcomeTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/permissions/GitHubAuthorizationBoundaryTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolAuthorizationOutcomeTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptanceTest.kt"
-      ]
+      ],
+      "regression_methods": [
+        "graphReadClassificationSeparatesIndexingFromStatusAndQueries",
+        "localGraphIndexingKeepsItsExistingNativeReadOnlyGrantWithoutReplayAuthority",
+        "localGraphIndexingCannotInventAReadGrantOrRepeatAnUnknownTrustedAction",
+        "repositoryGraphIndexDeadlineRetainsUnknownOutcomeAndBlocksFreshReplay",
+        "graphIndexJobControlsCannotAcquireReplayAuthorityFromAReadOnlyWrapper",
+        "graphStatusAndQueryRetainBoundedReadRetriesThroughTheActualWrapper",
+        "localGraphIndexingStaysOutsideFixtureMutationsAndCanCompleteItsCapability",
+        "graphIndexReceiptNeverSuppliesOwnedFixtureMutationEvidence",
+        "GitHubSelfTestGraphTest.independentReadsAndSourceDependenciesPrecedeEveryIndexBatch"
+      ],
+      "validation": {
+        "current_review": "All9 committed files and hashes verified by root and independent reviewer; frozen manifest /workspace/scratch/0021070b94a5/validation/graph-index-replay-host/component-manifest.json",
+        "focused_execution": "Current-source host56/56passed; exact5cefproductionblob overlay8cases/2expectedreplayfailures; isolatedoriginalauthorizeOrThrow18cases/1expected PERMISSION_DENIED versus DUPLICATE_ACTION behavioral failure. Explicit Android/Room/service/Combined ports; not device or HTTP proof.",
+        "frozen_component": "7267e4d0e820bb8455aae3ae605bd8fa13084f76; parentcef330f93ed2af9fae334b38acc5eb25b087159d; tree51a210d35c6aaebb4a1718938c582f5f74d88a39; manifest SHA256c14953cb7d45e443bf0ba6eb8206392f7c03f93104482be930654a0e94603be2; patchd777344f874b0b90e786e887fdb0dde9e881481fb1be65c2d709c2e92414dca2.",
+        "final_published_head_android": "Required: actual execution of final graph authorization, timeout/wrapper, canonical duplicate, checklist/preparation and integration-acceptance regressions, alongside the complete Android suite and required dedicated heap cases.",
+        "other_final_gates": "All applicable final-head workflows and current-head/base/rules checks remain required.",
+        "merge_and_closure": "Pending sole coordinator; no issue comment, closure or remote mutation is authorized by this local draft."
+      },
+      "closure_draft": "This report exposed a mismatch in the timeout/retry classification of repository graph indexing. The approved report identifies an `index` call through the documented public-action hash and records `READ_DEADLINE`, retryable=true and no reconciliation requirement. Its tool-boundary dispatch flag does not establish the underlying HTTP request phase or the server's final outcome.\n\nThe repair in [PR #1122](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1122) gives an uncertain index timeout the existing non-replayable, reconciliation-required outcome. A generic read-only wrapper cannot restore replay authority, and native and aliased graph calls share the canonical authorization and duplicate-action checks. An identical fresh index invocation is blocked after an uncertain result, while the existing saved checkpoint and scoped status-reconciliation path remain in place.\n\nLocal indexing retains its existing authorized read grant and non-fixture checklist treatment; this does not add GitHub write approval or turn index work into disposable-fixture evidence. Status and query reads retain their bounded retry behavior.\n\nThe historical backend completion, duplicate execution, exact timeout cause and duration remain unverified. This repair corrects the retry/reconciliation contract; it does not claim that the original indexing operation completed or that indexing deadlines have been eliminated. Closure is qualified by the merged, fully validated successor and its actual regression receipts.",
+      "execution_qualification": "The complete successor, including overlapping report/cooldown reconciliation, must pass all applicable checks on its final head and current main before merge and individual closure."
     },
     {
       "issue": 1152,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1152",
-      "disposition": "unknown_graph_outcome_diagnostic_repair",
-      "observed_problem": "GRAPH_INDEX_OUTCOME_UNKNOWN became public TOOL_FAILURE and requiresReconciliation=false, obscuring the retained unconfirmed index checkpoint.",
-      "resolution": "Carry the actually observed prior-index uncertainty through the graph repository callback, tool result, accumulated dispatch receipt and approved report. Preserve the existing public reconciliation category and require matching saved status/acknowledgement before the uncertainty can clear.",
-      "remaining_qualification": "Current precheck rejection is distinct from the earlier request. Neither an unavailable gateway nor a successful unrelated status request proves the historical index outcome.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "observed_problem": "The installed cd2162725f303108b22d7b5f3678e32e23b65abd/build141 capsule records repository_graph at tool_precheck, dispatched=false, retryable=false and requiresReconciliation=false, publicly classified TOOL_FAILURE. The documented closed-domain action hash identifies index; the original code hash exactly identifies GRAPH_INDEX_OUTCOME_UNKNOWN. The argument shape contains only action:STRING. Its run/call IDs do not identify the earlier pending index attempt and do not establish linkage to issue1151.",
+      "resolution": "Preserve the repository operation wrapper and its actual prior index-uncertainty state. An index blocked by that retained checkpoint keeps original result.errorCode=GRAPH_INDEX_OUTCOME_UNKNOWN, isError=true, dispatched=false, phase=PRECHECK_REJECTED, failed_stage=tool_precheck and retryable=false. Carry requires_reconciliation=true and CHECK_SAVED_INDEX for the earlier saved attempt, use the existing reconciliation recovery category, and provide only action=status on the same graph alias as the recovery call. Preserve successful status as successful/COMPLETED while carrying unresolved prior-checkpoint evidence; no absent or unchanged snapshot clears the saved attempt. The public report uses existing RECONCILIATION_REQUIRED only for the exact persisted index call and matching typed graph precheck receipt. The original error code and its public hash remain unchanged. No global unknown-outcome code expansion, current-call UNKNOWN_OUTCOME rewrite, index replay, permission change or checkpoint/revision/generation weakening is introduced.",
+      "remaining_qualification": "The historical current-call refusal was unsent and nonretryable. Its recorded requiresReconciliation=false did not establish that the earlier index attempt was resolved or never sent. The capsule does not identify that earlier attempt/job/scope, demonstrate a causal connection to #1151, establish backend acceptance/completion or duplicate execution, or reproduce the original timeout cause. The correction preserves the difference between this certainly unsent refusal and uncertainty retained from an earlier request. Host fixtures exercise the repaired producer and projection but do not establish historical Android, server or recovery outcomes. Matching acknowledgment or qualified snapshot progress/completion remains necessary; an absent or unchanged status does not authorize blind replay.",
+      "disposition": "code_fix_for_saved_index_structured_recovery_and_qualified_report_projection",
+      "source_integration_status": "accepted_components_composed_final_head_ci_pending",
+      "component_commit": "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
       "sources": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphIndexCheckpoint.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolResultEnvelope.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepositoryTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt"
+      ],
+      "regression_methods": [
+        "toolCallbackRetainsUnresolvedIndexAcrossBlockedIndexAndSuccessfulUnchangedStatus",
+        "toolCallbackKeepsPriorIndexUncertaintyAndTypedStatusFallbackEligibility",
+        "wrappedPolicyTlsAndGenericFailuresNeverAcquireNativeFallbackOrPriorCheckpointEvidence",
+        "savedIndexPublicAliasRequiresTheExactPersistedCallAndTypedPriorCheckpointReceipt",
+        "blockedGraphIndexPublishesPriorReconciliationWithoutRelabellingTheUnsentCurrentCall"
+      ],
+      "closure_basis": "Concrete recovery/report repair or the requested diagnostic fallback; historical cause and remote outcome not reproduced. Complete final-head checks and qualified merge precede closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "The saved-checkpoint guard correctly refused this index invocation before a new index POST. The approved report identifies the original application code as GRAPH_INDEX_OUTCOME_UNKNOWN and records the current call as undispatched and nonretryable. Its earlier requiresReconciliation=false field did not establish that the retained previous index attempt was resolved.\n\nThe repair in [PR #1122](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1122), preserves that guard and carries the actual earlier checkpoint uncertainty through the tool receipt and report. Recovery now points to status on the same gateway/revision and uses CHECK_SAVED_INDEX. The current call stays PRECHECK_REJECTED and nonretryable; it is not relabeled as an unknown execution outcome. Successful status reads remain successful while preserving any unresolved earlier checkpoint.\n\nThe public RECONCILIATION_REQUIRED label is permitted only for the exact persisted index call and a fully matching typed receipt. The original error code and its hash remain retained. No generic message, unrelated call or incomplete receipt can acquire that label, and no automatic index replay or new permission is granted.\n\nCurrent-source host checks cover the repaired producer, checkpoint retention, report alias counterexamples and recorder-to-approved-payload projection within documented platform boundaries. They do not reproduce the historical Android or server outcome. The earlier attempt identity, original cause, remote acceptance/completion and any link to #1151 remain unknown.",
+      "validation_refs": [
+        "current_graph_native_followup"
       ]
     },
     {
       "issue": 1153,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1153",
-      "disposition": "graph_failure_evidence_and_quota_recovery",
-      "observed_problem": "REPOSITORY_GRAPH_UNAVAILABLE retained only a generic exception boundary during indexing.",
-      "resolution": "Retain observed gateway HTTP status and Retry-After, bounded exception type/fingerprint and graph prerequisites without response bodies. Gateway indexing observes successful quota headers, reserves requests for foreground work and defers durable batches until the observed reset while retaining the cursor.",
-      "remaining_qualification": "The supplied archive has no gateway-side wire/journal capture, so the original generic exception cannot be assigned a precise server cause. New quota behavior is qualified by controlled tests; historical account-wide consumption and physical performance remain unmeasured.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "observed_problem": "The approved build 141/cd2162725f303108b22d7b5f3678e32e23b65abd capsule records repository_graph action=index, REPOSITORY_GRAPH_UNAVAILABLE, stage=tool_execution, dispatched=true, retryable=false and requiresReconciliation=false. HTTP status, remote acceptance, exception fingerprint, job/attempt identity and structured recovery are unavailable. The exact action and generic error-code hashes are verified. The old producer derives dispatched=true from the absence of GatewayGraphAdmissionException; this field alone does not prove that this graph call reached HTTP or the backend.",
+      "resolution": "Preserve the actual GatewayGraphOperationException observation at the tool boundary, including an actually retained selected-scope prior index checkpoint, repair action, typed prerequisite and caught cause chain. Keep actual prior-checkpoint uncertainty separate from the dispatch/outcome of the current invocation. Retain safe exception type/fingerprint and structured recovery through the real tool receipt, recorder and approved report projection. The frozen graph tool still derives its dispatched flag from admission == null. Its generic dispatched=true remains an admission-based classification, not independent HTTP transmission, backend acceptance or completion evidence. The repair carries observed prior-checkpoint, repair-action and caught-cause information without adding HTTP instrumentation or strengthening that dispatch flag. Keep index replay denied and selected-gateway/principal/repository/revision fences unchanged; retain status-only independent native fallback eligibility only for the existing authorized typed readiness/transport conditions.",
+      "remaining_qualification": "The source proves an evidence-loss path, not this historical failure cause. The report does not establish whether a pending checkpoint existed for this call, whether a graph HTTP request was transmitted, which prerequisite failed, whether a status fallback ran, or whether indexing completed. Its shared retained run hash with #1152 and other reports is an association only; the distinct call ID is not a prior attempt/job identifier or proof of a shared HTTP event. Do not infer a transport timeout, duplicate index, permission failure, safe retry or resolved checkpoint. Only actually observed checkpoint/prerequisite/cause data may populate the new receipt.",
+      "disposition": "qualified_graph_operation_evidence_loss_repair",
+      "source_integration_status": "accepted_components_composed_final_head_ci_pending",
+      "component_commit": "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphFailure.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClient.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphResponse.kt",
-        "gateway/v14/engineering_routes.py"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepositoryTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt"
+      ],
+      "regression_methods": [
+        "GatewayGraphRepositoryTest.normalizedGraphTransportRetainsActualCauseEvidenceInTheApprovedReport",
+        "GatewayGraphRepositoryTest.toolCallbackKeepsPriorIndexUncertaintyAndTypedStatusFallbackEligibility",
+        "GatewayGraphTest.readinessDiagnosticsPreserveEveryExactPrerequisiteAndSelectedCommitWithoutRawGatewayText"
+      ],
+      "closure_basis": "Concrete recovery/report repair or the requested diagnostic fallback; historical cause and remote outcome not reproduced. Complete final-head checks and qualified merge precede closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "This report records a repository graph index failure on build 141. Its original action/code hashes have been verified. The old tool set dispatched=true whenever the exception was not its admission type, so that flag is not independent proof of HTTP transmission or backend acceptance. The frozen repair retains this classifier; its generic dispatched=true still supplies no independent HTTP or backend-acceptance observation. The frozen source repair preserves actual selected-scope checkpoint uncertainty, typed readiness/prerequisite information and safe cause evidence through the tool/report boundary, while retaining the existing no-blind-index-replay and status-only fallback restrictions. The approved capsule does not identify the underlying historical cause, the earlier index attempt, or the backend final outcome.",
+      "validation_refs": [
+        "current_graph_native_followup"
       ]
     },
     {
       "issue": 1154,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1154",
-      "disposition": "graph_failure_evidence_and_quota_recovery",
-      "observed_problem": "REPOSITORY_GRAPH_UNAVAILABLE retained only a generic exception boundary during saved-status reconciliation.",
-      "resolution": "Retain observed gateway HTTP status and Retry-After, bounded exception type/fingerprint and graph prerequisites without response bodies. Gateway indexing observes successful quota headers, reserves requests for foreground work and defers durable batches until the observed reset while retaining the cursor.",
-      "remaining_qualification": "The supplied archive has no gateway-side wire/journal capture, so the original generic exception cannot be assigned a precise server cause. New quota behavior is qualified by controlled tests; historical account-wide consumption and physical performance remain unmeasured.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "observed_problem": "The approved build 141/cd2162725f303108b22d7b5f3678e32e23b65abd capsule records repository_graph action=status, REPOSITORY_GRAPH_UNAVAILABLE, stage=tool_execution, dispatched=true, retryable=false and requiresReconciliation=false. HTTP status, remote acceptance, exception fingerprint, job/attempt identity and structured recovery are unavailable. The exact action and generic error-code hashes are verified. The old producer derives dispatched=true from the absence of GatewayGraphAdmissionException; this field alone does not prove that this graph call reached HTTP or the backend.",
+      "resolution": "Preserve the actual GatewayGraphOperationException observation at the tool boundary, including an actually retained selected-scope prior index checkpoint, repair action, typed prerequisite and caught cause chain. Keep actual prior-checkpoint uncertainty separate from the dispatch/outcome of the current invocation. Retain safe exception type/fingerprint and structured recovery through the real tool receipt, recorder and approved report projection. The frozen graph tool still derives its dispatched flag from admission == null. Its generic dispatched=true remains an admission-based classification, not independent HTTP transmission, backend acceptance or completion evidence. The repair carries observed prior-checkpoint, repair-action and caught-cause information without adding HTTP instrumentation or strengthening that dispatch flag. Keep index replay denied and selected-gateway/principal/repository/revision fences unchanged; retain status-only independent native fallback eligibility only for the existing authorized typed readiness/transport conditions.",
+      "remaining_qualification": "The source proves an evidence-loss path, not this historical failure cause. The report does not establish whether a pending checkpoint existed for this call, whether a graph HTTP request was transmitted, which prerequisite failed, whether a status fallback ran, or whether indexing completed. Its shared retained run hash with #1152 and other reports is an association only; the distinct call ID is not a prior attempt/job identifier or proof of a shared HTTP event. Do not infer a transport timeout, duplicate index, permission failure, safe retry or resolved checkpoint. Only actually observed checkpoint/prerequisite/cause data may populate the new receipt.",
+      "disposition": "qualified_graph_operation_evidence_loss_repair",
+      "source_integration_status": "accepted_components_composed_final_head_ci_pending",
+      "component_commit": "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphFailure.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepository.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClient.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphResponse.kt",
-        "gateway/v14/engineering_routes.py"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphRepositoryTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayGraphTest.kt"
+      ],
+      "regression_methods": [
+        "GatewayGraphRepositoryTest.normalizedGraphTransportRetainsActualCauseEvidenceInTheApprovedReport",
+        "GatewayGraphRepositoryTest.toolCallbackKeepsPriorIndexUncertaintyAndTypedStatusFallbackEligibility",
+        "GatewayGraphTest.readinessDiagnosticsPreserveEveryExactPrerequisiteAndSelectedCommitWithoutRawGatewayText"
+      ],
+      "closure_basis": "Concrete recovery/report repair or the requested diagnostic fallback; historical cause and remote outcome not reproduced. Complete final-head checks and qualified merge precede closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "This report records a repository graph status failure on build 141. Its original action/code hashes have been verified. The old tool set dispatched=true whenever the exception was not its admission type, so that flag is not independent proof of HTTP transmission or backend acceptance. The frozen repair retains this classifier; its generic dispatched=true still supplies no independent HTTP or backend-acceptance observation. The frozen source repair preserves actual selected-scope checkpoint uncertainty, typed readiness/prerequisite information and safe cause evidence through the tool/report boundary, while retaining the existing no-blind-index-replay and status-only fallback restrictions. The approved capsule does not identify the underlying historical cause, the earlier index attempt, or the backend final outcome.",
+      "validation_refs": [
+        "current_graph_native_followup"
       ]
     },
     {
       "issue": 1155,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1155",
-      "disposition": "native_operation_cooldown_evidence_repair",
-      "observed_problem": "The repository read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
-      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
-      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "observed_problem": "The approved build 141/cd2162725f303108b22d7b5f3678e32e23b65abd capsule records github_context action=repository, GITHUB_OPERATION_FAILED, tool_precheck/PREFLIGHT_REJECTED, dispatched=false, retryable=false and requiresReconciliation=false. The original generic error-code hash is exact; exception fingerprint, HTTP status and remote acceptance are unavailable. The saved resolved argument shape includes owner and repo, so this report does not establish a missing-repository-input cause. Action/argument values beyond the approved closed public action are not inferred. The subsequently supplied complete selected capture exactly joins this call/run and retains a local core-cooldown message reporting 523 seconds. That additional evidence resolves the prior missing local reason; it does not supply a new HTTP response or historical Throwable chain.",
+      "resolution": "Preserve the actual caught exception as safe bounded type/fingerprint evidence at the generic native GitHub failure boundary, then explicitly carry those observations through GitHubDispatchAccounting, ToolEventRecorder and the approved diagnostic projection. Accounting remains authoritative for current operation phase/dispatch, accepted or unknown mutations and reconciliation; an inner exception must not overwrite those observations. Keep cancellation, permissions, existing code classifications and replay fences intact. The separately coordinated typed cooldown path must use an actual caught cooldown type or an allowed direct cause, not infer cooldown from these older generic reports.",
+      "remaining_qualification": "The original approved capsule alone did not retain the local cause. The later exact-matching archive receipt records a core-cooldown refusal, but the historical caught Throwable chain, underlying response headers and account-wide reason for quota consumption remain unavailable. A local current-operation refusal does not establish the outcome or non-dispatch of earlier run work. The archive does not prove successful later recovery, automatic replay authority or completion of the original task. The diagnostic correction retains actual future exception observations; scheduling and durable quota waits preserve existing authorization and uncertain-outcome fences.",
+      "disposition": "qualified_native_precheck_exception_evidence_loss_repair",
+      "source_integration_status": "accepted_components_composed_final_head_ci_pending",
+      "component_commit": "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
       "sources": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubToolTest.contextPrecheckFailuresRetainActualCaughtEvidenceAcrossAllReportedReadActions",
+        "ToolEventRecorderTest.caughtNativePrecheckEvidenceSurvivesTheRealRecorderAndApprovedProjection"
+      ],
+      "closure_basis": "Concrete recovery/report repair or the requested diagnostic fallback; historical cause and remote outcome not reproduced. Complete final-head checks and qualified merge precede closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "This report records github_context `repository` as an accounted preflight rejection. Its original approved capsule retained only GITHUB_OPERATION_FAILED. The subsequently supplied archive exactly matches the approved context and run/call identities, and its retained receipt records a local core-cooldown wait of 523 seconds. That additional evidence identifies this operation's retained local refusal; it is not a new GitHub HTTP response or proof of what consumed the account's quota.\n\n[PR #1122](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1122) preserves actual typed cooldown evidence and bounded caught exception metadata through tool accounting and approved reporting. It also prioritizes independent reads before repeated graph-index batches and retains observed quota waits for already admitted background work. The current-operation accounting and earlier accepted or uncertain outcomes remain authoritative; the correction does not turn a later local refusal into whole-run non-dispatch or grant blind replay.\n\nThe historical Throwable chain, exact response headers and successful recovery remain unproven. This individual resolution concerns accurate failure evidence and the reviewed scheduling/handling improvements, without claiming the original partial task completed.",
+      "validation_refs": [
+        "current_graph_native_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/context and domain-separated run/call/tool/action/original-code hashes match the retained archive receipt.",
+        "retained_local_reason": "CORE_COOLDOWN",
+        "reported_wait_seconds": 523,
+        "qualification": "A retained local rejection is not a new HTTP response, proof of the account-wide quota cause, or evidence that prior work was never dispatched."
+      }
     },
     {
       "issue": 1156,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1156",
-      "disposition": "native_operation_cooldown_evidence_repair",
-      "observed_problem": "The commit read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
-      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
-      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "observed_problem": "The approved build 141/cd2162725f303108b22d7b5f3678e32e23b65abd capsule records github_context action=commit, GITHUB_OPERATION_FAILED, tool_precheck/PREFLIGHT_REJECTED, dispatched=false, retryable=false and requiresReconciliation=false. The original generic error-code hash is exact; exception fingerprint, HTTP status and remote acceptance are unavailable. The saved resolved argument shape includes owner and repo, so this report does not establish a missing-repository-input cause. Action/argument values beyond the approved closed public action are not inferred. The subsequently supplied complete selected capture exactly joins this call/run and retains a local core-cooldown message reporting 514 seconds. That additional evidence resolves the prior missing local reason; it does not supply a new HTTP response or historical Throwable chain.",
+      "resolution": "Preserve the actual caught exception as safe bounded type/fingerprint evidence at the generic native GitHub failure boundary, then explicitly carry those observations through GitHubDispatchAccounting, ToolEventRecorder and the approved diagnostic projection. Accounting remains authoritative for current operation phase/dispatch, accepted or unknown mutations and reconciliation; an inner exception must not overwrite those observations. Keep cancellation, permissions, existing code classifications and replay fences intact. The separately coordinated typed cooldown path must use an actual caught cooldown type or an allowed direct cause, not infer cooldown from these older generic reports.",
+      "remaining_qualification": "The original approved capsule alone did not retain the local cause. The later exact-matching archive receipt records a core-cooldown refusal, but the historical caught Throwable chain, underlying response headers and account-wide reason for quota consumption remain unavailable. A local current-operation refusal does not establish the outcome or non-dispatch of earlier run work. The archive does not prove successful later recovery, automatic replay authority or completion of the original task. The diagnostic correction retains actual future exception observations; scheduling and durable quota waits preserve existing authorization and uncertain-outcome fences.",
+      "disposition": "qualified_native_precheck_exception_evidence_loss_repair",
+      "source_integration_status": "accepted_components_composed_final_head_ci_pending",
+      "component_commit": "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
       "sources": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubToolTest.contextPrecheckFailuresRetainActualCaughtEvidenceAcrossAllReportedReadActions",
+        "ToolEventRecorderTest.caughtNativePrecheckEvidenceSurvivesTheRealRecorderAndApprovedProjection"
+      ],
+      "closure_basis": "Concrete recovery/report repair or the requested diagnostic fallback; historical cause and remote outcome not reproduced. Complete final-head checks and qualified merge precede closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "This report records github_context `commit` as an accounted preflight rejection. Its original approved capsule retained only GITHUB_OPERATION_FAILED. The subsequently supplied archive exactly matches the approved context and run/call identities, and its retained receipt records a local core-cooldown wait of 514 seconds. That additional evidence identifies this operation's retained local refusal; it is not a new GitHub HTTP response or proof of what consumed the account's quota.\n\n[PR #1122](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1122) preserves actual typed cooldown evidence and bounded caught exception metadata through tool accounting and approved reporting. It also prioritizes independent reads before repeated graph-index batches and retains observed quota waits for already admitted background work. The current-operation accounting and earlier accepted or uncertain outcomes remain authoritative; the correction does not turn a later local refusal into whole-run non-dispatch or grant blind replay.\n\nThe historical Throwable chain, exact response headers and successful recovery remain unproven. This individual resolution concerns accurate failure evidence and the reviewed scheduling/handling improvements, without claiming the original partial task completed.",
+      "validation_refs": [
+        "current_graph_native_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/context and domain-separated run/call/tool/action/original-code hashes match the retained archive receipt.",
+        "retained_local_reason": "CORE_COOLDOWN",
+        "reported_wait_seconds": 514,
+        "qualification": "A retained local rejection is not a new HTTP response, proof of the account-wide quota cause, or evidence that prior work was never dispatched."
+      }
     },
     {
       "issue": 1157,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1157",
-      "disposition": "native_operation_cooldown_evidence_repair",
-      "observed_problem": "The changes read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
-      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
-      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "observed_problem": "The approved build 141/cd2162725f303108b22d7b5f3678e32e23b65abd capsule records github_context action=changes, GITHUB_OPERATION_FAILED, tool_precheck/PREFLIGHT_REJECTED, dispatched=false, retryable=false and requiresReconciliation=false. The original generic error-code hash is exact; exception fingerprint, HTTP status and remote acceptance are unavailable. The saved resolved argument shape includes owner and repo, so this report does not establish a missing-repository-input cause. Action/argument values beyond the approved closed public action are not inferred. The subsequently supplied complete selected capture exactly joins this call/run and retains a local core-cooldown message reporting 506 seconds. That additional evidence resolves the prior missing local reason; it does not supply a new HTTP response or historical Throwable chain.",
+      "resolution": "Preserve the actual caught exception as safe bounded type/fingerprint evidence at the generic native GitHub failure boundary, then explicitly carry those observations through GitHubDispatchAccounting, ToolEventRecorder and the approved diagnostic projection. Accounting remains authoritative for current operation phase/dispatch, accepted or unknown mutations and reconciliation; an inner exception must not overwrite those observations. Keep cancellation, permissions, existing code classifications and replay fences intact. The separately coordinated typed cooldown path must use an actual caught cooldown type or an allowed direct cause, not infer cooldown from these older generic reports.",
+      "remaining_qualification": "The original approved capsule alone did not retain the local cause. The later exact-matching archive receipt records a core-cooldown refusal, but the historical caught Throwable chain, underlying response headers and account-wide reason for quota consumption remain unavailable. A local current-operation refusal does not establish the outcome or non-dispatch of earlier run work. The archive does not prove successful later recovery, automatic replay authority or completion of the original task. The diagnostic correction retains actual future exception observations; scheduling and durable quota waits preserve existing authorization and uncertain-outcome fences.",
+      "disposition": "qualified_native_precheck_exception_evidence_loss_repair",
+      "source_integration_status": "accepted_components_composed_final_head_ci_pending",
+      "component_commit": "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
       "sources": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubToolTest.contextPrecheckFailuresRetainActualCaughtEvidenceAcrossAllReportedReadActions",
+        "ToolEventRecorderTest.caughtNativePrecheckEvidenceSurvivesTheRealRecorderAndApprovedProjection"
+      ],
+      "closure_basis": "Concrete recovery/report repair or the requested diagnostic fallback; historical cause and remote outcome not reproduced. Complete final-head checks and qualified merge precede closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "This report records github_context `changes` as an accounted preflight rejection. Its original approved capsule retained only GITHUB_OPERATION_FAILED. The subsequently supplied archive exactly matches the approved context and run/call identities, and its retained receipt records a local core-cooldown wait of 506 seconds. That additional evidence identifies this operation's retained local refusal; it is not a new GitHub HTTP response or proof of what consumed the account's quota.\n\n[PR #1122](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1122) preserves actual typed cooldown evidence and bounded caught exception metadata through tool accounting and approved reporting. It also prioritizes independent reads before repeated graph-index batches and retains observed quota waits for already admitted background work. The current-operation accounting and earlier accepted or uncertain outcomes remain authoritative; the correction does not turn a later local refusal into whole-run non-dispatch or grant blind replay.\n\nThe historical Throwable chain, exact response headers and successful recovery remain unproven. This individual resolution concerns accurate failure evidence and the reviewed scheduling/handling improvements, without claiming the original partial task completed.",
+      "validation_refs": [
+        "current_graph_native_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/context and domain-separated run/call/tool/action/original-code hashes match the retained archive receipt.",
+        "retained_local_reason": "CORE_COOLDOWN",
+        "reported_wait_seconds": 506,
+        "qualification": "A retained local rejection is not a new HTTP response, proof of the account-wide quota cause, or evidence that prior work was never dispatched."
+      }
     },
     {
       "issue": 1158,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1158",
-      "disposition": "native_operation_cooldown_evidence_repair",
-      "observed_problem": "The branch read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
-      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
-      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "observed_problem": "The approved build 141/cd2162725f303108b22d7b5f3678e32e23b65abd capsule records github_context action=branch, GITHUB_OPERATION_FAILED, tool_precheck/PREFLIGHT_REJECTED, dispatched=false, retryable=false and requiresReconciliation=false. The original generic error-code hash is exact; exception fingerprint, HTTP status and remote acceptance are unavailable. The saved resolved argument shape includes owner and repo, so this report does not establish a missing-repository-input cause. Action/argument values beyond the approved closed public action are not inferred. The subsequently supplied complete selected capture exactly joins this call/run and retains a local core-cooldown message reporting 501 seconds. That additional evidence resolves the prior missing local reason; it does not supply a new HTTP response or historical Throwable chain.",
+      "resolution": "Preserve the actual caught exception as safe bounded type/fingerprint evidence at the generic native GitHub failure boundary, then explicitly carry those observations through GitHubDispatchAccounting, ToolEventRecorder and the approved diagnostic projection. Accounting remains authoritative for current operation phase/dispatch, accepted or unknown mutations and reconciliation; an inner exception must not overwrite those observations. Keep cancellation, permissions, existing code classifications and replay fences intact. The separately coordinated typed cooldown path must use an actual caught cooldown type or an allowed direct cause, not infer cooldown from these older generic reports.",
+      "remaining_qualification": "The original approved capsule alone did not retain the local cause. The later exact-matching archive receipt records a core-cooldown refusal, but the historical caught Throwable chain, underlying response headers and account-wide reason for quota consumption remain unavailable. A local current-operation refusal does not establish the outcome or non-dispatch of earlier run work. The archive does not prove successful later recovery, automatic replay authority or completion of the original task. The diagnostic correction retains actual future exception observations; scheduling and durable quota waits preserve existing authorization and uncertain-outcome fences.",
+      "disposition": "qualified_native_precheck_exception_evidence_loss_repair",
+      "source_integration_status": "accepted_components_composed_final_head_ci_pending",
+      "component_commit": "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
       "sources": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubToolTest.contextPrecheckFailuresRetainActualCaughtEvidenceAcrossAllReportedReadActions",
+        "ToolEventRecorderTest.caughtNativePrecheckEvidenceSurvivesTheRealRecorderAndApprovedProjection"
+      ],
+      "closure_basis": "Concrete recovery/report repair or the requested diagnostic fallback; historical cause and remote outcome not reproduced. Complete final-head checks and qualified merge precede closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "This report records github_context `branch` as an accounted preflight rejection. Its original approved capsule retained only GITHUB_OPERATION_FAILED. The subsequently supplied archive exactly matches the approved context and run/call identities, and its retained receipt records a local core-cooldown wait of 501 seconds. That additional evidence identifies this operation's retained local refusal; it is not a new GitHub HTTP response or proof of what consumed the account's quota.\n\n[PR #1122](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1122) preserves actual typed cooldown evidence and bounded caught exception metadata through tool accounting and approved reporting. It also prioritizes independent reads before repeated graph-index batches and retains observed quota waits for already admitted background work. The current-operation accounting and earlier accepted or uncertain outcomes remain authoritative; the correction does not turn a later local refusal into whole-run non-dispatch or grant blind replay.\n\nThe historical Throwable chain, exact response headers and successful recovery remain unproven. This individual resolution concerns accurate failure evidence and the reviewed scheduling/handling improvements, without claiming the original partial task completed.",
+      "validation_refs": [
+        "current_graph_native_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/context and domain-separated run/call/tool/action/original-code hashes match the retained archive receipt.",
+        "retained_local_reason": "CORE_COOLDOWN",
+        "reported_wait_seconds": 501,
+        "qualification": "A retained local rejection is not a new HTTP response, proof of the account-wide quota cause, or evidence that prior work was never dispatched."
+      }
     },
     {
       "issue": 1159,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1159",
-      "disposition": "native_operation_cooldown_evidence_repair",
-      "observed_problem": "The branch_dependencies read was rejected before dispatch during GitHub cooldown but reported generic GITHUB_OPERATION_FAILED without its observed retry deadline or typed cause.",
-      "resolution": "Retain the caught typed cooldown and bounded safe exception evidence through GitHubTool, accumulated dispatch accounting and approved incident projection. Distinguish current undispatched admission from an HTTP rejection and preserve prior dispatched/uncertain work.",
-      "remaining_qualification": "The new report does not manufacture an HTTP request for a local rejection, restore quota, repeat writes or attribute unrelated calls to this incident. The archive supports the cooldown explanation for these captured read failures.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "observed_problem": "The approved build 141/cd2162725f303108b22d7b5f3678e32e23b65abd capsule records github_context action=branch_dependencies, GITHUB_OPERATION_FAILED, tool_precheck/PREFLIGHT_REJECTED, dispatched=false, retryable=false and requiresReconciliation=false. The original generic error-code hash is exact; exception fingerprint, HTTP status and remote acceptance are unavailable. The saved resolved argument shape includes owner and repo, so this report does not establish a missing-repository-input cause. Action/argument values beyond the approved closed public action are not inferred. The subsequently supplied complete selected capture exactly joins this call/run and retains a local core-cooldown message reporting 497 seconds. That additional evidence resolves the prior missing local reason; it does not supply a new HTTP response or historical Throwable chain.",
+      "resolution": "Preserve the actual caught exception as safe bounded type/fingerprint evidence at the generic native GitHub failure boundary, then explicitly carry those observations through GitHubDispatchAccounting, ToolEventRecorder and the approved diagnostic projection. Accounting remains authoritative for current operation phase/dispatch, accepted or unknown mutations and reconciliation; an inner exception must not overwrite those observations. Keep cancellation, permissions, existing code classifications and replay fences intact. The separately coordinated typed cooldown path must use an actual caught cooldown type or an allowed direct cause, not infer cooldown from these older generic reports.",
+      "remaining_qualification": "The original approved capsule alone did not retain the local cause. The later exact-matching archive receipt records a core-cooldown refusal, but the historical caught Throwable chain, underlying response headers and account-wide reason for quota consumption remain unavailable. A local current-operation refusal does not establish the outcome or non-dispatch of earlier run work. The archive does not prove successful later recovery, automatic replay authority or completion of the original task. The diagnostic correction retains actual future exception observations; scheduling and durable quota waits preserve existing authorization and uncertain-outcome fences.",
+      "disposition": "qualified_native_precheck_exception_evidence_loss_repair",
+      "source_integration_status": "accepted_components_composed_final_head_ci_pending",
+      "component_commit": "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
       "sources": [
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccounting.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExceptionEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorder.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubDispatchAccountingTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportIncidentProjectionTest.kt"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/repository/ToolEventRecorderTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubToolTest.contextPrecheckFailuresRetainActualCaughtEvidenceAcrossAllReportedReadActions",
+        "ToolEventRecorderTest.caughtNativePrecheckEvidenceSurvivesTheRealRecorderAndApprovedProjection"
+      ],
+      "closure_basis": "Concrete recovery/report repair or the requested diagnostic fallback; historical cause and remote outcome not reproduced. Complete final-head checks and qualified merge precede closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "This report records github_context `branch_dependencies` as an accounted preflight rejection. Its original approved capsule retained only GITHUB_OPERATION_FAILED. The subsequently supplied archive exactly matches the approved context and run/call identities, and its retained receipt records a local core-cooldown wait of 497 seconds. That additional evidence identifies this operation's retained local refusal; it is not a new GitHub HTTP response or proof of what consumed the account's quota.\n\n[PR #1122](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1122) preserves actual typed cooldown evidence and bounded caught exception metadata through tool accounting and approved reporting. It also prioritizes independent reads before repeated graph-index batches and retains observed quota waits for already admitted background work. The current-operation accounting and earlier accepted or uncertain outcomes remain authoritative; the correction does not turn a later local refusal into whole-run non-dispatch or grant blind replay.\n\nThe historical Throwable chain, exact response headers and successful recovery remain unproven. This individual resolution concerns accurate failure evidence and the reviewed scheduling/handling improvements, without claiming the original partial task completed.",
+      "validation_refs": [
+        "current_graph_native_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/context and domain-separated run/call/tool/action/original-code hashes match the retained archive receipt.",
+        "retained_local_reason": "CORE_COOLDOWN",
+        "reported_wait_seconds": 497,
+        "qualification": "A retained local rejection is not a new HTTP response, proof of the account-wide quota cause, or evidence that prior work was never dispatched."
+      }
     },
     {
       "issue": 1160,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1160",
-      "disposition": "acceptance_failure_sampling_and_graph_preparation_repair",
-      "observed_problem": "The retained verdict reports 13/70 capabilities, 3/5 task requirements, three failed operations and 59 unmet criteria. Bounded reporting can hide actual failures behind prerequisite rows, while graph preparation consumed disproportionate time. Fixture approvals and missing graph evidence remain real blockers.",
-      "resolution": "Place recorded FAIL rows first within the existing byte/sample bounds, then preserve distinct prerequisite blockers, counts and omission totals. Carry actual graph/native failure evidence forward and schedule independent capability reads before continued indexing; keep the original acceptance verdict and approval conditions.",
-      "remaining_qualification": "Available calls and remote continuation counts are not permission or successful coverage. The original task remains PARTIAL; neither failed operations nor required fixture approvals are relabeled as passing. The two reports belong to distinct runs.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "diagnostic_fallback_with_concrete_sampling_repair",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "accepted_frozen_component_composed_locally_final_source_and_ci_pending",
+      "observed_problem": "Retained verdict truthfully reports 3/5 requirements and 13/70 capabilities verified, with 3 failed operations and 59 unmet criteria; public sample contained no FAIL rows and omitted55. Approval/input prerequisites and pending continuations remain recorded. 116 remaining calls does not grant fixture approval or prove executable continuation.",
+      "resolution": "New reports prioritize already recorded FAIL criteria, preserving their hashed identifiers, status and closed blocker code through existing byte compaction. No source identifiers, error prose, extra replay or acceptance credit is added.",
+      "remaining_qualification": "Historical report lacks three failed operation codes, identities and receipts; their actual causes cannot be reconstructed. No linkage to issues1152 or1161 is claimed. The change does not resolve all original task prerequisites or establish successful provider/API execution.",
+      "closure_basis": "Repair the confirmed bounded-sampling omission and retain missing historical operation causes explicitly. Close after the complete successor passes all applicable final-head checks and is merged.",
+      "closure_draft": "This report exposed a concrete gap in the bounded acceptance diagnostic sample. The retained verdict recorded three failed operations and 59 unmet criteria, but the four exported rows contained three NOT_TESTED states and one BLOCKED state; 55 criteria were omitted. The three failed operations could therefore disappear from the report even though their failure count remained visible.\n\nThe sampling repair in PR #1122 puts already recorded FAIL criteria before prerequisite rows, preserving their hashed identities, recorded states and closed blocker codes through the existing byte compaction. It keeps acceptance decisions, totals, omission accounting, authorization, fixture approval and replay controls intact. Focused regressions cover both the initial selection and the final public-report compaction; this is a diagnostic sampling repair, not new execution evidence for the historical task.\n\nThe original verdict still means 3 of 5 requirements and 13 of 70 capabilities verified. It retained 140 of 256 calls used and 116 remaining, alongside prerequisites and four pending remote continuations. That remaining allowance does not grant fixture approval or establish that a continuation is executable. The historical report lacks the three failed operations\u2019 codes, identities and receipts, so their causes cannot be reconstructed or assigned to nearby graph, precheck or cooldown reports. This closes the concrete sampling fix and diagnostic follow-up without claiming that the original task completed or that all capabilities were exercised.",
+      "component_commit": "a1145abc2e279e47f121ed421615993e12ef59fa",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt"
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt"
       ],
       "regression_tests": [
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnosticsTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnosticsTest.kt"
+      ],
+      "regression_methods": [
+        "recordedOperationFailuresLeadTheBoundedSampleWithoutChangingAcceptanceCounts",
+        "recordedFailuresSurviveFinalPublicDiagnosticCompaction",
+        "moreThanEightFailuresKeepRecordedOrderAndDeclareEveryOmission"
+      ],
+      "validation": {
+        "focused_host": "19 passed; identical full test class against exact cef producer gives the three intended failures, other16 pass. JVM with documented surrounding boundary JARs, not complete Android.",
+        "canonical_fast": "510 passed after component-only inventory regeneration; final combined regeneration/checks still required.",
+        "source_binding": "Frozen handwritten hashes independently verified; full19-method Android execution required on final composed head."
+      },
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge"
     },
     {
       "issue": 1161,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1161",
-      "disposition": "rate_limit_diagnostic_and_background_recovery",
-      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
-      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
-      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "concrete_local_classification_and_evidence_loss_fixed",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "accepted_frozen_component_composed_locally_final_graph_gateway_and_ci_pending",
+      "observed_problem": "The installed requireAvailable:61 per-resource guard threw generic IllegalStateException; the approved report collapsed it to CHAT_FAILED and did not retain cooldown observations. The later matched archive run retains a local core-cooldown message of 478 seconds, supplying a numerical historical wait absent from the approved capsule.",
+      "resolution": "Retain the actual local decision as GitHubCooldownActive with immutable closed resource/basis and available numeric observations. Carry the actual typed cause through existing local mutation wrappers, provider classification, coordinator evidence and approved report projection. Keep measurements tied to the selected resource and time of failure; preserve unknown whole-run dispatch/acceptance and forbid automatic replay.",
+      "remaining_qualification": "The original approved capsule lacks typed cooldown timing and response observations. The later exact-matching archive run supplies a retained core-wait message, but not an exact deadline, reset header, observation clock, caught Throwable chain or account-wide cause of quota consumption. This is a historical snapshot, not the current remaining wait. The matched run has no new tool receipts; that absence is not proof that all provider/HTTP work was undispatched. Earlier accepted or uncertain outcomes, later recovery and original task completion remain unproven. The reporting correction does not create an automatic-resume schedule for the minimal profile journal or authorize replay of uncertain operations.",
+      "component_commit": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ErrorClassification.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
         "authentication/issue_report_diagnostics.py",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py"
+        "authentication/issue_reports.py",
+        "authentication/issue_report_app.py"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActiveTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
-        "authentication/test_incident_report_contract.py"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubRateLimitManagerTest.resourceRejectionRetainsTheSelectedSnapshotInsteadOfTheLatestResource",
+        "GitHubRateLimitManagerTest.retainedCooldownEvidenceDoesNotChangeWhenANewerResponseArrives",
+        "GitHubCooldownActiveTest.cooldownProjectionPreservesMeasurementsWithoutInventingWholeRunOutcomes",
+        "GitHubCooldownHttpTest.aCompletedReadCanEstablishACooldownThatBlocksTheNextReadBeforeHttp",
+        "GitHubCooldownHttpTest.restMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "GitHubCooldownHttpTest.graphQlMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "ProviderFailureReportTest.actualCooldownProjectionRetainsCapturedEvidenceAndUnknownDispatchForBothInputs",
+        "AgentFailureEvidenceTest.aPriorToolTimelineWithNoTextCannotBecomeAnUnsentRun",
+        "IssueReportIncidentsTest.actualCooldownCollectorKeepsOptionalSnapshotAndAggregateFactsUnavailable"
+      ],
+      "closure_basis": "Concrete classification/evidence repair or the requested diagnostic fallback; historical incident not reproduced. Full composed-head gates and merge required before closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "The attached run was traced to the installed per-resource cooldown check at GitHubRateLimitManager.requireAvailable:61. Its generic IllegalStateException was being reported as CHAT_FAILED. PR #1122 gives this path the explicit GITHUB_COOLDOWN_ACTIVE classification and preserves the immutable resource, delay basis, deadline and available observations from the exact check, with guidance to wait and resume the saved task. The reports also retain unknown earlier dispatch/acceptance facts. The historical report did not record the preceding HTTP status, headers or reason the cooldown was reached; this change does not establish those missing facts or claim that the original task later completed.\n\nThe new code/observations use the negotiated GH_COOLDOWN_V1 reporting capability. A hosted submission containing them remains saved, unchanged, until the selected reporter supports it; native authenticated GitHub reporting is independent. The retained report evidence does not create an automatic-resume schedule or permit repeating uncertain work.\n\nThe subsequently supplied archive exactly matches this approved report/context and run. It retains a 478-second local core-cooldown message and zero new tool receipts for that run. This supplies the historical numerical wait missing from the original capsule; it is not a current countdown, a captured HTTP response, or proof of whole-run non-dispatch.",
+      "validation_refs": [
+        "current_cooldown_response_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/report/context and run hash join.",
+        "run_ordinal": 3,
+        "reported_core_wait_seconds": 478,
+        "new_tool_receipts": 0,
+        "qualification": "Retained terminal-message snapshot, not a current remaining wait, exact deadline, new HTTP response or whole-run dispatch conclusion."
+      }
     },
     {
       "issue": 1162,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1162",
-      "disposition": "rate_limit_diagnostic_and_background_recovery",
-      "observed_problem": "An actual GitHub primary rate-limit response lost its structured status, remaining quota and reset/retry evidence.",
-      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
-      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "http_response_diagnostic_gap_fixed_without_claiming_quota_cause_or_successful_recovery",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "accepted_frozen_component_composed_locally_final_graph_gateway_and_ci_pending",
+      "observed_problem": "The approved code GITHUB_PRIMARY_RATE_LIMITED and GitHubRequestRejected frame at installed WorkspaceClient:2690 identify a classified GitHub HTTP rejection, but its approved payload retained no status or structured response rate observations.",
+      "resolution": "Capture one response observation clock and use that same value for rate-manager record and immutable current-response evidence, including an actual replacement response after orphaned304 recovery. Retain actual status403/429 and internally classified primary/secondary code, plus only available approved resource/remaining/observation fields and positive observed reset/Retry-After contributors. Leave absent, malformed or expired deadlines unavailable; do not copy manager.latest, fallback60seconds, raw headers or whole-run facts into the report. Keep HTTP failure at tool_execution with its existing role-derived receipt stage, preserve unknown outcomes and do not add retries.",
+      "remaining_qualification": "Exact HTTP status was not approved in this report; the primary classifier can select either 403 or 429. No exact response headers, resource, reset time, Retry-After, delay, deadline or current-response observation timestamp were retained. The account/repository/endpoint and reason the quota was consumed are unavailable; no causal relationship to another report is established. Earlier run outcomes, mutation acceptance, replay authority and later recovery are unknown. The historical approved report cannot be retroactively populated with missing headers, reset times, account-specific quota details or operation identities. A local rejected check or one HTTP response does not establish dispatch, acceptance, replay authority or completion for every earlier operation in the run. No claim that the original task succeeded, that a later retry recovered, or that the cause of quota exhaustion was identified. GitHub/provider quotas, bounded request budgets, scheduler behavior, cancellation, authorization and uncertain-write reconciliation safeguards remain in force. No raw response body, raw rate header, account, token or endpoint is added to the approved cooldown evidence.",
+      "component_commit": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailurePolicy.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
         "authentication/issue_report_diagnostics.py",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py"
+        "authentication/issue_reports.py",
+        "authentication/issue_report_app.py"
       ],
       "regression_tests": [
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidenceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
-        "authentication/test_incident_report_contract.py"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubCooldownHttpTest.primaryHttpRejectionRetainsTheExactResponseQuotaAndObservationTime",
+        "GitHubCooldownHttpTest.secondaryHttpRejectionRetainsRetryAfterWithoutAddingAReadRetry",
+        "GitHubCooldownHttpTest.rateLimitedHttpWithoutDeadlineDoesNotReportTheManagersDefaultCooldown",
+        "GitHubCooldownHttpTest.primaryHttpWithoutAResetDeadlineDoesNotInventAWait",
+        "GitHubCooldownHttpTest.aRecoveryResponseReplacesAnOrphaned304sRateEvidence",
+        "GitHubRateLimitResponseEvidenceTest.missingMalformedOrExpiredDeadlinesRemainUnavailable",
+        "GitHubRateLimitResponseEvidenceTest.largeDeadlinesSaturateWithoutAnEarlyRetryOrDayClamp",
+        "ProviderFailureReportTest.actualGitHubRateResponseProjectionRetainsItsOwnHttpAndOptionalCooldownEvidence",
+        "IssueReportIncidentsTest.actualGitHubRateResponseCollectorKeepsItsHttpSourceAndMissingDeadlineDistinct"
+      ],
+      "closure_basis": "Concrete classification/evidence repair or the requested diagnostic fallback; historical incident not reproduced. Full composed-head gates and merge required before closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "Report d8b3b6de-50d9-4244-8934-4e13408b87ac preserves GITHUB_PRIMARY_RATE_LIMITED and the installed GitHubRequestRejected throw at WorkspaceClient:2690. It does not retain the exact status, headers, reset time or cause of quota consumption. PR #1122 adds immutable evidence from the actual rejected response: its status, observation time and available resource, remaining count and positive reset/Retry-After contributors. Missing values stay unavailable and no extra HTTP retry is introduced. This addresses the diagnostic gap and provides a bounded wait/recovery explanation; it does not claim the original task recovered or identify why the upstream quota was consumed.\n\nThe new code/observations use the negotiated GH_COOLDOWN_V1 reporting capability. A hosted submission containing them remains saved, unchanged, until the selected reporter supports it; native authenticated GitHub reporting is independent. The retained report evidence does not create an automatic-resume schedule or permit repeating uncertain work.\n\nThe later exact-matching archive run retains the same primary-rate classification and no new tool receipts. It still does not recover the exact HTTP status, response headers or numerical wait, so those historical facts remain unavailable.",
+      "validation_refs": [
+        "current_cooldown_response_followup"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "run_ordinal": 4,
+        "binding": "Exact approved payload/report/context and run hash join.",
+        "retained_code": "GITHUB_PRIMARY_RATE_LIMITED",
+        "http_status": null,
+        "wait_seconds": null,
+        "new_tool_receipts": 0,
+        "qualification": "The additional capture retains the classification but does not recover exact HTTP status, headers or delay."
+      }
     },
     {
       "issue": 1163,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1163",
-      "disposition": "rate_limit_diagnostic_and_background_recovery",
-      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
-      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
-      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "concrete_local_classification_and_evidence_loss_fixed",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "accepted_frozen_component_composed_locally_final_graph_gateway_and_ci_pending",
+      "observed_problem": "The installed requireAvailable:61 per-resource guard threw generic IllegalStateException; the approved report collapsed it to CHAT_FAILED and did not retain cooldown observations. The later matched archive run retains a local core-cooldown message of 164 seconds, supplying a numerical historical wait absent from the approved capsule.",
+      "resolution": "Retain the actual local decision as GitHubCooldownActive with immutable closed resource/basis and available numeric observations. Carry the actual typed cause through existing local mutation wrappers, provider classification, coordinator evidence and approved report projection. Keep measurements tied to the selected resource and time of failure; preserve unknown whole-run dispatch/acceptance and forbid automatic replay.",
+      "remaining_qualification": "The original approved capsule lacks typed cooldown timing and response observations. The later exact-matching archive run supplies a retained core-wait message, but not an exact deadline, reset header, observation clock, caught Throwable chain or account-wide cause of quota consumption. This is a historical snapshot, not the current remaining wait. The matched run has no new tool receipts; that absence is not proof that all provider/HTTP work was undispatched. Earlier accepted or uncertain outcomes, later recovery and original task completion remain unproven. The reporting correction does not create an automatic-resume schedule for the minimal profile journal or authorize replay of uncertain operations.",
+      "component_commit": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ErrorClassification.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
         "authentication/issue_report_diagnostics.py",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py"
+        "authentication/issue_reports.py",
+        "authentication/issue_report_app.py"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActiveTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
-        "authentication/test_incident_report_contract.py"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubRateLimitManagerTest.resourceRejectionRetainsTheSelectedSnapshotInsteadOfTheLatestResource",
+        "GitHubRateLimitManagerTest.retainedCooldownEvidenceDoesNotChangeWhenANewerResponseArrives",
+        "GitHubCooldownActiveTest.cooldownProjectionPreservesMeasurementsWithoutInventingWholeRunOutcomes",
+        "GitHubCooldownHttpTest.aCompletedReadCanEstablishACooldownThatBlocksTheNextReadBeforeHttp",
+        "GitHubCooldownHttpTest.restMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "GitHubCooldownHttpTest.graphQlMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "ProviderFailureReportTest.actualCooldownProjectionRetainsCapturedEvidenceAndUnknownDispatchForBothInputs",
+        "AgentFailureEvidenceTest.aPriorToolTimelineWithNoTextCannotBecomeAnUnsentRun",
+        "IssueReportIncidentsTest.actualCooldownCollectorKeepsOptionalSnapshotAndAggregateFactsUnavailable"
+      ],
+      "closure_basis": "Concrete classification/evidence repair or the requested diagnostic fallback; historical incident not reproduced. Full composed-head gates and merge required before closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "For this report, the installed stack identifies the local per-resource guard at requireAvailable:61. PR #1122 fixes the loss of that typed cause and uses the snapshot actually consulted by the rejected check, so a newer response for another resource cannot supply its diagnostic values. Cooldown reports become actionable and preserve saved results and replay restrictions. The original reset/header observations and recovery outcome are unavailable; this distinct run is not being linked causally to other reports.\n\nThe new code/observations use the negotiated GH_COOLDOWN_V1 reporting capability. A hosted submission containing them remains saved, unchanged, until the selected reporter supports it; native authenticated GitHub reporting is independent. The retained report evidence does not create an automatic-resume schedule or permit repeating uncertain work.\n\nThe subsequently supplied archive exactly matches this approved report/context and run. It retains a 164-second local core-cooldown message and zero new tool receipts for that run. This supplies the historical numerical wait missing from the original capsule; it is not a current countdown, a captured HTTP response, or proof of whole-run non-dispatch.",
+      "validation_refs": [
+        "current_cooldown_response_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/report/context and run hash join.",
+        "run_ordinal": 5,
+        "reported_core_wait_seconds": 164,
+        "new_tool_receipts": 0,
+        "qualification": "Retained terminal-message snapshot, not a current remaining wait, exact deadline, new HTTP response or whole-run dispatch conclusion."
+      }
     },
     {
       "issue": 1164,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1164",
-      "disposition": "rate_limit_diagnostic_and_background_recovery",
-      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
-      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
-      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "concrete_local_classification_and_evidence_loss_fixed",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "accepted_frozen_component_composed_locally_final_graph_gateway_and_ci_pending",
+      "observed_problem": "The installed requireAvailable:61 per-resource guard threw generic IllegalStateException; the approved report collapsed it to CHAT_FAILED and did not retain cooldown observations. The later matched archive run retains a local core-cooldown message of 149 seconds, supplying a numerical historical wait absent from the approved capsule.",
+      "resolution": "Retain the actual local decision as GitHubCooldownActive with immutable closed resource/basis and available numeric observations. Carry the actual typed cause through existing local mutation wrappers, provider classification, coordinator evidence and approved report projection. Keep measurements tied to the selected resource and time of failure; preserve unknown whole-run dispatch/acceptance and forbid automatic replay.",
+      "remaining_qualification": "The original approved capsule lacks typed cooldown timing and response observations. The later exact-matching archive run supplies a retained core-wait message, but not an exact deadline, reset header, observation clock, caught Throwable chain or account-wide cause of quota consumption. This is a historical snapshot, not the current remaining wait. The matched run has no new tool receipts; that absence is not proof that all provider/HTTP work was undispatched. Earlier accepted or uncertain outcomes, later recovery and original task completion remain unproven. The reporting correction does not create an automatic-resume schedule for the minimal profile journal or authorize replay of uncertain operations.",
+      "component_commit": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ErrorClassification.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
         "authentication/issue_report_diagnostics.py",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py"
+        "authentication/issue_reports.py",
+        "authentication/issue_report_app.py"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActiveTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
-        "authentication/test_incident_report_contract.py"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubRateLimitManagerTest.resourceRejectionRetainsTheSelectedSnapshotInsteadOfTheLatestResource",
+        "GitHubRateLimitManagerTest.retainedCooldownEvidenceDoesNotChangeWhenANewerResponseArrives",
+        "GitHubCooldownActiveTest.cooldownProjectionPreservesMeasurementsWithoutInventingWholeRunOutcomes",
+        "GitHubCooldownHttpTest.aCompletedReadCanEstablishACooldownThatBlocksTheNextReadBeforeHttp",
+        "GitHubCooldownHttpTest.restMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "GitHubCooldownHttpTest.graphQlMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "ProviderFailureReportTest.actualCooldownProjectionRetainsCapturedEvidenceAndUnknownDispatchForBothInputs",
+        "AgentFailureEvidenceTest.aPriorToolTimelineWithNoTextCannotBecomeAnUnsentRun",
+        "IssueReportIncidentsTest.actualCooldownCollectorKeepsOptionalSnapshotAndAggregateFactsUnavailable"
+      ],
+      "closure_basis": "Concrete classification/evidence repair or the requested diagnostic fallback; historical incident not reproduced. Full composed-head gates and merge required before closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "Report 2a29be30-dada-42b1-b8c0-5bf660676e9f reached the installed local cooldown guard before that request was sent, then surfaced as CHAT_FAILED. PR #1122 retains the typed cooldown through classification and reporting, and preserves the same typed cause when existing REST or GraphQL mutation-admission wrappers are used. The current rejected check is kept separate from earlier run activity: the fix does not infer that all earlier operations were unsent or authorize a replay. No preceding HTTP status, reset headers or later recovery was captured for this run.\n\nThe new code/observations use the negotiated GH_COOLDOWN_V1 reporting capability. A hosted submission containing them remains saved, unchanged, until the selected reporter supports it; native authenticated GitHub reporting is independent. The retained report evidence does not create an automatic-resume schedule or permit repeating uncertain work.\n\nThe subsequently supplied archive exactly matches this approved report/context and run. It retains a 149-second local core-cooldown message and zero new tool receipts for that run. This supplies the historical numerical wait missing from the original capsule; it is not a current countdown, a captured HTTP response, or proof of whole-run non-dispatch.",
+      "validation_refs": [
+        "current_cooldown_response_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/report/context and run hash join.",
+        "run_ordinal": 6,
+        "reported_core_wait_seconds": 149,
+        "new_tool_receipts": 0,
+        "qualification": "Retained terminal-message snapshot, not a current remaining wait, exact deadline, new HTTP response or whole-run dispatch conclusion."
+      }
     },
     {
       "issue": 1165,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1165",
-      "disposition": "rate_limit_diagnostic_and_background_recovery",
-      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
-      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
-      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "concrete_local_classification_and_evidence_loss_fixed",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "accepted_frozen_component_composed_locally_final_graph_gateway_and_ci_pending",
+      "observed_problem": "The installed requireAvailable:61 per-resource guard threw generic IllegalStateException; the approved report collapsed it to CHAT_FAILED and did not retain cooldown observations. The later matched archive run retains a local core-cooldown message of 140 seconds, supplying a numerical historical wait absent from the approved capsule.",
+      "resolution": "Retain the actual local decision as GitHubCooldownActive with immutable closed resource/basis and available numeric observations. Carry the actual typed cause through existing local mutation wrappers, provider classification, coordinator evidence and approved report projection. Keep measurements tied to the selected resource and time of failure; preserve unknown whole-run dispatch/acceptance and forbid automatic replay.",
+      "remaining_qualification": "The original approved capsule lacks typed cooldown timing and response observations. The later exact-matching archive run supplies a retained core-wait message, but not an exact deadline, reset header, observation clock, caught Throwable chain or account-wide cause of quota consumption. This is a historical snapshot, not the current remaining wait. The matched run has no new tool receipts; that absence is not proof that all provider/HTTP work was undispatched. Earlier accepted or uncertain outcomes, later recovery and original task completion remain unproven. The reporting correction does not create an automatic-resume schedule for the minimal profile journal or authorize replay of uncertain operations.",
+      "component_commit": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ErrorClassification.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
         "authentication/issue_report_diagnostics.py",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py"
+        "authentication/issue_reports.py",
+        "authentication/issue_report_app.py"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActiveTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
-        "authentication/test_incident_report_contract.py"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubRateLimitManagerTest.resourceRejectionRetainsTheSelectedSnapshotInsteadOfTheLatestResource",
+        "GitHubRateLimitManagerTest.retainedCooldownEvidenceDoesNotChangeWhenANewerResponseArrives",
+        "GitHubCooldownActiveTest.cooldownProjectionPreservesMeasurementsWithoutInventingWholeRunOutcomes",
+        "GitHubCooldownHttpTest.aCompletedReadCanEstablishACooldownThatBlocksTheNextReadBeforeHttp",
+        "GitHubCooldownHttpTest.restMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "GitHubCooldownHttpTest.graphQlMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "ProviderFailureReportTest.actualCooldownProjectionRetainsCapturedEvidenceAndUnknownDispatchForBothInputs",
+        "AgentFailureEvidenceTest.aPriorToolTimelineWithNoTextCannotBecomeAnUnsentRun",
+        "IssueReportIncidentsTest.actualCooldownCollectorKeepsOptionalSnapshotAndAggregateFactsUnavailable"
+      ],
+      "closure_basis": "Concrete classification/evidence repair or the requested diagnostic fallback; historical incident not reproduced. Full composed-head gates and merge required before closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "The stack in report 7c8253be-c7aa-474e-bb50-ca1590ba8756 identifies the same installed requireAvailable:61 guard, but it is a separate recorded run. PR #1122 replaces the generic failure with a retained GITHUB_COOLDOWN_ACTIVE observation and a wait/resume explanation. Report projection preserves unknown dispatch and remote-acceptance facts even when a resumed collection has no new text. The original cooldown values and eventual result cannot be reconstructed from this payload; the change fixes classification and diagnostic loss without claiming the quota condition itself has disappeared.\n\nThe new code/observations use the negotiated GH_COOLDOWN_V1 reporting capability. A hosted submission containing them remains saved, unchanged, until the selected reporter supports it; native authenticated GitHub reporting is independent. The retained report evidence does not create an automatic-resume schedule or permit repeating uncertain work.\n\nThe subsequently supplied archive exactly matches this approved report/context and run. It retains a 140-second local core-cooldown message and zero new tool receipts for that run. This supplies the historical numerical wait missing from the original capsule; it is not a current countdown, a captured HTTP response, or proof of whole-run non-dispatch.",
+      "validation_refs": [
+        "current_cooldown_response_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/report/context and run hash join.",
+        "run_ordinal": 7,
+        "reported_core_wait_seconds": 140,
+        "new_tool_receipts": 0,
+        "qualification": "Retained terminal-message snapshot, not a current remaining wait, exact deadline, new HTTP response or whole-run dispatch conclusion."
+      }
     },
     {
       "issue": 1166,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1166",
-      "disposition": "rate_limit_diagnostic_and_background_recovery",
-      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
-      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
-      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "actionable_handling_and_diagnostics_with_external_limits_preserved",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "accepted_frozen_component_composed_locally_final_graph_gateway_and_ci_pending",
+      "observed_problem": "The manual description quotes a 140-second core cooldown and requests removing limits. The attached selected capture is an older acceptance-verification snapshot, not a measured current cooldown observation.",
+      "resolution": "Replace generic local cooldown failure with a typed retained wait observation and safe resume guidance, with same-response evidence for actual HTTP rate rejections. Preserve GitHub/provider-enforced limits and existing local budgets, approvals and uncertain-operation safeguards. A gateway cannot disable server-enforced quotas. The separate 1160 component prioritizes already-recorded failed criteria in the bounded acceptance diagnostic sample while keeping totals, statuses, omissions and acceptance/continuation decisions unchanged.",
+      "remaining_qualification": "The exact current cooldown event, response status/headers, delay basis and remaining deadline were not captured. No current run identifier binds the manual description to the selected acceptance snapshot. The acceptance snapshot cannot prove the cause of the quoted cooldown, nor that any blocked or failed acceptance criterion has since succeeded. The historical approved report cannot be retroactively populated with missing headers, reset times, account-specific quota details or operation identities. A local rejected check or one HTTP response does not establish dispatch, acceptance, replay authority or completion for every earlier operation in the run. No claim that the original task succeeded, that a later retry recovered, or that the cause of quota exhaustion was identified. GitHub/provider quotas, bounded request budgets, scheduler behavior, cancellation, authorization and uncertain-write reconciliation safeguards remain in force. No raw response body, raw rate header, account, token or endpoint is added to the approved cooldown evidence.",
+      "component_commit": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ErrorClassification.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
         "authentication/issue_report_diagnostics.py",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py"
+        "authentication/issue_reports.py",
+        "authentication/issue_report_app.py",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActiveTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
-        "authentication/test_incident_report_contract.py"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnosticsTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubRateLimitManagerTest.resourceRejectionRetainsTheSelectedSnapshotInsteadOfTheLatestResource",
+        "GitHubRateLimitManagerTest.retainedCooldownEvidenceDoesNotChangeWhenANewerResponseArrives",
+        "GitHubCooldownActiveTest.cooldownProjectionPreservesMeasurementsWithoutInventingWholeRunOutcomes",
+        "GitHubCooldownHttpTest.aCompletedReadCanEstablishACooldownThatBlocksTheNextReadBeforeHttp",
+        "GitHubCooldownHttpTest.restMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "GitHubCooldownHttpTest.graphQlMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "ProviderFailureReportTest.actualCooldownProjectionRetainsCapturedEvidenceAndUnknownDispatchForBothInputs",
+        "AgentFailureEvidenceTest.aPriorToolTimelineWithNoTextCannotBecomeAnUnsentRun",
+        "IssueReportIncidentsTest.actualCooldownCollectorKeepsOptionalSnapshotAndAggregateFactsUnavailable",
+        "GitHubRateLimitResponseEvidenceTest.missingMalformedOrExpiredDeadlinesRemainUnavailable",
+        "GitHubAcceptanceReportDiagnosticsTest.recordedFailuresSurviveFinalPublicDiagnosticCompaction"
+      ],
+      "closure_basis": "Concrete classification/evidence repair or the requested diagnostic fallback; historical incident not reproduced. Full composed-head gates and merge required before closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "The reported 140-second wait is preserved as your description. The attached ACCEPTANCE capture was recorded earlier and contains no current cooldown headers or deadline, so it cannot establish why this wait occurred. PR #1122 gives real local cooldowns an explicit classification and retained wait evidence, and captures the actual response status and available rate observations for HTTP rejections. Its separate acceptance-report improvement keeps recorded failures visible in the bounded diagnostic sample. GitHub enforces its own primary and secondary limits; a gateway cannot remove those limits ([GitHub rate-limit documentation](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)). The app respects the observed wait/reset and preserves saved results and reconciliation safeguards ([GitHub API best practices](https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api)). This closes the actionable handling/reporting work without claiming that the original run completed or changing provider quotas, approvals or execution budgets.\n\nThe older selected acceptance capture records 140 of 256 app task calls used and 116 remaining. It does not prove task-budget exhaustion, current GitHub quota, or an executable continuation; its prerequisites and unverified criteria remain separate.\n\nThe new code/observations use the negotiated GH_COOLDOWN_V1 reporting capability. A hosted submission containing them remains saved, unchanged, until the selected reporter supports it; native authenticated GitHub reporting is independent. The retained report evidence does not create an automatic-resume schedule or permit repeating uncertain work.",
+      "validation_refs": [
+        "current_cooldown_response_followup"
+      ],
+      "separate_acceptance_component": "a1145abc2e279e47f121ed421615993e12ef59fa",
+      "official_references": [
+        {
+          "url": "https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api",
+          "supports": "GitHub enforces primary and secondary API limits; response status and rate headers determine appropriate waiting."
+        },
+        {
+          "url": "https://docs.github.com/en/rest/using-the-rest-api/best-practices-for-using-the-rest-api",
+          "supports": "Respect Retry-After or reset observations; gateway routing is not a mechanism for removing GitHub-enforced limits."
+        }
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact manual report/context match; no run identity retained.",
+        "selected_app_calls_used": 140,
+        "selected_app_call_limit": 256,
+        "selected_app_calls_remaining": 116,
+        "qualification": "Do not assign a captured run or cooldown wait to this manual report."
+      }
     },
     {
       "issue": 1167,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1167",
-      "disposition": "rate_limit_diagnostic_and_background_recovery",
-      "observed_problem": "A cached GitHub cooldown produced CHAT_FAILED or a manual rate-limit complaint without structured local wait evidence.",
-      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
-      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "concrete_local_classification_and_evidence_loss_fixed",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "accepted_frozen_component_composed_locally_final_graph_gateway_and_ci_pending",
+      "observed_problem": "The installed requireAvailable:61 per-resource guard threw generic IllegalStateException; the approved report collapsed it to CHAT_FAILED and did not retain cooldown observations. The later matched archive run retains a local core-cooldown message of 39 seconds, supplying a numerical historical wait absent from the approved capsule.",
+      "resolution": "Retain the actual local decision as GitHubCooldownActive with immutable closed resource/basis and available numeric observations. Carry the actual typed cause through existing local mutation wrappers, provider classification, coordinator evidence and approved report projection. Keep measurements tied to the selected resource and time of failure; preserve unknown whole-run dispatch/acceptance and forbid automatic replay.",
+      "remaining_qualification": "The original approved capsule lacks typed cooldown timing and response observations. The later exact-matching archive run supplies a retained core-wait message, but not an exact deadline, reset header, observation clock, caught Throwable chain or account-wide cause of quota consumption. This is a historical snapshot, not the current remaining wait. The matched run has no new tool receipts; that absence is not proof that all provider/HTTP work was undispatched. Earlier accepted or uncertain outcomes, later recovery and original task completion remain unproven. The reporting correction does not create an automatic-resume schedule for the minimal profile journal or authorize replay of uncertain operations.",
+      "component_commit": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/error/ErrorClassification.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportCodes.kt",
         "authentication/issue_report_diagnostics.py",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py"
+        "authentication/issue_reports.py",
+        "authentication/issue_report_app.py"
       ],
       "regression_tests": [
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActiveTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
-        "authentication/test_incident_report_contract.py"
-      ]
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidenceTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubRateLimitManagerTest.resourceRejectionRetainsTheSelectedSnapshotInsteadOfTheLatestResource",
+        "GitHubRateLimitManagerTest.retainedCooldownEvidenceDoesNotChangeWhenANewerResponseArrives",
+        "GitHubCooldownActiveTest.cooldownProjectionPreservesMeasurementsWithoutInventingWholeRunOutcomes",
+        "GitHubCooldownHttpTest.aCompletedReadCanEstablishACooldownThatBlocksTheNextReadBeforeHttp",
+        "GitHubCooldownHttpTest.restMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "GitHubCooldownHttpTest.graphQlMutationCooldownKeepsItsTypedCauseAndRejectedJournalWithoutPosting",
+        "ProviderFailureReportTest.actualCooldownProjectionRetainsCapturedEvidenceAndUnknownDispatchForBothInputs",
+        "AgentFailureEvidenceTest.aPriorToolTimelineWithNoTextCannotBecomeAnUnsentRun",
+        "IssueReportIncidentsTest.actualCooldownCollectorKeepsOptionalSnapshotAndAggregateFactsUnavailable"
+      ],
+      "closure_basis": "Concrete classification/evidence repair or the requested diagnostic fallback; historical incident not reproduced. Full composed-head gates and merge required before closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "Report 2047b4ad-37cb-46a9-9f41-73e56065bd07 was traced independently to the installed per-resource cooldown guard at requireAvailable:61. PR #1122 preserves a typed immutable cooldown snapshot and makes the retry boundary visible in future approved reports; later rate-manager updates cannot relabel that captured event. The app continues to respect the cooldown and retain results for an authorized resume. This report lacks the original response headers and recovery evidence, so no cause of quota consumption or successful retry is asserted.\n\nThe new code/observations use the negotiated GH_COOLDOWN_V1 reporting capability. A hosted submission containing them remains saved, unchanged, until the selected reporter supports it; native authenticated GitHub reporting is independent. The retained report evidence does not create an automatic-resume schedule or permit repeating uncertain work.\n\nThe subsequently supplied archive exactly matches this approved report/context and run. It retains a 39-second local core-cooldown message and zero new tool receipts for that run. This supplies the historical numerical wait missing from the original capsule; it is not a current countdown, a captured HTTP response, or proof of whole-run non-dispatch.",
+      "validation_refs": [
+        "current_cooldown_response_followup",
+        "additional_archive_review"
+      ],
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "binding": "Exact approved payload/report/context and run hash join.",
+        "run_ordinal": 8,
+        "reported_core_wait_seconds": 39,
+        "new_tool_receipts": 0,
+        "qualification": "Retained terminal-message snapshot, not a current remaining wait, exact deadline, new HTTP response or whole-run dispatch conclusion."
+      }
     },
     {
       "issue": 1168,
       "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1168",
-      "disposition": "rate_limit_diagnostic_and_background_recovery",
-      "observed_problem": "An actual GitHub primary rate-limit response lost its structured status, remaining quota and reset/retry evidence.",
-      "resolution": "Preserve local GITHUB_COOLDOWN_ACTIVE separately from actual primary/secondary HTTP rejection. Capture only observed resource, remaining requests, sample time, reset/Retry-After basis and deadline. Keep cancellation, account/resource isolation and uncertain-write fences. Gateway background indexing pauses with saved progress before consuming its observed foreground reserve and resumes after the authoritative deadline.",
-      "remaining_qualification": "The app cannot raise GitHub quotas or attribute all shared-account consumption to this run. Local rejection has no invented HTTP status or dispatch; an actual response does not imply replay permission. Android scheduler/retry policy is unchanged. Hosted submission requires GH_COOLDOWN_V1; native authenticated GitHub submission remains available independently.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
+      "disposition": "http_response_diagnostic_gap_fixed_without_claiming_quota_cause_or_successful_recovery",
+      "installed_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
       "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
       "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-      "validation_refs": [
-        "diagnostic_21c055de_followup"
-      ],
+      "source_integration_status": "accepted_frozen_component_composed_locally_final_graph_gateway_and_ci_pending",
+      "observed_problem": "The approved code GITHUB_PRIMARY_RATE_LIMITED and GitHubRequestRejected frame at installed WorkspaceClient:2690 identify a classified GitHub HTTP rejection, but its approved payload retained no status or structured response rate observations.",
+      "resolution": "Capture one response observation clock and use that same value for rate-manager record and immutable current-response evidence, including an actual replacement response after orphaned304 recovery. Retain actual status403/429 and internally classified primary/secondary code, plus only available approved resource/remaining/observation fields and positive observed reset/Retry-After contributors. Leave absent, malformed or expired deadlines unavailable; do not copy manager.latest, fallback60seconds, raw headers or whole-run facts into the report. Keep HTTP failure at tool_execution with its existing role-derived receipt stage, preserve unknown outcomes and do not add retries.",
+      "remaining_qualification": "Exact HTTP status was not approved in this report; the primary classifier can select either 403 or 429. No exact response headers, resource, reset time, Retry-After, delay, deadline or current-response observation timestamp were retained. The account/repository/endpoint and reason the quota was consumed are unavailable; no causal relationship to another report is established. Earlier run outcomes, mutation acceptance, replay authority and later recovery are unknown. The historical approved report cannot be retroactively populated with missing headers, reset times, account-specific quota details or operation identities. A local rejected check or one HTTP response does not establish dispatch, acceptance, replay authority or completion for every earlier operation in the run. No claim that the original task succeeded, that a later retry recovered, or that the cause of quota exhaustion was identified. GitHub/provider quotas, bounded request budgets, scheduler behavior, cancellation, authorization and uncertain-write reconciliation safeguards remain in force. No raw response body, raw rate header, account, token or endpoint is added to the approved cooldown evidence.",
+      "component_commit": "1cb41cc45b17853284b16bf9c96ba850b16cc912",
       "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownActive.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManager.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClient.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailurePolicy.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentFailureEvidence.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidents.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReceipt.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmission.kt",
         "authentication/issue_report_diagnostics.py",
-        "gateway/v14/github_api_governor.py",
-        "gateway/v14/code_graph/index_jobs.py"
+        "authentication/issue_reports.py",
+        "authentication/issue_report_app.py"
       ],
       "regression_tests": [
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitManagerTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubCooldownHttpTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRateLimitResponseEvidenceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReportTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportSubmissionTest.kt",
-        "authentication/test_incident_report_contract.py"
-      ]
-    },
-    {
-      "issue": 1169,
-      "url": "https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1169",
-      "disposition": "acceptance_failure_sampling_and_graph_preparation_repair",
-      "observed_problem": "The retained verdict reports 40/70 capabilities, 3/5 task requirements, three failed operations and 32 unmet criteria. Bounded reporting can hide actual failures behind prerequisite rows, while graph preparation consumed disproportionate time. Fixture approvals and missing graph evidence remain real blockers.",
-      "resolution": "Place recorded FAIL rows first within the existing byte/sample bounds, then preserve distinct prerequisite blockers, counts and omission totals. Carry actual graph/native failure evidence forward and schedule independent capability reads before continued indexing; keep the original acceptance verdict and approval conditions.",
-      "remaining_qualification": "Available calls and remote continuation counts are not permission or successful coverage. The original task remains PARTIAL; neither failed operations nor required fixture approvals are relabeled as passing. The two reports belong to distinct runs.",
-      "closure_basis": "Source repair and/or the user-requested diagnostic follow-up, with historical uncertainty retained.",
-      "historical_incident_reproduced": false,
-      "source_integration_status": "integrated_pending_final_execution",
-      "execution_qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes.",
-      "closure_recommendation": "close_with_this_qualification_after_required_checks_pass_and_merge",
-      "pending_source_followup": false,
-      "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportIncidentsTest.kt"
+      ],
+      "regression_methods": [
+        "GitHubCooldownHttpTest.primaryHttpRejectionRetainsTheExactResponseQuotaAndObservationTime",
+        "GitHubCooldownHttpTest.secondaryHttpRejectionRetainsRetryAfterWithoutAddingAReadRetry",
+        "GitHubCooldownHttpTest.rateLimitedHttpWithoutDeadlineDoesNotReportTheManagersDefaultCooldown",
+        "GitHubCooldownHttpTest.primaryHttpWithoutAResetDeadlineDoesNotInventAWait",
+        "GitHubCooldownHttpTest.aRecoveryResponseReplacesAnOrphaned304sRateEvidence",
+        "GitHubRateLimitResponseEvidenceTest.missingMalformedOrExpiredDeadlinesRemainUnavailable",
+        "GitHubRateLimitResponseEvidenceTest.largeDeadlinesSaturateWithoutAnEarlyRetryOrDayClamp",
+        "ProviderFailureReportTest.actualGitHubRateResponseProjectionRetainsItsOwnHttpAndOptionalCooldownEvidence",
+        "IssueReportIncidentsTest.actualGitHubRateResponseCollectorKeepsItsHttpSourceAndMissingDeadlineDistinct"
+      ],
+      "closure_basis": "Concrete classification/evidence repair or the requested diagnostic fallback; historical incident not reproduced. Full composed-head gates and merge required before closure.",
+      "closure_recommendation": "close_with_this_qualification_after_complete_source_final_checks_and_merge",
+      "closure_draft": "For this report, the installed stack and PRIMARY code identify a GitHub HTTP rejection, while the payload leaves its exact status and response rate headers unknown. PR #1122 preserves same-response evidence for future primary and secondary rejections, including the final response after cache recovery. In particular, a missing reset or Retry-After no longer needs to be guessed from a later manager snapshot or its default cooldown; those fields remain unavailable. Existing retry and uncertain-write safeguards remain. This distinct report is closed for the reporting/handling improvement, without claiming a recovered request or a proven shared cause with other runs.\n\nThe new code/observations use the negotiated GH_COOLDOWN_V1 reporting capability. A hosted submission containing them remains saved, unchanged, until the selected reporter supports it; native authenticated GitHub reporting is independent. The retained report evidence does not create an automatic-resume schedule or permit repeating uncertain work.\n\nThe later exact-matching archive run retains the same primary-rate classification and no new tool receipts. It still does not recover the exact HTTP status, response headers or numerical wait, so those historical facts remain unavailable.",
       "validation_refs": [
-        "diagnostic_21c055de_followup"
+        "current_cooldown_response_followup"
       ],
-      "sources": [
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestReads.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/RepositoryGraphTool.kt",
-        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubTool.kt"
-      ],
-      "regression_tests": [
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnosticsTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSelfTestGraphTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubToolTest.kt"
-      ]
+      "additional_evidence": {
+        "archive_sha256": "99166f0631ac3c53547df0f7b66c8a5d492cc6274605feb47ba400a375f2259e",
+        "run_ordinal": 9,
+        "binding": "Exact approved payload/report/context and run hash join.",
+        "retained_code": "GITHUB_PRIMARY_RATE_LIMITED",
+        "http_status": null,
+        "wait_seconds": null,
+        "new_tool_receipts": 0,
+        "qualification": "The additional capture retains the classification but does not recover exact HTTP status, headers or delay."
+      }
     }
   ],
   "late_intake_base_sha": "007b29d2a7581c0acfd5474f7bc01ba768c57bae",
   "handoff_intake_base_sha": "2c18d55b17c443105966c4a4d08147cf6e30734e",
   "remote_mutation_scope": "Shared PR source updates and coordination comments; individual issue closures remain conditional on final-head qualification and merge.",
-  "intake_open_issue_count": 68,
+  "intake_open_issue_count": 67,
   "composed_from_remote_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
   "final_execution_policy": "Source integration and local component receipts are distinct from execution qualification. Merge and individual issue closure require successful applicable checks on the final published PR head and its current main base; historical/component results are not substitutes.",
   "reconciled_remote_parent_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
@@ -2419,42 +2691,48 @@
     "component_base_sha": "9ce9808f593ab2a50f3d4658a4baf10485475303",
     "qualification": "These reports came from the composed production tree, unlike the older b5ab42bf report checkpoint. The graph omission is source-proven but historical causality remains unproved; capacity failures receive admission-time diagnostic evidence."
   },
-  "diagnostic_21c055de_intake": {
-    "source_sha": "2b2d6276bceb5d3e2428ff52aad3b8e6bd9c791e",
-    "reported_commit": "cd2162725f303108b22d7b5f3678e32e23b65abd",
-    "issues": [
-      1149,
-      1150,
-      1151,
-      1152,
-      1153,
-      1154,
-      1155,
-      1156,
-      1157,
-      1158,
-      1159,
-      1160,
-      1161,
-      1162,
-      1163,
-      1164,
-      1165,
-      1166,
-      1167,
-      1168,
-      1169
+  "latest_intake": {
+    "cutoff_at": "2026-11-14T23:14:21Z",
+    "issues": 67,
+    "last_issue": 1168,
+    "source_parent": "b553525da42a9f6d24c56f249355a7ef03bf3f13",
+    "composed_components": [
+      "440e9e5a092aab78e04ccda84b4d50c00140459f",
+      "7267e4d0e820bb8455aae3ae605bd8fa13084f76",
+      "a1145abc2e279e47f121ed421615993e12ef59fa",
+      "1cb41cc45b17853284b16bf9c96ba850b16cc912",
+      "ecd9d85d8c5654cc54abbc9b1b703f5bf9eafd07",
+      "b386e71fc3efa95f77bc99b33167fd3196a394ac",
+      "a6a073a2c6bf5661f4af755d1f9655d50e3ae21d",
+      "3dd6a84759db2778f631d10d403c5bf0d8fc05b3",
+      "bb1df089030b5d0bbe4e9c44cc3b7fadfca167a5",
+      "8cf49646a360341b1048fda087452f7bdb016adb",
+      "9b9ddcf457e9ae9f3ca89f9f8f9c5d518af8ff57",
+      "31d8f06bb56e4c8fca747f4577085625c05fddae",
+      "10edcbeaca7f8847104ae471ae40ee5fa027b44f",
+      "255af95e4b1077bf04ca3d251265e6c8573380d4",
+      "35f802af62c212a207e1653b6cc1c5ad65d2d08e",
+      "e8b19e36b61036ebaf29ba461a1d7edd30199904",
+      "c1bf1fc788ee066c2ccf309db4247a358bd20128",
+      "b805043f5a0eccc8b82d5b6ff00d9a13145d6194",
+      "4659ef33935220401a1478f6eaae6737b2dd0fc3",
+      "9896eb8fd4a6cfc395acd1fad63797e6688bb237"
     ],
-    "archive_stage_digests_matched": 20,
-    "archive_complete_for_selected_stages": true,
-    "runs": {
-      "total": 10,
-      "failed": 7,
-      "partial": 2,
-      "canceled": 1
+    "status": "TWENTY_ACCEPTED_COMPONENTS_COMPOSED_LATEST_DRAFT1203_RECONCILIATION_PENDING",
+    "later_reports": "Review individually; new source defects hold merge, covered reports use tested fixes and individual addenda without count-only source publication.",
+    "successor_base": "485515d3d63010aceb217ac0988ba28fff7eabf4",
+    "prior_pr_merge": {
+      "number": 1122,
+      "commit": "485515d3d63010aceb217ac0988ba28fff7eabf4",
+      "head": "b553525da42a9f6d24c56f249355a7ef03bf3f13",
+      "at": "2026-11-15T01:36:50Z",
+      "pending_repairs_included": false
     },
-    "tool_receipts": 180,
-    "historical_graph_index_calls": 111,
-    "qualification": "The complete final PR head must pass all applicable checks against current main and merge before individual closure. Host/component receipts do not establish physical-device, private-provider or deployed-service outcomes."
-  }
+    "later_report_dispositions": "All later reports are individually reviewed and conditionally drafted; publish final source/CI/merge-linked notes after successor qualification. Committed67-report cutoff is unchanged.",
+    "latest_existing_pr": 1203,
+    "latest_published_head": "11fd245f787a6482996d501dabe7cc8843b2cff8"
+  },
+  "historical_parent_pull_request": 1122,
+  "historical_base_sha": "5d4b4d81c121b36cf01b79fe8162fb78f793f203",
+  "historical_cutoff_note": "This67-report ledger preserves its original intake and execution history. The complete prepared successor disposition list is docs/repairs/pr1203-issue-dispositions.json."
 }

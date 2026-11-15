@@ -219,6 +219,13 @@ class GraphIndexJobs:
                 job.update(state='PAUSED', error_code='INDEX_BUDGET_REACHED', updated_at=now, lease=None, lease_until=0)
                 self._write(db, job)
                 return None
+            if (job.get('retry_at') or 0) > now:
+                # Shutdown can retain an observation before it releases the
+                # execution lease. Never let an interrupted/expired lease bypass
+                # that wait, even when its older next_at is already due.
+                job.update(next_at=min(job['retry_at'], job['deadline']))
+                self._write(db, job)
+                return None
             job.update(state='RUNNING', owner=self.owner, lease=uuid.uuid4().hex, lease_until=now + LEASE_SECONDS,
                        updated_at=now)
             self._write(db, job)
@@ -233,8 +240,19 @@ class GraphIndexJobs:
             job = self._read(db, claimed['id'])
             if not job or job.get('lease') != claimed['lease'] or job['state'] != 'RUNNING':
                 return
-            job.update(changes, updated_at=self.now())
-            if changes.get('state') != 'RUNNING':
+            updates = dict(changes)
+            now = self.now()
+            retained_wait = job.get('retry_at') or 0
+            if retained_wait > now and (updates.get('retry_at', retained_wait) or 0) < retained_wait:
+                # A late response from another lease can arrive after this
+                # worker computed its checkpoint. Commit progress atomically
+                # without clearing/shortening that still-authoritative wait.
+                updates.update(retry_at=retained_wait, rate_wait_code=job.get('rate_wait_code'))
+            effective_wait = updates.get('retry_at', job.get('retry_at')) or 0
+            if updates.get('state') in {'QUEUED', 'INTERRUPTED'} and effective_wait > now:
+                updates['next_at'] = min(max(updates.get('next_at', job['next_at']), effective_wait), job['deadline'])
+            job.update(updates, updated_at=now)
+            if updates.get('state') != 'RUNNING':
                 job.update(lease=None, lease_until=0)
             self._write(db, job)
         self._transaction(finish)
@@ -326,18 +344,42 @@ class GraphIndexJobs:
                      retry_outcome_unknown=False, batches=job['batches'] + 1, attempts=0, error_code=None,
                      retry_at=None, rate_wait_code=None, **self._progress(result))
 
+    def _retain_rate_wait(self, claimed, retry_at, code):
+        def retain(db):
+            job = self._read(db, claimed['id'])
+            if not job or job['namespace'] != claimed['namespace'] or job['generation'] != claimed['generation']:
+                return None
+            # A same-generation pause/cancel may have revoked the execution
+            # lease. Retain only the observed quota deadline, never its state,
+            # lease, progress, request acknowledgments or replay authority.
+            if retry_at > (job.get('retry_at') or 0):
+                job.update(retry_at=retry_at, rate_wait_code=code)
+                self._write(db, job)
+            return job['retry_at'], job.get('rate_wait_code') or code
+        return self._transaction(retain)
+
     def _failure(self, job, error):
-        if isinstance(error, InterruptedError) or self.stop.is_set():
-            self._finish(job, state='INTERRUPTED', next_at=self.now(), error_code=None)
-            return
-        response = error.response if isinstance(error, requests.HTTPError) else None
+        # GraphService carries an actually observed rate response as the direct
+        # cause of cancellation. Do not infer a wait from messages or arbitrary
+        # exception chains, and do not discard it just because shutdown won.
+        rate_error = error if isinstance(error, requests.HTTPError) else error.__cause__ if isinstance(error, InterruptedError) else None
+        response = rate_error.response if isinstance(rate_error, requests.HTTPError) else None
         wait = GitHubApiGovernor.retry_delay(response.status_code, response.headers, self.now()) if response is not None else None
+        retained = None
+        if wait is not None:
+            code = 'INDEX_CAPACITY_RESERVED' if getattr(rate_error, 'reason', None) == 'FOREGROUND_RESERVE' else 'INDEX_RATE_LIMIT_WAIT'
+            retained = self._retain_rate_wait(job, self.now() + wait, code)
+            if retained is None:
+                return
+        if isinstance(error, InterruptedError) or self.stop.is_set():
+            next_at = min(retained[0], job['deadline']) if retained else self.now()
+            self._finish(job, state='INTERRUPTED', next_at=next_at, error_code=None)
+            return
         if wait is not None:
             # Keep the durable revision/cursor and release the worker until the
             # observed reset. A rate wait does not spend transport retry attempts
             # or revoke access; the next step reconciles status before indexing.
-            retry_at = self.now() + wait
-            code = 'INDEX_CAPACITY_RESERVED' if getattr(error, 'reason', None) == 'FOREGROUND_RESERVE' else 'INDEX_RATE_LIMIT_WAIT'
+            retry_at, code = retained or (self.now() + wait, code)
             # Wake at the budget boundary even if the server wait is longer.
             # _take pauses expired jobs without dispatching; retry_at remains the
             # full observed wait so an explicit resume cannot bypass it.

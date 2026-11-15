@@ -34,7 +34,7 @@ class Backend:
         return {'PLAN': {'head_sha': 'a' * 40}, 'READ': {'files': {}}, 'IMPLEMENT': {'changes': [{'path': 'file', 'content': 'new'}]},
                 'REVIEW': {'review': {'approved': True, 'issues': []}, 'local_validation': {'patch_identity': 'fixture-patch',
                     'requirement_evidence': [{'requirement_id': 'build-fix', 'kind': 'behavior_test', 'name': 'build-fix', 'scope': 'behavior', 'status': 'PASSED'}]}}, 'COMMIT': {'head_sha': 'a' * 40},
-                'OPEN_PR': {'pr': 7, 'pr_url': 'https://github.com/owner/repo/pull/7'}, 'VERIFY': {'result': {'merged': True, 'merge_sha': 'c' * 40}}}[phase]
+                'OPEN_PR': {'pr': 7, 'pr_url': 'https://github.com/owner/repo/pull/7'}, 'VERIFY': {'post_merge': {'status': 'PASSED'}, 'result': {'merged': True, 'merge_sha': 'c' * 40}}}[phase]
 
     def inspect(self, job):
         self.calls.append('inspect')
@@ -50,6 +50,59 @@ class Backend:
 
 
 class DurableEngineeringTests(unittest.TestCase):
+    def test_completion_race_publishes_one_effective_state_revision_and_summary(self):
+        from v14.engineering_report import build_report
+
+        created = self.store.create('owner', self.request)
+        job, lease, _ = self.store.claim(created['id'])
+        verification = {'passed': True, 'requirements': [{'status': 'BEHAVIOR_VERIFIED'}]}
+        job['data']['completion_verification'] = verification
+        job['data']['final_report'] = build_report(job, 'COMPLETED', verification)
+        self.store.tx(lambda db: db.execute(
+            'INSERT INTO gateway_pending_instructions VALUES(?,?,?,?,?)',
+            ('late', job['conversation_id'], 'Also cover failure recovery.', 'pending', self.store.now())))
+        self.assertTrue(self.store.complete(job, lease, 'COMPLETED', {}))
+        retained = self.store.get(job['id'])
+        report = retained['data']['final_report']
+        message = self.store.tx(lambda db: db.execute(
+            "SELECT content,status FROM gateway_messages WHERE conversation_id=? AND role='assistant'",
+            (job['conversation_id'],)).fetchone())
+        output = self.store.tx(lambda db: db.execute(
+            'SELECT output_json FROM engineering_receipts WHERE job_id=? AND revision=?',
+            (job['id'], job['revision'])).fetchone())
+        self.assertEqual('NEEDS_INPUT', retained['state'])
+        self.assertEqual('PARTIAL_UNVERIFIED', report['status'])
+        self.assertEqual('BLOCKED', report['terminal_receipt']['status'])
+        self.assertEqual(retained['revision'], report['terminal_receipt']['checkpoint_revision'])
+        self.assertEqual(report['terminal_receipt'], json.loads(output[0])['terminal_receipt'])
+        self.assertEqual((report['summary'], 'needs_attention'), tuple(message))
+
+    def test_post_merge_completion_receipt_retains_the_final_qualification(self):
+        for verdict in ('PENDING', 'FAILED', 'BLOCKED', 'PASSED'):
+            with self.subTest(verdict=verdict):
+                job = self.store.create('owner', dict(self.request, request_id='merge-' + verdict))
+                claimed, lease, _ = self.store.claim(job['id'])
+                self.store.complete(claimed, lease, 'VERIFY', {'readiness': self.backend.evidence, 'merge_sha': 'c' * 40})
+                receipts = []
+                original_append = self.service.evidence.append
+                def append(job, kind, payload, *args, **kwargs):
+                    if kind == 'completion_gate':
+                        receipts.append(copy.deepcopy(payload))
+                    return original_append(job, kind, payload, *args, **kwargs)
+                output = {'post_merge': {'status': verdict, 'reason': 'FIXTURE_' + verdict},
+                          'result': {'merged': True, 'merge_sha': 'c' * 40}}
+                with patch.object(self.backend, 'step', return_value=output), patch.object(self.service.evidence, 'append', side_effect=append):
+                    self.service.tick(job['id'])
+                saved = self.store.get(job['id'])
+                self.assertEqual(saved['data']['completion_verification'], receipts[-1])
+                if verdict != 'PASSED':
+                    self.assertFalse(receipts[-1]['passed'])
+                if verdict in ('FAILED', 'BLOCKED'):
+                    self.assertIn('FIXTURE_' + verdict, receipts[-1]['failures'])
+                    self.assertEqual('NEEDS_INPUT', saved['state'])
+                if verdict == 'PENDING':
+                    self.assertEqual('VERIFY', saved['state'])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.time = 1000.
@@ -105,6 +158,55 @@ class DurableEngineeringTests(unittest.TestCase):
         asyncio.run(run())
         self.assertEqual(['parent:start', 'start:authenticated', 'start:public', 'backend:cancel',
                           'close:authenticated', 'close:public', 'reader:close', 'parent:close'], events)
+        self.assertFalse(self.service.thread.is_alive())
+
+    def test_independent_branches_progress_while_one_stage_is_blocked(self):
+        first = self.store.create('owner', self.request)
+        second = self.store.create('owner', dict(self.request, request_id='second', branch='feature/second', chat_id=13))
+        entered = {first['id']: threading.Event(), second['id']: threading.Event()}
+        release = threading.Event()
+        def tick(job_id):
+            entered[job_id].set()
+            release.wait(3)
+        self.service.tick = tick
+        self.service.start()
+        try:
+            self.assertTrue(entered[first['id']].wait(2))
+            self.assertTrue(entered[second['id']].wait(2))
+        finally:
+            self.service.stop.set()
+            release.set()
+            self.service.wake.set()
+            self.service.thread.join(4)
+        self.assertFalse(self.service.thread.is_alive())
+
+    def test_queued_occupied_branch_does_not_hide_independent_work(self):
+        jobs = [self.store.create('owner', dict(self.request, request_id='queued-' + str(index), chat_id=12 + index,
+                                               branch='feature/independent' if index == 3 else self.request['branch']))
+                for index in range(4)]
+        entered = {job['id']: threading.Event() for job in jobs}
+        release = threading.Event()
+        for index, job in enumerate(jobs):
+            self.store.tx(lambda db, index=index, job=job: db.execute(
+                'UPDATE engineering_jobs SET next_at=? WHERE id=?', (self.time - 10 + index, job['id'])))
+        def tick(job_id):
+            # Claim through the real journal so due() excludes the running job.
+            self.assertIsNotNone(self.store.claim(job_id))
+            entered[job_id].set()
+            release.wait(4)
+        self.service.tick = tick
+        with patch.dict('os.environ', {'GATEWAY_ENGINEERING_WORKERS': '2'}):
+            self.service.start()
+            try:
+                self.assertTrue(entered[jobs[0]['id']].wait(2))
+                self.assertTrue(entered[jobs[3]['id']].wait(2), 'An independent branch was hidden by occupied-branch queue entries')
+                self.assertFalse(entered[jobs[1]['id']].is_set())
+                self.assertFalse(entered[jobs[2]['id']].is_set())
+            finally:
+                self.service.stop.set()
+                release.set()
+                self.service.wake.set()
+                self.service.thread.join(4)
         self.assertFalse(self.service.thread.is_alive())
 
     def test_disabled_durable_lifecycle_does_not_create_index_workers_or_storage(self):
@@ -795,7 +897,7 @@ class DurableEngineeringTests(unittest.TestCase):
     def test_anchored_edits_sha_conflicts_and_partial_file_protection(self):
         text = 'start\nunique anchor\n' + 'large file\n' * 2000
         sha = blob_sha(text)
-        files = {'src/file': {'sha': sha, 'content': text}}
+        files = {'src/file': {'sha': sha, 'content': text, 'visible_characters': 16000}}
         tree = {'src/file': {'sha': sha, 'mode': '100644'}}
         change = {'path': 'src/file', 'expected_blob_sha': sha, 'edits': [{'old': 'unique anchor', 'new': 'fixed anchor'}]}
         result = prepare_changes({'changes': [change]}, files, tree)

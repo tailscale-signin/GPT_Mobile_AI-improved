@@ -1374,9 +1374,9 @@ class AgentToolResolverTest {
         val uninstrumented = resolver(settings = settings)
         val resolver = resolver(settings = settings, statistics = mockk(relaxed = true))
         val expected = mapOf(
-            "check repo status" to setOf("github_context", "github_pr"),
-            "show git branches" to setOf("github_context", "github_search", "github_read"),
-            "inspect commits" to setOf("github_context", "github_search", "github_read")
+            "check repo status" to setOf("github_context_inspect", "github_pr_inspect"),
+            "show git branches" to setOf("github_context_inspect", "github_search", "github_read"),
+            "inspect commits" to setOf("github_context_inspect", "github_search", "github_read")
         )
         for ((task, operations) in expected) {
             val message = dev.chungjungsoo.gptmobile.data.database.entity.MessageV2(content = task, platformType = null)
@@ -1414,7 +1414,7 @@ class AgentToolResolverTest {
         val catalog = requireNotNull(statusTools.firstNotNullOfOrNull { it.progressiveCatalog })
         val definitions = statusTools.map { it.tool.definition }
         assertTrue(catalog.scopedGitHubStatus)
-        assertEquals(setOf("github_context__native", "github_pr__native", dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME), catalog.selected(definitions).map { it.name }.toSet())
+        assertEquals(setOf("github_context_inspect__native", "github_pr_inspect__native", dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.NAME), catalog.selected(definitions).map { it.name }.toSet())
         assertTrue(catalog.selected(definitions).sumOf { dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.schemaTokens(it) } <= dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog.MAX_SCHEMA_TOKEN_ALLOWANCE)
         val authorizedNames = statusTools.filter { it.nativeGitHub && it.tool.definition.modelVisible }.map { it.modelToolName }.toSet()
         assertEquals(GitHubOperationTool.names.map { "${it}__native" }.toSet(), authorizedNames)
@@ -1445,7 +1445,7 @@ class AgentToolResolverTest {
             assertFalse(task, engineering.scopedGitHubStatus)
             val available = tools.map { it.tool.definition }
             val initialNames = engineering.selected(available).map { it.name }.toSet()
-            assertTrue(task, "github_context__native" in initialNames)
+            assertTrue(task, "github_context_inspect__native" in initialNames)
             assertTrue(task, initialNames.intersect(authorizedNames).size < authorizedNames.size)
             assertFalse(task, "github_write__native" in initialNames)
             for (name in authorizedNames) {

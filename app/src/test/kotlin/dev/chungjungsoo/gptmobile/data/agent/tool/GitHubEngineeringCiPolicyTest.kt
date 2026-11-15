@@ -57,6 +57,27 @@ class GitHubEngineeringCiPolicyTest {
         )
     }
 
+    @Test
+    fun completedNonPassingConclusionsAreBlockedInsteadOfRetried() {
+        for (conclusion in listOf<EngineeringCheckConclusion?>(
+            EngineeringCheckConclusion.NEUTRAL,
+            EngineeringCheckConclusion.SKIPPED,
+            EngineeringCheckConclusion.ACTION_REQUIRED,
+            EngineeringCheckConclusion.UNKNOWN,
+            null
+        )) {
+            val checks = listOf(
+                success("unit-tests"),
+                success("android-build").copy(conclusion = conclusion)
+            )
+            assertEquals(
+                "${conclusion?.name ?: "missing"} is terminal and cannot be treated as pending",
+                EngineeringCiVerdict.BLOCKED,
+                GitHubEngineeringCiPolicy.evaluate(sha, required, checks)
+            )
+        }
+    }
+
     @Test fun latestAttemptFromPinnedAppReplacesOldFailureWithoutTrustingAnotherApp() {
         val failed = success("unit-tests").copy(runId = 10, appId = 1, conclusion = EngineeringCheckConclusion.FAILURE)
         val passed = failed.copy(runId = 11, conclusion = EngineeringCheckConclusion.SUCCESS)

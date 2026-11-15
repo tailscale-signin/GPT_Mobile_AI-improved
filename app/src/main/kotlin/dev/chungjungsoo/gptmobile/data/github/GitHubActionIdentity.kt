@@ -15,7 +15,7 @@ internal object GitHubActionIdentity {
 
     /** Match the native facade default before tracing, deduplication and receipt binding. */
     fun canonicalArguments(tool: String, arguments: JsonObject): JsonObject {
-        val operation = tool.substringBefore("__")
+        val operation = tool.githubOperationFamily()
         if (operation == "github_pr" && arguments.keys.all { it in prListDefaults }) {
             return JsonObject(arguments + ("action" to JsonPrimitive("list")))
         }

@@ -52,8 +52,9 @@ def safe_path(path):
     return path
 
 
-def prepare_changes(proposal, files, tree):
+def prepare_changes(proposal, files, tree, *, head_sha=None):
     """Apply exact anchors against pinned blobs; partial model excerpts cannot replace whole files."""
+    from v14.engineering_workspace import exposed_ranges
     changes = proposal.get('changes')
     if not isinstance(changes, list) or not 1 <= len(changes) <= 20:
         raise ValueError('Return 1–20 coordinated file changes')
@@ -67,32 +68,45 @@ def prepare_changes(proposal, files, tree):
         paths.add(path)
         original = files.get(path)
         expected = change.get('expected_blob_sha')
-        if path in tree and (original is None or expected != tree[path]['sha'] or original['sha'] != expected):
+        if path in tree and (original is None or expected != tree[path]['sha'] or original['sha'] != expected
+                             or blob_sha(original['content']) != expected):
             raise ValueError('Read the exact existing blob before editing it')
         if path not in tree and expected is not None:
             raise ValueError('New files must have null expected_blob_sha')
+        spans = exposed_ranges(original, head_sha) if original else []
+        complete = original is not None and any(start == 0 and end == len(original['content']) for start, end in spans)
         if change.get('delete') is True:
-            if original is None or 'content' in change or 'edits' in change:
+            if not complete or 'content' in change or 'edits' in change:
                 raise ValueError('Deletion requires an inspected original and no replacement')
             content = None
         elif 'edits' in change:
             edits = change['edits']
             if original is None or 'content' in change or not isinstance(edits, list) or not 1 <= len(edits) <= 30:
                 raise ValueError('Invalid anchored edits')
-            content = original['content']
+            patches = []
             for edit in edits:
-                if not isinstance(edit, dict) or set(edit) != {'old', 'new'} or not all(isinstance(edit[k], str) for k in edit) or not edit['old'] or content.count(edit['old']) != 1:
+                if not isinstance(edit, dict) or set(edit) != {'old', 'new'} or not all(isinstance(edit[k], str) for k in edit) or not edit['old'] or original['content'].count(edit['old']) != 1:
                     raise ValueError('Each patch anchor must match exactly once')
-                content = content.replace(edit['old'], edit['new'], 1)
+                start = original['content'].index(edit['old'])
+                end = start + len(edit['old'])
+                if not any(left <= start and end <= right for left, right in spans):
+                    raise ValueError('Read the exact patch anchor range before editing it')
+                patches.append((start, end, edit['new']))
+            patches.sort()
+            if any(left[1] > right[0] for left, right in zip(patches, patches[1:])):
+                raise ValueError('Patch anchors must not overlap')
+            content = original['content']
+            for start, end, replacement in reversed(patches):
+                content = content[:start] + replacement + content[end:]
         else:
-            if original and len(original['content']) > original.get('visible_characters', 16000):
+            if original is not None and not complete:
                 raise ValueError('Use anchored edits for a file shown as a partial excerpt')
             content = change.get('content')
             if not isinstance(content, str):
                 raise ValueError('File replacement requires UTF-8 text')
         if content is not None:
-            total += len(content.encode('utf-8'))
-            if '\0' in content or total > 512 * 1024:
+            total += sum(len(edit['old'].encode()) + len(edit['new'].encode()) for edit in change['edits']) if 'edits' in change else len(content.encode('utf-8'))
+            if '\0' in content or len(content.encode()) > 4 * 1024 * 1024 or total > 512 * 1024:
                 raise ValueError('Patch exceeds the text budget')
             if original and content == original['content']:
                 continue
@@ -144,8 +158,10 @@ class GitHubEngineeringBackend:
         self.recall_graph = lambda job, query, **selection: {'status': 'NOT_INDEXED'}
         self.model_executor = None
         self.save_adaptive_planning = None
+        self.save_specialists = None
         self.before_mutation = None
         self.operations = None
+        self.private_artifacts = None
 
     def cancel(self):
         self.stopping.set()
@@ -274,7 +290,7 @@ class GitHubEngineeringBackend:
         owner, repo = job['request']['repository'].split('/')
         return '/repos/' + quote(owner, safe='') + '/' + quote(repo, safe='')
 
-    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False, capacity_reserve=0):
+    def api(self, path, method='GET', body=None, job=None, text=False, *, read_only=False, capacity_reserve=0, operation_context=None):
         if read_only and (method not in {'GET', 'HEAD'} or body is not None):
             raise PermissionError('Read-only GitHub access cannot dispatch a mutation')
         started = time.monotonic()
@@ -316,7 +332,7 @@ class GitHubEngineeringBackend:
         if mutating and job:
             if not callable(self.before_mutation) or self.operations is None:
                 raise ExecutionBindingError('EXECUTION_BINDING_REQUIRED', 'A fenced execution binding is required before dependent writes.')
-            operation = self.operations.prepare(job, method, path, body)
+            operation = self.operations.prepare(job, method, path, body, context=operation_context) if operation_context else self.operations.prepare(job, method, path, body)
             if operation['state'] == 'COMPLETED':
                 return self.operations.service.artifacts.json_value(job, operation['response_ref'])
             # Physical intent is recorded only after API admission succeeds.
@@ -466,13 +482,29 @@ class GitHubEngineeringBackend:
         elif role == 'planner':
             system += ('Return {"paths":[up to 30 exact repository paths],"plan":"concise implementation and test plan"}.' if accepted_scope(job['request']) == 'implement' else
                        'Return {"paths":[up to 30 exact repository paths],"plan":"concise inspection plan for the accepted objective"}.')
+        elif role in {'source explorer', 'test investigator', 'failure investigator'}:
+            system += ('Investigate only the supplied narrow question. Return {"findings":[up to 12 concise findings],'
+                       '"paths":[up to 20 existing repository paths]}. Findings are suggestions, never execution proof. '
+                       'You may instead request {"workspace_action":{"action":"paths|search|read","head_sha":"exact current head",'
+                       '"query":"literal text","paths":["exact files"],"path":"exact file","start_line":1,"line_count":80}}. '
+                       'At most three calls are available. If synthesis_requested or format_repair is true, return findings and paths using the observations you have. You cannot edit, run commands, approve or publish changes.')
         elif role in {'independent reviewer', 'selected-model reviewer'}:
             system += 'Perform a separate review pass using the selected model. Inspect the proposed diff and objective for correctness, missing tests, regressions and security issues. Return {"approved":boolean,"issues":[strings]}. This is supplemental same-model review only, never merge authorization or independent model validation.'
         else:
             system += ('Return {"changes":[{"path":"...","expected_blob_sha":"exact sha or null for new file",'
                        '"edits":[{"old":"unique exact anchor","new":"replacement"}]}],"summary":"..."}. '
                        'A new/small file may use content instead of edits. Use delete:true alone for deletion. '
-                       'Existing files must have been read. Do not invent file contents; include meaningful tests.')
+                       'Existing files must have been read. Do not invent file contents; include meaningful tests. '
+                       'To investigate before editing, instead return {"workspace_action":{"action":"paths|search|read|checks|check|check_output|candidates|candidate_files","head_sha":"exact current head",'
+                       '"query":"literal search","paths":["paths for text search"],"path":"path for read","start_line":1,"line_count":80}}. '
+                       'Paths accepts query and offset; search accepts query and 1-10 paths; read accepts path and an exact line range. '
+                       'Use checks to list approved checks; check selects check_index and optionally proposal with the normal changes contract '
+                       '(omitting proposal tests unchanged source). Use candidate_check_id to reuse the exact previously tested patch, and a unique attempt_id for a deliberate fresh execution. '
+                       'check_output reads check_id with start_line and line_count. '
+                       'Use candidates to list retained patches and candidate_files with candidate_check_id to inspect changed paths. '
+                       'Finalize an unchanged candidate with {"candidate_check_id":"exact retained check ID","summary":"..."}. '
+                       'Only host-approved commands execute; a selected check never replaces complete final validation. '
+                       'Read relevant ranges before editing large files. Each action resumes this same task with bounded fresh context.')
         if role == 'planner' and 'proposed_options' in evidence:
             system += SELECTION_INSTRUCTION
         # Access must still exist before historical private source reaches a model.
@@ -564,13 +596,18 @@ class GitHubEngineeringBackend:
             head = head or base
             # Reject an unrelated PR before any source modifications are published.
             if writable:
-                self.find_pr(dict(job, data=dict(data, head_sha=head)))
+                self.find_pr(dict(job, data=dict(data, head_sha=head, actor_id=actor['id'])))
             tree = self.tree(job, head)
             # These are freshly observed selection facts, not a completed PLAN.
             # Recall and model admission need them before selecting source paths.
             # The supervisor alone records successful stage completion.
-            data.update(actor_id=actor['id'], head_sha=head)
-            plan = self.model(job, 'planner', {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'head_sha': head})
+            data.update(actor_id=actor['id'], head_sha=head, tree=tree)
+            from v14.engineering_specialists import investigate
+            selection = {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'head_sha': head}
+            specialists = investigate(self, job, [
+                {'role': 'source explorer', 'evidence': dict(selection, focus='Locate implementation and repository conventions for the objective')},
+                {'role': 'test investigator', 'evidence': dict(selection, focus='Locate relevant tests, validation entry points and missing coverage')}])
+            plan = self.model(job, 'planner', dict(selection, specialist_findings=specialists))
             merge_method = next((method for method in ('squash', 'merge', 'rebase') if metadata.get('allow_' + method + '_merge')), None)
             if writable and merge_method is None:
                 raise ValueError('No supported merge method is enabled')
@@ -583,7 +620,11 @@ class GitHubEngineeringBackend:
             saved_batch = data.get('read_batch')
             batch_id = saved_batch.get('id') if isinstance(saved_batch, dict) and saved_batch.get('input') == read_input else None
             if data.get('ci') and not batch_id:
-                plan = self.model(job, 'planner', {'paths': self.planning_paths(job, tree), 'total_paths': len(tree), 'previous_plan': plan, 'ci': data['ci']})
+                from v14.engineering_specialists import investigate
+                specialists = investigate(self, job, [{'role': 'failure investigator', 'evidence': {
+                    'ci': data['ci'], 'paths': self.planning_paths(job, tree), 'focus': 'Trace the observed failure to relevant source and tests'}}])
+                plan = self.model(job, 'planner', {'paths': self.planning_paths(job, tree), 'total_paths': len(tree),
+                    'previous_plan': plan, 'ci': data['ci'], 'specialist_findings': specialists})
             paths = plan.get('paths')
             if not isinstance(paths, list) or not 1 <= len(paths) <= 30 or any(not isinstance(path, str) or path not in tree or tree[path]['mode'] not in {'100644', '100755'} for path in paths):
                 raise ValueError('Planner must select existing file paths')
@@ -603,13 +644,21 @@ class GitHubEngineeringBackend:
                 args = node['arguments']
                 def load():
                     blob = self.api(root + '/git/blobs/' + args['sha'], job=job)
-                    if blob['encoding'] != 'base64' or blob['size'] > 256 * 1024:
+                    if blob['encoding'] != 'base64' or type(blob['size']) is not int or not 0 <= blob['size'] <= 4 * 1024 * 1024:
                         raise ValueError('File is outside the text inspection budget')
-                    content = base64.b64decode(blob['content']).decode('utf-8')
-                    if blob_sha(content) != args['sha'] or '\0' in content:
+                    raw = base64.b64decode(blob['content'])
+                    if len(raw) > 4 * 1024 * 1024 or blob_sha(raw) != args['sha'] or b'\0' in raw:
                         raise ValueError('Blob evidence is not verified UTF-8 text')
-                    return {'sha': args['sha'], 'content': content}
-                return self.reads.execute(digest([job['principal'], data['actor_id'], root, args['sha']]), load, cancellation)
+                    return {'sha': args['sha'], 'content': raw.decode('utf-8')}
+                value = self.reads.execute(digest([job['principal'], data['actor_id'], root, args['sha']]), load, cancellation)
+                # BatchJournal has an 8 MiB JSON ceiling. Persist each large
+                # verified source before saving its small, job-bound receipt.
+                content = value['content']
+                if self.operations is not None:
+                    content = self.operations.service.artifacts.checkpoint(job, {'raw_result': content}, 'source-read')['raw_result']
+                elif len(json.dumps(content, ensure_ascii=False).encode()) > 128 * 1024:
+                    raise ExecutionBindingError('EXECUTION_ARTIFACT_UNAVAILABLE', 'Large source reads require the private durable artifact store.')
+                return dict(value, content=content, source_bytes=len(value['content'].encode('utf-8')), read_head_sha=data['head_sha'])
             # A provider wait advances the job revision while retaining this READ step.
             # Keep the accepted plan and exact batch identity in its durable checkpoint.
             batch_id = batch_id or 'read_' + str(job['revision'])
@@ -630,14 +679,32 @@ class GitHubEngineeringBackend:
             files = {node['arguments']['path']: results[node['id']] for node in nodes}
             if any('content' not in value for value in files.values()):
                 raise ValueError('Some source files could not be inspected')
-            if sum(len(value['content']) for value in files.values()) > 512 * 1024:
+            sizes = [value.get('source_bytes', len(value['content'].encode()) if isinstance(value['content'], str) else None)
+                     for value in files.values()]
+            if any(type(size) is not int or not 0 <= size <= 4 * 1024 * 1024 for size in sizes) or sum(sizes) > 16 * 1024 * 1024:
                 raise ValueError('Selected files exceed the retained context budget')
+            restored = {}
+            for (path, value), size in zip(files.items(), sizes):
+                content = value['content']
+                # Content-addressed artifacts keep their first creation head.
+                # This READ owns the current revision; decoded bytes must still
+                # match its pinned tree below. Legacy inline receipts retain
+                # their batch binding and the same exact tree/blob checks.
+                if value.get('read_head_sha', data['head_sha'] if isinstance(content, str) else None) != data['head_sha']:
+                    raise ValueError('Retained source belongs to another pinned revision')
+                if isinstance(content, dict) and 'result_ref' in content and self.operations is not None:
+                    content = self.operations.service.artifacts.json_value(job, content)
+                if (not isinstance(content, str) or len(content.encode('utf-8')) != size
+                        or value.get('sha') != tree[path]['sha'] or blob_sha(content) != tree[path]['sha']):
+                    raise ValueError('Retained source does not match its pinned blob and byte length')
+                restored[path] = dict(value, content=content)
+            files = restored
             excerpt_limit = min(16000, 140000 // max(1, len(files)))
-            files = {path: dict(value, visible_characters=excerpt_limit) for path, value in files.items()}
+            files = {path: dict(value, preview_characters=excerpt_limit) for path, value in files.items()}
             result = {'files': files, 'tree': tree, 'plan': plan}
             task_scope = accepted_scope(job['request'])
             if task_scope in {'read', 'plan'}:
-                excerpts = {path: {'sha': value['sha'], 'content': value['content'][:value.get('visible_characters', 16000)], 'partial': len(value['content']) > value.get('visible_characters', 16000)} for path, value in files.items()}
+                excerpts = {path: {'sha': value['sha'], 'content': value['content'][:value['preview_characters']], 'partial': len(value['content']) > value['preview_characters']} for path, value in files.items()}
                 answer = self.model(job, 'repository answerer' if task_scope == 'read' else 'repository planner', {'plan': plan, 'files': excerpts, 'head_sha': data['head_sha']})
                 if (set(answer) - {'answer', 'paths', 'limitations'} or not isinstance(answer.get('answer'), str) or not 1 <= len(answer['answer'].strip()) <= 262144
                         or not isinstance(answer.get('paths'), list) or not answer['paths'] or any(path not in files for path in answer['paths'])
@@ -649,18 +716,42 @@ class GitHubEngineeringBackend:
             data.pop('read_batch', None)
             return result
         if phase == 'IMPLEMENT':
-            excerpts = {path: {'sha': value['sha'], 'content': value['content'][:value.get('visible_characters', 16000)], 'partial': len(value['content']) > value.get('visible_characters', 16000)}
-                        for path, value in data['files'].items()}
-            proposal = self.model(job, 'coding agent', {'plan': data['plan'], 'files': excerpts, 'ci': data.get('ci'), 'review': data.get('review')})
-            changes = prepare_changes(proposal, data['files'], data['tree'])
-            return {'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
+            from v14.engineering_workspace import act, view
+            proposal = self.model(job, 'coding agent', view(data))
+            if 'workspace_action' in proposal:
+                if data.get('workspace_iterations', 0) >= 120:
+                    raise ValueError('Workspace iteration allowance reached; receipts are retained')
+                receipt = act(self, job, proposal['workspace_action'])
+                self.record_evidence(job, {'workspace_receipt': receipt})
+                return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
+                        'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files'],
+                        'workspace_checks': data.get('workspace_checks', {}),
+                        'workspace_check_executions': data.get('workspace_check_executions', 0)}
+            if 'candidate_check_id' in proposal:
+                from v14.engineering_workspace_checks import retained_candidate
+                if set(proposal) - {'candidate_check_id', 'summary'}:
+                    raise ValueError('Final candidate selection cannot also change the patch')
+                changes = retained_candidate(self, job, proposal['candidate_check_id'])
+            else:
+                changes = prepare_changes(proposal, data['files'], data['tree'], head_sha=data['head_sha'])
+            return {'workspace_continue': False, 'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
         if phase == 'REVIEW':
             patches = []
             for change in data['changes']:
                 before = data['files'].get(change['path'], {}).get('content', '')
                 after = change['content'] or ''
                 patches.append(''.join(difflib.unified_diff(before.splitlines(True), after.splitlines(True), fromfile=change['path'], tofile=change['path'])))
-            validation = validate_checkout(job, data['changes'])
+            from v14.engineering_source import prepare_source
+            parent = self.api(root + '/git/commits/' + data['head_sha'], job=job)
+            try:
+                data['source_preparation'] = prepare_source(job, self.token(), parent['tree']['sha'], self.cancellation(job))
+            except (OSError, ValueError) as error:
+                if self.cancellation(job).is_set():
+                    raise InterruptedError('Source preparation cancelled') from error
+                return {'source_preparation': {'status': 'BLOCKED', 'head_sha': data['head_sha'], 'reason': 'PINNED_SOURCE_PREPARATION_FAILED'},
+                        'local_validation': {'status': 'BLOCKED', 'reason': 'Pinned source preparation failed. Check the approved mirror and GitHub access; no test ran.'},
+                        'review': {'approved': False, 'issues': ['Pinned source preparation unavailable']}}
+            validation = validate_checkout(job, data['changes'], cancel=self.cancellation(job))
             review = self.model(job, 'selected-model reviewer', {'plan': data['plan'], 'diff': patches, 'ci': data.get('ci'),
                                                               'validation': validation})
             if type(review.get('approved')) is not bool or not isinstance(review.get('issues'), list) or any(not isinstance(item, str) for item in review['issues']):
@@ -676,6 +767,8 @@ class GitHubEngineeringBackend:
             validation = data.get('local_validation', {})
             if validation.get('status') != 'PASSED' or validation.get('patch_identity') != patch_identity(data['head_sha'], data['changes']):
                 raise ValueError('Exact patch has no passing isolated validation receipt')
+            if validation.get('scope', 'complete') != 'complete':
+                raise ValueError('Exploratory checks cannot authorize publication')
             current = self.ref(job, job['request']['branch'])
             if current is not None and current != data['head_sha']:
                 raise ValueError('Working branch moved before publication')
@@ -707,7 +800,7 @@ class GitHubEngineeringBackend:
             retained = self.find_pr(job)
             if retained:
                 return retained
-            body = 'Autonomous engineering job `' + job['id'] + '`.\n\nPublished paths:\n' + '\n'.join('- `' + change['path'] + '`' for change in data['changes']) + '\n\nA separate review pass by the same selected model completed. This is not independent validation. CI validation is pending; merge requires explicit in-chat approval. Feature completeness and benchmarks are not inferred from this publication.'
+            body = 'Autonomous engineering job `' + job.get('pr_owner_job_id', job['id']) + '`.\n\nPublished paths:\n' + '\n'.join('- `' + change['path'] + '`' for change in data['changes']) + '\n\nA separate review pass by the same selected model completed. This is not independent validation. CI validation is pending; merge requires explicit in-chat approval. Feature completeness and benchmarks are not inferred from this publication.'
             pr = self.api(root + '/pulls', 'POST', {'title': 'Engineering changes · ' + job['id'], 'body': body,
                           'head': job['request']['branch'], 'base': job['request']['base'], 'draft': True}, job)
             return {'pr': pr['number'], 'pr_url': pr['html_url']}
@@ -723,7 +816,10 @@ class GitHubEngineeringBackend:
             pr = self.api(root + '/pulls/' + str(data['pr']), job=job)
             if pr.get('merged') is not True or pr['head']['sha'] != data['head_sha'] or pr.get('merge_commit_sha') != data['merge_sha'] or pr['base']['ref'] != job['request']['base']:
                 raise ValueError('Merged PR identity could not be verified')
-            return {'result': {'merged': True, 'merge_sha': data['merge_sha'], 'pr_url': data['pr_url']}}
+            from v14.engineering_post_merge import inspect
+            post_merge = inspect(self, job)
+            return {'post_merge': post_merge, 'result': {'merged': True, 'merge_sha': data['merge_sha'], 'pr_url': data['pr_url'],
+                                                       'qualification': post_merge['status']}}
         raise ValueError('Unsupported engineering phase')
 
     @staticmethod
@@ -733,7 +829,18 @@ class GitHubEngineeringBackend:
     def find_pr(self, job):
         owner = job['request']['repository'].split('/')[0]
         prs = self.paged(self.root(job) + '/pulls?state=all&head=' + quote(owner + ':' + job['request']['branch'], safe='') + '&base=' + quote(job['request']['base'], safe=''), job=job)
-        matching = [pr for pr in prs if job['id'] in (pr.get('body') or '') and pr['head']['sha'] == job['data']['head_sha']]
+        owner_job = job.get('pr_owner_job_id', job['id'])
+        if owner_job != job['id'] and (not job.get('continuation_of') or
+                job.get('continuation_branch') != job['request']['branch'] or
+                job.get('continuation_actor_id') != job['data'].get('actor_id')):
+            raise ValueError('Continuation PR ownership could not be verified')
+        matching = [pr for pr in prs if ('`' + owner_job + '`') in (pr.get('body') or '')
+                    and pr['head']['sha'] == job['data']['head_sha']
+                    and pr.get('state', 'open') == 'open'
+                    and (job.get('continuation_pr') is None or pr['number'] == job['continuation_pr'])
+                    and pr['head'].get('ref', job['request']['branch']) == job['request']['branch']
+                    and pr.get('base', {}).get('ref', job['request']['base']) == job['request']['base']
+                    and pr['head'].get('repo', {}).get('full_name', job['request']['repository']).lower() == job['request']['repository'].lower()]
         if len(matching) > 1:
             raise ValueError('Ambiguous PR recovery')
         if matching:
@@ -773,17 +880,24 @@ class GitHubEngineeringBackend:
                 raise ValueError('Missing check cursor')
         else:
             raise ValueError('Check inventory exceeds pagination bound')
-        failed_checks = [check for check in checks if check.get('conclusion', check.get('state')) in {'FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STALE'}]
+        failed_checks = [check for check in checks if check.get('conclusion', check.get('state')) in {'FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'STALE'}]
+        blocked_checks = [check for check in checks if check.get('conclusion') in {'STARTUP_FAILURE', 'ACTION_REQUIRED'}
+                          or check.get('status') == 'COMPLETED' and check.get('isRequired') is not False
+                          and check.get('conclusion') not in {'SUCCESS', 'FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'STALE'}]
         checks_known = bool(checks) and all(type(check.get('isRequired')) is bool for check in checks)
-        passed = checks_known and not failed_checks and all(
+        passed = checks_known and not blocked_checks and not failed_checks and all(
             (check.get('status') == 'COMPLETED' or 'conclusion' not in check and check.get('state') == 'SUCCESS') and
             (check.get('conclusion', check.get('state')) == 'SUCCESS' or not check['isRequired'] and check.get('conclusion') in {'NEUTRAL', 'SKIPPED'}) for check in checks)
         result = {'node_id': pr['id'], 'pr': job['data']['pr'], 'head_sha': pr['headRefOid'], 'base_sha': pr['baseRefOid'], 'state': pr['state'],
-                  'checks_passed': passed, 'requested_validation_passed': passed, 'github_permits_merging': pr['mergeStateStatus'] == 'CLEAN' and pr['mergeable'] == 'MERGEABLE', 'checks_failed': bool(failed_checks), 'draft': pr['isDraft'],
+                  'ci_verdict': 'BLOCKED' if blocked_checks else 'FAILED' if failed_checks else 'PASSED' if passed else 'PENDING',
+                  'checks_blocked': bool(blocked_checks), 'checks_passed': passed, 'requested_validation_passed': passed, 'github_permits_merging': pr['mergeStateStatus'] == 'CLEAN' and pr['mergeable'] == 'MERGEABLE', 'checks_failed': bool(failed_checks), 'draft': pr['isDraft'],
                   'mergeable': pr['mergeable'] == 'MERGEABLE', 'policy_verified': pr['mergeStateStatus'] == 'CLEAN',
                   'reviews_satisfied': 'reviewDecision' in pr and pr['reviewDecision'] in {None, 'APPROVED'},
                   'checks': [{'name': check.get('name', check.get('context')), 'status': check.get('conclusion', check.get('state', check.get('status'))), 'required': check.get('isRequired')} for check in checks],
                   'message': 'Checks passed; waiting for required reviews or merge policy' if passed else 'CI validation is in progress'}
+        if blocked_checks:
+            result.update(message='Completed CI checks require configuration or workflow recovery: ' + ', '.join(str(check.get('name', check.get('context', 'unknown'))) for check in blocked_checks),
+                          recovery_action='REPAIR_WORKFLOW_CONFIGURATION', blocked_checks=blocked_checks)
         if passed:
             # Approval displays the entire PR, including earlier repair commits.
             result['changed_files'] = [entry['filename'] for entry in self.paged(self.root(job) + '/pulls/' + str(job['data']['pr']) + '/files', job=job)]
@@ -814,11 +928,27 @@ class GitHubEngineeringBackend:
 
     def merge(self, job, evidence):
         self.identity(job)
-        result = self.api(self.root(job) + '/pulls/' + str(evidence['pr']) + '/merge', 'PUT',
-                          {'sha': evidence['head_sha'], 'merge_method': job['data'].get('merge_method', 'squash')}, job)
+        root = self.root(job)
+        path = root + '/pulls/' + str(evidence['pr'])
+        method = job['data'].get('merge_method', 'squash')
+        kwargs = {}
+        if self.operations is not None and method == 'squash':
+            pr = self.api(path, job=job)
+            head, base = evidence['head_sha'], evidence['base_sha']
+            if (pr.get('head', {}).get('sha') != head or pr.get('base', {}).get('sha') != base
+                    or pr.get('state') != 'open'):
+                raise ValueError('Approved merge head or base changed before dispatch')
+            context = {'base_sha': base, 'expected_tree': None}
+            test_merge = pr.get('merge_commit_sha')
+            if isinstance(test_merge, str) and re.fullmatch('[0-9a-f]{40}', test_merge):
+                candidate = self.api(root + '/git/commits/' + test_merge, job=job)
+                if candidate.get('sha') == test_merge and [row['sha'] for row in candidate.get('parents', [])] == [base, head]:
+                    context['expected_tree'] = candidate.get('tree', {}).get('sha')
+            kwargs['operation_context'] = context
+        result = self.api(path + '/merge', 'PUT', {'sha': evidence['head_sha'], 'merge_method': method}, job, **kwargs)
         if result.get('merged') is not True or not re.fullmatch('[0-9a-f]{40}', result.get('sha', '')):
             raise ValueError('GitHub did not confirm the approved merge')
-        return {'merge_sha': result['sha']}
+        return {'merge_sha': result['sha'], 'merge_method_receipt': {'method': job['data'].get('merge_method', 'squash'), 'merge_sha': result['sha'], 'confirmed': True}}
 
     def reconcile(self, job, phase):
         self.identity(job)
@@ -843,6 +973,22 @@ class GitHubEngineeringBackend:
                 return None
             if phase == 'PROMOTE' and pr.get('draft') is False and pr['head']['sha'] == job['data']['head_sha']:
                 return {'promoted': True}
-            if pr.get('merged') is True and pr['head']['sha'] == job['data']['head_sha'] and pr.get('merge_commit_sha'):
-                return {'merge_sha': pr['merge_commit_sha']}
+            sha = pr.get('merge_commit_sha')
+            if (phase == 'MERGE' and pr.get('merged') is True and pr['head']['sha'] == job['data']['head_sha']
+                    and isinstance(sha, str) and re.fullmatch('[0-9a-f]{40}', sha)):
+                result = {'merge_sha': sha}
+                path = self.root(job) + '/pulls/' + str(job['data']['pr']) + '/merge'
+                intent = self.operations.dispatched_intent(job, 'PUT', path) if self.operations is not None else None
+                approval = job.get('approval') or {}
+                context = (intent or {}).get('context') or {}
+                tree = context.get('expected_tree')
+                if (isinstance(tree, str) and re.fullmatch('[0-9a-f]{40}', tree)
+                        and intent.get('body') == {'sha': approval.get('head_sha'), 'merge_method': 'squash'}
+                        and approval.get('head_sha') == pr['head']['sha']
+                        and context.get('base_sha') == approval.get('base_sha')):
+                    observed = self.api(self.root(job) + '/git/commits/' + sha, job=job)
+                    if (observed.get('sha') == sha and observed.get('tree', {}).get('sha') == tree
+                            and [row['sha'] for row in observed.get('parents', [])] == [context['base_sha']]):
+                        result['merge_method_receipt'] = {'method': 'squash', 'merge_sha': sha, 'confirmed': True}
+                return result
         return None

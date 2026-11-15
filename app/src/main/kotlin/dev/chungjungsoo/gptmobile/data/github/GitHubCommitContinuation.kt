@@ -19,11 +19,10 @@ internal object GitHubCommitContinuation {
             it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) && it.text("call_id").startsWith("$prefix-")
         }
         fun read(operation: String, action: String, fields: JsonObject = JsonObject(emptyMap())): ProviderEvent.ToolCall? {
-            val tool = tools.firstOrNull { it.name.substringBefore("__") == operation } ?: return null
             val id = "$prefix-$action"
             if (observed.any { it["call_id"] == JsonPrimitive(id) }) return null
             val args = JsonObject(fields + ("action" to JsonPrimitive(action)))
-            if (ToolArgumentValidator.errors(args, tool.inputSchema).isNotEmpty()) return null
+            val tool = githubFamilyTools(tools, operation).firstOrNull { ToolArgumentValidator.errors(args, it.inputSchema).isEmpty() } ?: return null
             return ProviderEvent.ToolCall(id, tool.name, args)
         }
         read("github_context", "status")?.let { return it }
@@ -37,7 +36,7 @@ internal object GitHubCommitContinuation {
                 put("per_page", 5)
             }
         )?.let { return it }
-        val watch = tools.firstOrNull { it.name.substringBefore("__") == "github_watch_checks" } ?: return null
+        val watch = tools.firstOrNull { it.name.githubOperationFamily() == "github_watch_checks" } ?: return null
         val runs = observed.filter { it.text("call_id") == "$prefix-runs" && it["success"] == JsonPrimitive(true) }.flatMap { receipt ->
             val root = receipt["result"] as? JsonObject ?: return@flatMap emptyList()
             (((root["data"] as? JsonObject) ?: root)["workflow_runs"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()

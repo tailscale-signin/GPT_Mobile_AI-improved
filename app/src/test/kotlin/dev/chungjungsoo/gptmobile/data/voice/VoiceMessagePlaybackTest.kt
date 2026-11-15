@@ -10,6 +10,60 @@ class VoiceMessagePlaybackTest {
     private fun reply(id: Int, run: String = "run-$id", text: String = "Here is the reply.", complete: Boolean = false) =
         VoiceMessageReply(VoiceMessageIdentity(id, run), text, complete)
 
+    @Test fun terminalDurableReadReplacesAStaleBlankOrPrefixBeforeConsumingTheReply() {
+        for (stale in listOf("", "Here is")) {
+            val playback = VoiceMessagePlayback()
+            playback.observe(emptyList(), true)
+            playback.observe(listOf(reply(1, text = stale, complete = true)), true)
+            val pending = requireNotNull(playback.next())
+            // A missing/unavailable read does not call terminalUpdate or mark delivered.
+            assertEquals(pending, playback.active)
+            val durable = requireNotNull(playback.terminalUpdate(pending, "Here is the complete durable reply.", failed = false))
+            assertEquals("Here is the complete durable reply.", durable.text)
+            assertTrue(durable.complete)
+            assertNull(playback.update())
+            playback.finish()
+            playback.observe(listOf(durable), true)
+            assertNull(playback.next())
+        }
+    }
+
+    @Test fun suspendedTerminalReadCannotTakeOwnershipFromManualReplayReplacementOrStop() {
+        for (action in listOf("manual", "replacement", "stop")) {
+            val playback = VoiceMessagePlayback()
+            playback.observe(emptyList(), true)
+            playback.observe(listOf(reply(1, text = "", complete = true)), true)
+            val pending = requireNotNull(playback.next())
+            when (action) {
+                "manual" -> playback.manual(VoiceMessageIdentity(3, "historical", 0))
+                "replacement" -> {
+                    playback.observe(listOf(reply(1, "replacement", "New response", complete = true)), true)
+                    playback.retireSuperseded()
+                    playback.next()
+                }
+                else -> playback.finish()
+            }
+            val owner = playback.active
+            assertNull(playback.terminalUpdate(pending, "Late old durable reply", failed = false))
+            assertEquals(owner, playback.active)
+            if (action == "replacement") assertEquals("replacement", playback.update()?.identity?.runId)
+        }
+    }
+
+    @Test fun authoritativeEmptyAndFailedTerminalsRemainObservableWithoutEnablingMutedAutoplay() {
+        for (failed in listOf(false, true)) {
+            val playback = VoiceMessagePlayback()
+            playback.observe(emptyList(), true)
+            playback.observe(listOf(reply(1, text = "", complete = true)), false)
+            val pending = requireNotNull(playback.next())
+            val terminal = requireNotNull(playback.terminalUpdate(pending, "", failed))
+            assertEquals("", terminal.text)
+            assertEquals(failed, terminal.failed)
+            assertFalse(terminal.readAloud)
+            assertNull(playback.update())
+        }
+    }
+
     @Test fun retainedHistoryAndLaterPaginationNeverAutoplay() {
         val playback = VoiceMessagePlayback()
         playback.observe(listOf(reply(50, complete = true)), true)

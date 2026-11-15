@@ -227,6 +227,8 @@ class ConversationTests(unittest.TestCase):
         self.assertEqual('b' * 40, next_job['continuation_head_sha'])
         self.assertEqual(job['request']['branch'], next_job['continuation_branch'])
         self.assertEqual(cid, next_job['conversation_id'])
+        self.assertNotIn('pr_owner_job_id', next_job)  # No predecessor actor was observed before PLAN.
+        self.assertNotIn('continuation_actor_id', next_job)
         self.assertTrue(next_job['conversation_context']['bounded_history'])
         self.assertIn(job['request']['objective'], str(next_job['conversation_context']))
         self.assertEqual(next_job['id'], self.store.create('owner', followup)['id'])

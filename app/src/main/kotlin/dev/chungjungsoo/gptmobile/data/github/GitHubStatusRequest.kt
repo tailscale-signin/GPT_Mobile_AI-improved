@@ -2,6 +2,8 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -13,22 +15,35 @@ import kotlinx.serialization.json.put
 
 /** Exact short status intents only: an audit or a repair keeps the full engineering workflow. */
 internal object GitHubStatusRequest {
+    /** Health includes recent failed runs; a short status request keeps its smaller read catalog. */
+    fun requiredOperations(task: String): Set<String> = linkedSetOf("github_context", "github_pr").apply {
+        if (health(task)) add("github_ci")
+    }
+
     /** Base reads happen first; remaining accepted calls can follow pinned pages or health obligations. */
     fun nextCall(tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, now: Long = System.currentTimeMillis(), epoch: Long? = null, task: String = "status", acceptedRepository: String? = null): ProviderEvent.ToolCall? {
         val selectedReceipts = GitHubStatusEvidence.selected(receipts, acceptedRepository)
         fun fresh(receipt: JsonObject) = GitHubStatusEvidence.fresh(receipt, now, epoch)
+        fun connection(name: String) = name.substringAfter("__", "")
+        fun sameOperation(left: String, right: String) = GitHubOperationTool.operationName(left) == GitHubOperationTool.operationName(right) && connection(left) == connection(right)
+        val contextTool = tools.firstOrNull { GitHubOperationTool.operationName(it.name) == "github_context" }
         val context = selectedReceipts.values.toList().asReversed().firstNotNullOfOrNull { receipt ->
-            if ((receipt["tool"] as? JsonPrimitive)?.content?.substringBefore("__") != "github_context" || (receipt["arguments"] as? JsonObject)?.get("action") != JsonPrimitive("status") || receipt["success"] != JsonPrimitive(true) || !fresh(receipt)) return@firstNotNullOfOrNull null
+            val name = (receipt["tool"] as? JsonPrimitive)?.content.orEmpty()
+            if (contextTool == null || !sameOperation(name, contextTool.name) || (receipt["arguments"] as? JsonObject)?.get("action") != JsonPrimitive("status") || receipt["success"] != JsonPrimitive(true) || !fresh(receipt)) return@firstNotNullOfOrNull null
             GitHubStatusEvidence.data(receipt)
         }
         val head = (context?.get("commit_sha") as? JsonPrimitive)?.contentOrNull?.takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) }
         val branch = (context?.get("branch") as? JsonPrimitive)?.contentOrNull?.takeIf(String::isNotBlank)
         fun call(operation: String, arguments: JsonObject, afterReceiptId: String? = null): ProviderEvent.ToolCall? {
-            val tool = tools.firstOrNull { it.name.substringBefore("__") == operation } ?: return null
+            val tool = tools.firstOrNull {
+                GitHubOperationTool.operationName(it.name) == operation &&
+                    (contextTool == null || connection(it.name) == connection(contextTool.name)) &&
+                    ToolArgumentValidator.errors(arguments, it.inputSchema).isEmpty()
+            } ?: return null
             val action = (arguments["action"] as? JsonPrimitive)?.content.orEmpty()
             val candidates = if (afterReceiptId == null) selectedReceipts.values else selectedReceipts.entries.dropWhile { it.key != afterReceiptId }.map { it.value }
             val attempts = candidates.filter {
-                it["tool"] == JsonPrimitive(tool.name) &&
+                sameOperation((it["tool"] as? JsonPrimitive)?.content.orEmpty(), tool.name) &&
                     (
                         fresh(it) ||
                             it["success"] == JsonPrimitive(false) &&

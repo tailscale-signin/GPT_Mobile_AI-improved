@@ -48,6 +48,52 @@ class GitHubAuditEvidenceTest {
     private fun status(branch: String = "work") = receipt("status", "github_context", json("""{"action":"status"}"""), json("""{"branch":"$branch","commit_sha":"$head","repository":{"default_branch":"main"}}"""))
     private fun noPulls() = receipt("prs", "github_pr", json("""{"action":"list","state":"open","per_page":100}"""), json("""{"items":[],"page":1,"has_more":false}"""))
 
+    private data class PendingReviewPage(
+        val request: String,
+        val tool: AgentToolDefinition,
+        val arguments: JsonObject,
+        val receipts: LinkedHashMap<String, JsonObject>,
+        val pendingState: String,
+        val completedResult: JsonObject
+    )
+
+    private fun pendingReviewPage(operation: String): PendingReviewPage {
+        val definition = GitHubOperationTool.definition(operation, "${operation}__selected")
+        val pulls = operation.githubOperationFamily() == "github_pr"
+        val arguments = if (pulls) {
+            json("""{"action":"list","state":"open","per_page":100,"page":2}""")
+        } else {
+            json("""{"action":"changes","base_sha":"$base","commit_sha":"$head","include_patches":true,"page":2}""")
+        }
+        val completed = if (pulls) {
+            json("""{"items":[],"page":2,"has_more":false}""")
+        } else {
+            json("""{"base_sha":"$base","head_sha":"$head","files":[{"filename":"A.kt"}],"page":2,"has_more":false}""")
+        }
+        val result = JsonObject(
+            completed + buildJsonObject {
+                put("page", 1)
+                put("has_more", true)
+                put(
+                    "continuation_call",
+                    buildJsonObject {
+                        put("tool", definition.name)
+                        put("arguments", arguments)
+                    }
+                )
+            }
+        )
+        val first = receipt("page-1", definition.name, JsonObject(arguments + ("page" to JsonPrimitive(1))), result)
+        return PendingReviewPage(
+            if (pulls) task else "$task\nBaseline: $base",
+            definition,
+            arguments,
+            linkedMapOf("status" to status(), "page-1" to first),
+            if (pulls) "PR_BASE_LOOKUP" else "COMPARISON_PAGES_PENDING",
+            completed
+        )
+    }
+
     private fun checkSource(): JsonObject = buildJsonObject {
         put("commit_sha", head)
         put("state", "RUNNING")
@@ -369,6 +415,91 @@ class GitHubAuditEvidenceTest {
         assertNull(done.nextCall)
         assertEquals(JsonPrimitive("READ_CHANGED_SOURCE"), done.checkpoint["state"])
         assertEquals(JsonPrimitive(false), done.checkpoint["source_review_verified"])
+    }
+
+    @Test fun pendingPrPagesKeepIssuedFullOrInspectToolAndConsumeExactReceipt() {
+        for (operation in listOf("github_pr", "github_pr_inspect")) {
+            val page = pendingReviewPage(operation)
+            val sibling = if (operation == "github_pr") "github_pr_inspect" else "github_pr"
+            val alternative = GitHubOperationTool.definition(sibling, "${sibling}__selected")
+            val available = listOf(alternative, page.tool) + tools.filter { it.name != "github_pr" }
+            val firstReceipt = page.receipts.getValue("page-1")
+            val fresh = requireNotNull(GitHubReviewComparison.plan(task, available, mapOf("status" to status())))
+            assertEquals(alternative.name, requireNotNull(fresh.nextCall).name)
+
+            val pending = requireNotNull(GitHubReviewComparison.plan(page.request, available, page.receipts))
+            val next = requireNotNull(pending.nextCall)
+            assertEquals(JsonPrimitive(page.pendingState), pending.checkpoint["state"])
+            assertEquals(page.tool.name, next.name)
+            assertEquals(page.arguments, next.arguments)
+
+            page.receipts["sibling-page"] = receipt("sibling-page", alternative.name, page.arguments, page.completedResult)
+            assertEquals(1, GitHubTestChecklist.pendingPages(page.receipts).size)
+            val stillPending = requireNotNull(GitHubReviewComparison.plan(page.request, available, page.receipts))
+            assertEquals(page.tool.name, requireNotNull(stillPending.nextCall).name)
+
+            page.receipts["exact-page"] = receipt("exact-page", page.tool.name, page.arguments, page.completedResult)
+            assertTrue(GitHubTestChecklist.pendingPages(page.receipts).isEmpty())
+            val consumed = requireNotNull(GitHubReviewComparison.plan(page.request, available, page.receipts))
+            assertEquals(JsonPrimitive("BASE_SHA_REQUIRED"), consumed.checkpoint["state"])
+            assertEquals(json("""{"action":"commit","ref":"main"}"""), requireNotNull(consumed.nextCall).arguments)
+            assertEquals(firstReceipt, page.receipts.getValue("page-1"))
+        }
+    }
+
+    @Test fun pendingChangedFilePagesKeepIssuedConnectionAndPinnedRevisions() {
+        val page = pendingReviewPage("github_context")
+        val otherConnection = GitHubOperationTool.definition("github_context", "github_context__other")
+        val available = listOf(otherConnection, page.tool)
+        val pending = requireNotNull(GitHubReviewComparison.plan(page.request, available, page.receipts))
+        val next = requireNotNull(pending.nextCall)
+        assertEquals(JsonPrimitive(page.pendingState), pending.checkpoint["state"])
+        assertEquals(page.tool.name, next.name)
+        assertEquals(page.arguments, next.arguments)
+        assertEquals(JsonPrimitive(base), next.arguments["base_sha"])
+        assertEquals(JsonPrimitive(head), next.arguments["commit_sha"])
+
+        page.receipts["other-page"] = receipt("other-page", otherConnection.name, page.arguments, page.completedResult)
+        assertEquals(1, GitHubTestChecklist.pendingPages(page.receipts).size)
+        val stillPending = requireNotNull(GitHubReviewComparison.plan(page.request, available, page.receipts))
+        assertEquals(page.tool.name, requireNotNull(stillPending.nextCall).name)
+
+        page.receipts["exact-page"] = receipt("exact-page", page.tool.name, page.arguments, page.completedResult)
+        assertTrue(GitHubTestChecklist.pendingPages(page.receipts).isEmpty())
+        val consumed = requireNotNull(GitHubReviewComparison.plan(page.request, available, page.receipts))
+        assertEquals(JsonPrimitive("READ_CHANGED_SOURCE"), consumed.checkpoint["state"])
+        assertNull(consumed.nextCall)
+        assertEquals(JsonPrimitive(false), consumed.checkpoint["source_review_verified"])
+    }
+
+    @Test fun pendingReviewPagesRejectUnavailableOrInvalidExactDefinitions() {
+        for (operation in listOf("github_pr", "github_pr_inspect", "github_context")) {
+            val page = pendingReviewPage(operation)
+            val siblingOperation = when (operation) {
+                "github_pr" -> "github_pr_inspect"
+                "github_pr_inspect" -> "github_pr"
+                else -> "github_context"
+            }
+            val sibling = GitHubOperationTool.definition(siblingOperation, "${siblingOperation}__other")
+            val properties = page.tool.inputSchema.getValue("properties") as JsonObject
+            val incompatible = page.tool.copy(
+                inputSchema = JsonObject(page.tool.inputSchema + ("properties" to JsonObject(properties + ("page" to json("""{"type":"integer","maximum":1}""")))))
+            )
+            val variants = linkedMapOf(
+                "missing" to listOf(sibling),
+                "hidden" to listOf(sibling, page.tool.copy(modelVisible = false)),
+                "incompatible" to listOf(sibling, incompatible),
+                "other-connection" to listOf(sibling, page.tool.copy(name = "${operation}__different"))
+            )
+            assertTrue(ToolArgumentValidator.errors(page.arguments, sibling.inputSchema).isEmpty())
+            assertFalse(ToolArgumentValidator.errors(page.arguments, incompatible.inputSchema).isEmpty())
+            for ((reason, available) in variants) {
+                val pending = requireNotNull(GitHubReviewComparison.plan(page.request, available, page.receipts))
+                assertEquals("$operation: $reason", JsonPrimitive(page.pendingState), pending.checkpoint["state"])
+                assertNull("$operation: $reason", pending.nextCall)
+                assertEquals(page.arguments, GitHubTestChecklist.pendingPages(page.receipts).single()["arguments"])
+            }
+        }
     }
 
     @Test fun verifiedSessionRequestsExactComparisonBeforeModelAndResumesAfterReceipt() = runBlocking {

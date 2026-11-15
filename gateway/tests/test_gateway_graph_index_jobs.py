@@ -210,6 +210,214 @@ class IndexJobTests(unittest.TestCase):
         self.assertEqual(2, self.batches)
         replacement.close()
 
+    def test_close_retains_new_local_and_upstream_wait_before_fresh_worker_can_claim(self):
+        upstream = requests.HTTPError('private rate response')
+        upstream.response = SimpleNamespace(status_code=429, headers={'Retry-After': '900'})
+        for label, failure in (('local', GitHubApiRateWait(900, reason='FOREGROUND_RESERVE')), ('upstream', upstream)):
+            with self.subTest(origin=label):
+                fixture = IndexJobTests()
+                fixture.setUp()
+                replacement = None
+                try:
+                    fixture.clock = 1_800_000_000
+                    fixture.enqueue()
+                    entered = threading.Event()
+                    original = fixture.service.execute
+
+                    def execute(principal, request, **kwargs):
+                        if request['action'] == 'index':
+                            entered.set()
+                            if not fixture.jobs.stop.wait(3):
+                                raise AssertionError('close did not signal its active worker')
+                            raise failure
+                        return original(principal, request, **kwargs)
+
+                    with patch.object(fixture.service, 'execute', side_effect=execute):
+                        fixture.jobs.thread = threading.Thread(target=fixture.jobs._run, daemon=True)
+                        fixture.jobs.thread.start()
+                        self.assertTrue(entered.wait(3))
+                        fixture.jobs.close()
+                    saved = fixture.jobs.status('principal', fixture.request)
+                    self.assertEqual('INTERRUPTED', saved['state'])
+                    self.assertEqual(fixture.clock + 900, saved['retry_at'])
+                    self.assertNotIn('private', json.dumps(saved))
+                    replacement = GraphIndexJobs(fixture.service, now=lambda: fixture.clock)
+                    self.assertIsNone(replacement._take())
+                    fixture.clock += 899
+                    self.assertIsNone(replacement._take())
+                    fixture.clock += 1
+                    self.assertIsNotNone(replacement._take())
+                    self.assertEqual(0, fixture.batches)
+                finally:
+                    if replacement is not None:
+                        replacement.close()
+                    fixture.tearDown()
+
+    def test_late_wait_does_not_resurrect_same_generation_pause_or_cancel(self):
+        for control, restart in (('pause', 'resume'), ('cancel', 'start')):
+            for origin in ('local', 'upstream'):
+                with self.subTest(control=control, origin=origin):
+                    fixture = IndexJobTests()
+                    fixture.setUp()
+                    replacement = None
+                    try:
+                        fixture.enqueue()
+                        claimed = fixture.jobs._take()
+                        fixture.enqueue(job_action=control, job_id=claimed['id'], job_generation=claimed['generation'], request_id=control)
+                        before = fixture.jobs._transaction(lambda db: fixture.jobs._read(db, claimed['id']))
+                        failure = GitHubApiRateWait(900, reason='FOREGROUND_RESERVE')
+                        if origin == 'upstream':
+                            failure = requests.HTTPError('private rate response')
+                            failure.response = SimpleNamespace(status_code=429, headers={'Retry-After': '900'})
+                        interrupted = InterruptedError('source batch cancelled')
+                        interrupted.__cause__ = failure
+                        fixture.jobs._failure(claimed, interrupted)
+                        after = fixture.jobs._transaction(lambda db: fixture.jobs._read(db, claimed['id']))
+                        self.assertEqual(fixture.clock + 900, after['retry_at'])
+                        self.assertEqual({key: value for key, value in before.items() if key not in {'retry_at', 'rate_wait_code'}},
+                                         {key: value for key, value in after.items() if key not in {'retry_at', 'rate_wait_code'}})
+                        replacement = GraphIndexJobs(fixture.service, now=lambda: fixture.clock)
+                        self.assertIsNone(replacement._take())
+                        with patch.object(replacement, 'start'):
+                            resumed = replacement.handle('principal', dict(fixture.request, job_action=restart,
+                                job_id=claimed['id'], job_generation=claimed['generation'], request_id=restart))['index_job']
+                        self.assertEqual(claimed['generation'] + 1, resumed['generation'])
+                        self.assertEqual('QUEUED', resumed['state'])
+                        self.assertIsNone(replacement._take())
+                        fixture.clock += 900
+                        self.assertIsNotNone(replacement._take())
+                        self.assertEqual(0, fixture.batches)
+                    finally:
+                        if replacement is not None:
+                            replacement.close()
+                        fixture.tearDown()
+
+    def test_late_rate_observation_cannot_modify_another_namespace_or_newer_generation(self):
+        self.enqueue()
+        claimed = self.jobs._take()
+        before = self.jobs._transaction(lambda db: self.jobs._read(db, claimed['id']))
+        self.jobs._failure(dict(claimed, namespace='different-scope'), GitHubApiRateWait(900))
+        self.assertEqual(before, self.jobs._transaction(lambda db: self.jobs._read(db, claimed['id'])))
+        self.enqueue(job_action='cancel', job_id=claimed['id'], job_generation=claimed['generation'], request_id='cancel-old')
+        self.enqueue(request_id='new-generation')
+        newer = self.jobs._transaction(lambda db: self.jobs._read(db, claimed['id']))
+        self.assertGreater(newer['generation'], claimed['generation'])
+        self.jobs._failure(claimed, GitHubApiRateWait(900))
+        self.assertEqual(newer, self.jobs._transaction(lambda db: self.jobs._read(db, claimed['id'])))
+        self.assertIsNone(newer['retry_at'])
+
+    def test_interrupted_wait_requires_a_direct_observed_rate_cause(self):
+        self.enqueue()
+        for kind in ('message-only', 'nested-rate', 'bare-forbidden'):
+            with self.subTest(kind=kind):
+                claimed = self.jobs._take()
+                failure = InterruptedError('Retry-After: 900; rate capacity')
+                if kind == 'nested-rate':
+                    wrapper = ValueError('unqualified wrapper')
+                    wrapper.__cause__ = GitHubApiRateWait(900)
+                    failure.__cause__ = wrapper
+                elif kind == 'bare-forbidden':
+                    forbidden = requests.HTTPError('forbidden')
+                    forbidden.response = SimpleNamespace(status_code=403, headers={})
+                    failure.__cause__ = forbidden
+                self.jobs._failure(claimed, failure)
+                saved = self.jobs.status('principal', self.request)
+                self.assertEqual('INTERRUPTED', saved['state'])
+                self.assertIsNone(saved['retry_at'])
+
+    def test_current_success_preserves_late_old_lease_wait_and_clears_it_only_after_expiry(self):
+        for initial_batches, expected_state in ((0, 'QUEUED'), (1, 'COMPLETED')):
+            with self.subTest(checkpoint=expected_state):
+                fixture = IndexJobTests()
+                fixture.setUp()
+                replacement = None
+                try:
+                    fixture.batches = initial_batches
+                    fixture.enqueue()
+                    old = fixture.jobs._take()
+                    fixture.clock = old['lease_until'] + 1
+                    current = fixture.jobs._take()
+                    self.assertEqual(old['generation'], current['generation'])
+                    self.assertNotEqual(old['lease'], current['lease'])
+                    original = fixture.service.execute
+                    observed = []
+
+                    def execute(principal, request, **kwargs):
+                        result = original(principal, request, **kwargs)
+                        if request['action'] == 'index':
+                            fixture.jobs._failure(old, GitHubApiRateWait(900, reason='FOREGROUND_RESERVE'))
+                            observed.append(fixture.jobs._transaction(lambda db: fixture.jobs._read(db, current['id'])))
+                        return result
+
+                    with patch.object(fixture.service, 'execute', side_effect=execute):
+                        fixture.jobs._step(current)
+                    self.assertEqual(1, len(observed))
+                    self.assertEqual('RUNNING', observed[0]['state'])
+                    self.assertEqual(current['lease'], observed[0]['lease'])
+                    saved = fixture.jobs.status('principal', fixture.request)
+                    self.assertEqual(expected_state, saved['state'])
+                    self.assertEqual(initial_batches + 1, saved['completed_files'])
+                    self.assertEqual(1, saved['batches'])
+                    self.assertEqual(fixture.clock + 900, saved['retry_at'])
+                    row = fixture.jobs._transaction(lambda db: fixture.jobs._read(db, current['id']))
+                    self.assertEqual('INDEX_CAPACITY_RESERVED', row['rate_wait_code'])
+                    replacement = GraphIndexJobs(fixture.service, now=lambda: fixture.clock)
+                    if expected_state == 'COMPLETED':
+                        with patch.object(replacement, 'start'):
+                            queued = replacement.handle('principal', dict(fixture.request, request_id='after-completion'))['index_job']
+                        self.assertEqual(saved['generation'] + 1, queued['generation'])
+                    self.assertIsNone(replacement._take())
+                    fixture.clock += 899
+                    self.assertIsNone(replacement._take())
+                    fixture.clock += 1
+                    ready = replacement._take()
+                    self.assertIsNotNone(ready)
+                    replacement._step(ready)
+                    finished = replacement.status('principal', fixture.request)
+                    self.assertEqual('COMPLETED', finished['state'])
+                    self.assertIsNone(finished['retry_at'])
+                    self.assertIsNone(replacement._transaction(lambda db: replacement._read(db, ready['id']))['rate_wait_code'])
+                    self.assertEqual(2, fixture.batches)
+                finally:
+                    if replacement is not None:
+                        replacement.close()
+                    fixture.tearDown()
+
+    def test_current_shorter_wait_cannot_overwrite_late_longer_observation_or_extend_budget(self):
+        self.enqueue()
+        old = self.jobs._take()
+        self.clock = old['lease_until'] + 1
+        current = self.jobs._take()
+        later_deadline = self.clock + 3 * 24 * 3600
+        shorter = requests.HTTPError('private shorter rate response')
+        shorter.response = SimpleNamespace(status_code=429, headers={'Retry-After': '300'})
+        finish = self.jobs._finish
+        injected = False
+
+        def interleaved_finish(claimed, **changes):
+            nonlocal injected
+            if claimed['lease'] == current['lease'] and not injected:
+                injected = True
+                self.jobs._failure(old, GitHubApiRateWait(3 * 24 * 3600, reason='FOREGROUND_RESERVE'))
+            return finish(claimed, **changes)
+
+        with patch.object(self.jobs, '_finish', side_effect=interleaved_finish):
+            self.jobs._failure(current, shorter)
+        self.assertTrue(injected)
+        row = self.jobs._transaction(lambda db: self.jobs._read(db, current['id']))
+        self.assertEqual('QUEUED', row['state'])
+        self.assertEqual(later_deadline, row['retry_at'])
+        self.assertEqual('INDEX_CAPACITY_RESERVED', row['rate_wait_code'])
+        self.assertEqual(current['deadline'], row['next_at'])
+        self.assertIsNone(self.jobs._take())
+        self.clock = current['deadline']
+        self.assertIsNone(self.jobs._take())
+        paused = self.jobs.status('principal', self.request)
+        self.assertEqual('PAUSED', paused['state'])
+        self.assertEqual('INDEX_BUDGET_REACHED', paused['error_code'])
+        self.assertEqual(later_deadline, paused['retry_at'])
+        self.assertEqual(0, self.batches)
+
     def test_primary_rate_limit_uses_reset_but_bare_forbidden_is_terminal(self):
         self.clock = 1_800_000_000
         self.enqueue()

@@ -106,7 +106,7 @@
     <string name="model_name">Model Name</string>
     <string name="model_supporting">e.g. gpt-4o, claude-3-5-sonnet-20241022</string>
     <string name="model_description">Enter the model identifier to use</string>
-    <string name="model_examples">Common models: %1$s</string>
+    <string name="model_examples">Common models: gpt-4o, claude-sonnet-4-20250514, gemini-1.5-pro</string>
     <string name="step_model">Model Selection</string>
     <string name="need_help">Need help getting an API key?</string>
     <string name="api_model">Model</string>
@@ -375,8 +375,8 @@
     <string name="tool_name_calculator">Calculator</string>
     <string name="tool_name_location">Location</string>
     <string name="tool_name_date">Date</string>
-    <string name="tool_trace_block_content_description">Tool trace block</string>
-    <string name="tool_trace_call_content_description">Tool trace call</string>
+    <string name="tool_trace_block_content_description">Tool trace block, %1$s</string>
+    <string name="tool_trace_call_content_description">Tool trace call %1$s, %2$s</string>
     <string name="search_tool_trace">Search tool trace</string>
     <string name="no_matching_tool_calls">No matching tool calls</string>
 

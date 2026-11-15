@@ -3,7 +3,7 @@ import hashlib
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk, simpledialog
+from tkinter import ttk, simpledialog, messagebox
 import uuid
 
 from desktop import theme
@@ -29,6 +29,7 @@ class ChatPanel(tk.Frame):
         self.selected_message = None
         self.cursor = None
         self.busy = False
+        self.engineering_modal = False
         self.sending = False
         self.closed = False
         self.visible = False
@@ -46,6 +47,8 @@ class ChatPanel(tk.Frame):
         head.pack(fill='x', pady=(0, 6))
         self.heading = theme.label(head, 'Chat', 23, bold=True)
         self.heading.pack(side='left')
+        self.compose_engineering_button = ttk.Button(head, text='Engineering task…', command=self.compose_engineering, state='disabled')
+        self.compose_engineering_button.pack(side='right', padx=5)
         ttk.Button(head, text='New prompt', command=self.new_chat, style='Accent.TButton').pack(side='right')
         self.privacy = theme.label(self, 'Connect to see where your conversations are saved.', color=theme.MUTED,
                                    justify='left', anchor='w', wraplength=720)
@@ -115,6 +118,8 @@ class ChatPanel(tk.Frame):
         self.archive_button.pack(side='left', padx=5)
         self.favorite_button = ttk.Button(actions, text='Favorite', command=self.favorite, state='disabled')
         self.favorite_button.pack(side='left')
+        self.engineering_button = ttk.Button(actions, text='Review job…', command=self.review_engineering, state='disabled')
+        self.engineering_button.pack(side='left', padx=5)
         text_shell = tk.Frame(reading, bg=theme.PANEL)
         text_shell.pack(fill='both', expand=True, padx=(12, 0))
         self.text = tk.Text(text_shell, bg=theme.PANEL, fg=theme.TEXT, insertbackground=theme.CYAN,
@@ -340,9 +345,13 @@ class ChatPanel(tk.Frame):
                             pending={'command_id': command, 'identity': identity,
                             'draft_sha256': hashlib.sha256(prompt.encode('utf-8')).hexdigest(),
                             'conversation_id': (conversation or {}).get('conversation_id')})
-            client = Client(self.root, identity)
-            return client.send(model, prompt, command, conversation=conversation, history=transcript,
-                               on_event=lambda name, value: self.post(name, value, epoch))
+            try:
+                client = Client(self.root, identity)
+                return client.send(model, prompt, command, conversation=conversation, history=transcript,
+                                   on_event=lambda name, value: self.post(name, value, epoch))
+            except ClientError as error:
+                error.command_id, error.command_identity = command, identity
+                raise
         self.launch('sent', work, epoch=epoch)
 
     def reconcile(self):
@@ -363,7 +372,8 @@ class ChatPanel(tk.Frame):
             self.status.configure(text='The reply does not identify the pending command. Choose Check send; it will not be sent again.')
             return
         if value.get('admission_state') == 'rejected':
-            self.launch('rejected-cleared', lambda: self.state.save(pending=None), quiet=True)
+            command, identity = pending['command_id'], dict(pending['identity'])
+            self.launch('rejected-cleared', lambda: self.state.retire_pending(command, identity), quiet=True)
             self.status.configure(text='The original command was rejected before dispatch. Your draft is kept; correct its prerequisite before sending again.')
         elif value.get('conversation_id'):
             ident = value['conversation_id']
@@ -437,6 +447,95 @@ class ChatPanel(tk.Frame):
         if ident:
             self.launch('stopped', lambda: self.client().cancel(ident), quiet=True)
 
+    def compose_engineering(self):
+        if (self.closed or not self.visible or self.busy or self.sending or not self.identity or
+                self.state.error or self.state.value.get('pending') or getattr(self, 'engineering_modal', False)):
+            return
+        from desktop.engineering_composer import EngineeringForm, TaskPreparation, modal_scope
+        preparation = TaskPreparation(self)
+        with modal_scope(self):
+            form = EngineeringForm(self, preparation.model, preparation.origin)
+        if form.result and preparation.current(self):
+            command = uuid.uuid4().hex
+            values = dict(form.result)
+            def prepare():
+                payload, result = preparation.client.prepare_engineering(preparation.model, values, command, preparation.origin)
+                return payload, result, preparation
+            if self.launch('engineering-preflight', prepare) is False:
+                self.status.configure(text='Another action started. Open the engineering task again to prepare it.')
+
+    def show_engineering_preflight(self, payload, result, preparation):
+        if not preparation.current(self):
+            return
+        from desktop.engineering_composer import AcceptanceForm, modal_scope
+        payload = dict(payload)
+        if result.get('ready') is not True:
+            proposal = result.get('acceptance_preparation') or {}
+            if proposal.get('source_sha') == payload.get('source_sha') and proposal.get('candidates'):
+                with modal_scope(self):
+                    form = AcceptanceForm(self, proposal)
+                if form.result and preparation.current(self):
+                    updated = dict(payload, acceptance=[form.result])
+                    if self.launch('engineering-preflight', lambda: (
+                            updated, preparation.client.engineering_preflight(updated), preparation)) is False:
+                        self.status.configure(text='Another action started. Review this task again before submitting.')
+                return
+            reasons = '\n'.join(row['message'] for row in result.get('blockers', [])[:6])
+            with modal_scope(self):
+                messagebox.showinfo('Engineering preparation', reasons or 'Review the Gateway validation setup.', parent=self)
+            return
+        summary = f"{payload['repository']} · {payload['branch']}\nSource: {payload['source_sha']}\nModel: {payload['model']}"
+        with modal_scope(self):
+            confirmed = messagebox.askyesno('Start this engineering task?', summary, parent=self)
+        if not confirmed or not preparation.current(self):
+            return
+        identity = dict(preparation.client.expected_identity)
+        def dispatch():
+            self.state.save(pending={'command_id': payload['command_id'], 'identity': identity,
+                                     'conversation_id': payload.get('conversation_id')})
+            try:
+                return preparation.client.submit_engineering(payload)
+            except ClientError as error:
+                error.command_id, error.command_identity = payload['command_id'], identity
+                raise
+        if self.launch('engineering-submitted', dispatch) is False:
+            self.status.configure(text='Another action started. Review this task again before submitting.')
+
+    def review_engineering(self):
+        if self.closed or not self.visible or getattr(self, 'engineering_modal', False):
+            return
+        if self.conversation and self.conversation.get('active_job_kind') == 'engineering':
+            conversation = dict(self.conversation)
+            client = self.client()
+            self.launch('engineering-reviewed', lambda: (conversation, client.engineering_review(conversation), client))
+
+    def show_engineering_review(self, conversation, job, client):
+        from desktop.engineering_composer import modal_scope
+        epoch = self.epoch
+        def unchanged():
+            return (not self.closed and self.visible and self.epoch == epoch and self.conversation and
+                    all(self.conversation.get(key) == conversation.get(key)
+                        for key in ('conversation_id', 'active_job_id', 'active_job_kind')) and
+                    scope_key(self.identity or {}) == scope_key(client.expected_identity or {}))
+        if not unchanged():
+            return
+        job = dict(job)
+        description = f"{job['repository']} · {job['branch']}\nStage: {job['state']}"
+        if job.get('pr'):
+            description += f"\nPull request #{job['pr']}"
+        if job.get('qualified_revision'):
+            description += '\nQualified commit: ' + job['qualified_revision']
+        if not job.get('merge_ready'):
+            with modal_scope(self):
+                messagebox.showinfo('Engineering job', description + '\n\n' + job.get('message', ''), parent=self)
+            return
+        description += '\nCommit: ' + job['head_sha']
+        with modal_scope(self):
+            confirmed = messagebox.askyesno('Approve exact merge?', description, parent=self)
+        if confirmed and unchanged():
+            if self.launch('engineering-approved', lambda: client.approve_engineering(conversation, job)) is False:
+                self.status.configure(text='Another action started. Review the current job again before approving it.')
+
     def controls(self):
         pending = self.state.value.get('pending')
         original = self.conversation
@@ -449,6 +548,12 @@ class ChatPanel(tk.Frame):
         self.stop_button.configure(state='normal' if (self.sending or active) and (getattr(self, 'active_job_id', None) or active) and not (original and original.get('active_job_kind') == 'engineering') else 'disabled')
         for button in (self.rename_button, self.archive_button, self.favorite_button):
             button.configure(state='normal' if original and not self.busy else 'disabled')
+        engineering = original and original.get('active_job_kind') == 'engineering'
+        continuable = not engineering or str(original.get('job_state', '')).upper() in TERMINAL | {'NEEDS_INPUT', 'MERGE_READY'}
+        can_prepare = bool(self.identity and not self.busy and not self.sending and not pending and not self.state.error and continuable)
+        self.compose_engineering_button.configure(text='Continue engineering…' if engineering else 'Engineering task…',
+                                                  state='normal' if can_prepare else 'disabled')
+        self.engineering_button.configure(state='normal' if original and original.get('active_job_kind') == 'engineering' and not self.busy else 'disabled')
         self.archive_button.configure(text='Unarchive' if original and original.get('archived') else 'Archive')
         self.favorite_button.configure(text='Unfavorite' if original and original.get('favorite') else 'Favorite')
         self.save_message_button.configure(state='normal' if original and self.selected_message and not self.busy else 'disabled')
@@ -495,7 +600,7 @@ class ChatPanel(tk.Frame):
                 self.text.mark_set('insert', positions[0])
                 self.selected_message = opened_message
             self.open_message_id = None
-        self.status.configure(text='Saved conversation loaded. Click inside a message to save it.' if mode == 'Chat' else 'Saved GitHub transcript. Continue engineering work through its original job.')
+        self.status.configure(text='Saved conversation loaded. Click inside a message to save it.' if mode == 'Chat' else 'Saved GitHub transcript. Review its job for current stage or merge approval.')
         self.controls()
         if self.poll_timer:
             self.after_cancel(self.poll_timer)
@@ -506,7 +611,7 @@ class ChatPanel(tk.Frame):
         self.poll_timer = None
         if self.closed or not self.visible or not self.conversation or self.sending:
             return
-        if self.busy:
+        if self.busy or getattr(self, 'engineering_modal', False):
             self.poll_timer = self.after(2000, self.refresh_conversation)
             return
         ident = self.conversation['conversation_id']
@@ -565,6 +670,15 @@ class ChatPanel(tk.Frame):
                 self.status.configure(text=f'{len(self.rows)} saved items shown.' if self.rows else 'Nothing here yet. Send a prompt or save a message from a conversation.')
             elif name == 'opened':
                 self.show_opened(value)
+            elif name == 'engineering-preflight':
+                self.show_engineering_preflight(*value)
+            elif name == 'engineering-submitted':
+                self.settle_send(value)
+            elif name == 'engineering-reviewed':
+                self.show_engineering_review(*value)
+            elif name == 'engineering-approved':
+                self.status.configure(text='Approval received. Gateway will recheck the exact pull request and commit.')
+                self.refresh_conversation()
             elif name == 'accepted':
                 self.active_job_id = value.get('job_id')
                 self.status.configure(text='Gateway is responding. Closing this window keeps admitted work running.' if value.get('detach_safe') else 'Gateway is responding. Keep this window open until the reply is saved.')
@@ -596,8 +710,11 @@ class ChatPanel(tk.Frame):
                     self.busy = False
                 if operation == 'sent':
                     self.sending = False
-                    if getattr(error, 'not_dispatched', False):
-                        self.launch('rejected-cleared', lambda: self.state.save(pending=None), quiet=True)
+                if operation in {'sent', 'engineering-submitted'} and getattr(error, 'not_dispatched', False):
+                    command = getattr(error, 'command_id', None)
+                    identity = dict(getattr(error, 'command_identity', {}))
+                    self.launch('rejected-cleared', lambda command=command, identity=identity:
+                                self.state.retire_pending(command, identity), quiet=True)
                 self.status.configure(text=str(error))
             self.controls()
         if redraw:

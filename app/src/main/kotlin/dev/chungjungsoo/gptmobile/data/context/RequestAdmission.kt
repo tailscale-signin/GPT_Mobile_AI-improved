@@ -133,6 +133,14 @@ object RequestAdmission {
         return RequestMeasurement(prompt, estimateSafety(prompt), TokenMeasurementKind.UTF8_ESTIMATE)
     }
 
+    /** Invert the UTF-8 estimate reserve after setting aside the reply allowance. */
+    internal fun maximumEstimatedPrompt(available: Long): Long {
+        if (available < 256) return 0
+        // prompt + floor(prompt / 4) <= available, evaluated without multiplying available.
+        val proportional = available - available / 5 - if (available % 5 == 4L) 1 else 0
+        return minOf(available - 256, proportional)
+    }
+
     /** Shared by planning and final serialization so a helper cannot spend the safety reserve. */
     fun estimateSafety(promptTokens: Long): Long {
         require(promptTokens >= 0)

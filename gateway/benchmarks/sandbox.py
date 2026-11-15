@@ -25,13 +25,24 @@ sys.path.insert(0, '/candidate')
 import service
 requests = json.load(open('/evaluator/inputs.json'))
 outputs = []
+def input_snapshot(request):
+    try:
+        return json.dumps(request, sort_keys=True, ensure_ascii=True, allow_nan=False)
+    except BaseException:
+        return None
+
 for request in requests:
+    before = input_snapshot(request)
     try:
         value = service.handle(request)
         first = json.loads(json.dumps(value, allow_nan=False))
-        outputs.append({'output': first})
+        row = {'output': first}
     except BaseException as error:
-        outputs.append({'error': type(error).__name__})
+        row = {'error': type(error).__name__}
+    after = input_snapshot(request)
+    # Same-process diagnostics are candidate-influenced, never grading authority.
+    row['input_preserved'] = before == after if before is not None and after is not None else None
+    outputs.append(row)
 print(json.dumps({'outputs': outputs}, ensure_ascii=True, allow_nan=False))
 '''
 
@@ -198,7 +209,7 @@ def execute(sources, inputs, settings, cancel=None, *, docker=None, retain=None,
                 outputs = payload.get('outputs')
                 if not isinstance(outputs, list) or len(outputs) != len(inputs):
                     raise ValueError('Missing case outputs')
-                if any(not isinstance(row, dict) or set(row) - {'output', 'error'} for row in outputs):
+                if any(not isinstance(row, dict) or set(row) - {'output', 'error', 'input_preserved'} for row in outputs):
                     raise ValueError('Malformed case outputs')
             except (ValueError, AttributeError, TypeError):
                 return {'status': 'FAILED', 'executed': True, 'outputs': [], 'exitCode': 0,

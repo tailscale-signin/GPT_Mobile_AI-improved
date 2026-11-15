@@ -38,7 +38,7 @@ class GitHubToolTest {
                 )
             }
         ).use { http ->
-            val tool = GitHubTool("private-token", http, repositoryContext = GitHubRepositoryContext("private-owner", "private-repo", "working")).operations().single { it.operation == "github_context" }
+            val tool = GitHubTool("private-token", http, repositoryContext = GitHubRepositoryContext("private-owner", "private-repo", "working")).operations().single { it.definition.name == "github_context" }
             val result = tool.execute("private-call", buildJsonObject { put("action", "repository") })
             assertEquals("GITHUB_SECONDARY_RATE_LIMITED", result.errorCode)
             assertTrue(result.dispatched)
@@ -99,7 +99,7 @@ class GitHubToolTest {
                     http,
                     repositoryContext = GitHubRepositoryContext("owner", "repo", "working"),
                     credentialProvider = { if (++credentials == 2) throw failure else "token" }
-                ).operations().single { it.operation == "github_context" }
+                ).operations().single { it.definition.name == "github_context" }
                 val result = tool.execute("call", buildJsonObject { put("action", "repository") })
                 assertTrue(result.isError)
                 assertFalse(result.dispatched)
@@ -183,7 +183,7 @@ class GitHubToolTest {
                     http,
                     repositoryContext = GitHubRepositoryContext("private-owner", "private-repo", "working"),
                     credentialProvider = { if (++credentials == 2) throw observed else "private-token" }
-                ).operations().single { it.operation == "github_context" }
+                ).operations().single { it.definition.name == "github_context" }
                 val result = tool.execute(
                     "call-$action",
                     buildJsonObject {
@@ -234,7 +234,7 @@ class GitHubToolTest {
                         }
                         "private-token"
                     }
-                ).operations().single { it.operation == "github_context" }
+                ).operations().single { it.definition.name == "github_context" }
                 val invocation = runCatching { tool.execute("call", buildJsonObject { put("action", "repository") }) }
                 if (cancel) {
                     assertTrue(invocation.exceptionOrNull() is kotlinx.coroutines.CancellationException)
@@ -1004,7 +1004,7 @@ class GitHubToolTest {
                 repositoryContext = GitHubRepositoryContext("selected", "repository", "main"),
                 persistentState = false,
                 taskRequest = "Find a Kotlin repository"
-            ).operations().single { it.operation == "github_context" }
+            ).operations().single { it.definition.name == "github_context" }
             for ((index, query) in listOf(null, "", "   ").withIndex()) {
                 val result = tool.execute(
                     "missing-query-$index",

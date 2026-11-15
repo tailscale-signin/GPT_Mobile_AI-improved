@@ -17,6 +17,33 @@ class IssueReportDiagnosticsTest {
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 
+    @Test fun reasoningProbeFieldsAreBoundedOptionalAndLegacyAgeRemainsUnchanged() {
+        val sample = capture("PROVIDER", mapOf("reasoning_probe_outcome" to "IDENTICAL_PROMPTS", "reasoning_probe_attempts" to 2, "reasoning_probe_age_ms" to 8000, "reasoning_metadata_age_ms" to 8))
+        assertEquals(IssueReportDiagnostics.reasoningProbeFields, sample.values.keys)
+        assertEquals(2, sample.requiredReporterVersion())
+        for (key in sample.values.keys) {
+            val invalid = if (key == "reasoning_probe_outcome") {
+                listOf(JsonPrimitive("private template"), JsonPrimitive(1), JsonPrimitive(false))
+            } else {
+                listOf(JsonPrimitive(-1), JsonPrimitive("2"), JsonPrimitive(false), JsonPrimitive(2.5), JsonPrimitive(if (key == "reasoning_probe_attempts") 5 else 86_400_001))
+            }
+            for (value in invalid + kotlinx.serialization.json.JsonNull) assertNull(sample.copy(values = sample.values + (key to value)).validated())
+            val absent = capture("PROVIDER", emptyMap())
+            for (declared in listOf(absent.copy(omittedFields = listOf(key)), absent.copy(unavailableFields = absent.unavailableFields + key))) {
+                assertTrue(declared.isValid())
+                assertEquals(2, declared.requiredReporterVersion())
+                assertEquals(declared, IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), declared)))
+            }
+            assertNull(sample.copy(unavailableFields = sample.unavailableFields + key).validated())
+        }
+        for (attempts in listOf(0, 4)) assertTrue(sample.copy(values = sample.values + ("reasoning_probe_attempts" to JsonPrimitive(attempts))).isValid())
+        for (age in listOf(0, 86_400_000)) assertTrue(sample.copy(values = sample.values + ("reasoning_probe_age_ms" to JsonPrimitive(age)) + ("reasoning_metadata_age_ms" to JsonPrimitive(age))).isValid())
+        val legacy = capture("PROVIDER", mapOf("reasoning_capability_age_ms" to 8))
+        assertEquals(mapOf("reasoning_capability_age_ms" to JsonPrimitive(8)), legacy.values)
+        assertEquals(0, legacy.requiredReporterVersion())
+        assertEquals(legacy, IssueReportDiagnostics.fromJson(IssueReport.json.encodeToJsonElement(IssueReportDiagnostics.serializer(), legacy)))
+    }
+
     @Test fun githubCooldownEvidenceKeepsLongBoundariesAndRejectsMalformedRestoredFields() {
         val longs = setOf("github_cooldown_delay_ms", "github_cooldown_deadline_ms", "github_cooldown_observed_at_ms")
         val sample = mapOf<String, Any?>(

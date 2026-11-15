@@ -26,7 +26,7 @@ internal data class EngineeringCheckReceipt(
 
 internal data class EngineeringRequiredCheck(val name: String, val appId: Long? = null)
 
-internal enum class EngineeringCiVerdict { PENDING, PASSED, FAILED }
+internal enum class EngineeringCiVerdict { PENDING, PASSED, FAILED, BLOCKED }
 
 /** Absence of a required check never counts as a pass. */
 internal object GitHubEngineeringCiPolicy {
@@ -68,8 +68,9 @@ internal object GitHubEngineeringCiPolicy {
             when (current.conclusion) {
                 EngineeringCheckConclusion.SUCCESS -> Unit
                 EngineeringCheckConclusion.FAILURE, EngineeringCheckConclusion.CANCELLED,
-                EngineeringCheckConclusion.TIMED_OUT, EngineeringCheckConclusion.ACTION_REQUIRED -> return EngineeringCiVerdict.FAILED
-                else -> pending = true
+                EngineeringCheckConclusion.TIMED_OUT -> return EngineeringCiVerdict.FAILED
+                EngineeringCheckConclusion.NEUTRAL, EngineeringCheckConclusion.SKIPPED,
+                EngineeringCheckConclusion.ACTION_REQUIRED, EngineeringCheckConclusion.UNKNOWN, null -> return EngineeringCiVerdict.BLOCKED
             }
         }
         return if (pending) EngineeringCiVerdict.PENDING else EngineeringCiVerdict.PASSED

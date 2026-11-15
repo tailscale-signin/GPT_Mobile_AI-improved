@@ -281,6 +281,92 @@ class IssueReportHttpTest(unittest.TestCase):
             self.assertNotIn("| voice_read_calls |", body)
             self.assertIn("`voice_capture_attempts`", body)
 
+    def test_protocol_two_composer_budget_and_graph_fields_reach_http_reports_without_new_absence_claims(self):
+        from authentication.test_report_extensions import ReportExtensionsTest
+        timeline = ReportExtensionsTest().timeline(("EDITOR_FOCUSED", "RELEASE_BACKGROUND_TAP", "EDITOR_UNFOCUSED"))
+        legacy = {"composer_focus_transitions": 12, "composer_ime_transitions": 12, "composer_focused": False, "composer_ime_visible": False}
+        for area, values in (("APP", timeline), ("APP", legacy), ("TOOL", {"tool_budget_bytes_available": 0}),
+                             ("TOOL", {"graph_index_attempt_hash": "a" * 64})):
+            capture = self.diagnostics(area, values, mode="SELECTED_CAPTURE")
+            report = {**self.manual(), "context": self.context(schemaVersion=5, source="MANUAL_REPORT", diagnostics=capture)}
+            payload = json.dumps(report, separators=(",", ":")).encode()
+            response = self.client.post("/v1/issue-reports", content=payload, headers={"content-type": "application/json"})
+            self.assertEqual(200, response.status_code)
+            body = self.issued[-1]["body"]
+            for key, value in values.items():
+                text = json.dumps(value) if type(value) is bool else str(value)
+                self.assertIn(f"| {key} | `{text}` |", body)
+            if values == legacy:
+                self.assertNotIn("composer_generation", body)
+                self.assertNotIn("composer_event_1", body)
+            if "tool_budget_bytes_available" in values:
+                self.assertNotIn("tool_result_bytes_used", body)
+                self.assertNotIn("tool_result_bytes_limit", body)
+    def test_protocol_two_composer_tool_omissions_and_malformed_reports_are_checked_before_creation(self):
+        from authentication.test_report_extensions import ReportExtensionsTest
+        timeline = ReportExtensionsTest().timeline()
+        for area, field in (("APP", "composer_event_1"), ("TOOL", "tool_budget_bytes_available"), ("TOOL", "graph_index_attempt_hash")):
+            capture = self.diagnostics(area)
+            capture["omittedFields"] = [field]
+            self.assertEqual(200, self.submit({**self.manual(), "context": self.context(schemaVersion=5, diagnostics=capture)}).status_code)
+        issued = len(self.issued)
+        malformed = [("APP", {key: value for key, value in timeline.items() if key != "composer_event_2_age_ms"}),
+                     ("APP", dict(timeline, composer_event_3_age_ms=1)), ("TOOL", {"tool_budget_bytes_available": "0"}),
+                     ("TOOL", {"graph_index_attempt_hash": "private UUID"})]
+        for area, values in malformed:
+            response = self.submit({**self.manual(), "context": self.context(schemaVersion=5, diagnostics=self.diagnostics(area, values))})
+            self.assertEqual(422, response.status_code)
+        self.assertEqual(issued, len(self.issued))
+
+    def test_protocol_two_reasoning_probe_reports_keep_separate_ages_and_legacy_payloads(self):
+        values = {"reasoning_probe_outcome": "IDENTICAL_PROMPTS", "reasoning_probe_attempts": 2,
+                  "reasoning_probe_age_ms": 8000, "reasoning_metadata_age_ms": 8}
+        for observed in (values, {"reasoning_capability_age_ms": 8}):
+            capture = self.diagnostics("PROVIDER", observed)
+            report = {**self.metadata(), "source": "debug", "feature": "chat", "errorCode": "REASONING_ON_UNSUPPORTED",
+                      "context": self.context(schemaVersion=5, source="CHAT_FAILURE", stage="provider_admission", diagnostics=capture)}
+            payload = json.dumps(report, separators=(",", ":")).encode()
+            response = self.client.post("/v1/issue-reports", content=payload, headers={"content-type": "application/json"})
+            self.assertEqual(200, response.status_code)
+            body = self.issued[-1]["body"]
+            for key, value in observed.items():
+                self.assertIn(f"| {key} | `{value}` |", body)
+            if "reasoning_capability_age_ms" in observed:
+                self.assertNotIn("reasoning_probe_age_ms", body)
+                self.assertNotIn("reasoning_metadata_age_ms", body)
+        for declaration in ("omittedFields", "unavailableFields"):
+            capture = self.diagnostics("PROVIDER")
+            capture[declaration] = capture.get(declaration, []) + list(values)
+            response = self.submit({**self.manual(), "context": self.context(schemaVersion=5, diagnostics=capture)})
+            self.assertEqual(200, response.status_code)
+            self.assertEqual(capture, validate_diagnostics(capture))
+        issued = len(self.issued)
+        for key, value in (("reasoning_probe_outcome", "private template"), ("reasoning_probe_attempts", 5), ("reasoning_probe_age_ms", "8000")):
+            capture = self.diagnostics("PROVIDER", dict(values, **{key: value}))
+            response = self.submit({**self.manual(), "context": self.context(schemaVersion=5, diagnostics=capture)})
+            self.assertEqual(422, response.status_code)
+        self.assertEqual(issued, len(self.issued))
+
+    def test_protocol_two_playback_reasons_are_closed_and_remain_nonexception_observations(self):
+        for reason in ("PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE", "SYNTHESIS_FAILED"):
+            with self.subTest(reason=reason):
+                capture = self.diagnostics("VOICE", {"voice_engine": "KOKORO", "voice_playback_failure": reason})
+                report = {**self.metadata(), "source": "debug", "feature": "voice", "errorCode": "VOICE_PLAYBACK_FAILED",
+                          "context": self.context(schemaVersion=5, source="VOICE_STATE", stage="voice_playback", diagnostics=capture)}
+                payload = json.dumps(report, separators=(",", ":")).encode()
+                response = self.client.post("/v1/issue-reports", content=payload, headers={"content-type": "application/json"})
+                self.assertEqual(200, response.status_code)
+                body = self.issued[-1]["body"]
+                self.assertIn(f"| voice_playback_failure | `{reason}` |", body)
+                self.assertEqual(capture, validate_diagnostics(capture))
+                self.assertNotIn("errorType", body)
+        issued = len(self.issued)
+        for reason in ("private synthesis text", "UNKNOWN_WORD_PRIVATE", 2, True):
+            capture = self.diagnostics("VOICE", {"voice_playback_failure": reason})
+            response = self.submit({**self.manual(), "context": self.context(schemaVersion=5, source="VOICE_STATE", diagnostics=capture)})
+            self.assertEqual(422, response.status_code)
+        self.assertEqual(issued, len(self.issued))
+
     def test_nested_diagnostic_private_fields_wrong_types_and_wrong_area_never_publish(self):
         malformed = [
             ("prompt", "private-prompt"), ("requested_model_id", "private-model"), ("endpoint", "https://private.example"),
@@ -369,7 +455,7 @@ class IssueReportHttpTest(unittest.TestCase):
     def test_readiness_adds_context_capability_without_changing_legacy_service_identity(self):
         response = self.client.get("/health/ready")
         self.assertEqual(200, response.status_code)
-        self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 1},
+        self.assertEqual({"service": "gpt-mobile-issue-reporter", "version": 2},
                          {key: response.json()[key] for key in ("service", "version")})
         self.assertEqual([1, 2, 3, 4, 5, 6, 7], response.json()["reportContextVersions"])
         self.assertEqual(["GATEWAY_MODEL_PREPARATION_V1", "REVIEW_COMPARISON_V1", "INCIDENT_FAILURE_DETAILS_V1", "DISPATCH_POLICY_DIAGNOSTICS_V1", "CHANGED_POLICY_FIELDS_V1", "EXECUTION_OUTCOME_DIAGNOSTICS_V1", "RUN_FAILURE_EVIDENCE_V1", "RECOVERY_OBSERVATIONS_V1", "ISSUE_RECOVERY_DETAILS_V1", "ADMISSION_DIAGNOSTICS_V1", "SESSION_RECOVERY_DIAGNOSTICS_V1", "VOICE_PLAYBACK_PHASE_V1", "CAPACITY_ADMISSION_EVIDENCE_V1", "CONVERSATION_CONFLICT_EVIDENCE_V1", "ACCEPTANCE_SCOPE_EVIDENCE_V1", "VOICE_INSTALL_EVIDENCE_V1", "GITHUB_SCHEMA_BUDGET_EVIDENCE_V1", "VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1", "COMPLETION_EVIDENCE_V1", "COMPOSER_IME_EVIDENCE_V1", "GITHUB_PREREQUISITE_EVIDENCE_V1", "GITHUB_GRAPH_POLICY_EVIDENCE_V1", "ACCEPTANCE_RECOVERY_EVIDENCE_V1", "ISSUE_RECOVERY_CODES_V1", "CAPTURE_BOUNDARY_EVIDENCE_V1", "HANDOFF_RECONCILIATION_EVIDENCE_V1", "CHAT_DELIVERY_EVIDENCE_V1", "CLAIM_FRESHNESS_EVIDENCE_V1", "PROFILE_SELECTION_EVIDENCE_V1", "GH_COOLDOWN_V1"], response.json()["reportDiagnosticFeatures"])
@@ -377,9 +463,88 @@ class IssueReportHttpTest(unittest.TestCase):
         self.assertFalse(self.issued)
         # The Android client bounds the readiness body before admitting a report.
         self.assertLessEqual(len(response.content), 1024)
+        from scripts.check_issue_reporting_configuration import check_readiness
+        with self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+            check_readiness(self.origin, lambda _: response.content)
         # Old clients may continue posting their original reports without a
         # capability negotiation or a synthetic empty context object.
         self.assertEqual(200, self.submit(self.manual()).status_code)
+
+    def test_extended_readiness_negotiates_publication_evidence_without_expanding_legacy_body(self):
+        legacy = self.client.get("/health/ready")
+        extended = self.client.get("/health/ready?capabilities=extended")
+        self.assertEqual(200, extended.status_code)
+        additions = ["ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
+                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1"]
+        self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
+                         extended.json()["reportDiagnosticFeatures"])
+        for key in ("service", "version", "reportContextVersions"):
+            self.assertEqual(legacy.json()[key], extended.json()[key])
+        self.assertEqual(1022, len(legacy.content))
+        self.assertLessEqual(len(legacy.content), 1024)
+        self.assertGreater(len(extended.content), 1024)
+        self.assertLessEqual(len(extended.content), 4096)
+        self.assertEqual(legacy.content, self.client.get("/health/ready?capabilities=unrecognized").content)
+        self.assertEqual("no-store", extended.headers["cache-control"])
+        from scripts.check_issue_reporting_configuration import check_readiness
+        requested = []
+        def fetch(url):
+            requested.append(url)
+            return self.client.get(url).content
+        check_readiness(self.origin, fetch)
+        self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
+        self.assertFalse(self.issued)
+
+    def test_new_incident_observations_cross_http_boundary_without_replacing_approved_payload(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        fixtures = IncidentReportContractTest()
+        cases = (
+            ("TOOL", {"dependency_repeat_scope": "TOOL_NAME_AND_ARGUMENTS", "dependency_repeat_prior_admissions": 3,
+                      "dependency_repeat_batch_admissions": 0, "dependency_repeat_used": 3, "dependency_repeat_limit": 3}),
+            ("INCIDENT", {"tool_event_persistence_operation": "START", "tool_event_persistence_phase": "ALLOCATE_SEQUENCE",
+                          "tool_event_persistence_failure": "SEQUENCE_EXHAUSTED", "tool_event_requested_sequence": -1,
+                          "tool_event_previous_max_sequence": 2_147_483_647, "tool_event_write_attempted": False}),
+            ("INCIDENT", {"sqlite_constraint_kind": "UNKNOWN"}),
+            ("INCIDENT", {"review_comparison_state": "BASE_REF_BLOCKED", "review_comparison_policy": "EXPLICIT_BASE_REF"}),
+            ("ACCEPTANCE", {"acceptance_publication_entry": "COMPLETED_DRAFT",
+                            "acceptance_claim_trust_failures": ["TARGET_OUTSIDE_ACCEPTED_SCOPE"]}),
+        )
+        for area, values in cases:
+            with self.subTest(area=area, values=values):
+                # These are independent wire cases, outside the admission window.
+                from authentication.issue_reports import ADMISSION_WINDOW
+                self.now += ADMISSION_WINDOW + 1
+                report = fixtures.report(fixtures.capture(area, values))
+                report["reportId"] = str(uuid4())
+                approved = json.dumps(report, separators=(",", ":")).encode()
+                response = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+                self.assertEqual(200, response.status_code)
+                self.assertLessEqual(len(response.content), 1024)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+                self.assertIn(marker(report["reportId"]), self.issued[-1]["body"])
+                for key in values:
+                    self.assertIn(f"| {key} |", self.issued[-1]["body"])
+                self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(len(cases), len(self.issued))
+
+    def test_new_incident_observations_reject_malformed_values_before_issue_creation(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        fixtures = IncidentReportContractTest()
+        for area, values in (
+            ("TOOL", {"dependency_repeat_prior_admissions": True}),
+            ("TOOL", {"dependency_repeat_limit": 16_000_001}),
+            ("INCIDENT", {"tool_event_requested_sequence": -2_147_483_649}),
+            ("INCIDENT", {"tool_event_assigned_sequence": -1}),
+            ("INCIDENT", {"tool_event_write_attempted": "false"}),
+            ("INCIDENT", {"sqlite_constraint_kind": "private table name"}),
+            ("INCIDENT", {"review_comparison_state": "private ref"}),
+            ("ACCEPTANCE", {"acceptance_claim_trust_failures": ["TARGET_OUTSIDE_ACCEPTED_SCOPE"] * 2}),
+        ):
+            with self.subTest(values=values):
+                report = fixtures.report(fixtures.capture(area, values))
+                report["reportId"] = str(uuid4())
+                self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual([], self.issued)
 
     def test_versioned_context_keeps_causal_facts_and_explicit_unavailable_fields(self):
         context = self.context(stage="provider_admission", provider="LLAMA", httpStatus=409, dispatched=False,

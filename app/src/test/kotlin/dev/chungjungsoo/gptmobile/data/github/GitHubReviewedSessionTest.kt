@@ -6,6 +6,9 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
@@ -25,6 +28,75 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubReviewedSessionTest {
+    @Test fun finalVerdictValidationCauseIsRetainedWithoutChangingTheFormatRepairLimit() = runBlocking {
+        var passes = 0
+        val evidence = GitHubReviewEvidence().also { receipt(it) }
+        val events = GitHubReviewedSession(answer("PRIVATE_DRAFT"), evidence, "Review the recorded test result", 8192, { prompt, _ ->
+            passes++
+            answer(if (passes == 1) "{PRIVATE_FIRST_VERDICT" else JsonObject(Json.parseToJsonElement(verdict(prompt)).jsonObject + ("schema_version" to JsonPrimitive(2))).toString())
+        }, {}).streamRound(emptyList(), emptyList()).toList()
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        assertEquals(2, passes)
+        assertEquals("GITHUB_REVIEW_INVALID_VERDICT", failure.errorCode)
+        assertTrue(events.none { it is ProviderEvent.TextDelta })
+        val fields = requireNotNull(failure.failureDetails)
+        assertEquals(JsonArray(listOf(JsonPrimitive("java.lang.IllegalArgumentException"))), fields["cause_types"])
+        assertEquals(JsonPrimitive(2), fields["attempt_review_passes"])
+        assertEquals(JsonPrimitive(false), fields["automatic_retry_allowed"])
+        assertEquals(JsonPrimitive(false), fields["profile_fallback"])
+        assertEquals(JsonPrimitive("APPLICATION"), fields["failure_origin"])
+        assertTrue(fields["exception_fingerprint"]?.toString()?.matches(Regex("\"[a-f0-9]{64}\"")) == true)
+        for (key in listOf("dispatched", "remote_acceptance", "requires_reconciliation", "retryable", "request_replay_allowed", "invocation_id", "incident_capture_site", "exception_report_type", "exception_application_frames")) assertFalse(key, key in fields)
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", fields))
+        assertEquals("answer_review", context.stage)
+        assertEquals((fields["exception_fingerprint"] as JsonPrimitive).content, context.exceptionFingerprint)
+        val diagnostics = requireNotNull(context.diagnostics)
+        assertEquals(JsonPrimitive("APPLICATION"), diagnostics.values["incident_origin"])
+        assertTrue(diagnostics.values["exception_type_hashes"] is JsonArray)
+        val encoded = Json.encodeToString(IssueReportContext.serializer(), context)
+        assertFalse(encoded.contains("PRIVATE_"))
+        assertFalse(encoded.contains("Unsupported review verdict version"))
+        assertFalse(encoded.contains("java.lang.IllegalArgumentException"))
+    }
+
+    @Test fun malformedFinalVerdictKeepsItsOwnCauseWhileARepairedVerdictStillCompletes() = runBlocking {
+        for (repairSucceeds in listOf(false, true)) {
+            var passes = 0
+            val evidence = GitHubReviewEvidence().also { receipt(it) }
+            val events = GitHubReviewedSession(answer("PRIVATE_DRAFT"), evidence, "Review the recorded test result", 8192, { prompt, _ ->
+                passes++
+                val valid = verdict(prompt)
+                answer(
+                    when {
+                        passes == 1 -> JsonObject(Json.parseToJsonElement(valid).jsonObject + ("schema_version" to JsonPrimitive(2))).toString()
+                        repairSucceeds -> valid
+                        else -> "{PRIVATE_LAST_VERDICT https://private.invalid/reviewer"
+                    }
+                )
+            }, {}).streamRound(emptyList(), emptyList()).toList()
+            assertEquals(2, passes)
+            if (repairSucceeds) {
+                assertTrue(events.none { it is ProviderEvent.Failed })
+                assertEquals("PRIVATE_DRAFT", events.filterIsInstance<ProviderEvent.TextDelta>().single().text)
+                assertTrue(events.last() is ProviderEvent.Completed)
+            } else {
+                val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+                assertEquals("GITHUB_REVIEW_INVALID_VERDICT", failure.errorCode)
+                assertTrue(events.none { it is ProviderEvent.TextDelta })
+                val fields = requireNotNull(failure.failureDetails)
+                val types = fields["cause_types"] as JsonArray
+                assertTrue(types.any { (it as JsonPrimitive).content.endsWith("JsonDecodingException") })
+                assertFalse(types.any { (it as JsonPrimitive).content == "java.lang.IllegalArgumentException" })
+                val context = IssueReportContext.fromFields("CHAT_FAILURE", IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", fields))
+                assertTrue(context.exceptionFingerprint?.matches(Regex("[a-f0-9]{64}")) == true)
+                val encoded = Json.encodeToString(IssueReportContext.serializer(), context)
+                assertFalse(encoded.contains("PRIVATE_"))
+                assertFalse(encoded.contains("private.invalid"))
+                assertFalse(encoded.contains("JsonDecodingException"))
+            }
+        }
+    }
+
     @Test fun singleJsonFenceIsAcceptedButProseAndMissingCoverageStillFail() = runBlocking {
         for (wrapper in listOf<(String) -> String>({ "```json\n$it\n```" }, { "```\n$it\n```" })) {
             val output = GitHubReviewedSession(

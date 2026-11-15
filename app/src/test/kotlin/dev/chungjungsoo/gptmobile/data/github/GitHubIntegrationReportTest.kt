@@ -168,5 +168,94 @@ class GitHubIntegrationReportTest {
         assertFalse(GitHubTestChecklist.apiComplete(task, records, tools))
     }
 
+    @Test fun inspectOnlyToolsReportTheirCanonicalFamilyOutcome() {
+        val name = "github_context_inspect__selected"
+        val available = listOf(tool(name, "status"))
+        val records = mapOf("source" to JsonObject(source() + ("tool" to JsonPrimitive(name))))
+        val request = "Test all authorized GitHub integration tools read only."
+        val checkpoint = GitHubTestChecklist.checkpoint(request, records, available, 200)
+        assertEquals(listOf("github_context:status"), checkpoint.array("capabilities").map { it.text("id") })
+
+        val rendered = GitHubIntegrationReport.render(request, records, available, 200, checkpoint = checkpoint)
+        assertTrue(rendered, rendered.contains("| PASSED | 1 |"))
+        assertTrue(rendered.contains("1/1 known authorized GitHub operation families have live observations"))
+        assertTrue(rendered.contains("1/1 known authorized GitHub tools have live observations"))
+        assertTrue(rendered.contains("### Tool family outcomes\n\n| Outcome | Families | Meaning |"))
+        assertEquals(name, records.getValue("source").text("tool"))
+    }
+
+    @Test fun fullAndInspectToolsShareAnOutcomeWhileDiscoveryRetainsExactNames() {
+        val names = listOf("github_context_inspect__selected", "github_context__selected")
+        val available = names.map { tool(it, "status") }
+        val records = names.mapIndexed { index, name ->
+            "source-$index" to JsonObject(source() + ("tool" to JsonPrimitive(name)) + ("receipt_id" to JsonPrimitive("source-$index")))
+        }.toMap().toMutableMap()
+        records["catalog"] = receipt(
+            "catalog",
+            GitHubAuthorizedCatalog.TOOL,
+            json("{}"),
+            buildJsonObject {
+                put("inventory_version", "version-1")
+                put("authorized_tool_count", available.size)
+                put("inventory_offset", 0)
+                put("returned", available.size)
+                put("has_more", false)
+                put(
+                    "authorized_inventory",
+                    JsonArray(
+                        available.map { definition ->
+                            buildJsonObject {
+                                put("name", definition.name)
+                                put("schema_fingerprint", GitHubEvidenceBook.digest(definition.inputSchema.toString()))
+                            }
+                        }
+                    )
+                )
+            }
+        )
+        val originalRecords = records.toMap()
+        val request = "Test all authorized GitHub integration tools read only."
+        val checkpoint = GitHubTestChecklist.checkpoint(request, records, available, 200)
+        val catalog = checkpoint.getValue("authorized_catalog").jsonObject
+        assertEquals(JsonPrimitive(true), catalog["denominator_final"])
+        assertEquals(JsonArray(names.map(::JsonPrimitive)), catalog["observed_names"])
+        assertEquals(JsonPrimitive(2), catalog["observed_github_tool_count"])
+
+        val rendered = GitHubIntegrationReport.render(request, records, available, 200, checkpoint = checkpoint)
+        assertTrue(rendered, rendered.contains("1/1 known authorized GitHub operation families have live observations"))
+        assertTrue(rendered.contains("2/2 known authorized GitHub tools have live observations"))
+        assertTrue(rendered.contains("2 authorized tool names observed, including 2 GitHub tools"))
+        assertTrue(rendered.contains("| PASSED | 1 |"))
+        assertFalse(rendered.contains("| PASSED | 2 |"))
+        assertEquals(originalRecords, records)
+    }
+
+    @Test fun onlyExactAuthorizedVisibleLiveEligibleNamesExerciseAReportFamily() {
+        val available = listOf(
+            tool("github_context__selected", "status"),
+            tool("github_context_inspect__selected", "status").copy(modelVisible = false)
+        )
+        val baseline = source()
+        val variants = listOf(
+            "foreign" to JsonObject(baseline + ("tool" to JsonPrimitive("github_context__other"))),
+            "hidden" to JsonObject(baseline + ("tool" to JsonPrimitive("github_context_inspect__selected"))),
+            "ineligible" to JsonObject(baseline + ("tool" to JsonPrimitive("github_context__selected")) + ("verification_eligible" to JsonPrimitive(false))),
+            "untrusted" to JsonObject(baseline + ("tool" to JsonPrimitive("github_context__selected")) + ("trusted" to JsonPrimitive(false))),
+            "cached" to JsonObject(baseline + ("tool" to JsonPrimitive("github_context__selected")) + ("evidence_origin" to JsonPrimitive("LOCAL")))
+        )
+        for ((reason, observation) in variants) {
+            val records = mapOf(reason to observation)
+            val rendered = GitHubIntegrationReport.render(task, records, available, 200)
+            assertTrue("$reason must not exercise an exact authorized tool: $rendered", rendered.contains("0/1 known authorized GitHub tools have live observations"))
+            assertTrue(reason, rendered.contains("0/1 known authorized GitHub operation families have live observations"))
+            assertEquals(observation, records.getValue(reason))
+        }
+        val selected = JsonObject(baseline + ("tool" to JsonPrimitive("github_context__selected")))
+        val rendered = GitHubIntegrationReport.render(task, mapOf("source" to selected), available, 200)
+        assertTrue(rendered.contains("1/1 known authorized GitHub operation families have live observations"))
+        assertTrue(rendered.contains("1/1 known authorized GitHub tools have live observations"))
+    }
+
+    private fun JsonObject.array(key: String) = (get(key) as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()
 }

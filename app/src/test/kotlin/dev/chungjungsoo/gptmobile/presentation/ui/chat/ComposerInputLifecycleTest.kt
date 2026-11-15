@@ -37,6 +37,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.performTextInput
+import dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy
+import dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots
+import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -70,12 +73,16 @@ class ComposerInputLifecycleTest {
         var sent: String? = null
         val draft = "  A complete draft\nwith Unicode \uD83D\uDCAC and trailing spaces  \n"
         val input = TextFieldState(draft)
+        val diagnosticEvents = mutableListOf<String>()
+        val diagnostics = diagnosticCollector(diagnosticEvents)
         compose.setContent {
             val semanticsOwner = (LocalView.current as RootForTest).semanticsOwner
             MaterialTheme {
-                ChatInputBox(inputState = input, attachmentsEnabled = false, onComposerFocusChanged = { focused = it }) {
+                ChatInputBox(inputState = input, attachmentsEnabled = false, diagnostics = diagnostics, onComposerFocusChanged = { focused = it }) {
                     assertEditorReleasedFocus(semanticsOwner)
                     assertFalse(focused)
+                    assertTrue(diagnosticEvents.contains("RELEASE_SEND"))
+                    assertFalse(diagnosticEvents.contains("RELEASE_SHORTCUT"))
                     sent = input.text.toString()
                 }
             }
@@ -94,8 +101,10 @@ class ComposerInputLifecycleTest {
     @Test fun backgroundRunStartKeepsTheCurrentDraftFocusedAndEditable() {
         var running by mutableStateOf(false)
         val input = TextFieldState("Saved draft")
+        val diagnosticEvents = mutableListOf<String>()
+        val diagnostics = diagnosticCollector(diagnosticEvents)
         compose.setContent {
-            MaterialTheme { ChatInputBox(inputState = input, attachmentsEnabled = false, isRunning = running) }
+            MaterialTheme { ChatInputBox(inputState = input, attachmentsEnabled = false, isRunning = running, diagnostics = diagnostics) }
         }
         compose.onNodeWithContentDescription("Message input").performClick()
         compose.runOnIdle { running = true }
@@ -103,7 +112,67 @@ class ComposerInputLifecycleTest {
         compose.runOnIdle { assertEquals("Saved draft", input.text.toString()) }
         compose.onNodeWithContentDescription("Message input").performTextInput(" after start")
         compose.onNodeWithContentDescription("Message input").assertIsFocused()
-        compose.runOnIdle { assertEquals("Saved draft after start", input.text.toString()) }
+        compose.runOnIdle {
+            assertEquals("Saved draft after start", input.text.toString())
+            assertTrue(diagnosticEvents.contains("EDITOR_FOCUSED"))
+            assertFalse(diagnosticEvents.any { it.startsWith("RELEASE_") || it == "DETACHED" })
+        }
+    }
+
+    @Test fun debugOffOnKeepsTheDraftFocusedAndDisposalRecordsTheNewCaptureOwner() {
+        val wasEnabled = LocalDiagnosticsPolicy.enabled
+        var visible by mutableStateOf(true)
+        var focused = false
+        var keyboardHides = 0
+        val keyboard = object : SoftwareKeyboardController {
+            override fun show() = Unit
+            override fun hide() {
+                keyboardHides++
+            }
+        }
+        val input = TextFieldState("Retained through diagnostic changes")
+        try {
+            LocalDiagnosticsPolicy.setEnabled(true)
+            compose.setContent {
+                CompositionLocalProvider(LocalSoftwareKeyboardController provides keyboard) {
+                    MaterialTheme {
+                        if (visible) ChatInputBox(inputState = input, attachmentsEnabled = false, onComposerFocusChanged = { focused = it })
+                    }
+                }
+            }
+            compose.onNodeWithContentDescription("Message input").performClick().assertIsFocused()
+            var priorGeneration: JsonPrimitive? = null
+            compose.runOnIdle {
+                priorGeneration = requireNotNull(ReportDiagnosticSnapshots.latest("APP")).values["composer_generation"] as JsonPrimitive
+                LocalDiagnosticsPolicy.setEnabled(false)
+                LocalDiagnosticsPolicy.setEnabled(true)
+            }
+            compose.waitForIdle()
+            compose.onNodeWithContentDescription("Message input").assertIsFocused()
+            compose.runOnIdle {
+                val current = requireNotNull(ReportDiagnosticSnapshots.latest("APP"))
+                assertTrue(priorGeneration != current.values["composer_generation"])
+                assertTrue(focused)
+                assertEquals(0, keyboardHides)
+                assertEquals("Retained through diagnostic changes", input.text.toString())
+                visible = false
+            }
+            // Detachment can clear focus before disposal, so verify the removed editor's state.
+            compose.onNodeWithContentDescription("Message input").assertDoesNotExist()
+            compose.runOnIdle {
+                val current = requireNotNull(ReportDiagnosticSnapshots.latest("APP"))
+                val events = (1..8).mapNotNull { (current.values["composer_event_$it"] as? JsonPrimitive)?.content }
+                assertTrue(events.contains("RELEASE_DISPOSE"))
+                assertTrue(events.indexOf("RELEASE_DISPOSE") < events.indexOf("DETACHED"))
+                assertTrue(priorGeneration != current.values["composer_generation"])
+                assertFalse(focused)
+                assertEquals(JsonPrimitive(false), current.values["composer_focused"])
+                assertEquals("Retained through diagnostic changes", input.text.toString())
+            }
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(wasEnabled)
+            ReportDiagnosticSnapshots.clear()
+        }
     }
 
     @Test fun runStartAndSendDoNotDismissAnotherEditorsInputSession() {
@@ -167,13 +236,17 @@ class ComposerInputLifecycleTest {
         var sent: String? = null
         var sends = 0
         val input = TextFieldState("Exact keyboard draft")
+        val diagnosticEvents = mutableListOf<String>()
+        val diagnostics = diagnosticCollector(diagnosticEvents)
         compose.setContent {
             inputModeManager = LocalInputModeManager.current
             val semanticsOwner = (LocalView.current as RootForTest).semanticsOwner
             MaterialTheme {
-                ChatInputBox(inputState = input, attachmentsEnabled = false, onComposerFocusChanged = { focused = it }) {
+                ChatInputBox(inputState = input, attachmentsEnabled = false, diagnostics = diagnostics, onComposerFocusChanged = { focused = it }) {
                     assertEditorReleasedFocus(semanticsOwner)
                     assertFalse(focused)
+                    assertTrue(diagnosticEvents.contains("RELEASE_SHORTCUT"))
+                    assertFalse(diagnosticEvents.contains("RELEASE_SEND"))
                     sent = input.text.toString()
                     sends++
                 }
@@ -228,18 +301,33 @@ class ComposerInputLifecycleTest {
 
     @Test fun disposingAnUnfocusedComposerDoesNotDismissAnotherEditorsSession() {
         var visible by mutableStateOf(true)
+        var keyboardHides = 0
+        val keyboard = object : SoftwareKeyboardController {
+            override fun show() = Unit
+            override fun hide() {
+                keyboardHides++
+            }
+        }
+        val otherInput = TextFieldState("Other draft")
         compose.setContent {
-            MaterialTheme {
-                Column {
-                    if (visible) ChatInputBox(inputState = rememberTextFieldState("Retained"), attachmentsEnabled = false)
-                    androidx.compose.foundation.text.BasicTextField(state = rememberTextFieldState("Other draft"), modifier = Modifier.testTag("other_editor"))
+            CompositionLocalProvider(LocalSoftwareKeyboardController provides keyboard) {
+                MaterialTheme {
+                    Column {
+                        if (visible) ChatInputBox(inputState = rememberTextFieldState("Retained"), attachmentsEnabled = false)
+                        androidx.compose.foundation.text.BasicTextField(state = otherInput, modifier = Modifier.testTag("other_editor"))
+                    }
                 }
             }
         }
         compose.onNodeWithContentDescription("Message input").performClick()
         compose.onNodeWithTag("other_editor").performClick()
         compose.runOnIdle { visible = false }
+        compose.onNodeWithContentDescription("Message input").assertDoesNotExist()
         compose.onNodeWithTag("other_editor").assertIsFocused()
+        compose.runOnIdle {
+            assertEquals(0, keyboardHides)
+            assertEquals("Other draft", otherInput.text.toString())
+        }
     }
 
     @Test fun removingFocusedComposerReleasesFocusWithoutDiscardingDraft() {
@@ -294,6 +382,13 @@ class ComposerInputLifecycleTest {
             queueClass.getMethod("destroy").invoke(queue)
         }
     }
+
+    private fun diagnosticCollector(events: MutableList<String>) = ComposerInputDiagnostics(
+        generation = 1,
+        originIsCurrent = { true },
+        publish = { fields, _ -> events += (1..8).mapNotNull { fields["composer_event_$it"] as? String } },
+        elapsedMillis = android.os.SystemClock::elapsedRealtime
+    )
 
     private fun assertEditorReleasedFocus(owner: SemanticsOwner) {
         // Read fresh semantics on the dispatch thread; the reporting callback alone

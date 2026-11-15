@@ -6,6 +6,7 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentToolExecutionOwner
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.OwnedAgentTool
 import dev.chungjungsoo.gptmobile.data.agent.PreparableAgentTool
+import dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import java.time.Clock
 import kotlinx.coroutines.CancellationException
@@ -46,7 +47,8 @@ class MultiEngineSearchTool(
     private val policy: SearchMergePolicy = SearchMergePolicy(dedupeUrls = deduplicate),
     private val ownerRoute: String = "client",
     private val configurationRevision: suspend () -> String = { "" },
-    private val nanoTime: () -> Long = System::nanoTime
+    private val nanoTime: () -> Long = System::nanoTime,
+    private val budgetSnapshot: (() -> ToolExecutionBudget.Snapshot)? = null
 ) : AgentTool {
     private val enginePermits = Semaphore(3)
     private val selected = engines.distinctBy { it.selectionId() }.toList()
@@ -186,6 +188,7 @@ class MultiEngineSearchTool(
         }
         val target = totalResults ?: (selected.size * maxResults)
         val fetchRequest = JsonObject(arguments - "totalResults" + ("maxResults" to JsonPrimitive(policy.fetchLimitPerEngine)))
+        val refusedByteObservations = mutableMapOf<String, Int>()
         fun failure(
             id: String,
             outcome: String,
@@ -223,11 +226,21 @@ class MultiEngineSearchTool(
             val unavailable = when {
                 (emptyPausedUntil[emptyKey(index)] ?: 0L) > clock.millis() -> failure(id, "empty_budget", "Repeated valid empty searches: use retained evidence or another selected engine. This does not establish an outage.")
                 (blockedUntil[emptyKey(index)] ?: 0L) > clock.millis() -> failure(id, "cooldown", "Engine cooling down after a provider access or quota failure.")
-                !canExecute() || remainingBytes() < 1024 -> {
-                    val lowBytes = remainingBytes() < 1024
-                    failure(id, "budget_exhausted", "Search skipped: insufficient remaining run budget.", outputBudget = lowBytes, callBudget = !lowBytes)
+                else -> {
+                    // The receipt must describe the observation that refused this engine,
+                    // not a later shared-budget read after another child has consumed work.
+                    val snapshot = budgetSnapshot?.invoke()
+                    val executable = snapshot?.canExecute ?: canExecute()
+                    val remaining = snapshot?.remainingOutputBytes ?: remainingBytes()
+                    if (!executable || remaining < 1024) {
+                        val lowBytes = remaining < 1024
+                        val rejected = failure(id, "budget_exhausted", "Search skipped: insufficient remaining run budget.", outputBudget = lowBytes, callBudget = !lowBytes)
+                        if (snapshot != null && lowBytes) refusedByteObservations[id] = snapshot.remainingOutputBytes
+                        snapshot?.let { rejected.copy(result = it.attach(rejected.result)) } ?: rejected
+                    } else {
+                        null
+                    }
                 }
-                else -> null
             }
             if (unavailable != null) return Prepared({ unavailable.result }, 0)
             return try {
@@ -480,6 +493,17 @@ class MultiEngineSearchTool(
             failureCodes.size == 1 && initial.all { it.result.errorCode != null } -> failureCodes.single()
             else -> "SEARCH_PROVIDERS_UNAVAILABLE"
         }
+        val bytesAvailable = if (errorCode == "BUDGET_EXHAUSTED" && allAttempts.none { it.result.dispatched }) {
+            // One value actually seen by this call's local byte guard, not a sum,
+            // a provider-supplied field or a later read of shared allowance.
+            allAttempts.mapNotNull { response ->
+                refusedByteObservations[response.result.callId]?.takeIf {
+                    response.result.isError && response.result.errorCode == "BUDGET_EXHAUSTED" && response.result.outputBudgetExhausted && it in 0..1023
+                }
+            }.minOrNull()
+        } else {
+            null
+        }
         AgentToolResult(
             callId, content,
             isError = failed,
@@ -505,6 +529,7 @@ class MultiEngineSearchTool(
                 put("returnedSources", merged.sources.size)
                 put("retryable", errorCode != null && searchFailureRetryable(errorCode))
                 put("childCallIds", JsonArray(allAttempts.map { JsonPrimitive(it.result.callId) }))
+                bytesAvailable?.let { put("tool_budget_bytes_available", it) }
             },
             retainedContent = retained.takeUnless { it == content },
             outputBudgetExhausted = allAttempts.any { it.result.outputBudgetExhausted },
@@ -580,11 +605,12 @@ internal fun aggregateWebSearch(
     remainingBytes: () -> Int = { Int.MAX_VALUE },
     policy: SearchMergePolicy = SearchMergePolicy(dedupeUrls = deduplicate),
     ownerRoute: String = "client",
-    configurationRevision: suspend () -> String = { "" }
+    configurationRevision: suspend () -> String = { "" },
+    budgetSnapshot: (() -> ToolExecutionBudget.Snapshot)? = null
 ): List<ResolvedAgentTool> {
     val available = aggregateAmazonTools(tools)
     val engines = available.filter { it.isWebSearchEngine() && it.tool.executionOwner() == AgentToolExecutionOwner.CLIENT }
     if (engines.isEmpty()) return available
-    val aggregate = MeasuredAgentTool(MultiEngineSearchTool(engines, parallel = parallel, afterSearch = afterSearch, canExecute = canExecute, remainingBytes = remainingBytes, policy = policy, ownerRoute = ownerRoute, configurationRevision = configurationRevision))
+    val aggregate = MeasuredAgentTool(MultiEngineSearchTool(engines, parallel = parallel, afterSearch = afterSearch, canExecute = canExecute, remainingBytes = remainingBytes, policy = policy, ownerRoute = ownerRoute, configurationRevision = configurationRevision, budgetSnapshot = budgetSnapshot))
     return available.filterNot { it in engines } + ResolvedAgentTool(aggregate, null, "Multi-engine search", "web_search", "web_search")
 }

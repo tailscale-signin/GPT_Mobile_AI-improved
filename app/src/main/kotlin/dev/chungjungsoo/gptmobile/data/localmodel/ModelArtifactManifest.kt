@@ -57,7 +57,14 @@ data class ModelArtifactManifest(
     val evidence: ArtifactEvidence = ArtifactEvidence.DISCOVERED,
     val validations: List<ArtifactValidation> = emptyList()
 ) {
-    fun validate(root: File, backend: String? = null, deviceSoc: String? = null, checkCurrent: () -> Unit = {}) {
+    fun validate(root: File, backend: String? = null, deviceSoc: String? = null, checkCurrent: () -> Unit = {}) =
+        validateFiles(root, backend, deviceSoc, checkCurrent, localFilesOnly = false)
+
+    internal fun validateLocalFiles(root: File, backend: String? = null, deviceSoc: String? = null, checkCurrent: () -> Unit = {}) =
+        validateFiles(root, backend, deviceSoc, checkCurrent, localFilesOnly = true)
+
+    private fun validateFiles(root: File, backend: String?, deviceSoc: String?, checkCurrent: () -> Unit, localFilesOnly: Boolean) {
+        fun assetFile(path: String): File = if (localFilesOnly) safeExtractionFile(root, path) else safeFile(root, path, checkCurrent)
         require(schemaVersion in 1..3) { "Unsupported artifact manifest version $schemaVersion" }
         require(familyId.isNotBlank() && artifactId.isNotBlank() && contextTokens > 0)
         require(files.isNotEmpty() && files.size <= 256)
@@ -82,13 +89,13 @@ data class ModelArtifactManifest(
         require(evidence !in setOf(ArtifactEvidence.INCOMPATIBLE, ArtifactEvidence.QUARANTINED)) { "Artifact is quarantined or incompatible" }
         files.forEach { item ->
             checkCurrent()
-            val file = safeFile(root, item.path, checkCurrent)
+            val file = assetFile(item.path)
             require(item.sizeBytes > 0 && file.isFile && file.length() == item.sizeBytes) { "Missing or truncated asset: ${item.path}" }
             require(item.sha256.matches(Regex("[a-fA-F0-9]{64}"))) { "Missing SHA-256: ${item.path}" }
             PackageDigest.verifyInstalledAssetCached(file, item.sha256, checkCurrent)
         }
         if (runtime in setOf(ArtifactRuntime.GENIEX_LLAMA_CPP, ArtifactRuntime.LLAMA_CPP)) {
-            val magic = safeFile(root, entryFile, checkCurrent).inputStream().use { stream -> ByteArray(4).also { require(stream.read(it) == 4) } }
+            val magic = assetFile(entryFile).inputStream().use { stream -> ByteArray(4).also { require(stream.read(it) == 4) } }
             require(magic.contentEquals("GGUF".toByteArray())) { "Invalid GGUF header" }
         }
         if (runtime == ArtifactRuntime.LLAMA_CPP) {
@@ -98,16 +105,17 @@ data class ModelArtifactManifest(
             // template and tensors against the currently packaged engine at load time.
             require(runtimeVersion.matches(Regex("[a-fA-F0-9]{40}"))) { "Missing GGUF import runtime revision" }
         }
-        if (runtime == ArtifactRuntime.GENIEX_QAIRT) validateQairtConfiguration(root)
+        if (runtime == ArtifactRuntime.GENIEX_QAIRT) validateQairtConfiguration(root, localFilesOnly)
     }
 
     /** Preview accepts data-only, relative-path QAIRT bundles, never library models. */
-    private fun validateQairtConfiguration(root: File) {
+    private fun validateQairtConfiguration(root: File, localFilesOnly: Boolean) {
+        fun assetFile(path: String): File = if (localFilesOnly) safeExtractionFile(root, path) else safeFile(root, path)
         require(format == "qairt_context" && entryFile == "genie_config.json") { "QAIRT requires genie_config.json at the bundle root" }
         val declared = files.map { it.path }.toSet()
         val visited = mutableSetOf<String>()
         fun readConfig(path: String): JsonObject {
-            val file = safeFile(root, path)
+            val file = assetFile(path)
             require(path in declared && file.length() <= 1_048_576) { "Missing or oversized QAIRT configuration" }
             return Json.parseToJsonElement(file.readText()) as? JsonObject ?: error("QAIRT configuration must be an object")
         }
@@ -124,7 +132,7 @@ data class ModelArtifactManifest(
                     }
                     if (locationKey || value.any { it in "/\\:." }) {
                         require(value in declared) { "QAIRT configuration references an undeclared asset: $key" }
-                        safeFile(root, value)
+                        assetFile(value)
                         // Tokenizer vocabulary is data, not a native path configuration.
                         if (value.endsWith(".json") && value != tokenizerFile && visited.add(value)) {
                             checkReferences(readConfig(value), depth = depth + 1)
@@ -164,9 +172,23 @@ data class ModelArtifactManifest(
     companion object {
         private fun canonicalSoc(value: String) = value.uppercase().replace(Regex("[^A-Z0-9]"), "").substringBefore("AC")
         fun safeFile(root: File, path: String, checkCurrent: () -> Unit = {}): File {
+            requireSafeAssetPath(path)
+            LinkedModelSources.resolveAsset(root, path, checkCurrent)?.let { return it }
+            return containedFile(root, path)
+        }
+
+        /** Archive destinations and installed bundle checks never open linked-source descriptors. */
+        internal fun safeExtractionFile(root: File, path: String): File {
+            requireSafeAssetPath(path)
+            return containedFile(root, path)
+        }
+
+        private fun requireSafeAssetPath(path: String) {
             require(path.isNotBlank() && !File(path).isAbsolute && '\\' !in path && ':' !in path && path.split('/').none { it == ".." || it == "." || it.isEmpty() }) { "Unsafe package path" }
             require(path.substringAfterLast('.').lowercase() !in setOf("so", "dll", "dylib", "exe", "sh", "bat", "py", "dex", "jar", "apk")) { "Imported code is not a model asset" }
-            LinkedModelSources.resolveAsset(root, path, checkCurrent)?.let { return it }
+        }
+
+        private fun containedFile(root: File, path: String): File {
             val file = File(root, path).canonicalFile
             require(file.toPath().startsWith(root.canonicalFile.toPath()) && file != root.canonicalFile) { "Package path escapes installation" }
             return file

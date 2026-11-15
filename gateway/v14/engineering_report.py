@@ -5,12 +5,14 @@ from v14.diagnostic_support import terminal_receipt
 from v14.graph_context import public_graph_receipt
 
 
-def build_report(job, state, verification):
+def build_report(job, state, verification, *, committed_revision=None):
+    receipt_job = dict(job, revision=committed_revision) if committed_revision is not None else job
+    receipt = terminal_receipt(receipt_job, state, verification)
     data = job['data']
     task_scope = accepted_scope(job['request'])
     if task_scope in {'read', 'plan'}:
         return {'schema_version': 1, 'job_id': job['id'], 'request_id': job['request']['request_id'],
-                'terminal_receipt': terminal_receipt(job, state, verification),
+                'terminal_receipt': receipt,
                 'status': state, 'task_scope': task_scope, 'repository': job['request']['repository'],
                 'branch': job['request']['branch'], 'head_sha': data.get('head_sha'),
                 'binding_id': job['request'].get('execution_binding_id'),
@@ -25,7 +27,7 @@ def build_report(job, state, verification):
     counts = dict(Counter(row['status'] for row in requirements))
     completed = state == 'COMPLETED' and verification.get('passed') is True
     return {'schema_version': 1, 'job_id': job['id'], 'request_id': job['request']['request_id'],
-            'terminal_receipt': terminal_receipt(job, state, verification),
+            'terminal_receipt': receipt,
             'status': 'COMPLETED' if completed else 'CANCELLED' if state == 'CANCELLED' else 'PARTIAL_UNVERIFIED',
             'repository': job['request']['repository'], 'branch': job['request']['branch'],
             'head_sha': data.get('head_sha'), 'merge_sha': data.get('merge_sha'),
@@ -36,6 +38,12 @@ def build_report(job, state, verification):
             'checks': data.get('readiness', {}).get('checks', []), 'blocked_steps': verification.get('failures', []),
             'latest_evidence': data.get('latest_evidence'), 'latest_operation': data.get('latest_operation'),
             'latest_execution_receipt': data.get('latest_execution_receipt'),
+            'post_merge': data.get('post_merge'), 'qualified_revision': (data.get('post_merge') or {}).get('qualified_revision'), 'source_preparation': data.get('source_preparation'),
+            'context_compaction': data.get('context_compaction'),
+            'workspace': {'iterations': data.get('workspace_iterations', 0),
+                          'receipt_digests': [row.get('receipt_sha256') for row in data.get('workspace_receipts', [])],
+                          'source_sha': data.get('head_sha')},
+            'ci_verdict': data.get('ci', {}).get('ci_verdict') if isinstance(data.get('ci'), dict) else None,
             'graph_retrieval': public_graph_receipt(data.get('graph_retrieval')),
             'artifact_refs': [value for value in data.values() if isinstance(value, dict) and value.get('result_ref')],
             'benchmark_status': 'NOT_MEASURED', 'device_performance': 'NOT_MEASURED',

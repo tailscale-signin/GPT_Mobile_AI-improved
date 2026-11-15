@@ -53,6 +53,40 @@ class GitHubEngineeringRoomIntegrationTest {
         }
     }
 
+    @Test fun terminalCiBlockIsPersistedWithoutPublishingPassEvidence() = runBlocking {
+        val db = Room.inMemoryDatabaseBuilder(RuntimeEnvironment.getApplication(), GitHubEngineeringDatabase::class.java).build()
+        try {
+            val ledger = GitHubEngineeringRoomLedger(db) { 1000L }
+            ledger.createTask(EngineeringTaskRow("blocked-task", "owner", "repo", "fix", "a".repeat(40), updatedAtEpochMs = 100))
+            db.ledgerDao().saveRun(EngineeringRunRow("blocked-task", "connection", "[]", "d".repeat(64), "Fix", 100, "main"))
+            val steps = listOf(
+                EngineeringEvidence.INSPECTION_STARTED,
+                EngineeringEvidence.PATCH_GENERATED,
+                EngineeringEvidence.LOCAL_VALIDATION_STARTED,
+                EngineeringEvidence.LOCAL_VALIDATION_PASSED,
+                EngineeringEvidence.APPROVAL_REQUIRED,
+                EngineeringEvidence.APPROVAL_GRANTED,
+                EngineeringEvidence.REMOTE_REF_CONFIRMED,
+                EngineeringEvidence.CI_WATCH_STARTED
+            )
+            for (step in steps) {
+                val task = requireNotNull(ledger.task("blocked-task"))
+                val state = EngineeringState.valueOf(task.state)
+                val event = EngineeringLedgerEvent("blocked-task", task.sequence + 1, task.attempt, state, step, GitHubEngineeringStateMachine.advance(state, step), "d".repeat(64))
+                ledger.append("blocked-event-${event.sequence}", event)
+            }
+
+            ledger.recordCi("blocked-task", "{\"conclusion\":\"SKIPPED\"}", EngineeringCiVerdict.BLOCKED)
+
+            assertEquals("BLOCKED", ledger.task("blocked-task")?.state)
+            assertEquals("CI_CHECK_BLOCKED", db.ledgerDao().events("blocked-task").last().evidence)
+            assertEquals("CI: BLOCKED", db.ledgerDao().run("blocked-task")?.notice)
+            assertTrue(db.ledgerDao().events("blocked-task").none { it.evidence == EngineeringEvidence.REQUIRED_CHECKS_PASSED.name })
+        } finally {
+            db.close()
+        }
+    }
+
     @Test fun versionOneLedgerMigratesAndSurvivesReopenWithoutLosingTasks() = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val name = "engineering-migration-${java.util.UUID.randomUUID()}.db"

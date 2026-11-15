@@ -26,7 +26,7 @@ class EngineeringArtifacts:
         db.execute('CREATE TABLE IF NOT EXISTS engineering_artifact_chunks (artifact_id TEXT NOT NULL,sequence INTEGER NOT NULL,aad TEXT NOT NULL,digest TEXT NOT NULL,size INTEGER NOT NULL,payload TEXT NOT NULL,PRIMARY KEY(artifact_id,sequence))')
         db.execute('CREATE TABLE IF NOT EXISTS engineering_artifact_pins (artifact_id TEXT NOT NULL,job_id TEXT NOT NULL,purpose TEXT NOT NULL,PRIMARY KEY(artifact_id,job_id,purpose))')
 
-    def put_json(self, job, value, purpose):
+    def put_json(self, job, value, purpose, *, transaction=None):
         def chunks():
             pending = bytearray()
             for text in json.JSONEncoder(sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).iterencode(value):
@@ -38,9 +38,9 @@ class EngineeringArtifacts:
                         del pending[:CHUNK]
             if pending:
                 yield bytes(pending)
-        return self.put(job, chunks(), purpose=purpose, media_type='application/json')
+        return self.put(job, chunks(), purpose=purpose, media_type='application/json', transaction=transaction)
 
-    def put(self, job, chunks, *, purpose, media_type='application/octet-stream'):
+    def put(self, job, chunks, *, purpose, media_type='application/octet-stream', transaction=None):
         if not isinstance(purpose, str) or not 1 <= len(purpose) <= 100:
             raise ValueError('Invalid artifact purpose')
         temporary = 'upload_' + uuid.uuid4().hex
@@ -79,7 +79,7 @@ class EngineeringArtifacts:
                 db.execute('UPDATE engineering_artifact_chunks SET artifact_id=? WHERE artifact_id=?', (identity, temporary))
             db.execute('INSERT OR IGNORE INTO engineering_artifact_pins VALUES(?,?,?)', (reference['result_ref'], job['id'], purpose))
             return reference
-        return self.store.tx(save)
+        return save(transaction) if transaction is not None else self.store.tx(save)
 
     def page(self, job, artifact_id, offset=0, length=CHUNK):
         if type(offset) is not int or offset < 0 or type(length) is not int or not 1 <= length <= CHUNK:
@@ -110,6 +110,9 @@ class EngineeringArtifacts:
         return self.store.tx(read)
 
     def json_value(self, job, reference):
+        return json.loads(self.read_bytes(job, reference))
+
+    def read_bytes(self, job, reference):
         if reference.get('byte_length', MAX_ARTIFACT + 1) > MAX_ARTIFACT:
             raise ExecutionBindingError('EXECUTION_ARTIFACT_OVERSIZE', 'The retained result exceeds the bounded stage reader.')
         raw, offset = bytearray(), 0
@@ -123,24 +126,52 @@ class EngineeringArtifacts:
                 break
         if hashlib.sha256(raw).hexdigest() != reference['sha256']:
             raise ExecutionBindingError('EXECUTION_ARTIFACT_CORRUPT', 'The reconstructed result failed its digest check.')
-        return json.loads(raw)
+        return bytes(raw)
 
     def checkpoint(self, job, value, purpose):
         result = dict(value)
         for key in ('files', 'tree', 'ci', 'model_input', 'raw_result'):
-            item = result.get(key)
-            if item is not None and not (isinstance(item, dict) and 'result_ref' in item):
-                # Stop counting at the view bound instead of materializing JSON.
-                size = 0
-                for part in json.JSONEncoder(ensure_ascii=False).iterencode(item):
-                    size += len(part.encode())
-                    if size > 128 * 1024:
-                        result[key] = self.put_json(job, item, purpose + ':' + key)
-                        break
+            if key in result:
+                result[key] = self._checkpoint_value(job, result[key], purpose + ':' + key)
+        # Keep paths/blob guards available to unhydrated report/graph readers.
+        # Bound both single replacements and their combined phase payload.
+        if isinstance(result.get('changes'), list):
+            changes = [dict(change, content=self._checkpoint_value(job, change['content'], purpose + ':change-content'))
+                       if isinstance(change, dict) and 'content' in change else change
+                       for change in result['changes']]
+            if self._exceeds_inline_bound(changes):
+                changes = [dict(change, content=self.put_json(job, change['content'], purpose + ':change-content'))
+                           if isinstance(change, dict) and isinstance(change.get('content'), str) else change
+                           for change in changes]
+                if self._exceeds_inline_bound(changes):
+                    raise ExecutionBindingError('EXECUTION_ARTIFACT_OVERSIZE', 'Source change metadata exceeds the bounded phase payload.')
+            result['changes'] = changes
         return result
+
+    def _checkpoint_value(self, job, item, purpose):
+        if item is not None and not (isinstance(item, dict) and 'result_ref' in item) and self._exceeds_inline_bound(item):
+            return self.put_json(job, item, purpose)
+        return item
+
+    @staticmethod
+    def _exceeds_inline_bound(item):
+        # Stop counting at the view bound instead of materializing JSON.
+        size = 0
+        for part in json.JSONEncoder(ensure_ascii=False).iterencode(item):
+            size += len(part.encode())
+            if size > 128 * 1024:
+                return True
+        return False
 
     def restore_stage(self, job):
         for key in ('files', 'tree', 'ci', 'model_input', 'raw_result'):
             item = job['data'].get(key)
             if isinstance(item, dict) and 'result_ref' in item:
                 job['data'][key] = self.json_value(job, item)
+        for change in job['data'].get('changes', []):
+            item = change.get('content')
+            if isinstance(item, dict) and 'result_ref' in item:
+                content = self.json_value(job, item)
+                if not isinstance(content, str):
+                    raise ExecutionBindingError('EXECUTION_ARTIFACT_CORRUPT', 'The retained source change is not UTF-8 text.')
+                change['content'] = content

@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GitHubArgumentProvenance
 import dev.chungjungsoo.gptmobile.data.github.GitHubSourceReadRecovery
+import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -29,9 +30,11 @@ internal class GitHubOperationTool(
     private val validateSavedViewAccess: suspend () -> Unit = {}
 ) : AgentTool {
     override val managesExecutionBudget get() = backend.managesExecutionBudget
-    override val definition = definition(operation, modelName).let { definition ->
+    override val definition = definition(if (modelName.substringBefore("__").endsWith("_inspect")) operation + "_inspect" else operation, modelName).let { definition ->
         (backend as? GitHubTool)?.let { definition.copy(description = definition.description + it.planningDescription()) } ?: definition
     }
+    private val connectionSuffix = modelName.indexOf("__").let { if (it < 0) "" else modelName.substring(it) }
+    private fun relatedToolName(name: String) = if (name == operation) definition.name else name + connectionSuffix
     private val pagination = GitHubPaginationBoundary()
     private val rejectedCalls = linkedMapOf<JsonObject, AgentToolResult>()
 
@@ -358,7 +361,7 @@ internal class GitHubOperationTool(
             fun scopedCorrection(correction: JsonObject): JsonObject {
                 val name = (correction["tool"] as? JsonPrimitive)?.content.orEmpty()
                 return if (name in setOf("github_search", "github_read", "github_context")) {
-                    JsonObject(correction + ("tool" to JsonPrimitive(name + definition.name.removePrefix(operation))))
+                    JsonObject(correction + ("tool" to JsonPrimitive(relatedToolName(name))))
                 } else {
                     correction
                 }
@@ -381,7 +384,7 @@ internal class GitHubOperationTool(
                         put(
                             "recovery_call",
                             buildJsonObject {
-                                put("tool", "github_context" + definition.name.removePrefix(operation))
+                                put("tool", relatedToolName("github_context"))
                                 put(
                                     "arguments",
                                     buildJsonObject {
@@ -400,7 +403,7 @@ internal class GitHubOperationTool(
             val rejectedPath = failureText.substringAfter("Path is not in the pinned tree:", "").lineSequence().firstOrNull()?.trim().orEmpty()
             val range = requestedRanges.firstOrNull { (it["path"] as? JsonPrimitive)?.content == rejectedPath } ?: requestedRanges.firstOrNull()
             val path = (range?.get("path") as? JsonPrimitive)?.content.orEmpty()
-            val searchName = "github_search" + definition.name.removePrefix(operation)
+            val searchName = relatedToolName("github_search")
             original.copy(
                 content = ToolResultContent.Json(
                     buildJsonObject {
@@ -593,8 +596,8 @@ internal class GitHubOperationTool(
     }
 
     companion object {
-        val names = setOf("github_context", "github_search", "github_read", "github_pr", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_issue", "github_repository")
-        fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }
+        val names = setOf("github_context_inspect", "github_pr_inspect", "github_context", "github_search", "github_read", "github_pr", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_issue", "github_repository")
+        fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }?.githubOperationFamily()
         fun immutableRead(name: String, arguments: JsonObject): Boolean = operationName(name) in setOf("github_read", "github_search") &&
             (arguments["commit_sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true &&
             "view_cursor" !in arguments
@@ -723,7 +726,7 @@ internal class GitHubOperationTool(
 
         fun taskTools(task: String): Set<String> {
             if (dev.chungjungsoo.gptmobile.data.github.GitHubTestChecklist.integration(task)) return linkedSetOf("github_context", "github_pr", "github_ci", "github_search", "github_read", "github_watch_checks")
-            if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)) return linkedSetOf("github_context", "github_pr")
+            if (dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.matches(task)) return dev.chungjungsoo.gptmobile.data.github.GitHubStatusRequest.requiredOperations(task)
             val text = task.lowercase(java.util.Locale.ROOT).replace("github_pull_request", "github_pr")
             val explicitlyNamed = names.filter { name ->
                 Regex("(?<![a-z0-9_])" + Regex.escape(name) + "(?:__[a-z0-9_-]+)?(?![a-z0-9_])").containsMatchIn(text)
@@ -745,6 +748,31 @@ internal class GitHubOperationTool(
         }
 
         fun definition(operation: String, modelName: String = operation): AgentToolDefinition {
+            if (operation.endsWith("_inspect")) {
+                val canonical = operation.removeSuffix("_inspect")
+                val full = definition(canonical, modelName)
+                val fields = if (canonical == "github_pr") {
+                    setOf("owner", "repo", "action", "pull_number", "state", "head", "base", "page", "per_page", "include_health", "expected_head_sha", "expected_base_sha", "include_files", "include_checks", "include_patches", "check_page", "verify_live", "view_cursor", "response_detail")
+                } else {
+                    setOf("owner", "repo", "action", "ref", "branch", "commit_sha", "page", "per_page", "verify_live", "view_cursor", "response_detail")
+                }
+                val actions = if (canonical == "github_pr") listOf("list", "headers", "context") else listOf("resolve", "status", "branches", "branch", "commits", "commit", "checks", "repository")
+                val properties = (full.inputSchema["properties"] as JsonObject).filterKeys { it in fields }.mapValues { (_, value) ->
+                    JsonObject((value as JsonObject).filterKeys { it != "description" })
+                }.toMutableMap()
+                properties["action"] = buildJsonObject {
+                    put("type", "string")
+                    put("enum", JsonArray(actions.map(::JsonPrimitive)))
+                }
+                return full.copy(
+                    description = if (canonical == "github_pr") "Read PRs: list discovers pull_number; headers/context require it. include_health checks readiness. Discover github_pr for other actions. Follow exact continuation_call." else "Read repository status and pinned context. Discover github_context for other actions. Follow exact continuation_call.",
+                    inputSchema = buildJsonObject {
+                        put("type", "object")
+                        put("properties", JsonObject(properties))
+                        put("additionalProperties", false)
+                    }
+                )
+            }
             require(operation in names)
             fun sourceName(source: String): String = if (source == operation) {
                 modelName
@@ -1029,7 +1057,14 @@ internal class GitHubOperationTool(
                         properties[key] = buildJsonObject {
                             put("type", "integer")
                             put("minimum", 1)
-                            put("description", if (key == "run_id") "Run ID from action=runs; different from workflow_id." else "Job ID from action=jobs; never a step number.")
+                            put(
+                                "description",
+                                when (key) {
+                                    "run_id" -> "Run ID from action=runs; different from workflow_id."
+                                    "run_attempt" -> "Positive workflow run attempt observed in run metadata; never a job ID."
+                                    else -> "Job ID from action=jobs; never a step number."
+                                }
+                            )
                         }
                     }
                     properties["page"] = integer(1, 1000)

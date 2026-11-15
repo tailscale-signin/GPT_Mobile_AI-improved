@@ -1,12 +1,72 @@
 # GPT Mobile 0.9.66.7
 
+## Late report reliability repairs
+
+Preserve saved GitHub conversations as GitHub rooms when their original connection or plugin is unavailable, with a themed restoration screen before ordinary or voice chat is created. Allocate resumed tool-event sequences from durable rows inside one Room transaction, retain existing call receipts, and report bounded local insertion evidence without replacing the original cause.
+
+Capture actual repeat-admission operands, receipt trust predicates, acceptance publication entry and review-comparison state for future reports. Keep existing repeat, trust, budget and recovery decisions; raw receipt fields cannot manufacture producer observations. The new report families negotiate their own hosted capabilities while preserving approved payload bytes and existing readiness, storage and submission bounds.
+
+The additional intake covers #1246–#1275 and brings the recorded intake to 173 reports. Historical causes remain unknown where the approved evidence is insufficient. See the [late intake repair and qualification record](docs/repairs/pr1203-late-issues-1246-1275-2026-11-15.md); individual closures require the complete candidate and merged source to qualify.
+
+## Final CI and reporting follow-up
+
+Honor valid planned GitHub schemas for the initial request, retaining compact inspection preference when both variants or no eligible hint are provided. Preserve exact connection identity, authorized full-tool discovery and unchanged admission limits. Keep unavailable supplemental engineering memory optional, with a scoped notice and finite lookup/revalidation evidence; fresh repository access, cancellation and cloud-memory consent remain enforced.
+
+Record the actual acceptance publication path, extraction state, draft presence, receipt and claim counts, and the operands of an observed planning rejection. Older verdicts retain unavailable observations. New reports negotiate the extended reporting capability without changing approved bytes or the legacy readiness and submission-receipt limits.
+
+Materialize candidate source as exact UTF-8 bytes, preserving its declared line endings on Windows. Let Repository Validation status and actions span the full compact viewport. Correct the capacity-test lease receiver without changing production behavior or existing assertions, and give the isolated GenieX KAPT step the established 4 GiB build heap.
+
+Enhanced acceptance publication diagnostics require a hosted reporter advertising ACCEPTANCE_PUBLICATION_EVIDENCE_V1 through the bounded extended readiness view. An older service leaves the exact approved report pending before submission. Repository changes do not establish hosted-service deployment or reconstruction of the original missing diagnostic observations.
+
+See [acceptance publication diagnostics](docs/repairs/acceptance-publication-evidence-2026-11-15.md). These corrections require qualification of the complete published candidate; earlier-head results do not qualify changed source.
+
+## Final integration repairs
+
+Preserve the actual local-service connection phase and original cause through approved failure reports. Retain typed primary-answer allocation refusals and their allocation values while keeping earlier dispatch, output and unknown outcomes distinct. Existing capacity limits, cancellation, retry and privacy rules remain in force.
+
+Retire rejected desktop commands atomically under their command and Gateway/principal ownership. Delayed cleanup preserves a successor command and newer draft. Recovery successors retain original failure evidence, cumulative budget and fresh merge approval; Android review follows the bounded exact recovery chain.
+
+## Durable engineering wiring
+
+Prepare replay with the final uncertainty policy and recompact after a confirmed pre-dispatch capacity rejection. Keep selected LiteRT schemas, prioritize newly requested workspace pages, retain tested candidates and page complete bounded check output. Commit recovery links and final completion evidence with their owning SQLite transactions. Android Jobs and Windows Saved can review an exact recovery merge. Validation settings use a single scrollable viewport.
+
+Read-only acceptance discovery is pinned to the selected commit and proposes approved test cases for review. Windows Chat prepares repository-bound tasks, reviews approved acceptance cases, and continues saved engineering jobs using their original model binding. Independent benchmark input-preservation proof remains pending. Native Windows, installed Android, and live-model qualification are pending.
+
+## November 15 engineering feature follow-up
+
+Add approved workspace check selection and bounded output paging, ordinary behavior-test discovery and release-check settings, bounded selected-model investigators, one primary-answer allocation, compact action contracts, and gated recovery of failed main builds. Artifact verification now downloads and checks declared current-attempt artifacts against the exact merged revision before configured container installation and smoke checks.
+
+The separate ten-scenario production engineering benchmark has not been executed. Its scenario list is retained in the engineering follow-up; execution still requires a designated test repository and runtime. A live 9,043-token request replay on the 5,632-token route, installed phone/Windows gateway acceptance, physical installation and smoke qualification remain unverified. Configured container release checks do not establish physical-device coverage.
+
+See [implementation and qualification limits](docs/engineering-completion-followup.md). New source requires checks on its exact published head.
+
+## November 15 successor repairs on PR #1203
+
+Complete the PR #1203 successor union: preserve terminal voice ownership and original privacy authority, add finite admission and caught-cause observations, retain measured context/probe/search evidence, and collect bounded keyboard and operation-frame timing data.
+
+Retain current-run GitHub CI investigation, exact workflow/check identity and complete coverage; reconcile saved graph status without erasing prior mutation uncertainty, and preserve actual report action and call-budget evidence.
+
+Bound coding replay to available context, keep compact read continuations and recovery on their authorized connection, and retain strict admission for requests that still cannot fit.
+
+Bind source-edit authority to exact pinned ranges delivered to the coding model; retain legal large READ and IMPLEMENT content through authenticated durable artifacts without inflating generic journal limits.
+
+Preserve inherited PR ownership, cancel subprocesses throughout their lifetime, schedule independent branches within the bounded worker pool, and require exact merge workflow coverage before recording final completion.
+
+Keep benchmark caller-input observations untrusted and withhold full resolution and overall scoring when required preservation evidence is unavailable; retain independently measured functional results.
+
+The PR #1203 successor retains unknown historical device and provider causes. New optional composer, tool, reasoning and voice values require numeric reporter protocol 2 where specified; source and CI do not establish hosted reporter rollout, actual affected-phone audio/IME behavior, measured latency or GPU execution.
+
+Durable engineering post-merge qualification supports only verified workflow syntax and a proved push boundary; unsupported filters, incomplete changed-path coverage, rebase or unconfirmed single-parent recovery remain blocked. Benchmark input preservation is not independently verified by candidate-process observations, so full contract resolution and the overall coding score remain unavailable without that proof.
+
+The initial 67-report ledger and the separately reviewed follow-ups cover 101 issue dispositions through #1202. See [source reconciliation](docs/repairs/pr1122-final-reconciliation-2026-11-14.md), [the latest attachment](docs/repairs/diagnostic-97b8bc5c-2026-11-15.md), and [durable engineering completion](docs/repairs/durable-engineering-completion-2026-11-14.md). Final qualification is tied to the complete published PR head; focused host runs do not replace Android, device, Windows or Docker acceptance.
+
 ## November 14 GitHub indexing and cooldown follow-up
 
 Repair the November 14 21c055de diagnostic intake: preserve typed GitHub cooldown/profile and graph uncertainty evidence, prevent graph-index replay and preparation starvation, retain failed acceptance rows, and pause durable source indexing at observed quota deadlines with a foreground reserve.
 
 The 21c055de follow-up requires an updated app and gateway; hosted report submission of new cooldown/profile fields requires GH_COOLDOWN_V1 and PROFILE_SELECTION_EVIDENCE_V1. Historical quota exhaustion, incomplete graph outcomes, physical-device performance and conditional fixture approvals are not relabeled as repaired or verified by host tests.
 
-The individual issue ledger now covers all 68 open reports through #1169. Source changes preserve the original partial acceptance, current selected-profile authority and uncertain-operation reconciliation. See [the diagnostic repair record](docs/repairs/diagnostic-21c055de-2026-11-14.md) for evidence, tests and qualifications.
+The committed individual issue ledger covers the 67-report cutoff through #1168; later reports receive separately reviewed dispositions in the successor PR #1203. Source changes preserve the original partial acceptance, current selected-profile authority and uncertain-operation reconciliation. See [the diagnostic repair record](docs/repairs/diagnostic-21c055de-2026-11-14.md) for evidence, tests and qualifications.
 
 Android build 141. Scoped reliability release covering the changes since [0.9.66.6](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/releases/tag/v0.9.66.6). That previous release was published from `223b7c9f1dbf1ecaa77b65936ca112817cfb6a9b`.
 
@@ -268,7 +328,7 @@ All scoped qualification limitations are retained below. Host and emulator resul
 - Tool health reports version-bound observations from actual executions; it does not actively probe services or guarantee present availability.
 - The diagnostics log rendering changes require physical-device frame measurements to quantify their effect. Forward rollback proposals require a reviewed new release; published tags are never rewritten.
 - Compiler-resolved Kotlin/Java navigation, a dedicated conflict workspace and native GitHub Enterprise support remain unimplemented; the integration expansion is partial.
-- Gateway publication requires a validated repository mirror, pinned Docker image and approved commands. Gateway GitHub settings can manage these inputs without an external policy file; actual isolated Docker execution remains unqualified.
+- Gateway publication requires a validated repository mirror, pinned Docker image and approved commands. Gateway GitHub settings can manage these inputs without an external policy file. The isolated source-check CI path does not qualify every target repository, objective-specific acceptance or device behavior.
 - Android webhook push, complete approval/activity history, unified model readiness, full mutation fixtures, attestation retrieval and remaining performance/accessibility work are partial.
 - Voice speech services, GitHub prompt anchoring during physical gestures/IME/rotation, process death and reboot still require device acceptance. This release does not claim those cases passed.
 - The Android signed release does not install or publish a new Windows gateway package; Windows installer checks are tracked separately.

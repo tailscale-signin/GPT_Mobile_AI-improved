@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import dev.chungjungsoo.gptmobile.data.github.GitHubAcceptancePublicationEvidence
 import java.io.IOException
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -53,7 +54,7 @@ internal class IssueReportSubmission(
         val diagnosticFeatures = diagnostics?.requiredServiceFeatures().orEmpty()
         val requiredFeatures = diagnosticFeatures + requiredCodeFeatures(parsed, context, diagnostics)
         if (context != null || requiredFeatures.isNotEmpty()) {
-            contextSupport(requiredVersions, requiredFeatures)?.let { return it }
+            contextSupport(requiredVersions, requiredFeatures, diagnostics?.requiredReporterVersion() ?: 0)?.let { return it }
         }
         val request = Request.Builder().url("${origin.trimEnd('/')}/v1/issue-reports")
             .post(payload.toRequestBody(JSON_MEDIA_TYPE)).build()
@@ -89,19 +90,24 @@ internal class IssueReportSubmission(
         }
     }
 
-    private fun contextSupport(requiredVersions: Set<Int>, requiredFeatures: Set<String>): Failure? = try {
-        client.newCall(Request.Builder().url("${origin.trimEnd('/')}/health/ready").get().build()).execute().use { response ->
+    private fun contextSupport(requiredVersions: Set<Int>, requiredFeatures: Set<String>, minimumReporterVersion: Int): Failure? = try {
+        val extended = requiredFeatures.any { it in EXTENDED_READINESS_FEATURES }
+        val readinessLimit = if (extended) MAX_READINESS_BYTES else MAX_LEGACY_READINESS_BYTES
+        val readinessQuery = if (extended) "?capabilities=extended" else ""
+        client.newCall(Request.Builder().url("${origin.trimEnd('/')}/health/ready$readinessQuery").get().build()).execute().use { response ->
             if (!response.isSuccessful) {
                 val retry = response.code in 500..599 || response.code in setOf(408, 425, 429)
                 return@use Failure(if (retry) "REPORT_SERVICE_UNAVAILABLE" else "REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, httpStatus = response.code, retryNotBeforeMillis = retryAfter(response.header("Retry-After"), now()), automaticRetry = retry)
             }
             val body = response.body
-            if (body == null || body.source().request(MAX_RECEIPT_BYTES + 1)) return@use Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
+            if (body == null || body.source().request(readinessLimit + 1)) return@use Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
             val ready = IssueReport.json.parseToJsonElement(body.string()) as? JsonObject ?: return@use Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
             if (ready["service"] != JsonPrimitive("gpt-mobile-issue-reporter")) return@use Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
             val versions = (ready["reportContextVersions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeUnless { version -> version.isString }?.intOrNull }
             val features = (ready["reportDiagnosticFeatures"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { feature -> feature.isString }?.content }
-            if (versions.containsAll(requiredVersions) && features.containsAll(requiredFeatures)) null else Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false)
+            val reporterVersion = (ready["version"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+            val supportsReporterVersion = minimumReporterVersion == 0 || reporterVersion != null && reporterVersion >= minimumReporterVersion
+            if (supportsReporterVersion && versions.containsAll(requiredVersions) && features.containsAll(requiredFeatures)) null else Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false)
         }
     } catch (_: IOException) {
         Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
@@ -111,6 +117,15 @@ internal class IssueReportSubmission(
 
     companion object {
         private const val MAX_RECEIPT_BYTES = 1024L
+        private const val MAX_LEGACY_READINESS_BYTES = 1024L
+        private const val MAX_READINESS_BYTES = 4096L
+        private val EXTENDED_READINESS_FEATURES = setOf(
+            GitHubAcceptancePublicationEvidence.FEATURE,
+            GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE,
+            IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE,
+            IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE,
+            IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE
+        )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
         private val RECOVERY_CODES = setOf(
             "TOOL_BUDGET_EXHAUSTED",

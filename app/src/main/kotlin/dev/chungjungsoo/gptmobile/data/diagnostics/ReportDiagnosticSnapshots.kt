@@ -1,10 +1,17 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+
 /** Source-owned observations only. A manual report explicitly selects an area before reading one. */
 internal object ReportDiagnosticSnapshots {
     private val cache = ReportDiagnosticSnapshotCache(canRetain = { LocalDiagnosticsPolicy.enabled && !AppLogRecorder.privateSessionActive && !IssueReportIncidents.privateSession.value })
 
+    val originEpoch = cache.originEpoch
+    fun captureOrigin(): ReportDiagnosticSnapshotCache.Origin? = cache.captureOrigin()
+    fun isCurrent(origin: ReportDiagnosticSnapshotCache.Origin): Boolean = cache.isCurrent(origin)
     fun retain(snapshot: IssueReportDiagnostics) = cache.retain(snapshot)
+    fun retain(snapshot: IssueReportDiagnostics, origin: ReportDiagnosticSnapshotCache.Origin) = cache.retain(snapshot, origin)
     fun latest(area: String, nowMillis: Long = System.currentTimeMillis()): IssueReportDiagnostics? = cache.latest(area, nowMillis)
     fun clear() = cache.clear()
 }
@@ -15,10 +22,32 @@ internal class ReportDiagnosticSnapshotCache(
     private val clock: () -> Long = System::currentTimeMillis
 ) {
     private val snapshots = linkedMapOf<String, IssueReportDiagnostics>()
+    private val identity = Any()
+    private val mutableOriginEpoch = MutableStateFlow(Any())
+    private var originIssued = false
+    val originEpoch = mutableOriginEpoch.asStateFlow()
+
+    /** Issued only for public, enabled capture; it cannot acquire authority later. */
+    class Origin internal constructor(internal val owner: Any, internal val epoch: Any)
+
+    @Synchronized
+    fun captureOrigin(): Origin? {
+        if (!captureAllowed()) return null
+        originIssued = true
+        return Origin(identity, mutableOriginEpoch.value)
+    }
+
+    @Synchronized
+    fun isCurrent(origin: Origin): Boolean = captureAllowed() && origin.owner === identity && origin.epoch === mutableOriginEpoch.value
+
+    @Synchronized
+    fun retain(snapshot: IssueReportDiagnostics, origin: Origin) {
+        if (isCurrent(origin)) retain(snapshot)
+    }
 
     @Synchronized
     fun retain(snapshot: IssueReportDiagnostics) {
-        if (!canRetain()) return
+        if (!captureAllowed()) return
         val now = clock()
         expire(now)
         val safe = snapshot.validated()?.takeIf { it.captureMode != "NO_CAPTURE" && it.values.isNotEmpty() && fresh(it, now) } ?: return
@@ -31,16 +60,23 @@ internal class ReportDiagnosticSnapshotCache(
 
     @Synchronized
     fun latest(area: String, nowMillis: Long = clock()): IssueReportDiagnostics? {
-        if (!canRetain()) {
-            snapshots.clear()
-            return null
-        }
+        if (!captureAllowed()) return null
         expire(nowMillis)
         return snapshots[area]?.validated()
     }
 
     @Synchronized
-    fun clear() = snapshots.clear()
+    fun clear() {
+        snapshots.clear()
+        originIssued = false
+        mutableOriginEpoch.value = Any()
+    }
+
+    private fun captureAllowed(): Boolean {
+        if (canRetain()) return true
+        if (originIssued || snapshots.isNotEmpty()) clear()
+        return false
+    }
 
     private fun expire(now: Long) {
         snapshots.entries.removeAll { !fresh(it.value, now) }

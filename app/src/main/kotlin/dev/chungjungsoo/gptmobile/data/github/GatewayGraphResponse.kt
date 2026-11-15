@@ -10,7 +10,9 @@ internal data class GatewayGraphResponse(
     val gatewayName: String,
     val indexOutcomeUnknown: Boolean = false,
     val durableIndexJobs: Boolean = false,
-    val modelAccess: String = "NOT_CHECKED"
+    val modelAccess: String = "NOT_CHECKED",
+    val indexAttemptHash: String? = null,
+    val confirmedIndexAttemptHash: String? = null
 )
 
 internal class GatewayGraphOperationException(
@@ -19,7 +21,9 @@ internal class GatewayGraphOperationException(
     val gatewayName: String?,
     val repairAction: String?,
     val indexOutcomeUnknown: Boolean,
-    val failureCode: String = graphFailureCode(cause)
+    val failureCode: String = graphFailureCode(cause),
+    val indexAttemptHash: String? = null,
+    val currentIndexOutcomeUnknown: Boolean = false
 ) : IllegalStateException(cause.message ?: "Repository graph unavailable.", cause)
 
 /** Keeps a bad response or rejected identity distinct from a disconnected host. */

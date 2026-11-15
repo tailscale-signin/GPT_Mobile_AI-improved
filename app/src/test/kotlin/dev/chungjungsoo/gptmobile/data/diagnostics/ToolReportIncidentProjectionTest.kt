@@ -97,8 +97,13 @@ class ToolReportIncidentProjectionTest {
         val failure = GatewayGraphHttpFailure.fromResponse(500, null, buildJsonObject { put("code", "graph_internal_storage_error") })
         val tool = RepositoryGraphTool(event.modelToolName) {
             throw GatewayGraphOperationException(
-                failure, "private-host", "private title", "CHECK_SAVED_INDEX", true,
-                indexAttemptHash = "b".repeat(64), currentIndexOutcomeUnknown = true
+                failure,
+                "private-host",
+                "private title",
+                "CHECK_SAVED_INDEX",
+                true,
+                indexAttemptHash = "b".repeat(64),
+                currentIndexOutcomeUnknown = true
             )
         }
         val result = tool.execute(event.callId, buildJsonObject { put("action", "index") })

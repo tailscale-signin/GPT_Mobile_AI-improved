@@ -35,7 +35,7 @@ internal object ModelBundleInstaller {
                     val entry = archive.nextEntry ?: break
                     require(!entry.isDirectory && extracted.add(entry.name)) { "Duplicate or undeclared archive entry" }
                     val asset = declared[entry.name] ?: error("Undeclared archive asset: ${entry.name}")
-                    val target = ModelArtifactManifest.safeFile(staging, entry.name)
+                    val target = ModelArtifactManifest.safeExtractionFile(staging, entry.name)
                     // Keep the extraction boundary explicit before either filesystem write.
                     if (!target.canonicalPath.startsWith(staging.canonicalPath + File.separator)) {
                         throw IllegalArgumentException("Archive entry escapes installation")
@@ -47,7 +47,7 @@ internal object ModelBundleInstaller {
                 // Imported assertions cannot manufacture a device verification badge.
                 artifact.copy(evidence = ArtifactEvidence.DISCOVERED, validations = emptyList())
             }
-            manifest.validate(staging, checkCurrent = checkCurrent)
+            manifest.validateLocalFiles(staging, checkCurrent = checkCurrent)
             require(manifest.runtime in setOf(ArtifactRuntime.LLAMA_CPP, ArtifactRuntime.GENIEX_QAIRT, ArtifactRuntime.GENIEX_LLAMA_CPP)) { "This bundle importer supports GenieX QAIRT/GGUF. Import LiteRT as .litertlm; legacy Genie needs a qualified native SDK." }
             ArtifactManifestStore.write(manifestFile, manifest)
             val digest = PackageDigest.sha256(manifestFile)
@@ -60,7 +60,7 @@ internal object ModelBundleInstaller {
             // Content-addressed installs never overwrite an in-use artifact.
             checkCurrent()
             if (destination.exists()) {
-                ArtifactManifestStore.read(File(destination, "manifest.json")).validate(destination, checkCurrent = checkCurrent)
+                ArtifactManifestStore.read(File(destination, "manifest.json")).validateLocalFiles(destination, checkCurrent = checkCurrent)
                 staging.deleteRecursively()
             } else {
                 java.nio.file.Files.move(staging.toPath(), destination.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE)

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "5fb8a5e08282f6041c7129aafd4eae57e2f012f071240f9d54b88b17139fef4d",
+  "source_digest": "ff7eed4bf56f1e58f65f87a03c7041da00536931b0bb9e2fda1877447fdf594c",
   "file_count": 2639,
-  "indexed_line_count": 426444,
+  "indexed_line_count": 426466,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -88,7 +88,7 @@
       "id": "local_inference",
       "label": "Local inference and admission",
       "file_count": 111,
-      "indexed_line_count": 14833
+      "indexed_line_count": 14855
     },
     {
       "id": "gateway_client",
@@ -8228,14 +8228,14 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/ModelArtifactManifest.kt",
       "area_id": "local_inference",
       "kind": "source",
-      "sha256": "c08b32709a4959ccd8558daf5775ddcca0709dc365c9f767781319d7de7582af",
-      "indexed_lines": 194
+      "sha256": "a88770b4cb942486b869f88d7fcafcc158ad27a45382aca1800fb084523621e7",
+      "indexed_lines": 216
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/ModelBundleInstaller.kt",
       "area_id": "local_inference",
       "kind": "source",
-      "sha256": "99dbc070c701d23f8ba4ba5bfc0f9874dc2d2e6ad3626253f6dd8f365c34da4d",
+      "sha256": "015b973a0da18b9151894e968041364e7a641147f0fbf2524a962b8102049f36",
       "indexed_lines": 100
     },
     {

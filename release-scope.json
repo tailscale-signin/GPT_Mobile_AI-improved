@@ -151,7 +151,8 @@
     "Prefer an existing compact GitHub inspection contract for the initial request while preserving exact connection identity, authorized full-tool discovery and unchanged admission limits. Keep unavailable supplemental engineering memory optional, with a scoped notice and finite lookup/revalidation evidence; fresh repository access, cancellation and cloud-memory consent remain enforced.",
     "Record the actual acceptance publication path, extraction state, draft presence, receipt and claim counts, and the operands of an observed planning rejection. Older verdicts retain unavailable observations. New reports negotiate the extended reporting capability without changing approved bytes or the legacy readiness and submission-receipt limits.",
     "Materialize candidate source as exact UTF-8 bytes, preserving its declared line endings on Windows. Let Repository Validation status and actions span the full compact viewport. Correct the capacity-test lease receiver without changing production behavior or existing assertions, and give the isolated GenieX KAPT step the established 4 GiB build heap.",
-    "Repair resumed tool-event sequence allocation and unavailable saved GitHub conversation routing for the late #1246\u2013#1275 intake. Add bounded producer-qualified repeat-admission, actual persistence and SQLite, receipt-trust, publication-entry and review-comparison observations with distinct hosted capability negotiation; retain historical unknowns and individual final-qualification conditions."
+    "Repair resumed tool-event sequence allocation and unavailable saved GitHub conversation routing for the late #1246\u2013#1275 intake. Add bounded producer-qualified repeat-admission, actual persistence and SQLite, receipt-trust, publication-entry and review-comparison observations with distinct hosted capability negotiation; retain historical unknowns and individual final-qualification conditions.",
+    "Separate archive destinations and installed-bundle validation from linked-model alias resolution while preserving path, code-extension and canonical containment checks; strengthen admitted-runtime traversal, cleanup and valid nested-import regressions."
   ],
   "limitations": [
     "The separate ten-scenario production engineering benchmark has not been executed. Its scenario list is retained in the engineering follow-up; execution still requires a designated test repository and runtime. A live 9,043-token request replay on the 5,632-token route, installed phone/Windows gateway acceptance, physical installation and smoke qualification remain unverified. Configured container release checks do not establish physical-device coverage.",
@@ -2892,6 +2893,9 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/ToolEventPersistenceFailureTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAdmissionEvidenceTest.kt",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ConversationRoutingTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ConversationRoutingTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/ModelArtifactManifest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/ModelBundleInstaller.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/localmodel/ModelArtifactManifestTest.kt"
   ]
 }

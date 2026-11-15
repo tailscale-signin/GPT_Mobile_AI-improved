@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ff7eed4bf56f1e58f65f87a03c7041da00536931b0bb9e2fda1877447fdf594c",
+  "source_digest": "684477ac86a6158ad7b068f270c2cd0ab74ffc130b0b8cb66247e810dc360315",
   "file_count": 2639,
   "indexed_line_count": 426466,
   "line_coverage_available": false,
@@ -17104,7 +17104,7 @@
       "path": "app/src/main/res/values/strings.xml",
       "area_id": "accessibility_and_localization",
       "kind": "ui_resource",
-      "sha256": "1fe0cab312aa39d68d31fcfd7cc3f944768dc9492541a3c4a10e7fb77848c636",
+      "sha256": "8f135343a9cb3a240b418f6d570a7db36af3a2028beb61bb9a785c4772a89c74",
       "indexed_lines": 1271
     },
     {

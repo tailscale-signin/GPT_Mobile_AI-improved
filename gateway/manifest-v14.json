@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "f5ae5dc126fc0a6de2cedf5c003ad1d8c7b6b261",
+  "sourceCommit": "787951a4d6ec8d30f92c7c95618d89e51bc07b88",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",

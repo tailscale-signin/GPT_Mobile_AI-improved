@@ -96,6 +96,12 @@ internal class GitHubOperationTool(
     }
 
     private suspend fun executeOperation(callId: String, arguments: JsonObject): AgentToolResult {
+        // Schema-invalid input is rejected against the caller's exact arguments.
+        // Repository normalization is for dispatch and must not rewrite the public
+        // correction proposal or the call-bound diagnostic observation.
+        if (operation in names && ToolArgumentValidator.errors(arguments, definition.inputSchema).isNotEmpty()) {
+            return executeNormalized(callId, arguments)
+        }
         val normalized = try {
             if ("view_cursor" in arguments || operation == "github_repository") arguments else (backend as? GitHubTool)?.normalizeOperationRepository(arguments) ?: arguments
         } catch (invalid: IllegalArgumentException) {
@@ -875,7 +881,7 @@ internal class GitHubOperationTool(
                     }
                     listOf("min_lines", "max_lines").forEach { properties[it] = field("integer") }
                     properties["context_lines"] = integer(0, 100)
-                    properties["max_new_blobs"] = integer(1, 100, "Fetch 1–100 new blobs per page. Omit for the default bounded fetch; zero is unsupported.", default = 4)
+                    properties["max_new_blobs"] = integer(1, 100, "Fetch 1–100 new blobs; omit for the bounded default. Zero is invalid.", default = 4)
                     properties["batch_size"] = integer(1, 1000, default = 1000)
                     properties["page"] = field("integer")
                 }

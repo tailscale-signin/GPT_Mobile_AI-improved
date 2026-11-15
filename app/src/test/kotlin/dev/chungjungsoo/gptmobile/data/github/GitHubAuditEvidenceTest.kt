@@ -357,7 +357,7 @@ class GitHubAuditEvidenceTest {
             assertEquals(JsonPrimitive("NOT_DISPATCHED"), failure.failureDetails?.get("dispatch_state"))
             assertEquals(JsonPrimitive("NO"), failure.failureDetails?.get("remote_acceptance"))
             assertEquals(JsonPrimitive(false), failure.failureDetails?.get("request_replay_allowed"))
-            assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Which commit or tag"))
+            assertTrue(events.filterIsInstance<ProviderEvent.TextDelta>().single().text.contains("Baseline: <commit, tag or branch>"))
             assertEquals(JsonPrimitive(true), published?.get("user_input_required"))
             assertEquals(JsonPrimitive("SELECT_REVIEW_BASELINE"), published?.get("next_action"))
             assertEquals(JsonPrimitive("PROVIDE_MISSING_REVIEW_INPUT"), published?.get("recovery_action"))

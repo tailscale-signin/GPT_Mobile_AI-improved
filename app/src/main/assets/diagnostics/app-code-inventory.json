@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "fc7d2aeba1da0a04fd3139aa2549e9d9556d758d24cc348e3256a86ed5755c19",
+  "source_digest": "1993e866d809f4c814a159859950fadc326a564a06e437f93ca354a16f74a689",
   "file_count": 2657,
-  "indexed_line_count": 430480,
+  "indexed_line_count": 430487,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 553,
-      "indexed_line_count": 96931
+      "indexed_line_count": 96932
     },
     {
       "id": "accessibility_and_localization",
@@ -58,7 +58,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 100,
-      "indexed_line_count": 22300
+      "indexed_line_count": 22306
     },
     {
       "id": "mcp_plugins",
@@ -2698,8 +2698,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "683f44ad88cf5cc5c806e7e9d03991c90f2fb2586fe7e261f5dc5caa14caf92f",
-      "indexed_lines": 1205
+      "sha256": "7ba53ce3f0a21468291f0d1a97b7590a2ab4f1b6692e07833caa1b135bd3e4f8",
+      "indexed_lines": 1211
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
@@ -4532,8 +4532,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalContextPlanner.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "2546cf00bc7ac8700763db7041e5382dda89d8979a91f5497cfce693cb401b37",
-      "indexed_lines": 304
+      "sha256": "3ef1c8239f293759606f1e611b4b1d2c6d5cb1b96a7aacb302872a096c772fbb",
+      "indexed_lines": 305
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/context/LocalFailedStageContext.kt",
@@ -5883,7 +5883,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ToolReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "176d7bff66b630b60b2c397e9ec043981c4f37eb093f8937a81cde6ece233c1c",
+      "sha256": "b1c02efdc66a98011546a2ac1900d38c7d91177e089e81567beef7af15c92dc1",
       "indexed_lines": 257
     },
     {

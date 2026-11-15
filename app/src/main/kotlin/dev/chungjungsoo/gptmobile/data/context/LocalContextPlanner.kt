@@ -66,18 +66,15 @@ internal object LocalContextPlanner {
                 ?: selected.sumOf { estimate(it.name) + estimate(it.description) + estimate(it.inputSchema.toString()) + 32 }
             ) +
             renderCapabilityPrompt?.let { estimate(it(selected)) }.orZero()
-        // Tool definitions are charged below at their measured cost. Reserving another
-        // tool block here double-counted the same tokens and caused local conversations
-        // to silently receive zero tools on small-context models.
-        // Final JSON admission reserves at least 25% of its estimated prompt for
-        // uncertainty. A plan that fills more than 80% of the model context before
-        // output cannot pass that check even if its own token estimate looks safe.
-        // Reserve the matching proportional headroom *before* selecting history and
-        // optional schemas; never trim the current task or required tool definitions.
-        val templateReserve = preflightSafetyReserve(contextTokens)
+        var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
+        // Tool definitions are charged below at their measured cost. The physical
+        // admission reserve is proportional to the prompt, not the model capacity:
+        // reserving one fifth of the whole context rejected valid small-model work.
+        // Start with the rendered task and tighten the final prompt limit after the
+        // reply and tool-result allowances are known.
+        val templateReserve = preflightSafetyReserve(used)
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
-        var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
         val requiredTools = rankedTools.filter { it.name in requiredNames }
         fun cost(turn: ConversationTurn): Long = estimate(turn.userMessage.effectiveContent()) +
             estimate(turn.assistantMessage?.effectiveContent().orEmpty()) + 32 +
@@ -104,7 +101,11 @@ internal object LocalContextPlanner {
         }
         val safetyReserve = templateReserve + toolResultReserve + 1
         val baselineOutput = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, safetyReserve, outputLimit, minimum = minimumReply)
-        val baselinePromptLimit = contextTokens.toLong() - baselineOutput - templateReserve - toolResultReserve
+        fun promptLimitExclusive(outputReserve: Int): Long {
+            val available = contextTokens.toLong() - outputReserve - toolResultReserve
+            return (RequestAdmission.maximumEstimatedPrompt(available) + 1).coerceAtMost(contextTokens.toLong())
+        }
+        val baselinePromptLimit = promptLimitExclusive(baselineOutput)
         var anchorTokens = 0L
         // Keep the history anchors that fit before optional schemas are considered.
         // Reserving a capability must borrow reply space rather than evict documents.
@@ -126,13 +127,13 @@ internal object LocalContextPlanner {
         if (contextTokens >= 4096) {
             val minimumReply = minOf(baselineOutput, 512)
             rankedTools.filterNot { it in catalogTools }.forEach { tool ->
-                if (used + anchorTokens + schemaCost(catalogTools + tool) + safetyReserve + minimumReply < contextTokens) {
+                if (used + anchorTokens + schemaCost(catalogTools + tool) < promptLimitExclusive(minimumReply)) {
                     catalogTools += tool
                 }
             }
         }
         val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + anchorTokens + schemaCost(catalogTools), safetyReserve, outputLimit, minimum = minimumReply)
-        val promptLimit = contextTokens.toLong() - outputReserve - templateReserve - toolResultReserve
+        val promptLimit = promptLimitExclusive(outputReserve)
         require(used < promptLimit) {
             "This message and system instructions exceed this local model's $contextTokens-token context. " +
                 "Shorten the message or system instructions, remove attachments, or choose a model with a larger context. " +
@@ -294,9 +295,9 @@ internal object LocalContextPlanner {
         return words.count { it in descriptor }
     }
 
-    /** Conservative physical-admission safety when the final JSON has not yet been rendered. */
-    internal fun preflightSafetyReserve(contextTokens: Int): Int =
-        maxOf(256L, (contextTokens.toLong() + 4) / 5).toInt()
+    /** Exact uncertainty policy used by physical admission for an estimated prompt. */
+    internal fun preflightSafetyReserve(estimatedPromptTokens: Long): Int =
+        RequestAdmission.estimateSafety(estimatedPromptTokens).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
     // JSON/tool templates and multilingual input cost more than English prose.
     private fun estimate(text: String): Long = (text.toByteArray(Charsets.UTF_8).size.toLong() + 1) / 2

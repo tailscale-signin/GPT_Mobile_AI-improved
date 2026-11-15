@@ -15,8 +15,8 @@ import org.junit.Test
 class LocalContextPlannerTest {
     @Test fun localContextPlanningReservesPhysicalAdmissionUncertaintyBeforeHistory() {
         assertEquals(256, LocalContextPlanner.preflightSafetyReserve(1024))
-        assertEquals(820, LocalContextPlanner.preflightSafetyReserve(4096))
-        assertEquals(1639, LocalContextPlanner.preflightSafetyReserve(8192))
+        assertEquals(1024, LocalContextPlanner.preflightSafetyReserve(4096))
+        assertEquals(2048, LocalContextPlanner.preflightSafetyReserve(8192))
 
         val longHistory = List(16) { turn("Earlier context details ".repeat(40)) }
         val plan = LocalContextPlanner.plan(

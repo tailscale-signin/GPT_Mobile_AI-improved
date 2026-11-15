@@ -17,10 +17,11 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 
 internal data class ConversationRoutingState(val features: AppFeatureSettings, val connections: List<ToolConnection>) {
-    fun githubDestination(chatId: Int): Pair<GitHubConversationContext, ToolConnection>? {
+    /** A missing usable connection must not turn a saved GitHub workspace into an ordinary chat. */
+    fun githubDestination(chatId: Int): Pair<GitHubConversationContext, ToolConnection?>? {
         val context = features.conversationGitHub[chatId] ?: return null
-        if (!features.isToolPluginEnabled(ToolPluginId.GITHUB) || !features.isToolPluginEnabled(ToolPluginId.connection(context.connectionUid))) return null
-        val connection = connections.firstOrNull { it.connectionUid == context.connectionUid && it.type == ToolConnectionType.GITHUB } ?: return null
+        if (!features.isToolPluginEnabled(ToolPluginId.GITHUB) || !features.isToolPluginEnabled(ToolPluginId.connection(context.connectionUid))) return context to null
+        val connection = connections.firstOrNull { it.connectionUid == context.connectionUid && it.type == ToolConnectionType.GITHUB }
         return context to connection
     }
 }

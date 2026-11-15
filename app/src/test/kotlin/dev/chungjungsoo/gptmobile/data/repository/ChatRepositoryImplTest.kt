@@ -2935,18 +2935,22 @@ private class RecordingToolEventDao {
                     Unit
                 }
 
-                "insertOrGetToolEvent" -> {
+                "startToolEvent" -> synchronized(events) {
                     val event = args!![0] as ToolEvent
                     events.firstOrNull { it.runId == event.runId && it.callId == event.callId } ?: run {
-                        val nextSequence = (events.filter { it.runId == event.runId }.maxOfOrNull(ToolEvent::sequence) ?: -1) + 1
-                        event.copy(sequence = maxOf(event.sequence, nextSequence)).also(events::add)
+                        val previousMaximum = events.filter { it.runId == event.runId }.maxOfOrNull(ToolEvent::sequence)
+                        val nextSequence = maxOf(event.sequence.toLong(), (previousMaximum?.toLong() ?: -1L) + 1L, 0L)
+                        if (nextSequence > Int.MAX_VALUE) {
+                            throw dev.chungjungsoo.gptmobile.data.database.ToolEventPersistenceFailure.sequenceExhausted(event.sequence, previousMaximum)
+                        }
+                        event.copy(sequence = nextSequence.toInt()).also(events::add)
                     }
                 }
 
                 "rawMaxToolEventSequence" ->
                     events
                         .filter { it.runId == args!![0] }
-                        .maxOfOrNull(ToolEvent::sequence) ?: -1
+                        .maxOfOrNull(ToolEvent::sequence)
 
                 "finishToolEvent" -> {
                     val eventId = args!![0] as String

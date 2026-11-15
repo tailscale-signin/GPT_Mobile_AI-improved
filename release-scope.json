@@ -151,7 +151,7 @@
     "Prefer an existing compact GitHub inspection contract for the initial request while preserving exact connection identity, authorized full-tool discovery and unchanged admission limits. Keep unavailable supplemental engineering memory optional, with a scoped notice and finite lookup/revalidation evidence; fresh repository access, cancellation and cloud-memory consent remain enforced.",
     "Record the actual acceptance publication path, extraction state, draft presence, receipt and claim counts, and the operands of an observed planning rejection. Older verdicts retain unavailable observations. New reports negotiate the extended reporting capability without changing approved bytes or the legacy readiness and submission-receipt limits.",
     "Materialize candidate source as exact UTF-8 bytes, preserving its declared line endings on Windows. Let Repository Validation status and actions span the full compact viewport. Correct the capacity-test lease receiver without changing production behavior or existing assertions, and give the isolated GenieX KAPT step the established 4 GiB build heap.",
-    "Review and disposition the late open reports #1246\u2013#1275, preserving the individual evidence and recording the #1273 sequence collision repair."
+    "Repair resumed tool-event sequence allocation and unavailable saved GitHub conversation routing for the late #1246\u2013#1275 intake. Add bounded producer-qualified repeat-admission, actual persistence and SQLite, receipt-trust, publication-entry and review-comparison observations with distinct hosted capability negotiation; retain historical unknowns and individual final-qualification conditions."
   ],
   "limitations": [
     "The separate ten-scenario production engineering benchmark has not been executed. Its scenario list is retained in the engineering follow-up; execution still requires a designated test repository and runtime. A live 9,043-token request replay on the 5,632-token route, installed phone/Windows gateway acceptance, physical installation and smoke qualification remain unverified. Configured container release checks do not establish physical-device coverage.",
@@ -2882,6 +2882,16 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryPreparationTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubEngineeringMemoryTest.kt",
     "docs/repairs/acceptance-publication-evidence-2026-11-15.md",
-    "docs/repairs/pr1203-late-issues-1246-1275-2026-11-15.md"
+    "docs/repairs/pr1203-late-issues-1246-1275-2026-11-15.md",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolRepeatAdmissionEvidence.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/database/ToolEventPersistenceFailure.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ConversationRoutingViewModel.kt",
+    "app/src/main/res/values/conversation_navigation_strings.xml",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/AgentRepeatAdmissionEvidenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolRepeatAdmissionDiagnosticsTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/ToolEventPersistenceFailureTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/database/dao/ToolEventStartPersistenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportAdmissionEvidenceTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/ConversationRoutingTest.kt"
   ]
 }

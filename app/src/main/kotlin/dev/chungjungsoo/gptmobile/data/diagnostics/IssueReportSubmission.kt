@@ -91,7 +91,7 @@ internal class IssueReportSubmission(
     }
 
     private fun contextSupport(requiredVersions: Set<Int>, requiredFeatures: Set<String>, minimumReporterVersion: Int): Failure? = try {
-        val extended = GitHubAcceptancePublicationEvidence.FEATURE in requiredFeatures
+        val extended = requiredFeatures.any { it in EXTENDED_READINESS_FEATURES }
         val readinessLimit = if (extended) MAX_READINESS_BYTES else MAX_LEGACY_READINESS_BYTES
         val readinessQuery = if (extended) "?capabilities=extended" else ""
         client.newCall(Request.Builder().url("${origin.trimEnd('/')}/health/ready$readinessQuery").get().build()).execute().use { response ->
@@ -119,6 +119,13 @@ internal class IssueReportSubmission(
         private const val MAX_RECEIPT_BYTES = 1024L
         private const val MAX_LEGACY_READINESS_BYTES = 1024L
         private const val MAX_READINESS_BYTES = 4096L
+        private val EXTENDED_READINESS_FEATURES = setOf(
+            GitHubAcceptancePublicationEvidence.FEATURE,
+            GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE,
+            IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE,
+            IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE,
+            IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE
+        )
         private val REVIEW_CODES = setOf("REVIEW_INPUT_REQUIRED", "GITHUB_REVIEW_COMPARISON_REQUIRED")
         private val RECOVERY_CODES = setOf(
             "TOOL_BUDGET_EXHAUSTED",

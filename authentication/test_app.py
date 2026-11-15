@@ -474,10 +474,13 @@ class IssueReportHttpTest(unittest.TestCase):
         legacy = self.client.get("/health/ready")
         extended = self.client.get("/health/ready?capabilities=extended")
         self.assertEqual(200, extended.status_code)
-        self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + ["ACCEPTANCE_PUBLICATION_EVIDENCE_V1"],
+        additions = ["ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
+                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1"]
+        self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
                          extended.json()["reportDiagnosticFeatures"])
         for key in ("service", "version", "reportContextVersions"):
             self.assertEqual(legacy.json()[key], extended.json()[key])
+        self.assertEqual(1022, len(legacy.content))
         self.assertLessEqual(len(legacy.content), 1024)
         self.assertGreater(len(extended.content), 1024)
         self.assertLessEqual(len(extended.content), 4096)
@@ -491,6 +494,57 @@ class IssueReportHttpTest(unittest.TestCase):
         check_readiness(self.origin, fetch)
         self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
         self.assertFalse(self.issued)
+
+    def test_new_incident_observations_cross_http_boundary_without_replacing_approved_payload(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        fixtures = IncidentReportContractTest()
+        cases = (
+            ("TOOL", {"dependency_repeat_scope": "TOOL_NAME_AND_ARGUMENTS", "dependency_repeat_prior_admissions": 3,
+                      "dependency_repeat_batch_admissions": 0, "dependency_repeat_used": 3, "dependency_repeat_limit": 3}),
+            ("INCIDENT", {"tool_event_persistence_operation": "START", "tool_event_persistence_phase": "ALLOCATE_SEQUENCE",
+                          "tool_event_persistence_failure": "SEQUENCE_EXHAUSTED", "tool_event_requested_sequence": -1,
+                          "tool_event_previous_max_sequence": 2_147_483_647, "tool_event_write_attempted": False}),
+            ("INCIDENT", {"sqlite_constraint_kind": "UNKNOWN"}),
+            ("INCIDENT", {"review_comparison_state": "BASE_REF_BLOCKED", "review_comparison_policy": "EXPLICIT_BASE_REF"}),
+            ("ACCEPTANCE", {"acceptance_publication_entry": "COMPLETED_DRAFT",
+                            "acceptance_claim_trust_failures": ["TARGET_OUTSIDE_ACCEPTED_SCOPE"]}),
+        )
+        for area, values in cases:
+            with self.subTest(area=area, values=values):
+                # These are independent wire cases, outside the admission window.
+                from authentication.issue_reports import ADMISSION_WINDOW
+                self.now += ADMISSION_WINDOW + 1
+                report = fixtures.report(fixtures.capture(area, values))
+                report["reportId"] = str(uuid4())
+                approved = json.dumps(report, separators=(",", ":")).encode()
+                response = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+                self.assertEqual(200, response.status_code)
+                self.assertLessEqual(len(response.content), 1024)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+                self.assertIn(marker(report["reportId"]), self.issued[-1]["body"])
+                for key in values:
+                    self.assertIn(f"| {key} |", self.issued[-1]["body"])
+                self.assertEqual(200, self.submit(report).status_code)
+        self.assertEqual(len(cases), len(self.issued))
+
+    def test_new_incident_observations_reject_malformed_values_before_issue_creation(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        fixtures = IncidentReportContractTest()
+        for area, values in (
+            ("TOOL", {"dependency_repeat_prior_admissions": True}),
+            ("TOOL", {"dependency_repeat_limit": 16_000_001}),
+            ("INCIDENT", {"tool_event_requested_sequence": -2_147_483_649}),
+            ("INCIDENT", {"tool_event_assigned_sequence": -1}),
+            ("INCIDENT", {"tool_event_write_attempted": "false"}),
+            ("INCIDENT", {"sqlite_constraint_kind": "private table name"}),
+            ("INCIDENT", {"review_comparison_state": "private ref"}),
+            ("ACCEPTANCE", {"acceptance_claim_trust_failures": ["TARGET_OUTSIDE_ACCEPTED_SCOPE"] * 2}),
+        ):
+            with self.subTest(values=values):
+                report = fixtures.report(fixtures.capture(area, values))
+                report["reportId"] = str(uuid4())
+                self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual([], self.issued)
 
     def test_versioned_context_keeps_causal_facts_and_explicit_unavailable_fields(self):
         context = self.context(stage="provider_admission", provider="LLAMA", httpStatus=409, dispatched=False,

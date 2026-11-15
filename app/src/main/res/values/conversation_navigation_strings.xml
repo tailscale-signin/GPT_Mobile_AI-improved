@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="github_conversation_unavailable_title">GitHub conversation unavailable</string>
+    <string name="github_conversation_unavailable_message">Review GitHub and the original connection for this conversation in Plugins, then return. The saved workspace will be used when both are available and enabled.</string>
+</resources>

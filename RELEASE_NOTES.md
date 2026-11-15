@@ -1,5 +1,13 @@
 # GPT Mobile 0.9.66.7
 
+## Late report reliability repairs
+
+Preserve saved GitHub conversations as GitHub rooms when their original connection or plugin is unavailable, with a themed restoration screen before ordinary or voice chat is created. Allocate resumed tool-event sequences from durable rows inside one Room transaction, retain existing call receipts, and report bounded local insertion evidence without replacing the original cause.
+
+Capture actual repeat-admission operands, receipt trust predicates, acceptance publication entry and review-comparison state for future reports. Keep existing repeat, trust, budget and recovery decisions; raw receipt fields cannot manufacture producer observations. The new report families negotiate their own hosted capabilities while preserving approved payload bytes and existing readiness, storage and submission bounds.
+
+The additional intake covers #1246–#1275 and brings the recorded intake to 173 reports. Historical causes remain unknown where the approved evidence is insufficient. See the [late intake repair and qualification record](docs/repairs/pr1203-late-issues-1246-1275-2026-11-15.md); individual closures require the complete candidate and merged source to qualify.
+
 ## Final CI and reporting follow-up
 
 Honor valid planned GitHub schemas for the initial request, retaining compact inspection preference when both variants or no eligible hint are provided. Preserve exact connection identity, authorized full-tool discovery and unchanged admission limits. Keep unavailable supplemental engineering memory optional, with a scoped notice and finite lookup/revalidation evidence; fresh repository access, cancellation and cloud-memory consent remain enforced.

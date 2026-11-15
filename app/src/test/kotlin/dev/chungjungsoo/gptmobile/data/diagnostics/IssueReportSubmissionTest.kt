@@ -60,7 +60,7 @@ class IssueReportSubmissionTest {
         assertEquals(1022, ready(false).encodeToByteArray().size)
         assertTrue(ready(true).encodeToByteArray().size in 1025..4096)
         var fixtures = 0
-        for (key in GitHubAcceptancePublicationEvidence.fields) {
+        for (key in GitHubAcceptancePublicationEvidence.fields - GitHubAcceptancePublicationEvidence.observationFields) {
             val value = when (key) {
                 "acceptance_publication_source" -> JsonPrimitive("PARTIAL_FALLBACK")
                 "acceptance_extraction_observation" -> JsonPrimitive("PLAN_INPUT_LIMIT")
@@ -111,6 +111,88 @@ class IssueReportSubmissionTest {
             }
         }
         assertEquals(16, fixtures)
+    }
+
+    @Test fun repeatPersistenceAndAcceptanceCausesNegotiateTheirOwnExtendedFeaturesForValuesAndOmissions() {
+        val repeat = IssueReportIncidentCapsule.repeatAdmissionFields.associateWith { key ->
+            if (key == "dependency_repeat_scope") JsonPrimitive("TOOL_NAME_AND_ARGUMENTS") else JsonPrimitive(3)
+        }
+        val persistence = mapOf(
+            "tool_event_persistence_operation" to JsonPrimitive("START"),
+            "tool_event_persistence_phase" to JsonPrimitive("ALLOCATE_SEQUENCE"),
+            "tool_event_persistence_failure" to JsonPrimitive("SEQUENCE_EXHAUSTED"),
+            "tool_event_requested_sequence" to JsonPrimitive(Int.MIN_VALUE),
+            "tool_event_assigned_sequence" to JsonPrimitive(Int.MAX_VALUE),
+            "tool_event_previous_max_sequence" to JsonPrimitive(Int.MAX_VALUE),
+            "tool_event_write_attempted" to JsonPrimitive(false)
+        )
+        val families = listOf(
+            Triple("TOOL", IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE, repeat),
+            Triple("INCIDENT", IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE, persistence),
+            Triple("ACCEPTANCE", GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE, mapOf("acceptance_publication_entry" to JsonPrimitive("STATUS_COLLECTION"), "acceptance_claim_trust_failures" to JsonArray(listOf(JsonPrimitive("TARGET_OUTSIDE_ACCEPTED_SCOPE"))))),
+            Triple("INCIDENT", GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE, mapOf("review_comparison_state" to JsonPrimitive("BASE_REF_BLOCKED"), "review_comparison_policy" to JsonPrimitive("EXPLICIT_BASE_REF"))),
+            Triple("INCIDENT", IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE, mapOf("sqlite_constraint_kind" to JsonPrimitive("UNKNOWN")))
+        )
+        val newFeatures = families.map { it.second }.toSet()
+        var fixtures = 0
+        for ((area, feature, samples) in families) {
+            val context = requireNotNull(
+                IssueReportContext.fromFields(
+                    "CHAT_FAILURE",
+                    IssueReportIncidentCapsule.fields(ReportFeature.CHAT, "CHAT_FAILURE", "CHAT_FAILED", mapOf("diagnostic_area" to area)),
+                    1000L
+                )
+            )
+            val base = requireNotNull(context.diagnostics)
+            for ((key, value) in samples) {
+                for (omitted in listOf(false, true)) {
+                    val diagnostics = if (omitted) base.copy(omittedFields = listOf(key)) else base.copy(values = base.values + (key to value))
+                    assertTrue("$key omitted=$omitted", diagnostics.isValid())
+                    assertTrue(feature in diagnostics.requiredServiceFeatures())
+                    val approved = report.copy(context = context.withDiagnostics(diagnostics))
+                    val payload = approved.approvedPayload()
+                    var compatible = false
+                    var dispatched = 0
+                    val methods = mutableListOf<String>()
+                    val posted = mutableListOf<String>()
+                    val client = OkHttpClient.Builder().addInterceptor { chain ->
+                        val request = chain.request()
+                        methods += request.method
+                        if (request.method == "GET") {
+                            assertEquals("$origin/health/ready?capabilities=extended", request.url.toString())
+                            val advertised = (legacyReadyFeatures + GitHubAcceptancePublicationEvidence.FEATURE + newFeatures).filter { compatible || it != feature }
+                            val ready = buildJsonObject {
+                                put("service", "gpt-mobile-issue-reporter")
+                                put("version", 2)
+                                put("reportContextVersions", JsonArray((1..7).map(::JsonPrimitive)))
+                                put("reportDiagnosticFeatures", JsonArray(advertised.map(::JsonPrimitive)))
+                            }.toString()
+                            assertTrue(ready.encodeToByteArray().size in 1025..4096)
+                            response(request, 200, ready)
+                        } else {
+                            posted += body(request)
+                            response(request, 200, """{"reportId":"${report.reportId}","number":1273}""")
+                        }
+                    }.build()
+                    val submission = IssueReportSubmission(origin, client)
+                    val blocked = submission.send(report.reportId, payload) { dispatched++ } as IssueReportSubmission.Failure
+                    assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", blocked.code)
+                    assertFalse(blocked.automaticRetry)
+                    assertEquals(listOf("GET"), methods)
+                    assertEquals(0, dispatched)
+                    assertTrue(posted.isEmpty())
+                    assertEquals(payload, approved.approvedPayload())
+                    compatible = true
+                    assertEquals(IssueReportSubmission.Confirmed(1273), submission.send(report.reportId, payload) { dispatched++ })
+                    assertEquals(listOf("GET", "GET", "POST"), methods)
+                    assertEquals(1, dispatched)
+                    assertEquals(listOf(payload), posted)
+                    fixtures++
+                }
+            }
+        }
+        assertEquals(34, fixtures)
+        assertEquals(1022, ready(false).encodeToByteArray().size)
     }
 
     @Test fun extendedReadinessIsBoundedAtFourKiBAndOversizeNeverPosts() {

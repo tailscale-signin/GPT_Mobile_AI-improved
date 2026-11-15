@@ -80,7 +80,7 @@ internal object ToolResultEnvelope {
                 put("retryable", ToolFailureMetadata.retryable(ToolFailureMetadata.normalize(result)))
                 // Exact GitHub continuation recipes are durable verifier evidence,
                 // not part of the bounded model-visible display page.
-                result.executionReceipt?.let { put("receipt", JsonObject(it - "retained_remote_continuations")) }
+                result.executionReceipt?.let { put("receipt", JsonObject(it - "retained_remote_continuations" - ToolRepeatAdmissionEvidence.FIELD_NAMES)) }
                 put(
                     "outcome",
                     when {

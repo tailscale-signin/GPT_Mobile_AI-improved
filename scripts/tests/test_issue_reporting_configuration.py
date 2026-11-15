@@ -61,6 +61,8 @@ class IssueReportingConfigurationTest(unittest.TestCase):
                 check_readiness("https://reports.project.org", lambda _: json.dumps({"version": 2, "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES), **value}, separators=(",", ":")).encode())
 
     def test_current_deployment_requires_strict_protocol_two_and_every_required_feature(self):
+        self.assertTrue({"TOOL_REPEAT_ADMISSION_EVIDENCE_V1", "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1",
+                         "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1"} <= REQUIRED_DIAGNOSTIC_FEATURES)
         ready = {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
                  "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES)}
         for version in (None, True, False, "2", 2.0, [], {}, -1, 0, 1):

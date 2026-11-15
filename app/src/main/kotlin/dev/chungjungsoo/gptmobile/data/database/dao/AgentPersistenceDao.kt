@@ -257,18 +257,25 @@ interface AgentPersistenceDao :
     @Insert
     suspend fun insertToolEvent(event: ToolEvent)
 
-    @Query("SELECT COALESCE(MAX(sequence), -1) FROM tool_events WHERE run_id = :runId")
-    suspend fun rawMaxToolEventSequence(runId: String): Int
+    @Query("SELECT MAX(sequence) FROM tool_events WHERE run_id = :runId")
+    suspend fun rawMaxToolEventSequence(runId: String): Int?
 
-    /** Continue a durable run after process recreation without reusing its event sequence. */
+    /** A resumed collection has a fresh caller counter, but retains this run's event rows. */
     @Transaction
-    suspend fun insertOrGetToolEvent(event: ToolEvent): ToolEvent {
+    suspend fun startToolEvent(event: ToolEvent): ToolEvent {
         rawGetToolEventByCall(event.runId, event.callId)?.let { return it }
-        val lastSequence = rawMaxToolEventSequence(event.runId)
-        check(lastSequence < Int.MAX_VALUE) { "Tool event sequence exhausted for this run." }
-        val stored = event.copy(sequence = maxOf(event.sequence, lastSequence + 1))
-        insertToolEvent(stored)
-        return stored
+        val previousMaximum = rawMaxToolEventSequence(event.runId)
+        val next = maxOf(event.sequence.toLong(), (previousMaximum?.toLong() ?: -1L) + 1L, 0L)
+        if (next > Int.MAX_VALUE) {
+            throw dev.chungjungsoo.gptmobile.data.database.ToolEventPersistenceFailure.sequenceExhausted(event.sequence, previousMaximum)
+        }
+        val assigned = event.copy(sequence = next.toInt())
+        try {
+            insertToolEvent(assigned)
+        } catch (failure: android.database.sqlite.SQLiteConstraintException) {
+            throw dev.chungjungsoo.gptmobile.data.database.ToolEventPersistenceFailure.constraint(failure, event.sequence, assigned.sequence, previousMaximum)
+        }
+        return assigned
     }
 
     @Delete

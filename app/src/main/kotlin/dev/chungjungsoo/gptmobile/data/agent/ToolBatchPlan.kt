@@ -8,7 +8,8 @@ internal data class ToolBatchPlan(
     val disabledNames: Set<String>,
     val acceptedByName: Map<String, Int>,
     val unavailableIds: Set<String> = emptySet(),
-    val dependencyDeferredIds: Set<String> = emptySet()
+    val dependencyDeferredIds: Set<String> = emptySet(),
+    val repeatLimitSnapshots: Map<String, ToolRepeatAdmissionEvidence> = emptyMap()
 )
 
 /** Pure dispatch planning, separated from the suspending execution/UI coordinator. */
@@ -30,6 +31,7 @@ internal fun planToolBatch(
     val hostSuppressed = mutableSetOf<String>()
     val disabled = mutableSetOf<String>()
     val accepted = mutableMapOf<String, Int>()
+    val repeatLimitSnapshots = mutableMapOf<String, ToolRepeatAdmissionEvidence>()
     var newlyAdmitted = 0
     calls.forEach { call ->
         if (call.callId in settledCallIds) {
@@ -38,7 +40,9 @@ internal fun planToolBatch(
         }
         val repeatKey = toolRepeatKey(call)
         val sourceRead = repeatKey != call.name
-        val used = (usedByName[repeatKey] ?: 0) + (accepted[repeatKey] ?: 0)
+        val priorAdmissions = usedByName[repeatKey] ?: 0
+        val batchAdmissions = accepted[repeatKey] ?: 0
+        val used = priorAdmissions + batchAdmissions
         val repeatLimit = if (sourceRead || Regex("(?i)context[ _-]*retrieve|search[ _-]*nodes|read[ _-]*graph|open[ _-]*nodes").containsMatchIn(call.name)) 3 else sameToolLimit
         val retained = call.callId in retainedCallIds
         when {
@@ -54,6 +58,17 @@ internal fun planToolBatch(
                 deferred += call
                 suppressed += call.callId
                 if (!sourceRead) disabled += call.name
+                repeatLimitSnapshots[call.callId] = ToolRepeatAdmissionEvidence.capture(
+                    call,
+                    repeatKey,
+                    ToolDependencyDiagnostics.RepeatLimitSnapshot(
+                        if (sourceRead) ToolDependencyDiagnostics.RepeatScope.TOOL_NAME_AND_ARGUMENTS else ToolDependencyDiagnostics.RepeatScope.TOOL_NAME,
+                        priorAdmissions,
+                        batchAdmissions,
+                        used,
+                        repeatLimit
+                    )
+                )
             }
             !retained && newlyAdmitted >= remaining -> deferred += call
             else -> {
@@ -65,7 +80,7 @@ internal fun planToolBatch(
             }
         }
     }
-    return ToolBatchPlan(executable, deferred, suppressed, hostSuppressed, disabled, accepted, unavailable)
+    return ToolBatchPlan(executable, deferred, suppressed, hostSuppressed, disabled, accepted, unavailable, repeatLimitSnapshots = repeatLimitSnapshots.toMap())
 }
 
 /** Reading independent pages is useful research, not a repeated invocation loop. */

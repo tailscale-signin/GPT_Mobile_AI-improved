@@ -229,6 +229,7 @@ POLICY_COUNTS = {'changed_policy_field_count', 'changed_policy_unknown_count', '
 POLICY_DIAGNOSTICS = POLICY_COUNTS | {'changed_policy_fields', 'changed_policy_observation'}
 
 COMMON = {
+    'sqlite_constraint_kind',
     'dispatch_policy_sections',
     'dispatch_policy_stage',
     'dispatch_policy_resume_required',
@@ -248,6 +249,9 @@ COMMON = {
     'recovery_observation',
     'retry_delay_ms',
 } | POLICY_DIAGNOSTICS
+
+TOOL_REPEAT_COUNTS = {'dependency_repeat_prior_admissions', 'dependency_repeat_batch_admissions', 'dependency_repeat_used', 'dependency_repeat_limit'}
+TOOL_REPEAT_FIELDS = TOOL_REPEAT_COUNTS | {'dependency_repeat_scope'}
 
 TOOL_FIELDS = {
     'url_reader_dns_state', 'tool_execution_observation', 'tool_budget_kind', 'tool_budget_phase', 'tool_result_bytes_used', 'tool_result_bytes_limit',
@@ -280,7 +284,7 @@ TOOL_FIELDS = {
     'unknown_field_hashes',
     'validation_field_names',
     'validation_path_hashes',
-}
+} | TOOL_REPEAT_FIELDS
 
 POLICY_OBSERVATION = {'OBSERVED', 'UNOBSERVED', 'INVALID_RESPONSE', 'ACCESS_DENIED', 'NOT_FOUND_OR_INACCESSIBLE', 'RATE_LIMITED', 'UNAVAILABLE', 'HTTP_FAILURE'}
 
@@ -313,6 +317,10 @@ CLAIM_FRESHNESS_FIELDS = {'acceptance_claim_freshness_predicates'}
 ACCEPTANCE_PUBLICATION_COUNTS = {'acceptance_extraction_planned_batches', 'acceptance_receipt_snapshot_count', 'acceptance_claim_count'}
 ACCEPTANCE_PUBLICATION_TOKENS = {'acceptance_extraction_required_tokens', 'acceptance_extraction_input_limit_tokens'}
 ACCEPTANCE_PUBLICATION_FIELDS = ACCEPTANCE_PUBLICATION_COUNTS | ACCEPTANCE_PUBLICATION_TOKENS | {'acceptance_publication_source', 'acceptance_extraction_observation', 'acceptance_draft_state'}
+ACCEPTANCE_OBSERVATION_FIELDS = {'acceptance_claim_trust_failures', 'acceptance_publication_entry'}
+REVIEW_COMPARISON_OBSERVATION_FIELDS = {'review_comparison_state', 'review_comparison_policy'}
+TOOL_EVENT_SIGNED_SEQUENCES = {'tool_event_requested_sequence', 'tool_event_previous_max_sequence'}
+TOOL_EVENT_PERSISTENCE_FIELDS = TOOL_EVENT_SIGNED_SEQUENCES | {'tool_event_persistence_operation', 'tool_event_persistence_phase', 'tool_event_persistence_failure', 'tool_event_assigned_sequence', 'tool_event_write_attempted'}
 PROVIDER_FIELDS = {'provider_route_hash', 'provider_wait_checkpoint_hash', 'provider_wait_claim_hash', 'provider_wait_terminal_status', 'tls_failure_kind', 'tls_response_started', 'provider_local_budget_block', 'provider_tool_rejection', 'reasoning_probe_observation', 'gateway_upstream_status', 'gateway_dependency', 'gateway_terminal_status', 'gateway_result_quality', 'provider_rejection_category', 'provider_error_type_hash', 'provider_parameter', 'provider_parameter_path_hash', 'payload_contract', 'privacy_catalog_entries', 'privacy_model_endpoint_count', 'privacy_compatible_endpoint_count', 'privacy_allowlist_excluded_count', 'privacy_denylist_excluded_count', 'privacy_fallback_excluded_count', 'privacy_metadata_age_ms', 'privacy_blockers'}
 VOICE_FIELDS = {'run_id_hash', 'invocation_id_hash', 'voice_reply_failed', 'voice_reply_terminal_status', 'voice_reply_failure_evidence', 'voice_chat_failure_code', 'voice_chat_failure_code_hash', 'voice_chat_failure_phase'}
 
@@ -351,6 +359,7 @@ HASH_LISTS = {
 }
 
 FLAGS = {
+    'tool_event_write_attempted',
     'chat_delivery_counts_capped',
     'tls_response_started', 'provider_local_budget_block',
     'dispatch_policy_resume_required',
@@ -373,7 +382,7 @@ COUNTS = {
     'unknown_field_count',
     'untested_capability_count',
     'verified_capability_count',
-} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS | CHAT_DELIVERY_COUNTS | ACCEPTANCE_PUBLICATION_COUNTS
+} | POLICY_COUNTS | ACCEPTANCE_BLOCKER_FIELDS | CHAT_DELIVERY_COUNTS | ACCEPTANCE_PUBLICATION_COUNTS | TOOL_REPEAT_COUNTS
 
 TYPES = {
     'ARRAY',
@@ -476,6 +485,14 @@ OPERATIONS = {
 MCP_HEALTH = {'DNS_FAILED', 'DNS_RECOVERY', 'ROUTE_UNAVAILABLE', 'CONNECTION_REFUSED', 'AUTHENTICATION_FAILED', 'TLS_FAILED', 'CONNECT_TIMEOUT', 'HTTP_ERROR', 'MCP_HANDSHAKE_FAILED', 'STREAM_INTERRUPTED', 'STREAM_IDLE_TIMEOUT', 'REQUEST_TIMEOUT', 'HEALTHY', 'UNKNOWN'}
 
 ENUMS = {
+    'sqlite_constraint_kind': {'UNIQUE', 'FOREIGN_KEY', 'NOT_NULL', 'CHECK', 'PRIMARY_KEY', 'TRIGGER', 'UNKNOWN'},
+    'dependency_repeat_scope': {'TOOL_NAME', 'TOOL_NAME_AND_ARGUMENTS'},
+    'tool_event_persistence_operation': {'START'},
+    'tool_event_persistence_phase': {'ALLOCATE_SEQUENCE', 'INSERT'},
+    'tool_event_persistence_failure': {'RUN_SEQUENCE_CONFLICT', 'EVENT_ID_CONFLICT', 'RUN_FOREIGN_KEY', 'NOT_NULL', 'UNKNOWN_CONSTRAINT', 'SEQUENCE_EXHAUSTED'},
+    'review_comparison_state': {'HEAD_REQUIRED', 'BASELINE_REQUIRED', 'BASE_REF_REQUIRED', 'BASE_REF_BLOCKED', 'PR_BASE_LOOKUP', 'PR_BASE_UNVERIFIED', 'BASE_SHA_REQUIRED', 'COMPARISON_PAGES_PENDING', 'READ_CHANGED_SOURCE', 'COMPARE_REQUIRED'},
+    'review_comparison_policy': {'UNRESOLVED', 'EXPLICIT_BASE_SHA', 'EXPLICIT_BASE_REF', 'OBSERVED_PR_BASE', 'DEFAULT_BRANCH_HEAD'},
+    'acceptance_publication_entry': {'EVIDENCE_RETENTION_INCOMPLETE', 'TASK_DEADLINE', 'APPROVAL_CHECKPOINT', 'SAVED_CLAIM_EXTRACTION', 'CI_OBSERVATION', 'INTEGRATION_COOLDOWN', 'INTEGRATION_CHECKPOINT', 'INTEGRATION_BLOCKED', 'STATUS_COLLECTION', 'STATUS_SNAPSHOT', 'COVERAGE_CHECKPOINT', 'REVIEW_COMPARISON_BLOCKED', 'PROSE_ONLY_CORRECTION', 'COMPLETED_DRAFT', 'RETAINED_REPORT_UNAVAILABLE', 'RETAINED_FAILURE'},
     'chat_delivery_terminal': {'DONE'},
     'chat_delivery_answer_state': {'EMPTY_CONTENT', 'NO_ANSWER_CONTENT', 'GITHUB_ANSWER_PENDING'},
     'handoff_checkpoint_state': {'TOOL_HANDOFF', 'TOOL_RESULTS_READY'},
@@ -542,6 +559,7 @@ ENUMS = {
 }
 
 ENUM_LISTS = {
+    'acceptance_claim_trust_failures': {'TOOL_NOT_IN_AUTHORIZED_CATALOG', 'UNRECOGNIZED_EVIDENCE_OPERATION', 'TARGET_OUTSIDE_ACCEPTED_SCOPE'},
     'acceptance_claim_freshness_predicates': {'OBSERVATION_TIME_UNAVAILABLE', 'OBSERVATION_TIME_FUTURE', 'MUTABLE_AGE_EXCEEDED', 'MUTABLE_EPOCH_MISMATCH'},
     'semantic_read_rules': {'RANGE_ARRAY', 'SOURCE_REQUIRED', 'RANGE_OBJECT', 'RANGE_FIELDS', 'REPOSITORY_FILE_PATH', 'RANGE_OFFSET', 'LINE_WINDOW'},
     'dependency_admission_reasons': {'TOOL_UNAVAILABLE', 'REPEATED_FAILURE', 'REPEAT_LIMIT', 'CALL_ALLOWANCE', 'DECISION_REQUIRED', 'PREREQUISITE_DEFERRED'},
@@ -561,10 +579,14 @@ ENUM_LISTS = {
 
 
 def fields_for(area):
-    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
+    return COMMON | {'TOOL': TOOL_FIELDS, 'INCIDENT': COMBINED_FIELDS | HANDOFF_RECONCILIATION_FIELDS | CHAT_DELIVERY_FIELDS | TOOL_EVENT_PERSISTENCE_FIELDS | REVIEW_COMPARISON_OBSERVATION_FIELDS, 'APP': {'crash_surface', 'crash_boundary'}, 'ACCEPTANCE': ACCEPTANCE_FIELDS | ACCEPTANCE_BLOCKER_FIELDS | CLAIM_FRESHNESS_FIELDS | ACCEPTANCE_PUBLICATION_FIELDS | ACCEPTANCE_OBSERVATION_FIELDS, 'GATEWAY': GATEWAY_FIELDS, 'PROVIDER': PROVIDER_FIELDS, 'VOICE': VOICE_FIELDS}.get(area, set())
 
 
 def valid_value(key, value):
+    if key == 'acceptance_claim_trust_failures':
+        return isinstance(value, list) and 1 <= len(value) <= 3 and all(
+            isinstance(item, str) and item in ENUM_LISTS[key] for item in value
+        ) and len(set(value)) == len(value)
     if key in CLAIM_FRESHNESS_FIELDS:
         return isinstance(value, list) and len(value) <= 4 and all(
             isinstance(item, str) and item in ENUM_LISTS[key] for item in value
@@ -593,6 +615,10 @@ def valid_value(key, value):
     if key in HANDOFF_RECONCILIATION_COUNTS:
         return 0 <= value <= 1024
     if key in ACCEPTANCE_PUBLICATION_TOKENS:
+        return 0 <= value <= 2_147_483_647
+    if key in TOOL_EVENT_SIGNED_SEQUENCES:
+        return -2_147_483_648 <= value <= 2_147_483_647
+    if key == 'tool_event_assigned_sequence':
         return 0 <= value <= 2_147_483_647
     return key in COUNTS and 0 <= value <= 16_000_000
 

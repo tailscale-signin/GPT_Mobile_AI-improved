@@ -153,7 +153,8 @@ data class AgentToolResult(
     val optionalAssistKey: String? = null,
     val personalData: List<dev.chungjungsoo.gptmobile.data.permissions.PersonalDataProvenance> = emptyList(),
     val executionReceipt: JsonObject? = null,
-    val combinedWorkBudgetExhausted: Boolean = false
+    val combinedWorkBudgetExhausted: Boolean = false,
+    val repeatAdmissionEvidence: ToolRepeatAdmissionEvidence? = null
 )
 
 /** Managed content reference, never an arbitrary local path or remote download instruction. */

@@ -1102,13 +1102,16 @@ class AgentRunner(
                     blocked.mapTo(linkedSetOf(), ::admissionReason)
                 )
             } else if (result.isError && !result.dispatched) {
-                result.copy(
-                    executionReceipt = JsonObject(
-                        result.executionReceipt.orEmpty() + buildJsonObject {
-                            put("failed_stage", "tool_precheck")
-                            put("dependency_admission_reasons", JsonArray(listOf(JsonPrimitive(admissionReason(result.callId).name))))
-                        }
-                    )
+                ToolRepeatAdmissionEvidence.attachTo(
+                    result.copy(
+                        executionReceipt = JsonObject(
+                            result.executionReceipt.orEmpty() + buildJsonObject {
+                                put("failed_stage", "tool_precheck")
+                                put("dependency_admission_reasons", JsonArray(listOf(JsonPrimitive(admissionReason(result.callId).name))))
+                            }
+                        )
+                    ),
+                    plan.repeatLimitSnapshots[result.callId]
                 )
             } else {
                 result

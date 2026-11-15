@@ -43,6 +43,122 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolEventRecorderTest {
+    @Test fun foreignReceiptCannotPublishProducerReservedPersistenceOrRepeatFields() = runBlocking {
+        val reserved = buildJsonObject {
+            put("sqlite_constraint_kind", "FOREIGN_KEY")
+            put("dependency_repeat_scope", "TOOL_NAME_AND_ARGUMENTS")
+            put("dependency_repeat_prior_admissions", 2)
+            put("dependency_repeat_batch_admissions", 1)
+            put("dependency_repeat_used", 3)
+            put("dependency_repeat_limit", 3)
+            put("tool_event_persistence_operation", "START")
+            put("tool_event_persistence_phase", "INSERT")
+            put("tool_event_persistence_failure", "RUN_FOREIGN_KEY")
+            put("tool_event_requested_sequence", 0)
+            put("tool_event_assigned_sequence", 1)
+            put("tool_event_previous_max_sequence", 0)
+            put("tool_event_write_attempted", true)
+        }
+        val reports = mutableListOf<Pair<Throwable?, Map<String, Any?>>>()
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg<Throwable?>(4) to arg<Map<String, Any?>>(5))
+                Unit
+            }
+            for ((index, code) in listOf("INVALID_ARGUMENTS", "NOT_DISPATCHED").withIndex()) {
+                val event = recorder.startTool("owned-run", index, "owned-call-$index", "read", "read__owned", buildJsonObject { put("path", "original") }, startedAt = 10L)
+                val receipt = kotlinx.serialization.json.JsonObject(
+                    reserved + buildJsonObject {
+                        put("failed_stage", "tool_precheck")
+                        put("dependency_admission_reasons", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("REPEAT_LIMIT"))))
+                    }
+                )
+                val saved = requireNotNull(recorder.finishTool(event.eventId, AgentToolResult(event.callId, ToolResultContent.Text("Private rejection"), isError = true, errorCode = code, dispatched = false, executionReceipt = receipt), 20L))
+                val stored = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(saved))
+                reserved.forEach { (key, value) -> assertEquals("retained $key", value, stored[key]) }
+                assertEquals(code, stored["error_code"]?.jsonPrimitive?.content)
+                val (cause, fields) = reports.last()
+                assertEquals(null, cause)
+                reserved.keys.forEach { assertFalse("unowned $it", it in fields) }
+                assertEquals(event.runId, fields["run_id"])
+                assertEquals(event.callId, fields["call_id"])
+                assertEquals(event.modelToolName, fields["tool"])
+                assertEquals(IssueReportContext.identifierHash("tool-error-code", code), fields["original_error_code_hash"])
+            }
+            assertEquals(2, reports.size)
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
+    @Test fun qualifiedRepeatProjectionUsesPersistedOwnershipAndOriginalGuardOperands() = runBlocking {
+        val reports = mutableListOf<Map<String, Any?>>()
+        val scope = dev.chungjungsoo.gptmobile.data.agent.ToolDependencyDiagnostics.RepeatScope.TOOL_NAME_AND_ARGUMENTS
+        val snapshot = dev.chungjungsoo.gptmobile.data.agent.ToolDependencyDiagnostics.RepeatLimitSnapshot(scope, 2, 1, 3, 3)
+        mockkObject(AppLogRecorder)
+        try {
+            every { AppLogRecorder.record("Tool", any(), "E", any(), any(), any(), any()) } answers {
+                reports.add(arg(5))
+                Unit
+            }
+            for ((index, scenario) in listOf("matching", "foreign connection", "foreign arguments", "unknown outcome").withIndex()) {
+                val arguments = buildJsonObject { put("path", "original") }
+                val event = recorder.startTool("owned-run", index, "owned-repeat-$index", "github_read", "github_read__owned", arguments, startedAt = 10L)
+                val call = dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall(event.callId, event.modelToolName, arguments)
+                val handle = dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionEvidence.capture(call, dev.chungjungsoo.gptmobile.data.agent.toolRepeatKey(call), snapshot)
+                val rejected = AgentToolResult(
+                    event.callId,
+                    ToolResultContent.Text("Repeat limit"),
+                    isError = true,
+                    errorCode = "NOT_DISPATCHED",
+                    dispatched = false,
+                    executionReceipt = buildJsonObject {
+                        put("failed_stage", "tool_precheck")
+                        put("dependency_admission_reasons", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive("REPEAT_LIMIT"))))
+                    }
+                )
+                val owned = dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionEvidence.attachTo(rejected, handle)
+                val forged = buildJsonObject {
+                    put("dependency_repeat_scope", "TOOL_NAME")
+                    put("dependency_repeat_prior_admissions", 999)
+                    put("dependency_repeat_batch_admissions", 0)
+                    put("dependency_repeat_used", 999)
+                    put("dependency_repeat_limit", 1)
+                }
+                val result = owned.copy(
+                    executionReceipt = kotlinx.serialization.json.JsonObject(owned.executionReceipt.orEmpty() + forged),
+                    errorCode = if (scenario == "unknown outcome") "TOOL_OUTCOME_UNKNOWN" else owned.errorCode,
+                    dispatched = scenario == "unknown outcome"
+                )
+                val rowIndex = dao.rows.indexOfFirst { it.eventId == event.eventId }
+                if (scenario == "foreign connection") dao.rows[rowIndex] = event.copy(modelToolName = "github_read__other")
+                if (scenario == "foreign arguments") dao.rows[rowIndex] = event.copy(arguments = """{"path":"other"}""")
+                val saved = requireNotNull(recorder.finishTool(event.eventId, result, 20L))
+                val stored = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.ToolResultCheckpoint.execution(saved))
+                forged.forEach { (key, value) -> assertEquals("$scenario retains $key", value, stored[key]) }
+                val fields = reports.last()
+                if (scenario == "matching") {
+                    assertEquals("TOOL_NAME_AND_ARGUMENTS", fields["dependency_repeat_scope"])
+                    assertEquals(2, fields["dependency_repeat_prior_admissions"])
+                    assertEquals(1, fields["dependency_repeat_batch_admissions"])
+                    assertEquals(3, fields["dependency_repeat_used"])
+                    assertEquals(3, fields["dependency_repeat_limit"])
+                } else {
+                    forged.keys.forEach { assertFalse("$scenario cannot publish $it", it in fields) }
+                }
+                if (scenario == "unknown outcome") {
+                    assertEquals(true, fields["requires_reconciliation"])
+                    assertEquals(true, fields["dispatched"])
+                    assertEquals("TOOL_OUTCOME_UNKNOWN", stored["error_code"]?.jsonPrimitive?.content)
+                }
+            }
+            assertEquals(4, reports.size)
+        } finally {
+            unmockkObject(AppLogRecorder)
+        }
+    }
+
     @Test fun blockedGraphIndexPublishesPriorReconciliationWithoutRelabellingTheUnsentCurrentCall() = runBlocking {
         val reports = mutableListOf<Pair<String?, Map<String, Any?>>>()
         mockkObject(AppLogRecorder)
@@ -518,6 +634,33 @@ class ToolEventRecorderTest {
         assertEquals(event, dao.rows.single())
     }
 
+    @Test
+    fun startTool_recreatedTraceContinuesTheDurableRunSequence() = runBlocking {
+        val firstTrace = ToolTraceSession("run-1", emptyList(), recorder, java.util.concurrent.atomic.AtomicInteger())
+        firstTrace.gateway(GatewayProgress(event = "tool_started", toolSource = "gateway", toolCallId = "saved-call", toolName = "read_url"))
+        firstTrace.gateway(GatewayProgress(event = "tool_completed", toolSource = "gateway", toolCallId = "saved-call", toolName = "read_url", toolResult = "Saved original evidence"))
+        val saved = dao.rows.single()
+        val resumedTrace = ToolTraceSession("run-1", emptyList(), recorder, java.util.concurrent.atomic.AtomicInteger())
+        resumedTrace.gateway(GatewayProgress(event = "tool_started", toolSource = "gateway", toolCallId = "next-call", toolName = "read_url"))
+
+        assertEquals(listOf(0, 1), dao.rows.map { it.sequence })
+        assertEquals(saved, dao.rows.first())
+        assertEquals("next-call", dao.rows.last().callId)
+        assertEquals(ToolEventStatus.RUNNING, dao.rows.last().status)
+    }
+
+    @Test
+    fun startTool_duplicateCallKeepsItsFirstReceiptAndDoesNotConsumeTheNextSequence() = runBlocking {
+        val first = recorder.startTool("run-1", 0, "saved-call", "read", "read__first", buildJsonObject { put("path", "first") }, startedAt = 100L)
+        val repeated = recorder.startTool("run-1", 99, "saved-call", "other", "other__second", buildJsonObject { put("path", "second") }, startedAt = 200L)
+        val next = recorder.startTool("run-1", 0, "next-call", "read", "read__first", buildJsonObject {}, startedAt = 300L)
+
+        assertEquals(first, repeated)
+        assertEquals(first, dao.rows.first())
+        assertEquals(1, next.sequence)
+        assertEquals(2, dao.rows.size)
+    }
+
     @Test fun startTool_continuesSequenceWhenResumingAnExistingRun() = runBlocking {
         val original = recorder.startTool("resumed-run", 6, "old-call", "search", "web__search", buildJsonObject {}, startedAt = 10L)
         val resumed = recorder.startTool("resumed-run", 0, "new-call", "search", "web__search", buildJsonObject {}, startedAt = 20L)
@@ -962,8 +1105,10 @@ private class FakeAgentPersistenceDao :
     override suspend fun insertMessage(message: MessageV2): Long = unused()
     override suspend fun insertRun(run: AgentRun) = unused<Unit>()
     override suspend fun insertToolEvent(event: ToolEvent) {
+        check(rows.none { it.eventId == event.eventId || it.runId == event.runId && it.sequence == event.sequence })
         rows += event
     }
+    override suspend fun rawMaxToolEventSequence(runId: String): Int? = rows.filter { it.runId == runId }.maxOfOrNull { it.sequence }
     override suspend fun deleteMessages(messages: List<MessageV2>) = unused<Unit>()
     override suspend fun upsertModels(models: List<ChatPlatformModelV2>) = unused<Unit>()
     override suspend fun getChatRoom(chatId: Int): ChatRoomV2? = unused()
@@ -1005,10 +1150,6 @@ private class FakeAgentPersistenceDao :
         .filter { it.runId == runId && it.callId == callId }
         .sortedBy { it.startedAt }
         .firstOrNull()
-
-    override suspend fun rawMaxToolEventSequence(runId: String): Int = rows
-        .filter { it.runId == runId }
-        .maxOfOrNull(ToolEvent::sequence) ?: -1
 
     override fun rawObserveToolEventsForChat(chatId: Int): Flow<List<ToolEvent>> {
         observedChatIds += chatId

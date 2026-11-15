@@ -58,13 +58,13 @@ class GitHubAcceptancePublicationEvidenceTest {
         )
     }
 
-    private suspend fun fixture(): Fixture {
+    private suspend fun fixture(trustedTools: Set<String> = setOf("github_context", "github_ci", "github_write")): Fixture {
         val saved = linkedMapOf<String, JsonObject>()
         val book = GitHubEvidenceBook(
             "private-binding",
             repository,
             "main",
-            setOf("github_context", "github_ci", "github_write"),
+            trustedTools,
             now = { now },
             load = { saved[it] },
             save = { id, value -> saved[id] = value }
@@ -125,6 +125,202 @@ class GitHubAcceptancePublicationEvidenceTest {
         assertEquals(JsonPrimitive(observation), values["acceptance_extraction_observation"])
         assertEquals(JsonPrimitive(draftState), values["acceptance_draft_state"])
         assertEquals(JsonPrimitive(receipts), values["acceptance_receipt_snapshot_count"])
+    }
+
+    @Test fun originalTrustFailuresReachOnlyTheirUnresolvedClaimsWithoutChangingProofBytes() = runBlocking {
+        val cases = listOf(
+            Triple("private-reader", emptySet(), GitHubAcceptancePublicationEvidence.TrustFailure.TOOL_NOT_IN_AUTHORIZED_CATALOG),
+            Triple("private-reader", setOf("private-reader"), GitHubAcceptancePublicationEvidence.TrustFailure.UNRECOGNIZED_EVIDENCE_OPERATION),
+            Triple("github_context", setOf("github_context"), GitHubAcceptancePublicationEvidence.TrustFailure.TARGET_OUTSIDE_ACCEPTED_SCOPE)
+        )
+        for ((tool, extraTools, expected) in cases) {
+            val fixture = fixture(setOf("github_context") + extraTools)
+            val call = ProviderEvent.ToolCall(
+                "private-untrusted-call",
+                tool,
+                json("""{"action":"checks","owner":"foreign-owner","repo":"foreign-repository"}""")
+            )
+            val result = AgentToolResult(call.callId, ToolResultContent.Json(json("""{"checks":2}""")), false)
+            fixture.book.observe(call, result)
+            val receipts = fixture.book.snapshot().first
+            val (id, receipt) = receipts.entries.single { it.value["call_id"] == JsonPrimitive(call.callId) }
+            val original = fixture.saved.getValue(id)
+            assertEquals(expected, GitHubAcceptancePublicationEvidence.recordedTrustFailure(original))
+            assertEquals(JsonPrimitive(false), receipt["trusted"])
+            assertEquals(JsonObject(original - GitHubAcceptancePublicationEvidence.TRUST_KEY), receipt)
+            assertFalse(receipts.values.any { GitHubAcceptancePublicationEvidence.TRUST_KEY in it })
+            val proofBytes = receipts.values.sumOf { it.toString().encodeToByteArray().size }
+            assertEquals(JsonPrimitive(proofBytes), fixture.book.retentionStatus()["review_projection_bytes"])
+            assertFalse(GitHubEvidencePolicy.catalog(receipts).toString().contains(GitHubAcceptancePublicationEvidence.TRUST_KEY))
+
+            val bounded = GitHubEvidenceBook(
+                "private-binding",
+                repository,
+                "main",
+                setOf("github_context") + extraTools,
+                now = { now },
+                retentionLimitBytes = receipt.toString().encodeToByteArray().size
+            )
+            bounded.observe(call, result)
+            assertTrue(bounded.complete())
+            assertEquals(receipt, bounded.snapshot().first.getValue(id))
+
+            val published = mutableListOf<JsonObject>()
+            val events = session(fixture, published) {
+                answer("""{"claims":[{"kind":"fact","receipt_id":"$id","pointer":"/checks","value":2}]}""")
+            }.streamRound(emptyList(), emptyList()).toList()
+            assertTrue(events.last() is ProviderEvent.Failed)
+            val verdict = published.single()
+            assertEquals(JsonPrimitive(false), verdict["completion_verified"])
+            val values = approvedValues(verdict)
+            assertEquals(JsonArray(listOf(JsonPrimitive(expected.name))), values["acceptance_claim_trust_failures"])
+            assertEquals(JsonPrimitive("COMPLETED_DRAFT"), values["acceptance_publication_entry"])
+            val payload = report(verdict).approvedPayload()
+            for (privateValue in listOf("private-untrusted-call", "private-reader", "foreign-owner", "foreign-repository", GitHubAcceptancePublicationEvidence.TRUST_KEY)) {
+                assertFalse(privateValue, payload.contains(privateValue))
+            }
+            assertEquals(JsonPrimitive("UNTRUSTED_RECEIPT"), ((verdict["unresolved_claims"] as JsonArray).single() as JsonObject)["reason"])
+            assertEquals(
+                GitHubExecutionContinuation.prompt(task, task, receipts, JsonObject(verdict - GitHubAcceptancePublicationEvidence.KEY)),
+                GitHubExecutionContinuation.prompt(task, task, receipts, verdict)
+            )
+            val unrelated = JsonObject(verdict + ("unresolved_claims" to JsonArray(emptyList())))
+            assertTrue(fixture.book.claimTrustFailures(unrelated, receipts).isEmpty())
+            assertNull(GitHubAcceptancePublicationEvidence.fields(unrelated)["acceptance_claim_trust_failures"])
+        }
+
+        // Two finite boundary receipts: diagnostic metadata alone must neither
+        // trigger chunking nor overflow the existing maximum original size.
+        suspend fun storageFixture(padding: Int): Fixture {
+            val saved = linkedMapOf<String, JsonObject>()
+            val book = GitHubEvidenceBook(
+                "private-binding",
+                repository,
+                "main",
+                emptySet(),
+                now = { now },
+                load = { saved[it] },
+                save = { id, value ->
+                    assertTrue(value.toString().encodeToByteArray().size <= 1_400_000)
+                    saved[id] = value
+                }
+            )
+            val call = ProviderEvent.ToolCall("private-storage-boundary", "private-reader", json("""{"action":"checks"}"""))
+            val result = buildJsonObject {
+                put("checks", 2)
+                put("padding", "x".repeat(padding))
+            }
+            book.observe(call, AgentToolResult(call.callId, ToolResultContent.Json(result), false))
+            return Fixture(book, saved)
+        }
+        val calibration = storageFixture(0).saved.values.single()
+        val originalBytes = JsonObject(calibration - GitHubAcceptancePublicationEvidence.TRUST_KEY).toString().encodeToByteArray().size
+        val resultBytes = requireNotNull((calibration["result_bytes"] as? JsonPrimitive)?.intOrNull)
+        for (boundary in listOf(1_400_000, 8 * 1024 * 1024)) {
+            var padding = boundary - originalBytes
+            padding -= (resultBytes + padding).toString().length - resultBytes.toString().length
+            val fixture = storageFixture(padding)
+            val (id, manifest) = fixture.saved.entries.single { it.key.startsWith("ev_") }
+            assertEquals(boundary > 1_400_000, "original_chunks" in manifest)
+            val original = StringBuilder()
+            var complete = false
+            for (page in 0 until 64) {
+                val value = requireNotNull(fixture.book.originalPage(id, page))
+                original.append((value.getValue("text") as JsonPrimitive).content)
+                if (value["complete"] == JsonPrimitive(true)) {
+                    complete = true
+                    break
+                }
+            }
+            assertTrue(complete)
+            assertEquals(boundary, original.toString().encodeToByteArray().size)
+            assertFalse(original.contains(GitHubAcceptancePublicationEvidence.TRUST_KEY))
+            assertTrue(fixture.book.complete())
+            val restored = GitHubEvidenceBook(
+                "private-binding",
+                repository,
+                "main",
+                emptySet(),
+                now = { now },
+                load = { fixture.saved[it] },
+                retainedIds = { fixture.saved.keys.filter { it.startsWith("ev_") } }
+            )
+            restored.restore()
+            assertTrue(restored.complete())
+            val unresolved = json("""{"unresolved_claims":[{"receipt_id":"$id","status":"NOT_MEASURED","reason":"UNTRUSTED_RECEIPT"}]}""")
+            assertTrue(restored.claimTrustFailures(unresolved, restored.snapshot().first).isEmpty())
+        }
+    }
+
+    @Test fun restoredTrustFailureKeepsItsOriginalDecisionAndLegacyOrMalformedMarkersStayUnknown() = runBlocking {
+        val fixture = fixture(setOf("github_context"))
+        fixture.read("private-untrusted-call", "github_ci", "checks", """{"checks":2}""")
+        val id = fixture.book.snapshot().first.entries.single { it.value["call_id"] == JsonPrimitive("private-untrusted-call") }.key
+        val original = fixture.saved.getValue(id)
+        val variants = listOf(
+            original to true,
+            JsonObject(original - GitHubAcceptancePublicationEvidence.TRUST_KEY) to false,
+            JsonObject(original + (GitHubAcceptancePublicationEvidence.TRUST_KEY to json("""{"schema":"foreign","first_failure":"TOOL_NOT_IN_AUTHORIZED_CATALOG"}"""))) to false,
+            JsonObject(original + (GitHubAcceptancePublicationEvidence.TRUST_KEY to json("""{"schema":"github.receipt-trust.v1","first_failure":true}"""))) to false,
+            JsonObject(original + (GitHubAcceptancePublicationEvidence.TRUST_KEY to json("""{"schema":"github.receipt-trust.v1","first_failure":"TARGET_OUTSIDE_ACCEPTED_SCOPE"}"""))) to false
+        )
+        for ((savedReceipt, observed) in variants) {
+            val saved = fixture.saved.toMutableMap().also { it[id] = savedReceipt }
+            val restored = GitHubEvidenceBook(
+                "private-binding",
+                repository,
+                "main",
+                setOf("github_context", "github_ci"),
+                now = { now },
+                load = { saved[it] },
+                save = { key, value -> saved[key] = value },
+                retainedIds = { saved.keys.filter { it.startsWith("ev_") } }
+            )
+            restored.restore()
+            // The tool is authorized now, but that cannot rewrite its original decision.
+            assertEquals(JsonPrimitive(false), restored.snapshot().first.getValue(id)["trusted"])
+            val published = mutableListOf<JsonObject>()
+            session(Fixture(restored, saved), published) {
+                answer("""{"claims":[{"kind":"fact","receipt_id":"$id","pointer":"/checks","value":2}]}""")
+            }.streamRound(emptyList(), emptyList()).toList()
+            val values = approvedValues(published.single(), retained = true)
+            assertEquals(
+                if (observed) JsonArray(listOf(JsonPrimitive("TOOL_NOT_IN_AUTHORIZED_CATALOG"))) else null,
+                values["acceptance_claim_trust_failures"]
+            )
+            assertEquals(savedReceipt, saved.getValue(id))
+        }
+        val contradictory = JsonObject(original + ("trusted" to JsonPrimitive(true)))
+        assertNull(GitHubAcceptancePublicationEvidence.recordedTrustFailure(contradictory))
+    }
+
+    @Test fun noDraftPublicationEntriesDistinguishActualCallersAndRemainStableOnSavedDelivery() = runBlocking {
+        val missingReport = fixture()
+        val missingPublished = mutableListOf<JsonObject>()
+        session(missingReport, missingPublished, source = provider(), currentRequest = "show the report") {
+            error("Missing saved report must not invoke extraction")
+        }.streamRound(emptyList(), emptyList()).toList()
+        val missing = missingPublished.single()
+        val missingValues = approvedValues(missing)
+        assertObservation(missingValues, "PARTIAL_FALLBACK", "NO_DRAFT", "ABSENT", 1)
+        assertEquals(JsonPrimitive("RETAINED_REPORT_UNAVAILABLE"), missingValues["acceptance_publication_entry"])
+
+        val statusFixture = fixture()
+        statusFixture.read("private-unusable-status", "github_context", "status", "{}")
+        val statusPublished = mutableListOf<JsonObject>()
+        session(statusFixture, statusPublished, task = "status", source = provider()) {
+            error("Status snapshot publication must not invoke extraction without a draft")
+        }.streamRound(emptyList(), emptyList()).toList()
+        val statusValues = approvedValues(statusPublished.single())
+        assertEquals(JsonPrimitive("NO_DRAFT"), statusValues["acceptance_extraction_observation"])
+        assertEquals(JsonPrimitive("STATUS_SNAPSHOT"), statusValues["acceptance_publication_entry"])
+
+        val delivered = mutableListOf<JsonObject>()
+        session(missingReport, delivered, source = provider(), currentRequest = "show the report") {
+            error("Saved report delivery must not invoke extraction")
+        }.streamRound(emptyList(), emptyList()).toList()
+        assertEquals(missing[GitHubAcceptancePublicationEvidence.KEY], delivered.single()[GitHubAcceptancePublicationEvidence.KEY])
+        assertEquals(missingValues["acceptance_publication_entry"], approvedValues(delivered.single(), retained = true)["acceptance_publication_entry"])
     }
 
     @Test fun batchLimitPublicationRetainsActualPlanCountWithoutExtractorDispatch() = runBlocking {
@@ -314,6 +510,7 @@ class GitHubAcceptancePublicationEvidenceTest {
             }
             val values = approvedValues(verdict)
             assertObservation(values, "PARTIAL_FALLBACK", "NO_DRAFT", "ABSENT", if (unknownWrite) 2 else 1)
+            assertEquals(JsonPrimitive("RETAINED_FAILURE"), values["acceptance_publication_entry"])
             assertNull(values["acceptance_extraction_planned_batches"])
             assertNull(values["acceptance_extraction_required_tokens"])
         }
@@ -387,6 +584,23 @@ class GitHubAcceptancePublicationEvidenceTest {
         val published = mutableListOf<JsonObject>()
         session(fixture, published) { answer(fact(fixture)) }.streamRound(emptyList(), emptyList()).toList()
         val actual = published.single()
+        val untrusted = json("""{"status":"NOT_MEASURED","reason":"UNTRUSTED_RECEIPT","receipt_id":"private-check-call"}""")
+        val observation = actual.getValue(GitHubAcceptancePublicationEvidence.KEY) as JsonObject
+        for (source in listOf("STATUS", "COVERAGE", "EVIDENCE_ADVANCED")) {
+            val unrelated = JsonObject(
+                actual + mapOf(
+                    "unresolved_claims" to JsonArray(listOf(untrusted)),
+                    GitHubAcceptancePublicationEvidence.KEY to JsonObject(
+                        observation + mapOf(
+                            "acceptance_publication_source" to JsonPrimitive(source),
+                            "acceptance_claim_trust_failures" to JsonArray(listOf(JsonPrimitive("TOOL_NOT_IN_AUTHORIZED_CATALOG")))
+                        )
+                    )
+                )
+            )
+            assertNull(GitHubAcceptancePublicationEvidence.fields(unrelated)["acceptance_claim_trust_failures"])
+            if (source == "EVIDENCE_ADVANCED") assertNull(GitHubAcceptancePublicationEvidence.fields(unrelated)["acceptance_publication_entry"])
+        }
         val legacy = JsonObject(actual - GitHubAcceptancePublicationEvidence.KEY)
         val looksLikeNewFailure = JsonObject(legacy + ("failure_code" to JsonPrimitive("PLAN_INPUT_LIMIT")))
         for (verdict in listOf(legacy, looksLikeNewFailure) + listOf(JsonNull, JsonPrimitive("private marker"), json("""{"schema":"unknown"}""")).map {
@@ -439,14 +653,22 @@ class GitHubAcceptancePublicationEvidenceTest {
         val enumSamples = mapOf(
             "acceptance_publication_source" to "PARTIAL_FALLBACK",
             "acceptance_extraction_observation" to "PLAN_INPUT_LIMIT",
-            "acceptance_draft_state" to "PRESENT"
+            "acceptance_draft_state" to "PRESENT",
+            "acceptance_publication_entry" to "COMPLETED_DRAFT"
         )
         val countFields = setOf("acceptance_extraction_planned_batches", "acceptance_receipt_snapshot_count", "acceptance_claim_count")
         for (key in GitHubAcceptancePublicationEvidence.fields) {
             val maximum = if (key in countFields) 16_000_000L else Int.MAX_VALUE.toLong()
-            val valid = enumSamples[key]?.let { listOf(JsonPrimitive(it)) } ?: listOf(JsonPrimitive(0), JsonPrimitive(maximum))
+            val trustList = key == "acceptance_claim_trust_failures"
+            val valid = if (trustList) {
+                listOf(JsonArray(GitHubAcceptancePublicationEvidence.TrustFailure.entries.map { JsonPrimitive(it.name) }))
+            } else {
+                enumSamples[key]?.let { listOf(JsonPrimitive(it)) } ?: listOf(JsonPrimitive(0), JsonPrimitive(maximum))
+            }
             val invalid = listOf(JsonNull, JsonPrimitive(true), JsonArray(emptyList()), JsonObject(emptyMap())) +
-                if (key in enumSamples) {
+                if (trustList) {
+                    listOf(JsonPrimitive("TOOL_NOT_IN_AUTHORIZED_CATALOG"), json("""{"first_failure":"TOOL_NOT_IN_AUTHORIZED_CATALOG"}"""), JsonArray(listOf(JsonPrimitive("private"))), JsonArray(List(2) { JsonPrimitive("TOOL_NOT_IN_AUTHORIZED_CATALOG") }))
+                } else if (key in enumSamples) {
                     listOf(JsonPrimitive("private enum"), JsonPrimitive(0))
                 } else {
                     listOf(JsonPrimitive("1"), JsonPrimitive(-1), JsonPrimitive(1.5), JsonPrimitive(maximum + 1))
@@ -455,7 +677,8 @@ class GitHubAcceptancePublicationEvidenceTest {
                 val diagnostics = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "ACCEPTANCE", key to value), now))
                 assertEquals(key, value, diagnostics.values[key])
                 assertNotNull(diagnostics.validated())
-                assertTrue(GitHubAcceptancePublicationEvidence.FEATURE in diagnostics.requiredServiceFeatures())
+                val feature = if (key in GitHubAcceptancePublicationEvidence.observationFields) GitHubAcceptancePublicationEvidence.OBSERVATION_FEATURE else GitHubAcceptancePublicationEvidence.FEATURE
+                assertTrue(feature in diagnostics.requiredServiceFeatures())
             }
             for (value in invalid) {
                 val diagnostics = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "ACCEPTANCE", key to value), now))

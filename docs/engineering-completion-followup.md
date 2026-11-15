@@ -3,6 +3,25 @@
 This extends PR #1203. Source implementation, host regression evidence, hosted
 build evidence and installed-device qualification are separate claims.
 
+## Late intake reliability and report evidence
+
+Saved GitHub conversation identity now survives unavailable original connections
+and disabled plugins. The navigation boundary presents an explicit restoration
+view before ordinary or voice controller creation. It retains the original
+connection, room and permission boundaries.
+
+Resumed tool runs allocate their next event sequence from durable rows in the same
+transaction as insertion. Duplicate calls retain their original receipts; sequence
+exhaustion and actual constraint failures carry finite local-write observations.
+These observations do not establish earlier dispatch or permission to retry.
+
+Repeat-limit reports retain the actual guard operands through a typed observation
+bound to the persisted call. Acceptance reports add the actual receipt trust
+predicate, publication-entry and comparison-state observations where available.
+Existing limits and trust decisions remain enforced; optional diagnostics preserve
+model context and storage boundaries. The [late intake record](repairs/pr1203-late-issues-1246-1275-2026-11-15.md)
+separates all 30 new reports, hosted capability requirements and historical unknowns.
+
 ## Latest CI and reporting corrections
 
 Initial GitHub tool selection honors the caller's exact planned schemas within

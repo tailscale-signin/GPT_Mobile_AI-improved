@@ -48,7 +48,11 @@ def create_app(public_url, reporter, rate_key):
         # Existing clients bound the plain readiness response to 1 KiB. Only
         # clients negotiating the bounded extended view receive newer features.
         if capabilities == "extended":
-            response["reportDiagnosticFeatures"].append("ACCEPTANCE_PUBLICATION_EVIDENCE_V1")
+            response["reportDiagnosticFeatures"].extend([
+                "ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
+                "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1",
+                "SQLITE_CONSTRAINT_EVIDENCE_V1",
+            ])
         return response
 
     @app.post("/v1/issue-reports")

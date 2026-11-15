@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.assist
 
+import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
+
 /** Count the entire task, including its complete goal and output/margin reservation. */
 internal object AssistChunkPlanner {
     data class Plan<T>(val chunks: List<List<T>>, val unprocessed: List<T>, val reason: String?)
@@ -8,7 +10,7 @@ internal object AssistChunkPlanner {
 
     fun <T> plan(items: List<T>, capacity: Int, outputTokens: Int, encode: (List<T>) -> String): Plan<T> {
         // Match LocalContextPlanner: UTF-8/2 plus worker system, capability contract and chat template.
-        val allowance = capacity.toLong() - outputTokens - 768L
+        val allowance = RequestAdmission.maximumEstimatedPrompt(capacity.toLong()) - outputTokens - 768L
         if (allowance <= 0 || estimate(encode(emptyList())) > allowance) return Plan(emptyList(), items, "TASK_CONTEXT_INSUFFICIENT")
         val chunks = mutableListOf<List<T>>()
         val unprocessed = mutableListOf<T>()

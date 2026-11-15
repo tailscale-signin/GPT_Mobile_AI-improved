@@ -67,12 +67,11 @@ internal object LocalContextPlanner {
             ) +
             renderCapabilityPrompt?.let { estimate(it(selected)) }.orZero()
         var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
-        // Tool definitions are charged below at their measured cost. The physical
-        // admission reserve is proportional to the prompt, not the model capacity:
-        // reserving one fifth of the whole context rejected valid small-model work.
-        // Start with the rendered task and tighten the final prompt limit after the
-        // reply and tool-result allowances are known.
-        val templateReserve = preflightSafetyReserve(used)
+        // Tool definitions are charged below at their measured cost. Physical
+        // admission adds uncertainty to the *fully rendered* prompt, so every
+        // provisional catalog below recomputes that reserve from its own upper
+        // bound. Do not both subtract a fixed reserve here and invert the admission
+        // estimator later: that double reservation rejected otherwise valid work.
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
         val requiredTools = rankedTools.filter { it.name in requiredNames }
@@ -87,20 +86,40 @@ internal object LocalContextPlanner {
         // template safety, and at least a modest reply. The delivery budget below
         // enforces the smaller result allowance on every tool callback. At least
         // 512 bytes are needed before executeBoundTool can dispatch any tool.
-        val minimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 512, if (contextTokens >= 4096) 512 else 128)
-        val minimumBudget = GitHubSchemaBudget(contextTokens, used, minimumReply, templateReserve + 1, 256)
+        val preferredMinimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 512, if (contextTokens >= 4096) 512 else 128)
+        val requiredPrompt = used + requiredSchemaTokens
+        val requiredSafety = preflightSafetyReserve(requiredPrompt)
+        // A required tool may borrow reply space down to 128 tokens, but never
+        // schema space or the 512-byte minimum result envelope needed to dispatch.
+        val minimumReply = if (
+            requiredTools.isNotEmpty() &&
+            requiredPrompt + requiredSafety + 256 + preferredMinimumReply >= contextTokens
+        ) {
+            minOf(preferredMinimumReply, 128)
+        } else {
+            preferredMinimumReply
+        }
+        val minimumBudget = GitHubSchemaBudget(contextTokens, used, minimumReply, requiredSafety + 1, 256)
         val minimumSchemaAllowance = minimumBudget.available
         if (githubRequiredNames.isNotEmpty() && requiredSchemaTokens > minimumSchemaAllowance) {
             throw GitHubToolContextBudgetException(requiredSchemaTokens, minimumSchemaAllowance, minimumBudget)
         }
-        val resultHeadroom = contextTokens.toLong() - used - requiredSchemaTokens - templateReserve - minimumReply - 1
+        val resultHeadroom = contextTokens.toLong() - requiredPrompt - requiredSafety - minimumReply - 1
         val toolResultReserve = if (relevantTools.isEmpty()) {
             0
         } else {
-            minOf(maxOf(256, contextTokens / 4).toLong(), resultHeadroom.coerceAtLeast(256)).toInt()
+            minOf(maxOf(256, contextTokens / 4).toLong(), resultHeadroom.coerceAtLeast(0)).toInt()
         }
-        val safetyReserve = templateReserve + toolResultReserve + 1
-        val baselineOutput = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, safetyReserve, outputLimit, minimum = minimumReply)
+        require(requiredTools.isEmpty() || toolResultReserve >= 256) {
+            "LOCAL_CONTEXT_EXHAUSTED: required tools need at least 512 bytes of result headroom. Select fewer tools, shorten context or choose a compatible larger-context model. The input was retained."
+        }
+        val baselineOutput = LocalOutputAllocation.reserve(
+            contextTokens,
+            requiredPrompt,
+            requiredSafety + toolResultReserve + 1,
+            outputLimit,
+            minimum = minimumReply
+        )
         fun promptLimitExclusive(outputReserve: Int): Long {
             val available = contextTokens.toLong() - outputReserve - toolResultReserve
             return (RequestAdmission.maximumEstimatedPrompt(available) + 1).coerceAtMost(contextTokens.toLong())
@@ -132,7 +151,14 @@ internal object LocalContextPlanner {
                 }
             }
         }
-        val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + anchorTokens + schemaCost(catalogTools), safetyReserve, outputLimit, minimum = minimumReply)
+        val catalogPrompt = used + anchorTokens + schemaCost(catalogTools)
+        val outputReserve = LocalOutputAllocation.reserve(
+            contextTokens,
+            catalogPrompt,
+            preflightSafetyReserve(catalogPrompt) + toolResultReserve + 1,
+            outputLimit,
+            minimum = minimumReply
+        )
         val promptLimit = promptLimitExclusive(outputReserve)
         require(used < promptLimit) {
             "This message and system instructions exceed this local model's $contextTokens-token context. " +
@@ -156,7 +182,7 @@ internal object LocalContextPlanner {
         val missingRequiredNames = requiredNames - selectedTools.map { it.name }.toSet()
         if (missingRequiredNames.isNotEmpty()) {
             if (missingRequiredNames.any { it in githubRequiredNames || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it) != null }) {
-                val budget = GitHubSchemaBudget(contextTokens, minimumBudget.input, outputReserve, templateReserve + 1, toolResultReserve)
+                val budget = GitHubSchemaBudget(contextTokens, minimumBudget.input, outputReserve, requiredSafety + 1, toolResultReserve)
                 throw GitHubToolContextBudgetException(requiredSchemaTokens, availableSchemaTokens, budget)
             }
             throw IllegalArgumentException("Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them.")

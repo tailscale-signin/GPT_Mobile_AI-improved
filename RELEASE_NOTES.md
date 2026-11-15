@@ -2,7 +2,7 @@
 
 ## Final CI and reporting follow-up
 
-Prefer an existing compact GitHub inspection contract for the initial request while preserving exact connection identity, authorized full-tool discovery and unchanged admission limits. Keep unavailable supplemental engineering memory optional, with a scoped notice and finite lookup/revalidation evidence; fresh repository access, cancellation and cloud-memory consent remain enforced.
+Honor valid planned GitHub schemas for the initial request, retaining compact inspection preference when both variants or no eligible hint are provided. Preserve exact connection identity, authorized full-tool discovery and unchanged admission limits. Keep unavailable supplemental engineering memory optional, with a scoped notice and finite lookup/revalidation evidence; fresh repository access, cancellation and cloud-memory consent remain enforced.
 
 Record the actual acceptance publication path, extraction state, draft presence, receipt and claim counts, and the operands of an observed planning rejection. Older verdicts retain unavailable observations. New reports negotiate the extended reporting capability without changing approved bytes or the legacy readiness and submission-receipt limits.
 

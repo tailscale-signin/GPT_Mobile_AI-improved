@@ -5,11 +5,14 @@ build evidence and installed-device qualification are separate claims.
 
 ## Latest CI and reporting corrections
 
-Initial GitHub tool selection prefers an already authorized, visible compact
-inspection contract for the same operation and exact connection suffix. The
-full contract remains the fallback when no compact contract is eligible, and
-explicit discovery can still select the exact full contract. The complete
-authorized inventory and request admission limits remain unchanged.
+Initial GitHub tool selection honors the caller's exact planned schemas within
+each already authorized, visible operation and connection. When both full and
+compact variants are planned, or no eligible variant is named, selection prefers
+the compact inspection contract. A sole planned full contract remains selected
+when the caller admits only that exact name. The full contract is also the
+fallback when no compact contract is eligible, and explicit discovery can still
+select it. The complete authorized inventory, connection boundaries and request
+admission limits remain unchanged.
 
 Supplemental engineering memory requires a selected native GitHub tool whose
 non-null connection identity matches the saved conversation context. A local

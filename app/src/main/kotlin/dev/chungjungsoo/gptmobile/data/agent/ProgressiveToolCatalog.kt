@@ -58,9 +58,10 @@ class ProgressiveToolCatalog(
         dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(name)
             ?.let { it + name.removePrefix(name.substringBefore("__")) } ?: name
     }.values.map { alternatives ->
-        // Resolver sorting must not replace an available compact initial contract
-        // with its full facade. Explicit discovery still selects the exact name.
-        alternatives.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: alternatives.first()
+        // Preserve exact planned schemas, then prefer a compact initial contract
+        // when both facades are eligible. Explicit discovery still selects the exact name.
+        val initial = alternatives.filter { it.name in initialNames.orEmpty() }.ifEmpty { alternatives }
+        initial.firstOrNull { it.name.substringBefore("__").endsWith("_inspect") } ?: initial.first()
     }
     private val requiredCapabilities = if (Regex("(?i)\\b(research|search|sources|papers|studies|latest|news|verify|article|citations)\\b").containsMatchIn(task)) setOf(AgentToolCapability.WEB_SEARCH, AgentToolCapability.PAGE_READER) else emptySet()
     private val omissions = mutableMapOf<String, String>()

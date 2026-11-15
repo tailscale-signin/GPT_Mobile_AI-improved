@@ -91,6 +91,20 @@ class AutonomousToolsTests(unittest.TestCase):
         result = self.action(action='repo_search', query=r'^second = [0-9]+$', mode='regex', glob='file00?.py')
         self.assertEqual(10, len(result['matches']))
         self.assertTrue(all(row['line'] == 2 for row in result['matches']))
+        crlf = self.source / 'windows.py'
+        crlf.write_bytes(b'first = 1\r\nsecond = 2\r\n')
+        self.git('add', 'windows.py')
+        self.git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', '-c', 'commit.gpgsign=false', 'commit', '-qm', 'add CRLF fixture')
+        self.head = self.git('rev-parse', 'HEAD')
+        self.job['data']['head_sha'] = self.head
+        self.job['data']['tree'] = {}
+        for row in self.git('ls-tree', '-r', 'HEAD').splitlines():
+            metadata, name = row.split('\t')
+            mode, _, sha = metadata.split()
+            self.job['data']['tree'][name] = {'mode': mode, 'sha': sha}
+        self.backend.api.return_value = {'tree': {'sha': self.git('rev-parse', 'HEAD^{tree}')}}
+        result = self.action(action='repo_search', query=r'^second = [0-9]+$', mode='regex', glob='windows.py')
+        self.assertEqual(1, len(result['matches']))
         page = self.action(action='repo_search', query='target')
         with self.assertRaises(ValueError):
             self.action(action='repo_search', query='changed', cursor=page['next_cursor'])

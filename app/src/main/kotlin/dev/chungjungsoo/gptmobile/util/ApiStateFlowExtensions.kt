@@ -589,13 +589,22 @@ private class StreamingMessageBuffer(
 
     private fun repeatsGitHubPreview(text: String): Boolean {
         if (!githubProgress) return false
-        val previous = timeline.withIndex()
-            .filter { it.value.progressCheckpoint && !it.value.statusSummary }
-            .maxWithOrNull(
-                compareBy<IndexedValue<AssistantTimelineItem>> { it.value.progressSequence != null }
-                    .thenBy { it.value.progressSequence ?: it.index.toLong() }
-            )?.value ?: return false
-        return dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.lineKey(previous.content) ==
+        var previous: AssistantTimelineItem? = null
+        var previousHasSequence = false
+        var previousOrder = Long.MIN_VALUE
+        timeline.forEachIndexed { index, item ->
+            if (item.progressCheckpoint && !item.statusSummary) {
+                val hasSequence = item.progressSequence != null
+                val order = item.progressSequence ?: index.toLong()
+                if (previous == null || hasSequence && !previousHasSequence || hasSequence == previousHasSequence && order > previousOrder) {
+                    previous = item
+                    previousHasSequence = hasSequence
+                    previousOrder = order
+                }
+            }
+        }
+        val retained = previous ?: return false
+        return dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.lineKey(retained.content) ==
             dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.lineKey(text.take(4000))
     }
 

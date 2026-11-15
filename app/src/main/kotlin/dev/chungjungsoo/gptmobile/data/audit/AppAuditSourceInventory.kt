@@ -9,13 +9,13 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "134ef113423cf1f7d6179a5cdb6e496d06016f00d214199b5eca32c610def852"
+    val sourceDigest: String = "857ee4c164901c3da78ba1c9129965dc18420ad7d101a3cec28343358cd5fa8d"
     val fileCount: Int = 2649
-    val lineCount: Int = 428179
+    val lineCount: Int = 428221
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
-        AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8623),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 553, 96683),
+        AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8632),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 553, 96706),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 198, 9234),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 231, 39268),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 22247),
@@ -36,7 +36,7 @@ object AppAuditSourceInventory {
         AppAuditSourceArea("voice_and_media", "Voice and media", 30, 6069),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
-        AppAuditSourceArea("gateway_software", "Companion gateway software", 163, 74723),
+        AppAuditSourceArea("gateway_software", "Companion gateway software", 163, 74733),
         AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2443),
         AppAuditSourceArea("external_integrations", "External integration servers", 62, 6422),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2839)

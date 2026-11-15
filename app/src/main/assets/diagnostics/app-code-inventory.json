@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "134ef113423cf1f7d6179a5cdb6e496d06016f00d214199b5eca32c610def852",
+  "source_digest": "857ee4c164901c3da78ba1c9129965dc18420ad7d101a3cec28343358cd5fa8d",
   "file_count": 2649,
-  "indexed_line_count": 428179,
+  "indexed_line_count": 428221,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -34,13 +34,13 @@
       "id": "android_shell",
       "label": "Android application and lifecycle",
       "file_count": 74,
-      "indexed_line_count": 8623
+      "indexed_line_count": 8632
     },
     {
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 553,
-      "indexed_line_count": 96683
+      "indexed_line_count": 96706
     },
     {
       "id": "accessibility_and_localization",
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 163,
-      "indexed_line_count": 74723
+      "indexed_line_count": 74733
     },
     {
       "id": "authentication_service",
@@ -15564,8 +15564,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceChatScreen.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "273deb7ad50efc641ab806704eac710ee05c23138d1887224f68f3e29543579e",
-      "indexed_lines": 1120
+      "sha256": "ed07818d9fbd631a38c25b5ae79652032e610f1a1c5e2b39b43188260b71ee97",
+      "indexed_lines": 1143
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/voice/VoiceConversationContent.kt",
@@ -15830,8 +15830,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/ApiStateFlowExtensions.kt",
       "area_id": "android_shell",
       "kind": "source",
-      "sha256": "bf7ebf422ab8b05d7ac3a7d391d4605307614e50befa17731fac079f933c62ac",
-      "indexed_lines": 919
+      "sha256": "a5963cdb2e29e50ddc5665d4ee8e1d22e348f0344d462bcf07a1eff94fd3fc64",
+      "indexed_lines": 928
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/util/AssistantMessageUtils.kt",
@@ -18504,8 +18504,8 @@
       "path": "gateway/v14/workspace_search.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "c1c61f8b549ad5a5417cd4638ad801305a047d7a9c63b418b1e8536ef8443705",
-      "indexed_lines": 129
+      "sha256": "de80182a1aeb208e599e9cb29058979379d79e43a5f622371a6a68e8e932611a",
+      "indexed_lines": 139
     },
     {
       "path": "local-gguf-runtime/src/main/AndroidManifest.xml",

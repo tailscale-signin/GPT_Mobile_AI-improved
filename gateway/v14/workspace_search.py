@@ -76,9 +76,19 @@ class WorkspaceSearchService:
         _, mirror, _, _, _ = load_policy(self.job['request']['repository'])
         output = io.BytesIO()
         # --literal-pathspecs and -e prevent paths/patterns from becoming options.
+        patterns = [query]
+        if mode == 'regex' and query.endswith('$'):
+            slashes = len(query[:-1]) - len(query[:-1].rstrip('\\'))
+            if slashes % 2 == 0:
+                # Git for Windows can retain CRLF in immutable blobs. Treat the
+                # carriage return as part of the line ending without changing
+                # the caller's query binding or Linux/LF result.
+                patterns.append(query[:-1] + '\r$')
         args = git_prefix(executable('git')) + ['--literal-pathspecs', '--git-dir=' + str(mirror),
-            'grep', '--no-textconv', '--no-ext-grep', '-I', '-n', '-z', '-i', '-E' if mode == 'regex' else '-F',
-            '-e', query, self.head, '--', *selected]
+            'grep', '--no-textconv', '--no-ext-grep', '-I', '-n', '-z', '-i', '-E' if mode == 'regex' else '-F']
+        for pattern in patterns:
+            args += ['-e', pattern]
+        args += [self.head, '--', *selected]
         with cancellation_scope(cancel, self.job['deadline']):
             result = run_bounded(args, mirror.parent, 20, maximum=4 * 1024 * 1024, destination=output)
         if result['exit_code'] not in (0, 1):

@@ -87,7 +87,7 @@ class RepositoryValidationPanel:
         self.advanced_visible = tk.BooleanVar(master=frame, value=False)
         self.advanced_toggle = ttk.Checkbutton(frame, text='Advanced validation settings', variable=self.advanced_visible,
                                                command=self.toggle_advanced)
-        self.advanced_toggle.grid(row=4, column=0, sticky='w')
+        self.advanced_toggle.grid(row=0, column=1, sticky='e')
         self.inputs.append(self.advanced_toggle)
         self.advanced = ttk.Frame(frame)
         self.advanced.grid(row=5, column=0, sticky='nsew', pady=4)

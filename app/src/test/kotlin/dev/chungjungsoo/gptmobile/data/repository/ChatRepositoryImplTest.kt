@@ -2943,9 +2943,10 @@ private class RecordingToolEventDao {
                     }
                 }
 
-                "rawMaxToolEventSequence" -> events
-                    .filter { it.runId == args!![0] }
-                    .maxOfOrNull(ToolEvent::sequence) ?: -1
+                "rawMaxToolEventSequence" ->
+                    events
+                        .filter { it.runId == args!![0] }
+                        .maxOfOrNull(ToolEvent::sequence) ?: -1
 
                 "finishToolEvent" -> {
                     val eventId = args!![0] as String

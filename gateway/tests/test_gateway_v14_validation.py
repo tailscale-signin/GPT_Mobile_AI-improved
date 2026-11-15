@@ -268,7 +268,7 @@ class IsolatedValidationTests(unittest.TestCase):
             output = io.BytesIO()
             receipt = run_bounded([sys.executable, '-c', 'import sys; sys.stdout.buffer.write(bytes(range(256)))'], directory, 10, destination=output)
             self.assertEqual(bytes(range(256)), output.getvalue())
-            self.assertEqual('', receipt['output_tail'])
+            self.assertEqual(bytes(range(256)).decode('utf-8', 'replace'), receipt['output_tail'])
             self.assertEqual(hashlib.sha256(output.getvalue()).hexdigest(), receipt['output_sha256'])
             output = io.BytesIO()
             with self.assertRaises(ValueError):

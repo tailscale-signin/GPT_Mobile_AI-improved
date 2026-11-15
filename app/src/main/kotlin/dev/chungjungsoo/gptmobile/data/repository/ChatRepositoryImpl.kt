@@ -5237,8 +5237,15 @@ class ChatRepositoryImpl(
                 override val hasPreparedSearchEvidence: Boolean = preparedSearch
                 override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
                     raw.streamRound(tools, exchanges).map { event ->
-                        if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) {
-                            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.receipts?.lastOrNull()?.contextTokens?.takeIf { it > 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()?.let { capacity ->
+                        if (chatToolConfig?.github != null && kind in setOf("primary", "github-output-continuation", "github-task-resume", "github-execution-continuation")) {
+                            val observed = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.receipts?.lastOrNull()?.contextTokens
+                            val rejection = (event as? ProviderEvent.Failed)?.failureDetails
+                            val rejectedCapacity = if (rejection?.get("admission_capacity_provenance") in setOf(JsonPrimitive("VERIFIED_ROUTE"), JsonPrimitive("DECLARED"))) {
+                                (rejection?.get("admission_capacity_tokens") as? JsonPrimitive)?.content?.toLongOrNull()
+                            } else {
+                                null
+                            }
+                            (observed ?: rejectedCapacity)?.takeIf { it in 1..Int.MAX_VALUE.toLong() }?.toInt()?.let { capacity ->
                                 observedRequestContext.updateAndGet { previous -> minOf(previous ?: Int.MAX_VALUE, capacity) }
                             }
                         }
@@ -5890,14 +5897,18 @@ class ChatRepositoryImpl(
                     }
                 ) { draft, exchanges, tools ->
                     val selected = catalog?.selected(tools) ?: tools
+                    val capacity = minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768)
+                    val allowance = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.resolve(capacity, resolvedOutputCap, "github-output-continuation")
+                    require(allowance.output > 0) { "CONTINUATION_CONTEXT_CAPACITY: No output allowance remains." }
                     val continuation = dev.chungjungsoo.gptmobile.data.agent.planResponseContinuation(
                         contextPlan.turns,
                         requestPlatform.systemPrompt.orEmpty(),
-                        limits.copy(outputTokens = resolvedOutputCap),
+                        limits.copy(contextTokens = capacity, outputTokens = allowance.output),
                         draft,
-                        "Continue the saved GitHub draft from its stopping point. Do not repeat text or completed operations. If repository work is unfinished, use the authorized tools and retained receipts; a finished model response does not establish task completion.",
+                        "Finish the next outstanding GitHub requirement using the accepted task and retained receipts. Prefer a short conclusion with receipt references. If a tool is still required, request that tool directly. Never repeat completed operations or claim unverified completion.",
                         exchanges,
-                        advertisedTools = selected
+                        advertisedTools = selected,
+                        fitProviderBudget = true
                     )
                     val reopened = openPrimarySession(continuation.turns, "github-output-continuation", textOnly = selected.isEmpty(), passOutputTokens = continuation.outputTokens, continuationPrefixDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(draft))
                     catalog?.let { reopened.withToolCatalog(it) } ?: reopened

@@ -180,9 +180,26 @@ internal object ToolArgumentValidator {
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
         val operation = toolName.githubOperationFamily()
-        if (operation == "github_search" && "per_page" in arguments && arguments.keys.none { it in setOf("view_cursor", "index_cursor", "search_id") }) {
-            val proposal = JsonObject(arguments - "per_page")
-            return proposal.takeIf { errors(it, schema).isEmpty() }
+        if (operation == "github_search" &&
+            arguments.keys.none { it in setOf("view_cursor", "index_cursor", "search_id") } &&
+            (integer(arguments["page"]) ?: 1) == 1
+        ) {
+            val declared = schema["properties"] as? JsonObject
+            val properties = declared?.get("max_new_blobs") as? JsonObject
+            val requested = integer(arguments["max_new_blobs"])
+            val minimum = integer(properties?.get("minimum"))
+            val maximum = integer(properties?.get("maximum"))
+            val corrected = arguments.toMutableMap()
+            if (declared?.containsKey("per_page") == false) corrected.remove("per_page")
+            if (requested != null && minimum != null && maximum != null && minimum <= maximum) {
+                corrected["max_new_blobs"] = JsonPrimitive(requested.coerceIn(minimum, maximum))
+            }
+            val proposal = JsonObject(corrected)
+            return proposal.takeIf {
+                it != arguments &&
+                    errors(it, schema).isEmpty() &&
+                    dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors(operation, it).isEmpty()
+            }
         }
         boundedReadCorrection(operation, arguments)?.let { proposal ->
             if (errors(proposal, schema).isEmpty() && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors(operation, proposal).isEmpty()) return proposal

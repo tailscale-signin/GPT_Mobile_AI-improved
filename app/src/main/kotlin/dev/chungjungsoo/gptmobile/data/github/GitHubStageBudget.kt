@@ -12,6 +12,7 @@ internal object GitHubStageBudget {
             role.endsWith("-preflight") -> GitHubReviewCompatibility.OUTPUT_TOKENS
             role.endsWith("-output-retry") -> 4096
             role == "github-claim-extraction" -> 8192
+            role == "github-output-continuation" -> 6144
             role.endsWith("-repair") -> 4096
             else -> GitHubReviewSchema.OUTPUT_TOKENS
         }

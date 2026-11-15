@@ -100,6 +100,38 @@ class GitHubActionSchemaTest {
         )
     }
 
+    @Test fun searchCorrectsTheReadLimitWithoutRewritingPinnedContinuationArguments() {
+        val definition = GitHubOperationTool.definition("github_search")
+        val arguments = Json.parseToJsonElement("""{"action":"search","query":"object Task","max_new_blobs":0}""") as JsonObject
+        fun reject(proposal: JsonObject): JsonObject {
+            val result = ToolArgumentValidator.rejection("search", definition.name, proposal, definition.inputSchema)
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            return (result.content as ToolResultContent.Json).value as JsonObject
+        }
+        val corrected = (reject(arguments)["correction_call"] as JsonObject)["arguments"] as JsonObject
+        assertEquals(JsonObject(arguments + ("max_new_blobs" to JsonPrimitive(1))), corrected)
+        assertTrue(ToolArgumentValidator.errors(corrected, definition.inputSchema).isEmpty())
+        for ((key, value) in mapOf("view_cursor" to JsonPrimitive("opaque"), "index_cursor" to JsonPrimitive(5), "page" to JsonPrimitive(2))) {
+            assertNull(reject(JsonObject(arguments + (key to value)))["correction_call"])
+        }
+    }
+
+    @Test fun workflowInventoryProjectionKeepsRemotePaginationAndAnExplicitFullView() {
+        val source = Json.parseToJsonElement(
+            """{"data":{"workflows":[{"id":1,"name":"Build","path":"build.yml","state":"active","updated_at":"then","html_url":"fixture"}],"total_count":2,"has_more":true,"continuation":{"page":2}}}"""
+        ) as JsonObject
+        val request = buildJsonObject { put("action", "workflows") }
+        val compact = dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project("github_ci", request, source)["data"] as JsonObject
+        val original = source["data"] as JsonObject
+        val row = (compact["workflows"] as JsonArray).single() as JsonObject
+        assertEquals(setOf("id", "name", "path", "state"), row.keys)
+        assertEquals(original["continuation"], compact["continuation"])
+        assertEquals(original["total_count"], compact["total_count"])
+        assertEquals(original["has_more"], compact["has_more"])
+        assertEquals(source, dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project("github_ci", JsonObject(request + ("response_detail" to JsonPrimitive("full"))), source))
+    }
+
     @Test fun ciLogContractRetainsBoundsAndPagingButExcludesDispatch() {
         val original = GitHubOperationTool.definition("github_ci")
         val compact = requireNotNull(GitHubActionSchema.project(original, "logs"))

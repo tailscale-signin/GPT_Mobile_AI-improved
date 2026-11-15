@@ -869,7 +869,7 @@ internal class GitHubOperationTool(
                     }
                     listOf("min_lines", "max_lines").forEach { properties[it] = field("integer") }
                     properties["context_lines"] = integer(0, 100)
-                    properties["max_new_blobs"] = integer(1, 100, default = 4)
+                    properties["max_new_blobs"] = integer(1, 100, "Fetch 1–100 new blobs per page. Omit for the default bounded fetch; zero is unsupported.", default = 4)
                     properties["batch_size"] = integer(1, 1000, default = 1000)
                     properties["page"] = field("integer")
                 }

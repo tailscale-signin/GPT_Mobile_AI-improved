@@ -87,3 +87,10 @@ def prepare_sandbox(root, *, expected=None, cancel=None, progress=lambda message
     setup.cancelled(cancel)
     save_settings(root, dict(original, sandbox_image=image), expected=original)
     return image
+
+def verify_submission(root, suite):
+    """Fail fast for a coding run, without downloading or preparing any image."""
+    if suite == 'coding':
+        from benchmarks.sandbox import preflight
+        return preflight(load_settings(root))
+    return None

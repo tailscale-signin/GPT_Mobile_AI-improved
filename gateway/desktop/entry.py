@@ -17,7 +17,7 @@ from v14.state_lock import StateDirectoryLock
 
 def main():
     parser = argparse.ArgumentParser(description='GPT Mobile Gateway desktop manager')
-    parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'engineering-setup', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard'])
+    parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'engineering-setup', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard', 'benchmark-settings'])
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--version')
     parser.add_argument('--quiet', action='store_true')
@@ -71,6 +71,21 @@ def main():
             startup_registration(root, cfg['start_at_login'])
         finally:
             lock.release()
+        return 0
+    if args.command == 'benchmark-settings':
+        import tkinter as tk
+        from desktop.benchmark_panel import open_benchmark_settings
+        owner = tk.Tk()
+        owner.withdraw()
+        dialog = open_benchmark_settings(owner, root)
+        if dialog is None:
+            owner.destroy()
+            return 1
+        dialog.bind('<Destroy>', lambda event: owner.quit() if event.widget is dialog else None, add='+')
+        try:
+            owner.mainloop()
+        finally:
+            owner.destroy()
         return 0
     if args.command == 'dashboard':
         from desktop.dashboard import show

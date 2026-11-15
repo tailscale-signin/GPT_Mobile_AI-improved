@@ -79,6 +79,15 @@ class BenchmarkSandboxSetupTest(unittest.TestCase):
             sandbox.preflight({'sandbox_image': PIN})
         self.assertEqual('IMAGE_NOT_INSTALLED', failure.exception.reason)
 
+    def test_submission_checks_only_coding(self):
+        with patch.object(sandbox, 'preflight', side_effect=sandbox.SandboxUnavailable('No pin', 'IMAGE_NOT_CONFIGURED')) as checked:
+            self.assertIsNone(settings.verify_submission(self.root, 'quick_check'))
+            self.assertIsNone(settings.verify_submission(self.root, 'batch_comparison'))
+            checked.assert_not_called()
+            with self.assertRaises(sandbox.SandboxUnavailable):
+                settings.verify_submission(self.root, 'coding')
+            checked.assert_called_once()
+
 
 if __name__ == '__main__':
     unittest.main()

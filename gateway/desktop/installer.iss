@@ -42,6 +42,7 @@ Name: "{group}\Gateway Dashboard"; Filename: "{sys}\WindowsPowerShell\v1.0\power
 Name: "{autodesktop}\GPT Mobile Gateway"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; WorkingDir: "{app}"; IconFilename: "{app}\releases\{#GatewayVersion}\Gateway.exe"; AppUserModelID: "GPTMobile.Gateway"; Tasks: desktopicon
 Name: "{group}\Start Gateway"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"""; WorkingDir: "{app}"
 Name: "{group}\Gateway Settings"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command settings"; WorkingDir: "{app}"
+Name: "{group}\Coding Benchmark Setup"; Filename: "{app}\releases\{#GatewayVersion}\Gateway.exe"; Parameters: "benchmark-settings --root ""{app}"""; WorkingDir: "{app}"
 Name: "{group}\Engineering Setup"; Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command engineering-setup"; WorkingDir: "{app}"
 Name: "{group}\Gateway Logs"; Filename: "{app}\logs"
 Name: "{group}\Uninstall Gateway"; Filename: "{uninstallexe}"
@@ -50,6 +51,7 @@ Name: "{group}\Uninstall Gateway"; Filename: "{uninstallexe}"
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"""; Description: "Start Gateway"; Flags: nowait postinstall skipifsilent
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command dashboard"; Description: "Open the live Gateway dashboard"; Flags: nowait postinstall skipifsilent
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command github-settings"; Description: "Open GitHub settings for private repositories or saved jobs"; Flags: nowait postinstall skipifsilent unchecked
+Filename: "{app}\releases\{#GatewayVersion}\Gateway.exe"; Parameters: "benchmark-settings --root ""{app}"""; Description: "Prepare coding benchmark sandbox (optional Docker download)"; Flags: nowait postinstall skipifsilent unchecked
 
 Filename: "{sys}\WindowsPowerShell\v1.0\powershell.exe"; Parameters: "-NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File ""{app}\Start-Gateway.ps1"" -Command engineering-setup"; Description: "Set up Full GitHub Engineering (Docker and WSL 2)"; Flags: nowait postinstall skipifsilent; Check: IsFullEngineeringSelected
 

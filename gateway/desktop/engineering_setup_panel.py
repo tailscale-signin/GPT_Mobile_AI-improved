@@ -8,9 +8,6 @@ from tkinter import messagebox, ttk
 import webbrowser
 
 from desktop import engineering_setup as setup
-from desktop import repository_validation as validation
-from desktop.configuration import load
-from desktop.validation_policy import load_policy_snapshot
 
 STEPS = [('git', 'Git'), ('wsl', 'WSL 2'), ('docker', 'Docker Linux engine'),
          ('credentials', 'Docker CLI credentials')]
@@ -23,8 +20,8 @@ class EngineeringSetupWindow:
         if parent:
             self.window.transient(parent.winfo_toplevel())
         self.window.title('Gateway - Engineering setup')
-        self.window.geometry('650x570')
-        self.window.minsize(560, 470)
+        self.window.geometry('650x620')
+        self.window.minsize(560, 530)
         self.mode = tk.StringVar(master=self.window, value='full')
         self.summary = tk.StringVar(master=self.window, value='Checking your PC does not change system settings.')
         self.results = queue.Queue()
@@ -55,6 +52,7 @@ class EngineeringSetupWindow:
         action_bar.pack(fill='x')
         self.buttons = {}
         actions = [('check', 'Check PC', self.check),
+                   ('git', 'Install Git', self.install_git),
                    ('wsl', 'Install / update WSL', self.install_wsl),
                    ('docker', 'Install Docker', self.install_docker),
                    ('helper', 'Repair Docker PATH', self.repair_path),
@@ -102,6 +100,12 @@ class EngineeringSetupWindow:
     def check(self):
         self.run('Checking environment', lambda cancel: setup.check_environment(cancel=cancel))
 
+    def install_git(self):
+        if messagebox.askyesno('Install Git for Windows',
+                               'Install Git for Windows using Windows Package Manager? Windows may ask for approval. Existing repositories and credentials are preserved.',
+                               parent=self.window):
+            self.run('Installing Git', lambda cancel: setup.install_prerequisite('git', approved=True, cancel=cancel))
+
     def install_wsl(self):
         if messagebox.askyesno('Install WSL 2', 'Install or update WSL 2? Windows may ask for administrator approval or a reboot. Existing distributions are preserved.',
                                parent=self.window):
@@ -121,30 +125,10 @@ class EngineeringSetupWindow:
         if not messagebox.askyesno('Approve Linux validation', 'Download or refresh the repository mirror and digest-pinned Linux image, save reviewed validation settings, and test a disposable offline container? No repository tests, GitHub writes or merges are authorized.',
                                    parent=self.window):
             return
-        def work(cancel):
-            report = setup.check_environment(cancel=cancel)
-            if not report['ready_for_validation']:
-                raise ValueError('Git, WSL 2 and Docker Linux containers are required. Check PC and repair missing prerequisites.')
-            saved = load_policy_snapshot(self.root)
-            if saved['state'] == 'INVALID':
-                raise ValueError('Saved validation policy needs review in Advanced settings.')
-            options = validation.options_for(self.root, validation.DEFAULT_REPOSITORY, saved['repositories'])
-            token = None
-            try:
-                from desktop.github_setup import configured_connection
-                _, token = configured_connection(self.root, load(self.root))
-            except (ValueError, OSError):
-                pass  # The public repository can be prepared without credentials.
-            self.results.put(('progress', 'Preparing mirror and digest-pinned Linux image...'))
-            prepared = validation.setup(self.root, options, saved['revision'], prepare=True,
-                                        token=token, enabled=True, cancel=cancel,
-                                        progress=lambda message: self.results.put(('progress', message)))
-            self.results.put(('progress', 'Checking prepared policy and launching an offline smoke test...'))
-            checked = validation.setup(self.root, dict(options, image=prepared['image']),
-                                       prepared['snapshot']['revision'], prepare=False, enabled=True,
-                                       cancel=cancel)
-            return setup.smoke_image(checked['image'], cancel=cancel)
-        self.run('Preparing GitHub validation', work)
+        self.run('Preparing GitHub validation',
+                 lambda cancel: setup.prepare_and_verify(
+                     self.root, cancel=cancel,
+                     progress=lambda message: self.results.put(('progress', message))))
 
     def open_validation(self):
         if self.parent and hasattr(self.parent, 'github_tabs'):
@@ -170,6 +154,8 @@ class EngineeringSetupWindow:
                 self.set_mode()
                 if kind == 'error':
                     self.summary.set(title + ': ' + result)
+                elif isinstance(result, dict) and result.get('state') in {'VERIFIED', 'PREPARED_UNVERIFIED'}:
+                    self.summary.set(result['message'] + ' Restart Gateway when existing work is idle.')
                 elif isinstance(result, dict) and 'checks' in result:
                     for key, value in result['checks'].items():
                         if key in self.rows:

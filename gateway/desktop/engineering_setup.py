@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import subprocess
 import sys
 
 from desktop import repository_validation as validation
@@ -63,10 +64,19 @@ def check_environment(cancel=None):
         wsl = shutil.which('wsl.exe') or shutil.which('wsl')
         if wsl:
             try:
-                validation.run([wsl, '--status'], cancel=cancel, timeout=20, label='Check WSL 2')
-                checks['wsl'] = ('PASS', 'WSL is installed.')
-            except ValueError:
-                checks['wsl'] = ('ACTION', 'Install or update WSL 2; reboot if required.')
+                validation.cancelled(cancel)
+                # wsl.exe can emit UTF-16/localized text. Only the exit status
+                # is authoritative; never decode or display this output.
+                result = subprocess.run([wsl, '--status'], stdin=subprocess.DEVNULL,
+                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                        timeout=20, check=False,
+                                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                validation.cancelled(cancel)
+                checks['wsl'] = (('PASS', 'WSL is installed; use the WSL 2 Docker backend.')
+                                 if result.returncode == 0 else
+                                 ('ACTION', 'Enable or update WSL 2, and restart if prompted.'))
+            except (subprocess.TimeoutExpired, OSError):
+                checks['wsl'] = ('ACTION', 'WSL could not respond; repair or update WSL 2.')
         else:
             checks['wsl'] = ('ACTION', 'WSL 2 is missing.')
     else:
@@ -91,13 +101,14 @@ def install_prerequisite(kind, *, approved=False, cancel=None):
         raise ValueError('Confirm the system installation first.')
     if not is_windows():
         raise ValueError('Windows prerequisites can only be installed on Windows.')
-    if kind == 'docker':
+    if kind in {'docker', 'git'}:
         winget = shutil.which('winget.exe') or shutil.which('winget')
         if not winget:
-            raise ValueError('Windows Package Manager is unavailable. Open the official Docker installer.')
-        argv = [winget, 'install', '--id', 'Docker.DockerDesktop', '--exact', '--source', 'winget',
+            raise ValueError('Windows Package Manager is missing. Use the official Git or Docker installer.')
+        package = 'Docker.DockerDesktop' if kind == 'docker' else 'Git.Git'
+        argv = [winget, 'install', '--id', package, '--exact', '--source', 'winget',
                 '--accept-package-agreements', '--accept-source-agreements']
-        label = 'Install Docker Desktop'
+        label = 'Install Docker Desktop' if kind == 'docker' else 'Install Git for Windows'
     elif kind == 'wsl':
         wsl = shutil.which('wsl.exe') or shutil.which('wsl')
         argv = ([wsl, '--update'] if wsl else
@@ -108,6 +119,49 @@ def install_prerequisite(kind, *, approved=False, cancel=None):
         raise ValueError('Unsupported prerequisite; nothing was executed.')
     validation.run(argv, cancel=cancel, timeout=1800, label=label)
     return label + ' command completed; restart Windows if prompted, then Check PC again.'
+
+
+def prepare_and_verify(root, *, cancel=None, progress=lambda message: None):
+    """Prepare approved resources, then separately verify a disposable container.
+
+    A failure after the managed policy is saved is never represented as a
+    rollback. The policy remains subject to all existing admission gates.
+    """
+    from desktop.configuration import load
+    from desktop.validation_policy import load_policy_snapshot
+
+    status = check_environment(cancel=cancel)
+    if not status['ready_for_validation']:
+        raise ValueError('Git, WSL 2 and the local Linux Docker engine are required. Use Check PC first.')
+    saved = load_policy_snapshot(root)
+    if saved['state'] == 'INVALID':
+        raise ValueError('Saved validation policy needs review in Advanced settings.')
+    options = validation.options_for(root, validation.DEFAULT_REPOSITORY, saved['repositories'])
+    token = None
+    try:
+        from desktop.github_setup import configured_connection
+        _, token = configured_connection(root, load(root))
+    except (ValueError, OSError):
+        pass  # Public repository access needs no selected account.
+    progress('Preparing approved Git mirror and digest-pinned Linux image...')
+    prepared = validation.setup(root, options, saved['revision'], prepare=True,
+                                token=token, enabled=True, cancel=cancel, progress=progress)
+    progress('Policy prepared; checking the pinned image and disposable container...')
+    try:
+        checked = validation.setup(root, dict(options, image=prepared['image']),
+                                   prepared['snapshot']['revision'], prepare=False,
+                                   enabled=True, cancel=cancel)
+        result = smoke_image(checked['image'], cancel=cancel)
+    except validation.SetupCancelled:
+        raise
+    except (ValueError, OSError):
+        # Preparation already committed a managed selector. Be explicit:
+        # cancelling or failing the final smoke does not undo that save.
+        return {'state': 'PREPARED_UNVERIFIED',
+                'message': 'Repository policy was saved, but the Linux smoke test did not pass. '
+                           'Use Check setup in Repository Validation; do not treat this as verified.'}
+    return {'state': 'VERIFIED', 'message': result + ' Policy prepared. '
+            'Task behavior tests and Android builds remain separate.'}
 
 
 def repair_helper_path(*, approved=False):

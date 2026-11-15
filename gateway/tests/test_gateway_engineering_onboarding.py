@@ -1,5 +1,6 @@
 """Headless opt-in and isolation regressions; no real system commands."""
 import json
+from types import SimpleNamespace
 from pathlib import Path
 import sys
 import tempfile
@@ -15,6 +16,28 @@ class OnboardingTests(unittest.TestCase):
             setup.install_prerequisite('docker')
         with self.assertRaisesRegex(ValueError, 'Confirm'):
             setup.install_prerequisite('wsl')
+
+    def test_install_git_uses_pinned_package_id_only_after_approval(self):
+        with patch.object(setup, 'is_windows', return_value=True), \
+             patch.object(setup.shutil, 'which', return_value='winget.exe'), \
+             patch.object(setup.validation, 'run', return_value='') as run:
+            result = setup.install_prerequisite('git', approved=True)
+        self.assertIn('Install Git', result)
+        self.assertEqual(['winget.exe', 'install', '--id', 'Git.Git', '--exact',
+                          '--source', 'winget', '--accept-package-agreements',
+                          '--accept-source-agreements'], run.call_args.args[0])
+
+    def test_missing_or_failed_wsl_status_blocks_preparation(self):
+        with patch.object(setup, 'is_windows', return_value=True), \
+             patch.object(setup.shutil, 'which', return_value='wsl.exe'), \
+             patch.object(setup.subprocess, 'run', return_value=SimpleNamespace(returncode=1)), \
+             patch.object(setup, 'executable', return_value='fixture'), \
+             patch.object(setup.validation, 'check_docker'), \
+             patch.object(setup, 'credential_status', return_value={
+                 'state': 'PASS', 'detail': 'ok', 'repairable': False}):
+            result = setup.check_environment()
+        self.assertFalse(result['ready_for_validation'])
+        self.assertEqual('ACTION', result['checks']['wsl'][0])
 
     def test_invalid_action_never_runs(self):
         with patch.object(setup, 'is_windows', return_value=True), patch.object(setup.validation, 'run') as command:
@@ -63,7 +86,7 @@ class OnboardingTests(unittest.TestCase):
     def test_gateway_engine_independent_of_user_cli_helper(self):
         with patch.object(setup, 'is_windows', return_value=True), \
              patch.object(setup.shutil, 'which', return_value='wsl.exe'), \
-             patch.object(setup.validation, 'run', return_value=''), \
+             patch.object(setup.subprocess, 'run', return_value=SimpleNamespace(returncode=0)), \
              patch.object(setup, 'executable', return_value='fixture'), \
              patch.object(setup.validation, 'check_docker'), \
              patch.object(setup, 'credential_status',
@@ -71,6 +94,40 @@ class OnboardingTests(unittest.TestCase):
             report = setup.check_environment()
         self.assertTrue(report['ready_for_validation'])
         self.assertEqual('ACTION', report['checks']['credentials'][0])
+
+
+    def test_saved_policy_smoke_failure_reports_unverified_without_rollback(self):
+        from desktop import repository_validation as validation
+        with patch.object(setup, 'check_environment', return_value={'ready_for_validation': True}), \
+             patch('desktop.validation_policy.load_policy_snapshot',
+                   return_value={'state':'OK', 'revision':'r1', 'repositories':{}}), \
+             patch.object(validation, 'options_for', return_value={'repository':'o/r'}), \
+             patch('desktop.configuration.load', return_value={}), \
+             patch('desktop.github_setup.configured_connection', return_value=('none', None)), \
+             patch.object(validation, 'setup', side_effect=[
+                 {'image':'image@sha256:'+'a'*64, 'snapshot':{'revision':'r2'}},
+                 {'image':'image@sha256:'+'a'*64}]) as execute, \
+             patch.object(setup, 'smoke_image', side_effect=ValueError('container unavailable')):
+            result = setup.prepare_and_verify(Path('/tmp/fixture'))
+        self.assertEqual('PREPARED_UNVERIFIED', result['state'])
+        self.assertIn('saved', result['message'])
+        self.assertEqual(2, execute.call_count)
+
+    def test_preparation_smoke_success_requires_real_observation(self):
+        from desktop import repository_validation as validation
+        with patch.object(setup, 'check_environment', return_value={'ready_for_validation': True}), \
+             patch('desktop.validation_policy.load_policy_snapshot',
+                   return_value={'state':'OK', 'revision':'r1', 'repositories':{}}), \
+             patch.object(validation, 'options_for', return_value={'repository':'o/r'}), \
+             patch('desktop.configuration.load', return_value={}), \
+             patch('desktop.github_setup.configured_connection', return_value=('none', None)), \
+             patch.object(validation, 'setup', side_effect=[
+                 {'image':'image@sha256:'+'a'*64, 'snapshot':{'revision':'r2'}},
+                 {'image':'image@sha256:'+'a'*64}]), \
+             patch.object(setup, 'smoke_image', return_value='Verified container'):
+            result = setup.prepare_and_verify(Path('/tmp/fixture'))
+        self.assertEqual('VERIFIED', result['state'])
+        self.assertIn('Verified container', result['message'])
 
 
 if __name__ == '__main__':

@@ -4,6 +4,7 @@ import hmac
 import io
 import math
 import os
+import sqlite3
 import sys
 import unittest
 import zipfile
@@ -27,6 +28,22 @@ from requests import HTTPError, Response
 
 
 class EngineeringHTTPTests(unittest.TestCase):
+    def test_graph_unexpected_500_is_classified_without_private_error_text(self):
+        cases = [
+            (sqlite3.OperationalError('private database location'), 'graph_internal_storage_error'),
+            (OSError('private host location'), 'graph_internal_io_error'),
+            (RuntimeError('private secret token'), 'graph_internal_error'),
+        ]
+        for failure, code in cases:
+            with self.subTest(code=code), patch.object(self.service.graph, 'execute', side_effect=failure) as execute:
+                response = self.client.post('/gateway/engineering/graph', json={'action': 'index'}, headers=self.headers)
+            self.assertEqual(500, response.status_code, response.text)
+            self.assertEqual({'error': {'code': code, 'retryable': False,
+                                        'operation_result_unconfirmed': True}}, response.json())
+            execute.assert_called_once()
+            self.assertNotIn('private', response.text)
+            self.assertNotIn('traceback', response.text.lower())
+
     def test_graph_rate_responses_preserve_retry_deadline_and_local_or_upstream_origin(self):
         actual = HTTPError('private upstream source must not be retained')
         actual.response = Response()

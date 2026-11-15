@@ -109,7 +109,7 @@ FIELDS_BY_AREA = {
 ENUMS["tool_reason_code"].add("SAVED_VIEW_CONTEXT_MISMATCH")
 # Only the app's bound repository-graph receipt may produce these public categories.
 # The service validates this closed vocabulary; no request parameters, URLs, or host details are exported.
-ENUMS["tool_reason_code"].update({"GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING"})
+ENUMS["tool_reason_code"].update({"GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER"})
 ENUMS.update({'voice_install_state': {'IDLE', 'QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'WAITING_NETWORK'}, 'voice_install_scheduler': {'JOB_SCHEDULER', 'WORK_MANAGER'}, 'voice_install_failure': {'SCHEDULE_REJECTED', 'SCHEDULE_EXCEPTION', 'ASSET_FAILURE', 'WORKER_EXCEPTION'}, 'github_transport_kind': {'DNS', 'DISCONNECTED', 'ABORTED', 'TIMEOUT', 'TLS', 'CANCELLED', 'UNKNOWN', 'CIRCUIT_OPEN', 'HTTP'}, 'reasoning_requested_mode': {'AUTO', 'ON', 'OFF'}, 'reasoning_admission_basis': {'NO_VERIFIED_CONTROL'}})
 COUNTS.update(['voice_install_stop_reason', 'voice_install_progress_percent', 'read_range_count', 'read_invalid_window_count', 'argument_page_size', 'repository_input_blocked_count', 'workflow_input_blocked_count', 'live_evidence_blocked_count', 'acceptance_failed_operation_count'])
 DURATIONS.add("github_transport_wait_ms")

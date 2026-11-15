@@ -92,6 +92,21 @@ class ToolReportIncidentProjectionTest {
         assertFalse(ToolReportDiagnostics.fields(event, forgedReason).containsKey("tool_reason_code"))
     }
 
+    @Test fun gatewayHttp500ClosedClassProjectsThroughOwnedToolReceipt() = runBlocking {
+        val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
+        val failure = GatewayGraphHttpFailure.fromResponse(500, null, buildJsonObject { put("code", "graph_internal_storage_error") })
+        val tool = RepositoryGraphTool(event.modelToolName) {
+            throw GatewayGraphOperationException(
+                failure, "private-host", "private title", "CHECK_SAVED_INDEX", true,
+                indexAttemptHash = "b".repeat(64), currentIndexOutcomeUnknown = true
+            )
+        }
+        val result = tool.execute(event.callId, buildJsonObject { put("action", "index") })
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(event, result), 1_800_000_000_000))
+        assertEquals(JsonPrimitive("GRAPH_INTERNAL_STORAGE"), report.values["tool_reason_code"])
+        assertFalse(report.toString().contains("private"))
+    }
+
     @Test fun transportAndSavedCursorRejectionsKeepTypedReasonsWithoutArgumentValues() {
         val event = event("""{"action":"status","per_page":101,"view_cursor":"private-cursor"}""").copy(modelToolName = "github_context")
         val result = AgentToolResult(

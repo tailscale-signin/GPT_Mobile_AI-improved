@@ -27,3 +27,7 @@ This is a **diagnostic improvement, not a repair of the historical HTTP 500 itse
 ## Required release gate
 
 Run exact final-head Android compilation/unit, API34/API36 acceptance, native memory, PR validation, diagnostic audit, CodeQL, Gateway, Marketplace and Windows workflows. The unsigned-release skip is expected, not a passed test. Reconcile concurrent commits before publishing changes. The PR must not merge based on predecessor-head greens. After merge, verify main workflows and only close issues individually with precise commit and regression receipts.
+
+## Gateway HTTP 500 error-origin follow-up
+
+The gateway now classifies an unexpected graph exception as one of three finite, privacy-safe HTTP 500 error codes: `graph_internal_storage_error`, `graph_internal_io_error` or `graph_internal_error`. Known permission, request-validation, transport and rate-limit paths keep their original precedence. Exception strings, host paths, credentials and request bodies are **never** returned. Android recognizes these codes only on an actual HTTP 500 response, converting them into source-bound `GRAPH_INTERNAL_STORAGE`, `GRAPH_INTERNAL_IO` and `GRAPH_INTERNAL_SERVER` report reason fields. Unknown values and other HTTP statuses remain the existing `GRAPH_HTTP_REJECTED` category. New Gateway, Android and reporter-contract regression tests require exact-head CI and installed Gateway qualification; the old #1323 500 cannot be attributed retroactively to a particular failure class.

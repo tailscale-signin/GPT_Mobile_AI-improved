@@ -123,6 +123,18 @@ def install_engineering_routes(app, service):
             return JSONResponse({'error': details}, status_code=429, headers={'Retry-After': str(wait_seconds)})
         except (requests.RequestException, TimeoutError):
             return JSONResponse({'error': {'code': 'engineering_connection_unavailable'}}, status_code=503)
+        except Exception as failure:
+            if not graph_rate_response:
+                raise
+            # Keep unexpected graph HTTP 500 errors identifiable without retaining
+            # a private exception message, host path, account or request body.
+            code = ('graph_internal_storage_error' if isinstance(failure, sqlite3.Error) else
+                    'graph_internal_io_error' if isinstance(failure, OSError) else
+                    'graph_internal_error')
+            import logging
+            logging.getLogger(__name__).error('Repository graph internal category: %s', code)
+            return JSONResponse({'error': {'code': code, 'retryable': False,
+                                           'operation_result_unconfirmed': True}}, status_code=500)
 
     @app.get('/gateway/engineering/capabilities')
     @app.get('/v1/gateway/engineering/capabilities')

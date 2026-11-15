@@ -74,9 +74,10 @@ internal open class GatewayGraphUnavailableException(
 internal class GatewayGraphHttpFailure(
     val httpStatus: Int,
     val retryAfterMillis: Long? = null,
-    val rateLimitObservation: JsonObject? = null
+    val rateLimitObservation: JsonObject? = null,
+    val internalCode: String? = null
 ) : IllegalStateException("The selected gateway repository graph request failed (HTTP $httpStatus). Check its saved status before continuing an unconfirmed index request.") {
-    val code: String get() = (rateLimitObservation?.get("code") as? JsonPrimitive)?.contentOrNull ?: "GRAPH_HTTP_REJECTED"
+    val code: String get() = (rateLimitObservation?.get("code") as? JsonPrimitive)?.contentOrNull ?: internalCode ?: "GRAPH_HTTP_REJECTED"
 
     companion object {
         /** A gateway 429 and an upstream GitHub rejection describe separate request boundaries. */
@@ -103,7 +104,18 @@ internal class GatewayGraphHttpFailure(
             } else {
                 null
             }
-            return GatewayGraphHttpFailure(status, retryAfterMillis, observation)
+            // Only an actual HTTP 500 from this gateway may identify a bounded internal category.
+            val internalCode = if (status == 500) {
+                when (code) {
+                    "graph_internal_storage_error" -> "GRAPH_INTERNAL_STORAGE"
+                    "graph_internal_io_error" -> "GRAPH_INTERNAL_IO"
+                    "graph_internal_error" -> "GRAPH_INTERNAL_SERVER"
+                    else -> null
+                }
+            } else {
+                null
+            }
+            return GatewayGraphHttpFailure(status, retryAfterMillis, observation, internalCode)
         }
     }
 }

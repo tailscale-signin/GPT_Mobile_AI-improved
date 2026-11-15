@@ -23,7 +23,7 @@ internal object ToolReportDiagnostics {
 
     // Closed graph-specific codes are emitted only by an exact call-bound, source-owned graph receipt.
     // Keep them separate from generic tool reasons so arbitrary tool receipts cannot impersonate graph evidence.
-    private val graphReasons = setOf("GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING")
+    private val graphReasons = setOf("GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER")
     private val phases = setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED")
 
     /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */

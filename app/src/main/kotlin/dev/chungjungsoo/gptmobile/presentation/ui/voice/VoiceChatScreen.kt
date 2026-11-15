@@ -855,7 +855,8 @@ private fun VoiceChatSessionScreen(
                 profileError = profilePreflightError,
                 preferencesApplied = preferencesApplied,
                 waitingApproval = waitingApproval,
-                draft = draft
+                draft = draft,
+                outputLevel = kokoroOutput?.outputLevel
             ),
             actions = VoiceConversationActions(
                 selectProfile = { uid ->
@@ -894,6 +895,10 @@ private fun VoiceChatSessionScreen(
                 replay = { readResponse(VoiceMessageIdentity(retainedMessageId, retainedRunId, retainedRevision), state.reply) },
                 openChat = ::openChat,
                 toggleMicrophone = ::toggleMicrophone,
+                toggleCaptions = {
+                    captions = !captions
+                    savePreferences()
+                },
                 openAudioRoute = {
                     session.pause()
                     if (buttonSounds) feedback.click()

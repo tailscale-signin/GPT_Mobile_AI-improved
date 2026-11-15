@@ -11,6 +11,7 @@ import java.io.EOFException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -21,6 +22,17 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayDashboardClientTest {
+    @Test fun inventoryRejectsIncompleteOrDuplicateEvidence() {
+        val tool = """{"type":"function","function":{"name":"github_read","parameters":{"properties":{"ref":{},"unsafe\nfield":{}}}}}"""
+        fun parse(body: String) = parseGatewayToolInventory(Json.parseToJsonElement(body) as JsonObject, 123L)
+        val snapshot = parse("""{"value":[$tool],"Count":1}""")
+        assertEquals(listOf("ref"), snapshot.tools.single().inputFields)
+        assertEquals("GitHub", snapshot.tools.single().category)
+        assertEquals(123L, snapshot.observedAtMillis)
+        assertTrue(runCatching { parse("""{"value":[$tool],"Count":2}""") }.isFailure)
+        assertTrue(runCatching { parse("""{"value":[$tool,$tool],"Count":2}""") }.isFailure)
+    }
+
     @Test fun readyAndUnavailableModelsNeverShareEvidenceAndConfigurationEditsRecheck() = runTest {
         val selected = config.copy(apiUrl = "https://model-scoped-readiness.example/v1", profileRevision = "a".repeat(64))
         var calls = 0

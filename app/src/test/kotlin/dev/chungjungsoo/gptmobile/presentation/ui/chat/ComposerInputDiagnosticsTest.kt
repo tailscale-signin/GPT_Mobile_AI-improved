@@ -13,6 +13,36 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ComposerInputDiagnosticsTest {
+    @Test fun retriesOnceAfterObservedWindowInterruption() {
+        val recovery = ComposerFocusRecovery()
+        val focused = initial.copy(focused = true, imeVisible = true)
+        val interrupted = focused.copy(windowFocused = false, imeVisible = false)
+        assertFalse(recovery.observe(focused, false))
+        assertFalse(recovery.observe(interrupted, false))
+        assertTrue(recovery.observe(interrupted.copy(windowFocused = true), false))
+        assertFalse(recovery.observe(focused, false))
+        assertFalse(recovery.observe(interrupted, false))
+        assertFalse(recovery.observe(interrupted.copy(windowFocused = true), false))
+    }
+
+    @Test fun respectsBackExplicitReleaseAndHardwareKeyboard() {
+        val focused = initial.copy(focused = true, imeVisible = true)
+        val hidden = focused.copy(imeVisible = false)
+        val recovery = ComposerFocusRecovery()
+        recovery.observe(focused, false)
+        assertFalse(recovery.observe(hidden, false))
+        assertFalse(recovery.observe(hidden.copy(windowFocused = false), false))
+        assertFalse(recovery.observe(hidden, false))
+        recovery.observe(focused, false)
+        recovery.observe(hidden.copy(windowFocused = false), false)
+        recovery.release()
+        assertFalse(recovery.observe(hidden, false))
+        recovery.observe(initial, true)
+        recovery.observe(focused, true)
+        recovery.observe(hidden.copy(windowFocused = false), true)
+        assertFalse(recovery.observe(hidden, true))
+    }
+
     @Test fun actualCaptureSurvivesOriginRetentionAndTheApprovedPublicPayload() {
         var elapsed = 0L
         var wall = 1_000_000L

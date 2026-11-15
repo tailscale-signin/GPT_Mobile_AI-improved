@@ -25,13 +25,20 @@ internal class ChatScrollInput {
 
 /** The same deliberate bottom arrival is used by normal, Combined, Gateway and GitHub chat. */
 @Composable
-internal fun rememberChatScrollInput(listState: LazyListState, touchSlop: Float, onDetach: () -> Unit, onFollow: () -> Unit): ChatScrollInput {
-    val input = remember(listState, touchSlop) { ChatScrollInput() }
-    val gesture = remember(listState, touchSlop) { GitHubPromptAnchor(touchSlop, GitHubScrollMode.FOLLOW_BOTTOM) }
+internal fun rememberChatScrollInput(
+    listState: LazyListState,
+    touchSlop: Float,
+    roomId: Int = 0,
+    bottomTolerancePx: Float = 1f,
+    onDetach: () -> Unit,
+    onFollow: () -> Unit
+): ChatScrollInput {
+    val input = remember(listState, touchSlop, roomId) { ChatScrollInput() }
+    val gesture = remember(listState, touchSlop, roomId) { GitHubPromptAnchor(touchSlop, GitHubScrollMode.FOLLOW_BOTTOM) }
     val detach by rememberUpdatedState(onDetach)
     val follow by rememberUpdatedState(onFollow)
     fun followIfAtBottom() {
-        if (gesture.shouldFollowAtBottom(listState.isAtGitHubBottom())) {
+        if (gesture.shouldFollowAtBottom(listState.layoutInfo.totalItemsCount > 0 && listState.gitHubDistanceToBottom() <= bottomTolerancePx)) {
             gesture.followBottom()
             input.dragging = false
             follow()
@@ -49,20 +56,13 @@ internal fun rememberChatScrollInput(listState: LazyListState, touchSlop: Float,
                 return Offset.Zero
             }
 
-            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                // A deliberate downward scroll can arrive at an already reached edge,
-                // where the list consumes nothing. Geometry changes alone cannot attach.
-                if (consumed.y < 0f || available.y < 0f) currentFollowIfAtBottom()
-                return Offset.Zero
-            }
-
             override suspend fun onPreFling(available: Velocity): Velocity {
                 gesture.endGesture()
                 return Velocity.Zero
             }
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (consumed.y < 0f || available.y < 0f) currentFollowIfAtBottom()
+                currentFollowIfAtBottom()
                 gesture.finishScroll()
                 input.dragging = false
                 return Velocity.Zero

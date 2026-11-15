@@ -22,9 +22,39 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 
 internal class GatewayDashboardAccessDenied : IllegalStateException("Gateway access was denied. Check this connection in GitHub settings.")
+
+internal data class GatewayInventoryTool(val name: String, val description: String?, val inputFields: List<String>) {
+    val category: String get() = when {
+        name.startsWith("github_", ignoreCase = true) -> "GitHub"
+        name.startsWith("web_", ignoreCase = true) -> "Web"
+        else -> "Gateway MCP"
+    }
+}
+
+internal data class GatewayToolInventory(val tools: List<GatewayInventoryTool>, val declaredCount: Int, val observedAtMillis: Long)
+
+internal fun parseGatewayToolInventory(source: JsonObject, observedAtMillis: Long): GatewayToolInventory {
+    val rows = requireNotNull(source["value"] as? JsonArray)
+    val count = requireNotNull((source["Count"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull)
+    require(count == rows.size)
+    val tools = rows.map { row ->
+        val function = requireNotNull((row as? JsonObject)?.get("function") as? JsonObject)
+        val name = requireNotNull((function["name"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull)
+        require(name.isNotBlank() && name.length <= 200 && name.none(Char::isISOControl))
+        val description = (function["description"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.take(400)
+        val fields = ((function["parameters"] as? JsonObject)?.get("properties") as? JsonObject)?.keys.orEmpty()
+        GatewayInventoryTool(name, description, fields.filter { it.matches(Regex("[A-Za-z_][A-Za-z0-9_.-]{0,63}")) }.sorted().take(32))
+    }
+    require(tools.distinctBy { it.name }.size == tools.size)
+    return GatewayToolInventory(tools.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }, count, observedAtMillis)
+}
 
 internal interface GatewayDashboardSource {
     suspend fun read(config: ProviderRequestConfig): GatewayDashboardObservation?
@@ -99,6 +129,31 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
                     }
                     GatewayClientDiagnostics.observeInstance(config, snapshot.instanceId)
                     GatewayDashboardObservation(snapshot, System.currentTimeMillis())
+                }
+            }
+        }
+    }
+
+    suspend fun readToolInventory(config: ProviderRequestConfig): GatewayToolInventory? {
+        val endpoint = config.buildEndpoint("gateway/tools")
+        return LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
+            gatewayClientExchange(config, "dashboard", safeRead = true) { headers ->
+                http.prepareGet(endpoint) {
+                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                    headers.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
+                    timeout {
+                        connectTimeoutMillis = 5_000
+                        requestTimeoutMillis = 8_000
+                        socketTimeoutMillis = 8_000
+                    }
+                }.execute { response ->
+                    if (response.status.value in setOf(404, 405)) return@execute null
+                    if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
+                    check(response.status.isSuccess())
+                    val body = response.boundedMetadata(2_000_000)
+                    withContext(Dispatchers.Default) {
+                        parseGatewayToolInventory(Json.parseToJsonElement(body) as JsonObject, System.currentTimeMillis())
+                    }
                 }
             }
         }

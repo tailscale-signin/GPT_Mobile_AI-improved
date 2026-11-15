@@ -90,6 +90,7 @@ import dev.chungjungsoo.gptmobile.presentation.common.FadingDialog as Dialog
 import dev.chungjungsoo.gptmobile.presentation.common.FadingDropdownMenu as DropdownMenu
 import dev.chungjungsoo.gptmobile.presentation.common.ThemeIcon as Icon
 import dev.chungjungsoo.gptmobile.presentation.common.diagnosticFrameTiming
+import dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubFadeProfile
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.jsonObject
 
@@ -113,6 +114,11 @@ fun GitHubWorkspaceScreen(
     androidx.compose.runtime.DisposableEffect(Unit) {
         val release = dev.chungjungsoo.gptmobile.data.diagnostics.FrameTimingRecorder.screen("GitHubWorkspace")
         onDispose { release() }
+    }
+    val workspaceContext = androidx.compose.ui.platform.LocalContext.current
+    val appearance = remember(workspaceContext) { workspaceContext.getSharedPreferences("github_workspace_appearance", android.content.Context.MODE_PRIVATE) }
+    var fadeProfile by remember(appearance) {
+        mutableStateOf(GitHubFadeProfile.entries.firstOrNull { it.name == appearance.getString("header_fade", null) } ?: GitHubFadeProfile.ADAPTIVE)
     }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val programmerState by programmer.state.collectAsStateWithLifecycle()
@@ -411,6 +417,8 @@ fun GitHubWorkspaceScreen(
                                             GitHubChatConversation(
                                                 chatId = chatId,
                                                 headerHeight = if (overlayChatHeader) padding.calculateTopPadding() else 0.dp,
+                                                headerExpanded = headerExpanded,
+                                                fadeProfile = fadeProfile,
                                                 profileUid = commandContext.mainProfileUid,
                                                 // Keep the live request context aligned with the workspace without replacing the composer.
                                                 context = commandContext,
@@ -450,6 +458,19 @@ fun GitHubWorkspaceScreen(
                                     }
                                 }
                                 5 -> {
+                                    Text("Header fade", style = MaterialTheme.typography.titleSmall)
+                                    Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        GitHubFadeProfile.entries.forEach { profile ->
+                                            androidx.compose.material3.FilterChip(
+                                                selected = profile == fadeProfile,
+                                                onClick = {
+                                                    fadeProfile = profile
+                                                    appearance.edit().putString("header_fade", profile.name).apply()
+                                                },
+                                                label = { Text(profile.label) }
+                                            )
+                                        }
+                                    }
                                     GitHubProgrammerSettings(
                                         state,
                                         visibleProgrammer,

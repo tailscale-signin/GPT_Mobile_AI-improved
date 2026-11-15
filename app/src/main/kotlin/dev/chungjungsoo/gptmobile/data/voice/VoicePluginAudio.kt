@@ -11,6 +11,7 @@ internal enum class KokoroVoice(val speakerId: Int, val label: String, val lexic
 }
 
 internal interface KokoroOutput {
+    val outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? get() = null
     val reportsPlaybackStart: Boolean get() = false
     fun bindPlaybackStarted(started: (() -> Unit)?) = Unit
     fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, canFallback: Boolean) -> Unit)

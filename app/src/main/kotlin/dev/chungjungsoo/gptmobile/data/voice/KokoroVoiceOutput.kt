@@ -29,12 +29,15 @@ internal fun createKokoroVoiceOutput(
     models: LocalVoiceModelStore,
     attributes: () -> AudioAttributes,
     rate: () -> Float
-): KokoroOutput = DeferredKokoroOutput {
-    try {
-        KokoroVoiceOutput(context, models, attributes, rate)
-    } catch (error: LinkageError) {
-        AppLogRecorder.record("VoiceEngine", "kokoro_startup_failed · type=${error.javaClass.simpleName}", "W")
-        null
+): KokoroOutput {
+    val levels = kotlinx.coroutines.flow.MutableStateFlow<Float?>(null)
+    return DeferredKokoroOutput(levels) {
+        try {
+            KokoroVoiceOutput(context, models, attributes, rate, levels)
+        } catch (error: LinkageError) {
+            AppLogRecorder.record("VoiceEngine", "kokoro_startup_failed · type=${error.javaClass.simpleName}", "W")
+            null
+        }
     }
 }
 
@@ -42,7 +45,10 @@ internal fun createKokoroVoiceOutput(
  * Keeps sherpa-onnx/JNI completely out of Voice screen startup. Configuration and disposal are
  * cheap until Kokoro is actually selected for warmup or playback.
  */
-internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : KokoroOutput {
+internal class DeferredKokoroOutput(
+    override val outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? = null,
+    private val factory: () -> KokoroOutput?
+) : KokoroOutput {
     private val lock = Any()
     private var attempted = false
     private var closed = false
@@ -163,7 +169,8 @@ internal class KokoroVoiceOutput(
     context: Context,
     private val models: LocalVoiceModelStore,
     private val attributes: () -> AudioAttributes,
-    private val rate: () -> Float
+    private val rate: () -> Float,
+    private val measuredOutput: kotlinx.coroutines.flow.MutableStateFlow<Float?> = kotlinx.coroutines.flow.MutableStateFlow(null)
 ) : KokoroOutput {
     private val application = context.applicationContext
     private val audioManager = application.getSystemService(AudioManager::class.java)
@@ -257,6 +264,10 @@ internal class KokoroVoiceOutput(
         @Volatile var longestRefillMs = 0L
         var firstPcm = false
         var firstFrame = false
+        val energyWindows = ArrayDeque<PcmEnergy>()
+        var lastEnergyUpdate = 0L
+        var playbackHeadWraps = 0L
+        var lastPlaybackHead = 0L
         var inputChars = 0
 
         @Volatile var knownWords = 0
@@ -551,6 +562,8 @@ internal class KokoroVoiceOutput(
         }
     }
 
+    private data class PcmEnergy(val startFrame: Long, val endFrame: Long, val level: Float)
+
     private fun writeReply(track: AudioTrack, playback: Playback, sampleRate: Int) {
         var framesWritten = 0L
         var playing = false
@@ -591,7 +604,18 @@ internal class KokoroVoiceOutput(
                 if (written == 0) {
                     Thread.sleep(POLL_MS)
                 } else {
+                    var squared = 0.0
+                    var measured = 0
+                    val stride = (written / 64).coerceAtLeast(1)
+                    for (i in offset until offset + written step stride) {
+                        val sample = samples[i].takeIf(Float::isFinite)?.coerceIn(-1f, 1f) ?: 0f
+                        squared += sample * sample
+                        measured++
+                    }
+                    val startFrame = framesWritten + offset
                     offset += written
+                    playback.energyWindows.addLast(PcmEnergy(startFrame, framesWritten + offset, kotlin.math.sqrt(squared / measured).toFloat()))
+                    if (playback.energyWindows.size > 512) playback.energyWindows.removeFirst()
                     playback.lastProgress = SystemClock.elapsedRealtime()
                 }
                 playedFrames(track, playback)
@@ -666,7 +690,17 @@ internal class KokoroVoiceOutput(
     }
 
     private fun playedFrames(track: AudioTrack, playback: Playback): Long {
-        val frames = Integer.toUnsignedLong(track.playbackHeadPosition)
+        val head = Integer.toUnsignedLong(track.playbackHeadPosition)
+        if (head < playback.lastPlaybackHead && playback.lastPlaybackHead - head > (1L shl 31)) playback.playbackHeadWraps++
+        playback.lastPlaybackHead = head
+        val frames = (playback.playbackHeadWraps shl 32) + head
+        val now = SystemClock.elapsedRealtime()
+        if (frames > 0 && now - playback.lastEnergyUpdate >= 34 && active === playback) {
+            while (playback.energyWindows.firstOrNull()?.let { it.endFrame <= frames } == true) playback.energyWindows.removeFirst()
+            val level = playback.energyWindows.firstOrNull()?.takeIf { frames >= it.startFrame }?.level ?: 0f
+            playback.lastEnergyUpdate = now
+            main.post { if (active === playback) measuredOutput.value = level }
+        }
         if (frames > 0 && !playback.firstFrame) {
             playback.firstFrame = true
             playback.diagnostics?.firstAudio(VoiceDiagnosticTrace.FirstAudio.PLAYBACK_HEAD)
@@ -715,6 +749,7 @@ internal class KokoroVoiceOutput(
     private fun end(playback: Playback, reason: String, cancellationOrigin: String? = null) {
         if (active !== playback) return
         active = null
+        measuredOutput.value = null
         main.removeCallbacks(playback.watchdog)
         playback.segments.clear()
         playback.pcm.clear()

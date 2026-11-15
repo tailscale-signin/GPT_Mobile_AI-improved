@@ -45,15 +45,14 @@ class RepositoryValidationPanel:
         self.fields, self.inputs = {}, []
         frame.configure(padding=(14, 10))
         frame.columnconfigure(0, weight=1)
-        # Keep a usable strip for the editor at the minimum Settings height.
-        # The rest of its content scrolls inside the canvas.
-        frame.rowconfigure(5, weight=1, minsize=88)
+        frame.rowconfigure(1, weight=1)
         self.enabled = tk.BooleanVar(master=frame, value=False)
         self.enable_button = ttk.Checkbutton(frame, text='Enable repository validation', variable=self.enabled,
                                             command=self.enabled_changed)
         self.enable_button.grid(row=0, column=0, sticky='w')
         self.inputs.append(self.enable_button)
         basic = ttk.Frame(frame)
+        self.basic = basic
         basic.grid(row=1, column=0, sticky='ew')
         basic.columnconfigure(1, weight=1)
         for row, key, label in [(0, 'repository', 'Repository'), (1, 'profile', 'Validation profile')]:
@@ -92,7 +91,7 @@ class RepositoryValidationPanel:
         self.advanced_toggle.grid(row=0, column=1, sticky='e')
         self.inputs.append(self.advanced_toggle)
         self.advanced = ttk.Frame(frame)
-        self.advanced.grid(row=5, column=0, sticky='nsew', pady=4)
+        self.advanced.grid(row=1, column=0, rowspan=3, sticky='nsew', pady=4)
         self.editor_canvas = tk.Canvas(self.advanced, bg=BG, highlightthickness=0, height=80)
         scroll = ttk.Scrollbar(self.advanced, orient='vertical', command=self.editor_canvas.yview)
         self.editor_canvas.configure(yscrollcommand=scroll.set)
@@ -150,7 +149,7 @@ class RepositoryValidationPanel:
         # Keep the primary actions in the fixed portion of the page. On a
         # minimum-height Windows window, placing them below the expandable
         # editor can put their hit targets underneath Settings' footer.
-        buttons.grid(row=3, column=0, sticky='ew', pady=(4, 0))
+        buttons.grid(row=4, column=0, sticky='ew', pady=(4, 0))
         for attr, label, command in [('prepare_button', 'Prepare & save', lambda: self.start(True)),
                                      ('check_button', 'Check setup', lambda: self.start(False)),
                                      ('save_button', 'Save policy', self.save), ('reload_button', 'Reload', self.reload)]:
@@ -260,11 +259,16 @@ class RepositoryValidationPanel:
 
     def toggle_advanced(self):
         if self.advanced_visible.get():
-            # grid_remove retains a widget's layout, but explicitly restoring
-            # the slot is reliable across the Tk builds shipped with Windows.
-            self.advanced.grid(row=5, column=0, sticky='nsew', pady=4)
+            self.basic.grid_remove()
+            self.status_label.grid_remove()
+            # Advanced mode uses the whole content area. Keeping the basic
+            # form behind a minimum-size canvas leaves its lower fields under
+            # the Settings footer on Windows.
+            self.advanced.grid(row=1, column=0, rowspan=3, sticky='nsew', pady=4)
         else:
             self.advanced.grid_remove()
+            self.basic.grid(row=1, column=0, sticky='ew')
+            self.status_label.grid(row=2, column=0, sticky='ew', pady=3)
 
     def fill(self, options):
         self.loading = True

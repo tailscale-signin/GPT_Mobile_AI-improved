@@ -242,9 +242,15 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
                     self.assertEqual(task['referenceSources'], candidate)
                     return {'executed': True, 'status': 'COMPLETED', 'outputs': [{'output': fixtures.expected(task, vector), 'input_preserved': True} for vector in inputs]}
                 result = coding.grade(task, gold_proposal(task), {'sandbox_image': 'python@sha256:' + 'a' * 64}, threading.Event(), execute=execute)
-                self.assertTrue(result['resolved'])
+                self.assertFalse(result['resolved'])
                 self.assertTrue(result['graded'])
-                self.assertAlmostEqual(1000, result['score'])
+                self.assertTrue(result['outputCorrect'])
+                self.assertEqual('BLOCKED', result['status'])
+                self.assertFalse(result['qualified'])
+                self.assertIsNone(result['score'])
+                self.assertIsNone(result['dimensions']['safety'])
+                self.assertEqual(950, result['earned'])
+                self.assertEqual(50, result['unknownWeight'])
 
     def test_container_launch_failure_is_ungraded_and_invalid_answer_is_observed_zero(self):
         task = fixtures.suite()[0]
@@ -312,6 +318,85 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
         self.assertEqual(4, len(calls))
         payload = json.loads(output.getvalue().splitlines()[1])
         self.assertEqual(['correct', 'wrong', 'correct', 'wrong'], [row['output'] for row in payload['outputs']])
+
+    def _driver_outputs(self, inputs, handle):
+        # Fixed test doubles exercise the shipped driver without running any
+        # generated candidate source or requiring Docker on the test host.
+        from io import StringIO
+        from contextlib import redirect_stdout
+        output = StringIO()
+        with patch.dict(sys.modules, service=SimpleNamespace(handle=handle)), \
+                patch('builtins.open', return_value=StringIO(json.dumps(inputs))), \
+                patch.object(json, 'dumps', json.dumps), redirect_stdout(output):
+            before = list(sys.path)
+            try:
+                exec(compile(sandbox.DRIVER, '<trusted-driver-test>', 'exec'), {})
+            finally:
+                sys.path[:] = before
+        return json.loads(output.getvalue().splitlines()[-1])['outputs']
+
+    def test_driver_observes_input_state_after_handler_exception(self):
+        for mutate in (False, True):
+            with self.subTest(mutate=mutate):
+                calls = []
+                def failing(value):
+                    calls.append(value)
+                    if mutate:
+                        value['nested']['items'].append(99)
+                    raise ValueError('fixed control')
+                rows = self._driver_outputs([{'nested': {'items': [1, 2]}}], failing)
+                self.assertEqual(1, len(calls))
+                self.assertEqual([{'error': 'ValueError', 'input_preserved': not mutate}], rows)
+                self.assertEqual([1, 2, 99] if mutate else [1, 2], calls[0]['nested']['items'])
+
+    def test_unavailable_input_snapshot_preserves_output_or_original_exception(self):
+        for raises in (False, True):
+            with self.subTest(raises=raises):
+                def unavailable(value):
+                    value['nested']['items'].append(object())
+                    if raises:
+                        raise ValueError('fixed control')
+                    return {'correct': True}
+                rows = self._driver_outputs([{'nested': {'items': []}}], unavailable)
+                expected = {'error': 'ValueError'} if raises else {'output': {'correct': True}}
+                self.assertEqual([dict(expected, input_preserved=None)], rows)
+
+    def test_same_process_serializer_forgery_never_verifies_input_mutation(self):
+        task = fixtures.suite()[0]
+        original_dumps = json.dumps
+        for forged_preserved in (True, False):
+            with self.subTest(forged_preserved=forged_preserved):
+                calls = []
+                def candidate_process(value):
+                    encoded = original_dumps(value, sort_keys=True, ensure_ascii=True, allow_nan=False)
+                    if forged_preserved:
+                        value['nested']['items'].append(99)
+                    calls.append(value)
+                    def forged_dumps(item, *args, **kwargs):
+                        if item is value:
+                            return encoded if forged_preserved else original_dumps({'forged': 'change'}, *args, **kwargs)
+                        return original_dumps(item, *args, **kwargs)
+                    json.dumps = forged_dumps
+                    return {'correct': True}
+                rows = self._driver_outputs([{'nested': {'items': [1, 2]}}], candidate_process)
+                self.assertEqual([{'output': {'correct': True}, 'input_preserved': forged_preserved}], rows)
+                self.assertEqual([1, 2, 99] if forged_preserved else [1, 2], calls[0]['nested']['items'])
+                def execute(candidate, inputs, *_args, **_kwargs):
+                    self.assertEqual(task['referenceSources'], candidate)
+                    return {'executed': True, 'status': 'COMPLETED', 'outputs': [
+                        {'output': fixtures.expected(task, vector), 'input_preserved': rows[0]['input_preserved']}
+                        for vector in inputs]}
+                result = coding.grade(task, gold_proposal(task), {'sandbox_image': 'image@sha256:' + 'a' * 64}, threading.Event(), execute=execute)
+                self.assertEqual('NOT_VERIFIED', result['inputMutationVerification'])
+                self.assertFalse(result['resolved'])
+                self.assertTrue(result['outputCorrect'])
+                self.assertEqual('BLOCKED', result['status'])
+                self.assertFalse(result['qualified'])
+                self.assertEqual('PASSED', result['patchScopeVerification'])
+                self.assertIsNone(result['dimensions']['safety'])
+                self.assertIsNone(result['score'])
+                self.assertEqual(950, result['earned'])
+                self.assertEqual(50, result['unknownWeight'])
 
     def test_reference_output_count_must_match_before_dispatching_model(self):
         store = Mock()

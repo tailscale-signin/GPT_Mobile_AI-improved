@@ -36,8 +36,13 @@ class ToolCatalogAdmissionTest {
         fun reject(turns: List<ConversationTurn>) = assertThrows(GitHubToolContextBudgetException::class.java) {
             planAuthorizedToolContext(turns, prompt, tools, TokenBudgetSettings(contextTokens = 2048, outputTokens = 512), true, githubMode = true, requestedTask = "Inspect the repository")
         }.providerFailure()
-        val fields = requireNotNull(reject(listOf(history, current)).failureDetails)
-        assertEquals(reject(listOf(current)).failureDetails, fields)
+        val withHistory = reject(listOf(history, current))
+        val withoutHistory = reject(listOf(current))
+        val fields = requireNotNull(withHistory.failureDetails)
+        assertEquals(withoutHistory.failureDetails, fields)
+        assertEquals(withoutHistory.message, withHistory.message)
+        assertFalse(withHistory.message.contains("history"))
+        assertFalse(withHistory.message.contains("attachments"))
         val costs = ContextBudgetService.breakdown(listOf(current), prompt, emptyList())
         assertEquals(JsonPrimitive(costs.total), fields["admission_prompt_tokens"])
         assertEquals(JsonPrimitive(costs.system), fields["admission_system_tokens"])
@@ -46,7 +51,10 @@ class ToolCatalogAdmissionTest {
         assertEquals(JsonPrimitive(0), fields["admission_attachment_reserve_tokens"])
         assertEquals(JsonPrimitive(false), fields["dispatched"])
         assertEquals(JsonPrimitive(false), fields["retryable"])
-        for (privateText in listOf(current.userMessage.content, "private-old-history", prompt)) assertFalse(fields.toString().contains(privateText))
+        for (privateText in listOf(current.userMessage.content, "private-old-history", prompt)) {
+            assertFalse(fields.toString().contains(privateText))
+            assertFalse(withHistory.message.contains(privateText))
+        }
     }
 
     @Test fun recoveryReaderIsAdmittedBeforeOptionalSchemasOnEveryGithubRound() {
@@ -117,10 +125,10 @@ class ToolCatalogAdmissionTest {
         assertEquals(JsonPrimitive(0), failure.failureDetails?.get("admission_attachment_reserve_tokens"))
         assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", ProfileFailureRecord.classify("GITHUB_REQUIRED_TOOL_CONTEXT_BUDGET: historical error").category)
         val plan = planAuthorizedToolContext(turns, "Use current schemas.", resolved, TokenBudgetSettings(contextTokens = 8192, outputTokens = 1024), true)
-        assertEquals(setOf("github_context", "github_pr", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
+        assertEquals(setOf("github_context_inspect", "github_pr_inspect", ProgressiveToolCatalog.NAME), plan.tools.map { it.name }.toSet())
         assertFalse(plan.tools.any { !it.modelVisible })
         assertEquals(resolved.map { it.modelToolName }.toSet(), plan.authorizedTools.map { it.name }.toSet())
-        val expected = resolved.map { it.tool.definition }.filter { it.name in setOf("github_context", "github_pr", ProgressiveToolCatalog.NAME) }
+        val expected = resolved.map { it.tool.definition }.filter { it.name in setOf("github_context_inspect", "github_pr_inspect", ProgressiveToolCatalog.NAME) }
         assertEquals(ContextBudgetService.breakdown(turns, "Use current schemas.", expected).total, plan.promptTokens)
         assertTrue(plan.promptTokens < ContextBudgetService.breakdown(turns, "Use current schemas.", backends.map { it.definition }).total / 2)
         val prompt = liveToolSystemPrompt(null, resolved.map { it.modelToolName }, deferCapabilities = true)
@@ -154,7 +162,7 @@ class ToolCatalogAdmissionTest {
             githubMode = true,
             requestedTask = task
         )
-        assertTrue(plan.tools.any { it.name == "github_context" })
+        assertTrue(plan.tools.any { it.name == "github_context_inspect" })
         assertTrue(plan.tools.any { it.name == ProgressiveToolCatalog.NAME })
         assertTrue(plan.tools.count { ProgressiveToolCatalog.isGitHubTool(it) } < operations.size)
         assertEquals(

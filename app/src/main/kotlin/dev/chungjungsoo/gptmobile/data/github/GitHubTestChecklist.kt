@@ -1038,24 +1038,41 @@ internal object GitHubTestChecklist {
         val trusted = trusted(receipts)
         fun filters(receipt: JsonObject): JsonObject {
             val args = receipt["arguments"] as? JsonObject
-            val selected = args.orEmpty().filterKeys { it in setOf("state", "ref", "branch", "commit_sha", "head_sha", "workflow_id", "head", "base", "per_page", "actor", "event", "created", "status") }
             val pageSize = args?.get("per_page") ?: data(receipt)?.get("per_page")
-            return JsonObject(if (pageSize == null) selected else selected + ("per_page" to pageSize))
+            val query = GitHubInventoryQuery.arguments(receipt.text("tool"), JsonObject(args.orEmpty() + if (pageSize == null) emptyMap() else mapOf("per_page" to pageSize)))
+            return JsonObject(query.filterKeys { it !in setOf("action", "owner", "repo") })
         }
+        data class InventoryKey(val first: String, val second: String?, val third: JsonObject, val repository: String, val binding: String)
         val groups = trusted.filter { receipt ->
             receipt["success"] == JsonPrimitive(true) &&
                 data(receipt)?.text("schema") != "github.repeat.v1" &&
                 (receipt["arguments"] as? JsonObject)?.text("action") in setOf("workflows", "branches", "list", "commits", "runs", "tags")
         }.groupBy {
             val args = it["arguments"] as? JsonObject
-            Triple(it.text("tool"), args?.text("action"), filters(it))
+            InventoryKey(it.text("tool"), args?.text("action"), filters(it), it.text("repository").lowercase(java.util.Locale.ROOT), it.text("binding"))
         }
         return JsonArray(
             groups.mapNotNull { (key, observations) ->
-                val byPage = observations.groupBy { receipt ->
+                fun page(receipt: JsonObject) =
                     ((receipt["arguments"] as? JsonObject)?.get("page") as? JsonPrimitive)?.longOrNull
                         ?: (data(receipt)?.get("page") as? JsonPrimitive)?.longOrNull ?: 1L
-                }.mapValues { (_, versions) -> versions.last() }
+                fun reused(receipt: JsonObject) = receipt["shared_result"] == JsonPrimitive(true) ||
+                    GitHubEvidenceOrigin.of(receipt) == "CACHED" ||
+                    (receipt["execution"] as? JsonObject)?.get("observation_origin") == JsonPrimitive("RETAINED_OBSERVATION")
+                // A deliberate page-one refresh starts another traversal. Earlier pages
+                // remain in the evidence book, but cannot complete the fresh inventory.
+                val start = observations.indexOfLast { page(it) == 1L && !reused(it) }
+                val traversal = observations.drop(start.coerceAtLeast(0))
+                val anchorTime = observations.getOrNull(start)?.get("observed_at_ms")?.let { (it as? JsonPrimitive)?.longOrNull }?.takeIf { it > 0 }
+                val byPage = traversal.groupBy(::page).mapValues { (_, versions) -> versions.lastOrNull { !reused(it) } ?: versions.last() }
+                val staleCachedPages = if (start < 0) {
+                    0
+                } else {
+                    byPage.values.count { receipt ->
+                        val observedAt = (receipt["observed_at_ms"] as? JsonPrimitive)?.longOrNull
+                        reused(receipt) && (anchorTime == null || observedAt == null || observedAt < anchorTime)
+                    }
+                }
                 val pages = byPage.toSortedMap().values.mapNotNull(GitHubInventoryObservation::planningRoot)
                 val inventories = byPage.toSortedMap().values.map(GitHubInventoryObservation::of)
                 val counted = inventories.all { it != null }
@@ -1074,6 +1091,13 @@ internal object GitHubTestChecklist {
                 }.toSet()
                 fun belongs(recipe: JsonObject): Boolean {
                     if (recipe.text("tool") != key.first) return false
+                    if ("repository" in recipe &&
+                        recipe.text("repository").lowercase(java.util.Locale.ROOT) != key.repository ||
+                        "binding" in recipe &&
+                        recipe.text("binding") != key.binding
+                    ) {
+                        return false
+                    }
                     val args = recipe["arguments"] as? JsonObject ?: return false
                     if ("view_cursor" in args) return args.text("view_cursor").substringBefore(':') in viewIds
                     val selected = filters(recipe)
@@ -1093,12 +1117,14 @@ internal object GitHubTestChecklist {
                     if (failed["success"] == JsonPrimitive(true) || !belongs(failed)) return@any false
                     val later = trusted.drop(index + 1)
                     val recovery = savedReadRecovery(failed)
-                    val reopened = recovery != null && later.any { it["success"] == JsonPrimitive(true) && it["tool"] == recovery["tool"] && it["arguments"] == recovery["arguments"] }
-                    !reopened && later.none { it["success"] == JsonPrimitive(true) && it["tool"] == failed["tool"] && it["arguments"] == failed["arguments"] }
+                    val reopened = recovery != null && later.any { it["success"] == JsonPrimitive(true) && sameCall(it, recovery, failed) }
+                    !reopened && later.none { it["success"] == JsonPrimitive(true) && sameCall(it, failed, failed) }
                 }
                 val complete = contiguous &&
+                    staleCachedPages == 0 &&
                     coveragePages.lastOrNull()?.get("has_more") == JsonPrimitive(false) &&
                     coveragePages.none { it["complete"] == JsonPrimitive(false) } &&
+                    coveragePages.none { it["pagination_inconsistent"] == JsonPrimitive(true) || it["upstream_changed_during_traversal"] == JsonPrimitive(true) } &&
                     canonical &&
                     inventories.all { it?.get("record_keys_complete") == JsonPrimitive(true) } &&
                     identities.size.toLong() == fetched &&
@@ -1110,6 +1136,8 @@ internal object GitHubTestChecklist {
                     put("tool", key.first)
                     put("operation", key.second.orEmpty())
                     put("page_count", byPage.size)
+                    put("prior_traversal_observations", start.coerceAtLeast(0))
+                    put("cached_page_freshness_unverified", staleCachedPages)
                     put("pending_continuations", pending.count(::belongs))
                     put("filters", key.third)
                     put("retrieved", identities.size)

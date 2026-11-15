@@ -93,6 +93,57 @@ def main():
                 notebook.select(tab)
                 window.update()
             assert window.winfo_width() >= 660
+            window.lift()
+            github_tabs = window.github_tabs
+            assert [github_tabs.tab(tab, 'text') for tab in github_tabs.tabs()] == ['Connection', 'Repository Validation']
+            for tab in github_tabs.tabs():
+                github_tabs.select(tab)
+                window.update()
+            panel = window.repository_validation_panel
+            assert not panel.advanced_visible.get()
+            assert not panel.commands.winfo_ismapped() and not panel.contract.winfo_ismapped()
+
+            def visible(control):
+                assert control.winfo_ismapped(), str(control)
+                assert control.winfo_width() > 40 and control.winfo_height() > 12, str(control)
+                assert window.winfo_rootx() <= control.winfo_rootx()
+                assert window.winfo_rooty() <= control.winfo_rooty()
+                assert control.winfo_rootx() + control.winfo_width() <= window.winfo_rootx() + window.winfo_width()
+                assert control.winfo_rooty() + control.winfo_height() <= window.winfo_rooty() + window.winfo_height()
+                assert window.winfo_containing(control.winfo_rootx() + control.winfo_width() // 2,
+                                                control.winfo_rooty() + control.winfo_height() // 2) is control
+
+            def capture(name):
+                if os.name != 'nt':
+                    return
+                import subprocess
+                x, y = window.winfo_rootx(), window.winfo_rooty()
+                width, height = window.winfo_width(), window.winfo_height()
+                script = ('Add-Type -AssemblyName System.Drawing; '
+                          f'$b=New-Object System.Drawing.Bitmap({width},{height}); '
+                          '$g=[System.Drawing.Graphics]::FromImage($b); '
+                          f'$g.CopyFromScreen({x},{y},0,0,$b.Size); '
+                          '$b.Save($env:GATEWAY_UI_CAPTURE,[System.Drawing.Imaging.ImageFormat]::Png); '
+                          '$g.Dispose(); $b.Dispose()')
+                subprocess.run(['powershell.exe', '-NoProfile', '-NonInteractive', '-Command', script],
+                               env=dict(os.environ, GATEWAY_UI_CAPTURE=str(root / name)),
+                               check=True, timeout=30, creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+
+            for control in (panel.enable_button, panel.repository_picker, panel.profile_box, panel.advanced_toggle,
+                            panel.prepare_button, panel.check_button, panel.save_button, panel.reload_button):
+                visible(control)
+            capture('settings-repository-validation-basic-compact.png')
+            panel.advanced_toggle.invoke()
+            window.update()
+            panel.reveal(panel.contract)
+            window.update()
+            assert panel.contract.winfo_ismapped()
+            assert window.winfo_containing(panel.contract.winfo_rootx() + panel.contract.winfo_width() // 2,
+                                            panel.contract.winfo_rooty() + panel.contract.winfo_height() // 2) is panel.contract
+            capture('settings-repository-validation-advanced-compact.png')
+            panel.advanced_toggle.invoke()
+            window.update()
+            assert not panel.contract.winfo_ismapped()
         finally:
             window.destroy()
         return 0

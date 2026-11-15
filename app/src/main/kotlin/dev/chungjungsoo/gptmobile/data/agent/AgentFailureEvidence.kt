@@ -1,11 +1,9 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.accounting.ModelInvocation
-import dev.chungjungsoo.gptmobile.data.context.GitHubProfileLockedException
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringPrerequisiteRejected
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRequestRejected
 import dev.chungjungsoo.gptmobile.data.github.GatewayExecutionRejected
-import dev.chungjungsoo.gptmobile.data.github.GitHubRateLimitAdmissionException
 import dev.chungjungsoo.gptmobile.data.network.safeProviderRequestIdentity
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -63,21 +61,6 @@ internal object AgentFailureEvidence {
                 failureDetails = detail.failureDetails
             )
         }
-        when (error) {
-            is GitHubRateLimitAdmissionException -> return localGitHubRejection(
-                error,
-                error.code,
-                "tool_precheck",
-                partialOutput,
-                error.retryAfterMillis
-            )
-            is GitHubProfileLockedException -> return localGitHubRejection(
-                error,
-                "POLICY_STALE",
-                "provider_admission",
-                partialOutput
-            )
-        }
         (error as? dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringInputRejected)?.let { rejected ->
             return ProviderEvent.Failed(
                 message = rejected.message.orEmpty(),
@@ -124,30 +107,6 @@ internal object AgentFailureEvidence {
             }
         )
     }
-
-    private fun localGitHubRejection(
-        error: IllegalStateException,
-        code: String,
-        stage: String,
-        partialOutput: Boolean,
-        retryAfterMillis: Long? = null
-    ) = ProviderEvent.Failed(
-        message = error.message.orEmpty(),
-        errorCode = code,
-        taskOutcome = if (partialOutput) "PARTIAL" else "BLOCKED",
-        failureDetails = buildJsonObject {
-            put("failed_stage", stage)
-            put("attempt_dispatch_state", "REJECTED")
-            put("retryable", false)
-            put("request_replay_allowed", false)
-            put("partial_output_preserved", partialOutput)
-            retryAfterMillis?.let { put("retry_after_ms", it) }
-            if (!partialOutput) {
-                put("dispatched", false)
-                put("remote_acceptance", "NO")
-            }
-        }
-    )
 
     private fun engineeringRejection(error: Throwable, partialOutput: Boolean): ProviderEvent.Failed? {
         val rejected = error as? GatewayEngineeringRequestRejected ?: return null

@@ -452,6 +452,222 @@ class IssueReportSubmissionTest {
         }
     }
 
+    @Test fun composerAndToolExtensionsNegotiateProtocolTwoForValuesAndEveryOmittedName() {
+        val composer = buildMap<String, Any?> {
+            put("diagnostic_area", "APP")
+            put("composer_generation", 1)
+            put("composer_events_dropped", 0)
+            put("composer_enabled", true)
+            put("composer_window_focused", false)
+            put("composer_lifecycle", "RESUMED")
+            put("composer_input_mode", "TOUCH")
+            for (slot in 1..8) {
+                put("composer_event_$slot", "IME_HIDDEN")
+                put("composer_event_${slot}_age_ms", 0)
+            }
+        }
+        val inputs = listOf(composer, mapOf("diagnostic_area" to "TOOL", "tool_budget_bytes_available" to 0), mapOf("diagnostic_area" to "TOOL", "graph_index_attempt_hash" to "a".repeat(64)))
+        for (fields in inputs) {
+            val context = IssueReportContext.fromFields("MANUAL_REPORT", fields, 1000)
+            val observed = requireNotNull(context.diagnostics)
+            val absent = requireNotNull(IssueReportContext.fromFields("MANUAL_REPORT", mapOf("diagnostic_area" to fields.getValue("diagnostic_area")), 1000).diagnostics)
+            for (capture in listOf(observed) + observed.values.keys.map { absent.copy(omittedFields = listOf(it)) }) {
+                assertTrue(capture.isValid())
+                assertEquals(2, capture.requiredReporterVersion())
+                val approved = report.copy(context = context.copy(diagnostics = capture))
+                val payload = approved.approvedPayload()
+                val features = JsonArray(capture.requiredServiceFeatures().map(::JsonPrimitive))
+                for (version in listOf(null, 1, 2)) {
+                    var dispatches = 0
+                    val posted = mutableListOf<String>()
+                    val methods = mutableListOf<String>()
+                    val client = OkHttpClient.Builder().addInterceptor { chain ->
+                        val request = chain.request()
+                        methods += request.method
+                        if (request.method == "GET") {
+                            val protocol = version?.let { "\"version\":$it," }.orEmpty()
+                            response(request, 200, """{"service":"gpt-mobile-issue-reporter",$protocol"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                        } else {
+                            posted += body(request)
+                            response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                        }
+                    }.build()
+                    val outcome = IssueReportSubmission(origin, client).send(report.reportId, payload) { dispatches++ }
+                    if (version == 2) {
+                        assertEquals(IssueReportSubmission.Confirmed(941), outcome)
+                        assertEquals(1, dispatches)
+                        assertEquals(listOf("GET", "POST"), methods)
+                        assertEquals(listOf(payload), posted)
+                    } else {
+                        assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", (outcome as IssueReportSubmission.Failure).code)
+                        assertFalse(outcome.automaticRetry)
+                        assertEquals(0, dispatches)
+                        assertEquals(listOf("GET"), methods)
+                        assertTrue(posted.isEmpty())
+                    }
+                    assertEquals(payload, approved.approvedPayload())
+                }
+            }
+        }
+    }
+
+    @Test fun malformedComposerPairFailsBeforeReadinessAndLegacyFourFieldsKeepOriginalBytes() {
+        val context = IssueReportContext.fromFields("MANUAL_REPORT", mapOf("diagnostic_area" to "APP", "composer_focus_transitions" to 12, "composer_ime_transitions" to 12, "composer_focused" to false, "composer_ime_visible" to false), 1000)
+        val observed = requireNotNull(context.diagnostics)
+        assertEquals(0, observed.requiredReporterVersion())
+        val payload = report.copy(context = context).approvedPayload()
+        val features = JsonArray(observed.requiredServiceFeatures().map(::JsonPrimitive))
+        val methods = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            methods += request.method
+            if (request.method == "GET") {
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","version":1,"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+            } else {
+                assertEquals(payload, body(request))
+                response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+            }
+        }.build()
+        assertEquals(IssueReportSubmission.Confirmed(941), IssueReportSubmission(origin, client).send(report.reportId, payload))
+        assertEquals(listOf("GET", "POST"), methods)
+        assertFalse(payload.contains("composer_generation"))
+        val broken = payload.replace("\"composer_focused\":false", "\"composer_focused\":false,\"composer_generation\":1,\"composer_events_dropped\":0,\"composer_event_1\":\"ATTACHED\"")
+        assertTrue(broken != payload)
+        methods.clear()
+        val outcome = IssueReportSubmission(origin, client).send(report.reportId, broken) { error("Invalid pair cannot dispatch") }
+        assertEquals("REPORT_PAYLOAD_INVALID", (outcome as IssueReportSubmission.Failure).code)
+        assertTrue(methods.isEmpty())
+    }
+
+    @Test fun reasoningProbeValuesAndAbsenceDeclarationsRequireProtocolTwoBeforeDispatch() {
+        val base = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "PROVIDER"), 1000)
+        val diagnostics = requireNotNull(base.diagnostics)
+        val observations = mapOf("reasoning_probe_outcome" to JsonPrimitive("IDENTICAL_PROMPTS"), "reasoning_probe_attempts" to JsonPrimitive(2), "reasoning_probe_age_ms" to JsonPrimitive(8000), "reasoning_metadata_age_ms" to JsonPrimitive(8))
+        for ((field, value) in observations) {
+            for (capture in listOf(
+                diagnostics.copy(values = mapOf(field to value)),
+                diagnostics.copy(omittedFields = listOf(field)),
+                diagnostics.copy(unavailableFields = diagnostics.unavailableFields + field)
+            )) {
+                assertTrue(capture.isValid())
+                val approved = report.copy(context = base.copy(diagnostics = capture))
+                val payload = approved.approvedPayload()
+                val features = JsonArray(capture.requiredServiceFeatures().map(::JsonPrimitive))
+                for (version in listOf(null, 1, 2)) {
+                    var dispatches = 0
+                    val posted = mutableListOf<String>()
+                    val methods = mutableListOf<String>()
+                    val client = OkHttpClient.Builder().addInterceptor { chain ->
+                        val request = chain.request()
+                        methods += request.method
+                        if (request.method == "GET") {
+                            val protocol = version?.let { "\"version\":$it," }.orEmpty()
+                            response(request, 200, """{"service":"gpt-mobile-issue-reporter",$protocol"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+                        } else {
+                            posted += body(request)
+                            response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                        }
+                    }.build()
+                    val outcome = IssueReportSubmission(origin, client).send(report.reportId, payload) { dispatches++ }
+                    if (version == 2) {
+                        assertEquals(IssueReportSubmission.Confirmed(941), outcome)
+                        assertEquals(1, dispatches)
+                        assertEquals(listOf("GET", "POST"), methods)
+                        assertEquals(listOf(payload), posted)
+                    } else {
+                        assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", (outcome as IssueReportSubmission.Failure).code)
+                        assertFalse(outcome.automaticRetry)
+                        assertEquals(0, dispatches)
+                        assertEquals(listOf("GET"), methods)
+                        assertTrue(posted.isEmpty())
+                    }
+                    assertEquals(payload, approved.approvedPayload())
+                }
+            }
+        }
+    }
+
+    @Test fun historicalReasoningAgePayloadKeepsExactApprovedBytesWithLegacyReporter() {
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "PROVIDER", "reasoning_capability_age_ms" to 8), 1000)
+        val diagnostics = requireNotNull(context.diagnostics)
+        assertEquals(0, diagnostics.requiredReporterVersion())
+        val payload = report.copy(context = context).approvedPayload()
+        val features = JsonArray(diagnostics.requiredServiceFeatures().map(::JsonPrimitive))
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+            } else {
+                assertEquals(payload, body(request))
+                response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+            }
+        }.build()
+        assertEquals(IssueReportSubmission.Confirmed(941), IssueReportSubmission(origin, client).send(report.reportId, payload))
+        assertTrue(payload.contains("reasoning_capability_age_ms"))
+        assertFalse(payload.contains("reasoning_metadata_age_ms"))
+    }
+
+    @Test fun preciseVoiceReasonsRequireNumericReporterProtocolBeforeDispatchingExactApprovedBytes() {
+        for (reason in listOf("PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE")) {
+            val context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_playback_failure" to reason), 1_000L)
+            val diagnostics = requireNotNull(context.diagnostics)
+            val approved = report.copy(context = context)
+            val payload = approved.approvedPayload()
+            assertEquals(2, diagnostics.requiredReporterVersion())
+            val features = JsonArray(diagnostics.requiredServiceFeatures().map(::JsonPrimitive))
+            val versions = listOf(null, "null", "true", "false", "\"2\"", "2.0", "[]", "{}", "-1", "0", "1", "2", "3").map { it to true } + ("2" to false)
+            for ((version, hasFeatures) in versions) {
+                var dispatched = 0
+                val posted = mutableListOf<String>()
+                val methods = mutableListOf<String>()
+                val client = OkHttpClient.Builder().addInterceptor { chain ->
+                    val request = chain.request()
+                    methods += request.method
+                    if (request.method == "GET") {
+                        val protocol = version?.let { "\"version\":$it," }.orEmpty()
+                        response(request, 200, """{"service":"gpt-mobile-issue-reporter",$protocol"reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":${if (hasFeatures) features else JsonArray(emptyList())}}""")
+                    } else {
+                        posted += body(request)
+                        response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+                    }
+                }.build()
+                val outcome = IssueReportSubmission(origin, client).send(report.reportId, payload) { dispatched++ }
+                if (hasFeatures && version in listOf("2", "3")) {
+                    assertEquals(IssueReportSubmission.Confirmed(941), outcome)
+                    assertEquals(1, dispatched)
+                    assertEquals(listOf("GET", "POST"), methods)
+                    assertEquals(listOf(payload), posted)
+                } else {
+                    assertTrue("$reason version=$version", outcome is IssueReportSubmission.Failure)
+                    assertEquals("REPORT_SERVICE_UPDATE_REQUIRED", (outcome as IssueReportSubmission.Failure).code)
+                    assertFalse(outcome.automaticRetry)
+                    assertEquals(0, dispatched)
+                    assertEquals(listOf("GET"), methods)
+                    assertTrue(posted.isEmpty())
+                }
+                assertEquals(payload, approved.approvedPayload())
+            }
+        }
+    }
+
+    @Test fun legacyVoiceReasonsKeepTheirExistingCapabilityContractWithoutAProtocolVersion() {
+        val context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_playback_failure" to "SYNTHESIS_FAILED"), 1_000L)
+        val diagnostics = requireNotNull(context.diagnostics)
+        assertEquals(0, diagnostics.requiredReporterVersion())
+        val payload = report.copy(context = context).approvedPayload()
+        val features = JsonArray(diagnostics.requiredServiceFeatures().map(::JsonPrimitive))
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            if (request.method == "GET") {
+                response(request, 200, """{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7],"reportDiagnosticFeatures":$features}""")
+            } else {
+                assertEquals(payload, body(request))
+                response(request, 200, """{"reportId":"${report.reportId}","number":941}""")
+            }
+        }.build()
+        assertEquals(IssueReportSubmission.Confirmed(941), IssueReportSubmission(origin, client).send(report.reportId, payload))
+    }
+
     @Test fun preparingVoiceRequiresServiceSupportBeforePostingApprovedBytes() {
         val context = IssueReportContext.fromFields("VOICE_STATE", mapOf("diagnostic_area" to "VOICE", "voice_engine" to "KOKORO", "voice_phase" to "PREPARING"), 1_000L)
         val enriched = report.copy(context = context)

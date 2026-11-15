@@ -24,7 +24,7 @@ def load_file(backend, job, path):
             raise ValueError('Workspace blob identity or text encoding is invalid')
         if sum(len(value['content'].encode()) for value in files.values()) + len(raw) > MAX_RETAINED_BYTES:
             raise ValueError('Workspace source retention allowance reached')
-        files[path] = {'sha': entry['sha'], 'content': raw.decode('utf-8'), 'visible_characters': 0}
+        files[path] = {'sha': entry['sha'], 'content': raw.decode('utf-8'), 'preview_characters': 0}
     if files[path]['sha'] != entry['sha'] or blob_sha(files[path]['content']) != entry['sha']:
         raise ValueError('Workspace source no longer matches its pinned tree')
     return files[path]
@@ -61,9 +61,7 @@ def act(backend, job, action):
         if not selected and start <= len(lines):
             raise ValueError('A single source line exceeds the range allowance')
         text = ''.join(selected)
-        original.setdefault('inspected_ranges', []).append({'start_line': start, 'end_line': start + len(selected) - 1})
-        original['inspected_ranges'] = original['inspected_ranges'][-128:]
-        receipt.update(path=path, blob_sha=original['sha'], start_line=start, content=text,
+        receipt.update(path=path, blob_sha=original['sha'], start_line=start, end_line=start + len(selected) - 1, content=text,
                        total_lines=len(lines), next_line=start + len(selected) if start + len(selected) <= len(lines) else None,
                        content_sha256=hashlib.sha256(text.encode()).hexdigest())
     elif kind == 'search':
@@ -91,9 +89,115 @@ def view(data):
     # Full source remains in the encrypted artifact store; each model call receives
     # a small current window plus its durable task/revision and prior receipts.
     windows = data.get('workspace_receipts', [])[-3:]
-    files = {path: {'sha': value['sha'], 'content': value['content'][:min(value.get('visible_characters', 0), 2400)],
-                    'partial': True, 'total_lines': len(value['content'].splitlines())}
-             for path, value in list(data['files'].items())[:20]}
-    return {'head_sha': data['head_sha'], 'plan': data['plan'], 'files': files,
+    files = {}
+    for path, value in list(data['files'].items())[:20]:
+        limit = value.get('preview_characters', value.get('visible_characters', 0))
+        content = value['content'][:min(max(limit, 0), 2400)]
+        files[path] = {'sha': value['sha'], 'content': content,
+                       'partial': len(content) < len(value['content']), 'total_lines': len(value['content'].splitlines())}
+    return {'head_sha': data['head_sha'], 'plan': data['plan'], 'repair_feedback': repair_feedback(data), 'files': files,
             'workspace_receipts': windows, 'iteration': data.get('workspace_iterations', 0),
             'ci': data.get('ci'), 'review': data.get('review')}
+
+
+def repair_feedback(data):
+    """Project retained patch/test feedback without treating proposals as source."""
+    from v14.engineering_validation import patch_identity
+    from v14.inference_budget import compact_evidence
+    changes = data.get('changes')
+    if not isinstance(changes, list) or not changes:
+        return None
+    head = data['head_sha']
+    identity = patch_identity(head, changes)
+    validation = data.get('local_validation')
+    matches = (isinstance(validation, dict) and validation.get('patch_identity') == identity
+               and validation.get('source_sha', head) == head)
+    # Separate allocations prevent a large command log from hiding every patch
+    # field, or a large replacement from hiding the actual validation failure.
+    validation_view, validation_omissions = compact_evidence(validation, 1024, nodes=256)
+    changes_view, changes_omissions = compact_evidence(changes, 1024, nodes=256)
+    return {'head_sha': head, 'patch_identity': identity, 'validation_matches_patch': matches,
+            'local_validation': validation_view, 'changes': changes_view,
+            'complete': not validation_omissions and not changes_omissions,
+            'omissions': {'local_validation': validation_omissions, 'changes': changes_omissions}}
+
+
+def exposed_ranges(original, head_sha=None):
+    """Return only ranges delivered for this blob, never a planned read allowance."""
+    exposure = original.get('source_exposure')
+    if isinstance(exposure, dict) and exposure.get('blob_sha') == original['sha'] and (
+            head_sha is None or exposure.get('head_sha') == head_sha):
+        return [span for span in exposure.get('ranges', [])
+                if isinstance(span, list) and len(span) == 2 and all(type(value) is int for value in span)
+                and 0 <= span[0] <= span[1] <= len(original['content'])][:128]
+    # Pure callers such as the benchmark grader supply their exact displayed
+    # source length. Live jobs always pass head_sha and require a model receipt.
+    count = original.get('visible_characters', 0)
+    if head_sha is None and 'preview_characters' not in original and type(count) is int and count >= 0:
+        return [[0, min(count, len(original['content']))]] if count or not original['content'] else []
+    return []
+
+
+def record_model_exposure(data, request):
+    """Record source present in the admitted request after evidence compaction.
+
+    Reading or retaining a blob does not grant editing authority. A successful
+    bound model invocation calls this with its actual request, so omitted fields
+    and partial range excerpts cannot authorize unseen source.
+    """
+    from v14.engineering_backend import blob_sha
+    try:
+        evidence = json.loads(request['messages'][-1]['content']).get('evidence')
+    except (KeyError, IndexError, TypeError, ValueError):
+        return
+    if not isinstance(evidence, dict) or evidence.get('head_sha') != data.get('head_sha'):
+        return
+
+    def text(value):
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict) and value.get('complete') is False and isinstance(value.get('excerpt'), str):
+            return value['excerpt']
+        return None
+
+    def original_for(path, sha):
+        original = data.get('files', {}).get(path)
+        entry = data.get('tree', {}).get(path)
+        if (not isinstance(original, dict) or not isinstance(entry, dict) or entry.get('mode') not in {'100644', '100755'}
+                or sha != entry.get('sha') or original.get('sha') != sha or blob_sha(original['content']) != sha):
+            return None
+        return original
+
+    def retain(original, start, end):
+        spans = exposed_ranges(original, data['head_sha']) + [[start, end]]
+        merged = []
+        for left, right in sorted(spans):
+            if merged and left <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], right)
+            else:
+                merged.append([left, right])
+        original['source_exposure'] = {'head_sha': data['head_sha'], 'blob_sha': original['sha'], 'ranges': merged[-128:]}
+
+    files = evidence.get('files')
+    for path, value in list(files.items())[:20] if isinstance(files, dict) else []:
+        if not isinstance(value, dict):
+            continue
+        original = original_for(path, value.get('sha'))
+        shown = text(value.get('content'))
+        if original is not None and shown is not None and original['content'].startswith(shown):
+            retain(original, 0, len(shown))
+    receipts = evidence.get('workspace_receipts')
+    for receipt in receipts[-3:] if isinstance(receipts, list) else []:
+        if not isinstance(receipt, dict) or receipt.get('action') != 'read' or receipt.get('head_sha') != data['head_sha']:
+            continue
+        original = original_for(receipt.get('path'), receipt.get('blob_sha'))
+        shown = text(receipt.get('content'))
+        start = receipt.get('start_line')
+        if original is None or shown is None or type(start) is not int or start < 1:
+            continue
+        lines = original['content'].splitlines(True)
+        if start > len(lines) + 1:
+            continue
+        offset = sum(map(len, lines[:start - 1]))
+        if original['content'][offset:].startswith(shown):
+            retain(original, offset, offset + len(shown))

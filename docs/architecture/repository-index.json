@@ -126,12 +126,14 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailurePolicy.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubFailureSummary.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubHeaderQuery.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubHealthCheckSelection.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubHealthPagination.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInspection.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationAcceptance.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationPreparation.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubIntegrationReport.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryObservation.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryQuery.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLiveProcess.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLocalIndex.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubMcpRepositoryTool.kt",
@@ -356,6 +358,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOperationPlannerTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOperationResilienceTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubOwnedFixturesTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPartialReportTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPatchValidationTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPatchWorkflowTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubPersistentEvidenceTest.kt",
@@ -440,7 +443,8 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkflowPresetTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceClientTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceDraftStoreTest.kt",
-        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceStoreThreadTest.kt"
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubWorkspaceStoreThreadTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GraphIndexExecutionEvidenceTest.kt"
       ]
     },
     "engineering": {
@@ -607,6 +611,7 @@
         "authentication/test_failure_details.py",
         "authentication/test_github_broker.py",
         "authentication/test_incident_report_contract.py",
+        "authentication/test_report_extensions.py",
         "authentication/test_ticket_broker.py",
         "authentication/ticket_broker.py",
         "gateway/benchmark_selected_model.py",

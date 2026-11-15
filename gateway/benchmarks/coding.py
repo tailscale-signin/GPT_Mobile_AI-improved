@@ -66,6 +66,7 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
     result = {'id': task['id'], 'family': task['family'], 'title': task['title'],
               'capstone': task['capstone'], 'fixtureDigest': task['manifestDigest'],
               'status': 'FAILED', 'executed': False, 'graded': False, 'resolved': False,
+              'qualified': False,
               'integrity': 'VERIFIED', 'dimensions': {key: None for key in CODING_WEIGHTS}}
     try:
         value, candidate, changes = proposal(text, task)
@@ -74,7 +75,7 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
         # A received model answer that cannot form a patch is an observed failed
         # submission. Infrastructure/transport failures remain ungraded instead.
         result.update(error=code, integrity='VIOLATION' if code == 'PATCH_SCOPE_VIOLATION' else 'VERIFIED',
-                      graded=True, score=0, dimensions={key: 0.0 for key in CODING_WEIGHTS})
+                      graded=True, qualified=True, score=0, dimensions={key: 0.0 for key in CODING_WEIGHTS})
         return result
     # Randomized data was frozen before dispatch. The model does not receive
     # these inputs until its candidate runs; expected values never enter Docker.
@@ -109,7 +110,10 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
         return result
     outputs = observation.get('outputs', [])
     received = len(outputs) == len(inputs)
-    preserved = received and all(row.get('input_preserved') is True for row in outputs)
+    # The driver shares a process with candidate code. Its input_preserved flag
+    # is an untrusted observation, not independent input-mutation verification.
+    # Retain measured outputs and patch scope, but the required preservation
+    # contract stays unknown and cannot qualify a complete task or score.
     outcomes = [received and 'output' in outputs[i] and same(outputs[i]['output'], expected)
                 for i, expected in enumerate(targets)]
     repeated = [received and 'output' in outputs[len(vectors) + i] and same(outputs[len(vectors) + i]['output'], expected)
@@ -134,16 +138,17 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
                 sorted(evidence['changed_files']) == sorted(change['path'] for change in changes))
     functional = outcomes[:-2] or outcomes
     regression = outcomes[-2:]
+    output_correct = bool(outcomes) and all(outcomes) and all(repeated)
     result.update(executed=True, graded=True,
-                  resolved=bool(outcomes) and all(outcomes) and all(repeated) and preserved,
-                  status='PASSED' if outcomes and all(outcomes) and all(repeated) and preserved else 'FAILED',
+                  resolved=False, outputCorrect=output_correct,
+                  status='BLOCKED' if output_correct else 'FAILED',
                   dimensions={'functional': sum(functional) / len(functional),
                               'regression': sum(regression) / len(regression),
                               'tests': len(killed_faults) / len(task['sources']),
                               'diagnosis': sum(bool(x) for x in diagnosed) / len(task['sources']),
                               'design': source_design(candidate),
                               'workflow': 1.0, 'recovery': sum(repeated) / len(repeated),
-                              'safety': float(preserved), 'evidence': float(truthful)},
+                              'safety': None, 'evidence': float(truthful)},
                   checks={'hiddenPassed': sum(outcomes), 'hiddenTotal': len(outcomes),
                           'replayPassed': sum(repeated), 'replayTotal': len(repeated),
                           'validRegressionVectors': len(trusted_tests), 'bugRevealingRegressionVectors': sum(tested),
@@ -152,7 +157,9 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
                   patchDigest=digest(candidate), outputDigest=observation.get('outputDigest'),
                   validationMs=observation.get('durationMs'), sandboxImageDigest=settings['sandbox_image'].split('@')[-1],
                   executionScope='LOCAL_CONTAINER_NO_NETWORK',
-                  inputMutationVerification='PASSED' if preserved else 'FAILED' if any(row.get('input_preserved') is False for row in outputs) else 'NOT_VERIFIED',
+                  patchScopeVerification='PASSED',
+                  inputMutationVerification='NOT_VERIFIED',
+                  qualificationBlockers=['INPUT_PRESERVATION_NOT_VERIFIED'],
                   dimensionDefinitions={
                       'functional': 'Hidden contract vectors', 'regression': 'Empty/invalid request boundaries',
                       'tests': 'Correct model-authored regression vectors that detect each independently calibrated faulty module',
@@ -160,9 +167,12 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
                       'design': 'Required module function interfaces parse and remain intact',
                       'workflow': 'Exact inspected blob identities and anchored patch contract',
                       'recovery': 'Same inputs remain correct after reversed-order repeated calls',
-                      'safety': 'Candidate patch remains within the allowed disposable source files',
+                      'safety': 'Allowed disposable patch scope and independently verified caller-input preservation',
                       'evidence': 'Candidate accurately lists changed files and does not claim unexecuted tests'})
     if observation.get('error'):
         result['error'] = observation['error']
-    result['score'] = sum(CODING_WEIGHTS[key] * score for key, score in result['dimensions'].items())
+    result['score'] = None
+    result['earned'] = sum(CODING_WEIGHTS[key] * score for key, score in result['dimensions'].items() if score is not None)
+    result['possible'] = sum(CODING_WEIGHTS.values())
+    result['unknownWeight'] = sum(CODING_WEIGHTS[key] for key, score in result['dimensions'].items() if score is None)
     return result

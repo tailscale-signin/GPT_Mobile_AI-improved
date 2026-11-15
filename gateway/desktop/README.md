@@ -15,9 +15,9 @@ Existing installations retain their backend, port, performance, startup/update s
 
 ## Updates and recovery
 
-The manager checks the official `tailscale-signin/GPT_Mobile_AI-improved` GitHub Releases feed, at most once per configured interval (24 hours by default). It accepts only newer, stable `gateway-v15.x.y` releases with an exact `Gateway-15.x.y-windows-x64.zip` asset and a GitHub-provided SHA-256 digest. Downloads use HTTPS with an explicit redirect-host allowlist. Metadata/download/extraction limits, per-file hashes, path checks, and isolated runtime preflight apply before staging. These are integrity checks anchored in the official GitHub account and TLS, **not Authenticode code signing**.
+The manager checks the official `tailscale-signin/GPT_Mobile_AI-improved` GitHub Releases feed, at most once per configured interval (24 hours by default). Gateway 17 accepts newer, stable `gateway-v17.x.y` releases with an exact `Gateway-17.x.y-windows-x64.zip` asset and a GitHub-provided SHA-256 digest. Downloads use HTTPS with an explicit redirect-host allowlist. Metadata/download/extraction limits, per-file hashes, path checks, and isolated runtime preflight apply before staging. These are integrity checks anchored in the official GitHub account and TLS, **not Authenticode code signing**.
 
-Auto activation refuses in-flight uploads, chats, workers and unfinished engineering jobs, including paused approvals. It quiesces admission without cancelling work, stops cleanly, backs up SQLite, and atomically records a pending version. The stable launcher starts the new supervisor and runtime. It checks the journal and version before resuming admission; an unavailable model backend is reported separately. A failed or interrupted trial returns to the previous version. A failed version is excluded from automatic retries; explicit Install Update can retry it. No automatic major-version or state-schema upgrade is accepted.
+Auto activation refuses in-flight uploads, chats, workers and unfinished engineering jobs, including paused approvals. It quiesces admission without cancelling work, stops cleanly, backs up SQLite, and atomically records a pending version. The stable launcher starts the new supervisor and runtime. It checks the journal and version before resuming admission; an unavailable model backend is reported separately. A failed or interrupted trial returns to the previous version. A failed version is excluded from automatic retries; explicit Install Update can retry it. Unsupported release majors, incompatible bootstraps and state-schema upgrades are rejected.
 
 If startup fails, inspect `logs/gateway.log` and `status.json`. Logs rotate at 5 MiB with four backups. Do not publish raw logs without reviewing them for model/tool content. The startup shortcut is idempotent, uses a state-directory lock and binds the engine process tree to the supervisor lifetime on Windows. Repeated unexpected exits trip a bounded restart limit. If a job is waiting for input/merge approval, finish or cancel it before updating or uninstalling.
 
@@ -33,7 +33,7 @@ python gateway/desktop/build_windows.py
 python gateway/desktop/smoke_windows.py
 ```
 
-CI produces the unsigned setup EXE, update ZIP, SHA256SUMS and actual Windows smoke results. It does not publish a production release. Before distributing, review the exact commit, CI and Windows acceptance evidence, sign the EXE/runtime with the publisher's certificate if available, regenerate the runtime manifest/ZIP after signing, and publish both assets under the matching stable `gateway-v15.x.y` GitHub release. Verify GitHub reports the asset digest. A renamed ZIP, missing digest or incompatible schema is intentionally not an update.
+CI produces the unsigned setup EXE, update ZIP, SHA256SUMS and actual Windows smoke results. It does not publish a production release. Before distributing, review the exact commit, CI and Windows acceptance evidence, sign the EXE/runtime with the publisher's certificate if available, regenerate the runtime manifest/ZIP after signing, and publish both assets under the matching stable `gateway-v17.x.y` GitHub release. Verify GitHub reports the asset digest. A renamed ZIP, missing digest or incompatible schema is intentionally not an update.
 
 The installer cannot guarantee a flawless installation on every PC. Interactive wizard accessibility, corporate policies, antivirus/SmartScreen, code signing, LAN/firewall behavior under corporate policies, and physical Android-device interoperability require separate acceptance testing. Windows CI validates fresh/repair installs, frozen startup, offline-backend behavior, failed-candidate rollback, and data-preserving uninstall. The Android build and its required checks must pass independently.
 
@@ -62,16 +62,19 @@ Repository Validation are separate tabs. No external policy file, hand-written
 JSON file, Docker digest lookup or terminal command is required for the normal
 setup path.
 
-The default repository is `tailscale-signin/gpt_mobile_ai-improved`. Repository
-URLs and uppercase GitHub names are normalized automatically. For this repository,
-an existing `D:\MCP` folder is preferred on Windows; otherwise Gateway uses its
-persistent `data/mirrors/<owner>/` directory. Browse can select an existing bare
-mirror or a new destination. A working checkout, a mirror of another repository,
-filesystem links and folders with unrelated contents are not overwritten.
+The normal form shows **Enable repository validation**, the repository and the
+validation profile. The default repository is
+`tailscale-signin/gpt_mobile_ai-improved`; URLs and uppercase GitHub names are
+normalized automatically. Its default mirror retains the existing
+`data/mirrors/GPT_Mobile_AI-improved.git` location. Other repositories use
+`data/mirrors/<owner>/<repository>.git`. Existing selected locations are retained.
+In **Advanced validation settings**, Browse can select an existing bare mirror or
+a new destination. A working checkout, a mirror of another repository, filesystem
+links and folders with unrelated contents are not overwritten.
 
 **Prepare & save** confirms the local host's approval, then checks installed Git
 and Docker Desktop, creates or refreshes the mirror, prepares the official
-`docker.io/library/python:3.12-slim-bookworm` image and resolves its actual registry
+`docker.io/library/python:3.12-slim-bookworm` image by default and resolves its actual registry
 SHA-256 digest. It saves the approved commands and settings internally. Git and
 Docker Desktop with Linux containers are prerequisites; missing prerequisites get
 a specific explanation. Downloads need connectivity. Existing approved digests
@@ -80,12 +83,16 @@ and validation address the same local/default Docker daemon, not a saved remote
 context. Private GitHub access uses the PC-selected credential only in the Git
 child environment, never in a URL, saved policy or displayed subprocess output.
 
-**Check setup** verifies the existing mirror and pinned local image without
+**Save policy** applies an already prepared contract without downloading again.
+The enable choice is explicit: preparing and saving while disabled retains a
+draft without enabling execution. **Check setup** verifies the existing mirror and pinned local image without
 fetching, pulling, saving or executing repository commands. Setup runs off the
 UI thread; Cancel and closing the settings window stop its pending subprocess
-work. Errors, cancellation and concurrent edits leave the previously selected
-settings in place. A successfully fetched mirror/image may remain cached after
-cancellation, but no new policy is activated.
+work. A failure or cancellation observed before the atomic selector replacement
+leaves the previous selection in place; a concurrent edit is reported as a
+conflict. Once that replacement commits, the completed save is reported as saved
+even if cancellation arrives afterward. Successfully fetched mirrors or images
+can remain cached after cancellation.
 
 Recommended source checks need only the standard library in that Python image:
 Python syntax, diagnostic-schema consistency and checked-in CI policy. The
@@ -104,19 +111,25 @@ own Custom commands. No model-selected shell command is run on the host. Custom
 images must already provide their commands' offline dependencies; registry
 credentials are not inherited by the isolated validation Docker client.
 
-Existing external selections remain readable until **Prepare & save** migrates
-all their entries into managed internal snapshots. After migration the external
-file can be removed without affecting the selected policy. Internal immutable
-snapshots under `data/repository-validation/` and the schema-1 selector under
-`data/validation-settings.json` survive updates and both launcher stages. Active
-jobs keep their old approval snapshot. **Restart** applies the new selection
-through the existing guarded restart flow; setup never cancels engineering jobs.
-Refresh the mirror with Prepare & save when newer source commits are needed.
+Existing external selections remain readable until Save policy or Prepare & save
+migrates their entries into managed internal snapshots. The original file is not
+changed. Internal immutable snapshots under `data/validation-policies/` and the
+schema-1 selector under `data/validation-settings.json` survive updates and both
+launcher stages. A valid first-generation managed policy remains selected until
+an explicit selection is saved; it cannot override an explicit external choice
+or disable. A failed save preserves the previous active policy, and another
+window's changes produce a conflict instead of being overwritten. **Reload**
+explicitly discards local edits and reads the current settings. Active jobs retain
+their original policy approval; keep prior files needed by saved work or rollback.
+**Restart** applies the new selection through the existing guarded restart flow;
+setup never cancels engineering jobs. Refresh the mirror with Prepare & save when
+newer source commits are needed.
 
-**Disable / reset validation settings** is an explicit advanced repair action. It
-disables the selection without deleting mirrors, images, old snapshots or the
-original external policy. A corrupt saved selection never silently inherits a
-different policy. The old Advanced-tab file picker is no longer required.
+Clear **Enable repository validation** and save, or choose **Disable validation…**
+in Advanced, to disable the selection without deleting mirrors, images, old
+snapshots or the original external policy. A corrupt saved selection stays visible
+and never silently inherits a different policy. The old Advanced-tab file picker
+is no longer required.
 
 ## General, Advanced and Add-ons
 
@@ -131,7 +144,9 @@ Open **Settings → Advanced**, enable **Debug mode**, save and restart after ac
 
 ### Benchmarks
 
-In the dashboard, open **Benchmarks**, select an advertised model, and run the suite. The latest result for each exact model and backend is saved on this PC. The score measures correct answers across five fixtures. Select a result to see Gateway round-trip latency, time to first text, total time, stream gaps, and model throughput when the backend reports it. A transport or stream failure leaves the run incomplete.
+In the dashboard, open **Benchmarks**, select an advertised model and choose a suite. **Quick check** uses five tool-free fixtures. **Batch comparison** measures matched serial and concurrent HTTP requests, with warm-up excluded; it does not establish native inference batching. **Repository coding** evaluates 12 repair problems and four integration capstones in disposable, isolated Python repositories. Deep mode runs 100 trials across those 16 problems, including repeated seeded variants. It requires a locally approved, digest-pinned sandbox image and does not modify a live GitHub repository.
+
+Overview, Breakdown, Evidence and History provide charts, criterion scores, solved counts, first-submission and repair results, and saved comparisons. Latency views show time to first text, total time, stream gaps and provider-reported throughput where available. The coding score uses declared functional, regression, testing, diagnosis, design, workflow, recovery, scope and evidence criteria; missing required grading evidence leaves it incomplete. Results describe the tested fixtures, with unavailable measurements shown explicitly. See [Gateway 17 contracts](../V17_DESKTOP.md) for the complete benchmark scope and recovery rules.
 
 ## Chat, saved messages and benchmarks
 

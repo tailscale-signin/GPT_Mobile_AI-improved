@@ -39,25 +39,29 @@ class VoiceDiagnosticTrace internal constructor(
     }
 
     /** A new capture resets the turn; cancellation only fences callbacks for the current turn. */
-    internal fun advance(generation: Long, reset: Boolean = false): Probe = synchronized(lock) {
+    internal fun advance(generation: Long, reset: Boolean = false, newOrigin: Boolean = false): Probe = synchronized(lock) {
+        if ((reset || newOrigin) && !closed && allowed()) {
+            latest.compareAndSet(null, this)
+        }
         if (reset || probe.epoch != privacyEpoch.get()) {
-            if (reset && !closed && allowed()) {
-                latest.compareAndSet(null, this)
-            }
             values.clear()
             moments.clear()
             capturedAt = 0
         }
-        Probe(this, generation.coerceAtLeast(0), privacyEpoch.get(), allowed()).also { probe = it }
+        // Cancellation fences callbacks without making an old/private operation public.
+        // Only an explicit reply or new capture acquires fresh diagnostic authority.
+        val renew = reset || newOrigin
+        Probe(this, generation.coerceAtLeast(0), if (renew) privacyEpoch.get() else probe.epoch, if (renew) allowed() else probe.collectable).also { probe = it }
     }
 
     internal fun incidentFields(): Map<String, Any?> = fields("INCIDENT")?.first.orEmpty()
 
     /** Explicit retries/replay are new playback measurements, even when the draft is retained. */
     internal fun beginReply(generation: Long): Probe = synchronized(lock) {
+        values.keys.removeAll { it in IssueReportIncidentCapsule.fieldsFor("VOICE") || it in setOf("voice_reply_state", "voice_reply_characters") }
         moments.keys.retainAll(setOf("speech_end", "final_transcript"))
         values.keys.removeAll { it.endsWith("_ms") && it != "voice_speech_end_to_transcript_ms" || it in setOf("voice_engine_warm", "voice_first_audio_basis", "voice_playback_failure", "voice_playback_focus_attempts", "voice_caption_alignment") }
-        advance(generation)
+        advance(generation, newOrigin = true)
     }
 
     internal fun retain() {
@@ -99,10 +103,12 @@ class VoiceDiagnosticTrace internal constructor(
     }
 
     private fun record(ticket: Probe, action: () -> Unit) = synchronized(lock) {
-        if (closed || !ticket.collectable || ticket !== probe || ticket.epoch != privacyEpoch.get() || !allowed()) return@synchronized
+        if (!accepts(ticket)) return@synchronized
         action()
         capturedAt = wallClock()
     }
+
+    private fun accepts(ticket: Probe): Boolean = !closed && ticket.collectable && ticket === probe && ticket.epoch == privacyEpoch.get() && allowed()
 
     private fun elapsed(field: String, start: String, end: String) {
         val from = moments[start] ?: return
@@ -112,7 +118,15 @@ class VoiceDiagnosticTrace internal constructor(
 
     /** Backends retain this immutable ticket inside their capture/playback operation. */
     class Probe internal constructor(private val owner: VoiceDiagnosticTrace, internal val generation: Long, internal val epoch: Long, internal val collectable: Boolean) {
-        /** Keep a terminal run join through pause/close, but clear it before another capture generation. */
+        internal fun reportFailure(code: String, error: Throwable?, fields: Map<String, Any?>) {
+            // Incidents takes its privacy lock before this Trace lock, as privacyChanged
+            // already does. Never invoke the collector while holding the Trace lock.
+            IssueReportIncidents.failureFromOrigin(ReportFeature.VOICE, code, error, fields, "VOICE_STATE") {
+                synchronized(owner.lock) { owner.accepts(this) }
+            }
+        }
+
+        /** Keep a terminal run join through pause/close, but clear it before another capture or reply. */
         internal fun replyFailure(fields: Map<String, Any?>) {
             val snapshot = IssueReportContext.fromFields(
                 "VOICE_STATE",

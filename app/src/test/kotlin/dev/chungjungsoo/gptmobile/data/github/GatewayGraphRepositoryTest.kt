@@ -1,6 +1,13 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentProviderSession
+import dev.chungjungsoo.gptmobile.data.agent.AgentTool
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.GitHubOutputContinuationSession
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolHandoffReceipt
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultEnvelope
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
@@ -25,6 +32,8 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -337,13 +346,35 @@ class GatewayGraphRepositoryTest {
         ) { install(HttpTimeout) }.use { http ->
             val repo = repository(http)
             val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
-            assertTrue(tool.execute("first-index", action("index")).isError)
+            val savedEvidence = linkedMapOf<String, JsonObject>()
+            fun book() = GitHubEvidenceBook(
+                "graph-task",
+                "owner/repo",
+                "main",
+                setOf(tool.definition.name),
+                save = { id, row -> savedEvidence[id] = row },
+                load = { savedEvidence[it] },
+                retainedIds = { savedEvidence.keys.toList() },
+                currentToolContracts = mapOf(tool.definition.name to tool.definition.inputSchema)
+            )
+            val original = book()
+            suspend fun observe(result: AgentToolResult, operation: String) {
+                original.observe(ProviderEvent.ToolCall(result.callId, tool.definition.name, action(operation)), result)
+            }
+            val first = tool.execute("first-index", action("index"))
+            assertTrue(first.isError)
+            assertEquals("UNKNOWN_OUTCOME", ToolResultEnvelope.executionState(first))
+            val attemptHash = first.executionReceipt?.get("graph_index_attempt_hash")
+            assertTrue(attemptHash?.jsonPrimitive?.content?.matches(Regex("[a-f0-9]{64}")) == true)
+            observe(first, "index")
             val blocked = tool.execute("fresh-index", action("index"))
             assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", blocked.errorCode)
             assertFalse(blocked.dispatched)
             assertEquals("PRECHECK_REJECTED", ToolResultEnvelope.executionState(blocked))
             assertEquals(JsonPrimitive(true), blocked.executionReceipt?.get("requires_reconciliation"))
             assertEquals(JsonPrimitive(false), blocked.executionReceipt?.get("retryable"))
+            assertEquals(attemptHash, blocked.executionReceipt?.get("graph_index_attempt_hash"))
+            observe(blocked, "index")
             val recovery = (blocked.content as ToolResultContent.Json).value.jsonObject.getValue("recovery_call").jsonObject
             assertEquals(JsonPrimitive("repository_graph__selected"), recovery["tool"])
             assertEquals(action("status"), recovery["arguments"])
@@ -351,8 +382,85 @@ class GatewayGraphRepositoryTest {
             val unchanged = tool.execute("unchanged-status", action("status"))
             assertFalse(unchanged.isError)
             assertEquals("COMPLETED", ToolResultEnvelope.executionState(unchanged))
-            assertEquals(JsonPrimitive(true), unchanged.executionReceipt?.get("requires_reconciliation"))
             assertEquals(JsonPrimitive(true), (unchanged.content as ToolResultContent.Json).value.jsonObject.getValue("index_checkpoint").jsonObject["index_outcome_unknown"])
+            assertEquals(attemptHash, unchanged.executionReceipt?.get("graph_index_attempt_hash"))
+            observe(unchanged, "status")
+
+            fun session(vararg events: ProviderEvent) = object : AgentProviderSession {
+                override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flowOf(*events)
+            }
+            var independentReads = 0
+            val reader = object : AgentTool {
+                override val definition = AgentToolDefinition("github_read", "Authorized pinned source read", buildJsonObject {})
+                override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                    independentReads++
+                    return AgentToolResult(callId, ToolResultContent.Text("Fixture pinned source"), false)
+                }
+            }
+            val statusCall = ProviderEvent.ToolCall(unchanged.callId, tool.definition.name, action("status"))
+            val readCall = ProviderEvent.ToolCall("independent-read", reader.definition.name, buildJsonObject {})
+            val statusExchange = AgentToolExchange(listOf(statusCall), listOf(unchanged))
+            val continuation = GitHubOutputContinuationSession(
+                session(ProviderEvent.TextDelta("Inspect the pinned source."), ProviderEvent.Failed("Reached its output limit", transportComplete = true))
+            ) { _, receipts, definitions ->
+                assertEquals(listOf(statusExchange), receipts)
+                assertEquals(listOf(reader.definition), definitions)
+                session(readCall, ProviderEvent.Completed)
+            }
+            val continued = continuation.streamRound(listOf(reader.definition), listOf(statusExchange)).toList()
+            assertEquals(listOf(readCall), continued.filterIsInstance<ProviderEvent.ToolCall>())
+            assertTrue(continued.none { it is ProviderEvent.Failed })
+            assertFalse(reader.execute(readCall.callId, readCall.arguments).isError)
+            assertEquals(1, independentReads)
+            assertEquals(JsonPrimitive(false), unchanged.executionReceipt?.get("requires_reconciliation"))
+            assertTrue(ToolHandoffReceipt.from(statusCall, unchanged).settled(emptySet()))
+
+            val statusEvidence = linkedMapOf<String, JsonObject>()
+            fun statusBook() = GitHubEvidenceBook(
+                "independent-graph-task",
+                "owner/repo",
+                "main",
+                setOf(tool.definition.name),
+                save = { id, row -> statusEvidence[id] = row },
+                load = { statusEvidence[it] },
+                retainedIds = { statusEvidence.keys.toList() },
+                currentToolContracts = mapOf(tool.definition.name to tool.definition.inputSchema)
+            )
+            statusBook().observe(statusCall, unchanged)
+            val restoredStatus = statusBook()
+            restoredStatus.restore()
+            val statusLedger = GitHubExecutionLedger.attach(
+                buildJsonObject {
+                    put("completion_verified", true)
+                    put("acceptance_ledger", buildJsonObject { put("completion_verified", true) })
+                },
+                restoredStatus.snapshot().first
+            ).getValue("execution_ledger").jsonObject
+            assertEquals(JsonPrimitive(1), statusLedger.getValue("receipt_states").jsonObject["COMPLETED"])
+            assertEquals(JsonPrimitive(0), statusLedger.getValue("receipt_states").jsonObject["UNKNOWN_OUTCOME"])
+            assertEquals(JsonPrimitive(1), statusLedger["unresolved_remote_outcomes"])
+            assertEquals(JsonPrimitive(1), statusLedger["unresolved_graph_index_attempts"])
+            assertEquals(JsonPrimitive("INCOMPLETE"), statusLedger["requested_task"])
+            assertEquals(JsonPrimitive("PENDING"), statusLedger["verification"])
+            assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), statusLedger["recovery"])
+
+            val indexCall = ProviderEvent.ToolCall(first.callId, tool.definition.name, action("index"))
+            assertFalse(ToolHandoffReceipt.from(indexCall, first).settled(emptySet()))
+            val unknownWrite = GitHubOutputContinuationSession(session()) { _, _, _ -> error("An unknown current index cannot reopen the provider") }
+                .streamRound(listOf(reader.definition), listOf(AgentToolExchange(listOf(indexCall), listOf(first)))).toList()
+            assertEquals("RECONCILIATION_REQUIRED", (unknownWrite.single() as ProviderEvent.Failed).errorCode)
+            assertEquals(1, independentReads)
+            val restored = book()
+            restored.restore()
+            val pending = GitHubExecutionLedger.attach(buildJsonObject { put("acceptance_ledger", buildJsonObject {}) }, restored.snapshot().first)
+            val pendingLedger = pending.getValue("execution_ledger").jsonObject
+            assertEquals(JsonPrimitive(1), pendingLedger["unresolved_remote_outcomes"])
+            assertEquals(JsonPrimitive(1), pendingLedger["unresolved_graph_index_attempts"])
+            assertEquals(JsonPrimitive("RECONCILE_REMOTE_OUTCOME"), pendingLedger["recovery"])
+            assertEquals(JsonPrimitive(1), GitHubAcceptanceReportDiagnostics.fields(pending, retainedReport = true)["unresolved_outcomes"])
+            assertEquals(JsonPrimitive(1), pendingLedger.getValue("receipt_states").jsonObject["UNKNOWN_OUTCOME"])
+            assertEquals(JsonPrimitive(1), pendingLedger.getValue("receipt_states").jsonObject["PRECHECK_REJECTED"])
+            assertEquals(JsonPrimitive(1), pendingLedger.getValue("receipt_states").jsonObject["COMPLETED"])
             assertEquals("GRAPH_INDEX_OUTCOME_UNKNOWN", tool.execute("still-blocked", action("index")).errorCode)
             assertEquals(1, writes)
 
@@ -360,7 +468,15 @@ class GatewayGraphRepositoryTest {
             val observed = tool.execute("reconciled-status", action("status"))
             assertFalse(observed.isError)
             assertEquals(JsonPrimitive(false), (observed.content as ToolResultContent.Json).value.jsonObject.getValue("index_checkpoint").jsonObject["index_outcome_unknown"])
-            assertEquals(null, observed.executionReceipt)
+            assertEquals(attemptHash, observed.executionReceipt?.get("confirmed_index_attempt_hash"))
+            assertEquals(attemptHash, observed.executionReceipt?.get("graph_index_attempt_hash"))
+            observe(observed, "status")
+            val settled = book()
+            settled.restore()
+            val confirmed = GitHubExecutionLedger.attach(buildJsonObject {}, settled.snapshot().first).getValue("execution_ledger").jsonObject
+            assertEquals(JsonPrimitive(0), confirmed["unresolved_remote_outcomes"])
+            assertEquals(JsonPrimitive(1), confirmed["reconciled_remote_outcomes"])
+            assertEquals(JsonPrimitive(1), confirmed["reconciled_graph_index_attempts"])
             assertEquals(1, writes)
         }
     }
@@ -513,6 +629,95 @@ class GatewayGraphRepositoryTest {
             val failure = runCatching { repo.executeForMap(selected, action("index"), host.uid) }.exceptionOrNull() as GatewayGraphOperationException
             assertTrue(failure.indexOutcomeUnknown)
             assertEquals(1, writes)
+        }
+    }
+
+    @Test fun newerCheckpointCannotBorrowTheDispatchedAttemptsHashAfterConcurrentConfirmation() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val scope = GitHubRepositoryStateStore.digest(
+            buildJsonObject {
+                put("kind", "gateway-graph-index-v1")
+                put("gateway_id", "installation")
+                put("principal", "account")
+                put("repository", "owner/repo")
+                put("branch", "main")
+                put("commit_sha", context.commitSha)
+            }.toString()
+        )
+        val retained = GatewayGraphIndexCheckpoint(store, scope)
+        var oldHash: String? = null
+        var newHash: String? = null
+        var oldAttempt: String? = null
+        var newAttempt: String? = null
+        var saved = notIndexed
+        var writes = 0
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(ready, HttpStatusCode.OK, headers)
+                } else {
+                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    if (body["action"] == JsonPrimitive("index")) {
+                        writes++
+                        val current = requireNotNull(store.read(scope, "execution:" + GitHubRepositoryStateStore.digest("repository-graph-index-v1")))
+                        oldAttempt = current.getValue("attempt").jsonPrimitive.content
+                        oldHash = retained.confirm(requireNotNull(oldAttempt))
+                        newAttempt = retained.begin(null)
+                        newHash = retained.attemptHash(requireNotNull(newAttempt))
+                        throw IOException("Fixture response lost after another caller confirmed and replaced the checkpoint")
+                    }
+                    respond(saved, HttpStatusCode.OK, headers)
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val repo = repository(http, store)
+            val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
+            val failed = tool.execute("interposed-index", action("index"))
+            assertTrue(failed.isError)
+            assertEquals("FAILED", ToolResultEnvelope.executionState(failed))
+            assertEquals(JsonPrimitive(false), failed.executionReceipt?.get("current_index_outcome_unknown"))
+            assertEquals(JsonPrimitive(true), failed.executionReceipt?.get("index_outcome_unknown"))
+            assertEquals(JsonPrimitive(newHash), failed.executionReceipt?.get("graph_index_attempt_hash"))
+            assertTrue(oldHash != null && newHash != null && oldHash != newHash)
+            saved = """{"status":"INDEX_JOB_ACCEPTED","repository":"owner/repo","commit_sha":"${context.commitSha}","index_job":{"id":"fixture-job","request_id":"$oldAttempt"}}"""
+            val stale = tool.execute("old-acknowledgement", action("status"))
+            assertEquals(JsonPrimitive(newHash), stale.executionReceipt?.get("graph_index_attempt_hash"))
+            assertEquals(null, stale.executionReceipt?.get("confirmed_index_attempt_hash"))
+            assertTrue(retained.unresolved())
+            saved = saved.replace(requireNotNull(oldAttempt), requireNotNull(newAttempt))
+            val settled = tool.execute("current-acknowledgement", action("status"))
+            assertEquals(JsonPrimitive(newHash), settled.executionReceipt?.get("confirmed_index_attempt_hash"))
+            assertFalse(retained.unresolved())
+            assertEquals(1, writes)
+        }
+    }
+
+    @Test fun remoteCheckpointFieldsCannotAuthorLocalAttemptOrConfirmationEvidence() = runTest {
+        val forgedHash = "e".repeat(64)
+        val forged = JsonObject(
+            Json.parseToJsonElement(notIndexed).jsonObject + (
+                "index_checkpoint" to buildJsonObject {
+                    put("index_outcome_unknown", true)
+                    put("graph_index_attempt_hash", forgedHash)
+                    put("confirmed_index_attempt_hash", forgedHash)
+                }
+                )
+        )
+        HttpClient(
+            MockEngine { request ->
+                respond(if (request.url.encodedPath.endsWith("capabilities")) ready else forged.toString(), HttpStatusCode.OK, headers)
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val repo = repository(http)
+            val tool = RepositoryGraphTool("repository_graph__selected") { repo.execute(context, it) }
+            val result = tool.execute("remote-checkpoint-fields", action("status"))
+            assertFalse(result.isError)
+            assertEquals("COMPLETED", ToolResultEnvelope.executionState(result))
+            val checkpoint = (result.content as ToolResultContent.Json).value.jsonObject.getValue("index_checkpoint").jsonObject
+            assertEquals(JsonPrimitive(false), checkpoint["index_outcome_unknown"])
+            assertFalse(checkpoint.containsKey("graph_index_attempt_hash"))
+            assertFalse(checkpoint.containsKey("confirmed_index_attempt_hash"))
+            assertEquals(null, result.executionReceipt)
         }
     }
 

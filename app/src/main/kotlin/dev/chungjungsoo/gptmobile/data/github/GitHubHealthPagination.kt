@@ -21,11 +21,12 @@ internal suspend fun collectGitHubHealth(fetch: suspend (String?) -> JsonObject)
     var page = first
     var complete = false
     for (pageIndex in 0 until 20) {
+        if ((page["errors"] as? JsonArray)?.isNotEmpty() == true) return page
         val value = contexts(page) ?: return first
         if (pr(page)?.get("headRefOid") != pr(first)?.get("headRefOid") || pr(page)?.get("baseRefOid") != pr(first)?.get("baseRefOid") || value["totalCount"] != initial["totalCount"]) return first
         (value["nodes"] as? JsonArray).orEmpty().forEach { raw ->
             val node = raw as? JsonObject ?: return first
-            val key = (node["id"] as? JsonPrimitive)?.contentOrNull ?: listOf(node["__typename"], node["name"], node["context"]).joinToString(":")
+            val key = (node["id"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return first
             rows[key] = node
         }
         val info = value["pageInfo"] as? JsonObject ?: return first
@@ -39,13 +40,14 @@ internal suspend fun collectGitHubHealth(fetch: suspend (String?) -> JsonObject)
     }
     if (!complete) return first
     val after = fetch(null)
+    if ((after["errors"] as? JsonArray)?.isNotEmpty() == true) return after
     if (pr(after)?.get("headRefOid") != pr(first)?.get("headRefOid") || pr(after)?.get("baseRefOid") != pr(first)?.get("baseRefOid") || contexts(after)?.get("totalCount") != initial["totalCount"]) return first
     // A rerun or conclusion change need not change the head, base or inventory count.
     // Never replace the fresh first page with superseded successful observations.
     val refreshed = contexts(after)?.get("nodes") as? JsonArray ?: return first
     if (refreshed.any { raw ->
             val node = raw as? JsonObject ?: return@any true
-            val key = (node["id"] as? JsonPrimitive)?.contentOrNull ?: listOf(node["__typename"], node["name"], node["context"]).joinToString(":")
+            val key = (node["id"] as? JsonPrimitive)?.contentOrNull?.takeIf { it.isNotBlank() } ?: return@any true
             rows[key] != node
         }
     ) {

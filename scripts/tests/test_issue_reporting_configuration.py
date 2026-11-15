@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from scripts.check_issue_reporting_configuration import check_readiness, validate
+from scripts.check_issue_reporting_configuration import REQUIRED_DIAGNOSTIC_FEATURES, check_readiness, validate
 
 
 class IssueReportingConfigurationTest(unittest.TestCase):
@@ -29,7 +29,8 @@ class IssueReportingConfigurationTest(unittest.TestCase):
         observed = []
         def fetch(url):
             observed.append(url)
-            return b'{"service":"gpt-mobile-issue-reporter","reportContextVersions":[1,2,3,4,5,6,7]}'
+            return json.dumps({"service": "gpt-mobile-issue-reporter", "version": 2, "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                               "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES)}, separators=(",", ":")).encode()
         check_readiness("https://reports.project.org/", fetch)
         self.assertEqual(["https://reports.project.org/health/ready"], observed)
         for value in (
@@ -57,7 +58,24 @@ class IssueReportingConfigurationTest(unittest.TestCase):
             {"service": "gpt-mobile-issue-reporter"},
         ):
             with self.subTest(value=value), self.assertRaises(ValueError):
-                check_readiness("https://reports.project.org", lambda _: json.dumps(value).encode())
+                check_readiness("https://reports.project.org", lambda _: json.dumps({"version": 2, "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES), **value}, separators=(",", ":")).encode())
+
+    def test_current_deployment_requires_strict_protocol_two_and_every_required_feature(self):
+        ready = {"service": "gpt-mobile-issue-reporter", "reportContextVersions": [1, 2, 3, 4, 5, 6, 7],
+                 "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES)}
+        for version in (None, True, False, "2", 2.0, [], {}, -1, 0, 1):
+            # Isolate the protocol check from the independent 1,024-byte bound.
+            value = {**ready, "reportDiagnosticFeatures": []}
+            if version is not None:
+                value["version"] = version
+            with self.subTest(version=version), self.assertRaisesRegex(ValueError, "protocol version"):
+                check_readiness("https://reports.project.org", lambda _: json.dumps(value, separators=(",", ":")).encode())
+        for version in (2, 3):
+            check_readiness("https://reports.project.org", lambda _: json.dumps({**ready, "version": version}, separators=(",", ":")).encode())
+        for missing in REQUIRED_DIAGNOSTIC_FEATURES:
+            value = {**ready, "version": 2, "reportDiagnosticFeatures": sorted(REQUIRED_DIAGNOSTIC_FEATURES - {missing})}
+            with self.subTest(missing=missing), self.assertRaisesRegex(ValueError, "reportDiagnosticFeatures"):
+                check_readiness("https://reports.project.org", lambda _: json.dumps(value, separators=(",", ":")).encode())
 
     def test_readiness_does_not_accept_unbounded_or_non_json_responses(self):
         for body in (b"x" * 1025, b"not-json", b"[]"):

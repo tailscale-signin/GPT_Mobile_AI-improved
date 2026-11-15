@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
 
 /** Only the persisted call supplies identity and argument shape; result prose never supplies either. */
 internal object ToolReportDiagnostics {
@@ -72,8 +73,8 @@ internal object ToolReportDiagnostics {
         put("original_reason_code_hash", IssueReportContext.identifierHash("tool-reason-code", reason))
         val arguments = event.arguments.takeIf { it.length <= MAX_ARGUMENT_CHARS }
             ?.let { runCatching { Json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+        val action = (arguments?.get("action") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
         if (arguments != null) {
-            val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             action?.takeIf { it in actions }?.let { put("tool_action", it) }
             put("tool_action_hash", IssueReportContext.identifierHash("tool-action", action))
             action?.takeIf { it in IssueReportIncidentCapsule.actions }?.let { put("native_tool_action", it) }
@@ -81,6 +82,15 @@ internal object ToolReportDiagnostics {
             putAll(typeShape(arguments, "argument"))
         }
         val receipt = result.executionReceipt
+        if (event.modelToolName.substringBefore("__") == "repository_graph" &&
+            receipt?.get("schema") == JsonPrimitive(RepositoryGraphTool.RECEIPT_SCHEMA) &&
+            receipt["call_id"] == JsonPrimitive(result.callId) &&
+            action != null &&
+            receipt["action"] == JsonPrimitive(action)
+        ) {
+            (receipt["graph_index_attempt_hash"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }?.let { put("graph_index_attempt_hash", it) }
+        }
         for (key in listOf("github_transport_kind", "github_transport_wait_ms", "read_range_count", "read_invalid_window_count", "read_window_rejections")) {
             receipt?.get(key)?.let { put(key, it) }
         }
@@ -119,6 +129,20 @@ internal object ToolReportDiagnostics {
             result.toolResultBudgetLimitBytes?.let { put("tool_result_bytes_limit", it) }
             result.toolCallBudgetUsed?.let { put("tool_budget_calls_used", it) }
             result.toolCallBudgetLimit?.let { put("tool_budget_calls_limit", it) }
+            if (event.modelToolName.substringBefore("__") == "web_search" &&
+                result.isError &&
+                !result.dispatched &&
+                result.errorCode == "BUDGET_EXHAUSTED" &&
+                result.outputBudgetExhausted &&
+                receipt?.get("schema") == JsonPrimitive("gptmobile.search-operation.v1") &&
+                receipt["callId"] == JsonPrimitive(result.callId) &&
+                receipt["phase"] == JsonPrimitive("SEARCH_AGGREGATION") &&
+                receipt["state"] == JsonPrimitive("PRECHECK_REJECTED") &&
+                receipt["retryable"] == JsonPrimitive(false)
+            ) {
+                (receipt["tool_budget_bytes_available"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                    ?.takeIf { it in 0..1023 }?.let { put("tool_budget_bytes_available", it) }
+            }
         }
         when (event.modelToolName.substringBefore("__")) {
             "device_location" -> if (result.errorCode == "PERMISSION_DENIED" && !result.dispatched) put("tool_permission_scope", "ANDROID_LOCATION")

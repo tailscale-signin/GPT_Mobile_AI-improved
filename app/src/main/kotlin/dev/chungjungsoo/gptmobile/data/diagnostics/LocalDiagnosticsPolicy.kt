@@ -9,7 +9,11 @@ object LocalDiagnosticsPolicy {
     val state = debugEnabled.asStateFlow()
     val enabled: Boolean get() = debugEnabled.value
 
+    @Synchronized
     fun setEnabled(enabled: Boolean) {
         debugEnabled.value = enabled
+        // Fence in-flight captures before a later enable can be observed. The
+        // application preference collector may conflate a rapid off/on pair.
+        if (!enabled) ReportDiagnosticSnapshots.clear()
     }
 }

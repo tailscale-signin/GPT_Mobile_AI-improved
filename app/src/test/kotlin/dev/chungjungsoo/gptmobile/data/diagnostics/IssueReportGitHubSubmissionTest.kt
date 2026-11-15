@@ -44,10 +44,61 @@ class IssueReportGitHubSubmissionTest {
         put("user", buildJsonObject { put("id", account) })
     }
 
+    @Test fun composerAndToolExtensionsKeepNativeSubmissionIndependentWithExactApprovedBody() {
+        val samples = listOf(
+            mapOf("diagnostic_area" to "APP", "composer_generation" to 1, "composer_events_dropped" to 0, "composer_event_1" to "RELEASE_BACKGROUND_TAP", "composer_event_1_age_ms" to 0),
+            mapOf("diagnostic_area" to "TOOL", "tool_budget_bytes_available" to 0),
+            mapOf("diagnostic_area" to "TOOL", "graph_index_attempt_hash" to "a".repeat(64))
+        )
+        for (fields in samples) {
+            val context = IssueReportContext.fromFields("MANUAL_REPORT", fields, 1000)
+            assertEquals(2, requireNotNull(context.diagnostics).requiredReporterVersion())
+            val enriched = report.copy(context = context)
+            val payload = enriched.approvedPayload()
+            val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+            val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+            val methods = mutableListOf<String>()
+            val client = OkHttpClient.Builder().addInterceptor { chain ->
+                val request = chain.request()
+                methods += request.method
+                assertEquals("api.github.com", request.url.host)
+                assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+                response(request, 201, receipt(body = rendered.getValue("body")).toString())
+            }.build()
+            var dispatches = 0
+            assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") { dispatches++ })
+            assertEquals(1, dispatches)
+            assertEquals(listOf("POST"), methods)
+            assertEquals(payload, entry.payload)
+        }
+    }
+
+    @Test fun reasoningProbeReportUsesExactApprovedNativeBodyWithoutHostedNegotiation() {
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", mapOf("diagnostic_area" to "PROVIDER", "reasoning_probe_outcome" to "IDENTICAL_PROMPTS", "reasoning_probe_attempts" to 2, "reasoning_probe_age_ms" to 8000, "reasoning_metadata_age_ms" to 8), 1000)
+        assertEquals(2, requireNotNull(context.diagnostics).requiredReporterVersion())
+        val enriched = report.copy(context = context)
+        val payload = enriched.approvedPayload()
+        val rendered = IssueReportGitHubSubmission.render(enriched, payload)
+        val entry = IssueReportOutbox.Entry(report.reportId, payload, storedAtMillis = 1, updatedAtMillis = 1, route = route, deliveryEvidence = IssueReportOutbox.DeliveryEvidence.NOT_DISPATCHED)
+        val methods = mutableListOf<String>()
+        val client = OkHttpClient.Builder().addInterceptor { chain ->
+            val request = chain.request()
+            methods += request.method
+            assertEquals("api.github.com", request.url.host)
+            assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
+            response(request, 201, receipt(body = rendered.getValue("body")).toString())
+        }.build()
+        var dispatches = 0
+        assertEquals(IssueReportSubmission.Confirmed(742), IssueReportGitHubSubmission(client).send(entry, "private-token") { dispatches++ })
+        assertEquals(1, dispatches)
+        assertEquals(listOf("POST"), methods)
+        assertEquals(payload, entry.payload)
+    }
+
     @Test fun additionalDiagnosticPayloadKeepsExactApprovalThroughNativeCreateAndReadOnlyReconciliation() {
         val context = IssueReportContext.fromFields(
             "VOICE_STATE",
-            mapOf("diagnostic_area" to "VOICE", "voice_engine" to "KOKORO", "voice_phase" to "SPEAKING", "voice_first_audio_basis" to "PLAYBACK_HEAD", "voice_response_to_first_audio_ms" to 98),
+            mapOf("diagnostic_area" to "VOICE", "voice_engine" to "KOKORO", "voice_phase" to "SPEAKING", "voice_first_audio_basis" to "PLAYBACK_HEAD", "voice_response_to_first_audio_ms" to 98, "voice_playback_failure" to "PRONUNCIATION_UNAVAILABLE"),
             1_000L
         )
         val enriched = report.copy(context = context)
@@ -61,6 +112,7 @@ class IssueReportGitHubSubmissionTest {
             if (request.method == "POST") {
                 assertEquals(rendered.toString(), Buffer().also { request.body!!.writeTo(it) }.readUtf8())
                 assertTrue(rendered.getValue("body").toString().contains("voice_response_to_first_audio_ms"))
+                assertTrue(rendered.getValue("body").toString().contains("PRONUNCIATION_UNAVAILABLE"))
                 throw IOException("Receipt lost after create")
             }
             response(request, 200, """{"items":[${receipt(body = rendered.getValue("body"))}]}""")

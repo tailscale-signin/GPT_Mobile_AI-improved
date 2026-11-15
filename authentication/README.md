@@ -149,15 +149,58 @@ looks for the original issue.
 ### Report context and rollout compatibility
 
 The ready response preserves `service: "gpt-mobile-issue-reporter"` and
-`version: 1`, and advertises `reportContextVersions: [1, 2, 3, 4, 5, 6, 7]`. Clients with a
+`version: 2`, and advertises `reportContextVersions: [1, 2, 3, 4, 5, 6, 7]`. Clients with a
 context-bearing report check support for that report's schema and any retained
 review extensions before marking it dispatched or sending the POST. An older
 service without all required versions has not declared
 support: the app retains the approved report and displays a native
 service-update requirement. It must not silently strip context or change a
 previously submitted payload. Deploy the updated reporter before shipping a
-hosted reporting route; the distribution readiness check requires all seven versions
+hosted reporting route; the distribution readiness check requires reporter protocol
+2 or later, all seven context versions, and all thirty current diagnostic features
 so current reports and retained legacy reports remain supported.
+
+Reporter protocol version 2 adds the finite `voice_playback_failure` values
+`PRONUNCIATION_UNAVAILABLE` and `LEXICON_UNAVAILABLE`. Reports containing either
+value require a numeric integer readiness `version` of at least 2, in addition
+to their existing context versions and diagnostic features. Missing, malformed,
+or older protocol versions stop submission before the dispatch marker or POST;
+the approved bytes remain intact for a compatible service or the separately
+selected native GitHub route. Existing playback values and legacy reports keep
+their earlier compatibility rules. The thirty feature names, context schema
+versions, 1,024-byte readiness limit, and 8-KiB report limit are unchanged.
+Pronunciation refusal is an observed nonexception outcome. Only an actual caught
+playback exception supplies the existing bounded type, frames, and fingerprint;
+the report never includes synthesis text, exception messages, or file names.
+
+The same unreleased protocol 2 also admits these bounded diagnostic extensions:
+
+| Area | Fields | Meaning and bounds |
+| --- | --- | --- |
+| `PROVIDER` | `reasoning_probe_outcome`, `reasoning_probe_attempts`, `reasoning_probe_age_ms`, `reasoning_metadata_age_ms` | A closed outcome from existing synthetic template checks, 0–4 source `/apply-template` HTTP request starts, and independent probe/metadata ages of 0–86,400,000 ms. Starts are counted after deadline admission; unobserved transport retries are excluded. The probe verdict and detail share one captured observation. |
+| `APP` | `composer_generation`, `composer_events_dropped`, `composer_enabled`, `composer_window_focused`, `composer_lifecycle`, `composer_input_mode` | An ephemeral local capture lifetime (1–16,000,000), observed ring removals (0–16,000,000), two booleans, a closed lifecycle state, and `TOUCH`/`KEYBOARD`. No text, key contents, IME identity, or private identifiers are recorded. |
+| `APP` | `composer_event_1` through `composer_event_8`, each with its corresponding `_age_ms` field | Up to eight ordered event/age pairs using 24 closed event names and ages of 0–600,000 ms. These 16 slot fields plus the six state fields above form the 22-field composer extension. |
+| `TOOL` | `tool_budget_bytes_available` | Optional integer 0–16,000,000: the smallest actual available-byte input captured for a rejected child in the current unsent search-byte refusal. The current producer emits 0–1,023 for the unchanged `<1024` guard. This is neither bytes spent nor a configured cumulative allowance. |
+| `TOOL` | `graph_index_attempt_hash` | Optional lowercase 64-character SHA-256 digest joining an observed local attempt to its existing bound checkpoint scope. It is not a remote job ID or evidence of acceptance, execution, or completion. No retrospective join is manufactured. |
+
+Composer slots are contiguous from 1, oldest first; ages are non-increasing and
+the newest slot has age zero. Equal ages and repeated events remain distinct.
+Slots require valid generation and dropped-count fields. A release event records
+an app request, not proof that the keyboard obeyed it. Malformed incoming pairs,
+holes, ordering, or mixed retained slots and omitted slot names are rejected.
+Local projection and byte compaction omit the whole slot group with explicit
+omission names; removing its required generation/drop count also removes the
+slots. Reading a selected capture does not refresh the event ages.
+
+Every new value or omitted field name above requires numeric reporter protocol 2
+before the hosted dispatch marker or POST. The four reasoning fields also allow
+explicit optional unavailable declarations, which require protocol 2. Composer
+and tool extensions do not expand required unavailable lists or invent absent
+observations. The legacy `reasoning_capability_age_ms` and four original composer
+fields remain accepted under their earlier rules, with approved payload bytes
+unchanged. Native GitHub delivery remains independent of hosted negotiation.
+The 3,072-byte diagnostic and 8,192-byte payload bounds, seven context versions,
+thirty readiness features, and 1,024-byte readiness bound remain unchanged.
 
 Exact-model preparation captures extend the closed schema-5 diagnostics with
 bounded load/wake states, typed backend failures and hashed operation/profile/model

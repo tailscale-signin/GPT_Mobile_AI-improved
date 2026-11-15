@@ -13,11 +13,46 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering_validation import (validate, patch_identity, run_bounded,
-                                       prepare_behavior_reports, capture_behavior_reports)
+                                       prepare_behavior_reports, capture_behavior_reports,
+                                       validate_policy_entry, load_policy)
 
 
 class IsolatedValidationTests(unittest.TestCase):
     REPORT = '<testsuite><testcase classname="Fixture" name="behavior"/></testsuite>'
+
+    def test_unprepared_desktop_image_never_weakens_saved_runtime_policy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            entry = {'mirror': directory, 'image': '', 'commands': [['python3', '-m', 'unittest']]}
+            checked = validate_policy_entry(entry, allow_unprepared_image=True)
+            self.assertEqual('', checked[2])
+            self.assertEqual(entry['commands'], checked[3])
+            for flag in (False, None, 1, 'true'):
+                with self.subTest(flag=flag), self.assertRaises(ValueError):
+                    validate_policy_entry(entry, allow_unprepared_image=flag)
+            path = Path(directory) / 'policy.json'
+            path.write_text(json.dumps({'owner/repo': entry}))
+            with self.assertRaises(ValueError):
+                load_policy('owner/repo', policy_path=str(path))
+            for image in (' ', 'python:3.12', 'python@sha256:invalid'):
+                with self.subTest(image=image), self.assertRaises(ValueError):
+                    validate_policy_entry(dict(entry, image=image), allow_unprepared_image=True)
+            pinned = dict(entry, image='python@sha256:' + 'a' * 64)
+            self.assertEqual(validate_policy_entry(pinned), validate_policy_entry(pinned, allow_unprepared_image=True))
+
+    def test_unprepared_form_still_validates_commands_parallel_groups_and_exact_case_coverage(self):
+        with tempfile.TemporaryDirectory() as directory:
+            entry = {'mirror': directory, 'image': '', 'commands': [['python3', '-m', 'unittest']]}
+            invalid = [
+                {'commands': [['python3', '\0']]},
+                {'parallel_command_groups': [[0, 1]]},
+                {'acceptance_map': [{'requirement_id': 'behavior', 'case_id': 'Fixture.behavior',
+                                     'command_index': 1, 'scope': 'behavior', 'report_path': 'reports/result.xml'}]},
+                {'acceptance_map': [{'requirement_id': 'behavior', 'case_id': 'Fixture.behavior',
+                                     'command_index': 0, 'scope': 'behavior', 'report_path': '../result.xml'}]},
+            ]
+            for changes in invalid:
+                with self.subTest(changes=changes), self.assertRaises(ValueError):
+                    validate_policy_entry(dict(entry, **changes), allow_unprepared_image=True)
 
     def validate_fixture(self, commands, coverage=None, changes=(), policy_options=None, execution_mode=None, workers=1, observer=None):
         """Exercise real archive/patch/command/report order; this is not Docker qualification."""

@@ -25,14 +25,24 @@ sys.path.insert(0, '/candidate')
 import service
 requests = json.load(open('/evaluator/inputs.json'))
 outputs = []
+def input_snapshot(request):
+    try:
+        return json.dumps(request, sort_keys=True, ensure_ascii=True, allow_nan=False)
+    except BaseException:
+        return None
+
 for request in requests:
-    before = json.dumps(request, sort_keys=True, ensure_ascii=True, allow_nan=False)
+    before = input_snapshot(request)
     try:
         value = service.handle(request)
         first = json.loads(json.dumps(value, allow_nan=False))
-        outputs.append({'output': first, 'input_preserved': before == json.dumps(request, sort_keys=True, ensure_ascii=True, allow_nan=False)})
+        row = {'output': first}
     except BaseException as error:
-        outputs.append({'error': type(error).__name__, 'input_preserved': False})
+        row = {'error': type(error).__name__}
+    after = input_snapshot(request)
+    # Same-process diagnostics are candidate-influenced, never grading authority.
+    row['input_preserved'] = before == after if before is not None and after is not None else None
+    outputs.append(row)
 print(json.dumps({'outputs': outputs}, ensure_ascii=True, allow_nan=False))
 '''
 

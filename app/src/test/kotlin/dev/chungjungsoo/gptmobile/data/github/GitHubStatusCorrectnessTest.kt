@@ -1,7 +1,14 @@
 package dev.chungjungsoo.gptmobile.data.github
 
+import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
+import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ProgressiveToolCatalog
+import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
+import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -22,6 +29,108 @@ class GitHubStatusCorrectnessTest {
     private val now = 1_000_000L
     private val health = GitHubQuickWorkflow.defaults.single { it.id == "status" }.prompt
     private val tools: List<AgentToolDefinition> = listOf("github_context", "github_pr", "github_ci").map { GitHubOperationTool.definition(it) }
+
+    @Test fun compactCatalogStatusReadsReachRetainedAcceptanceWithExactToolNames() = runBlocking {
+        val suffix = "__selected_connection"
+        val nativeCalls = mutableListOf<JsonObject>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github$suffix", "Authorized fixture backend", buildJsonObject {}, modelVisible = false)
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                nativeCalls += arguments
+                val (family, action) = when (arguments["action"]) {
+                    JsonPrimitive("repo_status") -> "github_context" to "status"
+                    JsonPrimitive("get_commit_status_summary") -> "github_context" to "checks"
+                    JsonPrimitive("list_commits") -> "github_context" to "commits"
+                    JsonPrimitive("branch_context") -> "github_context" to "branch"
+                    JsonPrimitive("list_pull_requests") -> "github_pr" to "list"
+                    JsonPrimitive("pr_context") -> "github_pr" to "context"
+                    JsonPrimitive("list_workflow_runs") -> "github_ci" to "runs"
+                    else -> error("Unexpected native read: $arguments")
+                }
+                return AgentToolResult(callId, ToolResultContent.Json(healthSource(family, JsonObject(arguments + ("action" to JsonPrimitive(action))))), false)
+            }
+        }
+        val facades = listOf("github_context_inspect", "github_pr_inspect", "github_context", "github_pr", "github_ci").map { name ->
+            GitHubOperationTool(requireNotNull(GitHubOperationTool.operationName(name)), backend, "compact-status", name + suffix)
+        }
+        val definitions = facades.map { it.definition }
+        val catalog = requireNotNull(ProgressiveToolCatalog.create(definitions, health, githubMode = true))
+        val selected = catalog.selected(definitions + catalog.definition).filter { GitHubOperationTool.operationName(it.name) != null }
+        assertEquals(setOf("github_context_inspect$suffix", "github_pr_inspect$suffix", "github_ci$suffix"), selected.map { it.name }.toSet())
+        val saved = linkedMapOf<String, JsonObject>()
+        val book = GitHubEvidenceBook(
+            "compact-status",
+            "owner/repo",
+            "main",
+            definitions.map { it.name }.toSet(),
+            now = { now },
+            save = { id, row -> saved[id] = row },
+            runtimeIdentity = { buildJsonObject {} }
+        )
+        for (index in 0 until 12) {
+            val (records, epoch) = book.snapshot()
+            val next = GitHubStatusRequest.nextCall(selected, records, now, epoch, health, "owner/repo")
+            if (index == 0) assertNotNull("The actual compact catalog must issue its initial status read", next)
+            if (next == null) break
+            val tool = facades.single { it.definition.name == next.name }
+            assertEquals(emptyList<String>(), ToolArgumentValidator.errors(next.arguments, tool.definition.inputSchema))
+            val result = tool.execute(next.callId, next.arguments)
+            assertFalse(result.isError)
+            book.observe(next, result)
+        }
+        val (records, epoch) = book.snapshot()
+        assertEquals(9, nativeCalls.size)
+        assertEquals(9, records.size)
+        assertEquals(null, GitHubStatusRequest.nextCall(selected, records, now, epoch, health, "owner/repo"))
+        assertTrue(records.values.all { it["tool"] in selected.map { tool -> JsonPrimitive(tool.name) } })
+        assertTrue(records.values.any { it["tool"] == JsonPrimitive("github_context_inspect$suffix") })
+        assertTrue(records.values.any { it["tool"] == JsonPrimitive("github_pr_inspect$suffix") })
+        val original = records.toString()
+        val report = requireNotNull(GitHubEvidencePolicy.status(records, now, epoch, health, acceptedRepository = "owner/repo")).second
+        assertEquals(JsonPrimitive(true), report["completion_verified"])
+        assertEquals(7, report.getValue("requirements").jsonArray.size)
+        assertEquals(JsonPrimitive(150), report.getValue("check_inventory").jsonObject["observed_checks"])
+        for ((id, row) in records) {
+            assertEquals(saved.getValue(id)["tool"], row["tool"])
+            assertEquals(saved.getValue(id)["result_sha256"], row["result_sha256"])
+            assertEquals(JsonPrimitive(GitHubEvidenceBook.digest(saved.getValue(id).getValue("result").toString())), row["result_sha256"])
+        }
+        for (invalid in listOf(
+            "observed_at_ms" to JsonPrimitive(now - GitHubEvidencePolicy.MAX_AGE_MS - 1),
+            "trusted" to JsonPrimitive(false),
+            "verification_eligible" to JsonPrimitive(false),
+            "repository_role" to JsonPrimitive("READ_SOURCE"),
+            "repository" to JsonPrimitive("other/repo")
+        )) {
+            val excluded = records.mapValues { (_, row) -> JsonObject(row + invalid) }
+            assertTrue(GitHubEvidencePolicy.status(excluded, now, epoch, health, acceptedRepository = "owner/repo")?.second?.get("completion_verified") != JsonPrimitive(true))
+        }
+        assertEquals(original, records.toString())
+    }
+
+    @Test fun compactStatusAliasesConsumeOnlyAttemptsFromTheirExactConnection() = runBlocking {
+        val selected = GitHubOperationTool.definition("github_context_inspect", "github_context_inspect__selected")
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "Rejected read fixture", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(callId, ToolResultContent.Text("Access unavailable"), true, errorCode = "HTTP_403", dispatched = true)
+        }
+        suspend fun observed(name: String): Map<String, JsonObject> {
+            val facade = GitHubOperationTool("github_context", backend, "status-attempt", name)
+            val book = GitHubEvidenceBook("status-attempt", "owner/repo", "main", setOf(name), now = { now }, runtimeIdentity = { buildJsonObject {} })
+            val call = ProviderEvent.ToolCall("observed-$name", name, args("status"))
+            book.observe(call, facade.execute(call.callId, call.arguments))
+            return book.snapshot().first
+        }
+        val same = observed("github_context__selected")
+        assertEquals(null, GitHubStatusRequest.nextCall(listOf(selected), same, now, 0, acceptedRepository = "owner/repo"))
+        val foreign = observed("github_context__other")
+        val next = GitHubStatusRequest.nextCall(listOf(selected), foreign, now, 0, acceptedRepository = "owner/repo")
+        assertNotNull("Another connection's failed read cannot suppress the selected alias", next)
+        assertEquals(selected.name, next!!.name)
+        assertEquals(JsonPrimitive("status"), next.arguments["action"])
+        val foreignHead = scoped(receipt("github_context_inspect__other", args("status"), base().getValue("status").getValue("result").jsonObject))
+        assertEquals(JsonPrimitive("status"), requireNotNull(GitHubStatusRequest.nextCall(listOf(selected), mapOf("foreign" to foreignHead), now, 0, acceptedRepository = "owner/repo")).arguments["action"])
+    }
 
     @Test fun factLimitCannotHideScopeAfterALargeCheckCollection() {
         val source = checks(1, 100, 132)

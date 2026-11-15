@@ -30,16 +30,28 @@ internal data class IssueReportDiagnostics(
         if (schemaVersion !in setOf(1, 2, 3) || schemaVersion == 2 && area != "GATEWAY" || area == "INCIDENT" && schemaVersion != 3 || area !in areas || capturedAtMillis !in 1..9_999_999_999_999L || captureMode !in captureModes) return null
         val allowed = allowedFields(area, schemaVersion)
         if (values.keys.any { it !in allowed } || omittedFields.any { it !in allowed || it in values } || omittedFields.distinct().size != omittedFields.size) return null
+        if (values.keys.any { it in composerSlotFields } && omittedFields.any { it in composerSlotFields }) return null
         if (area != "INCIDENT" && values["incident_capture_site"] == JsonPrimitive("CHAT_FLOW_EMPTY_ANSWER")) return null
         if (captureMode == "NO_CAPTURE" && (values.isNotEmpty() || omittedFields.isNotEmpty())) return null
         val copied = linkedMapOf<String, JsonElement>()
         values.forEach { (key, value) -> copied[key] = validatedValue(key, value) ?: return null }
-        if (!alignedCriteria(copied) || schemaVersion == 3 && !IssueReportIncidentCapsule.aligned(copied)) return null
+        if (!alignedCriteria(copied) || !alignedComposer(copied) || schemaVersion == 3 && !IssueReportIncidentCapsule.aligned(copied)) return null
         val expectedUnavailable = requiredFields(area, schemaVersion).filterNot { it in copied }
-        if (unavailableFields.toSet() != expectedUnavailable.toSet() || unavailableFields.distinct().size != unavailableFields.size) return null
+        val optionalUnavailable = reasoningProbeFields.intersect(allowed) - copied.keys
+        if (!unavailableFields.containsAll(expectedUnavailable) || unavailableFields.any { it !in expectedUnavailable && it !in optionalUnavailable } || unavailableFields.distinct().size != unavailableFields.size) return null
         val snapshot = copy(values = copied.toMap(), unavailableFields = unavailableFields.toList(), omittedFields = omittedFields.toList())
         return snapshot.takeIf { IssueReport.json.encodeToString(serializer(), it).encodeToByteArray().size <= MAX_BYTES }
     }
+
+    /** Unreleased protocol 2 extends bounded observations without expanding readiness features. */
+    internal fun requiredReporterVersion(): Int =
+        if ((values.keys + omittedFields + unavailableFields).any { it in protocolTwoFields } ||
+            values["voice_playback_failure"] in setOf(JsonPrimitive("PRONUNCIATION_UNAVAILABLE"), JsonPrimitive("LEXICON_UNAVAILABLE"))
+        ) {
+            2
+        } else {
+            0
+        }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.handoffReconciliationFields }) add("HANDOFF_RECONCILIATION_EVIDENCE_V1")
@@ -107,7 +119,7 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in failureDetailFields }) add("INCIDENT_FAILURE_DETAILS_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.dispatchPolicyFields }) add("DISPATCH_POLICY_DIAGNOSTICS_V1")
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.policyDiagnostics }) add("CHANGED_POLICY_FIELDS_V1")
-        if ((values.keys + omittedFields).any { it in executionFields && (area != "GATEWAY" || it !in modelPreparationFields) } ||
+        if ((values.keys + omittedFields).any { it == "tool_budget_bytes_available" || it in executionFields && (area != "GATEWAY" || it !in modelPreparationFields) } ||
             values["provider_rejection_category"] == JsonPrimitive("BILLING_UNAVAILABLE")
         ) {
             add("EXECUTION_OUTCOME_DIAGNOSTICS_V1")
@@ -154,9 +166,16 @@ internal data class IssueReportDiagnostics(
         private val capacityDetailFields = setOf("admission_tool_schema_tokens", "admission_tool_result_reserve_tokens", "admission_attachment_reserve_tokens")
         private val reconciliationFields = conflictFields + transportFields + capacityDetailFields + "acceptance_pending_remote_continuations"
         private val reconciliationCodes = setOf("CONVERSATION_CONFLICT", "GITHUB_CIRCUIT_OPEN", "REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED")
-        private val admissionFields = setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason", "status_policy_recovery")
+        internal val reasoningProbeFields = setOf("reasoning_probe_outcome", "reasoning_probe_attempts", "reasoning_probe_age_ms", "reasoning_metadata_age_ms")
+        private val admissionFields = reasoningProbeFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason", "status_policy_recovery")
         private val issueRecoveryFields = setOf("voice_install_state", "voice_install_scheduler", "voice_install_failure", "voice_install_stop_reason", "voice_install_progress_percent", "github_transport_kind", "github_transport_wait_ms", "read_range_count", "read_invalid_window_count", "read_window_rejections", "argument_page_size", "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash", "repository_input_blocked_count", "workflow_input_blocked_count", "live_evidence_blocked_count", "acceptance_failed_operation_count", "acceptance_unresolved_claim_count", "acceptance_claim_failure_reasons")
-        private val composerEvidenceFields = setOf("composer_focus_transitions", "composer_ime_transitions", "composer_focused", "composer_ime_visible")
+        private val composerEventFields = (1..8).map { "composer_event_$it" }.toSet()
+        private val composerAgeFields = (1..8).map { "composer_event_${it}_age_ms" }.toSet()
+        internal val composerSlotFields = composerEventFields + composerAgeFields
+        internal val composerTimelineFields = composerSlotFields + setOf("composer_generation", "composer_events_dropped", "composer_enabled", "composer_window_focused", "composer_lifecycle", "composer_input_mode")
+        private val composerEvidenceFields = composerTimelineFields + setOf("composer_focus_transitions", "composer_ime_transitions", "composer_focused", "composer_ime_visible")
+        private val protocolTwoFields = reasoningProbeFields + composerTimelineFields + setOf("tool_budget_bytes_available", "graph_index_attempt_hash")
+        private val composerEvents = setOf("ATTACHED", "DETACHED", "EDITOR_FOCUSED", "EDITOR_UNFOCUSED", "IME_VISIBLE", "IME_HIDDEN", "WINDOW_FOCUSED", "WINDOW_UNFOCUSED", "CHAT_ENABLED", "CHAT_DISABLED", "INPUT_TOUCH", "INPUT_KEYBOARD", "LIFECYCLE_CREATE", "LIFECYCLE_START", "LIFECYCLE_RESUME", "LIFECYCLE_PAUSE", "LIFECYCLE_STOP", "LIFECYCLE_DESTROY", "RELEASE_SEND", "RELEASE_SHORTCUT", "RELEASE_BACKGROUND_TAP", "RELEASE_DISABLED", "RELEASE_LIFECYCLE_STOP", "RELEASE_DISPOSE")
         private val completionEvidenceFields = setOf("empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts")
         private val voicePackStateFields = setOf("voice_install_recognition_status", "voice_install_playback_status")
         private val voiceCapturePlaybackFields = setOf("voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment")
@@ -213,6 +232,7 @@ internal data class IssueReportDiagnostics(
         )
         private val commonHashes = setOf("run_id_hash", "invocation_id_hash", "call_id_hash", "job_id_hash", "profile_hash", "model_hash")
         private val hashFields = commonHashes + profileSelectionHashes + setOf(
+            "graph_index_attempt_hash",
             "reasoning_template_hash", "conflict_conversation_hash", "conflict_pending_tool_ids_hash",
             "voice_session_id_hash", "original_error_code_hash", "original_reason_code_hash", "server_request_id_hash", "generation_id_hash",
             "privacy_policy_hash", "backend_terminal_code_hash", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "argument_shape_hash", "checkpoint_hash", "gateway_manifest_hash", "gateway_operation_id_hash", "operation_id_hash"
@@ -222,10 +242,11 @@ internal data class IssueReportDiagnostics(
             "acceptance_fixture_creation_admissible", "status_branch_protected", "status_policy_complete",
             "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed",
             "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "privacy_zdr_required", "privacy_fallbacks_allowed",
-            "composer_focused", "composer_ime_visible", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "gateway_admission_ready", "model_preparation_load_accepted"
+            "composer_enabled", "composer_window_focused", "composer_focused", "composer_ime_visible", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "gateway_admission_ready", "model_preparation_load_accepted"
         )
         private val attempts = completionEvidenceFields + setOf("backend_attempts", "backend_completed_attempts", "backend_failed_attempt", "repair_attempts", "repair_attempt_limit")
         private val durations = setOf(
+            "reasoning_probe_age_ms", "reasoning_metadata_age_ms",
             "github_transport_wait_ms",
             "voice_speech_end_to_transcript_ms",
             "voice_transcript_to_request_ms",
@@ -237,6 +258,7 @@ internal data class IssueReportDiagnostics(
             "voice_warmup_ms"
         )
         private val counts = capacityEvidenceCounts + githubSchemaBudgetFields + setOf(
+            "tool_budget_bytes_available",
             "github_cooldown_remaining_requests",
             "reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total",
             "acceptance_unresolved_claim_count", "acceptance_pending_remote_continuations", "conflict_conversation_revision",
@@ -253,6 +275,9 @@ internal data class IssueReportDiagnostics(
         )
         private val finishReasons = setOf("STOP", "TOOL_CALLS", "LENGTH", "CONTENT_FILTER", "OTHER", "UNKNOWN")
         private val enums = mapOf(
+            "composer_lifecycle" to setOf("INITIALIZED", "CREATED", "STARTED", "RESUMED", "DESTROYED"),
+            "composer_input_mode" to setOf("TOUCH", "KEYBOARD"),
+            "reasoning_probe_outcome" to setOf("VERIFIED", "IDENTICAL_PROMPTS", "MISSING_THINK_MARKER", "PREFIX_MISMATCH", "SUFFIX_MISMATCH", "INVALID_PROMPT", "METADATA_CHANGED", "PROBE_UNAVAILABLE", "PROBE_DEADLINE", "MIXED_NEGATIVE_RESULTS"),
             "admission_capacity_provenance" to setOf("VERIFIED_ROUTE", "DECLARED", "CONSERVATIVE_POLICY", "UNKNOWN"),
             "conflict_active_job_provenance" to setOf("CONVERSATION_ACTIVE_JOB", "UNREPORTED"),
             "conflict_pending_tool_state" to setOf("IDENTIFIED", "MISSING", "EMPTY", "INVALID", "UNAVAILABLE", "NOT_REPORTED"),
@@ -312,7 +337,7 @@ internal data class IssueReportDiagnostics(
             "acceptance_evidence_scope" to setOf("CURRENT_VERDICT", "RETAINED_VERDICT"),
             "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO"),
             "voice_phase" to setOf("PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"),
-            "voice_playback_failure" to setOf("AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED"),
+            "voice_playback_failure" to setOf("AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED", "PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE"),
             "voice_install_recognition_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),
             "voice_install_playback_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),
             "voice_capture_silenced_stage" to setOf("CAPTURE_START", "CAPTURE_READ"),
@@ -355,7 +380,7 @@ internal data class IssueReportDiagnostics(
             "gateway_model_state", "gateway_failure_category", "gateway_dependency", "gateway_upstream_status", "gateway_upstream_message_code", "gateway_reconciliation_status"
         )
         private val fieldsByArea = mapOf(
-            "PROVIDER" to githubCooldownFields + profileSelectionFields + completionEvidenceFields + capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
+            "PROVIDER" to reasoningProbeFields + githubCooldownFields + profileSelectionFields + completionEvidenceFields + capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
                 "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash",
                 "provider_failure_stage", "provider_failure_domain", "provider_failure_code",
                 "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections",
@@ -365,7 +390,7 @@ internal data class IssueReportDiagnostics(
                 "privacy_policy_hash", "privacy_zdr_required", "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "privacy_fallbacks_allowed", "privacy_observation",
                 "backend_terminal_code_hash", "backend_terminal_status", "backend_finish_reason", "backend_status"
             ),
-            "TOOL" to githubCooldownFields + commonHashes + transportFields + setOf("github_transport_kind", "github_transport_wait_ms", "read_range_count", "read_invalid_window_count", "read_window_rejections", "argument_page_size", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"),
+            "TOOL" to setOf("tool_budget_bytes_available", "graph_index_attempt_hash") + githubCooldownFields + commonHashes + transportFields + setOf("github_transport_kind", "github_transport_wait_ms", "read_range_count", "read_invalid_window_count", "read_window_rejections", "argument_page_size", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "tool_name_hash", "tool_action_hash", "tool_schema_hash", "original_error_code_hash", "original_reason_code_hash", "argument_shape_hash", "missing_field_count", "invalid_field_count", "validation_error_count", "invalid_field_classes"),
             "ACCEPTANCE" to GitHubAcceptanceRecoveryEvidence.fields + acceptanceScopeFields + githubPrerequisiteFields + setOf("acceptance_pending_remote_continuations", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total", "status_policy_recovery", "branch_protection_http_status", "branch_rules_http_status") + commonHashes + criterionFields + setOf("acceptance_unresolved_claim_count", "acceptance_claim_failure_reasons", "repository_input_blocked_count", "workflow_input_blocked_count", "live_evidence_blocked_count", "acceptance_failed_operation_count", "unmet_requirement_count", "unmet_capability_count", "effective_call_limit", "used_calls", "remaining_calls", "verification_reserve", "pending_continuations", "unresolved_outcomes", "unmet_criterion_count", "unmet_criterion_omitted_count", "checkpoint_hash", "acceptance_evidence_scope"),
             "VOICE" to voiceInstallEvidenceFields + voicePackStateFields + voiceCapturePlaybackFields + setOf("voice_install_state", "voice_install_scheduler", "voice_install_failure", "voice_install_stop_reason", "voice_install_progress_percent", "voice_reply_state", "voice_reply_characters", "voice_session_id_hash", "profile_hash", "model_hash", "voice_generation", "voice_engine", "voice_phase", "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_speech_end_to_transcript_ms", "voice_transcript_to_request_ms", "voice_request_to_response_ms", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_focus_result", "voice_input_silenced", "voice_first_audio_basis"),
             "GATEWAY" to setOf("queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason", "status_policy_recovery") + commonHashes + modelPreparationFields + setOf("checkpoint_hash", "original_error_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed"),
@@ -410,6 +435,19 @@ internal data class IssueReportDiagnostics(
                 }
             }
             val omitted = mutableListOf<String>()
+            // A malformed local member invalidates the entire captured sequence,
+            // including cases where ordinary scalar filtering removed the tail.
+            if (area == "APP" &&
+                mode != "NO_CAPTURE" &&
+                (composerSlotFields.any { it in fields && it !in values } || !alignedComposer(values))
+            ) {
+                (1..8).filter { "composer_event_$it" in fields || "composer_event_${it}_age_ms" in fields }.forEach { slot ->
+                    for (field in listOf("composer_event_$slot", "composer_event_${slot}_age_ms")) {
+                        values.remove(field)
+                        omitted.add(field)
+                    }
+                }
+            }
             if (!alignedCriteria(values)) {
                 criterionFields.filter { it in values }.forEach {
                     values.remove(it)
@@ -440,6 +478,8 @@ internal data class IssueReportDiagnostics(
                 }
                 val shapePair = listOf("argument", "resolved_argument").firstOrNull { key in setOf("${it}_field_names", "${it}_field_types") }
                 val remove = when {
+                    key in composerSlotFields -> composerSlotFields.filter { it in values }
+                    key in setOf("composer_generation", "composer_events_dropped") -> listOf(key) + composerSlotFields.filter { it in values }
                     key in criterionFields -> criterionFields.filter { it in values }
                     shapePair != null -> listOf("${shapePair}_field_names", "${shapePair}_field_types").filter { it in values }
                     else -> listOf(key)
@@ -471,6 +511,18 @@ internal data class IssueReportDiagnostics(
             ).validated()
         }
 
+        /** Numbered slots retain capture order; equal-age and repeated observations remain distinct. */
+        private fun alignedComposer(values: Map<String, JsonElement>): Boolean {
+            val slots = (1..8).filter { "composer_event_$it" in values || "composer_event_${it}_age_ms" in values }
+            if (slots.isEmpty()) return true
+            if ("composer_generation" !in values || "composer_events_dropped" !in values || slots != (1..slots.size).toList()) return false
+            val ages = slots.map { slot ->
+                if ("composer_event_$slot" !in values) return false
+                (values["composer_event_${slot}_age_ms"] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull ?: return false
+            }
+            return ages.last() == 0L && ages.zipWithNext().all { (older, newer) -> older >= newer }
+        }
+
         private fun alignedCriteria(values: Map<String, JsonElement>): Boolean =
             criterionFields.mapNotNull { (values[it] as? JsonArray)?.size }.distinct().size <= 1
 
@@ -489,10 +541,15 @@ internal data class IssueReportDiagnostics(
             val primitive = value as? JsonPrimitive ?: return null
             if (key == "gateway_version") return string(primitive)?.takeIf { it.matches(Regex("[0-9]{1,4}(?:\\.[0-9]{1,4}){1,3}")) }?.let(::JsonPrimitive)
             if (key in hashFields) return string(primitive)?.takeIf(hashPattern::matches)?.let(::JsonPrimitive)
+            if (key in composerEventFields) return string(primitive)?.takeIf { it in composerEvents }?.let(::JsonPrimitive)
             enums[key]?.let { allowed -> return string(primitive)?.takeIf { it in allowed }?.let(::JsonPrimitive) }
             if (key in flags) return primitive.takeUnless { it.isString }?.booleanOrNull?.let(::JsonPrimitive)
             val number = primitive.takeUnless { it.isString }?.longOrNull ?: return null
             val range = when (key) {
+                "reasoning_probe_attempts" -> 0L..4L
+                "composer_generation" -> 1L..16_000_000L
+                "composer_events_dropped" -> 0L..16_000_000L
+                in composerAgeFields -> 0L..600_000L
                 "composer_focus_transitions", "composer_ime_transitions" -> 0L..255L
                 "voice_playback_focus_attempts" -> 1L..2L
                 "voice_generation" -> 0..Long.MAX_VALUE

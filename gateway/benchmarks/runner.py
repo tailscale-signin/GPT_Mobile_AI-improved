@@ -263,7 +263,9 @@ class BenchmarkRunner:
                              'integrity': 'VERIFIED', 'error': type(error).__name__, 'dimensions': {key: None for key in coding.CODING_WEIGHTS}}
                 attempts.append({key: value for key, value in final.items() if key not in {'dimensionDefinitions'}})
                 self.store.case(run['id'], ordinal, dict(final, status='RUNNING', graded=False, attempts=list(attempts), repairBudget=settings['repair_attempts']))
-                if final.get('resolved') or final.get('integrity') == 'VIOLATION' or final['status'] == 'ERROR':
+                # A missing evaluator proof cannot be repaired by another model
+                # proposal. Observed candidate failures remain repairable.
+                if final.get('resolved') or final.get('integrity') == 'VIOLATION' or final['status'] in {'ERROR', 'BLOCKED'}:
                     break
                 turns = [{'role': 'user', 'content': fixtures.prompt(task)},
                          {'role': 'assistant', 'content': answer[0] if answer else '{}'},
@@ -283,5 +285,6 @@ class BenchmarkRunner:
                        repairBudget=settings['repair_attempts'],
                        limitations=['Original isolated Python repository tasks, not a general intelligence or public benchmark score.',
                                     'Workflow, safety and recovery dimensions cover the declared fixture contract; no live GitHub operations or device execution are claimed.',
+                                    'Caller-input preservation is not independently verified; full task resolution and overall coding scores remain unavailable.',
                                     'Seeded variants reuse twelve task families; repeats are not independent new capabilities.'])
         return summary

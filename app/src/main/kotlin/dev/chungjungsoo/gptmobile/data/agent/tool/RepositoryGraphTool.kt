@@ -42,20 +42,33 @@ internal class RepositoryGraphTool(
         return try {
             val payload = JsonObject(options + (arguments - "options") + mapOf("budget_bytes" to JsonPrimitive(16000)))
             val observed = query(payload)
-            val unresolved = (observed["index_checkpoint"] as? JsonObject)?.get("index_outcome_unknown") == JsonPrimitive(true)
+            // GatewayGraphRepository replaces this object with its typed local observation.
+            // Remote graph results cannot author checkpoint join or confirmation evidence.
+            val checkpoint = observed["index_checkpoint"] as? JsonObject
+            val unresolved = checkpoint?.get("index_outcome_unknown") == JsonPrimitive(true)
+            val attemptHash = checkpoint?.hash("graph_index_attempt_hash")
+            val confirmedAttemptHash = checkpoint?.hash("confirmed_index_attempt_hash")
             AgentToolResult(
                 callId,
                 ToolResultContent.Json(if (unresolved) JsonObject(observed + savedIndexRecovery()) else observed),
                 isError = false,
-                executionReceipt = if (unresolved) {
+                executionReceipt = if (unresolved || attemptHash != null || confirmedAttemptHash != null) {
                     buildJsonObject {
                         put("schema", RECEIPT_SCHEMA)
                         put("call_id", callId)
+                        put("action", requireNotNull(arguments["action"]))
                         put("phase", "COMPLETED")
-                        put("index_outcome_unknown", true)
-                        put("requires_reconciliation", true)
-                        put("repair_action", "CHECK_SAVED_INDEX")
-                        put("recovery_action", "RECONCILE_OUTCOME")
+                        put("current_index_outcome_unknown", false)
+                        put("index_outcome_unknown", unresolved)
+                        // This operation completed. An earlier saved index remains a
+                        // separate obligation and must not block independent read handoff.
+                        put("requires_reconciliation", false)
+                        attemptHash?.let { put("graph_index_attempt_hash", it) }
+                        confirmedAttemptHash?.let { put("confirmed_index_attempt_hash", it) }
+                        if (unresolved) {
+                            put("repair_action", "CHECK_SAVED_INDEX")
+                            put("recovery_action", "RECONCILE_OUTCOME")
+                        }
                     }
                 } else {
                     null
@@ -81,6 +94,7 @@ internal class RepositoryGraphTool(
             }
             val rateLimitObservation = (cause as? GatewayGraphHttpFailure)?.rateLimitObservation
             val unresolved = operation?.indexOutcomeUnknown == true
+            val currentIndexUnknown = arguments["action"] == JsonPrimitive("index") && operation?.currentIndexOutcomeUnknown == true
             val repairAction = if (unresolved) "CHECK_SAVED_INDEX" else operation?.repairAction ?: admission?.repairAction ?: prerequisite?.prerequisites?.firstOrNull()?.nextAction
             val code = admission?.code ?: "REPOSITORY_GRAPH_UNAVAILABLE"
             val readAction = arguments["action"] !in setOf(JsonPrimitive("index"), JsonPrimitive("note"))
@@ -195,13 +209,25 @@ internal class RepositoryGraphTool(
                 executionReceipt = buildJsonObject {
                     put("schema", RECEIPT_SCHEMA)
                     put("call_id", callId)
+                    put("action", requireNotNull(arguments["action"]))
                     put("error_code", code)
-                    put("phase", if (admission != null) "PRECHECK_REJECTED" else "FAILED")
+                    put(
+                        "phase",
+                        if (admission != null) {
+                            "PRECHECK_REJECTED"
+                        } else if (currentIndexUnknown) {
+                            "UNKNOWN_OUTCOME"
+                        } else {
+                            "FAILED"
+                        }
+                    )
                     put("failed_stage", if (admission != null) "tool_precheck" else "tool_execution")
                     put("dispatched", admission == null)
                     put("retryable", false)
                     put("requires_reconciliation", unresolved)
                     put("index_outcome_unknown", unresolved)
+                    put("current_index_outcome_unknown", currentIndexUnknown)
+                    operation?.indexAttemptHash?.takeIf { it.matches(HASH) }?.let { put("graph_index_attempt_hash", it) }
                     repairAction?.let { put("repair_action", it) }
                     if (unresolved) put("recovery_action", "RECONCILE_OUTCOME")
                     httpStatus?.takeIf { it in 100..599 }?.let { put("http_status", it) }
@@ -213,6 +239,8 @@ internal class RepositoryGraphTool(
             )
         }
     }
+
+    private fun JsonObject.hash(key: String): String? = (get(key) as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.matches(HASH) }
 
     private fun nativeCall(operation: String, action: String) = buildJsonObject {
         put("tool", operation + nativeContextName.removePrefix("github_context"))
@@ -234,5 +262,6 @@ internal class RepositoryGraphTool(
 
     companion object {
         const val RECEIPT_SCHEMA = "gptmobile.repository-graph.v1"
+        private val HASH = Regex("[a-f0-9]{64}")
     }
 }

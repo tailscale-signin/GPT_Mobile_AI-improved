@@ -53,7 +53,7 @@ internal class IssueReportSubmission(
         val diagnosticFeatures = diagnostics?.requiredServiceFeatures().orEmpty()
         val requiredFeatures = diagnosticFeatures + requiredCodeFeatures(parsed, context, diagnostics)
         if (context != null || requiredFeatures.isNotEmpty()) {
-            contextSupport(requiredVersions, requiredFeatures)?.let { return it }
+            contextSupport(requiredVersions, requiredFeatures, diagnostics?.requiredReporterVersion() ?: 0)?.let { return it }
         }
         val request = Request.Builder().url("${origin.trimEnd('/')}/v1/issue-reports")
             .post(payload.toRequestBody(JSON_MEDIA_TYPE)).build()
@@ -89,7 +89,7 @@ internal class IssueReportSubmission(
         }
     }
 
-    private fun contextSupport(requiredVersions: Set<Int>, requiredFeatures: Set<String>): Failure? = try {
+    private fun contextSupport(requiredVersions: Set<Int>, requiredFeatures: Set<String>, minimumReporterVersion: Int): Failure? = try {
         client.newCall(Request.Builder().url("${origin.trimEnd('/')}/health/ready").get().build()).execute().use { response ->
             if (!response.isSuccessful) {
                 val retry = response.code in 500..599 || response.code in setOf(408, 425, 429)
@@ -101,7 +101,9 @@ internal class IssueReportSubmission(
             if (ready["service"] != JsonPrimitive("gpt-mobile-issue-reporter")) return@use Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)
             val versions = (ready["reportContextVersions"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeUnless { version -> version.isString }?.intOrNull }
             val features = (ready["reportDiagnosticFeatures"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { feature -> feature.isString }?.content }
-            if (versions.containsAll(requiredVersions) && features.containsAll(requiredFeatures)) null else Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false)
+            val reporterVersion = (ready["version"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+            val supportsReporterVersion = minimumReporterVersion == 0 || reporterVersion != null && reporterVersion >= minimumReporterVersion
+            if (supportsReporterVersion && versions.containsAll(requiredVersions) && features.containsAll(requiredFeatures)) null else Failure("REPORT_SERVICE_UPDATE_REQUIRED", retryable = true, automaticRetry = false)
         }
     } catch (_: IOException) {
         Failure("REPORT_SERVICE_UNAVAILABLE", retryable = true)

@@ -9,6 +9,36 @@ class FailureDetailsTest(unittest.TestCase):
                 "captureMode": "INCIDENT", "values": values,
                 "unavailableFields": sorted(CORE_FIELDS[area] - values.keys())}
 
+    def test_reasoning_probe_evidence_has_closed_outcomes_source_request_bounds_and_independent_ages(self):
+        from authentication.issue_report_diagnostics import ENUMS, REASONING_PROBE_FIELDS
+        values = {"reasoning_probe_outcome": "IDENTICAL_PROMPTS", "reasoning_probe_attempts": 2,
+                  "reasoning_probe_age_ms": 8000, "reasoning_metadata_age_ms": 8}
+        for outcome in ENUMS["reasoning_probe_outcome"]:
+            sample = self.snapshot("PROVIDER", dict(values, reasoning_probe_outcome=outcome))
+            self.assertEqual(sample, validate_diagnostics(sample))
+        for key in REASONING_PROBE_FIELDS:
+            invalid = ["private template", None, True, [], {}]
+            invalid += [0] if key == "reasoning_probe_outcome" else [-1, "2", 2.5, 5 if key == "reasoning_probe_attempts" else 86_400_001]
+            for value in invalid:
+                with self.subTest(key=key, value=value), self.assertRaises(ValueError):
+                    validate_diagnostics(self.snapshot("PROVIDER", dict(values, **{key: value})))
+            for declaration in ("omittedFields", "unavailableFields"):
+                sample = self.snapshot("PROVIDER", {})
+                sample[declaration] = sample.get(declaration, []) + [key]
+                self.assertEqual(sample, validate_diagnostics(sample))
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.snapshot("VOICE", {key: values[key]}))
+            sample = self.snapshot("PROVIDER", values)
+            sample["unavailableFields"].append(key)
+            with self.assertRaises(ValueError):
+                validate_diagnostics(sample)
+        for attempts in (0, 4):
+            self.assertTrue(validate_diagnostics(self.snapshot("PROVIDER", dict(values, reasoning_probe_attempts=attempts))))
+        for age in (0, 86_400_000):
+            self.assertTrue(validate_diagnostics(self.snapshot("PROVIDER", dict(values, reasoning_probe_age_ms=age, reasoning_metadata_age_ms=age))))
+        legacy = self.snapshot("PROVIDER", {"reasoning_capability_age_ms": 8})
+        self.assertEqual(legacy, validate_diagnostics(legacy))
+
     def test_readable_tool_and_recovery_facts_validate_without_private_values(self):
         for area, values in [
             ("TOOL", {"tool_action": "headers", "tool_error_code": "INVALID_ARGUMENTS",

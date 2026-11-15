@@ -103,7 +103,7 @@ internal fun CombinedFailuresDialog(
                             Column(Modifier.weight(1f).semantics { liveRegion = LiveRegionMode.Polite }) {
                                 Text(failure.profileName, style = MaterialTheme.typography.titleSmall)
                                 Text(failure.shortStatus(now), style = MaterialTheme.typography.bodySmall)
-                                if (failure.category in setOf("QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "STREAM_DEGRADED", "INCOMPATIBLE_CONFIGURATION")) Text(failure.reason, style = MaterialTheme.typography.bodySmall)
+                                if (failure.category in setOf("QUEUED_JOB", "CACHED_UNUSABLE_RESPONSE", "STREAM_DEGRADED", "INCOMPATIBLE_CONFIGURATION", "GITHUB_TOOL_CONTEXT_BUDGET")) Text(failure.reason, style = MaterialTheme.typography.bodySmall)
                             }
                             if (recoveryKind == ProfileRecoveryKind.NONE) {
                                 IconButton(

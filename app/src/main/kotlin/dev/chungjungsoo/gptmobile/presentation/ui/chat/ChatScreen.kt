@@ -392,6 +392,7 @@ private fun ChatScreenContent(
     var showOutline by rememberSaveable { mutableStateOf(false) }
     var pendingJumpKey by rememberSaveable { mutableStateOf<String?>(null) }
     val isLoaded by chatViewModel.isLoaded.collectAsStateWithLifecycle()
+    val composerDiagnostics = rememberComposerInputDiagnostics(chatViewModel.question)
     val activeAgentRuns by chatViewModel.activeAgentRuns.collectAsStateWithLifecycle()
     val runNoticesById by chatViewModel.runNoticesById.collectAsStateWithLifecycle()
     val toolEventsByRun by chatViewModel.toolEventsByRun.collectAsStateWithLifecycle()
@@ -804,7 +805,10 @@ private fun ChatScreenContent(
             .clickable(
                 indication = null,
                 interactionSource = remember { MutableInteractionSource() }
-            ) { focusManager.clearFocus() },
+            ) {
+                composerDiagnostics?.release(ComposerInputDiagnostics.Release.BACKGROUND_TAP)
+                focusManager.clearFocus()
+            },
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             if (showTopBar) {
@@ -1212,6 +1216,7 @@ private fun ChatScreenContent(
                     ChatInputBox(
                         modifier = Modifier.fillMaxWidth(),
                         inputState = chatViewModel.question,
+                        diagnostics = composerDiagnostics,
                         workflows = chatToolConfig.github?.let { github ->
                             featureSettings.githubProfileOverrides[github.mainProfileUid]?.quickWorkflows
                                 ?: dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow.defaults
@@ -2543,6 +2548,28 @@ private fun Context.toolTraceLabels(): ToolTraceLabels = ToolTraceLabels(
     startedAt = getString(R.string.tool_trace_timing_started_at)
 )
 
+@Composable
+private fun rememberComposerInputDiagnostics(inputState: TextFieldState): ComposerInputDiagnostics? {
+    val enabled by dev.chungjungsoo.gptmobile.data.diagnostics.LocalDiagnosticsPolicy.state.collectAsStateWithLifecycle()
+    val privateSession by dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.privateSession.collectAsStateWithLifecycle()
+    val epoch by dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots.originEpoch.collectAsStateWithLifecycle()
+    return remember(inputState, enabled, privateSession, epoch) {
+        if (!enabled || privateSession) return@remember null
+        val origin = dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots.captureOrigin() ?: return@remember null
+        val generation = ComposerInputDiagnostics.nextGeneration() ?: return@remember null
+        ComposerInputDiagnostics(
+            generation = generation,
+            originIsCurrent = { dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots.isCurrent(origin) },
+            publish = { fields, capturedAt ->
+                dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.fromFields("MANUAL_REPORT", fields, capturedAt)?.let {
+                    dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots.retain(it, origin)
+                }
+            },
+            elapsedMillis = android.os.SystemClock::elapsedRealtime
+        )
+    }
+}
+
 @Preview
 @Composable
 fun ChatInputBox(
@@ -2562,6 +2589,7 @@ fun ChatInputBox(
     attachmentsEnabled: Boolean = true,
     workflows: List<dev.chungjungsoo.gptmobile.data.github.GitHubQuickWorkflow> = emptyList(),
     isPreparingSend: Boolean = false,
+    diagnostics: ComposerInputDiagnostics? = null,
     onSendButtonClick: () -> Unit = {}
 ) {
     val localStyle = LocalTextStyle.current
@@ -2580,34 +2608,54 @@ fun ChatInputBox(
     var composerFocused by remember(inputState) { mutableStateOf(false) }
     val composerIme = WindowInsets.ime
     val composerDensity = androidx.compose.ui.platform.LocalDensity.current
-    LaunchedEffect(inputState, composerIme, composerDensity) {
-        if (!dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents.diagnosticCaptureEnabled()) return@LaunchedEffect
-        var previous: Pair<Boolean, Boolean>? = null
-        var focusTransitions = 0
-        var keyboardTransitions = 0
-        snapshotFlow { composerFocused to (composerIme.getBottom(composerDensity) > 0) }.collect { current ->
-            previous?.let { prior ->
-                if (prior.first != current.first) focusTransitions = (focusTransitions + 1).coerceAtMost(255)
-                if (prior.second != current.second) keyboardTransitions = (keyboardTransitions + 1).coerceAtMost(255)
-            }
-            previous = current
-            dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics.fromFields(
-                "MANUAL_REPORT",
-                mapOf(
-                    "diagnostic_area" to "APP",
-                    "diagnostic_capture_mode" to "SELECTED_CAPTURE",
-                    "composer_focus_transitions" to focusTransitions,
-                    "composer_ime_transitions" to keyboardTransitions,
-                    "composer_focused" to current.first,
-                    "composer_ime_visible" to current.second
-                ),
-                System.currentTimeMillis()
-            )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
+    val composerDiagnostics = diagnostics ?: rememberComposerInputDiagnostics(inputState)
+    val composerWindow = androidx.compose.ui.platform.LocalWindowInfo.current
+    val composerInputMode = androidx.compose.ui.platform.LocalInputModeManager.current
+    val composerLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    fun observedComposerState() = ComposerInputDiagnostics.State(
+        focused = composerFocused,
+        imeVisible = composerIme.getBottom(composerDensity) > 0,
+        enabled = chatEnabled,
+        windowFocused = composerWindow.isWindowFocused,
+        lifecycle = ComposerInputDiagnostics.LifecycleState.valueOf(composerLifecycle.lifecycle.currentState.name),
+        inputMode = if (composerInputMode.inputMode == androidx.compose.ui.input.InputMode.Keyboard) ComposerInputDiagnostics.InputMode.KEYBOARD else ComposerInputDiagnostics.InputMode.TOUCH
+    )
+    DisposableEffect(inputState, composerDiagnostics) {
+        composerDiagnostics?.attach(observedComposerState())
+        onDispose {
+            // Retiring this capture is not evidence of a navigation action.
+            composerDiagnostics?.detach()
         }
+    }
+    DisposableEffect(composerDiagnostics, composerLifecycle) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            val observedEvent = when (event) {
+                Lifecycle.Event.ON_CREATE -> ComposerInputDiagnostics.LifecycleEvent.CREATE
+                Lifecycle.Event.ON_START -> ComposerInputDiagnostics.LifecycleEvent.START
+                Lifecycle.Event.ON_RESUME -> ComposerInputDiagnostics.LifecycleEvent.RESUME
+                Lifecycle.Event.ON_PAUSE -> ComposerInputDiagnostics.LifecycleEvent.PAUSE
+                Lifecycle.Event.ON_STOP -> ComposerInputDiagnostics.LifecycleEvent.STOP
+                Lifecycle.Event.ON_DESTROY -> ComposerInputDiagnostics.LifecycleEvent.DESTROY
+                Lifecycle.Event.ON_ANY -> null
+            }
+            observedEvent?.let {
+                composerDiagnostics?.lifecycle(it, ComposerInputDiagnostics.LifecycleState.valueOf(composerLifecycle.lifecycle.currentState.name))
+            }
+        }
+        composerLifecycle.lifecycle.addObserver(observer)
+        onDispose {
+            composerLifecycle.lifecycle.removeObserver(observer)
+        }
+    }
+    LaunchedEffect(inputState, composerDiagnostics, composerIme, composerDensity, composerWindow, composerInputMode, composerLifecycle, chatEnabled) {
+        if (composerDiagnostics == null) return@LaunchedEffect
+        snapshotFlow { observedComposerState() }.collect(composerDiagnostics::observe)
     }
     var restingFocusEnabled by remember(inputState) { mutableStateOf(false) }
     var restingFocused by remember(inputState) { mutableStateOf(false) }
-    fun releaseComposerInput(disposing: Boolean = false) {
+    fun releaseComposerInput(actor: ComposerInputDiagnostics.Release, disposing: Boolean = false) {
+        composerDiagnostics?.observe(observedComposerState())
+        composerDiagnostics?.release(actor)
         // A tab can remove only the composer while the parent chat stays mounted.
         // Release this editor's input session without dismissing another field's focus.
         if (composerFocused) {
@@ -2629,27 +2677,38 @@ fun ChatInputBox(
                 }
             }
         }
+        composerDiagnostics?.observe(observedComposerState())
         reportComposerFocus(composerFocused)
     }
-    DisposableEffect(inputState, composerFocusManager, composerKeyboard) {
-        onDispose { releaseComposerInput(disposing = true) }
+    val releaseOnDispose = key(inputState, composerFocusManager, composerKeyboard) {
+        // Refresh diagnostic authority without making policy changes release the
+        // editor. The state holder also belongs to this exact editor/owner tuple.
+        androidx.compose.runtime.rememberUpdatedState {
+            releaseComposerInput(ComposerInputDiagnostics.Release.DISPOSE, disposing = true)
+        }
     }
-    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { releaseComposerInput() }
+    // Keep physical cleanup after the capture effect: Compose forgets effects in
+    // reverse order, so release is recorded before that capture is detached.
+    DisposableEffect(inputState, composerFocusManager, composerKeyboard) {
+        onDispose { releaseOnDispose.value() }
+    }
+    LifecycleEventEffect(Lifecycle.Event.ON_STOP) { releaseComposerInput(ComposerInputDiagnostics.Release.LIFECYCLE_STOP) }
     LaunchedEffect(chatEnabled) {
-        if (!chatEnabled) releaseComposerInput()
+        if (!chatEnabled) releaseComposerInput(ComposerInputDiagnostics.Release.DISABLED)
     }
     // Sending explicitly releases the editor. Run-state changes can also come
     // from restored or background work while the user is typing a different draft.
     val haptic = dev.chungjungsoo.gptmobile.presentation.common.rememberAppHaptic()
     var composerNotice by remember { mutableStateOf("") }
-    val sendAction = {
+    fun sendComposer(actor: ComposerInputDiagnostics.Release) {
         if (chatEnabled && sendButtonEnabled && !isPreparingSend && (inputState.text.isNotEmpty() || selectedAttachments.isNotEmpty())) {
             haptic(dev.chungjungsoo.gptmobile.presentation.common.AppHaptic.CONFIRMATION)
             composerNotice = "Sending message"
-            releaseComposerInput()
+            releaseComposerInput(actor)
             onSendButtonClick()
         }
     }
+    val sendAction = { sendComposer(ComposerInputDiagnostics.Release.SEND) }
     var attachmentMenu by remember { mutableStateOf(false) }
     LaunchedEffect(composerNotice) {
         if (composerNotice.isNotEmpty()) {
@@ -2709,13 +2768,14 @@ fun ChatInputBox(
                         state = inputState,
                         modifier = Modifier.fillMaxWidth().focusRequester(inputFocus).semantics { contentDescription = "Message input" }.onPreviewKeyEvent {
                             if (it.isCtrlPressed && it.key == androidx.compose.ui.input.key.Key.Enter) {
-                                if (it.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) sendAction()
+                                if (it.type == androidx.compose.ui.input.key.KeyEventType.KeyUp) sendComposer(ComposerInputDiagnostics.Release.SHORTCUT)
                                 true
                             } else {
                                 false
                             }
                         }.onFocusChanged {
                             composerFocused = it.isFocused
+                            composerDiagnostics?.observe(observedComposerState())
                             reportComposerFocus(it.isFocused)
                         },
                         enabled = chatEnabled,

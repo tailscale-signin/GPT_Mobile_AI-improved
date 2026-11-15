@@ -59,6 +59,46 @@ class ToolExecutionBudget(
     fun canExecute(): Boolean = (separateResultAllowance || remainingBytes.get() > 0) && !callBudgetIsExhausted()
     fun remainingOutputBytes(): Int = if (separateResultAllowance) outputByteLimit.get().coerceAtLeast(0) else remainingBytes.get().coerceAtLeast(0)
 
+    /** One read-only observation for admission and its receipt; never reserves or renews work. */
+    data class Snapshot(
+        val canExecute: Boolean,
+        val remainingOutputBytes: Int,
+        val callsUsed: Int,
+        val callsLimit: Int?,
+        val callsConfigured: Int?,
+        val callsReserved: Int?,
+        val resultBytesUsed: Int?,
+        val resultBytesLimit: Int?
+    ) {
+        fun attach(result: AgentToolResult): AgentToolResult = result.copy(
+            toolCallBudgetUsed = callsUsed,
+            toolCallBudgetLimit = callsLimit,
+            toolCallBudgetConfigured = callsConfigured,
+            toolCallBudgetReserved = callsReserved,
+            toolResultBudgetUsedBytes = resultBytesUsed,
+            toolResultBudgetLimitBytes = resultBytesLimit
+        )
+    }
+
+    fun snapshot(): Snapshot = synchronized(outputAdmissionLock) {
+        val usedCalls = calls.get()
+        val outputLimit = outputByteLimit.get()
+        val remaining = remainingBytes.get()
+        val configuredCalls = limits.maxToolCalls.takeUnless { limits.researchAcquisition && !combinedMode || it == Int.MAX_VALUE }
+        val callLimit = executionLimit.takeUnless { limits.researchAcquisition && !combinedMode || it == Int.MAX_VALUE }
+        val resultByteLimit = outputLimit.takeUnless { separateResultAllowance || it == Int.MAX_VALUE }
+        Snapshot(
+            canExecute = (separateResultAllowance || remaining > 0) && (callLimit == null || usedCalls < callLimit),
+            remainingOutputBytes = (if (separateResultAllowance) outputLimit else remaining).coerceAtLeast(0),
+            callsUsed = usedCalls,
+            callsLimit = callLimit,
+            callsConfigured = configuredCalls,
+            callsReserved = configuredCalls?.let { limits.finalResponseToolCallReserve.coerceAtLeast(0) },
+            resultBytesUsed = resultByteLimit?.let { limit -> (limit.toLong() - remaining.toLong()).coerceIn(0L, limit.toLong()).toInt() },
+            resultBytesLimit = resultByteLimit
+        )
+    }
+
     /** Fund a newly admitted tool from its replanned context before any execution attempt. */
     internal fun admitPlannedOutputAllowance(maxBytes: Int): Boolean = synchronized(outputAdmissionLock) {
         if (maxBytes <= 0 || limits.maxToolOutputBytes != 0 || outputAdmissionClosed || separateResultAllowance || limits.githubTask) {
@@ -617,22 +657,7 @@ class ToolExecutionBudget(
         )
     }
 
-    private fun withBudgetState(result: AgentToolResult): AgentToolResult {
-        val configuredCalls = limits.maxToolCalls.takeUnless { limits.researchAcquisition && !combinedMode || it == Int.MAX_VALUE }
-        val callLimit = executionLimit.takeUnless { limits.researchAcquisition && !combinedMode || it == Int.MAX_VALUE }
-        val resultByteLimit = outputByteLimit.get().takeUnless { separateResultAllowance || it == Int.MAX_VALUE }
-        val resultBytesUsed = resultByteLimit?.let { limit ->
-            (limit.toLong() - remainingBytes.get().toLong()).coerceIn(0L, limit.toLong()).toInt()
-        }
-        return result.copy(
-            toolCallBudgetUsed = calls.get(),
-            toolCallBudgetLimit = callLimit,
-            toolCallBudgetConfigured = configuredCalls,
-            toolCallBudgetReserved = configuredCalls?.let { limits.finalResponseToolCallReserve.coerceAtLeast(0) },
-            toolResultBudgetUsedBytes = resultBytesUsed,
-            toolResultBudgetLimitBytes = resultByteLimit
-        )
-    }
+    private fun withBudgetState(result: AgentToolResult): AgentToolResult = snapshot().attach(result)
 
     private fun AgentToolResult.hasSuccessfulDelegationMarker(): Boolean =
         (content as? ToolResultContent.Text)?.text?.trimStart()?.let { text ->

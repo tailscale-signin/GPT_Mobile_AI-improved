@@ -1,5 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import dev.chungjungsoo.gptmobile.data.agent.GitHubSchemaBudget
+import dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException
+import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityObservation
 import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus
 import dev.chungjungsoo.gptmobile.data.context.ReasoningMode
@@ -86,5 +89,16 @@ class ProfileRecoveryControlsTest {
         assertEquals(ProfileRecoveryKind.SETTINGS, profileRecoveryKind("REQUEST_REJECTED", "invalid configuration"))
         assertEquals(ProfileRecoveryKind.NONE, profileRecoveryKind("DNS_FAILURE", "DNS could not resolve"))
         assertEquals(ProfileRecoveryKind.NONE, profileRecoveryKind("INCOMPLETE", "ordinary incomplete answer"))
+    }
+
+    @Test fun schemaCapacityFailureRequiresSettingsInsteadOfAnUnchangedOrModelRecheckRetry() {
+        val event = GitHubToolContextBudgetException(2481, 1675, GitHubSchemaBudget(5632, 2485, 512, 256, 704)).providerFailure()
+        val failure = ProfileFailureRecord.fromProvider(event.message, event.errorCode, event.failureDetails)
+        val kind = profileRecoveryKind(failure.category, event.message)
+        assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", failure.category)
+        assertFalse(failure.retryAllowed)
+        assertEquals(ProfileRecoveryKind.SETTINGS, kind)
+        assertFalse(kind.requiresModelRecheck)
+        assertEquals(ProfileRecoveryKind.NONE, profileRecoveryKind("DNS_RESOLUTION_FAILED", "Connection failed; GITHUB_TOOL_CONTEXT_BUDGET is an unrelated quoted code"))
     }
 }

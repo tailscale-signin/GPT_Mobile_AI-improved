@@ -5,10 +5,19 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import dev.chungjungsoo.gptmobile.data.agent.GitHubSchemaBudget
+import dev.chungjungsoo.gptmobile.data.agent.GitHubToolContextBudgetException
+import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
 import dev.chungjungsoo.gptmobile.data.context.ReasoningCapabilityStatus
 import dev.chungjungsoo.gptmobile.data.context.ReasoningMode
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItem
+import dev.chungjungsoo.gptmobile.data.database.entity.AssistantTimelineItemType
+import dev.chungjungsoo.gptmobile.data.database.entity.MessageV2
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningCapabilityContent
 import dev.chungjungsoo.gptmobile.presentation.ui.setting.ReasoningCapabilityUiState
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -23,6 +32,40 @@ import org.robolectric.annotation.Config
 @Config(application = Application::class, sdk = [34])
 class ProfileRecoveryPresentationTest {
     @get:Rule val compose = createComposeRule(effectContext = StandardTestDispatcher())
+
+    @Test fun schemaCapacityRecoveryShowsItsReasonAndOpensOnlyTheOwningSettings() {
+        val event = GitHubToolContextBudgetException(2481, 1675, GitHubSchemaBudget(5632, 2485, 512, 256, 704)).providerFailure()
+        val failure = ProfileFailureRecord.fromProvider(event.message, event.errorCode, event.failureDetails)
+        val run = AgentRun("capacity-failure", 1, 1, 2, "small", "LLAMA", "selected-model", status = AgentRunStatus.FAILED, terminalError = event.message)
+        val message = MessageV2(id = 2, chatId = 1, content = "", platformType = "small", currentRunId = run.runId, timeline = listOf(AssistantTimelineItem(AssistantTimelineItemType.NOTICE, profileFailure = failure)))
+        val failures = combinedProfileFailures(1, "Inspect the repository", listOf(message), mapOf(run.runId to run), mapOf("small" to "Small-context profile"), emptyMap())
+        val settings = mutableListOf<String>()
+        compose.setContent {
+            MaterialTheme {
+                CombinedFailuresDialog(
+                    failures = failures,
+                    identities = emptyMap(),
+                    onRetry = { _, _ -> error("retry must not dispatch") },
+                    onRemove = { error("membership must not change") },
+                    onContinue = { error("continuation must not start") },
+                    onDismiss = {},
+                    canContinue = false,
+                    onChangeSettings = { settings += it },
+                    onRecheckReasoning = { _, _ -> error("model qualification") },
+                    onSwitchToAuto = { error("reasoning change") }
+                )
+            }
+        }
+        compose.onNodeWithText("Context too small for required tools").assertIsDisplayed()
+        compose.onNodeWithText(failures.single().reason).assertIsDisplayed()
+        compose.onNodeWithText("Change the rejected configuration before starting a new request. Saved replies and tool results remain.").assertIsDisplayed()
+        compose.onNodeWithContentDescription("Retry Small-context profile").assertDoesNotExist()
+        compose.onNodeWithText("Retry checked configuration").assertDoesNotExist()
+        compose.onNodeWithText("Retry with checked model").assertDoesNotExist()
+        compose.onNodeWithText("Recheck model").assertDoesNotExist()
+        compose.onNodeWithText("Change settings for Small-context profile").performClick()
+        assertEquals(listOf("small"), settings)
+    }
 
     @Test fun unsupportedOffExposesSeparateReadOnlyCheckAndExplicitAutoWithoutRetry() {
         var checks = 0

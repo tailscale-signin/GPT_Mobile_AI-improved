@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceReplyFailureDiagnosticsTest {
@@ -69,6 +70,38 @@ class VoiceReplyFailureDiagnosticsTest {
         privateTrace.advance(1).replyFailure(VoiceReplyFailureDiagnostics.fields("private-hidden-run", VoicePhase.THINKING, true, null, "FAILED"))
         assertEquals(emptyMap<String, Any?>(), privateTrace.incidentFields())
         privateTrace.close()
+    }
+
+    @Test fun newPlaybackCannotSerializeThePreviousReplyFailureOrRunJoin() {
+        val trace = VoiceDiagnosticTrace(now = { 1_000 }, wallClock = { 1_800_000_000_000 }, allowed = { true }, retainSnapshot = {})
+        val old = trace.advance(38, reset = true)
+        old.captureAttempt()
+        old.read(20, 12)
+        val previous = VoiceReplyFailureDiagnostics.fields("private-previous-run", VoicePhase.PREPARING, false, null, "COMPLETED") +
+            mapOf("voice_reply_state" to "EMPTY_REPLY", "voice_reply_characters" to 0)
+        old.replyFailure(previous)
+        val oldHash = IssueReportContext.identifierHash("run", "private-previous-run")
+        assertEquals(JsonPrimitive(oldHash), trace.incidentFields()["run_id_hash"])
+        val current = trace.beginReply(40)
+        current.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        current.phase(VoicePhase.SPEAKING)
+        current.playbackFailure("SYNTHESIS_FAILED")
+        old.replyFailure(previous)
+        val fields = trace.incidentFields() + mapOf("failed_stage" to "voice_playback", "operation" to "voice_playback")
+        val context = IssueReportContext.fromFields("VOICE_STATE", IssueReportIncidentCapsule.fields(ReportFeature.VOICE, "VOICE_STATE", "VOICE_PLAYBACK_FAILED", fields), 1_800_000_000_000)
+        val diagnostics = requireNotNull(context.diagnostics)
+        assertTrue(diagnostics.isValid())
+        assertEquals(JsonPrimitive(40L), diagnostics.values["voice_generation"])
+        assertEquals(JsonPrimitive(20L), diagnostics.values["voice_captured_samples"])
+        assertEquals(JsonPrimitive("VOICE_PLAYBACK_FAILED"), diagnostics.values["causal_failure_code"])
+        val report = IssueReport("75d84431-c695-4ff4-973b-3a80d63d5993", "debug", "1.0", 1, "abcdef0", "16", 36, "Fixture", feature = "voice", errorCode = "VOICE_PLAYBACK_FAILED", context = context)
+        val payload = report.approvedPayload()
+        assertFalse(payload.contains(requireNotNull(oldHash)))
+        assertFalse(payload.contains("EMPTY_REPLY"))
+        assertFalse(payload.contains("VOICE_SESSION_FAILED"))
+        assertFalse(diagnostics.values.keys.any { it.startsWith("voice_reply_") || it.startsWith("voice_chat_failure_") })
+        assertFalse(payload.contains("private"))
+        trace.close()
     }
 
     private fun context(fields: Map<String, Any?>) = IssueReportContext.fromFields("VOICE_STATE", IssueReportIncidentCapsule.fields(ReportFeature.VOICE, "VOICE_STATE", "VOICE_SESSION_FAILED", fields), 1_800_000_000_000)

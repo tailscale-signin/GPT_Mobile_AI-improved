@@ -2924,6 +2924,7 @@ class ChatRepositoryImpl(
             afterSearch = crawlStage?.let { stage -> { id, sources -> stage.execute(id, sources) } },
             canExecute = acquisitionBudget::canExecute,
             remainingBytes = acquisitionBudget::remainingOutputBytes,
+            budgetSnapshot = acquisitionBudget::snapshot,
             policy = searchPolicy,
             ownerRoute = "$runId:$profileUid",
             configurationRevision = { settingRepository.getFeatureSettings().hashCode().toString() }
@@ -4909,6 +4910,7 @@ class ChatRepositoryImpl(
             customRunner.limits.copy(
                 contextTokens = limits.contextTokens,
                 githubTask = githubTask,
+                githubTaskRequest = acceptedObjective.takeIf { githubTask },
                 githubMode = chatToolConfig?.github != null,
                 runTimeoutMillis = minOf(githubPreset?.minutes?.toLong()?.times(60_000) ?: Long.MAX_VALUE, customRunner.limits.runTimeoutMillis, budgetSettings.generationTimeoutMinutes.takeIf { it > 0 }?.toLong()?.times(60_000) ?: Long.MAX_VALUE),
                 maxToolCalls = githubPreset?.let {
@@ -6969,6 +6971,11 @@ class ChatRepositoryImpl(
     override suspend fun fetchMessageReferencesV2(chatId: Int): List<MessageV2> = messageV2Dao.rawLoadMessages(chatId).map { it.decodedArchiveText() }
 
     override suspend fun resolveCombinedMessage(message: MessageV2): MessageV2 = dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.resolve(messageV2Dao, message)
+
+    override suspend fun terminalVoiceReply(chatId: Int, messageId: Int, runId: String, expectedFence: Long): dev.chungjungsoo.gptmobile.data.voice.VoiceTerminalReply? {
+        val snapshot = agentPersistenceDao.terminalVoiceReply(chatId, messageId, runId, expectedFence) ?: return null
+        return snapshot.copy(message = resolveCombinedMessage(snapshot.message))
+    }
 
     override suspend fun combinedDocumentBlocks(reference: dev.chungjungsoo.gptmobile.data.database.entity.CombinedManifestReference, first: Int, count: Int): List<dev.chungjungsoo.gptmobile.data.agent.CombinedDocumentBlock> =
         dev.chungjungsoo.gptmobile.data.agent.CombinedDocuments.blocks(messageV2Dao, reference, first, count)

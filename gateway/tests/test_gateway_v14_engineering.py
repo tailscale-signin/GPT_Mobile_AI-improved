@@ -50,6 +50,32 @@ class Backend:
 
 
 class DurableEngineeringTests(unittest.TestCase):
+    def test_post_merge_completion_receipt_retains_the_final_qualification(self):
+        for verdict in ('PENDING', 'FAILED', 'BLOCKED', 'PASSED'):
+            with self.subTest(verdict=verdict):
+                job = self.store.create('owner', dict(self.request, request_id='merge-' + verdict))
+                claimed, lease, _ = self.store.claim(job['id'])
+                self.store.complete(claimed, lease, 'VERIFY', {'readiness': self.backend.evidence, 'merge_sha': 'c' * 40})
+                receipts = []
+                original_append = self.service.evidence.append
+                def append(job, kind, payload, *args, **kwargs):
+                    if kind == 'completion_gate':
+                        receipts.append(copy.deepcopy(payload))
+                    return original_append(job, kind, payload, *args, **kwargs)
+                output = {'post_merge': {'status': verdict, 'reason': 'FIXTURE_' + verdict},
+                          'result': {'merged': True, 'merge_sha': 'c' * 40}}
+                with patch.object(self.backend, 'step', return_value=output), patch.object(self.service.evidence, 'append', side_effect=append):
+                    self.service.tick(job['id'])
+                saved = self.store.get(job['id'])
+                self.assertEqual(saved['data']['completion_verification'], receipts[-1])
+                if verdict != 'PASSED':
+                    self.assertFalse(receipts[-1]['passed'])
+                if verdict in ('FAILED', 'BLOCKED'):
+                    self.assertIn('FIXTURE_' + verdict, receipts[-1]['failures'])
+                    self.assertEqual('NEEDS_INPUT', saved['state'])
+                if verdict == 'PENDING':
+                    self.assertEqual('VERIFY', saved['state'])
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.time = 1000.
@@ -105,6 +131,55 @@ class DurableEngineeringTests(unittest.TestCase):
         asyncio.run(run())
         self.assertEqual(['parent:start', 'start:authenticated', 'start:public', 'backend:cancel',
                           'close:authenticated', 'close:public', 'reader:close', 'parent:close'], events)
+        self.assertFalse(self.service.thread.is_alive())
+
+    def test_independent_branches_progress_while_one_stage_is_blocked(self):
+        first = self.store.create('owner', self.request)
+        second = self.store.create('owner', dict(self.request, request_id='second', branch='feature/second', chat_id=13))
+        entered = {first['id']: threading.Event(), second['id']: threading.Event()}
+        release = threading.Event()
+        def tick(job_id):
+            entered[job_id].set()
+            release.wait(3)
+        self.service.tick = tick
+        self.service.start()
+        try:
+            self.assertTrue(entered[first['id']].wait(2))
+            self.assertTrue(entered[second['id']].wait(2))
+        finally:
+            self.service.stop.set()
+            release.set()
+            self.service.wake.set()
+            self.service.thread.join(4)
+        self.assertFalse(self.service.thread.is_alive())
+
+    def test_queued_occupied_branch_does_not_hide_independent_work(self):
+        jobs = [self.store.create('owner', dict(self.request, request_id='queued-' + str(index), chat_id=12 + index,
+                                               branch='feature/independent' if index == 3 else self.request['branch']))
+                for index in range(4)]
+        entered = {job['id']: threading.Event() for job in jobs}
+        release = threading.Event()
+        for index, job in enumerate(jobs):
+            self.store.tx(lambda db, index=index, job=job: db.execute(
+                'UPDATE engineering_jobs SET next_at=? WHERE id=?', (self.time - 10 + index, job['id'])))
+        def tick(job_id):
+            # Claim through the real journal so due() excludes the running job.
+            self.assertIsNotNone(self.store.claim(job_id))
+            entered[job_id].set()
+            release.wait(4)
+        self.service.tick = tick
+        with patch.dict('os.environ', {'GATEWAY_ENGINEERING_WORKERS': '2'}):
+            self.service.start()
+            try:
+                self.assertTrue(entered[jobs[0]['id']].wait(2))
+                self.assertTrue(entered[jobs[3]['id']].wait(2), 'An independent branch was hidden by occupied-branch queue entries')
+                self.assertFalse(entered[jobs[1]['id']].is_set())
+                self.assertFalse(entered[jobs[2]['id']].is_set())
+            finally:
+                self.service.stop.set()
+                release.set()
+                self.service.wake.set()
+                self.service.thread.join(4)
         self.assertFalse(self.service.thread.is_alive())
 
     def test_disabled_durable_lifecycle_does_not_create_index_workers_or_storage(self):
@@ -795,7 +870,7 @@ class DurableEngineeringTests(unittest.TestCase):
     def test_anchored_edits_sha_conflicts_and_partial_file_protection(self):
         text = 'start\nunique anchor\n' + 'large file\n' * 2000
         sha = blob_sha(text)
-        files = {'src/file': {'sha': sha, 'content': text}}
+        files = {'src/file': {'sha': sha, 'content': text, 'visible_characters': 16000}}
         tree = {'src/file': {'sha': sha, 'mode': '100644'}}
         change = {'path': 'src/file', 'expected_blob_sha': sha, 'edits': [{'old': 'unique anchor', 'new': 'fixed anchor'}]}
         result = prepare_changes({'changes': [change]}, files, tree)

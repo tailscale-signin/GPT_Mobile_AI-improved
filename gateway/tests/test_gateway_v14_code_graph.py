@@ -335,6 +335,47 @@ class GraphServiceTests(unittest.TestCase):
         self.assertEqual('1200', caught.exception.response.headers['Retry-After'])
         self.assertEqual({'indexed': 1}, self.call('status')['graph']['file_statuses'])
 
+    def test_cancelled_batch_retains_observed_rate_cause_without_publishing_fragments(self):
+        import requests
+        upstream = requests.HTTPError('private upstream rate response')
+        upstream.response = SimpleNamespace(status_code=429, headers={'Retry-After': '900'})
+        original = self.backend.api
+        self.files['c.py'] = 'def third(): return 3\n'
+        quota_blob = '/git/blobs/' + blob_sha(self.files['a.py'])
+        success_blob = '/git/blobs/' + blob_sha(self.files['b.py'])
+        for failure in (GitHubApiRateWait(900, reason='FOREGROUND_RESERVE'), upstream):
+            with self.subTest(origin=type(failure).__name__):
+                cancelled, successful = threading.Event(), threading.Event()
+                self.service._cancellation.check = cancelled.is_set
+
+                def source(path):
+                    if quota_blob in path:
+                        if not successful.wait(3):
+                            raise AssertionError('successful sibling did not finish its source read')
+                        cancelled.set()
+                        raise failure
+                    if success_blob in path:
+                        result = original(path)
+                        successful.set()
+                        return result
+                    if '/git/blobs/' in path:
+                        if not cancelled.wait(3):
+                            raise AssertionError('quota sibling did not reach cancellation')
+                        raise InterruptedError('source batch cancelled')
+                    return original(path)
+
+                try:
+                    with patch.object(self.backend, 'api', side_effect=source), \
+                            patch.object(self.service.store, 'save', wraps=self.service.store.save) as save:
+                        with self.assertRaises(InterruptedError) as caught:
+                            self.call('index')
+                        self.assertIs(failure, caught.exception.__cause__)
+                        save.assert_not_called()
+                    self.assertTrue(successful.is_set())
+                finally:
+                    del self.service._cancellation.check
+                self.assertEqual('NOT_INDEXED', self.call('status')['status'])
+
     def test_blob_digest_mismatch_is_not_indexed_or_retried_implicitly(self):
         original = self.backend.api
         def corrupt(path):

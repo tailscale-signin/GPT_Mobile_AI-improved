@@ -38,6 +38,38 @@ class VoiceGenerationSupersessionTest {
         override fun close() = Unit
     }
 
+    @Test fun unavailableTerminalSnapshotKeepsTheSessionWaitingUntilItsDurableAnswerArrivesExactlyOnce() {
+        for (streams in listOf(false, true)) {
+            val audio = Audio(streams)
+            val session = VoiceSession(audio, { true }, {}).apply { autoContinue = false }
+            val playback = VoiceMessagePlayback()
+            session.access(true, true, true)
+            playback.observe(emptyList(), autoplay = true)
+            playback.observe(listOf(VoiceMessageReply(VoiceMessageIdentity(1, "current"), "", complete = true)), autoplay = true)
+            val pending = requireNotNull(playback.next())
+            assertTrue(session.beginMessage(pending.identity.key))
+            // No authoritative snapshot yet: the admitted generation stays active and
+            // no terminal update is delivered to the session from the blank UI row.
+            assertEquals(pending, playback.active)
+            assertTrue(session.state.awaitingReply)
+            assertEquals(VoicePhase.THINKING, session.state.phase)
+            assertTrue(audio.outputs.isEmpty())
+            val delivered = requireNotNull(playback.terminalUpdate(pending, "The durable answer is complete.", failed = false))
+            session.reply(delivered.identity.key, delivered.text)
+            assertEquals(delivered.text, session.state.reply)
+            assertEquals(VoicePhase.SPEAKING, session.state.phase)
+            assertEquals(1, audio.outputs.size)
+            val current = requireNotNull(playback.active)
+            assertNull(playback.terminalUpdate(current, delivered.text, failed = false))
+            audio.outputs.single().complete()
+            playback.finish()
+            playback.observe(listOf(delivered), autoplay = true)
+            assertNull(playback.next())
+            assertEquals(0, audio.captures)
+            session.close()
+        }
+    }
+
     @Test fun replacementRetiresCompletedButDrainingAudioWithoutFailureOrMicrophoneRestart() {
         for (streams in listOf(false, true)) exerciseReplacement(streams, completed = true)
     }

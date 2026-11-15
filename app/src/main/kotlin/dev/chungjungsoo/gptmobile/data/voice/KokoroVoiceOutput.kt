@@ -78,18 +78,27 @@ internal class DeferredKokoroOutput(private val factory: () -> KokoroOutput?) : 
         delegate
     }
 
-    override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
-        output()?.speak(text, voice, complete, error)
-            ?: error("Kokoro playback is unavailable. Check the downloaded voice files and try again.", true)
+    override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) =
+        speakWithFailure(text, voice, complete) { failure, canFallback -> error(failure.message, canFallback) }
+
+    override fun speakWithFailure(text: String, voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit) {
+        output()?.speakWithFailure(text, voice, complete, error)
+            ?: error(VoicePlaybackFailure("Kokoro playback is unavailable. Check the downloaded voice files and try again."), true)
     }
 
-    override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
-        output()?.speakProjected(text, voice, complete, error)
-            ?: error("Kokoro playback is unavailable. Check the downloaded voice files and try again.", true)
+    override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) =
+        speakProjectedWithFailure(text, voice, complete) { failure, canFallback -> error(failure.message, canFallback) }
+
+    override fun speakProjectedWithFailure(text: String, voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit) {
+        output()?.speakProjectedWithFailure(text, voice, complete, error)
+            ?: error(VoicePlaybackFailure("Kokoro playback is unavailable. Check the downloaded voice files and try again."), true)
     }
 
     override fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit): VoiceReplyPlayback? =
-        output()?.openReply(voice, complete, error)
+        openReplyWithFailure(voice, complete) { failure, canFallback -> error(failure.message, canFallback) }
+
+    override fun openReplyWithFailure(voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit): VoiceReplyPlayback? =
+        output()?.openReplyWithFailure(voice, complete, error)
 
     override fun configureThreads(value: Int) {
         val bounded = value.coerceIn(2, 4)
@@ -197,7 +206,7 @@ internal class KokoroVoiceOutput(
         val focus: AudioFocusRequest,
         val watchdog: Runnable,
         val complete: () -> Unit,
-        val error: (String, Boolean) -> Unit,
+        val error: (VoicePlaybackFailure, Boolean) -> Unit,
         val diagnostics: VoiceDiagnosticTrace.Probe?,
         val audioStarted: (() -> Unit)?
     ) {
@@ -277,21 +286,30 @@ internal class KokoroVoiceOutput(
         }
     }
 
-    override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
-        openReply(voice, complete, error)?.let {
+    override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) =
+        speakWithFailure(text, voice, complete) { failure, canFallback -> error(failure.message, canFallback) }
+
+    override fun speakWithFailure(text: String, voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit) {
+        openReplyWithFailure(voice, complete, error)?.let {
             VoiceSpeechBuffer().append(text, final = true).orEmpty().forEach(it::enqueue)
             it.finish()
         }
     }
 
-    override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) {
-        openReply(voice, complete, error)?.let {
+    override fun speakProjected(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) =
+        speakProjectedWithFailure(text, voice, complete) { failure, canFallback -> error(failure.message, canFallback) }
+
+    override fun speakProjectedWithFailure(text: String, voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit) {
+        openReplyWithFailure(voice, complete, error)?.let {
             it.enqueue(text)
             it.finish()
         }
     }
 
-    override fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit): VoiceReplyPlayback? {
+    override fun openReply(voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit): VoiceReplyPlayback? =
+        openReplyWithFailure(voice, complete) { failure, canFallback -> error(failure.message, canFallback) }
+
+    override fun openReplyWithFailure(voice: KokoroVoice, complete: () -> Unit, error: (VoicePlaybackFailure, Boolean) -> Unit): VoiceReplyPlayback? {
         if (closed) return null
         active?.let { end(it, "replaced") }
         val playbackAttributes = attributes()
@@ -433,16 +451,16 @@ internal class KokoroVoiceOutput(
                 }
             }
             playback.synthesisDone = true
-        } catch (_: LexiconUnavailable) {
-            main.post { fail(playback, "lexicon_unavailable", "The installed voice dictionary is incomplete. Repair the Kokoro voice pack in Voice settings and retry.", canFallback = false) }
-        } catch (_: Exception) {
-            main.post { fail(playback, "synthesis_failed", "Kokoro could not synthesize this reply. Your answer remains in chat.") }
-        } catch (_: LinkageError) {
+        } catch (error: LexiconUnavailable) {
+            main.post { fail(playback, "lexicon_unavailable", "The installed voice dictionary is incomplete. Repair the Kokoro voice pack in Voice settings and retry.", canFallback = false, cause = error) }
+        } catch (error: Exception) {
+            main.post { fail(playback, "synthesis_failed", "Kokoro could not synthesize this reply. Your answer remains in chat.", cause = error) }
+        } catch (error: LinkageError) {
             releaseModel()
-            main.post { fail(playback, "engine_failed", "Kokoro playback is unavailable. Your answer remains in chat.") }
-        } catch (_: OutOfMemoryError) {
+            main.post { fail(playback, "engine_failed", "Kokoro playback is unavailable. Your answer remains in chat.", cause = error) }
+        } catch (error: OutOfMemoryError) {
             releaseModel()
-            main.post { fail(playback, "memory_pressure", "Kokoro could not allocate audio. Your answer remains in chat.") }
+            main.post { fail(playback, "memory_pressure", "Kokoro could not allocate audio. Your answer remains in chat.", cause = error) }
         } finally {
             playback.synthesizing = false
         }
@@ -502,8 +520,8 @@ internal class KokoroVoiceOutput(
                     playback.complete()
                 }
             }
-        } catch (_: Exception) {
-            main.post { fail(playback, "audio_failed", "Kokoro audio output stopped. Your answer remains in chat.") }
+        } catch (error: Exception) {
+            main.post { fail(playback, "audio_failed", "Kokoro audio output stopped. Your answer remains in chat.", cause = error) }
         }
     }
 
@@ -652,13 +670,11 @@ internal class KokoroVoiceOutput(
         timing("terminal", playback, "reason=$reason · cancellationOrigin=${cancellationOrigin ?: "none"} · textChars=${playback.inputChars} · firstPcm=${playback.firstPcm} · firstOutputFrame=${playback.firstFrame} · inputComplete=${playback.sealed} · drainComplete=${reason == "complete"} · underruns=${underruns ?: "unmeasured"} · knownWords=${playback.knownWords} · initialisms=${playback.initialisms} · unknownWords=${playback.unknownWords} · spelledLetters=${playback.spelledLetters} · normalizedFormats=${playback.removedFormatCharacters}")
     }
 
-    private fun fail(playback: Playback, reason: String, message: String, canFallback: Boolean = !playback.queuedAudio) {
+    private fun fail(playback: Playback, reason: String, message: String, canFallback: Boolean = !playback.queuedAudio, cause: Throwable? = null) {
         if (active !== playback) return
-        // Keep the closed report-server enum compatible; the exported timing event retains the precise reason.
-        val diagnosticReason = if (reason in setOf("pronunciation_unavailable", "lexicon_unavailable")) "SYNTHESIS_FAILED" else reason.uppercase(java.util.Locale.ROOT)
-        playback.diagnostics?.playbackFailure(diagnosticReason)
+        playback.diagnostics?.playbackFailure(reason.uppercase(java.util.Locale.ROOT))
         end(playback, reason)
-        playback.error(message, canFallback)
+        playback.error(VoicePlaybackFailure(message, cause), canFallback)
     }
 
     override fun stop() = stop("audio_stop")

@@ -20,7 +20,8 @@ internal data class GitHubPullRequestHealth(
     val failingChecks: List<String> = emptyList(),
     val observedAt: Long = System.currentTimeMillis(),
     val githubPermitsMerging: Boolean = false,
-    val requestedValidationPassed: Boolean = false
+    val requestedValidationPassed: Boolean = false,
+    val checkSelection: GitHubCheckSelectionEvidence = GitHubCheckSelectionEvidence()
 ) {
     val eligible: Boolean get() = state == "ELIGIBLE"
 }
@@ -35,7 +36,13 @@ internal val gitHubPullRequestHealthQuery = """
               totalCount pageInfo { hasNextPage endCursor }
               nodes {
                 __typename
-                ... on CheckRun { id name status conclusion isRequired(pullRequestNumber: ${'$'}number) }
+                ... on CheckRun {
+                  id name status conclusion isRequired(pullRequestNumber: ${'$'}number)
+                  checkSuite {
+                    id commit { oid } app { id } branch { id }
+                    workflowRun { id runNumber runAttempt event workflow { id } }
+                  }
+                }
                 ... on StatusContext { id context state isRequired(pullRequestNumber: ${'$'}number) }
               }
             }
@@ -82,11 +89,20 @@ internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String)
     if (contexts.obj("pageInfo")?.flag("hasNextPage") != false || count != nodes.size || nodes.isEmpty()) {
         return health.copy(detail = "The check inventory is empty or incomplete. Review the full PR on GitHub.")
     }
-    val checks = nodes.map { it as? JsonObject ?: return health }
-    if (checks.any { it.flag("isRequired") == null }) return health.copy(detail = "Required-check information is unavailable.")
+    val observed = nodes.map { it as? JsonObject ?: return health }
+    if (observed.any { it.flag("isRequired") == null }) return health.copy(detail = "Required-check information is unavailable.")
+    val selection = selectGitHubHealthChecks(observed, expectedHead)
+    val selectionEvidence = selection.evidence.copy(rawRollupState = rollup.text("state") ?: "UNKNOWN")
+    val checks = selection.checks ?: return health.copy(detail = "The current check identities or workflow coverage are unverified. Refresh the PR before continuing.", checkSelection = selectionEvidence)
     val failed = checks.filter {
-        it.text("conclusion") in setOf("FAILURE", "CANCELLED", "TIMED_OUT", "ACTION_REQUIRED", "STARTUP_FAILURE", "STALE") ||
+        it.text("conclusion") in setOf("FAILURE", "CANCELLED", "TIMED_OUT", "STALE") ||
             it.text("state") in setOf("ERROR", "FAILURE")
+    }.map { (it.text("name") ?: it.text("context") ?: "Unnamed check").take(160) }
+    val blockedChecks = checks.filter {
+        it.text("conclusion") in setOf("ACTION_REQUIRED", "STARTUP_FAILURE") ||
+            it.text("status") == "COMPLETED" &&
+            it.flag("isRequired") == true &&
+            it.text("conclusion") in setOf("SKIPPED", "NEUTRAL")
     }.map { (it.text("name") ?: it.text("context") ?: "Unnamed check").take(160) }
     val passed = checks.all {
         when (it.text("__typename")) {
@@ -96,10 +112,17 @@ internal fun gitHubPullRequestHealth(response: JsonObject, expectedHead: String)
         }
     }
     val hasSuccess = checks.any { it.text("conclusion") == "SUCCESS" || it.text("state") == "SUCCESS" }
-    val validationPassed = hasSuccess && passed && rollup.text("state") == "SUCCESS"
-    val result = health.copy(requiredChecks = checks.count { it.flag("isRequired") == true }, failingChecks = failed.take(10), requestedValidationPassed = validationPassed)
+    val coverageVerified = selection.evidence.state == "VERIFIED"
+    val validationPassed = coverageVerified && hasSuccess && passed && rollup.text("state") == "SUCCESS"
+    val result = health.copy(requiredChecks = if (coverageVerified) checks.count { it.flag("isRequired") == true } else null, failingChecks = (failed + blockedChecks).distinct().take(10), requestedValidationPassed = validationPassed, checkSelection = selectionEvidence)
     if (blocker != null) return result.copy(state = blocker.first, detail = blocker.second)
     if (failed.isNotEmpty()) return result.copy(state = "FAILED", detail = "Fix failing checks before merging.")
+    if (blockedChecks.isNotEmpty()) return result.copy(state = "BLOCKED", detail = "A completed check needs workflow configuration or a required job was skipped. Inspect its conclusion before retrying.")
+    if (!coverageVerified) {
+        val pending = checks.any { it.text("status") in setOf("IN_PROGRESS", "PENDING", "QUEUED", "REQUESTED", "WAITING") || it.text("state") == "PENDING" }
+        return result.copy(state = if (pending) "WAITING" else "UNKNOWN", detail = "The latest workflow run has not reported every check. Current checks and complete coverage must be verified before merging.")
+    }
+    if (hasSuccess && passed && !validationPassed) return result.copy(detail = "Current checks passed, but GitHub's aggregate is not successful. Refresh the PR before merging.")
     if (!validationPassed) return result.copy(state = "WAITING", detail = "CI is pending or unverified for the current head.")
     if (merge != "CLEAN" || pr.text("mergeable") != "MERGEABLE") return result.copy(state = "BLOCKED", detail = "GitHub merge state: ${merge ?: "UNKNOWN"}. Review branch rules, deployments or approvals.")
     if (health.review !in setOf("APPROVED", "NOT_REQUIRED")) return result.copy(detail = "Review state is unknown.")

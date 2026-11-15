@@ -81,7 +81,13 @@ internal object GitHubExecutionLedger {
         val states = receipts.values.groupingBy(::receiptState).eachCount()
         val uncertain = receipts.filterValues { receiptState(it) == ReceiptState.UNKNOWN_OUTCOME }
         val reconciled = reconciliationProofs(receipts)
-        val unresolved = uncertain.size - reconciled.size
+        val graphUncertain = receipts.filterValues(::hasGraphIndexUncertainty)
+        val graphAttempts = graphUncertain.entries.groupBy { (id, receipt) -> graphAttemptKey(receipt, "graph_index_attempt_hash") ?: "unbound:$id" }
+        val unresolvedGraphAttempts = graphAttempts.values.count { observations -> observations.none { it.key in reconciled } }
+        val reconciledGraphAttempts = graphAttempts.size - unresolvedGraphAttempts
+        val otherUncertain = uncertain - graphUncertain.keys
+        val unresolved = otherUncertain.keys.count { it !in reconciled } + unresolvedGraphAttempts
+        val reconciledOutcomes = otherUncertain.keys.count { it in reconciled } + reconciledGraphAttempts
         val pendingApprovals = GitHubPendingApproval.snapshot(receipts)
         val resolvedApprovals = receipts.values.mapNotNull { proposal ->
             GitHubPendingApproval.resolution(proposal, receipts.values)?.let { resolution -> proposal to resolution }
@@ -186,7 +192,9 @@ internal object GitHubExecutionLedger {
                 )
             )
             put("unresolved_remote_outcomes", unresolved)
-            put("reconciled_remote_outcomes", reconciled.size)
+            put("reconciled_remote_outcomes", reconciledOutcomes)
+            put("unresolved_graph_index_attempts", unresolvedGraphAttempts)
+            put("reconciled_graph_index_attempts", reconciledGraphAttempts)
             put("reconciliation_proofs", JsonObject(reconciled))
             put("receipt_scope", "Retained observations; a shared result does not prove another dispatch")
             put("requested_task", requestedTask)
@@ -297,9 +305,47 @@ internal object GitHubExecutionLedger {
         val proofs = receipts.mapNotNull { (id, receipt) ->
             if (isNativeReconciliation(receipt)) reconciliationKey(receipt)?.let { it to id } else null
         }.toMap()
-        return receipts.filterValues { receiptState(it) == ReceiptState.UNKNOWN_OUTCOME }.mapNotNull { (id, receipt) ->
+        val native = receipts.filterValues { receiptState(it) == ReceiptState.UNKNOWN_OUTCOME }.mapNotNull { (id, receipt) ->
             reconciliationKey(receipt)?.let(proofs::get)?.let { id to JsonPrimitive(it) }
         }.toMap()
+        val graphProofs = receipts.mapNotNull { (id, receipt) ->
+            if (receiptState(receipt) != ReceiptState.COMPLETED || receipt["success"] != JsonPrimitive(true) || receipt["dispatched"] != JsonPrimitive(true) || receipt["shared_result"] == JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false)) return@mapNotNull null
+            val execution = graphExecution(receipt) ?: return@mapNotNull null
+            if (execution.text("phase") != "COMPLETED" || execution.text("action") !in setOf("status", "index")) return@mapNotNull null
+            if (execution["current_index_outcome_unknown"] == JsonPrimitive(true) ||
+                execution["index_outcome_unknown"] == JsonPrimitive(true) &&
+                execution["graph_index_attempt_hash"] == execution["confirmed_index_attempt_hash"]
+            ) {
+                return@mapNotNull null
+            }
+            graphAttemptKey(receipt, "confirmed_index_attempt_hash")?.let { it to id }
+        }.toMap()
+        val graph = receipts.filterValues(::hasGraphIndexUncertainty).mapNotNull { (id, receipt) ->
+            graphAttemptKey(receipt, "graph_index_attempt_hash")?.let(graphProofs::get)?.let { id to JsonPrimitive(it) }
+        }.toMap()
+        return native + graph
+    }
+
+    /** Retained prior uncertainty is an obligation, not another dispatched current mutation. */
+    private fun hasGraphIndexUncertainty(receipt: JsonObject): Boolean = graphExecution(receipt)?.let { execution ->
+        execution["index_outcome_unknown"] == JsonPrimitive(true)
+    } == true
+
+    private fun graphExecution(receipt: JsonObject): JsonObject? {
+        if (receipt["trusted"] != JsonPrimitive(true) || receipt.text("tool").substringBefore("__") != "repository_graph") return null
+        val execution = receipt["execution"] as? JsonObject ?: return null
+        if (execution.text("schema") != "gptmobile.repository-graph.v1" || receipt.text("call_id").isBlank() || execution["call_id"] != receipt["call_id"]) return null
+        val arguments = receipt["arguments"] as? JsonObject ?: return null
+        if (execution["action"] != null && execution["action"] != arguments["action"]) return null
+        return execution
+    }
+
+    private fun graphAttemptKey(receipt: JsonObject, field: String): String? {
+        val hash = graphExecution(receipt)?.text(field)?.takeIf { it.matches(Regex("[a-f0-9]{64}")) } ?: return null
+        val binding = receipt.text("binding").takeIf(String::isNotBlank) ?: return null
+        val repository = receipt.text("repository").takeIf(String::isNotBlank) ?: return null
+        val branch = receipt.text("branch").takeIf(String::isNotBlank) ?: return null
+        return listOf(binding, repository, branch, hash).joinToString("\u0000")
     }
 
     /** Only operation-specific native readback can settle an exact uncertain claim. */

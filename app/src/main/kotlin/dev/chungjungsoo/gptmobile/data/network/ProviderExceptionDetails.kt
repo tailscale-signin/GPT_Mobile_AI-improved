@@ -319,6 +319,7 @@ internal fun providerExceptionDetails(
                     }
                 )
                 error.gatewayFailure?.failureFields()?.forEach { (name, value) -> put(name, value) }
+                error.gatewayFailure?.reasoningFailureFields()?.forEach { (name, value) -> put(name, value) }
             }
         )
     }
@@ -338,7 +339,7 @@ internal fun providerExceptionDetails(
                 put("reasoning_admission_basis", "NO_VERIFIED_CONTROL")
                 put("reasoning_recovery_action", "CHOOSE_AUTO_OR_QUALIFIED_MODEL")
                 error.gatewayRoute?.let { put("reasoning_route_kind", if (it) "GATEWAY" else "DIRECT") }
-                error.gatewayObservation?.observationAgeMillis?.let { put("reasoning_capability_age_ms", it) }
+                error.gatewayObservation?.reasoningFailureFields()?.forEach { (name, value) -> put(name, value) }
                 error.gatewayObservation?.modelState?.let { put("reasoning_model_state", it) }
                 error.gatewayObservation?.reasoningControlState?.let { put("reasoning_control_state", it) }
                 dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.identifierHash("reasoning-template", error.templateRevision)

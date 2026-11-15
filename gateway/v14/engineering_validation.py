@@ -1,4 +1,6 @@
 """Host-approved, isolated pre-publication validation. No model-selected shell commands."""
+from contextlib import contextmanager
+from contextvars import ContextVar
 import hashlib
 import json
 import os
@@ -13,6 +15,21 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
+
+_validation_cancel = ContextVar('validation_cancel', default=None)
+_validation_deadline = ContextVar('validation_deadline', default=None)
+
+
+@contextmanager
+def cancellation_scope(cancel, deadline=None):
+    token = _validation_cancel.set(cancel)
+    deadline_token = _validation_deadline.set(deadline)
+    try:
+        yield
+    finally:
+        _validation_cancel.reset(token)
+        _validation_deadline.reset(deadline_token)
 
 
 def _report_path(checkout, relative):
@@ -100,7 +117,16 @@ def patch_identity(head, changes):
     return hashlib.sha256(json.dumps([head, changes], sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
+def check_cancellation():
+    cancel, deadline = _validation_cancel.get(), _validation_deadline.get()
+    if cancel is not None and cancel.is_set():
+        raise InterruptedError('Approved validation command cancelled')
+    if deadline is not None and time.time() >= deadline:
+        raise TimeoutError('Engineering job deadline exhausted before validation launch')
+
+
 def run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
+    check_cancellation()
     from v14.validation_host import command
     with command(argv) as approved:
         return _run_bounded(approved, cwd, timeout, maximum, destination)
@@ -116,6 +142,7 @@ def _run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
     # Keep the environment otherwise isolated from host credentials and hooks.
     if os.name == 'nt' and os.environ.get('SystemRoot'):
         environment['SystemRoot'] = os.environ['SystemRoot']
+    check_cancellation()
     process = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                env=environment)
     # Windows selectors accept sockets, not subprocess pipes. A bounded reader
@@ -147,6 +174,7 @@ def _run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
     reader.start()
     try:
         while True:
+            check_cancellation()
             remaining = timeout - (time.monotonic() - started)
             if remaining <= 0:
                 raise TimeoutError('Approved validation command exceeded its deadline')
@@ -167,10 +195,18 @@ def _run_bounded(argv, cwd, timeout, maximum=4 * 1024 * 1024, destination=None):
             else:
                 output.extend(block)
                 del output[:-16000]
-        try:
-            code = process.wait(timeout=max(0, timeout - (time.monotonic() - started)))
-        except subprocess.TimeoutExpired as failure:
-            raise TimeoutError('Approved validation command exceeded its deadline') from failure
+        # EOF does not mean the child exited. Keep observing the job's stop
+        # and deadline while a command that closed its output is still alive.
+        while True:
+            check_cancellation()
+            remaining = max(0, timeout - (time.monotonic() - started))
+            try:
+                code = process.wait(timeout=min(.25, remaining))
+                break
+            except subprocess.TimeoutExpired as failure:
+                check_cancellation()
+                if time.monotonic() - started >= timeout:
+                    raise TimeoutError('Approved validation command exceeded its deadline') from failure
         return {'exit_code': code, 'elapsed_ms': round((time.monotonic() - started) * 1000),
                 'output_sha256': digest.hexdigest(), 'output_tail': output[-16000:].decode('utf-8', 'replace')}
     finally:
@@ -208,11 +244,11 @@ def load_policy(repository, *, policy_path=None):
     return validate_policy_entry(policy)
 
 
-def validate_policy_entry(policy):
+def validate_policy_entry(policy, *, allow_unprepared_image=False):
     mirror = Path(policy['mirror']).resolve()
     image = policy.get('image', '')
     commands = policy.get('commands')
-    if not re.fullmatch(r'[A-Za-z0-9./:_-]+@sha256:[a-f0-9]{64}', image):
+    if not (allow_unprepared_image is True and image == '') and not re.fullmatch(r'[A-Za-z0-9./:_-]+@sha256:[a-f0-9]{64}', image):
         raise ValueError('Validation image must be pinned by digest')
     if not isinstance(commands, list) or not 1 <= len(commands) <= 10 or any(not isinstance(command, list) or not command or len(command) > 32 or any(not isinstance(arg, str) or not arg or len(arg) > 1024 or '\0' in arg for arg in command) for command in commands):
         raise ValueError('Validation commands must be a bounded host-approved argv list')
@@ -248,7 +284,7 @@ def _validation_workers(job):
     return workers
 
 
-def validate(job, changes):
+def validate(job, changes, cancel=None):
     identity = patch_identity(job['data']['head_sha'], changes)
     try:
         policy, mirror, image, commands, coverage = load_policy(job['request']['repository'])
@@ -260,7 +296,7 @@ def validate(job, changes):
     head = job['data']['head_sha']
     if not re.fullmatch('[a-f0-9]{40}', head):
         raise ValueError('Validation needs an exact source revision')
-    timeout = min(1800, max(1, int(policy.get('timeout_seconds', 600))))
+    timeout = min(1800, max(1, int(policy.get('timeout_seconds', 600))), max(1, job.get('deadline', time.time() + 1800) - time.time()))
     results = []
     workers = _validation_workers(job)
     parallel_groups = policy.get('parallel_command_groups', []) if workers > 1 else []
@@ -269,7 +305,7 @@ def validate(job, changes):
         root = Path(directory)
         # Archive is bounded while streaming, before extraction. No network fetch or credentials.
         archive = root / 'source.tar'
-        with archive.open('wb') as output:
+        with archive.open('wb') as output, cancellation_scope(cancel, job.get('deadline')):
             archive_result = run_bounded(['git', '--git-dir=' + str(mirror), 'archive', '--format=tar', head], root, 60, 128 * 1024 * 1024, output)
         if archive_result['exit_code'] != 0:
             raise ValueError('Pinned revision is not available in the approved repository mirror')
@@ -307,7 +343,8 @@ def validate(job, changes):
                     '--tmpfs=/tmp:rw,nosuid,nodev,size=512m', '--mount=type=bind,source=' + str(command_checkout) + ',target=/workspace',
                     '--workdir=/workspace', '--env=HOME=/tmp', image, *command]
             try:
-                result = run_bounded(argv, root, timeout)
+                with cancellation_scope(cancel, job.get('deadline')):
+                    result = run_bounded(argv, root, min(timeout, max(1, job.get('deadline', time.time() + timeout) - time.time())))
             finally:
                 if cidfile.exists():
                     container = cidfile.read_text().strip()

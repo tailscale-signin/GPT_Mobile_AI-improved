@@ -553,6 +553,17 @@ interface AgentPersistenceDao :
     @Query("SELECT * FROM messages_v2 WHERE message_id = :messageId")
     suspend fun rawRecoveryMessage(messageId: Int): MessageV2?
 
+    /** UI collectors may publish message and run changes at different times. */
+    @Transaction
+    suspend fun terminalVoiceReply(chatId: Int, messageId: Int, runId: String, expectedFence: Long): dev.chungjungsoo.gptmobile.data.voice.VoiceTerminalReply? {
+        if (chatId <= 0 || messageId <= 0 || expectedFence < 0) return null
+        val run = rawRecoveryRun(runId) ?: return null
+        if (run.chatId != chatId || run.assistantMessageId != messageId || run.ownershipFence != expectedFence || run.status !in dev.chungjungsoo.gptmobile.data.database.entity.AgentRunStatus.terminal) return null
+        val message = rawRecoveryMessage(messageId) ?: return null
+        if (message.chatId != chatId || message.currentRunId != runId || message.ownershipFence != expectedFence || message.platformType == null) return null
+        return dev.chungjungsoo.gptmobile.data.voice.VoiceTerminalReply(message.decodedArchiveText(), run)
+    }
+
     @Transaction
     suspend fun restoreCombinedCandidate(runId: String): MessageV2? {
         val run = recoveryRun(runId) ?: return null

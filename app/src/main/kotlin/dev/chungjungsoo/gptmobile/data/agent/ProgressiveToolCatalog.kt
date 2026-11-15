@@ -600,7 +600,7 @@ class ProgressiveToolCatalog(
         var tokens = 256L
         val selected = mutableListOf<AgentToolDefinition>()
         omissions.clear()
-        for (tool in (listOfNotNull(candidates["read_recovery_context"]) + ordered).distinctBy { it.name }) {
+        for (tool in (listOfNotNull(candidates["read_recovery_context"]) + ordered).distinctBy { if (dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it.name) != null) it.name.replace("_inspect__", "__").removeSuffix("_inspect") else it.name }) {
             // An individual authorized GitHub schema may exceed the soft discovery
             // window. Hard provider context admission still precedes all dispatch.
             val cost = schemaTokens(tool)

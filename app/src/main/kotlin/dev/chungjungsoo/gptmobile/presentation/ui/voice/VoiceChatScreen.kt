@@ -522,7 +522,7 @@ private fun VoiceChatSessionScreen(
         val accepted = admission ?: return@LaunchedEffect
         session.admission(accepted.stage, accepted.reason, accepted.requestId)
     }
-    LaunchedEffect(loaded, roomReady, messages, runs, spokenReplies, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick) {
+    LaunchedEffect(loaded, roomReady, messages, runs, enabled, spokenReplies, preferencesApplied, lifecycleState, state.phase, state.awaitingReply, settingsOpen, routeOpen, refreshMutedBaseline, playbackTick) {
         if (!loaded || !roomReady) return@LaunchedEffect
         // Restoration publishes messages before loaded=true. Read the current flow snapshot so
         // separate Compose collectors cannot accidentally prime from an empty history.
@@ -569,16 +569,48 @@ private fun VoiceChatSessionScreen(
             retainMessage(next.identity)
         }
         session.autoContinue = listeningEnabled && !playback.hasPending
-        playback.update()?.let { next ->
-            if (next.complete) {
-                val message = replyMessages.firstOrNull { it.id == next.identity.messageId }
-                val run = replyRuns[next.identity.runId]
-                val failure = message?.timeline?.lastOrNull { it.profileFailure != null }?.profileFailure
-                    ?: run?.terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
-                session.reply(next.identity.key, next.text, next.failed, failure, terminalStatus = run?.status)
-            } else {
-                session.streamReply(next.identity.key, next.text)
+        val pending = playback.active
+        if (pending?.complete == true) {
+            val observedMessage = replyMessages.firstOrNull { it.id == pending.identity.messageId } ?: return@LaunchedEffect
+            val speakerAtRead = session.states.value.speaker
+            val reportReadFailure = session.terminalReadFailureReporter(pending.identity.key)
+            val terminal = try {
+                model.terminalVoiceReply(pending.identity.messageId, pending.identity.runId, observedMessage.ownershipFence)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                currentCoroutineContext().ensureActive()
+                if (playback.active != pending || manualMessage) return@LaunchedEffect
+                reportReadFailure(error)
+                return@LaunchedEffect
+            } ?: return@LaunchedEffect
+            currentCoroutineContext().ensureActive()
+            val currentMessage = model.groupedMessages.value.assistantMessages.flatten().firstOrNull { it.id == pending.identity.messageId }
+            if (!enabled ||
+                lifecycle.currentState != Lifecycle.State.RESUMED ||
+                settingsOpen ||
+                routeOpen ||
+                manualMessage ||
+                session.states.value.speaker != speakerAtRead ||
+                currentMessage == null ||
+                currentMessage.currentRunId != pending.identity.runId ||
+                currentMessage.ownershipFence != observedMessage.ownershipFence
+            ) {
+                return@LaunchedEffect
             }
+            // Separate Room collectors may still expose an old blank/prefix row with a
+            // new terminal status. Only the matching durable publication is delivered.
+            playback.terminalUpdate(
+                pending,
+                dev.chungjungsoo.gptmobile.data.conversation.ConversationSubject.withoutMetadata(terminal.message.content),
+                failed = terminal.run.status != AgentRunStatus.COMPLETED
+            )?.let { next ->
+                val failure = terminal.message.timeline.lastOrNull { it.profileFailure != null }?.profileFailure
+                    ?: terminal.run.terminalError?.let { dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord.classify(it) }
+                session.reply(next.identity.key, next.text, next.failed, failure, terminalStatus = terminal.run.status)
+            }
+        } else {
+            playback.update()?.let { next -> session.streamReply(next.identity.key, next.text) }
         }
         val deliveredState = session.states.value
         if (!deliveredState.awaitingReply && deliveredState.phase !in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)) {

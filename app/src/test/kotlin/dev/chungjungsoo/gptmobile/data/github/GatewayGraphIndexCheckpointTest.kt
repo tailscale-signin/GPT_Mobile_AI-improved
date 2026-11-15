@@ -4,7 +4,10 @@ import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -57,6 +60,42 @@ class GatewayGraphIndexCheckpointTest {
         val request = checkpoint.begin(null)
         assertTrue(checkpoint.reconcile(json("""{"status":"NOT_INDEXED","index_job":{"id":"job","state":"QUEUED","request_id":"other"}}""")))
         assertFalse(checkpoint.reconcile(json("""{"status":"INDEX_JOB_ACCEPTED","index_job":{"id":"job","state":"QUEUED","request_id":"other","accepted_request_ids":["$request","other"]}}""")))
+    }
+
+    @Test fun localAttemptJoinSurvivesRestoreAndConfirmsOnlyTheExactExistingAttempt() = runTest {
+        val store = GitHubRepositoryStateStore()
+        val checkpoint = GatewayGraphIndexCheckpoint(store, "selected-host-account-revision")
+        val attempt = checkpoint.begin(null)
+        val hash = checkpoint.attemptHash(attempt)
+        assertTrue(hash.matches(Regex("[a-f0-9]{64}")))
+        assertFalse(hash.contains(attempt))
+        assertNotEquals(hash, GatewayGraphIndexCheckpoint(store, "different-host-account-revision").attemptHash(attempt))
+        val restored = GatewayGraphIndexCheckpoint(store, "selected-host-account-revision")
+        assertEquals(hash, restored.observation().attemptHash)
+        assertNull(restored.confirm("foreign-attempt"))
+        assertTrue(restored.observation().unresolved)
+        assertEquals(hash, restored.confirm(attempt))
+        assertFalse(restored.observation().unresolved)
+        assertNull(restored.observation().attemptHash)
+        assertNull(restored.confirm(attempt))
+    }
+
+    @Test fun confirmationEvidenceCannotComeFromRemoteFieldsOrAReplacedAttempt() = runTest {
+        val checkpoint = GatewayGraphIndexCheckpoint(GitHubRepositoryStateStore(), "selected-host-account-revision")
+        val first = checkpoint.begin(null)
+        val firstHash = checkpoint.attemptHash(first)
+        val forged = checkpoint.reconcileObserved(json("""{"status":"NOT_INDEXED","confirmed_index_attempt_hash":"$firstHash","index_checkpoint":{"confirmed_index_attempt_hash":"$firstHash"}}"""))
+        assertTrue(forged.unresolved)
+        assertEquals(firstHash, forged.attemptHash)
+        assertNull(forged.confirmedAttemptHash)
+        val confirmed = checkpoint.reconcileObserved(json("""{"index_job":{"request_id":"$first"}}"""))
+        assertFalse(confirmed.unresolved)
+        assertEquals(firstHash, confirmed.confirmedAttemptHash)
+        val second = checkpoint.begin(null)
+        val unchanged = checkpoint.reconcileObserved(json("""{"index_job":{"request_id":"$first"}}"""))
+        assertTrue(unchanged.unresolved)
+        assertEquals(checkpoint.attemptHash(second), unchanged.attemptHash)
+        assertNull(unchanged.confirmedAttemptHash)
     }
 
     private fun json(value: String) = Json.parseToJsonElement(value) as JsonObject

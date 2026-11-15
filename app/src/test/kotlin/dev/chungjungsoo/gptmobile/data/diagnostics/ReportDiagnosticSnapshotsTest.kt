@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -63,6 +64,64 @@ class ReportDiagnosticSnapshotsTest {
         cache.retain(captured)
         allowed = true
         assertNull(cache.latest("VOICE"))
+    }
+
+    @Test fun originTokensKeepTheirOriginalAuthorityAcrossPrivateAndPublicTransitions() {
+        var allowed = false
+        val cache = ReportDiagnosticSnapshotCache(canRetain = { allowed }, clock = { 1_000_000L })
+        assertNull(cache.captureOrigin())
+        allowed = true
+        val origin = requireNotNull(cache.captureOrigin())
+        val current = snapshot("APP", 1_000_000, "composer_focused" to true)
+        cache.retain(current, origin)
+        assertEquals(current, cache.latest("APP"))
+        allowed = false
+        assertFalse(cache.isCurrent(origin))
+        allowed = true
+        cache.retain(current, origin)
+        assertFalse(cache.isCurrent(origin))
+        assertNull(cache.latest("APP"))
+        val fresh = requireNotNull(cache.captureOrigin())
+        cache.retain(current, fresh)
+        assertEquals(current, cache.latest("APP"))
+    }
+
+    @Test fun clearingFencesOldCallbacksEvenWhenTheyMissThePrivateInterval() {
+        val cache = ReportDiagnosticSnapshotCache(clock = { 1_000_000L })
+        val origin = requireNotNull(cache.captureOrigin())
+        val current = snapshot("APP", 1_000_000, "composer_focused" to true)
+        cache.clear()
+        cache.retain(current, origin)
+        assertNull(cache.latest("APP"))
+        assertFalse(cache.isCurrent(origin))
+        val fresh = requireNotNull(cache.captureOrigin())
+        cache.retain(current, fresh)
+        assertEquals(current, cache.latest("APP"))
+    }
+
+    @Test fun anotherCacheCannotSupplyAnOriginOrRepopulateThisArea() {
+        val source = ReportDiagnosticSnapshotCache(clock = { 1_000_000L })
+        val target = ReportDiagnosticSnapshotCache(clock = { 1_000_000L })
+        val origin = requireNotNull(source.captureOrigin())
+        target.retain(snapshot("APP", 1_000_000, "composer_focused" to true), origin)
+        assertFalse(target.isCurrent(origin))
+        assertNull(target.latest("APP"))
+        assertTrue(source.isCurrent(origin))
+    }
+
+    @Test fun aSynchronousDebugOffOnPairRevokesCaptureWithoutAFlowCollector() {
+        val wasEnabled = LocalDiagnosticsPolicy.enabled
+        try {
+            LocalDiagnosticsPolicy.setEnabled(true)
+            val origin = requireNotNull(ReportDiagnosticSnapshots.captureOrigin())
+            LocalDiagnosticsPolicy.setEnabled(false)
+            LocalDiagnosticsPolicy.setEnabled(true)
+            assertFalse(ReportDiagnosticSnapshots.isCurrent(origin))
+            assertTrue(ReportDiagnosticSnapshots.isCurrent(requireNotNull(ReportDiagnosticSnapshots.captureOrigin())))
+        } finally {
+            LocalDiagnosticsPolicy.setEnabled(wasEnabled)
+            ReportDiagnosticSnapshots.clear()
+        }
     }
 
     private fun snapshot(area: String, time: Long, field: Pair<String, Any?>): IssueReportDiagnostics = requireNotNull(

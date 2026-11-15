@@ -11,6 +11,26 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.longOrNull
 import kotlinx.serialization.json.put
 
+internal enum class GatewayReasoningProbeOutcome {
+    VERIFIED,
+    IDENTICAL_PROMPTS,
+    MISSING_THINK_MARKER,
+    PREFIX_MISMATCH,
+    SUFFIX_MISMATCH,
+    INVALID_PROMPT,
+    METADATA_CHANGED,
+    PROBE_UNAVAILABLE,
+    PROBE_DEADLINE,
+    MIXED_NEGATIVE_RESULTS
+}
+
+/** Existing synthetic-render observations only; attempts count source HTTP starts, not transport retries. */
+internal data class GatewayReasoningProbeObservation(
+    val outcome: GatewayReasoningProbeOutcome,
+    val attempts: Int,
+    val observationAgeMillis: Long
+)
+
 /** Retains a failed qualification as evidence, rather than probing forbidden administrative routes. */
 internal data class GatewayModelCapabilityObservation(
     val instanceId: String? = null,
@@ -33,17 +53,21 @@ internal data class GatewayModelCapabilityObservation(
     val upstreamCode: String? = null,
     val upstreamErrorType: String? = null,
     val upstreamMessageCode: String? = null,
-    val upstreamErrorBodyState: String? = null
+    val upstreamErrorBodyState: String? = null,
+    val reasoningProbe: GatewayReasoningProbeObservation? = null
 ) {
     fun fresh(now: Long): GatewayModelCapabilityObservation {
         val received = receivedAtMonotonicMillis ?: return this
-        val serverAge = observationAgeMillis ?: return this
         val elapsed = (now - received).takeIf { it >= 0 } ?: Long.MAX_VALUE
-        val age = if (serverAge > Long.MAX_VALUE - elapsed) Long.MAX_VALUE else serverAge + elapsed
+        fun advanced(age: Long) = if (age > Long.MAX_VALUE - elapsed) Long.MAX_VALUE else age + elapsed
+        val probe = reasoningProbe?.let { it.copy(observationAgeMillis = advanced(it.observationAgeMillis)) }
+        val serverAge = observationAgeMillis ?: return copy(reasoningProbe = probe, receivedAtMonotonicMillis = now)
+        val age = advanced(serverAge)
         return copy(
             capacity = capacity.takeIf { age < 20_000 },
             reasoningControl = reasoningControl.takeIf { age < 20_000 },
             reasoningControlState = reasoningControlState.takeIf { age < 20_000 } ?: "UNVERIFIED",
+            reasoningProbe = probe,
             observationAgeMillis = age,
             receivedAtMonotonicMillis = now
         )
@@ -106,6 +130,15 @@ internal data class GatewayModelCapabilityObservation(
         modelAdvertised?.let { put("gateway_model_advertised", it) }
         modelLoaded?.let { put("gateway_model_loaded", it) }
     }
+
+    fun reasoningFailureFields(): JsonObject = buildJsonObject {
+        observationAgeMillis?.takeIf { it in 0..86_400_000L }?.let { put("reasoning_metadata_age_ms", it) }
+        reasoningProbe?.let { probe ->
+            put("reasoning_probe_outcome", probe.outcome.name)
+            probe.attempts.takeIf { it in 0..4 }?.let { put("reasoning_probe_attempts", it) }
+            probe.observationAgeMillis.takeIf { it in 0..86_400_000L }?.let { put("reasoning_probe_age_ms", it) }
+        }
+    }
 }
 
 internal fun parseGatewayModelObservation(body: String, config: ProviderRequestConfig, model: String, now: Long): GatewayModelCapabilityObservation {
@@ -126,10 +159,17 @@ internal fun parseGatewayModelObservation(body: String, config: ProviderRequestC
     val age = if ("observationAgeMs" in selected) number(selected, "observationAgeMs")?.takeIf { it >= 0 } ?: return invalid else null
     val capacity = parseGatewayCapacity(body, config, model, now)?.takeUnless { age != null && age >= 20_000 }
     val control = capacity?.let { parseGatewayReasoningControl(body, it) }
+    val probe = (selected["reasoningProbe"] as? JsonObject)?.takeIf { capacity != null }?.let { value ->
+        val outcome = GatewayReasoningProbeOutcome.entries.firstOrNull { it.name == text(value, "outcome") }
+        val attempts = number(value, "attempts")?.takeIf { it in 0..4 }?.toInt()
+        val probeAge = number(value, "observationAgeMs")?.takeIf { it in 0..86_400_000L }
+        if (outcome != null && attempts != null && probeAge != null) GatewayReasoningProbeObservation(outcome, attempts, probeAge) else null
+    }
     return GatewayModelCapabilityObservation(
         instanceId = text(root, "instanceId"),
         capacity = capacity,
         reasoningControl = control,
+        reasoningProbe = probe,
         reasoningControlState = when {
             control != null -> "VERIFIED"
             capacity != null && text(selected, "reasoningControlState") == "UNSUPPORTED" -> "UNSUPPORTED"

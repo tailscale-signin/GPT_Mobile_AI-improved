@@ -16,7 +16,9 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from desktop import repository_validation as setup
 from desktop.configuration import atomic_json, environment, validate
-from desktop.validation_policy import SETTING, save_policy_path, selected_policy_path
+from desktop.validation_policy import (
+    SETTING, PolicyConflictError, load_policy_snapshot, save_policy_path, save_policy_snapshot, selected_policy_path,
+)
 from v14.engineering_validation import load_policy, run_bounded
 from v14.state_lock import StateDirectoryAlreadyOwned, StateDirectoryLock
 from v14 import validation_host
@@ -97,11 +99,7 @@ class ManagedValidationTests(unittest.TestCase):
         self.assertEqual('PREREQUISITES_READY', result['state'])
         self.assertFalse(result['tests_executed'])
         path = Path(selected_policy_path(self.root))
-        # ``setup`` canonicalizes the state root before publishing its immutable
-        # snapshot. Windows runner temp directories can be junction-backed, so
-        # compare canonical paths instead of their different lexical aliases.
-        self.assertTrue(path.resolve().is_relative_to(
-            (self.root / 'data' / 'repository-validation').resolve()))
+        self.assertTrue(path.resolve().is_relative_to((self.root / 'data' / 'validation-policies').resolve()))
         with patch.dict(os.environ, {}, clear=True):
             first = environment(self.root, validate({}))
         with patch.dict(os.environ, first, clear=True):
@@ -126,7 +124,9 @@ class ManagedValidationTests(unittest.TestCase):
         mapping = [{'requirement_id': 'fix', 'case_id': 'Case.behavior', 'command_index': 0,
                     'scope': 'behavior', 'report_path': 'reports/results.xml'}]
         original = self.entry(commands=[['python3', 'tests/run.py']], acceptance_map=mapping,
-                              draft_repair_requirements=[{'id': 'kept'}], extra_owner_setting='preserved')
+                              draft_repair_requirements=[{'id': 'fix', 'paths': ['app/feature.py'],
+                                                          'checks': ['Required verification']}],
+                              desktop_setup={'schema': 1, 'owner_annotation': 'preserved'}, extra_owner_setting='preserved')
         document = {setup.DEFAULT_REPOSITORY: original, 'other/repo': self.entry()}
         external = self.existing(document)
         raw = external.read_bytes()
@@ -137,6 +137,8 @@ class ManagedValidationTests(unittest.TestCase):
         self.assertEqual(document['other/repo'], migrated['other/repo'])
         self.assertEqual(mapping, migrated[setup.DEFAULT_REPOSITORY]['acceptance_map'])
         self.assertEqual('preserved', migrated[setup.DEFAULT_REPOSITORY]['extra_owner_setting'])
+        self.assertEqual('preserved', migrated[setup.DEFAULT_REPOSITORY]['desktop_setup']['owner_annotation'])
+        self.assertEqual(original['draft_repair_requirements'], migrated[setup.DEFAULT_REPOSITORY]['draft_repair_requirements'])
         self.assertEqual(raw, external.read_bytes())
         external.unlink()
         self.assertEqual(migrated, setup.read_settings(self.root)[0])
@@ -191,27 +193,142 @@ class ManagedValidationTests(unittest.TestCase):
         with patch.dict(os.environ, {SETTING: str(external)}):
             with self.assertRaises(ValueError):
                 setup.read_settings(self.root)
-            setup.reset_settings(self.root)
-            self.assertEqual({}, setup.read_settings(self.root)[0])
+            setup.reset_settings(self.root, expected_revision=load_policy_snapshot(self.root)['revision'])
             self.assertEqual('', selected_policy_path(self.root))
+            self.assertFalse(load_policy_snapshot(self.root)['enabled'])
 
-    def test_setup_lock_prevents_second_prepare_and_disable(self):
+    def test_setup_lock_prevents_second_prepare_but_explicit_disable_remains_available(self):
         lock = StateDirectoryLock(self.root / 'data/repository-validation-setup/owner')
         lock.acquire()
         try:
             with self.assertRaises(StateDirectoryAlreadyOwned):
                 self.prepare()
-            with self.assertRaises(StateDirectoryAlreadyOwned):
-                setup.reset_settings(self.root)
+            disabled = setup.reset_settings(self.root, expected_revision=load_policy_snapshot(self.root)['revision'])
+            self.assertFalse(disabled['enabled'])
         finally:
             lock.release()
 
     def test_reset_does_not_remove_sources_or_images_or_old_snapshot(self):
         self.prepare()
         path = Path(selected_policy_path(self.root))
-        setup.reset_settings(self.root)
+        setup.reset_settings(self.root, expected_revision=load_policy_snapshot(self.root)['revision'])
         self.assertTrue(path.is_file())
         self.assertEqual('', selected_policy_path(self.root))
+
+    def test_nested_contract_errors_are_rejected_before_provisioning(self):
+        cases = [
+            {'acceptance_map': [{}]}, {'parallel_command_groups': [[0, 0]]},
+            {'acceptance_templates': [{'objectives': ['Valid goal'], 'requirements': [{'id': 'incomplete'}]}]},
+            {'acceptance_templates': [{'objectives': ['Valid goal'], 'requirements': []}] * 33},
+            {'draft_repair_requirements': [{'id': 'incomplete'}]},
+            {'draft_repair_requirements': [{'id': 'x', 'paths': ['../outside'], 'checks': ['Required verification']}]},
+        ]
+        for change in cases:
+            options = dict(self.options, profile=setup.CUSTOM_PROFILE, **change)
+            with self.subTest(field=list(change)), patch.object(setup, 'executable') as execute, self.assertRaises(ValueError):
+                setup.setup(self.root, options, setup.read_settings(self.root)[1], prepare=True)
+            execute.assert_not_called()
+
+    def test_direct_save_uses_same_mapper_without_provisioning_and_keeps_unknown_fields(self):
+        original = self.entry(extra_owner_setting='retained', desktop_setup={'schema': 1, 'owner_note': 'retained'})
+        self.existing({setup.DEFAULT_REPOSITORY: original})
+        snapshot = load_policy_snapshot(self.root)
+        options = setup.options_for(self.root, setup.DEFAULT_REPOSITORY, snapshot['repositories'])
+        options['timeout_seconds'] = 90
+        with patch.object(setup, 'run') as external:
+            entry = setup.entry_from_options(options, original)
+            saved = setup.save_snapshot(self.root, setup.DEFAULT_REPOSITORY, entry, snapshot['revision'])
+        external.assert_not_called()
+        self.assertEqual(90, saved['repositories'][setup.DEFAULT_REPOSITORY]['timeout_seconds'])
+        self.assertEqual('retained', saved['repositories'][setup.DEFAULT_REPOSITORY]['extra_owner_setting'])
+        self.assertEqual('retained', saved['repositories'][setup.DEFAULT_REPOSITORY]['desktop_setup']['owner_note'])
+        self.assertNotIn('repository', entry)
+        self.assertNotIn('profile', entry)
+        self.assertNotIn('image_source', entry)
+
+    def test_legacy_selection_change_during_prepare_blocks_activation(self):
+        _, revision = setup.read_settings(self.root)
+        def disable(*_args, **_kwargs):
+            setup.reset_settings(self.root, expected_revision=load_policy_snapshot(self.root)['revision'])
+            return 'b' * 40
+        with ExitStack() as stack:
+            stack.enter_context(patch.object(setup, 'executable', return_value='/fixture/tool'))
+            stack.enter_context(patch.object(setup, 'check_docker'))
+            stack.enter_context(patch.object(setup, 'prepare_mirror', side_effect=disable))
+            stack.enter_context(patch.object(setup, 'pin_image', return_value=PIN))
+            with self.assertRaises(PolicyConflictError):
+                setup.setup(self.root, self.options, revision, prepare=True)
+        self.assertFalse(load_policy_snapshot(self.root)['enabled'])
+        self.assertEqual('', selected_policy_path(self.root))
+
+    def test_prepare_while_disabled_retains_reviewed_draft_without_enabling(self):
+        result = self.prepare(enabled=False)
+        self.assertTrue(result['saved'])
+        self.assertFalse(result['snapshot']['enabled'])
+        self.assertEqual(PIN, result['snapshot']['repositories'][setup.DEFAULT_REPOSITORY]['image'])
+        self.assertNotIn(SETTING, environment(self.root, validate({})))
+
+    def test_stale_reset_does_not_disable_a_newly_reviewed_policy(self):
+        old = load_policy_snapshot(self.root)
+        self.prepare()
+        selected = selected_policy_path(self.root)
+        with self.assertRaises(PolicyConflictError):
+            setup.reset_settings(self.root, expected_revision=old['revision'])
+        self.assertEqual(selected, selected_policy_path(self.root))
+
+    def test_invalid_prepared_draft_cannot_report_saved_by_only_disabling(self):
+        self.prepare()
+        snapshot = load_policy_snapshot(self.root)
+        original = snapshot['selection']
+        with self.assertRaises(ValueError):
+            setup.save_snapshot(self.root, setup.DEFAULT_REPOSITORY, self.entry(acceptance_map=[{}]),
+                                snapshot['revision'], enabled=False)
+        self.assertEqual(original, selected_policy_path(self.root))
+
+    def test_later_incomplete_entry_is_editable_and_repaired_without_discarding_other_data(self):
+        good = self.entry(extra_owner_setting='first repository remains')
+        external = self.existing({setup.DEFAULT_REPOSITORY: good, 'other/repo': self.entry()})
+        broken = {'mirror': str(self.root / 'other.git'), 'desktop_setup': 'broken metadata',
+                  'allowed_checks': ['Required verification'], 'owner_custom': {'preserved': True}}
+        atomic_json(external, {setup.DEFAULT_REPOSITORY: good, 'other/repo': broken})
+        original_bytes = external.read_bytes()
+        snapshot = load_policy_snapshot(self.root)
+        self.assertEqual('INVALID', snapshot['state'])
+        options = setup.options_for(self.root, 'other/repo', snapshot['repositories'])
+        self.assertTrue(options['repair_notice'])
+        self.assertEqual(setup.CUSTOM_PROFILE, options['profile'])
+        self.assertEqual([], options['commands'])
+        self.assertEqual('', options['image'])
+        self.assertEqual(original_bytes, external.read_bytes())
+        self.assertEqual(broken, snapshot['repositories']['other/repo'])
+        options.update(image=PIN, image_source=PIN, commands=[['python3', '-m', 'unittest']])
+        entry = setup.entry_from_options(options, broken)
+        updated = copy.deepcopy(snapshot['repositories'])
+        updated['other/repo'] = entry
+        with patch.object(setup, 'run') as execute:
+            saved = save_policy_snapshot(self.root, updated, enabled=True, expected_revision=snapshot['revision'])
+        execute.assert_not_called()
+        self.assertEqual('READY', saved['state'])
+        self.assertEqual(good, saved['repositories'][setup.DEFAULT_REPOSITORY])
+        self.assertEqual({'preserved': True}, saved['repositories']['other/repo']['owner_custom'])
+        self.assertEqual(1, saved['repositories']['other/repo']['desktop_setup']['schema'])
+        self.assertEqual(original_bytes, external.read_bytes())
+
+    def test_metadata_only_repair_keeps_valid_commands_mirror_and_unconfigured_optional_fields(self):
+        original = {'mirror': str(self.root / 'original.git'), 'image': PIN,
+                    'commands': [['python3', '-m', 'unittest', 'actual_tests']], 'desktop_setup': []}
+        before = copy.deepcopy(original)
+        options = setup.options_for(self.root, setup.DEFAULT_REPOSITORY, {setup.DEFAULT_REPOSITORY: original})
+        self.assertTrue(options['repair_notice'])
+        self.assertEqual(setup.CUSTOM_PROFILE, options['profile'])
+        self.assertEqual(original['commands'], options['commands'])
+        self.assertEqual(original['mirror'], options['mirror'])
+        self.assertEqual([], options['allowed_checks'])
+        entry = setup.entry_from_options(options, original)
+        self.assertEqual(original['commands'], entry['commands'])
+        self.assertEqual(original['mirror'], entry['mirror'])
+        self.assertIsInstance(entry['desktop_setup'], dict)
+        self.assertEqual(before, original)
 
 
 class ImageAndProcessTests(unittest.TestCase):
@@ -308,6 +425,39 @@ class ImageAndProcessTests(unittest.TestCase):
         finally:
             timer.join()
 
+    def test_output_capture_stops_an_overbudget_writer_before_it_finishes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            completed = Path(temp) / 'completed'
+            script = ('import os, pathlib, sys; data=b"x"*8192; '
+                      '[os.write(1,data) for _ in range(1024)]; pathlib.Path(sys.argv[1]).write_text("finished")')
+            with self.assertRaisesRegex(ValueError, 'output budget'):
+                setup.run([sys.executable, '-c', script, str(completed)])
+            self.assertFalse(completed.exists(), 'The byte cap must stop the writer before its full 8 MiB completes')
+
+    def test_exact_output_limit_is_accepted_and_invalid_bytes_are_redacted(self):
+        output = setup.run([sys.executable, '-c', 'import sys; sys.stdout.write("x"*(1024*1024))'])
+        self.assertEqual(1024 * 1024, len(output))
+        with self.assertRaisesRegex(ValueError, 'invalid text') as failure:
+            setup.run([sys.executable, '-c', 'import os; os.write(1,b"private-output-"+bytes([255]))'])
+        self.assertNotIn('private-output', str(failure.exception))
+
+    def test_closed_stdout_child_remains_subject_to_deadline_and_cancellation(self):
+        script = 'import os,time; os.close(1); os.close(2); time.sleep(10)'
+        started = time.monotonic()
+        with self.assertRaisesRegex(ValueError, 'timed out'):
+            setup.run([sys.executable, '-c', script], timeout=.15)
+        self.assertLess(time.monotonic() - started, 5)
+        cancel = threading.Event()
+        timer = threading.Timer(.15, cancel.set)
+        timer.start()
+        started = time.monotonic()
+        try:
+            with self.assertRaises(setup.SetupCancelled):
+                setup.run([sys.executable, '-c', script], timeout=10, cancel=cancel)
+        finally:
+            timer.join()
+        self.assertLess(time.monotonic() - started, 5)
+
     def test_runtime_resolves_git_before_restricting_the_environment(self):
         with tempfile.TemporaryDirectory() as temp:
             result = run_bounded(['git', '--version'], temp, 10)
@@ -346,6 +496,24 @@ class ActualMirrorTests(unittest.TestCase):
         self.git_call('--git-dir=' + str(self.mirror), 'config', 'include.path', str(self.root / 'other'))
         with self.assertRaisesRegex(ValueError, 'custom redirect'):
             setup.check_mirror(self.git, setup.DEFAULT_REPOSITORY, self.mirror)
+
+    def test_worktree_configuration_cannot_redirect_a_credential_bearing_fetch(self):
+        self.git_call('--git-dir=' + str(self.mirror), 'config', 'extensions.worktreeConfig', 'true')
+        self.git_call('--git-dir=' + str(self.mirror), 'config', '--worktree',
+                      'url.https://different-origin.example/.insteadOf', 'https://github.com/')
+        # The real Git configuration resolves the advertised raw URL elsewhere.
+        actual = self.git_call('--git-dir=' + str(self.mirror), 'remote', 'get-url', 'origin')
+        self.assertTrue(actual.startswith('https://different-origin.example/'), actual)
+        calls = []
+        original = setup.run
+        def observe(argv, **kwargs):
+            calls.append((argv, kwargs))
+            if 'fetch' in argv:
+                self.fail('The redirected mirror must be rejected before fetch')
+            return original(argv, **kwargs)
+        with patch.object(setup, 'run', side_effect=observe), self.assertRaisesRegex(ValueError, 'worktree configuration'):
+            setup.prepare_mirror(self.git, setup.DEFAULT_REPOSITORY, self.mirror, token='fixture-token')
+        self.assertFalse(any('GIT_CONFIG_VALUE_0' in kwargs.get('env', {}) for _, kwargs in calls))
 
     def test_existing_foreign_directory_is_never_overwritten_or_removed(self):
         folder = self.root / 'not-a-repository'

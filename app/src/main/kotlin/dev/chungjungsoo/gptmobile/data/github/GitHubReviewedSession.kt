@@ -369,6 +369,13 @@ internal class GitHubReviewedSession(
                     put("automatic_retry_allowed", false)
                     put("user_resumable", checkpoint != null)
                     put("resume_requires_changed_input_or_configuration", blocked && !formatRetry)
+                    (failure as? ReviewVerdictFailure)?.validationFailure?.let { validation ->
+                        // The final local validator observed this cause. Its message can
+                        // contain private reviewer output and must never enter a report.
+                        put("failure_origin", "APPLICATION")
+                        put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(validation).map(::JsonPrimitive)))
+                        dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.exceptionFingerprint(validation)?.let { put("exception_fingerprint", it) }
+                    }
                 }
             )
             checkpoint?.failed(code, blocked, details)
@@ -606,7 +613,7 @@ internal class GitHubReviewedSession(
         }
     }
 
-    private class ReviewVerdictFailure(message: String) : IllegalStateException(message)
+    private class ReviewVerdictFailure(message: String, val validationFailure: Exception) : IllegalStateException(message, validationFailure)
 
     private fun reviewOutcomeUnknown(failure: ProviderEvent.Failed?): Boolean = failure != null &&
         (
@@ -673,7 +680,7 @@ internal class GitHubReviewedSession(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                if (attempt == 1) throw ReviewVerdictFailure("The reviewer did not return a valid verdict after one format repair.")
+                if (attempt == 1) throw ReviewVerdictFailure("The reviewer did not return a valid verdict after one format repair.", failure)
                 formatError = failure.message.orEmpty().take(240)
                 null
             }

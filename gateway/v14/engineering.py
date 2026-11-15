@@ -2,8 +2,10 @@
 from v14.engineering_scope import accepted_scope
 from v14.adaptive_sampling import validate_policy
 import json
+import os
 import re
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import sqlite3
 import time
 import uuid
@@ -274,7 +276,7 @@ class EngineeringStore:
             if previous:
                 job.update(continuation_of=previous['id'], continuation_branch=previous['request']['branch'])
                 same_target = all(previous['request'].get(key) == request.get(key) for key in ('repository', 'branch', 'base'))
-                if same_target and previous.get('conversation_id') == receipt['conversation_id']:
+                if same_target and previous.get('conversation_id') == receipt['conversation_id'] and previous.get('data', {}).get('actor_id') is not None:
                     job['pr_owner_job_id'] = previous.get('pr_owner_job_id', previous['id'])
                     job['continuation_actor_id'] = previous.get('data', {}).get('actor_id')
                     job['continuation_pr'] = previous.get('data', {}).get('pr')
@@ -321,8 +323,15 @@ class EngineeringStore:
     def list(self, principal):
         return self.tx(lambda db: [self.decode(row) for row in db.execute('SELECT data,state,revision FROM engineering_jobs WHERE principal=? ORDER BY next_at DESC LIMIT 100', (principal,))])
 
-    def due(self):
-        return self.tx(lambda db: [row[0] for row in db.execute("SELECT id FROM engineering_jobs WHERE lease IS NULL AND next_at<=? AND state NOT IN ('MERGE_READY','NEEDS_INPUT','COMPLETED','CANCELLED','FAILED','CANCELLING') ORDER BY next_at LIMIT 2", (self.now(),))])
+    def due(self, *, exclude_branches=()):
+        query = "SELECT id FROM engineering_jobs WHERE lease IS NULL AND next_at<=? AND state NOT IN ('MERGE_READY','NEEDS_INPUT','COMPLETED','CANCELLED','FAILED','CANCELLING')"
+        parameters = [self.now()]
+        # Filter occupied branches before the bounded window, otherwise their
+        # queued jobs can hide independent work while another worker is free.
+        for repository, branch in sorted(exclude_branches):
+            query += " AND NOT (LOWER(json_extract(data, '$.request.repository'))=? AND json_extract(data, '$.request.branch')=?)"
+            parameters.extend((repository.lower(), branch))
+        return self.tx(lambda db: [row[0] for row in db.execute(query + ' ORDER BY next_at LIMIT 2', parameters)])
 
     def recover(self):
         # The composition root holds the process-wide state-directory lock.
@@ -717,7 +726,11 @@ class EngineeringService:
             row = self.evidence.read(job['id'], reference)
             if row is not None and row['kind'] == 'requirement_evidence':
                 receipts.append(dict(row['payload'], receipt_id=row['receipt_id']))
-        return completion_gate(job, readiness, merged, semantic_receipts=receipts)
+        result = completion_gate(job, readiness, merged, semantic_receipts=receipts)
+        if merged and job['data'].get('post_merge', {}).get('status') != 'PASSED':
+            result['passed'] = False
+            result['failures'].append('POST_MERGE_EVIDENCE_REQUIRED')
+        return result
 
     def readiness(self, *, public_only=False):
         """Local engineering prerequisites; this never implies model or GitHub API success."""
@@ -888,8 +901,6 @@ class EngineeringService:
                     phase = 'IMPLEMENT' if EngineeringSupervisor.repair(job, fingerprint) else 'NEEDS_INPUT'
                 elif phase == 'VERIFY':
                     gate = self.completion_verification(job, job['data'].get('readiness', {}), merged=True)
-                    job['data']['completion_verification'] = gate
-                    self.evidence.append(job, 'completion_gate', gate)
                     post_merge = output.get('post_merge', {})
                     if post_merge.get('status') == 'PENDING' and self.store.now() < job['deadline']:
                         phase, delay = 'VERIFY', 30
@@ -903,6 +914,8 @@ class EngineeringService:
                         phase = 'COMPLETED' if gate['passed'] else 'NEEDS_INPUT'
                     if not gate['passed'] and post_merge.get('status') == 'PASSED':
                         job['message'] = 'Merge occurred but completion evidence is incomplete: ' + '; '.join(gate['failures'])
+                    job['data']['completion_verification'] = gate
+                    self.evidence.append(job, 'completion_gate', gate)
                 else:
                     phase = 'CI' if phase == 'PROMOTE' else PHASES[PHASES.index(phase) + 1]
                 job['stalls'] = 0
@@ -1119,25 +1132,46 @@ class EngineeringService:
             if graph is not None:
                 graph.start_jobs()
         def work():
+            # Stages on independent branches may proceed while another job validates.
+            # Publication for one repository/branch is always serialized.
             recovery_pending = False
-            while not self.stop.is_set():
-                try:
-                    if recovery_pending:
-                        self.store.recover()
-                        recovery_pending = False
-                    for job_id in ([] if getattr(self.store.runtime, "gateway_draining", False) else self.store.due()):
-                        if self.stop.is_set():
-                            break
-                        self.tick(job_id)
-                except Exception as error:
-                    # Only this worker owns leases under the process state lock.
-                    # A failed journal save must not strand a job until restart.
-                    logging.getLogger(__name__).warning('Engineering checkpoint unavailable: %s', type(error).__name__)
-                    # Keep retrying recovery before admitting work: a transient
-                    # recovery failure otherwise leaves leases hidden from due().
-                    recovery_pending = True
-                self.wake.wait(2)
-                self.wake.clear()
+            pending = {}
+            configured = os.getenv('GATEWAY_ENGINEERING_WORKERS', '2')
+            workers = max(1, min(4, int(configured))) if configured.isdigit() else 2
+            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix='engineering-stage') as pool:
+                while not self.stop.is_set():
+                    for job_id, (future, _) in list(pending.items()):
+                        if future.done():
+                            del pending[job_id]
+                            try:
+                                future.result()
+                            except Exception as error:
+                                logging.getLogger(__name__).warning('Engineering checkpoint unavailable: %s', type(error).__name__)
+                                recovery_pending = True
+                    try:
+                        # recover() clears leases, so never run it over another
+                        # live worker's publication or validation stage.
+                        if recovery_pending and not pending:
+                            self.store.recover()
+                            recovery_pending = False
+                        if not recovery_pending and not getattr(self.store.runtime, 'gateway_draining', False):
+                            occupied = {key for _, key in pending.values()}
+                            for job_id in self.store.due(exclude_branches=occupied):
+                                if len(pending) >= workers or self.stop.is_set():
+                                    break
+                                if job_id in pending:
+                                    continue
+                                job = self.store.get(job_id)
+                                key = (job['request']['repository'].lower(), job['request']['branch'])
+                                if key in occupied:
+                                    continue
+                                pending[job_id] = (pool.submit(self.tick, job_id), key)
+                                occupied.add(key)
+                    except Exception as error:
+                        logging.getLogger(__name__).warning('Engineering scheduling unavailable: %s', type(error).__name__)
+                        recovery_pending = True
+                    self.wake.wait(.2 if pending else 2)
+                    self.wake.clear()
         self.thread = threading.Thread(target=work, name='engineering-supervisor', daemon=True)
         self.thread.start()
 

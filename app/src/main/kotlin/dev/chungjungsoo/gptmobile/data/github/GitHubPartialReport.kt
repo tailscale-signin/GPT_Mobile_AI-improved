@@ -15,7 +15,7 @@ internal object GitHubPartialReport {
         if (result.isError || "view_cursor" in call.arguments) return null
         val source = ((result.retainedContent ?: result.content) as? ToolResultContent.Json)?.value as? JsonObject ?: return null
         val summary = (result.executionReceipt?.get("semantic_summary") as? JsonObject) ?: GitHubSemanticSummary.from(operation, call.arguments, source)
-        return JsonObject(summary + ("receipt_id" to JsonPrimitive(call.callId)))
+        return observation(summary, JsonPrimitive(call.callId), GitHubEvidenceOrigin.classify(result.dispatched, result.sharedResult, result.executionReceipt) == "CACHED" || source["schema"] == JsonPrimitive("github.repeat.v1"))
     }
 
     fun fromReceipts(receipts: Map<String, JsonObject>): String = render(
@@ -25,48 +25,58 @@ internal object GitHubPartialReport {
                 val args = receipt["arguments"] as? JsonObject ?: return@mapNotNull null
                 if ("view_cursor" in args) return@mapNotNull null
                 val summary = (receipt["semantic_summary"] as? JsonObject) ?: GitHubSemanticSummary.from(receipt.text("tool"), args, source)
-                JsonObject(summary + ("receipt_id" to (receipt["receipt_id"] ?: JsonPrimitive("unknown"))))
+                observation(summary, receipt["receipt_id"] ?: JsonPrimitive("unknown"), GitHubEvidenceOrigin.of(receipt) == "CACHED" || source["schema"] == JsonPrimitive("github.repeat.v1"))
             }
     )
 
     fun render(observations: Collection<JsonObject>): String {
+        val seen = mutableSetOf<Triple<String, String, String>>()
+        val facts = observations.filter { row ->
+            val digest = row.text("source_result_sha256")
+            if (digest.isBlank()) return@filter true
+            val firstObservation = seen.add(Triple(row.text("operation"), row.text("action"), digest))
+            firstObservation || row["reused_observation"] != JsonPrimitive(true)
+        }
         fun cite(row: JsonObject) = " (receipt `${safe(row.text("receipt_id"))}`)."
         val lines = mutableListOf<String>()
-        observations.lastOrNull { it.text("commit_sha").isNotBlank() }?.let { row ->
+        facts.lastOrNull { it.text("commit_sha").isNotBlank() }?.let { row ->
             lines += "Observed revision: `${row.text("commit_sha")}`" + row.text("branch").takeIf(String::isNotBlank)?.let { " on `${safe(it)}`" }.orEmpty() + cite(row)
         }
-        observations.lastOrNull { "open_pull_requests_observed" in it }?.let { row ->
+        facts.lastOrNull { "open_pull_requests_observed" in it }?.let { row ->
             val coverage = if (row["open_pull_request_inventory_complete"] == JsonPrimitive(true)) "complete captured list" else "captured page; inventory is incomplete"
             lines += "Open pull requests observed: ${row["open_pull_requests_observed"]} ($coverage)" + cite(row)
         }
-        observations.lastOrNull { "open_issue_count" in it || "open_pull_request_count" in it }?.let { row ->
+        facts.lastOrNull { "open_issue_count" in it || "open_pull_request_count" in it }?.let { row ->
             val counts = listOfNotNull(
                 row["open_issue_count"]?.let { "$it open issues" },
                 row["open_pull_request_count"]?.let { "$it open pull requests" }
             ).joinToString(" and ")
             lines += "Repository counts at observation: $counts. Counts do not establish code or test health" + cite(row)
         }
-        observations.lastOrNull { "latest_workflow" in it }?.let { row ->
+        facts.lastOrNull { "latest_workflow" in it }?.let { row ->
             val run = row["latest_workflow"] as JsonObject
             lines += "Latest observed workflow: ${safe(run.text("name").ifBlank { "unnamed workflow" })}, status ${safe(run.text("status").ifBlank { "unknown" })}, conclusion ${safe(run.text("conclusion").ifBlank { "not available" })}. This is one workflow observation; skipped is not a passed test suite" + cite(row)
         }
-        observations.lastOrNull { "workflow_definitions_observed" in it }?.let { row ->
+        facts.lastOrNull { "workflow_definitions_observed" in it }?.let { row ->
             val coverage = if (row["workflow_inventory_complete"] == JsonPrimitive(true)) "complete captured inventory" else "incomplete captured inventory"
             lines += "Workflow definitions observed: ${row["workflow_definitions_observed"]} ($coverage). Listing definitions does not run or verify those workflows" + cite(row)
         }
-        observations.lastOrNull { "check_counts" in it }?.let { row ->
+        facts.lastOrNull { "check_counts" in it }?.let { row ->
             val counts = row["check_counts"] as JsonObject
             val coverage = if (row["check_inventory_complete"] == JsonPrimitive(true)) "complete captured check list" else "partial captured check list"
             lines += "Checks: ${counts["successful"]} successful, ${counts["skipped"]} skipped, ${counts["in_progress"]} in progress, ${counts["failed"]} failed and ${counts["other_completed"]} other completed ($coverage)" + row.text("commit_sha").takeIf(String::isNotBlank)?.let { " at `$it`" }.orEmpty() + cite(row)
         }
-        observations.lastOrNull { "required_checks_state" in it }?.takeIf { it["required_checks_state"] == JsonPrimitive("UNKNOWN") }?.let { row ->
+        facts.lastOrNull { "required_checks_state" in it }?.takeIf { it["required_checks_state"] == JsonPrimitive("UNKNOWN") }?.let { row ->
             lines += "Required-check policy is unknown because protection or rules details were unavailable" + cite(row)
         }
-        observations.lastOrNull { it["comparison_observed"] == JsonPrimitive(true) }?.let { row ->
+        facts.lastOrNull { it["comparison_observed"] == JsonPrimitive(true) }?.let { row ->
             lines += "Comparison captured: `${row.text("base_sha")}` → `${row.text("head_sha")}`. Source-review completion remains unverified" + cite(row)
         }
         return if (lines.isEmpty()) "" else "**Established observations**\n\n" + lines.joinToString("\n") { "- $it" } + "\n\nThese retained observations do not establish completion of the requested task."
     }
+
+    private fun observation(summary: JsonObject, receiptId: kotlinx.serialization.json.JsonElement, reused: Boolean) =
+        JsonObject(summary + mapOf("receipt_id" to receiptId, "reused_observation" to JsonPrimitive(reused)))
 
     private fun safe(value: String) = value.replace(Regex("[\\p{Cntrl}`<>\\[\\]|]"), " ").take(180)
     private fun JsonObject.text(key: String) = (get(key) as? JsonPrimitive)?.contentOrNull.orEmpty()

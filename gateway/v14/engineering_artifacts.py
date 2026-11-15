@@ -128,19 +128,47 @@ class EngineeringArtifacts:
     def checkpoint(self, job, value, purpose):
         result = dict(value)
         for key in ('files', 'tree', 'ci', 'model_input', 'raw_result'):
-            item = result.get(key)
-            if item is not None and not (isinstance(item, dict) and 'result_ref' in item):
-                # Stop counting at the view bound instead of materializing JSON.
-                size = 0
-                for part in json.JSONEncoder(ensure_ascii=False).iterencode(item):
-                    size += len(part.encode())
-                    if size > 128 * 1024:
-                        result[key] = self.put_json(job, item, purpose + ':' + key)
-                        break
+            if key in result:
+                result[key] = self._checkpoint_value(job, result[key], purpose + ':' + key)
+        # Keep paths/blob guards available to unhydrated report/graph readers.
+        # Bound both single replacements and their combined phase payload.
+        if isinstance(result.get('changes'), list):
+            changes = [dict(change, content=self._checkpoint_value(job, change['content'], purpose + ':change-content'))
+                       if isinstance(change, dict) and 'content' in change else change
+                       for change in result['changes']]
+            if self._exceeds_inline_bound(changes):
+                changes = [dict(change, content=self.put_json(job, change['content'], purpose + ':change-content'))
+                           if isinstance(change, dict) and isinstance(change.get('content'), str) else change
+                           for change in changes]
+                if self._exceeds_inline_bound(changes):
+                    raise ExecutionBindingError('EXECUTION_ARTIFACT_OVERSIZE', 'Source change metadata exceeds the bounded phase payload.')
+            result['changes'] = changes
         return result
+
+    def _checkpoint_value(self, job, item, purpose):
+        if item is not None and not (isinstance(item, dict) and 'result_ref' in item) and self._exceeds_inline_bound(item):
+            return self.put_json(job, item, purpose)
+        return item
+
+    @staticmethod
+    def _exceeds_inline_bound(item):
+        # Stop counting at the view bound instead of materializing JSON.
+        size = 0
+        for part in json.JSONEncoder(ensure_ascii=False).iterencode(item):
+            size += len(part.encode())
+            if size > 128 * 1024:
+                return True
+        return False
 
     def restore_stage(self, job):
         for key in ('files', 'tree', 'ci', 'model_input', 'raw_result'):
             item = job['data'].get(key)
             if isinstance(item, dict) and 'result_ref' in item:
                 job['data'][key] = self.json_value(job, item)
+        for change in job['data'].get('changes', []):
+            item = change.get('content')
+            if isinstance(item, dict) and 'result_ref' in item:
+                content = self.json_value(job, item)
+                if not isinstance(content, str):
+                    raise ExecutionBindingError('EXECUTION_ARTIFACT_CORRUPT', 'The retained source change is not UTF-8 text.')
+                change['content'] = content

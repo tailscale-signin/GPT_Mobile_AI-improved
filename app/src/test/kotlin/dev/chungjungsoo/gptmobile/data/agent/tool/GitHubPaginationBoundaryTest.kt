@@ -7,9 +7,12 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolObservationRetention
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -49,6 +52,59 @@ class GitHubPaginationBoundaryTest {
         assertEquals(JsonPrimitive(0), progress["new_records_on_page"])
         assertEquals(JsonPrimitive(false), progress["complete"])
         assertFalse(repeated.data.containsKey("continuation"))
+    }
+
+    @Test fun allRunPagesShareCoverageWhenNativeContinuationsAddWorkspaceRef() {
+        val boundary = GitHubPaginationBoundary()
+        var final: GitHubPaginationBoundary.Assessment? = null
+        for (page in 1..7) {
+            val args = buildJsonObject {
+                put("action", "list_workflow_runs")
+                put("owner", if (page == 1) "Owner" else "owner")
+                put("repo", "repo")
+                put("commit_sha", "a".repeat(40))
+                put("per_page", 30)
+                put("page", page)
+                if (page > 1) put("ref", "main")
+            }
+            val data = buildJsonObject {
+                put("has_more", page < 7)
+                put("total_count", 206)
+                put("workflow_runs", JsonArray(((page - 1) * 30 + 1..minOf(page * 30, 206)).map { buildJsonObject { put("id", it) } }))
+            }
+            final = boundary.assessPage("github_ci", args, data)
+            assertEquals(null, final.errorCode)
+        }
+        val progress = requireNotNull(final).data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(206), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), progress["contiguous_from_first_page"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+        assertEquals(JsonPrimitive(false), progress["upstream_changed_during_traversal"])
+        assertEquals(JsonPrimitive("NOT_MEASURED"), progress["acceptance_status"])
+    }
+
+    @Test fun aDifferentRunFilterCannotBorrowAnotherTraversalFirstPage() {
+        val baseline = json("""{"action":"list_workflow_runs","owner":"owner","repo":"repo","commit_sha":"${"a".repeat(40)}","branch":"main","status":"failure","workflow_id":"build.yml","per_page":30}""")
+        for ((field, changed) in mapOf("repo" to "other", "commit_sha" to "b".repeat(40), "branch" to "release", "status" to "success", "workflow_id" to "release.yml")) {
+            val boundary = GitHubPaginationBoundary()
+            boundary.assessPage("github_ci", baseline, json("""{"has_more":true,"total_count":2,"workflow_runs":[{"id":1}]}"""))
+            val next = JsonObject(baseline + mapOf(field to JsonPrimitive(changed), "page" to JsonPrimitive(2), "ref" to JsonPrimitive("main")))
+            val observed = boundary.assessPage("github_ci", next, json("""{"has_more":false,"total_count":2,"workflow_runs":[{"id":2}]}"""))
+            val progress = observed.data.getValue("pagination_progress").jsonObject
+            assertEquals(field, JsonPrimitive(1), progress["unique_records_observed"])
+            assertEquals(field, JsonPrimitive(false), progress["complete"])
+        }
+    }
+
+    @Test fun blankCommitAliasDoesNotHideDistinctNativeHeadFilters() {
+        val boundary = GitHubPaginationBoundary()
+        val first = json("""{"action":"list_workflow_runs","owner":"owner","repo":"repo","commit_sha":"","head_sha":"${"a".repeat(40)}","per_page":30}""")
+        boundary.assessPage("github_ci", first, json("""{"has_more":true,"total_count":2,"workflow_runs":[{"id":1}]}"""))
+        val next = JsonObject(first + mapOf("head_sha" to JsonPrimitive("b".repeat(40)), "page" to JsonPrimitive(2)))
+        val observed = boundary.assessPage("github_ci", next, json("""{"has_more":false,"total_count":2,"workflow_runs":[{"id":2}]}"""))
+        val progress = observed.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(1), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(false), progress["complete"])
     }
 
     @Test fun partialOverlapsAreDeduplicatedAndAnUnaccountedReportedTotalStaysIncomplete() {

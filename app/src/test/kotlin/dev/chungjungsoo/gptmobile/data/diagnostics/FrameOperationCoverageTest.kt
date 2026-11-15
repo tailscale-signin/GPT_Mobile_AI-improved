@@ -8,6 +8,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FrameOperationCoverageTest {
+    @Test fun sampledOperationRetainsItsOriginalMonotonicSpanAcrossOverlappingWindows() {
+        val coverage = FrameOperationCoverage()
+        val startedNanos = 200_000_000_000_000L
+        val durationNanos = 9_227_239L
+        val endedNanos = startedNanos + durationNanos
+        val owner = CombinedOperationOwner(messageId = 40, runId = "run-1")
+        coverage.observe(FrameOperationCoverage.Sample("database_checkpoint", 7, startedNanos, endedNanos, owner.runId, owner))
+
+        for (window in listOf(startedNanos + 1_000_000 to startedNanos + 3_000_000, endedNanos - 1_000_000 to endedNanos + 1_000_000)) {
+            val report = coverage.snapshot(window.first, window.second).contextReport()
+            val context = report.contexts.single().jsonObject
+            assertFalse(report.truncated)
+            assertEquals(JsonPrimitive(startedNanos), context["startMonoNs"])
+            assertEquals(JsonPrimitive(endedNanos), context["endMonoNs"])
+            assertEquals(JsonPrimitive(durationNanos), context["durationNs"])
+            assertEquals(JsonPrimitive(7), context["traceId"])
+            assertEquals(JsonPrimitive("run-1"), context["run"])
+        }
+    }
+
     @Test fun transcriptRemeasurementsDistinguishStableConstraintsFromResizeWithoutContent() {
         val history = UiMeasureHistory()
         val inputs = TextLayoutDiagnosticContext(0, 400, 0, 800, 2f, 1f, false)
@@ -98,6 +118,7 @@ class FrameOperationCoverageTest {
         assertTrue(report.contexts.isNotEmpty())
         assertTrue(report.contexts.size < FrameOperationCoverage.MAX_REPORTED_CONTEXTS)
         assertTrue(report.contexts.toString().length <= FrameOperationCoverage.MAX_CONTEXT_CHARACTERS)
+        assertTrue(report.contexts.toString().toByteArray(Charsets.UTF_8).size <= FrameOperationCoverage.MAX_CONTEXT_CHARACTERS)
         assertEquals(JsonPrimitive("r".repeat(160)), report.contexts.first().jsonObject["revision"])
         val counts = report.contexts.first().jsonObject["ui"]!!.jsonObject
         assertEquals(JsonPrimitive(100), counts["itemCount"])

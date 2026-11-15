@@ -4,6 +4,7 @@ import dev.chungjungsoo.gptmobile.data.network.ProviderRequestConfig
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -14,6 +15,64 @@ class GatewayModelCapabilityObservationTest {
     private fun envelope(fields: String) = """{"contractVersion":1,"instanceId":"${"a".repeat(32)}","selectedModel":{
         "schema":"gptmobile.gateway.selected-model.v1","schemaVersion":1,"requestedModel":"selected",
         "limitsVerified":false,"reasoningControlState":"UNVERIFIED",$fields}}"""
+
+    private fun qualified(probe: String? = null): String = envelope(
+        """"reportedModel":"selected","contextTokens":8192,"outputLimitSource":"context_capacity",
+        "capabilityRevision":"${"b".repeat(64)}","observedAtMillis":1700000000000,"observationAgeMs":8,
+        "evidenceOrigin":"GATEWAY_OBSERVED_PROVIDER_METADATA"${probe?.let { ",\"reasoningProbe\":$it" }.orEmpty()}"""
+    ).replace("\"limitsVerified\":false", "\"limitsVerified\":true")
+        .replace("\"reasoningControlState\":\"UNVERIFIED\"", "\"reasoningControlState\":\"UNSUPPORTED\"")
+
+    @Test fun cachedProbeAgeAdvancesIndependentlyFromFreshCapacityMetadataWithoutGrantingControl() {
+        val observation = parseGatewayModelObservation(qualified("""{"outcome":"IDENTICAL_PROMPTS","attempts":2,"observationAgeMs":8000}"""), config, "selected", 100)
+        assertNotNull(observation.capacity)
+        assertNull(observation.reasoningControl)
+        assertEquals("UNSUPPORTED", observation.reasoningControlState)
+        assertEquals(8L, observation.observationAgeMillis)
+        assertEquals(GatewayReasoningProbeObservation(GatewayReasoningProbeOutcome.IDENTICAL_PROMPTS, 2, 8000), observation.reasoningProbe)
+        val cached = observation.fresh(5000).fresh(7000)
+        assertEquals(6908L, cached.observationAgeMillis)
+        assertEquals(14900L, cached.reasoningProbe?.observationAgeMillis)
+        assertEquals(8000L, observation.reasoningProbe?.observationAgeMillis)
+        assertEquals(JsonPrimitive(6908), cached.reasoningFailureFields()["reasoning_metadata_age_ms"])
+        assertEquals(JsonPrimitive(14900), cached.reasoningFailureFields()["reasoning_probe_age_ms"])
+        assertNull(cached.reasoningFailureFields()["reasoning_capability_age_ms"])
+        val stale = cached.fresh(20_100)
+        assertNull(stale.capacity)
+        assertNull(stale.reasoningControl)
+        assertEquals("UNVERIFIED", stale.reasoningControlState)
+        assertEquals(28_000L, stale.reasoningProbe?.observationAgeMillis)
+        assertEquals(Long.MAX_VALUE, observation.fresh(99).reasoningProbe?.observationAgeMillis)
+        assertNull(observation.fresh(99).reasoningFailureFields()["reasoning_probe_age_ms"])
+    }
+
+    @Test fun absentAndMalformedOptionalProbeEvidenceCannotInvalidateCapacityOrProveReasoning() {
+        val valid = """{"outcome":"IDENTICAL_PROMPTS","attempts":2,"observationAgeMs":8000}"""
+        for (probe in listOf(
+            null, "null", "[]", "{}", valid.replace("IDENTICAL_PROMPTS", "private template"),
+            valid.replace("\"attempts\":2", "\"attempts\":true"), valid.replace("\"attempts\":2", "\"attempts\":\"2\""),
+            valid.replace("\"attempts\":2", "\"attempts\":-1"), valid.replace("\"attempts\":2", "\"attempts\":5"),
+            valid.replace("8000", "-1"), valid.replace("8000", "86400001"), valid.replace("8000", "8.5"), valid.replace("8000", "\"8000\"")
+        )) {
+            val observed = parseGatewayModelObservation(qualified(probe), config, "selected", 100)
+            assertNotNull("probe=$probe", observed.capacity)
+            assertNull("probe=$probe", observed.reasoningProbe)
+            assertNull(observed.reasoningControl)
+            assertEquals("UNSUPPORTED", observed.reasoningControlState)
+        }
+        for (outcome in GatewayReasoningProbeOutcome.entries) {
+            val observed = parseGatewayModelObservation(qualified(valid.replace("IDENTICAL_PROMPTS", outcome.name)), config, "selected", 100)
+            assertEquals(outcome, observed.reasoningProbe?.outcome)
+            assertNull(observed.reasoningControl)
+            assertEquals("UNSUPPORTED", observed.reasoningControlState)
+        }
+        val mismatch = parseGatewayModelObservation(qualified(valid), config, "another-model", 100)
+        assertNull(mismatch.capacity)
+        assertNull(mismatch.reasoningProbe)
+        val revision = parseGatewayModelObservation(qualified(valid).replace("b".repeat(64), "private revision"), config, "selected", 100)
+        assertNull(revision.capacity)
+        assertNull(revision.reasoningProbe)
+    }
 
     @Test fun unloadedPropertiesFailureRetainsActionableFactsWithoutQualifyingReasoning() {
         val observation = parseGatewayModelObservation(

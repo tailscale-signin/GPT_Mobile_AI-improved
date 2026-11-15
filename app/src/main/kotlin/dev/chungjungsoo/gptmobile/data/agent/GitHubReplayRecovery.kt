@@ -218,12 +218,24 @@ internal object GitHubReplayRecovery {
     fun repeated(call: ProviderEvent.ToolCall, exchanges: List<AgentToolExchange>, message: String): AgentToolResult? {
         val operation = GitHubOperationTool.operationName(call.name) ?: return null
         val key = toolRepeatKey(call)
-        val previous = exchanges.asReversed().firstNotNullOfOrNull { exchange ->
+        val candidates = exchanges.asReversed().mapNotNull { exchange ->
             val id = exchange.calls.lastOrNull { toolRepeatKey(it) == key }?.callId
             exchange.results.lastOrNull { it.callId == id && (!it.isError || !it.dispatched && it.errorCode in deterministicErrors) }
-        } ?: return null
+        }
+        // A suppression is a reference to an observation, never a new observation
+        // to wrap. Prefer its retained source when that source is still in replay.
+        var previous = candidates.firstOrNull() ?: return null
+        val visited = mutableSetOf<String>()
+        while (envelope(previous.content)?.get("schema") == JsonPrimitive("github.repeat.v1") && visited.add(previous.callId)) {
+            val sourceId = (envelope(previous.content)?.get("previous_call_id") as? JsonPrimitive)?.content ?: break
+            previous = candidates.firstOrNull { it.callId == sourceId && it.callId !in visited } ?: break
+        }
         if (previous.isError) return currentGitHubInvocationReceipt(previous.copy(callId = call.callId, dispatched = false, sharedResult = true, retainedContent = null, traceContent = null))
         val original = envelope(previous.content)
+        val repeated = original?.get("schema") == JsonPrimitive("github.repeat.v1")
+        val sourceCallId = previous.executionReceipt?.get("source_observation_call_id")
+            ?: original?.get("previous_call_id")?.takeIf { repeated }
+            ?: JsonPrimitive(previous.callId)
         return currentGitHubInvocationReceipt(
             AgentToolResult(
                 call.callId,
@@ -233,7 +245,7 @@ internal object GitHubReplayRecovery {
                         put("operation", operation)
                         put("status", "OBSERVATION_REUSED")
                         put("message", message)
-                        put("previous_call_id", previous.callId)
+                        put("previous_call_id", sourceCallId)
                         (previous.executionReceipt?.get("semantic_summary") ?: original?.get("semantic_summary"))?.let { put("semantic_summary", it) }
                         previous.executionReceipt?.get("retained_original_complete")?.let { put("retained_original_complete", it) }
                         original?.get("continuation_call")?.let { put("continuation_call", it) }
@@ -242,7 +254,11 @@ internal object GitHubReplayRecovery {
                         original?.get("recovery_options")?.let { put("recovery_options", it) }
                         original?.get("continuation_options")?.let { put("continuation_options", it) }
                         original?.get("source_recovery_call")?.let { put("source_recovery_call", it) }
-                        put("retained_result_preview", previous.content.toString().take(1200))
+                        if (repeated) {
+                            original?.get("retained_result_preview")?.let { put("retained_result_preview", it) }
+                        } else {
+                            put("retained_result_preview", previous.content.toString().take(1200))
+                        }
                         put("recovery", "Use the exact continuation_call above when present. The earlier call already completed; no action was repeated. Use a different unread range for additional source evidence.")
                     }
                 ),

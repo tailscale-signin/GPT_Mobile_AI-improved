@@ -1,8 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.voice
 
 import dev.chungjungsoo.gptmobile.data.agent.ProfileFailureRecord
-import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
-import dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature
 
 /** Main-thread input for one reply. stop() on the owning VoiceAudio cancels the stream. */
 interface VoiceReplyPlayback {
@@ -41,6 +39,10 @@ interface VoiceAudio {
     fun listen(listener: Listener)
     fun speak(text: String, complete: () -> Unit, error: (String) -> Unit)
 
+    /** Older backends keep their message-only contract; typed producers retain their actual cause. */
+    fun speakWithFailure(text: String, complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit) =
+        speak(text, complete) { error(VoicePlaybackFailure(it)) }
+
     /** True only when this backend reports its first audible-output event. */
     val reportsPlaybackStart: Boolean get() = false
 
@@ -49,6 +51,8 @@ interface VoiceAudio {
     fun bindSpokenRange(spoken: ((Int, String, IntRange) -> Unit)?) = Unit
     val streamsReplies: Boolean get() = false
     fun openReply(complete: () -> Unit, error: (String) -> Unit): VoiceReplyPlayback? = null
+    fun openReplyWithFailure(complete: () -> Unit, error: (VoicePlaybackFailure) -> Unit): VoiceReplyPlayback? =
+        openReply(complete) { error(VoicePlaybackFailure(it)) }
     fun stop()
 
     /** Diagnostic origin accompanies intentional cancellation; generation completion is not a stop. */
@@ -198,7 +202,7 @@ class VoiceSession(
             }
         } else {
             draftPending = true
-            fail("Could not send this turn. Open chat to review your profile and connection.")
+            fail("Could not send this turn. Open chat to review your profile and connection.", failureFields = VoiceAdmissionFailureDiagnostics.submission())
         }
     }
     fun admission(stage: VoiceAdmissionStage, reason: String? = null, requestId: String? = null) {
@@ -225,7 +229,7 @@ class VoiceSession(
                 val message = "This message was not accepted. Your words are kept; open chat to review the connection or retry. ${reason.orEmpty()}"
                 val ownsCaptureWait = waiting && streamId == null
                 if (submitted.probe === diagnosticProbe && ownsCaptureWait) {
-                    fail(message)
+                    fail(message, failureFields = VoiceAdmissionFailureDiagnostics.rejected(reason))
                 } else {
                     // The owning chat request already retains the rejection. Preserve its draft
                     // without cancelling unrelated audio or attributing a failure to that replay.
@@ -303,7 +307,7 @@ class VoiceSession(
         // A lost partial transcript or a real underlying exception still reports.
         val expectedSilence = errorCode == "VOICE_NO_SPEECH" && error == null && next.transcript.isBlank()
         if (reportFailure && !expectedSilence && next.phase == VoicePhase.ERROR && state.phase != VoicePhase.ERROR) {
-            IssueReportIncidents.failure(ReportFeature.VOICE, errorCode, error, voiceFailureFields() + failureFields, "VOICE_STATE")
+            diagnosticProbe.reportFailure(errorCode, error, voiceFailureFields() + failureFields)
         }
         state = next.copy(
             awaitingReply = waiting,
@@ -528,7 +532,8 @@ class VoiceSession(
         if (replyPlayback == null && queuedSpeech.isNotEmpty() && audio.streamsReplies) {
             val ticket = generation
             preparePlayback(ticket)
-            val opened = audio.openReply(
+            val origin = diagnosticProbe
+            val opened = audio.openReplyWithFailure(
                 complete = {
                     if (ticket == generation && replyPlayback != null) {
                         replyPlayback = null
@@ -536,7 +541,7 @@ class VoiceSession(
                         continueTurn()
                     }
                 },
-                error = { message -> if (ticket == generation) playbackFailed(message) }
+                error = { message -> if (ticket == generation) playbackFailed(message, origin) }
             )
             if (ticket != generation) return
             replyPlayback = opened
@@ -562,12 +567,13 @@ class VoiceSession(
         chunkPlaying = true
         val ticket = generation
         val sequence = preparePlayback(ticket)
-        audio.speak(chunk, complete = {
+        val origin = diagnosticProbe
+        audio.speakWithFailure(chunk, complete = {
             if (generation == ticket && sequence == playbackSequence && chunkPlaying) {
                 chunkPlaying = false
                 pumpSpeech()
             }
-        }, error = { message -> if (generation == ticket && sequence == playbackSequence) playbackFailed(message) })
+        }, error = { message -> if (generation == ticket && sequence == playbackSequence) playbackFailed(message, origin) })
     }
 
     private fun preparePlayback(ticket: Long): Long {
@@ -606,18 +612,31 @@ class VoiceSession(
         return sequence
     }
 
-    private fun playbackFailed(message: String) {
+    private fun playbackFailed(failure: VoicePlaybackFailure, origin: VoiceDiagnosticTrace.Probe) {
         // Audio can fail while the model is still streaming. Keep its turn and captions alive.
-        val diagnosticFields = diagnosticTrace.incidentFields()
+        val diagnosticFields = diagnosticTrace.incidentFields() + streamDiagnosticId?.let { mapOf("run_id" to it) }.orEmpty()
+        origin.reportFailure("VOICE_PLAYBACK_FAILED", failure.cause, diagnosticFields + mapOf("failed_stage" to "voice_playback", "operation" to "voice_playback"))
         stopAudio()
         streamAudio = false
         engaged = false
         automaticRetry = false
         if (streamComplete) waiting = false
-        if (waiting) {
-            IssueReportIncidents.failure(ReportFeature.VOICE, "VOICE_PLAYBACK_FAILED", null, diagnosticFields + mapOf("failed_stage" to "voice_playback", "operation" to "voice_playback"), "VOICE_STATE")
+        update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = failure.message, level = 0f), reportFailure = false)
+    }
+
+    /** Capture the current message's authority before a suspending durable read. */
+    internal fun terminalReadFailureReporter(id: String): (Throwable) -> Unit {
+        val origin = diagnosticProbe.takeIf { streamId == id && state.phase != VoicePhase.CLOSED }
+        val runId = streamDiagnosticId
+        return { error ->
+            if (streamId == id && state.phase != VoicePhase.CLOSED) {
+                origin?.reportFailure(
+                    "VOICE_SESSION_FAILED",
+                    error,
+                    mapOf("diagnostic_area" to "VOICE", "failed_stage" to "voice_reply", "run_id" to runId, "voice_phase" to state.phase.name)
+                )
+            }
         }
-        update(state.copy(phase = if (waiting) VoicePhase.THINKING else VoicePhase.ERROR, notice = message, level = 0f), "VOICE_PLAYBACK_FAILED", failureFields = diagnosticFields)
     }
 
     fun stopSpeaking() {
@@ -716,9 +735,10 @@ class VoiceSession(
         preparePlayback(ticket)
         diagnosticProbe.queued()
         audio.bindReply(streamDiagnosticId ?: id)
-        audio.speak(spoken, complete = {
+        val origin = diagnosticProbe
+        audio.speakWithFailure(spoken, complete = {
             if (ticket == generation && playbackAllowed()) continueTurn()
-        }, error = { message -> if (ticket == generation) playbackFailed(message) })
+        }, error = { message -> if (ticket == generation) playbackFailed(message, origin) })
     }
 
     fun mute() {

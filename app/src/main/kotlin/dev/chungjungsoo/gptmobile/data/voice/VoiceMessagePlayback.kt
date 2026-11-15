@@ -85,6 +85,13 @@ class VoiceMessagePlayback {
     /** Only changed text/terminal state is delivered to the audio stream. */
     fun update(): VoiceMessageReply? = active?.takeUnless { it == delivered }?.also { delivered = it }
 
+    /** A suspended durable read can complete only the exact playback owner that requested it. */
+    fun terminalUpdate(expected: VoiceMessageReply, text: String, failed: Boolean): VoiceMessageReply? {
+        if (active != expected || !expected.complete) return null
+        active = expected.copy(text = text, failed = failed)
+        return update()
+    }
+
     /** Replacement is an intentional cancellation, including after the old model response completed. */
     fun retireSuperseded(): VoiceMessageIdentity? {
         val identity = supersededActive ?: return null

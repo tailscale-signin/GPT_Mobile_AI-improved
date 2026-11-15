@@ -214,6 +214,9 @@ class BoundModelInvocation:
             data = response.json()
             if self.physical_count == 0 or self.observed_count != self.physical_count:
                 raise ExecutionBindingError('EXECUTION_RECEIPT_MISSING', 'The transport returned without a verified receipt for every physical model request.')
+            if self.role == 'coding agent':
+                from v14.engineering_workspace import record_model_exposure
+                record_model_exposure(self.job['data'], request)
             return data
         except Exception as error:
             if self.current is None:

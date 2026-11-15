@@ -192,8 +192,17 @@ class RepositoryValidationPanel:
     def reveal(self, control):
         if self.advanced_visible.get():
             self.editor.update_idletasks()
-            margin = (self.editor_canvas.winfo_height() - control.winfo_height()) // 2
-            self.editor_canvas.yview_moveto(max(0, control.winfo_y() - margin) / max(1, self.editor.winfo_height()))
+            canvas = self.editor_canvas
+            bounds = canvas.bbox('all')
+            if not bounds:
+                return
+            content_height = max(1, bounds[3] - bounds[1])
+            viewport_height = max(1, canvas.winfo_height())
+            margin = max(4, (viewport_height - control.winfo_height()) // 2)
+            control_top = canvas.canvasy(control.winfo_rooty() - canvas.winfo_rooty())
+            max_top = max(bounds[1], bounds[3] - viewport_height)
+            target_top = min(max(bounds[1], control_top - margin), max_top)
+            canvas.yview_moveto((target_top - bounds[1]) / content_height)
 
     def discover_behavior_checks(self):
         from desktop.acceptance_discovery_dialog import open_dialog

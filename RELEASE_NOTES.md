@@ -1,3 +1,9 @@
+## November 15 autonomous engineering workflow
+
+Repository tasks gain pinned whole-repository search and graph lookup, approved adaptive test selection, versioned execution-budget receipts, bounded specialist reviews and exact patch iteration. Android and Windows can inspect retained candidates and restore eligible unpublished local work for revalidation. Existing-PR adoption checks actual head/base identities; generated agent instructions reject SDK/schema drift. A separate ten-scenario runner assesses durable production evidence.
+
+Autonomous engineering production qualification is not established by host tests: installed Android/Windows interaction, selected-model live repository tasks, restart/disconnect recovery and the ten production scenarios require observed runtime evidence.
+
 # GPT Mobile 0.9.66.7
 
 ## Late report reliability repairs

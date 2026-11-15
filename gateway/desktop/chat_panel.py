@@ -29,6 +29,7 @@ class ChatPanel(tk.Frame):
         self.selected_message = None
         self.cursor = None
         self.busy = False
+        self.engineering_modal = False
         self.sending = False
         self.closed = False
         self.visible = False
@@ -344,9 +345,13 @@ class ChatPanel(tk.Frame):
                             pending={'command_id': command, 'identity': identity,
                             'draft_sha256': hashlib.sha256(prompt.encode('utf-8')).hexdigest(),
                             'conversation_id': (conversation or {}).get('conversation_id')})
-            client = Client(self.root, identity)
-            return client.send(model, prompt, command, conversation=conversation, history=transcript,
-                               on_event=lambda name, value: self.post(name, value, epoch))
+            try:
+                client = Client(self.root, identity)
+                return client.send(model, prompt, command, conversation=conversation, history=transcript,
+                                   on_event=lambda name, value: self.post(name, value, epoch))
+            except ClientError as error:
+                error.command_id, error.command_identity = command, identity
+                raise
         self.launch('sent', work, epoch=epoch)
 
     def reconcile(self):
@@ -367,7 +372,8 @@ class ChatPanel(tk.Frame):
             self.status.configure(text='The reply does not identify the pending command. Choose Check send; it will not be sent again.')
             return
         if value.get('admission_state') == 'rejected':
-            self.launch('rejected-cleared', lambda: self.state.save(pending=None), quiet=True)
+            command, identity = pending['command_id'], dict(pending['identity'])
+            self.launch('rejected-cleared', lambda: self.state.retire_pending(command, identity), quiet=True)
             self.status.configure(text='The original command was rejected before dispatch. Your draft is kept; correct its prerequisite before sending again.')
         elif value.get('conversation_id'):
             ident = value['conversation_id']
@@ -442,60 +448,93 @@ class ChatPanel(tk.Frame):
             self.launch('stopped', lambda: self.client().cancel(ident), quiet=True)
 
     def compose_engineering(self):
-        if self.busy or self.sending or not self.identity or self.state.error or self.state.value.get('pending'):
+        if (self.closed or not self.visible or self.busy or self.sending or not self.identity or
+                self.state.error or self.state.value.get('pending') or getattr(self, 'engineering_modal', False)):
             return
-        from desktop.engineering_composer import EngineeringForm
-        origin = self.conversation if (self.conversation or {}).get('active_job_kind') == 'engineering' else None
-        form = EngineeringForm(self, self.model.get(), origin)
-        if form.result:
+        from desktop.engineering_composer import EngineeringForm, TaskPreparation, modal_scope
+        preparation = TaskPreparation(self)
+        with modal_scope(self):
+            form = EngineeringForm(self, preparation.model, preparation.origin)
+        if form.result and preparation.current(self):
             command = uuid.uuid4().hex
-            model = self.model.get()
-            self.launch('engineering-preflight', lambda: self.client().prepare_engineering(model, form.result, command, origin))
+            values = dict(form.result)
+            def prepare():
+                payload, result = preparation.client.prepare_engineering(preparation.model, values, command, preparation.origin)
+                return payload, result, preparation
+            if self.launch('engineering-preflight', prepare) is False:
+                self.status.configure(text='Another action started. Open the engineering task again to prepare it.')
 
-    def show_engineering_preflight(self, payload, result):
-        if not self.visible:
+    def show_engineering_preflight(self, payload, result, preparation):
+        if not preparation.current(self):
             return
-        if not result.get('ready'):
-            from desktop.engineering_composer import AcceptanceForm
+        from desktop.engineering_composer import AcceptanceForm, modal_scope
+        payload = dict(payload)
+        if result.get('ready') is not True:
             proposal = result.get('acceptance_preparation') or {}
             if proposal.get('source_sha') == payload.get('source_sha') and proposal.get('candidates'):
-                form = AcceptanceForm(self, proposal)
-                if form.result:
+                with modal_scope(self):
+                    form = AcceptanceForm(self, proposal)
+                if form.result and preparation.current(self):
                     updated = dict(payload, acceptance=[form.result])
-                    self.launch('engineering-preflight', lambda: (updated, self.client().engineering_preflight(updated)))
+                    if self.launch('engineering-preflight', lambda: (
+                            updated, preparation.client.engineering_preflight(updated), preparation)) is False:
+                        self.status.configure(text='Another action started. Review this task again before submitting.')
                 return
             reasons = '\n'.join(row['message'] for row in result.get('blockers', [])[:6])
-            messagebox.showinfo('Engineering preparation', reasons or 'Review the Gateway validation setup.', parent=self)
+            with modal_scope(self):
+                messagebox.showinfo('Engineering preparation', reasons or 'Review the Gateway validation setup.', parent=self)
             return
         summary = f"{payload['repository']} · {payload['branch']}\nSource: {payload['source_sha']}\nModel: {payload['model']}"
-        if not messagebox.askyesno('Start this engineering task?', summary, parent=self):
+        with modal_scope(self):
+            confirmed = messagebox.askyesno('Start this engineering task?', summary, parent=self)
+        if not confirmed or not preparation.current(self):
             return
-        identity = dict(self.identity)
+        identity = dict(preparation.client.expected_identity)
         def dispatch():
             self.state.save(pending={'command_id': payload['command_id'], 'identity': identity,
                                      'conversation_id': payload.get('conversation_id')})
-            return Client(self.root, identity).submit_engineering(payload)
-        self.launch('engineering-submitted', dispatch)
+            try:
+                return preparation.client.submit_engineering(payload)
+            except ClientError as error:
+                error.command_id, error.command_identity = payload['command_id'], identity
+                raise
+        if self.launch('engineering-submitted', dispatch) is False:
+            self.status.configure(text='Another action started. Review this task again before submitting.')
 
     def review_engineering(self):
+        if self.closed or not self.visible or getattr(self, 'engineering_modal', False):
+            return
         if self.conversation and self.conversation.get('active_job_kind') == 'engineering':
             conversation = dict(self.conversation)
-            self.launch('engineering-reviewed', lambda: (conversation, self.client().engineering_review(conversation)))
+            client = self.client()
+            self.launch('engineering-reviewed', lambda: (conversation, client.engineering_review(conversation), client))
 
-    def show_engineering_review(self, conversation, job):
-        if not self.visible or not self.conversation or self.conversation.get('conversation_id') != conversation['conversation_id']:
+    def show_engineering_review(self, conversation, job, client):
+        from desktop.engineering_composer import modal_scope
+        epoch = self.epoch
+        def unchanged():
+            return (not self.closed and self.visible and self.epoch == epoch and self.conversation and
+                    all(self.conversation.get(key) == conversation.get(key)
+                        for key in ('conversation_id', 'active_job_id', 'active_job_kind')) and
+                    scope_key(self.identity or {}) == scope_key(client.expected_identity or {}))
+        if not unchanged():
             return
+        job = dict(job)
         description = f"{job['repository']} · {job['branch']}\nStage: {job['state']}"
         if job.get('pr'):
             description += f"\nPull request #{job['pr']}"
         if job.get('qualified_revision'):
             description += '\nQualified commit: ' + job['qualified_revision']
         if not job.get('merge_ready'):
-            messagebox.showinfo('Engineering job', description + '\n\n' + job.get('message', ''), parent=self)
+            with modal_scope(self):
+                messagebox.showinfo('Engineering job', description + '\n\n' + job.get('message', ''), parent=self)
             return
         description += '\nCommit: ' + job['head_sha']
-        if messagebox.askyesno('Approve exact merge?', description, parent=self):
-            self.launch('engineering-approved', lambda: self.client().approve_engineering(conversation, job))
+        with modal_scope(self):
+            confirmed = messagebox.askyesno('Approve exact merge?', description, parent=self)
+        if confirmed and unchanged():
+            if self.launch('engineering-approved', lambda: client.approve_engineering(conversation, job)) is False:
+                self.status.configure(text='Another action started. Review the current job again before approving it.')
 
     def controls(self):
         pending = self.state.value.get('pending')
@@ -572,7 +611,7 @@ class ChatPanel(tk.Frame):
         self.poll_timer = None
         if self.closed or not self.visible or not self.conversation or self.sending:
             return
-        if self.busy:
+        if self.busy or getattr(self, 'engineering_modal', False):
             self.poll_timer = self.after(2000, self.refresh_conversation)
             return
         ident = self.conversation['conversation_id']
@@ -671,8 +710,11 @@ class ChatPanel(tk.Frame):
                     self.busy = False
                 if operation == 'sent':
                     self.sending = False
-                    if getattr(error, 'not_dispatched', False):
-                        self.launch('rejected-cleared', lambda: self.state.save(pending=None), quiet=True)
+                if operation in {'sent', 'engineering-submitted'} and getattr(error, 'not_dispatched', False):
+                    command = getattr(error, 'command_id', None)
+                    identity = dict(getattr(error, 'command_identity', {}))
+                    self.launch('rejected-cleared', lambda command=command, identity=identity:
+                                self.state.retire_pending(command, identity), quiet=True)
                 self.status.configure(text=str(error))
             self.controls()
         if redraw:

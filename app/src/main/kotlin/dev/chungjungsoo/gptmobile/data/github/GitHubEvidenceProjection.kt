@@ -65,7 +65,7 @@ internal object GitHubEvidenceProjection {
         if (source["review_projection"] == JsonPrimitive("EXACT_VALUES_WITH_DURABLE_ORIGINAL")) return source
         val compact = when {
             source["tool"] == JsonPrimitive(GitHubAuthorizedCatalog.TOOL) -> catalog(original) ?: result(original)
-            (source["tool"] as? JsonPrimitive)?.content?.substringBefore("__") == "github_context" &&
+            (source["tool"] as? JsonPrimitive)?.content?.githubOperationFamily() == "github_context" &&
                 (source["arguments"] as? JsonObject)?.get("action") == JsonPrimitive("checks") &&
                 original is JsonObject -> result(checkRows(original))
             else -> result(original)

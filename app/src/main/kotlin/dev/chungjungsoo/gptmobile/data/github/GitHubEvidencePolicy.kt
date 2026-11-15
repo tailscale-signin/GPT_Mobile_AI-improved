@@ -52,7 +52,7 @@ internal object GitHubEvidencePolicy {
 
     /** Meaning is bound to the operation and field path, independently of the value. */
     private fun semanticType(receipt: JsonObject?, path: String): Pair<String, String> {
-        val tool = receipt?.string("tool")?.substringBefore("__").orEmpty()
+        val tool = receipt?.string("tool")?.githubOperationFamily().orEmpty()
         val arguments = (receipt?.get("arguments") as? JsonObject) ?: JsonObject(emptyMap())
         val nativeAction = dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.nativeArguments(tool, arguments)?.string("action")
         val resource = when {
@@ -531,7 +531,7 @@ internal object GitHubEvidencePolicy {
             for ((pointer, value) in facts(receipt["result"] ?: JsonNull)) {
                 if (pointer in setOf("/state", "/data/state") && data?.containsKey("check_details") != true && data?.containsKey("checks") != true) continue
                 val pullRequestField = Regex("(?:/data)?/(?:pull_requests|open_pull_requests|items)/[0-9]+/(number|title|state|draft|(?:head|base)/(?:ref|sha))").matches(pointer)
-                if (pullRequestField && receipt.string("tool").substringBefore("__") != "github_pr") continue
+                if (pullRequestField && receipt.string("tool").githubOperationFamily() != "github_pr") continue
                 val healthField = GitHubStatusRequest.health(task) &&
                     (
                         GitHubStatusEvidence.operation(receipt, "github_pr", "context") &&
@@ -660,7 +660,7 @@ internal object GitHubEvidencePolicy {
         val envelope = receipt?.get("result") as? JsonObject
         val root = (envelope?.get("data") as? JsonObject) ?: envelope
         fun identifier(argument: String, result: String = "id"): String? = ((arguments?.get(argument) ?: root?.get(result)) as? JsonPrimitive)?.contentOrNull
-        val subject = when (receipt?.string("tool")?.substringBefore("__")) {
+        val subject = when (receipt?.string("tool")?.githubOperationFamily()) {
             "github_pr" -> identifier("pull_number", "number")?.let { "PR #$it" }
             "github_issue" -> identifier("issue_number", "number")?.let { "Issue #$it" }
             "github_ci" -> when {
@@ -681,7 +681,7 @@ internal object GitHubEvidencePolicy {
 
     private fun fieldLabel(pointer: String, receipt: JsonObject? = null): String = when (pointer) {
         "/branch", "/data/branch" -> "Observed branch"
-        "/state", "/data/state" -> when (receipt?.string("tool")?.substringBefore("__")) {
+        "/state", "/data/state" -> when (receipt?.string("tool")?.githubOperationFamily()) {
             "github_pr" -> "Pull request state"
             "github_issue" -> "Issue state"
             "github_context", "github_ci" -> if ((receipt?.get("arguments") as? JsonObject)?.string("action") in setOf("checks", "status")) "Commit check summary" else "Resource state"
@@ -716,7 +716,7 @@ internal object GitHubEvidencePolicy {
                     is JsonArray -> part.toIntOrNull()?.let { item.getOrNull(it) }
                     else -> null
                 }
-                if (receipt?.string("tool")?.substringBefore("__") == "github_pr" && (parent as? JsonObject)?.get("number") is JsonPrimitive) pullRequest = parent
+                if (receipt?.string("tool")?.githubOperationFamily() == "github_pr" && (parent as? JsonObject)?.get("number") is JsonPrimitive) pullRequest = parent
             }
             val subject = pullRequest?.let { "PR #${it.string("number")}" } ?: (parent as? JsonObject)?.let { obj ->
                 if ("/pull_requests/" in pointer || "/pull_request/" in pointer) {

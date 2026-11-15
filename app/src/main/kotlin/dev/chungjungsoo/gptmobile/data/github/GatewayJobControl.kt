@@ -22,39 +22,73 @@ class GatewayJobControl @Inject constructor(
     suspend fun inspect(record: GatewayJobRecord): GatewayJobStopReview = inspectRoute(record).second
 
     /** Review the exact retained recovery without attaching it to a different local chat. */
-    suspend fun inspectRecoveryApproval(record: GatewayJobRecord): GatewayEngineeringJob {
-        val (config, review) = inspectRoute(record)
-        check(review.summary.recoveryOf != null && "approve" in review.summary.allowedActions) { "This recovery no longer needs merge approval." }
-        return engineering.get(config, review.summary.jobId, -1).also { job ->
-            verifyEngineering(review, job)
+    suspend fun inspectRecoveryApproval(record: GatewayJobRecord): GatewayEngineeringJob = inspectRecoveryRoute(record).second
+
+    private suspend fun inspectRecoveryRoute(record: GatewayJobRecord): Pair<ProviderRequestConfig, GatewayEngineeringJob> {
+        val (config, review) = inspectRoute(record, forApproval = true)
+        check(review.summary.jobKind == "engineering") { "This saved job does not own an engineering recovery." }
+        check(review.summary.recoveryJobId != null || (review.summary.recoveryOf != null && "approve" in review.summary.allowedActions)) { "This recovery no longer needs merge approval." }
+        val root = engineering.get(config, review.summary.jobId, -1)
+        verifyEngineering(review, root, forApproval = true)
+        check(root.base == review.summary.base && !root.base.isNullOrBlank() && !root.executionBindingId.isNullOrBlank() && root.recoveryOf == review.summary.recoveryOf) { "The exact recovery revision is no longer available for approval." }
+        val visited = mutableSetOf(root.id)
+        var job = root
+        var descendants = 0
+        while (job.recoveryJobId != null) {
+            val childId = requireNotNull(job.recoveryJobId)
+            check(descendants < 5 && visited.add(childId)) { "The recovery chain is cyclic or exceeds its five-descendant review limit." }
+            val child = engineering.get(config, childId, -1)
             check(
-                job.mergeReady &&
-                    job.pr != null &&
-                    job.headSha?.matches(Regex("[a-f0-9]{40}")) == true &&
-                    job.recoveryOf == review.summary.recoveryOf &&
-                    !job.executionBindingId.isNullOrBlank()
-            ) { "The exact recovery revision is no longer available for approval." }
+                child.id == childId &&
+                    child.recoveryOf == job.id &&
+                    child.gatewayId == root.gatewayId &&
+                    child.principalId == root.principalId &&
+                    child.repository == root.repository &&
+                    child.base == root.base &&
+                    child.executionBindingId == root.executionBindingId &&
+                    child.executionBinding == root.executionBinding
+            ) { "The recovery descendant no longer belongs to this saved job's execution authority." }
+            // Each recovery owns its own branch and may have a different or no
+            // conversation. Only the original saved conversation is attached here.
+            job = child
+            descendants++
         }
+        check(
+            job.recoveryOf != null &&
+                job.state == "MERGE_READY" &&
+                job.mergeReady &&
+                job.pr != null &&
+                job.headSha?.matches(Regex("[a-f0-9]{40}")) == true &&
+                (descendants > 0 || "approve" in review.summary.allowedActions)
+        ) { "The exact recovery revision is no longer available for approval." }
+        return config to job
     }
 
     suspend fun approveRecovery(record: GatewayJobRecord, reviewed: GatewayEngineeringJob) {
-        val fresh = inspectRecoveryApproval(record)
+        val (config, fresh) = inspectRecoveryRoute(record)
         check(
             fresh.id == reviewed.id &&
                 fresh.revision == reviewed.revision &&
                 fresh.pr == reviewed.pr &&
                 fresh.headSha == reviewed.headSha &&
                 fresh.recoveryOf == reviewed.recoveryOf &&
-                fresh.executionBindingId == reviewed.executionBindingId
+                fresh.repository == reviewed.repository &&
+                fresh.base == reviewed.base &&
+                fresh.executionBindingId == reviewed.executionBindingId &&
+                fresh.executionBinding == reviewed.executionBinding
         ) { "The recovery changed. Reopen its approval before continuing." }
-        val config = repository.originalRoute(record.connectionProfileUid, record.endpoint).config
-        val response = engineering.control(mutationConfig(record, config), fresh, "approve")
+        val response = engineering.control(mutationConfig(record, config, forApproval = true), fresh, "approve")
         check(
             response.id == fresh.id &&
                 response.revision > fresh.revision &&
                 response.gatewayId == fresh.gatewayId &&
                 response.principalId == fresh.principalId &&
-                response.executionBindingId == fresh.executionBindingId
+                response.repository == fresh.repository &&
+                response.base == fresh.base &&
+                response.branch == fresh.branch &&
+                response.recoveryOf == fresh.recoveryOf &&
+                response.executionBindingId == fresh.executionBindingId &&
+                response.executionBinding == fresh.executionBinding
         ) { "Approval outcome is unknown. Refresh the original recovery." }
     }
 
@@ -100,15 +134,15 @@ class GatewayJobControl @Inject constructor(
         }
     }
 
-    private suspend fun mutationConfig(record: GatewayJobRecord, frozen: ProviderRequestConfig): ProviderRequestConfig {
+    private suspend fun mutationConfig(record: GatewayJobRecord, frozen: ProviderRequestConfig, forApproval: Boolean = false): ProviderRequestConfig {
         val identity = history.identity(frozen)
-        check(identity.gatewayId == record.gatewayId && identity.principalId == record.principalId) { "Restore the original gateway and account before confirming Stop." }
-        check(repository.originalRoute(record.connectionProfileUid, record.endpoint).config == frozen) { "The gateway connection changed while Stop was being reviewed." }
+        check(identity.gatewayId == record.gatewayId && identity.principalId == record.principalId) { if (forApproval) "Restore the original gateway and account before confirming merge approval." else "Restore the original gateway and account before confirming Stop." }
+        check(repository.originalRoute(record.connectionProfileUid, record.endpoint).config == frozen) { if (forApproval) "The gateway connection changed while merge approval was being reviewed." else "The gateway connection changed while Stop was being reviewed." }
         currentCoroutineContext().ensureActive()
         return frozen.withGatewayIdentity(identity)
     }
 
-    private suspend fun inspectRoute(record: GatewayJobRecord): Pair<ProviderRequestConfig, GatewayJobStopReview> {
+    private suspend fun inspectRoute(record: GatewayJobRecord, forApproval: Boolean = false): Pair<ProviderRequestConfig, GatewayJobStopReview> {
         requireGatewayIdentity(record.gatewayId, record.principalId)
         check(record.kind in setOf("engineering", "generation", "ordinary") && record.key == gatewayIdentityKey(record.gatewayId, record.principalId, record.kind, record.remoteJobId)) { "The saved job identity is unavailable." }
         val original = repository.summary(record)
@@ -117,21 +151,21 @@ class GatewayJobControl @Inject constructor(
         val cursors = mutableSetOf<String>()
         repeat(20) {
             val page = history.catalog(route.config, cursor)
-            check(page.gatewayId == record.gatewayId && page.principalId == record.principalId) { "Restore the original gateway and account before stopping this job." }
+            check(page.gatewayId == record.gatewayId && page.principalId == record.principalId) { if (forApproval) "Restore the original gateway and account before reviewing this recovery merge approval." else "Restore the original gateway and account before stopping this job." }
             val current = page.items.singleOrNull { it.jobKind == record.kind && it.jobId == record.remoteJobId }
             if (current != null) {
-                check(original.jobId == current.jobId && original.jobKind == current.jobKind && original.conversationId == current.conversationId && original.profileId == current.profileId && original.model == current.model && original.repository == current.repository && original.branch == current.branch && original.base == current.base && current.revision >= original.revision) { "The saved job destination changed. Refresh Jobs before confirming Stop." }
+                check(original.jobId == current.jobId && original.jobKind == current.jobKind && original.conversationId == current.conversationId && original.profileId == current.profileId && original.model == current.model && original.repository == current.repository && original.branch == current.branch && original.base == current.base && current.revision >= original.revision) { if (forApproval) "The saved job destination changed. Refresh Jobs before confirming merge approval." else "The saved job destination changed. Refresh Jobs before confirming Stop." }
                 check(record.executionProfileUid == current.profileId && record.conversationKey == current.conversationId?.let { gatewayIdentityKey(record.gatewayId, record.principalId, it) }) { "The saved job conversation or profile changed." }
                 return route.config to GatewayJobStopReview(record, current)
             }
-            if (!page.hasMore) error("The original job is unavailable in this gateway account. No Stop request was sent.")
+            if (!page.hasMore) error(if (forApproval) "The original recovery job is unavailable in this gateway account. No merge approval request was sent." else "The original job is unavailable in this gateway account. No Stop request was sent.")
             cursor = requireNotNull(page.nextCursor).also { check(cursors.add(it)) { "The gateway catalog cursor did not advance." } }
         }
-        error("The job could not be verified within the catalog read limit. No Stop request was sent.")
+        error(if (forApproval) "The recovery job could not be verified within the catalog read limit. No merge approval request was sent." else "The job could not be verified within the catalog read limit. No Stop request was sent.")
     }
 
-    private fun verifyEngineering(review: GatewayJobStopReview, job: GatewayEngineeringJob) {
-        check(job.id == review.summary.jobId && job.gatewayId == review.record.gatewayId && job.principalId == review.record.principalId && job.conversationId == review.summary.conversationId && job.repository == review.summary.repository && job.branch == review.summary.branch && job.revision >= review.summary.revision) { "The original engineering job identity changed. Stop was not confirmed." }
+    private fun verifyEngineering(review: GatewayJobStopReview, job: GatewayEngineeringJob, forApproval: Boolean = false) {
+        check(job.id == review.summary.jobId && job.gatewayId == review.record.gatewayId && job.principalId == review.record.principalId && job.conversationId == review.summary.conversationId && job.repository == review.summary.repository && job.branch == review.summary.branch && job.revision >= review.summary.revision) { if (forApproval) "The original recovery job identity changed. Merge approval was not confirmed." else "The original engineering job identity changed. Stop was not confirmed." }
     }
 
     private fun engineeringResult(job: GatewayEngineeringJob): GatewayJobStopResult? = gatewayObservedStopResult(job.state, null, false)

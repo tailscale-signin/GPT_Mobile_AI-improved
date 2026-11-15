@@ -1,15 +1,68 @@
 """Desktop engineering preparation and explicit acceptance review."""
+from contextlib import contextmanager
 import re
 import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
+from desktop import theme
+from desktop.conversation_client import ClientError, scope_key
 
-class EngineeringForm(simpledialog.Dialog):
+
+@contextmanager
+def modal_scope(panel):
+    """Defer conversation refresh while a user reviews one engineering action."""
+    previous = getattr(panel, 'engineering_modal', False)
+    panel.engineering_modal = True
+    try:
+        yield
+    finally:
+        panel.engineering_modal = previous
+
+
+class TaskPreparation:
+    """Retain the exact connection and view that opened the task form."""
+    VIEW_FIELDS = ('conversation_id', 'active_job_id', 'active_job_kind', 'revision', 'profile_id', 'model')
+
+    def __init__(self, panel):
+        self.client, self.model, self.epoch = panel.client(), panel.model.get(), panel.epoch
+        self.view = dict(panel.conversation or {})
+        self.origin = dict(self.view) if self.view.get('active_job_kind') == 'engineering' else None
+
+    def current(self, panel):
+        valid = (not panel.closed and panel.visible and not panel.busy and not panel.sending and
+                 not panel.state.error and not panel.state.value.get('pending') and panel.epoch == self.epoch and
+                 panel.model.get() == self.model and
+                 scope_key(panel.identity or {}) == scope_key(self.client.expected_identity or {}) and
+                 all((panel.conversation or {}).get(key) == self.view.get(key) for key in self.VIEW_FIELDS))
+        if valid:
+            try:
+                self.client.check_scope({})
+            except ClientError:
+                valid = False
+        if not valid and not panel.closed and panel.visible:
+            panel.status.configure(text='The connection or task context changed. Open the engineering task again before submitting.')
+        return valid
+
+
+class _ThemedForm(simpledialog.Dialog):
+    def buttonbox(self):
+        self.configure(background=theme.BG)
+        box = ttk.Frame(self)
+        ttk.Button(box, text='OK', width=10, command=self.ok, default=tk.ACTIVE,
+                   style='Accent.TButton').pack(side=tk.LEFT, padx=5, pady=5)
+        ttk.Button(box, text='Cancel', width=10, command=self.cancel).pack(side=tk.LEFT, padx=5, pady=5)
+        self.bind('<Return>', self.ok)
+        self.bind('<Escape>', self.cancel)
+        box.pack()
+
+
+class EngineeringForm(_ThemedForm):
     def __init__(self, parent, model, conversation):
         self.model, self.conversation = model, conversation
         super().__init__(parent, title='Continue engineering' if conversation else 'Engineering task')
 
     def body(self, frame):
+        frame.configure(background=theme.BG)
         frame.columnconfigure(1, weight=1)
         ttk.Label(frame, text='Model · ' + (self.model or 'Select a model first')).grid(row=0, column=0, columnspan=2, sticky='w')
         self.fields = {}
@@ -28,7 +81,10 @@ class EngineeringForm(simpledialog.Dialog):
         self.scope = tk.StringVar(master=frame, value='implement')
         ttk.Combobox(frame, textvariable=self.scope, values=('implement', 'plan', 'read'), state='readonly').grid(row=7, column=1, sticky='ew')
         ttk.Label(frame, text='Task objective').grid(row=8, column=0, sticky='nw', pady=4)
-        self.objective = tk.Text(frame, width=50, height=6, wrap='word')
+        self.objective = tk.Text(frame, width=50, height=6, wrap='word', bg=theme.PANEL, fg=theme.TEXT,
+                                 insertbackground=theme.CYAN, selectbackground=theme.RAISED,
+                                 selectforeground=theme.TEXT, relief='flat', highlightthickness=1,
+                                 highlightbackground=theme.LINE, highlightcolor=theme.CYAN)
         self.objective.grid(row=8, column=1, sticky='ew', pady=4)
         return self.objective
 
@@ -46,12 +102,13 @@ class EngineeringForm(simpledialog.Dialog):
         return True
 
 
-class AcceptanceForm(simpledialog.Dialog):
+class AcceptanceForm(_ThemedForm):
     def __init__(self, parent, proposal):
         self.proposal = proposal
         super().__init__(parent, title='Review acceptance for this task')
 
     def body(self, frame):
+        frame.configure(background=theme.BG)
         frame.columnconfigure(1, weight=1)
         ttk.Label(frame, text='Approved tests at ' + self.proposal['source_sha'][:12]).grid(row=0, column=0, columnspan=2, sticky='w')
         self.rows = [(case, requirement) for case in self.proposal['candidates'] for requirement in case['requirement_ids']]
@@ -60,7 +117,10 @@ class AcceptanceForm(simpledialog.Dialog):
         self.selection.grid(row=1, column=0, columnspan=2, sticky='ew', pady=5)
         self.selection.current(0)
         ttk.Label(frame, text='Changed source paths (one per line)').grid(row=2, column=0, columnspan=2, sticky='w')
-        self.paths = tk.Text(frame, width=54, height=4, wrap='none')
+        self.paths = tk.Text(frame, width=54, height=4, wrap='none', bg=theme.PANEL, fg=theme.TEXT,
+                             insertbackground=theme.CYAN, selectbackground=theme.RAISED,
+                             selectforeground=theme.TEXT, relief='flat', highlightthickness=1,
+                             highlightbackground=theme.LINE, highlightcolor=theme.CYAN)
         self.paths.grid(row=3, column=0, columnspan=2, sticky='ew', pady=4)
         ttk.Label(frame, text='Required check').grid(row=4, column=0, sticky='w')
         self.check = ttk.Combobox(frame, state='readonly', values=self.proposal['allowed_checks'])

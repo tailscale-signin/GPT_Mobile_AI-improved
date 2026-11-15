@@ -11,7 +11,7 @@ internal object GitHubBranchTransition {
 
     fun verified(repository: String, tool: String, arguments: JsonObject, result: JsonElement?, success: Boolean): Destination? {
         if (!success) return null
-        val operation = tool.substringBefore("__")
+        val operation = tool.githubOperationFamily()
         val action = arguments.text("action")
         if (!(operation == "github_commit" && action == "branch" || operation == "github_context" && action == "resolve")) return null
         if (operation == "github_commit" && arguments["select_created_branch"] == JsonPrimitive(false)) return null

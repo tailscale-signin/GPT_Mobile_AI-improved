@@ -95,10 +95,12 @@ internal object GitHubIntegrationReport {
         val passedCapabilities = requiredCapabilities.filter { it.text("acceptance_state") == "PASS" }
         val accepted = requiredCriteria.count { it.text("acceptance_state") == "PASS" }
         val complete = requiredCriteria.isNotEmpty() && accepted == requiredCriteria.size
-        val activeNames = tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.substringBefore("__") == "repository_graph") }.map { it.name.substringBefore("__") }.toSet()
+        val activeNames = tools.filter { it.modelVisible && (it.name.substringBefore("__").startsWith("github_") || it.name.substringBefore("__") == "repository_graph") }.map { it.name }.toSet()
+        val activeFamilies = activeNames.map { it.githubOperationFamily() }.toSet()
         val observations = receipts.values.filter { it["trusted"] == JsonPrimitive(true) && it["verification_eligible"] != JsonPrimitive(false) }
-        val exercised = observations.filter { GitHubEvidenceOrigin.of(it) == "LIVE" }.map { it.text("tool").substringBefore("__") }.toSet().intersect(activeNames).size
-        val outcomes = capabilities.filter { it.text("id").substringBefore(':') in activeNames }.groupBy { it.text("id").substringBefore(':') }.mapValues { (_, rows) ->
+        val exercisedNames = observations.filter { GitHubEvidenceOrigin.of(it) == "LIVE" }.map { it.text("tool") }.toSet().intersect(activeNames)
+        val exercisedFamilies = exercisedNames.map { it.githubOperationFamily() }.toSet()
+        val outcomes = capabilities.filter { it.text("id").substringBefore(':') in activeFamilies }.groupBy { it.text("id").substringBefore(':') }.mapValues { (_, rows) ->
             when {
                 rows.all { it.text("status") in setOf("OUT_OF_SCOPE", "NOT_REQUESTED") } -> "OUT_OF_SCOPE"
                 rows.any { it.text("status") == "FAILED" } -> "FAILED"
@@ -110,13 +112,14 @@ internal object GitHubIntegrationReport {
         append("**Task outcome: ${if (complete) "acceptance verified" else "partial acceptance"}.** $accepted/${requiredCriteria.size} required task criteria verified. ")
         append("${passedCapabilities.size}/${requiredCapabilities.size} required API capabilities verified; ${capabilities.size - requiredCapabilities.size} capability rows are excluded from that denominator. Task criteria and API capabilities are independent counts.\n\n")
         append("Of the passed required capabilities, ${passedCapabilities.count { it["live_verified"] == JsonPrimitive(true) }} have live response evidence and ${passedCapabilities.count { it["live_verified"] != JsonPrimitive(true) }} qualify only the recorded response scope. Cached or local acceptance does not establish live transport or application/device execution.\n\n")
-        append("$exercised/${activeNames.size} known authorized GitHub tools have live observations. ")
+        append("${exercisedFamilies.size}/${activeFamilies.size} known authorized GitHub operation families have live observations. ")
+        append("${exercisedNames.size}/${activeNames.size} known authorized GitHub tools have live observations; these counts retain exact tool names. ")
         append(if (catalog["denominator_final"] == JsonPrimitive(true)) "The authorized catalog is complete.\n\n" else "The all-tools denominator remains provisional until authorized catalog discovery is exhausted.\n\n")
         append("Discovery: ${catalog.text("discovery_calls_succeeded")}/${catalog.text("discovery_calls_observed")} retained calls succeeded; ${catalog.text("inventory_pages_verified")} version-bound pages verified. ")
         append("${catalog.text("observed_tool_count")} authorized tool names observed, including ${catalog.text("observed_github_tool_count")} GitHub tools. Inventory discovery does not establish tool execution or operation verification.\n\n")
-        append("### Tool outcomes\n\n| Outcome | Tools | Meaning |\n| --- | ---: | --- |\n")
+        append("### Tool family outcomes\n\n| Outcome | Families | Meaning |\n| --- | ---: | --- |\n")
         linkedMapOf(
-            "PASSED" to "Every requested action of this tool has a qualifying response; execution scope is recorded per capability.",
+            "PASSED" to "Every requested action in this operation family has a qualifying response; execution scope is recorded per capability.",
             "FAILED" to "A dispatched operation has an unresolved failure.",
             "PARTIAL" to "Some requested actions passed; other actions remain unverified.",
             "BLOCKED" to "No qualifying coverage yet; prerequisites, authorization or preflight validation prevent acceptance.",
@@ -126,7 +129,7 @@ internal object GitHubIntegrationReport {
         val requests = observations.mapNotNull { it["execution"] as? JsonObject }
         val reads = requests.mapNotNull { it.number("read_requests") }.takeIf { it.isNotEmpty() }?.sum()?.toString() ?: "unknown"
         val writes = requests.mapNotNull { it.number("mutation_requests") }.takeIf { it.isNotEmpty() }?.sum()?.toString() ?: "unknown"
-        append("\nRecorded tool receipts: ${observations.size}; dispatched tool calls: $dispatched; recorded HTTP reads: $reads; mutation requests: $writes. Missing transport counters are unknown, not measured zero. Repeated pages increase calls, not the number of tools exercised.\n")
+        append("\nRecorded tool receipts: ${observations.size}; dispatched tool calls: $dispatched; recorded HTTP reads: $reads; mutation requests: $writes. Missing transport counters are unknown, not measured zero. Repeated pages increase calls, not the number of operation families exercised.\n")
         val kinds = observations.groupingBy(GitHubExecutionLedger::observationKind).eachCount()
         append("\n| Recorded outcome | Count |\n| --- | ---: |\n")
         GitHubExecutionLedger.ObservationKind.entries.forEach { kind -> append("| ${kind.name} | ${kinds.getOrDefault(kind, 0)} |\n") }

@@ -142,8 +142,13 @@ data class ProviderFailureReceipt(
                 failedStage == "tool_execution" &&
                 status in setOf(403, 429) &&
                 classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
+            val capacityAdmissionRejected = code in dev.chungjungsoo.gptmobile.data.context.RequestCapacityException.CODES &&
+                failedStage == "provider_admission" &&
+                classified.category !in setOf(dev.chungjungsoo.gptmobile.data.agent.GatewayOutcomeRecovery.ERROR_CODE, "TOOL_OUTCOME_UNKNOWN")
             val stage = when {
-                profileSelectionRejected || githubCooldownActive -> ProviderFailureStage.ADMISSION
+                // The failed preparation stage does not establish whether prior
+                // work in this run was dispatched or has an uncertain outcome.
+                profileSelectionRejected || githubCooldownActive || capacityAdmissionRejected -> ProviderFailureStage.ADMISSION
                 classified.isUserInputRequired || classified.isEngineeringSetup || code.startsWith("MODEL_PREPARATION_") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" && failedStage in setOf("request_validation", "provider_admission", "binding_admission", "message_admission", "conversation_admission", "execution_admission") -> ProviderFailureStage.ADMISSION
                 code == "ENGINEERING_STATE_OR_INPUT_CHANGED" -> ProviderFailureStage.ENGINEERING_GUARD

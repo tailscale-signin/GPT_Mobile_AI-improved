@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import android.util.AtomicFile
+import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.Dispatchers
@@ -137,7 +138,7 @@ class ToolBatchCheckpoint(private val file: File?, private val binding: String, 
             // Derive that transition from durable successful receipts, including older journals.
             val destinationVerified = initialJob.branch == saved.jobContext.branch ||
                 saved.entries.values.any { entry ->
-                    val operation = entry.call.name.substringBefore("__")
+                    val operation = entry.call.name.githubOperationFamily()
                     val action = (entry.call.arguments["action"] as? JsonPrimitive)?.content
                     if (!(operation == "github_commit" && action == "branch" || operation == "github_context" && action == "resolve")) return@any false
                     val result = entry.result ?: return@any false

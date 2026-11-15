@@ -2661,6 +2661,207 @@ class LiteRtLmAdapterTest {
     }
 
     @Test
+    fun `NPU binding failure keeps its typed phase through the approved report`() = runBlocking {
+        assertConnectionLoadReport(npu = true)
+        assertConnectionLoadReport(npu = true, cancelledCause = true)
+    }
+
+    @Test
+    fun `runtime managed engine binding failure keeps its typed phase through the approved report`() = runBlocking {
+        assertConnectionLoadReport(npu = false)
+    }
+
+    private suspend fun assertConnectionLoadReport(npu: Boolean, cancelledCause: Boolean = false) {
+        val original = if (cancelledCause) CancellationException("PRIVATE_NESTED_CANCELLATION") else IllegalStateException("PRIVATE_BINDING_CAUSE")
+        val bindingFailure = dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeConnectionException(original)
+        val native = FakeLocalRuntime().apply {
+            capabilities = LocalModelCapabilities(contextTokens = 4096, backends = setOf("gpu", "npu"), soc = "SM8750")
+            failLoadEngineIf = { bindingFailure }
+        }
+        val runtime = object : LocalRuntime by native {
+            override val handlesEngineFallback = true
+        }
+        val file = if (npu) "gemma_SM8750.litertlm" else "gemma.litertlm"
+        val models = FakeLocalModelRepository(
+            initialModels = listOf(installedModel("gemma3-1b-it", file)),
+            downloadedPaths = mapOf("gemma3-1b-it" to "/models/$file")
+        )
+        val profile = localPlatform().copy(accelerator = if (npu) "npu" else "gpu")
+        val runId = if (npu) "PRIVATE_NPU_RUN" else "PRIVATE_ENGINE_RUN"
+        val invocationId = if (npu) "PRIVATE_NPU_INVOCATION" else "PRIVATE_ENGINE_INVOCATION"
+        val source = adapter(runtime, models, deviceSocModel = "SM8750").openSession(turns("PRIVATE_PROMPT"), profile)
+        val events = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet(), runId, invocationId)) {
+            dev.chungjungsoo.gptmobile.data.diagnostics.withProviderFailureReceipts(source, runId, profile, "primary")
+                .streamRound(emptyList(), emptyList()).toList()
+        }
+        val failure = events.filterIsInstance<ProviderEvent.Failed>().single()
+        val evidence = requireNotNull(failure.failureDetails)
+        assertEquals(invocationId, failure.invocationId)
+        assertEquals(1, native.loadEngineCalls.size)
+        assertTrue(native.createConversationCalls.isEmpty())
+        assertTrue(native.sendMessageCalls.isEmpty())
+        assertFalse(events.any { it == ProviderEvent.Completed })
+        val expectedPhase = "connection_preflight".takeUnless { cancelledCause }
+        assertEquals(expectedPhase?.let { JsonPrimitive(it) }, evidence["failed_stage"])
+        val expectedType = if (npu) "LocalNpuPackageException" else "LocalEngineLoadException"
+        assertEquals(JsonPrimitive(expectedType), evidence["exception_report_type"])
+        assertTrue(evidence["cause_types"].toString().contains("LocalRuntimeConnectionException"))
+        assertTrue(evidence["cause_types"].toString().contains(if (cancelledCause) "CancellationException" else "IllegalStateException"))
+        val fields = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fields(
+            dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature.CHAT,
+            "CHAT_FAILURE",
+            "CHAT_FAILED",
+            evidence
+        )
+        val context = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+        assertEquals(expectedPhase, context.stage)
+        assertEquals(JsonPrimitive(expectedPhase ?: "unknown"), context.diagnostics?.values?.get("incident_phase"))
+        // The coarse legacy category is not changed by manufacturing a dispatch verdict.
+        assertEquals(JsonPrimitive("GENERATION"), context.diagnostics?.values?.get("provider_failure_stage"))
+        assertNull(context.dispatched)
+        assertNull(context.remoteAcceptance)
+        assertNull(context.retryable)
+        val report = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport(
+            "11111111-1111-4111-8111-111111111111", "debug", "1.0", 1, "abcdef0", "14", 34, "Fixture",
+            feature = "chat", errorCode = "CHAT_FAILED", context = context
+        ).withCapturedException(fields)
+        val payload = report.approvedPayload()
+        val serialized = (dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport.json.parseToJsonElement(payload) as JsonObject).getValue("context") as JsonObject
+        val serializedValues = (serialized.getValue("diagnostics") as JsonObject).getValue("values") as JsonObject
+        assertEquals(expectedPhase?.let { JsonPrimitive(it) }, serialized["stage"])
+        assertEquals(JsonPrimitive(expectedPhase ?: "unknown"), serializedValues["incident_phase"])
+        assertEquals(JsonPrimitive("GENERATION"), serializedValues["provider_failure_stage"])
+        for (key in listOf("dispatched", "remoteAcceptance", "retryable")) assertFalse(serialized.containsKey(key))
+        assertEquals(expectedType, report.errorType)
+        assertTrue(report.frames.isNotEmpty())
+        assertFalse(payload.contains("PRIVATE_"))
+        for (key in listOf("dispatched", "remote_acceptance", "http_status", "retryable", "request_replay_allowed", "logical_continuation_allowed", "backend_attempts")) {
+            assertNull(evidence[key])
+            assertNull(context.diagnostics?.values?.get(key))
+            assertFalse(serializedValues.containsKey(key))
+        }
+    }
+
+    @Test
+    fun `capacity rejection keeps operands and prior attempt history through approved reports`() = runBlocking {
+        for (priorOutput in listOf<String?>(null, "", "Prior visible output")) {
+            var rejectConversation = priorOutput == null
+            var conversationAttempts = 0
+            val native = FakeLocalRuntime().apply {
+                scriptedEvents = listOf(
+                    buildList {
+                        priorOutput?.takeIf { it.isNotEmpty() }?.let { add(LocalRuntimeEvent.TextDelta(it)) }
+                        add(LocalRuntimeEvent.Done)
+                    }
+                )
+            }
+            val runtime = object : LocalRuntime by native {
+                override fun hasOpenConversation(): Boolean = !rejectConversation && native.hasOpenConversation()
+                override suspend fun createConversation(config: dev.chungjungsoo.gptmobile.data.localruntime.LocalConversationConfig) {
+                    conversationAttempts++
+                    if (rejectConversation) throw observedCapacityRejection()
+                    native.createConversation(config)
+                }
+            }
+            val profile = localPlatform()
+            val session = adapter(runtime).openSession(turns("PRIVATE_REQUEST"), profile)
+            val runId = "PRIVATE_CAPACITY_RUN_${priorOutput?.length ?: "none"}"
+            val invocationId = "PRIVATE_CAPACITY_INVOCATION_${priorOutput?.length ?: "none"}"
+            val reporting = dev.chungjungsoo.gptmobile.data.diagnostics.withProviderFailureReceipts(session, runId, profile, "primary")
+            val failure = kotlinx.coroutines.withContext(dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext(emptySet(), runId, invocationId)) {
+                if (priorOutput != null) {
+                    val priorEvents = reporting.streamRound(emptyList(), emptyList()).toList()
+                    assertEquals(1, native.sendMessageCalls.size)
+                    assertEquals(priorOutput, priorEvents.filterIsInstance<ProviderEvent.TextDelta>().joinToString("") { it.text })
+                    rejectConversation = true
+                }
+                reporting.streamRound(emptyList(), emptyList()).toList().filterIsInstance<ProviderEvent.Failed>().single()
+            }
+            assertEquals(if (priorOutput == null) 1 else 2, conversationAttempts)
+            assertEquals(if (priorOutput == null) 0 else 1, native.sendMessageCalls.size)
+            assertEquals("CONTEXT_CAPACITY_EXCEEDED", failure.errorCode)
+            val evidence = requireNotNull(failure.failureDetails)
+            assertEquals(JsonPrimitive("RequestCapacityException"), evidence["exception_report_type"])
+            assertEquals(JsonPrimitive("provider_admission"), evidence["failed_stage"])
+            assertNull(evidence["partial_output_preserved"])
+            if (priorOutput != null) {
+                for (key in listOf("attempt_dispatch_state", "dispatch_state", "dispatched", "remote_acceptance")) assertNull(evidence[key])
+            }
+            val fields = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fields(
+                dev.chungjungsoo.gptmobile.data.diagnostics.ReportFeature.CHAT,
+                "CHAT_FAILURE",
+                "CHAT_FAILED",
+                evidence
+            )
+            val context = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L)
+            val values = requireNotNull(context.diagnostics).values
+            assertEquals(JsonPrimitive(90), values["admission_prompt_tokens"])
+            assertEquals(JsonPrimitive(10), values["admission_safety_tokens"])
+            assertEquals(JsonPrimitive(64), values["admission_output_tokens"])
+            assertEquals(JsonPrimitive(128), values["admission_capacity_tokens"])
+            assertEquals(JsonPrimitive("UTF8_ESTIMATE"), values["admission_measurement"])
+            assertEquals(JsonPrimitive("ADMISSION"), values["provider_failure_stage"])
+            assertEquals(JsonPrimitive("provider_admission"), values["incident_phase"])
+            assertEquals(if (priorOutput == null) false else null, context.dispatched)
+            assertEquals(if (priorOutput == null) "NO" else null, context.remoteAcceptance)
+            assertNull(values["partial_output_preserved"])
+            val report = dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport(
+                "11111111-1111-4111-8111-111111111111", "debug", "1.0", 1, "abcdef0", "14", 34, "Fixture",
+                feature = "chat", errorCode = "CHAT_FAILED", context = context
+            ).withCapturedException(fields)
+            assertEquals("RequestCapacityException", report.errorType)
+            assertTrue(report.frames.isNotEmpty())
+            val payload = report.approvedPayload()
+            val serialized = (dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport.json.parseToJsonElement(payload) as JsonObject).getValue("context") as JsonObject
+            val serializedValues = (serialized.getValue("diagnostics") as JsonObject).getValue("values") as JsonObject
+            assertEquals(JsonPrimitive("provider_admission"), serialized["stage"])
+            for ((key, expected) in mapOf("admission_prompt_tokens" to 90, "admission_safety_tokens" to 10, "admission_output_tokens" to 64, "admission_capacity_tokens" to 128)) {
+                assertEquals(JsonPrimitive(expected), serializedValues[key])
+            }
+            assertEquals(JsonPrimitive("UTF8_ESTIMATE"), serializedValues["admission_measurement"])
+            assertEquals(JsonPrimitive("ADMISSION"), serializedValues["provider_failure_stage"])
+            assertEquals(JsonPrimitive("CONTEXT_CAPACITY_EXCEEDED"), serializedValues["provider_failure_code"])
+            assertEquals(JsonPrimitive("provider_admission"), serializedValues["incident_phase"])
+            assertFalse(serializedValues.containsKey("partial_output_preserved"))
+            if (priorOutput == null) {
+                assertEquals(JsonPrimitive(false), serialized["dispatched"])
+                assertEquals(JsonPrimitive("NO"), serialized["remoteAcceptance"])
+            } else {
+                assertFalse(serialized.containsKey("dispatched"))
+                assertFalse(serialized.containsKey("remoteAcceptance"))
+                for (key in listOf("attempt_dispatch_state", "dispatch_state", "dispatched", "remote_acceptance")) assertFalse(serializedValues.containsKey(key))
+            }
+            assertFalse(payload.contains("PRIVATE_"))
+        }
+    }
+
+    /** The fixture runtime rejects a later conversation using the real typed admission guard. */
+    private fun observedCapacityRejection(): dev.chungjungsoo.gptmobile.data.context.RequestCapacityException {
+        val identity = dev.chungjungsoo.gptmobile.data.context.RuntimeFingerprint(
+            "PRIVATE_PROFILE",
+            "on-device",
+            "local",
+            "PRIVATE_MODEL",
+            "PRIVATE_MODEL",
+            "fixture",
+            "fixture",
+            "fixture"
+        )
+        val failure = runCatching {
+            dev.chungjungsoo.gptmobile.data.context.RequestAdmission.prepare(
+                "PRIVATE_CAPACITY_INPUT",
+                "primary",
+                dev.chungjungsoo.gptmobile.data.context.CapacitySnapshot(identity, 128, provenance = dev.chungjungsoo.gptmobile.data.context.CapacityProvenance.VERIFIED_ROUTE),
+                dev.chungjungsoo.gptmobile.data.context.RequestMeasurement(90, 10, dev.chungjungsoo.gptmobile.data.context.TokenMeasurementKind.UTF8_ESTIMATE),
+                64,
+                "fixture-permission",
+                requireKnownCapacity = true
+            )
+        }.exceptionOrNull()
+        return failure as dev.chungjungsoo.gptmobile.data.context.RequestCapacityException
+    }
+
+    @Test
     fun `NPU package startup guidance is preserved without an incompatible CPU retry`() = runBlocking {
         val runtime = FakeLocalRuntime().apply {
             failLoadEngineIf = { LocalNpuPackageException(IllegalStateException("native failure")) }

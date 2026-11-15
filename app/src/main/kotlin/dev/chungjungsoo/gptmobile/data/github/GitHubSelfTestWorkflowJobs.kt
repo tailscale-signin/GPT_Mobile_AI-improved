@@ -13,7 +13,7 @@ internal object GitHubSelfTestWorkflowJobs {
     data class Selection(val job: JsonObject?, val nextRun: JsonObject?, val runs: List<JsonObject> = emptyList())
 
     fun needsJobDependency(tools: List<AgentToolDefinition>, observations: List<JsonObject>): Boolean = tools.any { tool ->
-        if (!tool.modelVisible || tool.name.substringBefore("__") != "github_ci") return@any false
+        if (!tool.modelVisible || tool.name.githubOperationFamily() != "github_ci") return@any false
         val action = (tool.inputSchema["properties"] as? JsonObject)?.get("action") as? JsonObject
         val actions = (action?.get("enum") as? JsonArray).orEmpty() + listOfNotNull(action?.get("const"))
         actions.any action@{ value ->
@@ -30,7 +30,7 @@ internal object GitHubSelfTestWorkflowJobs {
         if (!needsJobDependency(tools, observations)) return null
         if (selected == null) return "UNOBSERVED"
         if (observations.any {
-                it.text("tool").substringBefore("__") == "github_ci" &&
+                it.text("tool").githubOperationFamily() == "github_ci" &&
                     (it["arguments"] as? JsonObject)?.text("action") in setOf("jobs", "runs") &&
                     it["success"] != JsonPrimitive(true)
             }
@@ -53,7 +53,7 @@ internal object GitHubSelfTestWorkflowJobs {
         }
         val source = trusted.lastOrNull {
             it["success"] == JsonPrimitive(true) &&
-                it.text("tool").substringBefore("__") == "github_context" &&
+                it.text("tool").githubOperationFamily() == "github_context" &&
                 (it["arguments"] as? JsonObject)?.text("action") == "status" &&
                 GitHubInventoryObservation.planningRoot(it)?.get("commit_sha") == commitSha
         }
@@ -73,11 +73,11 @@ internal object GitHubSelfTestWorkflowJobs {
         }
         val byRun = runs.associateBy { it["id"] }
         val jobReads = observations.filter {
-            it.text("tool").substringBefore("__") == "github_ci" &&
+            it.text("tool").githubOperationFamily() == "github_ci" &&
                 (it["arguments"] as? JsonObject)?.text("action") == "jobs"
         }
         val logAttempts = observations.filter {
-            it.text("tool").substringBefore("__") == "github_ci" &&
+            it.text("tool").githubOperationFamily() == "github_ci" &&
                 (it["arguments"] as? JsonObject)?.text("action") == "logs"
         }
         val jobs = jobReads.filter { it["success"] == JsonPrimitive(true) }.flatMap { receipt ->
@@ -126,7 +126,7 @@ internal object GitHubSelfTestWorkflowJobs {
     fun dependencyPage(recipe: JsonObject, tools: List<AgentToolDefinition>, receipts: List<JsonObject>, issuer: JsonObject): Boolean {
         val name = recipe.text("tool")
         val args = recipe["arguments"] as? JsonObject ?: return false
-        if (name.substringBefore("__") != "github_ci" || args.text("action") != "runs" || "view_cursor" in args || ((args["page"] as? JsonPrimitive)?.longOrNull ?: 0L) < 2L) return false
+        if (name.githubOperationFamily() != "github_ci" || args.text("action") != "runs" || "view_cursor" in args || ((args["page"] as? JsonPrimitive)?.longOrNull ?: 0L) < 2L) return false
         val selected = GitHubSelfTestPrerequisites.selected(receipts) ?: return false
         val source = selected.source
         val sha = selected.head

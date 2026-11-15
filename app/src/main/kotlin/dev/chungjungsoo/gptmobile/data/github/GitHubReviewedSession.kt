@@ -73,7 +73,7 @@ internal class GitHubReviewEvidence(private val maxBytes: Int = 16 * 1024 * 1024
         val structured = runCatching { Json.parseToJsonElement(content) }.getOrElse { JsonPrimitive(content) }
         val arguments = (result.executionReceipt?.get("corrected_arguments") as? JsonObject) ?: call.arguments
         val projected = (structured as? JsonObject)?.let {
-            GitHubResultProjection.project(call.name.substringBefore("__"), arguments, it)
+            GitHubResultProjection.project(call.name.githubOperationFamily(), arguments, it)
         } ?: structured
         val record = buildJsonObject {
             put("call_id", call.callId)

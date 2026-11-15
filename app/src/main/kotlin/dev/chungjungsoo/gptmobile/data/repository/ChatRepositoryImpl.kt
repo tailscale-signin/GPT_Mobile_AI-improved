@@ -4801,7 +4801,7 @@ class ChatRepositoryImpl(
         val requestedCap = if (writerPlan != null) routeOutputCap else dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(limits.copy(outputTokens = requestedOutputTokens ?: limits.outputTokens), routeOutputCap)
         val toolContext = if (chatToolConfig?.github != null || exposedTools.isNotEmpty()) {
             dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.allocate(limits.contextTokens, contextPlan.promptTokens, requestedCap, 4096).also {
-                check(it.output > 0 && it.replay > 0) { "TOOL_EVIDENCE_CONTEXT_BUDGET: The prompt, a useful reply and its tool receipts do not fit together. Narrow the prompt or schemas before starting tool work." }
+                dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.requireAllocation(it, limits.contextTokens, requestedCap ?: 4096)
             }
         } else {
             null

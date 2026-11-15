@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
@@ -17,7 +18,7 @@ internal object ToolArgumentValidator {
 
     /** Give the model the failed constraint, never a second copy of the whole tool catalog. */
     fun repairMessage(toolName: String, errors: List<String>, schema: JsonObject, arguments: JsonObject? = null): String {
-        val guidance = when (toolName.substringBefore("__")) {
+        val guidance = when (toolName.githubOperationFamily()) {
             "github_write" ->
                 "Each files item must contain its own non-empty repository-relative path. " +
                     "For a replacement supply path and complete content; for a deletion supply path, delete=true and the observed expected_blob_sha. " +
@@ -91,8 +92,8 @@ internal object ToolArgumentValidator {
             errorCode = "INVALID_ARGUMENTS",
             dispatched = false,
             executionReceipt = JsonObject(
-                rejectionReceipt(toolName.substringBefore("__"), arguments, schema, validationErrors, selector) + buildJsonObject {
-                    if (toolName.substringBefore("__") == "github_read") {
+                rejectionReceipt(toolName.githubOperationFamily(), arguments, schema, validationErrors, selector) + buildJsonObject {
+                    if (toolName.githubOperationFamily() == "github_read") {
                         (arguments["ranges"] as? JsonArray)?.let { ranges ->
                             put("read_range_count", ranges.size)
                             val failures = ranges.filterIsInstance<JsonObject>().flatMap { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.readWindowFailures(it) }.distinct()
@@ -170,7 +171,7 @@ internal object ToolArgumentValidator {
     }
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
-        val operation = toolName.substringBefore("__")
+        val operation = toolName.githubOperationFamily()
         if (operation == "github_search" && "per_page" in arguments && arguments.keys.none { it in setOf("view_cursor", "index_cursor", "search_id") }) {
             val proposal = JsonObject(arguments - "per_page")
             return proposal.takeIf { errors(it, schema).isEmpty() }
@@ -208,7 +209,7 @@ internal object ToolArgumentValidator {
 
     /** Missing and malformed read selectors need a typed discovery path, not prose parsing. */
     private fun selectorProblem(toolName: String, arguments: JsonObject): SelectorProblem? {
-        val operation = toolName.substringBefore("__")
+        val operation = toolName.githubOperationFamily()
         if (operation !in setOf("github_pr", "github_issue") || "view_cursor" in arguments) return null
         val issue = operation == "github_issue"
         val action = (arguments["action"] as? JsonPrimitive)?.content ?: if (issue) "list" else "context"

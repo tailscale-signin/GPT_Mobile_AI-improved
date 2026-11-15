@@ -17,7 +17,7 @@ internal object GitHubSelfTestPrerequisites {
         }
         val source = trusted.lastOrNull {
             it["success"] == JsonPrimitive(true) &&
-                it.text("tool").substringBefore("__") == "github_context" &&
+                it.text("tool").githubOperationFamily() == "github_context" &&
                 (it["arguments"] as? JsonObject)?.text("action") == "status"
         } ?: return null
         val head = (GitHubInventoryObservation.planningRoot(source)?.get("commit_sha") as? JsonPrimitive)
@@ -28,7 +28,7 @@ internal object GitHubSelfTestPrerequisites {
     fun graphObservation(receipts: List<JsonObject>): String {
         val selected = selected(receipts) ?: return "UNOBSERVED"
         val graph = selected.receipts.lastOrNull {
-            it.text("tool").substringBefore("__") == "repository_graph" &&
+            it.text("tool").githubOperationFamily() == "repository_graph" &&
                 (it["arguments"] as? JsonObject)?.text("action") in setOf("status", "index")
         } ?: return "UNOBSERVED"
         if (graph["success"] != JsonPrimitive(true)) return "UNAVAILABLE"

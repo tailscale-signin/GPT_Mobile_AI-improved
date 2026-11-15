@@ -1,5 +1,11 @@
 # GPT Mobile 0.9.66.7
 
+## Final integration repairs
+
+Preserve the actual local-service connection phase and original cause through approved failure reports. Retain typed primary-answer allocation refusals and their allocation values while keeping earlier dispatch, output and unknown outcomes distinct. Existing capacity limits, cancellation, retry and privacy rules remain in force.
+
+Retire rejected desktop commands atomically under their command and Gateway/principal ownership. Delayed cleanup preserves a successor command and newer draft. Recovery successors retain original failure evidence, cumulative budget and fresh merge approval; Android review follows the bounded exact recovery chain.
+
 ## Durable engineering wiring
 
 Prepare replay with the final uncertainty policy and recompact after a confirmed pre-dispatch capacity rejection. Keep selected LiteRT schemas, prioritize newly requested workspace pages, retain tested candidates and page complete bounded check output. Commit recovery links and final completion evidence with their owning SQLite transactions. Android Jobs and Windows Saved can review an exact recovery merge. Validation settings use a single scrollable viewport.
@@ -10,7 +16,7 @@ Read-only acceptance discovery is pinned to the selected commit and proposes app
 
 Add approved workspace check selection and bounded output paging, ordinary behavior-test discovery and release-check settings, bounded selected-model investigators, one primary-answer allocation, compact action contracts, and gated recovery of failed main builds. Artifact verification now downloads and checks declared current-attempt artifacts against the exact merged revision before configured container installation and smoke checks.
 
-The separate ten-scenario production engineering benchmark remains unimplemented pending its original scenario specification and designated test repository/runtime. A live 9,043-token request replay on the 5,632-token route, installed phone/Windows gateway acceptance, physical installation and smoke qualification remain unverified. Configured container release checks do not establish physical-device coverage.
+The separate ten-scenario production engineering benchmark has not been executed. Its scenario list is retained in the engineering follow-up; execution still requires a designated test repository and runtime. A live 9,043-token request replay on the 5,632-token route, installed phone/Windows gateway acceptance, physical installation and smoke qualification remain unverified. Configured container release checks do not establish physical-device coverage.
 
 See [implementation and qualification limits](docs/engineering-completion-followup.md). New source requires checks on its exact published head.
 

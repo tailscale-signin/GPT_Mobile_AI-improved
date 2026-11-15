@@ -62,6 +62,10 @@ def investigate(backend, job, tasks):
                     raise ValueError('Specialist findings must be bounded and cite existing source paths')
                 status = 'COMPLETED'
                 break
+            except ExecutionBindingError:
+                # Admission, ownership and capacity failures are typed stops,
+                # not malformed model output that permits a format-repair call.
+                raise
             except ValueError:
                 if format_error or attempt == 2:
                     status = 'FORMAT_REJECTED'

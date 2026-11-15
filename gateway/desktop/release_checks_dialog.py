@@ -11,11 +11,33 @@ def configure(options, artifacts, installation, smoke):
     return validate_options(result)
 
 
+def repair_draft(options):
+    """Validate other settings and retain each valid release section for review."""
+    from v14.engineering_release_checks import contract
+    result = configure(options, [], [], [])
+    previous = options.get('post_merge')
+    try:
+        result['post_merge'] = contract(previous, len(result['commands']))
+        return result, False
+    except (ValueError, TypeError, KeyError):
+        pass
+    if isinstance(previous, dict):
+        for key in result['post_merge']:
+            candidate = deepcopy(result['post_merge'])
+            candidate[key] = deepcopy(previous.get(key, []))
+            try:
+                result['post_merge'] = contract(candidate, len(result['commands']))
+            except (ValueError, TypeError, KeyError):
+                pass
+    return result, True
+
+
 def open_dialog(panel):
     if panel.busy or panel.closed or panel.conflicted or panel.revision is None:
         return
     try:
-        options, revision = panel.snapshot(), panel.revision
+        opened, revision = panel.snapshot(validate=False), panel.revision
+        options, repairing = repair_draft(opened)
     except (ValueError, TypeError, KeyError) as error:
         panel.notice(str(error))
         return
@@ -35,7 +57,9 @@ def open_dialog(panel):
         ttk.Entry(window, textvariable=fields[key], width=48).grid(row=row, column=1, columnspan=2, padx=12, sticky='ew')
     listing = tk.Listbox(window, height=4, exportselection=False)
     listing.grid(row=4, column=0, columnspan=3, padx=12, pady=6, sticky='ew')
-    status = tk.StringVar(master=window)
+    status = tk.StringVar(master=window, value=(
+        'Repair draft: valid release sections are retained; invalid sections are empty. '
+        'Review all requirements, Apply, then Save policy to approve the repair. No checks have run.' if repairing else ''))
     def render():
         listing.delete(0, 'end')
         for row in artifacts:
@@ -72,7 +96,7 @@ def open_dialog(panel):
     ttk.Label(window, textvariable=status, wraplength=620).grid(row=8, column=0, columnspan=3, padx=12)
     def apply():
         try:
-            if panel.closed or panel.busy or panel.conflicted or panel.revision != revision or panel.snapshot() != options:
+            if panel.closed or panel.busy or panel.conflicted or panel.revision != revision or panel.snapshot(validate=False) != opened:
                 raise ValueError('Settings changed. Reopen release verification before applying it.')
             result = configure(options, artifacts, selectors['installation_checks'].curselection(), selectors['smoke_checks'].curselection())
             panel.fill(result)

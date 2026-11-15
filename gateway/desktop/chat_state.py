@@ -63,6 +63,22 @@ class ChatState:
             atomic_json(self.path, candidate)
             self.value = candidate
 
+    def retire_pending(self, command_id, identity):
+        """Retire only this command; a delayed rejection cannot clear its successor."""
+        with self.lock:
+            if self.error:
+                raise ValueError(self.error)
+            pending = self.value.get('pending')
+            if (not self.valid_pending(pending) or
+                    not self.valid_pending({'command_id': command_id, 'identity': identity}) or
+                    pending['command_id'] != command_id or
+                    any(pending['identity'][key] != identity[key] for key in ('gateway_id', 'principal_id'))):
+                return False
+            candidate = dict(self.value, pending=None)
+            atomic_json(self.path, candidate)
+            self.value = candidate
+            return True
+
     def recover(self):
         """Explicit recovery preserves the damaged bytes and every readable pending ID."""
         with self.lock:

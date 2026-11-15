@@ -136,4 +136,94 @@ class GitHubActionSchemaTest {
         assertFalse(catalog.execute("restore", select(null)).isError)
         assertEquals(original, catalog.selected(listOf(original)).single())
     }
+
+    @Test fun actualRunnerCanSwitchAndRestoreActionContractsWithoutPausingDiscovery() = runBlocking {
+        val run = runSelections(listOf("logs", "jobs", null))
+        val original = GitHubOperationTool.definition("github_ci", "github_ci__selected")
+        assertEquals(
+            listOf(original, GitHubActionSchema.project(original, "logs"), GitHubActionSchema.project(original, "jobs"), original),
+            run.definitions.take(4).map { tools -> tools.single { it.name == original.name } }
+        )
+        assertTrue(run.definitions.take(4).all { tools -> tools.any { it.name == ProgressiveToolCatalog.NAME } })
+        assertEquals(listOf(false, false, false).map(::JsonPrimitive), run.discoveryChanges)
+        assertEquals(1, run.executed)
+        assertFalse(run.events.filterIsInstance<AgentRunEvent.Notice>().any { it.message.contains("discovery is paused", true) })
+    }
+
+    @Test fun actualRunnerStillPausesRepeatedIdenticalActionSelections() = runBlocking {
+        val run = runSelections(listOf("logs", "logs", "logs"))
+        assertEquals(listOf(false, true, true).map(::JsonPrimitive), run.discoveryChanges)
+        assertTrue(run.definitions.take(3).all { tools -> tools.any { it.name == ProgressiveToolCatalog.NAME } })
+        assertTrue(run.definitions.drop(3).all { tools -> tools.none { it.name == ProgressiveToolCatalog.NAME } })
+        assertTrue(run.definitions.all { tools -> tools.any { it.name == "github_ci__selected" } })
+        assertEquals(1, run.executed)
+        assertTrue(run.events.filterIsInstance<AgentRunEvent.Notice>().any { it.message.contains("discovery is paused", true) })
+    }
+
+    private data class SelectionRun(
+        val definitions: List<List<AgentToolDefinition>>,
+        val events: List<AgentRunEvent>,
+        val executed: Int,
+        val discoveryChanges: List<kotlinx.serialization.json.JsonElement?>
+    )
+
+    private suspend fun runSelections(actions: List<String?>): SelectionRun {
+        val original = GitHubOperationTool.definition("github_ci", "github_ci__selected")
+        var executed = 0
+        val tool = object : AgentTool {
+            override val definition = original
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                assertEquals(JsonPrimitive("logs"), arguments["action"])
+                executed++
+                return AgentToolResult(callId, ToolResultContent.Text("Observed log fixture"), false)
+            }
+        }
+        val catalog = ProgressiveToolCatalog(listOf(original), "Inspect GitHub CI", githubMode = true)
+        // Start with the exact authorized tool already active, so only its schema can change.
+        assertFalse(
+            catalog.execute(
+                "activate-full-contract",
+                buildJsonObject { put("names", JsonArray(listOf(JsonPrimitive(original.name)))) }
+            ).isError
+        )
+        assertEquals(original, catalog.selected(listOf(original, catalog.definition)).single { it.name == original.name })
+        val advertised = mutableListOf<List<AgentToolDefinition>>()
+        var round = 0
+        val session = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>) = flow {
+                advertised += tools
+                val step = round++
+                when {
+                    step < actions.size -> emit(
+                        ProviderEvent.ToolCall(
+                            "choose-$step",
+                            ProgressiveToolCatalog.NAME,
+                            buildJsonObject {
+                                put("names", JsonArray(listOf(JsonPrimitive(original.name))))
+                                actions[step]?.let { put("action", it) }
+                            }
+                        )
+                    )
+                    step == actions.size -> emit(
+                        ProviderEvent.ToolCall(
+                            "logs",
+                            original.name,
+                            buildJsonObject {
+                                put("action", "logs")
+                                put("job_id", 3)
+                            }
+                        )
+                    )
+                    else -> emit(ProviderEvent.TextDelta("The selected log was read once."))
+                }
+                emit(ProviderEvent.Completed)
+            }
+        }
+        val events = AgentRunner(AgentRunLimits(githubMode = true, maxRounds = 8, maxToolCalls = 10))
+            .run(session, listOf(tool, catalog), selectDefinitions = catalog::selected).toList()
+        val changes = events.filterIsInstance<AgentRunEvent.ToolFinished>()
+            .filter { it.call.name == ProgressiveToolCatalog.NAME }
+            .map { (ToolResultEnvelope.element(it.result.content) as? JsonObject)?.get("catalog_unchanged") }
+        return SelectionRun(advertised, events, executed, changes)
+    }
 }

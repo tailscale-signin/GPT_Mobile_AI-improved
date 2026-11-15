@@ -36,6 +36,8 @@ class ProgressiveToolCatalog(
         if (selected.first != contractFingerprint(tool)) return tool
         return GitHubActionSchema.project(tool, selected.second) ?: tool
     }
+    private fun presentedSchemas(): Map<String, String> = active.mapNotNull(candidates::get)
+        .associate { it.name to ToolContractFingerprint.schema(presented(it).inputSchema) }
     private data class ExecutionBinding(val source: AgentToolDefinition, val executable: AgentToolDefinition)
     private val executionBindings = mutableMapOf<String, ExecutionBinding>()
     private val deferredEngineering = setOf("github_write", "github_commit", "github_stage_patch", "github_release", "github_watch_checks")
@@ -357,6 +359,10 @@ class ProgressiveToolCatalog(
     private fun selectResult(callId: String, arguments: JsonObject): AgentToolResult = synchronized(this) {
         val query = (arguments["query"] as? JsonPrimitive)?.content.orEmpty().take(4096)
         val names = (arguments["names"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.content }.take(12).map(::resolveName)
+        // An action switch can change the advertised contract without adding a tool name.
+        // Capture the old wire schemas before changing or restoring that selection.
+        val previousActive = active.toSet()
+        val previousSchemas = presentedSchemas()
         if ("action" in arguments) {
             val action = (arguments["action"] as? JsonPrimitive)?.takeIf { it.isString }?.content
             val tool = names.singleOrNull()?.let(candidates::get)
@@ -368,7 +374,6 @@ class ProgressiveToolCatalog(
             names.forEach(actionSelections::remove)
         }
         if (query.isBlank() && names.isEmpty()) {
-            val previousActive = active.toSet()
             // Cold inventory must seed an executable window, otherwise an empty call can
             // discover tools forever while every subsequent request advertises only us.
             if (active.isEmpty() && !conversational) {
@@ -502,7 +507,7 @@ class ProgressiveToolCatalog(
                         )
                         put("authorized_tool_count", inventory.size)
                         put("available_next_round", JsonArray(active.map { name -> buildJsonObject { put("name", name) } }))
-                        put("catalog_unchanged", previousActive == active)
+                        put("catalog_unchanged", previousActive == active && previousSchemas == presentedSchemas())
                         put("newly_advertised", JsonArray(active.filterNot { it in previousActive }.map(::JsonPrimitive)))
                         put("inventory_version", version)
                         put("contract_version", 1)
@@ -552,7 +557,6 @@ class ProgressiveToolCatalog(
         if (advancedTask(query) || names.any { it in candidates && it.contains("github", true) } || exact?.name?.contains("github", true) == true) advanced = true
         val undiscovered = if (query.isNotBlank()) ranked(query) else emptyList()
         val found = (names.mapNotNull(candidates::get) + listOfNotNull(exact) + undiscovered).distinctBy { it.name }.take(12)
-        val previousActive = active.toSet()
         val pinned = requiredCapabilities.mapNotNull { capability ->
             (active.mapNotNull(candidates::get) + ranked(taskText)).firstOrNull { capability in it.capabilities }
         }
@@ -564,6 +568,7 @@ class ProgressiveToolCatalog(
         active.addAll(selected.map { it.name })
         val admitted = found.filter { it.name in active }
         discovered.addAll(admitted.map { it.name })
+        val unchanged = previousActive == active && previousSchemas == presentedSchemas()
         val result = buildJsonObject {
             put(
                 "available_next_round",
@@ -603,9 +608,9 @@ class ProgressiveToolCatalog(
             put("advertised_tool_count", active.size)
             put("coverage", coverage())
             acquisitionState?.invoke()?.let { put("connection_discovery", it.receipt()) }
-            put("catalog_unchanged", previousActive == active)
+            put("catalog_unchanged", unchanged)
             put("newly_advertised", JsonArray(active.filterNot { it in previousActive }.map(::JsonPrimitive)))
-            if (previousActive == active) put("next_step", "No new schemas became available. Use an advertised tool or produce a partial answer; do not repeat this identical discovery.")
+            if (unchanged) put("next_step", "No new schemas became available. Use an advertised tool or produce a partial answer; do not repeat this identical discovery.")
         }
         AgentToolResult(callId, ToolResultContent.Json(result), false, dispatched = false)
     }

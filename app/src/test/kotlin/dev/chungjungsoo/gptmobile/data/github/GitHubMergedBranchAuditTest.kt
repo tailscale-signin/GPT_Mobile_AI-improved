@@ -106,8 +106,9 @@ class GitHubMergedBranchAuditTest {
     }
 
     @Test fun observedDefaultPageSizeMatchesExplicitContinuationWithoutHidingFailures() {
-        val first = receipt("github_ci", """{"action":"workflows","page":1}""", """{"workflows":[{"id":1}],"per_page":1,"has_more":true,"total_count":2}""")
-        val last = page(2, true, total = 2)
+        val workflows = JsonArray((1..30).map { json("""{"id":$it}""") })
+        val first = receipt("github_ci", """{"action":"workflows","page":1}""", """{"workflows":$workflows,"per_page":30,"has_more":true,"total_count":31}""")
+        val last = page(2, true, ids = listOf(31), total = 31, size = 30)
         assertEquals("retrieval complete at observation", coverage(first, last))
         val failed = receipt("github_ci", """{"action":"workflows","page":1}""", "{}").let { JsonObject(it + ("success" to JsonPrimitive(false))) }
         assertEquals("incomplete or pending pagination", coverage(first, last, failed))
@@ -188,7 +189,7 @@ class GitHubMergedBranchAuditTest {
     @Test fun successfulExactReopenResolvesOldCursorFailureWithoutHidingIt() {
         val args = """{"action":"workflows","page":1,"per_page":1}"""
         val source = JsonObject(page(1, true, total = 1) + ("view" to json("""{"recovery_call":{"tool":"github_ci","arguments":{"view_cursor":"saved:0"}}}""")))
-        val lost = json("""{"tool":"github_ci","trusted":true,"success":false,"arguments":{"view_cursor":"saved:1"},"error_code":"SAVED_VIEW_UNAVAILABLE","result":{"recovery_call":{"tool":"github_ci","arguments":$args}}}""")
+        val lost = json("""{"tool":"github_ci","binding":"task","repository":"owner/repo","trusted":true,"success":false,"arguments":{"view_cursor":"saved:1"},"error_code":"SAVED_VIEW_UNAVAILABLE","result":{"recovery_call":{"tool":"github_ci","arguments":$args}}}""")
         assertEquals("incomplete or pending pagination", coverage(source, lost))
         assertEquals("retrieval complete at observation", coverage(source, lost, page(1, true, total = 1)))
     }

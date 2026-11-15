@@ -171,14 +171,12 @@ internal fun GatewayJobsScreen(model: GatewayJobsViewModel, onOpenConversation: 
                                 listOfNotNull(stringResource(R.string.gateway_recovery_label), phase?.let(::gatewayPhaseLabel), job.recoveryPr?.let { "#$it" }, job.qualifiedRevision?.take(12)).joinToString(" · "),
                                 style = MaterialTheme.typography.bodySmall
                             )
-                            if (!state.legacy && child != null) {
-                                TextButton(onClick = { model.open(child, onOpenConversation) }) { Text(stringResource(R.string.gateway_recovery_open)) }
-                                if ("approve" in child.summary.allowedActions) {
-                                    TextButton(onClick = { model.showRecoveryApproval(child) }) { Text(stringResource(R.string.gateway_recovery_review)) }
-                                }
+                            if (!state.legacy) {
+                                if (child != null) TextButton(onClick = { model.open(child, onOpenConversation) }) { Text(stringResource(R.string.gateway_recovery_open)) }
+                                TextButton(onClick = { model.showRecoveryApproval(row) }) { Text(stringResource(R.string.gateway_recovery_review)) }
                             }
                         }
-                        if (!state.legacy && job.recoveryOf != null && "approve" in job.allowedActions) {
+                        if (!state.legacy && job.recoveryJobId == null && job.recoveryOf != null && "approve" in job.allowedActions) {
                             TextButton(onClick = { model.showRecoveryApproval(row) }) { Text(stringResource(R.string.gateway_recovery_review)) }
                         }
                         if (!state.legacy && job.acceptsInstruction) {

@@ -283,7 +283,7 @@ class GitHubFullToolVisibilityTest {
             }
         }
         val recovery = tool(AgentToolDefinition("read_recovery_context", "Schema details ".repeat(500), buildJsonObject {}))
-        val blocked = AgentRunner(AgentRunLimits(githubMode = true, contextTokens = 512, finalResponseReserveTokens = 128)).run(session, listOf(recovery)).toList().providerFailures().single()
+        val blocked = AgentRunner(AgentRunLimits(githubMode = true, contextTokens = 1024, finalResponseReserveTokens = 128)).run(session, listOf(recovery)).toList().providerFailures().single()
         assertEquals(0, requests)
         assertEquals("GITHUB_TOOL_CONTEXT_BUDGET", blocked.errorCode)
         assertEquals(JsonPrimitive(false), blocked.failureDetails?.get("dispatched"))

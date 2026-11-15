@@ -33,7 +33,7 @@ internal object GitHubSemanticSummary {
             val branchName = if (branch is JsonObject) branch.text("name") else (branch as? JsonPrimitive)?.contentOrNull.orEmpty()
             branchName.takeIf { it.isNotBlank() }?.let { put("branch", it.take(160)) }
             (data.text("default_branch").ifBlank { repository?.text("default_branch").orEmpty() }).takeIf { it.isNotBlank() }?.let { put("default_branch", it.take(160)) }
-            if (operation.substringBefore("__") == "github_context" && action in setOf("", "status")) {
+            if (operation.githubOperationFamily() == "github_context" && action in setOf("", "status")) {
                 listOf("open_issue_count", "open_pull_request_count").forEach { key ->
                     (data[key] as? JsonPrimitive)?.intOrNull?.takeIf { it >= 0 }?.let { put(key, it) }
                 }
@@ -48,7 +48,7 @@ internal object GitHubSemanticSummary {
                     )
                 }
             }
-            if (operation.substringBefore("__") == "github_ci" && action == "workflows") {
+            if (operation.githubOperationFamily() == "github_ci" && action == "workflows") {
                 val progress = data["pagination_progress"] as? JsonObject
                 val rows = (data["workflows"] ?: data["items"]) as? JsonArray
                 val observed = (progress?.get("unique_records_observed") as? JsonPrimitive)?.intOrNull ?: rows?.size
@@ -80,7 +80,7 @@ internal object GitHubSemanticSummary {
                 (statuses["statuses"] as? JsonArray)?.let { put("observed_statuses", it.size) }
                 (statuses["total_count"] as? JsonPrimitive)?.intOrNull?.let { put("reported_total_statuses", it) }
             }
-            if (operation.substringBefore("__") == "github_pr" && action == "list") {
+            if (operation.githubOperationFamily() == "github_pr" && action == "list") {
                 val items = (data["items"] ?: data["pull_requests"]) as? JsonArray
                 if (items != null && request.text("state") in setOf("", "open")) {
                     put("open_pull_requests_observed", items.size)

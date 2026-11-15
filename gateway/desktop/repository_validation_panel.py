@@ -42,6 +42,7 @@ class RepositoryValidationPanel:
         self.busy = self.closed = self.loading = self.dirty = self.editor_dirty = self.conflicted = False
         self.document, self.drafts = {}, {}
         self.revision = self.loaded = self.saved_snapshot = self.worker = None
+        self._focus_after = None
         self.fields, self.inputs = {}, []
         viewport = tk.Canvas(frame, bg=BG, highlightthickness=0, width=1, height=1)
         scrollbar = ttk.Scrollbar(frame, orient='vertical', command=viewport.yview)
@@ -82,14 +83,6 @@ class RepositoryValidationPanel:
         choose = ttk.Button(basic, text='Load / add', command=self.load_repository)
         choose.grid(row=0, column=2, padx=(6, 0))
         self.inputs.append(choose)
-        actions = ttk.Frame(basic)
-        actions.grid(row=2, column=0, columnspan=3, sticky='w', pady=5)
-        self.discovery_button = ttk.Button(actions, text='Choose task tests…', command=self.discover_behavior_checks)
-        self.discovery_button.pack(side='left', padx=(0, 10))
-        self.inputs.append(self.discovery_button)
-        self.release_button = ttk.Button(actions, text='Release verification…', command=self.configure_release_checks)
-        self.release_button.pack(side='left')
-        self.inputs.append(self.release_button)
         self.status = tk.StringVar(master=frame)
         self.status_label = ttk.Label(frame, textvariable=self.status, style='Muted.TLabel', wraplength=530, justify='left')
         self.status_label.grid(row=2, column=0, sticky='ew', pady=3)
@@ -100,6 +93,14 @@ class RepositoryValidationPanel:
         self.inputs.append(self.advanced_toggle)
         self.advanced = ttk.Frame(frame)
         self.advanced.grid(row=5, column=0, columnspan=2, sticky='ew', pady=4)
+        actions = ttk.Frame(self.advanced)
+        actions.pack(side='top', fill='x', pady=(0, 5))
+        self.discovery_button = ttk.Button(actions, text='Choose task tests…', command=self.discover_behavior_checks)
+        self.discovery_button.pack(side='left', padx=(0, 10))
+        self.inputs.append(self.discovery_button)
+        self.release_button = ttk.Button(actions, text='Release verification…', command=self.configure_release_checks)
+        self.release_button.pack(side='left')
+        self.inputs.append(self.release_button)
         editor = ttk.Frame(self.advanced, padding=(0, 2, 8, 4))
         editor.pack(fill='x')
         editor.columnconfigure(1, weight=1)
@@ -183,23 +184,50 @@ class RepositoryValidationPanel:
         self.notice('Save policy to apply this choice. Disabling retains saved policies; read and plan remain available.')
 
     def focus_next(self, control, backwards=False):
-        target = control.tk_focusPrev() if backwards else control.tk_focusNext()
-        if target is not None:
-            target.focus_set()
-            self.viewport.after_idle(lambda focused=target: self.reveal(focused))
+        if self.closed:
+            return 'break'
+        try:
+            target = control.tk_focusPrev() if backwards else control.tk_focusNext()
+            if target is not None:
+                target.focus_set()
+                if self._focus_after is not None:
+                    self.frame.after_cancel(self._focus_after)
+                    self._focus_after = None
+                handle = None
+                def reveal_target():
+                    if self.closed or self._focus_after != handle:
+                        return
+                    self._focus_after = None
+                    self.reveal(target)
+                handle = self.frame.after_idle(reveal_target)
+                self._focus_after = handle
+        except tk.TclError:
+            pass  # Focus may outlive a widget being destroyed by Settings.
         return 'break'
 
     def reveal(self, control):
-        if self.closed or not control.winfo_viewable():
+        if self.closed:
             return
-        viewport = self.viewport
-        viewport.update_idletasks()
-        top = control.winfo_rooty() - viewport.winfo_rooty()
-        height = viewport.winfo_height()
-        if top < 0 or top + control.winfo_height() > height:
-            offset = viewport.canvasy(0) + top - max(0, (height - control.winfo_height()) // 2)
-            viewport.yview_moveto(max(0, offset) / max(1, self.content.winfo_height()))
+        current = control
+        while current is not self.content:
+            if current is None:
+                return  # Focus can leave this scroll surface for Settings' footer.
+            current = current.master
+        try:
+            if not control.winfo_exists() or not control.winfo_viewable():
+                return
+            viewport = self.viewport
             viewport.update_idletasks()
+            if self.closed or not control.winfo_exists() or not control.winfo_viewable():
+                return
+            top = control.winfo_rooty() - viewport.winfo_rooty()
+            height = viewport.winfo_height()
+            if top < 0 or top + control.winfo_height() > height:
+                offset = viewport.canvasy(0) + top - max(0, (height - control.winfo_height()) // 2)
+                viewport.yview_moveto(max(0, offset) / max(1, self.content.winfo_height()))
+                viewport.update_idletasks()
+        except tk.TclError:
+            pass  # Idle geometry work may destroy the window or focused widget.
 
     def discover_behavior_checks(self):
         from desktop.acceptance_discovery_dialog import open_dialog
@@ -593,3 +621,10 @@ class RepositoryValidationPanel:
         if event.widget is self.frame:
             self.closed = True
             self.cancel.set()
+            handle = getattr(self, '_focus_after', None)
+            self._focus_after = None
+            if handle is not None:
+                try:
+                    self.frame.after_cancel(handle)
+                except tk.TclError:
+                    pass

@@ -9,6 +9,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.github.GitHubArgumentProvenance
 import dev.chungjungsoo.gptmobile.data.github.GitHubSourceReadRecovery
+import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -596,7 +597,7 @@ internal class GitHubOperationTool(
 
     companion object {
         val names = setOf("github_context_inspect", "github_pr_inspect", "github_context", "github_search", "github_read", "github_pr", "github_ci", "github_watch_checks", "github_stage_patch", "github_commit", "github_write", "github_release", "github_issue", "github_repository")
-        fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }?.removeSuffix("_inspect")
+        fun operationName(name: String): String? = name.substringBefore("__").takeIf { it in names }?.githubOperationFamily()
         fun immutableRead(name: String, arguments: JsonObject): Boolean = operationName(name) in setOf("github_read", "github_search") &&
             (arguments["commit_sha"] as? JsonPrimitive)?.content?.matches(Regex("[a-fA-F0-9]{40}|[a-fA-F0-9]{64}")) == true &&
             "view_cursor" !in arguments

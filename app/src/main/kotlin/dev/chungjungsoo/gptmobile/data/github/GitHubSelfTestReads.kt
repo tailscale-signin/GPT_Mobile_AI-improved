@@ -47,7 +47,7 @@ internal object GitHubSelfTestReads {
         }
         fun roots(tool: String, action: String? = null) = observations.filter {
             it["success"] == JsonPrimitive(true) &&
-                it.text("tool").substringBefore("__") == tool &&
+                it.text("tool").githubOperationFamily() == tool &&
                 (action == null || (it["arguments"] as? JsonObject)?.text("action") == action)
         }.mapNotNull(GitHubInventoryObservation::planningRoot).asReversed()
         fun records(tool: String, action: String, vararg fields: String) = roots(tool, action).flatMap { root ->
@@ -86,8 +86,8 @@ internal object GitHubSelfTestReads {
                 add(
                     tool to buildJsonObject {
                         put("action", action)
-                        if (tool in setOf("github_issue", "github_release") && action in setOf("list", "tags") && tools.any { it.name.substringBefore("__") == tool && (it.inputSchema["properties"] as? JsonObject)?.containsKey("per_page") == true }) put("per_page", 100)
-                        if (tool == "github_issue" && action == "list" && tools.any { it.name.substringBefore("__") == tool && (it.inputSchema["properties"] as? JsonObject)?.containsKey("direction") == true }) {
+                        if (tool in setOf("github_issue", "github_release") && action in setOf("list", "tags") && tools.any { it.name.githubOperationFamily() == tool && (it.inputSchema["properties"] as? JsonObject)?.containsKey("per_page") == true }) put("per_page", 100)
+                        if (tool == "github_issue" && action == "list" && tools.any { it.name.githubOperationFamily() == tool && (it.inputSchema["properties"] as? JsonObject)?.containsKey("direction") == true }) {
                             put("sort", "created")
                             put("direction", "desc")
                         }
@@ -159,7 +159,7 @@ internal object GitHubSelfTestReads {
             issue?.get("number")?.let { id -> listOf("headers", "context", "comments", "history").forEach { recipe("github_issue", it, "issue_number" to id) } }
         }
         for ((name, recipe) in recipes) {
-            val tool = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == name && ToolArgumentValidator.errors(recipe, it.inputSchema).isEmpty() } ?: continue
+            val tool = githubFamilyTools(tools, name).firstOrNull { ToolArgumentValidator.errors(recipe, it.inputSchema).isEmpty() } ?: continue
             // A live-required capability should make its first admissible read
             // live. Re-reading every cached inventory page wastes the fixture
             // and verification budget without increasing capability coverage.
@@ -198,14 +198,14 @@ internal object GitHubSelfTestReads {
         call.callId.startsWith("policy-read-") -> 0
         call.callId.startsWith("inventory-source-") -> 0
         call.callId.startsWith("graph-reconciliation-") -> 0
-        call.name.substringBefore("__") == "github_issue" && call.arguments.text("action") == "list" -> 1
-        call.name.substringBefore("__") == "github_release" && call.arguments.text("action") in setOf("tags", "list") -> 1
-        call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "jobs" -> 1
-        call.name.substringBefore("__") == "github_ci" && call.arguments.text("action") == "definitions" -> 3
+        call.name.githubOperationFamily() == "github_issue" && call.arguments.text("action") == "list" -> 1
+        call.name.githubOperationFamily() == "github_release" && call.arguments.text("action") in setOf("tags", "list") -> 1
+        call.name.githubOperationFamily() == "github_ci" && call.arguments.text("action") == "jobs" -> 1
+        call.name.githubOperationFamily() == "github_ci" && call.arguments.text("action") == "definitions" -> 3
         // Building a large repository graph can require hundreds of batches.
         // Qualify independent reads first so every new cursor cannot monopolize
         // the shared acceptance budget. Failed batches still reconcile first.
-        call.name.substringBefore("__") == "repository_graph" && call.arguments.text("action") == "index" -> 4
+        call.name.githubOperationFamily() == "repository_graph" && call.arguments.text("action") == "index" -> 4
         else -> 2
     }
 

@@ -318,11 +318,13 @@ class ToolPrecheckIssueReportTest {
     }
 
     private suspend fun record(operation: String, result: AgentToolResult, arguments: JsonObject = buildJsonObject {}): IssueReport {
+        IssueReportIncidents.clearRecent()
+        val previousReportIds = IssueReportIncidents.pending.value.map { it.reportId }.toSet()
         val event = ToolEvent("event-${result.callId}", "private-run", 1, result.callId, null, null, operation, operation, arguments.toString(), null, null, ToolEventStatus.RUNNING, startedAt = 1L)
         val dao = mockk<AgentPersistenceDao>()
         coEvery { dao.getToolEventById(event.eventId) } returns event
         coEvery { dao.finishToolEvent(any(), any(), any(), any(), any(), any(), any(), any()) } returns 1
         ToolEventRecorder(dao, mockk()).finishTool(event.eventId, result, 2L)
-        return IssueReportIncidents.pending.value.last()
+        return IssueReportIncidents.pending.value.single { it.reportId !in previousReportIds }
     }
 }

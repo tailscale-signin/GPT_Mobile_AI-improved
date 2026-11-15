@@ -177,6 +177,8 @@ class EngineeringStore:
                                'job_id TEXT NOT NULL, revision INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY(job_id,revision))')
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_webhooks (principal TEXT NOT NULL, delivery TEXT NOT NULL, digest TEXT NOT NULL, received_at REAL NOT NULL, PRIMARY KEY(principal,delivery))')
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_owner_epochs (job_id TEXT PRIMARY KEY, epoch INTEGER NOT NULL)')
+                    db.execute('CREATE TABLE IF NOT EXISTS engineering_recoveries ('
+                               'parent_job_id TEXT PRIMARY KEY, child_job_id TEXT NOT NULL UNIQUE)')
                     db.execute('CREATE TABLE IF NOT EXISTS engineering_model_attempts ('
                                'id TEXT PRIMARY KEY, job_id TEXT NOT NULL, binding_id TEXT NOT NULL, revision INTEGER NOT NULL, '
                                'state TEXT NOT NULL, dispatched INTEGER NOT NULL, reserved_tokens INTEGER NOT NULL, payload TEXT NOT NULL)')
@@ -218,7 +220,15 @@ class EngineeringStore:
             'SELECT data FROM engineering_events WHERE job_id=? AND revision>? AND revision<=? ORDER BY revision LIMIT 201', (job_id, after, through))])
 
     def create(self, principal, request, *, admission=None, recovery_of=None):
-        existing = self.existing_request(principal, request) if recovery_of is None else None
+        if recovery_of is not None:
+            self.assert_claim(recovery_of)
+            if (recovery_of['principal'] != principal or
+                    any(recovery_of['request'].get(key) != request.get(key)
+                        for key in ('repository', 'base', 'execution_binding_id'))):
+                raise ValueError('Recovery cannot change repository, owner or execution authority')
+            existing = self.recovery_for(recovery_of)
+        else:
+            existing = self.existing_request(principal, request)
         if existing:
             return existing
         request = validate_request(new_request_defaults(request))
@@ -262,30 +272,13 @@ class EngineeringStore:
                 if (not parent or tuple(parent[:3]) != (recovery_of['state'], recovery_of['revision'], recovery_of.get('_execution_lease'))
                         or parent[2] is None or not epoch or epoch[0] != recovery_of.get('_owner_epoch')):
                     raise ExecutionBindingError('EXECUTION_OWNER_CHANGED', 'Recovery admission lost its original job owner.')
-                parent_checkpoint = json.loads(parent[3])
-                parent_data = parent_checkpoint['data']
-                linked = parent_data.get('post_merge_recovery_job_id')
-                if linked:
-                    child = self.get_in_transaction(db, linked, principal)
-                    if not child or child.get('recovery_of') != recovery_of['id']:
-                        raise ValueError('Linked recovery identity could not be verified')
-                    return child
-                # Recognize children saved by an earlier gateway that could
-                # crash before checkpointing the parent link.
-                prior = db.execute(
-                    "SELECT data,state,revision FROM engineering_jobs WHERE principal=? "
-                    "AND json_extract(data, '$.recovery_of')=? "
-                    "AND json_extract(data, '$.data.ci.merge_sha')=? ORDER BY rowid LIMIT 2",
-                    (principal, recovery_of['id'], recovery_of['data']['merge_sha'])).fetchall()
-                if len(prior) > 1:
-                    raise ValueError('Multiple retained recoveries require reconciliation')
-                if prior:
-                    child = self.decode(prior[0])
-                    parent_data['post_merge_recovery_job_id'] = child['id']
-                    db.execute('UPDATE engineering_jobs SET data=? WHERE id=?', (json.dumps(parent_checkpoint), recovery_of['id']))
-                    return child
+                retained = self._recovery_in_transaction(db, recovery_of)
+                if retained is not None:
+                    return retained
             old = db.execute('SELECT data,state,revision,request_digest FROM engineering_jobs WHERE principal=? AND request_id=?', (principal, request['request_id'])).fetchone()
             if old:
+                if recovery_of is not None:
+                    raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The recovery request belongs to another retained job.')
                 if old[3] != request_hash:
                     raise ValueError('Request identity was reused with different settings')
                 return self.decode(old[:3])
@@ -331,15 +324,13 @@ class EngineeringStore:
             db.execute('INSERT INTO engineering_jobs VALUES(?,?,?,?,?,0,?,NULL,?)',
                        (job['id'], principal, request['request_id'], request_hash, 'PLAN', now, json.dumps(job)))
             if recovery_of is not None:
-                parent_data['post_merge_recovery_job_id'] = job['id']
-                parent_data['recovery_budget_reservation'] = request['execution_budget']
-                parent_data['post_merge'] = dict(
-                    recovery_of['data']['post_merge'], status='PENDING', original_status='FAILED',
-                    reason='MERGE_RECOVERY_RUNNING', recovery_job_id=job['id'])
-                db.execute('UPDATE engineering_jobs SET data=? WHERE id=?', (json.dumps(parent_checkpoint), recovery_of['id']))
+                self._record_recovery(db, recovery_of, job, origin=recovery_of['data'].get('post_merge'))
             self.event(db, job, 'PLAN', 0, now)
             return dict(job, state='PLAN', revision=0)
-        return self.tx(insert)
+        created = self.tx(insert)
+        if recovery_of is not None:
+            self.recovery_for(recovery_of)
+        return created
 
     def replace_paused_recovery(self, db, previous, successor, now):
         """Transfer a recovery reservation in the conversation admission transaction."""
@@ -358,6 +349,9 @@ class EngineeringStore:
                 or previous['execution_binding'] != successor['execution_binding']
                 or accepted_scope(request) != 'implement'):
             raise ConversationConflict('Recovery ownership or its safe checkpoint changed. Refresh the original task before sending.')
+        retained = self._recovery_in_transaction(db, parent)
+        if retained is None or retained['id'] != previous['id']:
+            raise ConversationConflict('The retained recovery changed. Refresh the original task before sending.')
         accepted = effective_execution_budget(previous['request'])
         requested = effective_execution_budget(request)
         calls, tokens = db.execute(
@@ -378,17 +372,121 @@ class EngineeringStore:
             submitted_repair_attempts=request['repair_attempts'])
         successor['request'] = dict(request, execution_budget=remaining,
                                     repair_attempts=min(request['repair_attempts'], previous['request']['repair_attempts']))
-        successor['data']['ci'] = deepcopy(parent['data']['post_merge'])
+        successor['data']['ci'] = deepcopy(parent['data'].get('post_merge_recovery_origin', {}))
         if request.get('execution_mode') == 'full':
             successor['data']['integration_batch'] = new_plan(successor, load_batch_policy())
         parent_data = parent['data']
+        changed = db.execute(
+            'UPDATE engineering_recoveries SET child_job_id=? WHERE parent_job_id=? AND child_job_id=?',
+            (successor['id'], parent_id, previous['id'])).rowcount
+        if changed != 1:
+            raise ConversationConflict('The retained recovery changed. Refresh the original task before sending.')
         parent_data['post_merge_recovery_job_id'] = successor['id']
+        parent_data['recovery_budget_reservation'] = deepcopy(remaining)
         post_merge = parent_data['post_merge']
         for key in ('recovery_state', 'recovery_pr', 'recovery_action'):
             post_merge.pop(key, None)
         post_merge.update(status='PENDING', reason='MERGE_RECOVERY_RUNNING', recovery_job_id=successor['id'])
         db.execute('UPDATE engineering_jobs SET data=?,next_at=MIN(next_at,?) WHERE id=?',
                    (json.dumps(parent), now, parent_id))
+
+    def _record_recovery(self, db, parent, child, origin=None):
+        """The mapping and failed observation survive a lost parent phase result."""
+        db.execute('INSERT OR IGNORE INTO engineering_recoveries VALUES(?,?)', (parent['id'], child['id']))
+        mapped = db.execute('SELECT child_job_id FROM engineering_recoveries WHERE parent_job_id=?', (parent['id'],)).fetchone()
+        if mapped is None or mapped[0] != child['id']:
+            raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The recovery binding conflicts with retained ownership.')
+        row = db.execute('SELECT data FROM engineering_jobs WHERE id=? AND principal=?',
+                         (parent['id'], parent['principal'])).fetchone()
+        if row is None:
+            raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The recovery parent is unavailable.')
+        stored = json.loads(row[0])
+        linked = stored['data'].get('post_merge_recovery_job_id')
+        if linked is not None and linked != child['id']:
+            raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The parent already names another recovery.')
+        stored['data']['post_merge_recovery_job_id'] = child['id']
+        budget = child['request'].get('execution_budget')
+        if isinstance(budget, dict):
+            reserved = stored['data'].get('recovery_budget_reservation')
+            if reserved is not None and reserved != budget:
+                raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The retained recovery budget differs from its child.')
+            stored['data']['recovery_budget_reservation'] = deepcopy(budget)
+        if origin is not None:
+            if (origin.get('status') != 'FAILED' or origin.get('reason') != 'MERGE_WORKFLOW_FAILED'
+                    or origin.get('merge_sha') != parent['data'].get('merge_sha')):
+                raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The original merge failure is not bound to this parent.')
+            stored['data'].setdefault('post_merge_recovery_origin', deepcopy(origin))
+            stored['data']['post_merge'] = dict(
+                stored['data']['post_merge_recovery_origin'], status='PENDING', original_status='FAILED',
+                reason='MERGE_RECOVERY_RUNNING', recovery_job_id=child['id'])
+        db.execute('UPDATE engineering_jobs SET data=? WHERE id=?', (json.dumps(stored), parent['id']))
+
+    def _recovery_in_transaction(self, db, parent):
+        rows = db.execute("SELECT data,state,revision FROM engineering_jobs WHERE json_extract(data, '$.recovery_of')=? LIMIT 4097",
+                          (parent['id'],)).fetchall()
+        mapped = db.execute('SELECT child_job_id FROM engineering_recoveries WHERE parent_job_id=?', (parent['id'],)).fetchone()
+        linked = parent.get('data', {}).get('post_merge_recovery_job_id')
+        if not rows and not mapped and not linked:
+            return None
+        children = {child['id']: child for child in map(self.decode, rows)}
+        child = children.get(mapped[0]) if mapped else next(iter(children.values()), None)
+        if len(children) > 1:
+            # Explicit paused follow-ups retain their original parent identity.
+            # Accept only the complete cancelled predecessor chain ending at
+            # the canonical child; unrelated legacy children stay ambiguous.
+            seen, current, terminated = set(), child, False
+            while current is not None and current['id'] not in seen:
+                seen.add(current['id'])
+                predecessor = children.get(current.get('continuation_of'))
+                if predecessor is None:
+                    terminated = current.get('continuation_of') is None
+                    break
+                if (predecessor['state'] != 'CANCELLED' or predecessor.get('approval') is not None
+                        or predecessor.get('superseded_by') != current['id']
+                        or predecessor.get('conversation_id') != current.get('conversation_id')
+                        or any(predecessor['request'].get(key) != current['request'].get(key)
+                               for key in ('repository', 'branch', 'base'))
+                        or current.get('continuation_branch') != predecessor['request']['branch']
+                        or predecessor['data'].get('merge_sha') or predecessor['data'].get('post_merge_recovery_job_id')
+                        or current['deadline'] > predecessor['deadline'] or current['steps'] < predecessor['steps']
+                        or any(value > effective_execution_budget(predecessor['request'])[key]
+                               for key, value in effective_execution_budget(current['request']).items())):
+                    break
+                current = predecessor
+            if not mapped or not terminated or len(children) > 4096 or seen != set(children):
+                raise ExecutionBindingError('POST_MERGE_RECOVERY_AMBIGUOUS', 'Multiple retained recoveries need reconciliation; no new recovery was admitted.')
+        if (child is None
+                or any(candidate['principal'] != parent['principal']
+                       or any(candidate['request'].get(key) != parent['request'].get(key)
+                              for key in ('repository', 'base', 'execution_binding_id'))
+                       or candidate.get('execution_binding') != parent.get('execution_binding')
+                       or candidate.get('recovery_depth') != parent.get('recovery_depth', 0) + 1
+                       for candidate in children.values())
+                or mapped is not None and mapped[0] != child['id']
+                or linked is not None and linked != child['id']):
+            raise ExecutionBindingError('POST_MERGE_RECOVERY_IDENTITY_UNAVAILABLE', 'The retained recovery identity does not match its parent.')
+        # Also binds a unique child retained by an older version before its
+        # parent checkpoint. Never choose arbitrarily among historical children.
+        self._record_recovery(db, parent, child)
+        return child
+
+    def recovery_for(self, parent):
+        def read(db):
+            child = self._recovery_in_transaction(db, parent)
+            stored = self.get_in_transaction(db, parent['id'], parent['principal'])
+            origin = stored.get('data', {}).get('post_merge_recovery_origin') if stored else None
+            budget = stored.get('data', {}).get('recovery_budget_reservation') if stored else None
+            return child, deepcopy(origin), deepcopy(budget)
+        child, origin, budget = self.tx(read)
+        if child is not None:
+            parent['data']['post_merge_recovery_job_id'] = child['id']
+            if budget is not None:
+                parent['data']['recovery_budget_reservation'] = budget
+            if origin is not None:
+                parent['data']['post_merge_recovery_origin'] = origin
+            else:
+                parent['data'].pop('post_merge_recovery_origin', None)
+        return child
 
     def get_in_transaction(self, db, job_id, principal):
         if not job_id:
@@ -481,6 +579,20 @@ class EngineeringStore:
         checkpoint['data'] = artifacts.checkpoint(job, job['data'], 'checkpoint')
         def save(db):
             nonlocal phase
+            recovery = db.execute('SELECT child_job_id FROM engineering_recoveries WHERE parent_job_id=?', (job['id'],)).fetchone()
+            if recovery is not None:
+                retained = self.get_in_transaction(db, job['id'], job['principal'])
+                job['data']['post_merge_recovery_job_id'] = recovery[0]
+                checkpoint['data']['post_merge_recovery_job_id'] = recovery[0]
+                origin = retained['data'].get('post_merge_recovery_origin')
+                budget = retained['data'].get('recovery_budget_reservation')
+                for data in (job['data'], checkpoint['data']):
+                    if budget is not None:
+                        data['recovery_budget_reservation'] = deepcopy(budget)
+                    if origin is not None:
+                        data['post_merge_recovery_origin'] = deepcopy(origin)
+                    else:
+                        data.pop('post_merge_recovery_origin', None)
             if phase == 'COMPLETED' and job.get('conversation_id') and db.execute("SELECT 1 FROM gateway_pending_instructions WHERE conversation_id=? AND status='pending' LIMIT 1", (job['conversation_id'],)).fetchone():
                 # A last-moment instruction was accepted before terminal commit.
                 # Preserve it visibly; never silently drop it or replay a write.
@@ -1051,6 +1163,8 @@ class EngineeringService:
                 # authority from today's settings or a reused display name.
                 if phase in {'PLAN', 'READ', 'IMPLEMENT', 'REVIEW'}:
                     self.validate_execution(job, force=recovering)
+                if phase == 'VERIFY':
+                    self.store.recovery_for(job)
                 if phase == 'VERIFY' and job['data'].get('post_merge_recovery_job_id'):
                     from v14.engineering_post_merge_recovery import inspect as inspect_recovery
                     recovered = inspect_recovery(self, job)

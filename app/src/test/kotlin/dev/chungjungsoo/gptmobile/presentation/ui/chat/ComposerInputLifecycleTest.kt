@@ -122,6 +122,7 @@ class ComposerInputLifecycleTest {
     @Test fun debugOffOnKeepsTheDraftFocusedAndDisposalRecordsTheNewCaptureOwner() {
         val wasEnabled = LocalDiagnosticsPolicy.enabled
         var visible by mutableStateOf(true)
+        var focused = false
         var keyboardHides = 0
         val keyboard = object : SoftwareKeyboardController {
             override fun show() = Unit
@@ -135,7 +136,7 @@ class ComposerInputLifecycleTest {
             compose.setContent {
                 CompositionLocalProvider(LocalSoftwareKeyboardController provides keyboard) {
                     MaterialTheme {
-                        if (visible) ChatInputBox(inputState = input, attachmentsEnabled = false)
+                        if (visible) ChatInputBox(inputState = input, attachmentsEnabled = false, onComposerFocusChanged = { focused = it })
                     }
                 }
             }
@@ -151,17 +152,21 @@ class ComposerInputLifecycleTest {
             compose.runOnIdle {
                 val current = requireNotNull(ReportDiagnosticSnapshots.latest("APP"))
                 assertTrue(priorGeneration != current.values["composer_generation"])
+                assertTrue(focused)
                 assertEquals(0, keyboardHides)
                 assertEquals("Retained through diagnostic changes", input.text.toString())
                 visible = false
             }
+            // Detachment can clear focus before disposal, so verify the removed editor's state.
+            compose.onNodeWithContentDescription("Message input").assertDoesNotExist()
             compose.runOnIdle {
                 val current = requireNotNull(ReportDiagnosticSnapshots.latest("APP"))
                 val events = (1..8).mapNotNull { (current.values["composer_event_$it"] as? JsonPrimitive)?.content }
                 assertTrue(events.contains("RELEASE_DISPOSE"))
                 assertTrue(events.indexOf("RELEASE_DISPOSE") < events.indexOf("DETACHED"))
                 assertTrue(priorGeneration != current.values["composer_generation"])
-                assertEquals(1, keyboardHides)
+                assertFalse(focused)
+                assertEquals(JsonPrimitive(false), current.values["composer_focused"])
                 assertEquals("Retained through diagnostic changes", input.text.toString())
             }
         } finally {
@@ -296,18 +301,33 @@ class ComposerInputLifecycleTest {
 
     @Test fun disposingAnUnfocusedComposerDoesNotDismissAnotherEditorsSession() {
         var visible by mutableStateOf(true)
+        var keyboardHides = 0
+        val keyboard = object : SoftwareKeyboardController {
+            override fun show() = Unit
+            override fun hide() {
+                keyboardHides++
+            }
+        }
+        val otherInput = TextFieldState("Other draft")
         compose.setContent {
-            MaterialTheme {
-                Column {
-                    if (visible) ChatInputBox(inputState = rememberTextFieldState("Retained"), attachmentsEnabled = false)
-                    androidx.compose.foundation.text.BasicTextField(state = rememberTextFieldState("Other draft"), modifier = Modifier.testTag("other_editor"))
+            CompositionLocalProvider(LocalSoftwareKeyboardController provides keyboard) {
+                MaterialTheme {
+                    Column {
+                        if (visible) ChatInputBox(inputState = rememberTextFieldState("Retained"), attachmentsEnabled = false)
+                        androidx.compose.foundation.text.BasicTextField(state = otherInput, modifier = Modifier.testTag("other_editor"))
+                    }
                 }
             }
         }
         compose.onNodeWithContentDescription("Message input").performClick()
         compose.onNodeWithTag("other_editor").performClick()
         compose.runOnIdle { visible = false }
+        compose.onNodeWithContentDescription("Message input").assertDoesNotExist()
         compose.onNodeWithTag("other_editor").assertIsFocused()
+        compose.runOnIdle {
+            assertEquals(0, keyboardHides)
+            assertEquals("Other draft", otherInput.text.toString())
+        }
     }
 
     @Test fun removingFocusedComposerReleasesFocusWithoutDiscardingDraft() {

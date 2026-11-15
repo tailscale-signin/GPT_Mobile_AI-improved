@@ -92,13 +92,22 @@ class TextDeliveryTests(unittest.TestCase):
 
 
 class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
+    READINESS_SECONDS = 10
+    SETTLEMENT_SECONDS = 10
+    _unsettled_fixture = None
+
     @classmethod
     def setUpClass(cls):
         cls.gateway = importlib.import_module('gateway_v14')
 
     def setUp(self):
+        self.assertIsNone(type(self)._unsettled_fixture,
+                          'A previous fixture still owns background work; do not reuse its runtime globals')
         self.stack = ExitStack()
-        self.addCleanup(self.stack.close)
+        self._observers = set()
+        self._backend_releases = []
+        self._settlement_failure = None
+        self.addCleanup(self.close_fixture)
         self.temp = self.stack.enter_context(tempfile.TemporaryDirectory())
         self.db = Path(self.temp) / 'jobs.sqlite3'
         self.runtime = self.gateway.runtime
@@ -115,9 +124,60 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.stack.enter_context(patch.object(self.runtime, 'configure_llama_model_round'))
         self.assertTrue(self.runtime.init_durable_job_store())
 
+    def close_fixture(self):
+        if self._settlement_failure is not None:
+            # Keep the patched runtime and TemporaryDirectory alive rather than
+            # deleting a DB that an unsettled thread may still be using.
+            type(self)._unsettled_fixture = self
+            self.fail(self._settlement_failure)
+        self.stack.close()
+
+    async def settle_fixture_work(self):
+        self._settlement_failure = 'Fixture worker settlement did not finish'
+        deadline = asyncio.get_running_loop().time() + self.SETTLEMENT_SECONDS
+        if self._observers:
+            await asyncio.wait(self._observers, timeout=self.SETTLEMENT_SECONDS)
+        entries = list(self.runtime.singleflight_workers.values())
+        tasks = {entry['task'] for entry in entries}
+        if tasks:
+            remaining = max(0, deadline - asyncio.get_running_loop().time())
+            # wait() does not cancel the to_thread wrapper at its deadline.
+            # A cancelled wrapper would not prove its physical thread exited.
+            await asyncio.wait(tasks, timeout=remaining)
+        # Run already-registered terminal callbacks before checking their receipt.
+        await asyncio.sleep(0)
+        pending_observers = sum(not task.done() for task in self._observers)
+        unsettled = sum(not entry['task'].done() or entry['task'].cancelled()
+                        or entry.get('finished_at') is None for entry in entries)
+        if pending_observers or unsettled:
+            self._settlement_failure = (
+                f'Fixture did not settle: observers={pending_observers}, workers/callbacks={unsettled}; '
+                'do not advance shared modes or remove the durable fixture')
+            self.fail(self._settlement_failure)
+        self._settlement_failure = None
+
+    async def finish_streams(self, release, *observers):
+        release.set()
+        self._observers.update(task for task in observers if task is not None)
+        await self.settle_fixture_work()
+        for task in observers:
+            if task is not None:
+                task.result()
+
+    async def backend_ready(self, prefix, received, worker):
+        self.assertTrue(await asyncio.to_thread(prefix.wait, self.READINESS_SECONDS),
+                        f'Backend not ready: requests={len(received)}, worker_done={worker.done()}')
+
+    async def asyncTearDown(self):
+        for release in self._backend_releases:
+            release.set()
+        await self.settle_fixture_work()
+
     def backend(self, *, disconnect=False, first_text='First', final_text=' answer', empty_attempt=None):
         release, first_event = threading.Event(), threading.Event()
+        self._backend_releases.append(release)
         received, errors = [], []
+        hold_seconds = self.READINESS_SECONDS + self.SETTLEMENT_SECONDS
 
         class Handler(BaseHTTPRequestHandler):
             protocol_version = 'HTTP/1.1'
@@ -144,7 +204,7 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     write({'choices': [{'delta': {'content': empty_attempt if empty else first_text}, 'finish_reason': None}]})
                     if not empty:
                         first_event.set()
-                        if not release.wait(5):
+                        if not release.wait(hold_seconds):
                             errors.append('Backend was not released by the observing test')
                         if disconnect:
                             self.close_connection = True
@@ -188,7 +248,7 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         await ObservedCompletionStream(stream, media_type='text/event-stream').stream_response(send)
 
     async def test_first_answer_reaches_asgi_before_backend_completes_and_followers_share_one_result(self):
-        release, _, received, errors = self.backend()
+        release, backend_prefix, received, errors = self.backend()
         job_id = 'visible-first-answer'
         first, second = [], []
         first_visible, second_visible = asyncio.Event(), asyncio.Event()
@@ -197,6 +257,7 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         follower = None
         try:
             # The backend cannot complete until both clients receive its prefix.
+            await self.backend_ready(backend_prefix, received, leader)
             await asyncio.wait_for(first_visible.wait(), 3)
             self.assertFalse(leader.done())
             self.assertEqual('First', content(first))
@@ -206,8 +267,7 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(second_visible.wait(), 2)
             self.assertEqual('First', content(second))
         finally:
-            release.set()
-            await asyncio.wait_for(asyncio.gather(leader, *([follower] if follower else [])), 3)
+            await self.finish_streams(release, leader, follower)
         self.assertFalse(errors)
         self.assertEqual(1, len(received))
         self.assertEqual('fixture', received[0]['model'])
@@ -233,15 +293,15 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(1, len(received))
 
     async def test_partial_backend_disconnect_is_terminal_and_does_not_restart_generation(self):
-        release, _, received, _ = self.backend(disconnect=True)
+        release, backend_prefix, received, _ = self.backend(disconnect=True)
         packets, first_visible = [], asyncio.Event()
         job_id = 'partial-backend-disconnect'
         worker = asyncio.create_task(self.observe(self.body(job_id, role='github-primary'), job_id, packets, first_visible))
         try:
+            await self.backend_ready(backend_prefix, received, worker)
             await asyncio.wait_for(first_visible.wait(), 3)
         finally:
-            release.set()
-            await asyncio.wait_for(worker, 3)
+            await self.finish_streams(release, worker)
         self.assertEqual('First', content(packets))
         self.assertEqual(1, len(received))
         error = next(value['error'] for value in objects(packets) if 'error' in value)
@@ -257,6 +317,7 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         expected = prefix + tail
         release, first_event, received, errors = self.backend(first_text=prefix, final_text=tail)
         for mode, role in (('incremental', 'primary'), ('buffered', 'reviewer'), ('fast', 'primary')):
+            self.assertIsNone(self._settlement_failure, 'The previous shared mode did not settle')
             with self.subTest(mode=mode):
                 release.clear()
                 first_event.clear()
@@ -266,20 +327,22 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 if mode == 'fast':
                     release.set()
                 poll_seconds = 5 if mode == 'fast' else self.runtime.PROGRESS_POLL_SECONDS
-                with patch.object(self.runtime, 'PROGRESS_POLL_SECONDS', poll_seconds):
-                    worker = asyncio.create_task(self.observe(body, job_id, packets, first_visible))
-                    try:
-                        if mode == 'incremental':
-                            await asyncio.wait_for(first_visible.wait(), 3)
-                            self.assertFalse(worker.done())
-                            self.assertEqual(prefix, content(packets))
-                        elif mode == 'buffered':
-                            self.assertTrue(await asyncio.to_thread(first_event.wait, 2))
-                            with self.assertRaises(asyncio.TimeoutError):
-                                await asyncio.wait_for(first_visible.wait(), poll_seconds * 1.5)
-                    finally:
-                        release.set()
-                        await asyncio.wait_for(worker, 3)
+                mode_scope = self.stack.enter_context(ExitStack())
+                mode_scope.enter_context(patch.object(self.runtime, 'PROGRESS_POLL_SECONDS', poll_seconds))
+                worker = asyncio.create_task(self.observe(body, job_id, packets, first_visible))
+                try:
+                    if mode == 'incremental':
+                        await self.backend_ready(first_event, received, worker)
+                        await asyncio.wait_for(first_visible.wait(), 3)
+                        self.assertFalse(worker.done())
+                        self.assertEqual(prefix, content(packets))
+                    elif mode == 'buffered':
+                        await self.backend_ready(first_event, received, worker)
+                        with self.assertRaises(asyncio.TimeoutError):
+                            await asyncio.wait_for(first_visible.wait(), poll_seconds * 1.5)
+                finally:
+                    await self.finish_streams(release, worker)
+                mode_scope.close()
                 self.assertFalse(any('error' in value for value in objects(packets)))
                 self.assertEqual(expected, content(packets))
                 receipt = next(value['gateway_delivery'] for value in objects(packets) if 'gateway_delivery' in value)
@@ -297,6 +360,7 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_whitespace_and_hidden_only_attempts_remain_repairable_before_publication(self):
         for empty in (' \t\n', '<think>private</think> \t\n'):
+            self.assertIsNone(self._settlement_failure, 'The previous shared mode did not settle')
             with self.subTest(empty=empty):
                 prefix, tail = '    Repaired', ' answer\n'
                 release, backend_prefix, received, errors = self.backend(first_text=prefix, final_text=tail, empty_attempt=empty)
@@ -307,18 +371,15 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     # Repair readiness includes the empty attempt and durable progress
                     # writes. Measure delivery only after the repair backend has emitted
                     # its prefix; its terminal marker remains held until our finally.
-                    self.assertTrue(await asyncio.to_thread(backend_prefix.wait, 3),
-                                    f'Repair backend not ready: requests={len(received)}, worker_done={worker.done()}')
+                    await self.backend_ready(backend_prefix, received, worker)
                     await asyncio.wait_for(first_visible.wait(), 3)
                     self.assertEqual(2, len(received))
                     self.assertEqual(prefix, content(packets))
                     self.assertFalse(worker.done())
                 finally:
-                    release.set()
                     # First-visible delivery retains its three-second bound above.
-                    # Terminal transport and real durable writes need a separate
-                    # bounded cleanup allowance on slow Windows filesystems.
-                    await asyncio.wait_for(worker, 10)
+                    # Settle the physical worker and its durable callback separately.
+                    await self.finish_streams(release, worker)
                 self.assertFalse(errors)
                 self.assertEqual(2, len(received))
                 self.assertEqual(126, received[1]['max_tokens'])
@@ -335,13 +396,12 @@ class IncrementalRuntimeTests(unittest.IsolatedAsyncioTestCase):
         job_id = 'reviewer-buffered'
         worker = asyncio.create_task(self.observe(self.body(job_id, role='reviewer'), job_id, packets, first_visible))
         try:
-            self.assertTrue(await asyncio.to_thread(first_event.wait, 2))
+            await self.backend_ready(first_event, received, worker)
             # Wait through a real progress poll while the backend holds its terminal marker.
             with self.assertRaises(asyncio.TimeoutError):
                 await asyncio.wait_for(first_visible.wait(), self.runtime.PROGRESS_POLL_SECONDS * 1.5)
         finally:
-            release.set()
-            await asyncio.wait_for(worker, 3)
+            await self.finish_streams(release, worker)
         self.assertEqual('First answer', content(packets))
         self.assertEqual(1, len(received))
         receipt = next(value['gateway_delivery'] for value in objects(packets) if 'gateway_delivery' in value)

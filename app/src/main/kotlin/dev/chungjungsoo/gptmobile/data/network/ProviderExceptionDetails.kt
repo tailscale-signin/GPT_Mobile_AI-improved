@@ -14,6 +14,7 @@ internal fun providerExceptionDetails(
     nowMillis: Long = System.currentTimeMillis(),
     monotonicMillis: Long = System.nanoTime() / 1_000_000
 ): ErrorDetail? {
+    toolEvidenceAdmissionFailure(error)?.let { return it }
     if (error is dev.chungjungsoo.gptmobile.data.github.GitHubRequestRejected && error.status == 0) {
         val cooldown = error.cause as? dev.chungjungsoo.gptmobile.data.github.GitHubCooldownActive
         if (cooldown != null) return providerExceptionDetails(cooldown, partialOutput, nowMillis, monotonicMillis)

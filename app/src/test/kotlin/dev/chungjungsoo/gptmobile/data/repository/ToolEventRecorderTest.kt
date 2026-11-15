@@ -124,7 +124,7 @@ class ToolEventRecorderTest {
                 repositoryContext = dev.chungjungsoo.gptmobile.data.github.GitHubRepositoryContext("private-owner", "private-repo", "private-branch"),
                 credentialProvider = { if (++checks == 2) throw observed else "private-token" }
             )
-            val tool = native.operations().single { it.operation == "github_context" }
+            val tool = native.operations().single { it.definition.name == "github_context__selected" }
             val args = buildJsonObject { put("action", "repository") }
             val event = recorder.startTool("private-native-run", 0, "private-native-call", "github_context", tool.definition.name, args, startedAt = 10L)
             val result = dev.chungjungsoo.gptmobile.data.agent.ToolFailureMetadata.receipt(tool.execute(event.callId, args), tool.definition.name)

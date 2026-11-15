@@ -26,7 +26,7 @@ internal object GitHubSelfTestGraph {
                 it["repository_role"] != JsonPrimitive("READ_SOURCE")
         }
         val source = trusted.lastOrNull {
-            it["success"] == JsonPrimitive(true) && it.text("tool").substringBefore("__") == "github_context" && it.action() == "status"
+            it["success"] == JsonPrimitive(true) && it.text("tool").githubOperationFamily() == "github_context" && it.action() == "status"
         } ?: return null
         val selected = GitHubInventoryObservation.planningRoot(source) ?: return null
         val sha = selected.text("commit_sha").takeIf { it.matches(Regex("[a-fA-F0-9]{40}")) } ?: return null
@@ -34,7 +34,7 @@ internal object GitHubSelfTestGraph {
         if (source.text("binding").isBlank()) return null
         val observations = trusted.filter { it["binding"] == source["binding"] && it["repository"] == source["repository"] }
         val graph = observations.filter { receipt ->
-            if (receipt.text("tool").substringBefore("__") != "repository_graph") return@filter false
+            if (receipt.text("tool").githubOperationFamily() != "repository_graph") return@filter false
             if (receipt["success"] != JsonPrimitive(true)) return@filter true
             val root = GitHubInventoryObservation.planningRoot(receipt) ?: return@filter false
             val metadata = (root["graph"] as? JsonObject) ?: root
@@ -150,7 +150,7 @@ internal object GitHubSelfTestGraph {
             (legacyContract ?: pagedContract)?.let { recipe("contracts", "options" to it) }
             evidence.observations.asReversed().firstNotNullOfOrNull { receipt ->
                 val args = receipt["arguments"] as? JsonObject ?: return@firstNotNullOfOrNull null
-                if (receipt["success"] != JsonPrimitive(true) || receipt.text("tool").substringBefore("__") != "github_ci" || args.text("action") != "logs" || args.text("expected_head_sha") != evidence.sha) return@firstNotNullOfOrNull null
+                if (receipt["success"] != JsonPrimitive(true) || receipt.text("tool").githubOperationFamily() != "github_ci" || args.text("action") != "logs" || args.text("expected_head_sha") != evidence.sha) return@firstNotNullOfOrNull null
                 val root = GitHubInventoryObservation.planningRoot(receipt) ?: return@firstNotNullOfOrNull null
                 (root["excerpts"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>().map { it.text("text") }.joinToString("\n")
                     .takeIf { it.isNotBlank() }?.take(24000)

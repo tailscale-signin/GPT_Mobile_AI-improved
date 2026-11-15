@@ -32,7 +32,7 @@ internal object GitHubAcceptanceRecoveryEvidence {
         val ledger = verdict["acceptance_ledger"] as? JsonObject
         val families = (ledger?.get("capabilities") as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             .filter { it["required"] == JsonPrimitive(true) && it.text("state") in setOf("BLOCKED", "NOT_TESTED", "FAIL") }
-            .map { it.text("id").substringBefore(':').substringBefore("__") }.filter { it in operationFamilies }.distinct()
+            .map { it.text("id").substringBefore(':').githubOperationFamily() }.filter { it in operationFamilies }.distinct()
         if (families.isNotEmpty()) {
             put("acceptance_blocked_operation_families", JsonArray(families.take(8).map(::JsonPrimitive)))
             put("acceptance_additional_blocked_family_count", (families.size - 8).coerceAtLeast(0))

@@ -21,23 +21,24 @@ internal object GitHubActionSchema {
         "github_context" -> when (action) {
             "resolve", "status", "index", "efficiency", "repository" -> "ref branch commit_sha refresh"
             "capabilities" -> "stage_id"
-            "changes" -> "base_sha ref branch commit_sha page per_page"
+            "changes" -> "base_sha ref branch commit_sha include_patches page per_page"
             "branches", "commits" -> "branch ref commit_sha page per_page"
             "branch" -> "branch ref"
             "branch_dependencies" -> "branch fixture_plan engineering_task_id"
             "commit", "checks" -> "commit_sha ref include_patches page per_page"
             "commit_search", "repositories" -> "query page per_page"
-            "recovery" -> "stage_id engineering_task_id"
+            "recovery" -> "stage_id engineering_task_id fixture_plan branch base_sha commit_sha"
             else -> null
         }
         "github_ci" -> when (action) {
             "workflows", "definitions" -> "workflow_id ref branch commit_sha page per_page index_cursor"
-            "runs", "failure" -> "workflow_id branch ref head_sha status actor event created page per_page"
-            "run", "artifacts" -> "run_id run_attempt page per_page"
-            "status" -> "run_id job_id ref branch commit_sha head_sha"
-            "jobs" -> "run_id job_id run_attempt page per_page"
-            "job" -> "job_id"
-            "logs" -> "job_id run_id run_attempt start_line end_line start_offset"
+            "runs" -> "workflow_id branch ref commit_sha head_sha status actor event created page per_page"
+            "failure" -> "workflow_id branch ref head_sha run_id expected_head_sha status actor event created page per_page"
+            "run", "artifacts" -> "run_id run_attempt expected_head_sha page per_page"
+            "status" -> "run_id job_id ref branch commit_sha head_sha expected_head_sha"
+            "jobs" -> "run_id job_id run_attempt expected_head_sha page per_page"
+            "job" -> "job_id run_id run_attempt expected_head_sha"
+            "logs" -> "job_id run_id run_attempt expected_head_sha start_line end_line start_offset"
             "dispatch" -> "workflow_id ref expected_head_sha inputs execution_id"
             "rerun", "rerun_failed_jobs", "rerun_all", "cancel" -> "run_id expected_head_sha execution_id"
             else -> null
@@ -62,7 +63,7 @@ internal object GitHubActionSchema {
             else -> null
         }
         "github_commit" -> when (action) {
-            "branch" -> "branch from_branch expected_head_sha"
+            "branch" -> "branch from_branch expected_head_sha select_created_branch fixture_plan"
             "delete_branch" -> "branch expected_head_sha"
             "delete_fixture_branch" -> "branch expected_head_sha origin_head_sha fixture_plan engineering_task_id"
             "commit", "commit_staged_patch" -> "stage_id branch message expected_head_sha"

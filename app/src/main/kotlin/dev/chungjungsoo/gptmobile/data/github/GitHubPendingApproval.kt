@@ -41,7 +41,7 @@ internal object GitHubPendingApproval {
         if (receipt["trusted"] != JsonPrimitive(true) || receipt["verification_eligible"] == JsonPrimitive(false) || receipt["success"] != JsonPrimitive(true)) return null
         val root = root(receipt) ?: return null
         if (root.text("status") !in setOf("AWAITING_APPROVAL", "WAITING_FOR_APPROVAL") || root["committed"] != JsonPrimitive(false)) return null
-        val native = receipt.text("tool").substringBefore("__")
+        val native = receipt.text("tool").githubOperationFamily()
         if (native !in setOf("github_write", "github_commit", "github_context", "github")) return null
         return root.text("engineering_task_id").takeIf { it.matches(Regex("[A-Za-z0-9_-]{1,128}")) }
     }
@@ -77,7 +77,7 @@ internal object GitHubPendingApproval {
             candidate["success"] != JsonPrimitive(true) ||
             candidate["binding"] != previous["binding"] ||
             candidate["repository"] != previous["repository"] ||
-            candidate.text("tool").substringBefore("__") != "github_context"
+            candidate.text("tool").githubOperationFamily() != "github_context"
         ) {
             return false
         }
@@ -158,7 +158,7 @@ internal object GitHubPendingApproval {
                     receipt["verification_eligible"] != JsonPrimitive(false) &&
                     receipt["binding"] == previous["binding"] &&
                     receipt["repository"] == previous["repository"] &&
-                    receipt.text("tool").substringBefore("__") == "github_context" &&
+                    receipt.text("tool").githubOperationFamily() == "github_context" &&
                     result.text("approval_state") in setOf("WAITING_FOR_APPROVAL", "EXACT_PATCH_APPROVAL_PENDING", "APPROVED_AWAITING_DISPATCH", "PUBLICATION_AWAITING_REMOTE_VERIFICATION", "NATIVE_APPROVAL_STATE_UNAVAILABLE")
                 ) {
                     val descriptor = requireNotNull(pending[id]).second

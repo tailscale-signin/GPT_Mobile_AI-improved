@@ -166,7 +166,7 @@ private suspend fun AppAuditAssertions.exerciseGitHubContract(id: String) {
 private fun json(value: String): JsonObject = Json.parseToJsonElement(value).jsonObject
 
 private fun mergeResponse(sha: String, more: Boolean = false, draft: Boolean = false) = json(
-    """{"data":{"repository":{"pullRequest":{"state":"OPEN","isDraft":$draft,"headRefOid":"$sha","baseRefOid":"${"b".repeat(40)}","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"oid":"$sha","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":1,"pageInfo":{"hasNextPage":$more},"nodes":[{"__typename":"CheckRun","name":"fixture","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true}]}}}}]}}}}}"""
+    """{"data":{"repository":{"pullRequest":{"state":"OPEN","isDraft":$draft,"headRefOid":"$sha","baseRefOid":"${"b".repeat(40)}","mergeable":"MERGEABLE","mergeStateStatus":"CLEAN","reviewDecision":"APPROVED","commits":{"nodes":[{"commit":{"oid":"$sha","statusCheckRollup":{"state":"SUCCESS","contexts":{"totalCount":1,"pageInfo":{"hasNextPage":$more},"nodes":[{"__typename":"CheckRun","id":"fixture-check","name":"fixture","status":"COMPLETED","conclusion":"SUCCESS","isRequired":true,"checkSuite":{"id":"fixture-suite","commit":{"oid":"$sha"},"app":{"id":"fixture-app"},"branch":{"id":"fixture-branch"},"workflowRun":{"id":"fixture-run","runNumber":1,"runAttempt":1,"event":"pull_request","workflow":{"id":"fixture-workflow"}}}}]}}}}]}}}}}"""
 )
 
 private fun fixtureArchive(name: String): ByteArray = ByteArrayOutputStream().also { output ->

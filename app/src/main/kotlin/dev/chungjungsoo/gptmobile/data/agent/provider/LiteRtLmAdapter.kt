@@ -1113,11 +1113,11 @@ class LiteRtLmAdapter(
                         send(localToolContextFailure(error, generationDispatched))
                     } catch (error: LocalEngineLoadException) {
                         localRuntime.state.value.admissionReceipt?.let { receipt -> send(ProviderEvent.RequestConfigured(configuredProfileType = platform.compatibleType.name, localAdmissionReceipt = receipt)) }
-                        send(ProviderEvent.Failed(error.message ?: engineLoadFailedError, failureDetails = providerAdapterExceptionEvidence(error)))
+                        send(localRuntimeFailure(error, error.message ?: engineLoadFailedError, generationDispatched))
                     } catch (error: Exception) {
                         localRuntime.state.value.admissionReceipt?.let { receipt -> send(ProviderEvent.RequestConfigured(configuredProfileType = platform.compatibleType.name, localAdmissionReceipt = receipt)) }
                         val message = error.message ?: "Local inference failed"
-                        send(ProviderEvent.Failed(if (isLocalTemplateMismatch(message)) LOCAL_TEMPLATE_ERROR else message, failureDetails = providerAdapterExceptionEvidence(error)))
+                        send(localRuntimeFailure(error, if (isLocalTemplateMismatch(message)) LOCAL_TEMPLATE_ERROR else message, generationDispatched))
                     }
                 }
                 runInference()
@@ -1332,6 +1332,35 @@ class LiteRtLmAdapter(
                 error
             )
         }
+    }
+
+    private fun localRuntimeFailure(error: Exception, message: String, generationDispatched: Boolean): ProviderEvent.Failed {
+        val capacity = if (error is dev.chungjungsoo.gptmobile.data.context.RequestCapacityException) {
+            dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, partialOutput = generationDispatched)
+        } else {
+            null
+        }
+        val causes = generateSequence<Throwable>(error) { it.cause }.take(16).toList()
+        val typedEvidence = when {
+            capacity != null -> {
+                // This bit records a prior attempt, not visible output or whole-invocation nondispatch.
+                val excluded = setOf("partial_output_preserved") + if (generationDispatched) {
+                    setOf("attempt_dispatch_state", "dispatch_state", "dispatched", "remote_acceptance")
+                } else {
+                    emptySet()
+                }
+                capacity.failureDetails.orEmpty().filterKeys { it !in excluded }
+            }
+            causes.none { it is CancellationException } && causes.any { it is dev.chungjungsoo.gptmobile.data.localruntime.LocalRuntimeConnectionException } -> {
+                buildJsonObject { put("failed_stage", "connection_preflight") }
+            }
+            else -> emptyMap()
+        }
+        return ProviderEvent.Failed(
+            message,
+            errorCode = capacity?.code,
+            failureDetails = JsonObject(providerAdapterExceptionEvidence(error) + typedEvidence)
+        )
     }
 
     private suspend fun historyMessages(

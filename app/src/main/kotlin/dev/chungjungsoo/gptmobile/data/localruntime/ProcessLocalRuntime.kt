@@ -643,7 +643,8 @@ class ProcessLocalRuntime(
                 withTimeout(15_000) { result.await() }
             } catch (error: Throwable) {
                 unbind()
-                throw error
+                if (error is kotlinx.coroutines.CancellationException || error !is Exception) throw error
+                throw LocalRuntimeConnectionException(error)
             }
         }
 

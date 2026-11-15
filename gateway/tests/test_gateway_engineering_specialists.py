@@ -8,6 +8,7 @@ from unittest.mock import Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from v14.engineering_specialists import investigate
+from v14.execution_binding import ExecutionBindingError
 
 
 class SpecialistTests(unittest.TestCase):
@@ -48,6 +49,30 @@ class SpecialistTests(unittest.TestCase):
                     result = investigate(self.backend, self.job, self.tasks[:1])
                 workspace.assert_not_called()
                 self.assertEqual('ACTION_REJECTED', result[0]['status'])
+
+    def test_typed_model_and_workspace_failures_escape_without_format_repair(self):
+        for boundary in ('model', 'workspace'):
+            for code in ('EXECUTION_CONTEXT_EXHAUSTED', 'EXECUTION_BINDING_REVOKED', 'EXECUTION_OWNER_CHANGED'):
+                with self.subTest(boundary=boundary, code=code):
+                    self.job['data'].pop('specialists', None)
+                    failure = ExecutionBindingError(code, 'Typed stop', observation={'reasonCode': code})
+                    self.backend.model = Mock()
+                    self.backend.root = Mock(return_value='/repos/owner/repo')
+                    self.backend.api = Mock(side_effect=failure)
+                    if boundary == 'model':
+                        self.backend.model.side_effect = failure
+                    else:
+                        self.backend.model.return_value = {'workspace_action': {
+                            'action': 'read', 'head_sha': self.job['data']['head_sha'], 'path': 'file.py'}}
+                    with self.assertRaises(ExecutionBindingError) as raised:
+                        investigate(self.backend, self.job, self.tasks[:1])
+                    self.assertIs(failure, raised.exception)
+                    self.assertEqual({'reasonCode': code}, raised.exception.observation)
+                    self.assertFalse(raised.exception.retryable)
+                    self.assertEqual(1, self.backend.model.call_count)
+                    self.assertFalse(self.backend.model.call_args.args[2]['format_repair'])
+                    self.assertEqual(int(boundary == 'workspace'), self.backend.api.call_count)
+                    self.assertNotIn('specialists', self.job['data'])
 
     def test_inspection_is_bounded_and_revision_change_invalidates_saved_work(self):
         self.backend.model.return_value = {'workspace_action': {'action': 'paths', 'query': 'file', 'head_sha': 'a' * 40}}

@@ -120,7 +120,9 @@ class DesktopNativeAcceptance(unittest.TestCase):
             self.assertFalse(panel.advanced.winfo_viewable())
             self.assertFalse(panel.commands.winfo_viewable())
             self.assertFalse(panel.contract.winfo_viewable())
-            for control in (panel.enable_button, panel.repository_picker, panel.profile_box, panel.discovery_button, panel.release_button, panel.advanced_toggle,
+            self.assertFalse(panel.discovery_button.winfo_viewable())
+            self.assertFalse(panel.release_button.winfo_viewable())
+            for control in (panel.enable_button, panel.repository_picker, panel.profile_box, panel.advanced_toggle,
                             panel.prepare_button, panel.check_button, panel.save_button, panel.reload_button):
                 self.assertTrue(control.winfo_viewable())
                 self.assertGreater(control.winfo_width(), 40)
@@ -135,6 +137,22 @@ class DesktopNativeAcceptance(unittest.TestCase):
             panel.fields['profile'].set(validation.CUSTOM_PROFILE)
             panel.profile_changed()
             self.assertTrue(panel.advanced_visible.get())
+            self.window.update()
+            for control in (panel.discovery_button, panel.release_button):
+                self.assertTrue(control.winfo_viewable())
+                self.assertGreater(control.winfo_width(), 40)
+                self.assertGreater(control.winfo_height(), 12)
+                self.assertGreaterEqual(control.winfo_rootx(), settings.winfo_rootx())
+                self.assertGreaterEqual(control.winfo_rooty(), settings.winfo_rooty())
+                self.assertLessEqual(control.winfo_rootx() + control.winfo_width(), settings.winfo_rootx() + settings.winfo_width())
+                self.assertLessEqual(control.winfo_rooty() + control.winfo_height(), settings.winfo_rooty() + settings.winfo_height())
+                self.assertIs(control, settings.winfo_containing(control.winfo_rootx() + control.winfo_width() // 2,
+                                                                control.winfo_rooty() + control.winfo_height() // 2))
+            for open_dialog in (panel.discover_behavior_checks, panel.configure_release_checks):
+                dialog = open_dialog()
+                self.assertIsNotNone(dialog)
+                self.assertEqual(str(settings), str(dialog.transient()))
+                dialog.destroy()
             settings.focus_force()
             panel.commands.focus_set()
             self.window.update()
@@ -160,6 +178,8 @@ class DesktopNativeAcceptance(unittest.TestCase):
             self.assertFalse(panel.advanced.winfo_viewable())
             self.assertFalse(panel.commands.winfo_viewable())
             self.assertFalse(panel.contract.winfo_viewable())
+            self.assertFalse(panel.discovery_button.winfo_viewable())
+            self.assertFalse(panel.release_button.winfo_viewable())
             prepare.assert_not_called()
 
     def test_closing_settings_cancels_slow_setup_and_its_queued_callbacks(self):

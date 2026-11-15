@@ -300,7 +300,7 @@ class AgentRunner(
                 } else {
                     null
                 }
-                val savedRead = if (automaticRecovery != null && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions, minOf(limits.maxReplayResultTokens, effectiveReplayTokens / 2), automaticRecovery) else null
+                val savedRead = if (automaticRecovery != null && !finalResponseRequested && !restoringBatch && observedToolCalls < observedLimit) GitHubReplayRecovery.nextSavedRead(exchanges, roundDefinitions, minOf(limits.maxReplayResultTokens, admittedReplayLimit / 2), automaticRecovery) else null
                 val ciRead = if (automaticRecovery != null &&
                     !session.handlesToolsInternally &&
                     !retainedUnknownOutcome &&
@@ -366,6 +366,9 @@ class AgentRunner(
                     val admission = round.failureDetails
                     if (capacityReplans < 2 &&
                         !session.handlesToolsInternally &&
+                        !retainedUnknownOutcome &&
+                        unknownOutcomes.isEmpty() &&
+                        admission?.get("logical_continuation_allowed") != JsonPrimitive(false) &&
                         !round.textEmitted &&
                         round.calls.isEmpty() &&
                         exchanges.isNotEmpty() &&
@@ -1116,7 +1119,7 @@ class AgentRunner(
             GitHubReplayRecovery.nextSavedRead(
                 exchanges + AgentToolExchange(calls, executedResults + deferredResults),
                 exposedDefinitions.filter { it.name in executableToolByName },
-                minOf(limits.maxReplayResultTokens, effectiveReplayTokens / 2),
+                minOf(limits.maxReplayResultTokens, replayLimit / 2),
                 savedResultRecovery
             ) != null
         val canReadOtherSources = savedReadAvailable ||

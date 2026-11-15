@@ -12,7 +12,6 @@ import kotlinx.serialization.json.put
 /** One local native status/reconciliation read per saved approval and explicit continuation. */
 internal object GitHubApprovalContinuation {
     fun next(requestKey: String, tools: List<AgentToolDefinition>, receipts: Map<String, JsonObject>, initialReceiptIds: Set<String>): ProviderEvent.ToolCall? {
-        val tool = tools.firstOrNull { it.modelVisible && it.name.substringBefore("__") == "github_context" } ?: return null
         for (pending in GitHubPendingApproval.snapshot(receipts).filterIsInstance<JsonObject>()) {
             if (pending.text("receipt_id") !in initialReceiptIds) continue
             val id = pending.text("engineering_task_id")
@@ -22,7 +21,8 @@ internal object GitHubApprovalContinuation {
                 put("action", "recovery")
                 put("engineering_task_id", id)
             }
-            if (ToolArgumentValidator.errors(args, tool.inputSchema).isEmpty()) return ProviderEvent.ToolCall(callId, tool.name, args)
+            val tool = githubFamilyTools(tools, "github_context").firstOrNull { ToolArgumentValidator.errors(args, it.inputSchema).isEmpty() } ?: continue
+            return ProviderEvent.ToolCall(callId, tool.name, args)
         }
         return null
     }

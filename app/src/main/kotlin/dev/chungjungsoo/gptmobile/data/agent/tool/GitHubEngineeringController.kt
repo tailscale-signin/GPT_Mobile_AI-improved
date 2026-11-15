@@ -453,7 +453,7 @@ class GitHubEngineeringController @Inject constructor(
                 if (verdict == EngineeringCiVerdict.PASSED) {
                     finishVerified(taskId)
                     EngineeringWorkerOutcome.VERIFIED
-                } else if (verdict == EngineeringCiVerdict.FAILED) {
+                } else if (verdict == EngineeringCiVerdict.FAILED || verdict == EngineeringCiVerdict.BLOCKED) {
                     EngineeringWorkerOutcome.INVALID
                 } else {
                     EngineeringWorkerOutcome.RETRY

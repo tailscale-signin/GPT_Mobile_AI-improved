@@ -8,6 +8,7 @@ internal data class EngineeringCiPollingState(
 internal sealed interface EngineeringCiPollingDecision {
     data object Complete : EngineeringCiPollingDecision
     data object StopFailed : EngineeringCiPollingDecision
+    data object StopBlocked : EngineeringCiPollingDecision
     data object TimedOut : EngineeringCiPollingDecision
     data class RetryAfter(val delayMs: Long, val nextAttempt: Int) : EngineeringCiPollingDecision
 }
@@ -24,6 +25,7 @@ internal object GitHubEngineeringCiPolling {
     ): EngineeringCiPollingDecision {
         if (verdict == EngineeringCiVerdict.PASSED) return EngineeringCiPollingDecision.Complete
         if (verdict == EngineeringCiVerdict.FAILED) return EngineeringCiPollingDecision.StopFailed
+        if (verdict == EngineeringCiVerdict.BLOCKED) return EngineeringCiPollingDecision.StopBlocked
         if (state.attempt >= MAX_ATTEMPTS ||
             nowEpochMs < state.startedAtEpochMs ||
             nowEpochMs - state.startedAtEpochMs >= MAX_AGE_MS

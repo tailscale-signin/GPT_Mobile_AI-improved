@@ -45,6 +45,7 @@ internal enum class EngineeringEvidence {
     POLICY_BLOCKED,
     REF_CONFLICT,
     CI_CHECK_FAILED,
+    CI_CHECK_BLOCKED,
     EXECUTION_FAILED,
     USER_CANCELLED
 }
@@ -86,6 +87,7 @@ internal object GitHubEngineeringStateMachine {
             EngineeringEvidence.POLICY_BLOCKED -> EngineeringState.BLOCKED
             EngineeringEvidence.REF_CONFLICT -> EngineeringState.CONFLICTED
             EngineeringEvidence.CI_CHECK_FAILED -> if (current == EngineeringState.CI_PENDING) EngineeringState.CI_FAILED else throw IllegalArgumentException("CI failure outside CI watch")
+            EngineeringEvidence.CI_CHECK_BLOCKED -> if (current == EngineeringState.CI_PENDING) EngineeringState.BLOCKED else throw IllegalArgumentException("CI block outside CI watch")
             EngineeringEvidence.EXECUTION_FAILED -> EngineeringState.FAILED
             EngineeringEvidence.USER_CANCELLED -> EngineeringState.CANCELLED
             else -> throw IllegalArgumentException("Invalid engineering transition: $current + $evidence")

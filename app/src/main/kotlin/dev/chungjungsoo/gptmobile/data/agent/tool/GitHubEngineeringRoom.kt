@@ -261,7 +261,12 @@ internal class GitHubEngineeringRoomLedger(
             val run = requireNotNull(database.ledgerDao().run(taskId))
             database.ledgerDao().saveRun(run.copy(verifiedChecksJson = checksJson, notice = "CI: $verdict", retryAtEpochMs = null))
             if (verdict != EngineeringCiVerdict.PENDING) {
-                val evidence = if (verdict == EngineeringCiVerdict.PASSED) EngineeringEvidence.REQUIRED_CHECKS_PASSED else EngineeringEvidence.CI_CHECK_FAILED
+                val evidence = when (verdict) {
+                    EngineeringCiVerdict.PASSED -> EngineeringEvidence.REQUIRED_CHECKS_PASSED
+                    EngineeringCiVerdict.FAILED -> EngineeringEvidence.CI_CHECK_FAILED
+                    EngineeringCiVerdict.BLOCKED -> EngineeringEvidence.CI_CHECK_BLOCKED
+                    EngineeringCiVerdict.PENDING -> error("Pending CI must remain retryable")
+                }
                 append(
                     java.util.UUID.randomUUID().toString(),
                     EngineeringLedgerEvent(

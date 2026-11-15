@@ -24,6 +24,14 @@ class GitHubEngineeringCiPollingTest {
     }
 
     @Test
+    fun blockedStopsPolling() {
+        assertEquals(
+            GitHubEngineeringCiPollingDecision.StopBlocked,
+            GitHubEngineeringCiPolling.next(EngineeringCiVerdict.BLOCKED, state, 2_000L)
+        )
+    }
+
+    @Test
     fun pendingSchedulesRetry() {
         assertEquals(
             EngineeringCiPollingDecision.RetryAfter(30_000L, 1),

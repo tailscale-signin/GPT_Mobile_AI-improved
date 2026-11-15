@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "6fcf21b51c770a982e7b5817144b5faca8f095a0d2b50beeae8c2ddc88b0570a",
+  "source_digest": "72df6f835c0aed7fc3ca28575516b0bd75bfa67845d2e575b5952ae8b54530e6",
   "file_count": 2629,
-  "indexed_line_count": 424326,
+  "indexed_line_count": 424349,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -58,7 +58,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 100,
-      "indexed_line_count": 22225
+      "indexed_line_count": 22235
     },
     {
       "id": "mcp_plugins",
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 153,
-      "indexed_line_count": 72891
+      "indexed_line_count": 72904
     },
     {
       "id": "authentication_service",
@@ -2544,15 +2544,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolicy.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "302d345689dd3a5b5504b65e3bc2cb048a4fd6a8fb334ba64ec27dcd003f0f13",
-      "indexed_lines": 77
+      "sha256": "0fb4743e9be144094510ad8ff2f575dc53835612e1b84181188ff39608e42f57",
+      "indexed_lines": 78
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolling.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "e462525f47b6a899b6757a114894422cceff0bfff18e655a782852bd90cbfab1",
-      "indexed_lines": 36
+      "sha256": "b151aec6c35379bd3818ddcb9f0ebe5f03d02671ad50e9bb898845ecd42bb2d1",
+      "indexed_lines": 38
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiReceiptGateway.kt",
@@ -2579,7 +2579,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringController.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "d589d12e59c0a3a908b51fd15b96fe2343cfc94e0b712337a645111a07d13615",
+      "sha256": "3a192af25693c0534c69aa3f55a3f57cbb282f4bdede5732815425c6ca023890",
       "indexed_lines": 607
     },
     {
@@ -2628,15 +2628,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringRoom.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "27a718a50c60eceb104823726137a9de096c106d9a2289e4c01a0a7c35a0550c",
-      "indexed_lines": 315
+      "sha256": "7e145c3e2e238a998165fd00fd6cc8ee1a337313b02691a2c7ebb67c20a3cde2",
+      "indexed_lines": 320
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringStateMachine.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "cb41750529b8bde9069b9ec156737db48a7cd5cc669df1b4fe85ba3f6cb33129",
-      "indexed_lines": 94
+      "sha256": "bbd0d0668d4d481b6d982208a845bdf1f6935a3e25a2208c863ee7d2b605fb0f",
+      "indexed_lines": 96
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringWorkQueue.kt",
@@ -17580,8 +17580,8 @@
       "path": "gateway/desktop/repository_validation_panel.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "5d3556cdf55184f2820edc0562fdc8139dcd40a3a803656ad2fe49de61564138",
-      "indexed_lines": 581
+      "sha256": "dd71df37e432f79ad5bf99d8eb580aea73801bb683a16df3b33fb4cbccde7765",
+      "indexed_lines": 584
     },
     {
       "path": "gateway/desktop/smoke_windows.py",
@@ -17615,8 +17615,8 @@
       "path": "gateway/desktop/ui.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "840bfe279e66c03f3b9f4121d0b60ab956aac9490c4bf4be212f1067ddf80e20",
-      "indexed_lines": 423
+      "sha256": "f58779dfd045e156d0e068fa7c64ffb2318e05b774188279bc6d84d1caecd81d",
+      "indexed_lines": 433
     },
     {
       "path": "gateway/desktop/validation_policy.py",

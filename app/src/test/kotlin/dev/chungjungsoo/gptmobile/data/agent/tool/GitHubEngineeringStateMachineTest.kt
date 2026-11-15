@@ -90,6 +90,23 @@ class GitHubEngineeringStateMachineTest {
     }
 
     @Test
+    fun ciBlockStopsInBlockedStateOnlyDuringCiWatch() {
+        assertThrows(IllegalArgumentException::class.java) {
+            GitHubEngineeringStateMachine.advance(
+                EngineeringState.PATCH_READY,
+                EngineeringEvidence.CI_CHECK_BLOCKED
+            )
+        }
+        assertEquals(
+            EngineeringState.BLOCKED,
+            GitHubEngineeringStateMachine.advance(
+                EngineeringState.CI_PENDING,
+                EngineeringEvidence.CI_CHECK_BLOCKED
+            )
+        )
+    }
+
+    @Test
     fun completedTasksCannotBeMutated() {
         assertThrows(IllegalArgumentException::class.java) {
             GitHubEngineeringStateMachine.advance(EngineeringState.COMPLETED, EngineeringEvidence.INSPECTION_STARTED)

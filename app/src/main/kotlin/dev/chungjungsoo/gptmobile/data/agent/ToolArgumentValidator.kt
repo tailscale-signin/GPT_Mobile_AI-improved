@@ -235,8 +235,9 @@ internal object ToolArgumentValidator {
                         range
                     }
                 }
-                if (corrected == ranges) return null
-                JsonObject(arguments + ("ranges" to JsonArray(corrected)))
+                val correctedRanges = JsonArray(corrected)
+                if (correctedRanges == ranges) return null
+                JsonObject(arguments + ("ranges" to correctedRanges))
             }
             else -> null
         }

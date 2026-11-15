@@ -56,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
@@ -179,6 +180,7 @@ private fun ManualIssueDialog(
     val description = draft.description
     val includeDiagnostics = draft.includeDiagnostics
     val descriptionLimit = IssueReportManualCapture.descriptionLimit(draft.relatedIssueNumber)
+    val appLogTracking by AppLogRecorder.enabled.collectAsStateWithLifecycle()
     var reviewed by remember { mutableStateOf<IssueReport?>(null) }
     val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(), onAttachment)
     val reviewing = reviewed != null && reviewed === preview
@@ -234,6 +236,26 @@ private fun ManualIssueDialog(
                         Text(stringResource(R.string.issue_report_include_diagnostics))
                     }
                     if (includeDiagnostics) {
+                        // App log tracking is a separate explicit opt-in. Including a
+                        // report snapshot never enables collection or restores missing history.
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(
+                                value = appLogTracking,
+                                enabled = !saving && !AppLogRecorder.privateSessionActive,
+                                role = Role.Checkbox,
+                                onValueChange = AppLogRecorder::setEnabled
+                            ),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Checkbox(checked = appLogTracking, onCheckedChange = null, enabled = !saving && !AppLogRecorder.privateSessionActive)
+                            Text(stringResource(R.string.issue_report_future_log_tracking))
+                        }
+                        Text(
+                            stringResource(R.string.issue_report_future_log_tracking_note),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
                         DiagnosticAreaSelector(draft.diagnosticArea, saving) { area ->
                             onDraft(draft.copy(diagnosticArea = area))
                             onDiagnostics(true)

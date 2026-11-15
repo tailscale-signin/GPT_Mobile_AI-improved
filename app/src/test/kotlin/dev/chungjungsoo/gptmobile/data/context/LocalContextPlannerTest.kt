@@ -13,6 +13,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class LocalContextPlannerTest {
+    @Test fun localContextPlanningReservesPhysicalAdmissionUncertaintyBeforeHistory() {
+        assertEquals(256, LocalContextPlanner.preflightSafetyReserve(1024))
+        assertEquals(820, LocalContextPlanner.preflightSafetyReserve(4096))
+        assertEquals(1639, LocalContextPlanner.preflightSafetyReserve(8192))
+
+        val longHistory = List(16) { turn("Earlier context details ".repeat(40)) }
+        val plan = LocalContextPlanner.plan(
+            longHistory,
+            "Inspect the current task and preserve the answer.",
+            "Reply using the authorized tools when required.",
+            emptyList(),
+            4096,
+            512
+        )
+        assertTrue(plan.omittedTurns > 0)
+        // This is still an estimate, not a verified tokenizer result. It must
+        // reserve the exact admission estimator's proportional headroom.
+        val estimatedPhysicalInput = plan.estimatedPromptTokens +
+            RequestAdmission.estimateSafety(plan.estimatedPromptTokens) +
+            plan.toolResultBytes / 2 +
+            plan.outputReserveTokens
+        assertTrue("Estimated final admission needs room for output", estimatedPhysicalInput < 4096)
+    }
+
     @Test fun githubModeHonorsUpstreamSubsetRatherThanRestoringEveryTool() {
         val github = (1..10).map { AgentToolDefinition("opaque_alias_$it", "Repository action", buildJsonObject {}, capabilities = setOf(AgentToolCapability.GITHUB)) } +
             AgentToolDefinition("github_read", "Native read", buildJsonObject {}) +

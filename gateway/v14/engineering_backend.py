@@ -83,6 +83,11 @@ def prepare_changes(proposal, files, tree):
             for edit in edits:
                 if not isinstance(edit, dict) or set(edit) != {'old', 'new'} or not all(isinstance(edit[k], str) for k in edit) or not edit['old'] or content.count(edit['old']) != 1:
                     raise ValueError('Each patch anchor must match exactly once')
+                visible = original['content'][:original.get('visible_characters', 16000)]
+                lines = original['content'].splitlines(True)
+                inspected = [visible] + [''.join(lines[span['start_line'] - 1:span['end_line']]) for span in original.get('inspected_ranges', [])]
+                if not any(edit['old'] in window for window in inspected):
+                    raise ValueError('Read the exact patch anchor range before editing it')
                 content = content.replace(edit['old'], edit['new'], 1)
         else:
             if original and len(original['content']) > original.get('visible_characters', 16000):
@@ -91,8 +96,8 @@ def prepare_changes(proposal, files, tree):
             if not isinstance(content, str):
                 raise ValueError('File replacement requires UTF-8 text')
         if content is not None:
-            total += len(content.encode('utf-8'))
-            if '\0' in content or total > 512 * 1024:
+            total += sum(len(edit['old'].encode()) + len(edit['new'].encode()) for edit in change['edits']) if 'edits' in change else len(content.encode('utf-8'))
+            if '\0' in content or len(content.encode()) > 4 * 1024 * 1024 or total > 512 * 1024:
                 raise ValueError('Patch exceeds the text budget')
             if original and content == original['content']:
                 continue
@@ -472,7 +477,11 @@ class GitHubEngineeringBackend:
             system += ('Return {"changes":[{"path":"...","expected_blob_sha":"exact sha or null for new file",'
                        '"edits":[{"old":"unique exact anchor","new":"replacement"}]}],"summary":"..."}. '
                        'A new/small file may use content instead of edits. Use delete:true alone for deletion. '
-                       'Existing files must have been read. Do not invent file contents; include meaningful tests.')
+                       'Existing files must have been read. Do not invent file contents; include meaningful tests. '
+                       'To investigate before editing, instead return {"workspace_action":{"action":"paths|search|read","head_sha":"exact current head",'
+                       '"query":"literal search","paths":["paths for text search"],"path":"path for read","start_line":1,"line_count":80}}. '
+                       'Paths accepts query and offset; search accepts query and 1-10 paths; read accepts path and an exact line range. '
+                       'Read relevant ranges before editing large files. Each action resumes this same task with bounded fresh context.')
         if role == 'planner' and 'proposed_options' in evidence:
             system += SELECTION_INSTRUCTION
         # Access must still exist before historical private source reaches a model.
@@ -564,7 +573,7 @@ class GitHubEngineeringBackend:
             head = head or base
             # Reject an unrelated PR before any source modifications are published.
             if writable:
-                self.find_pr(dict(job, data=dict(data, head_sha=head)))
+                self.find_pr(dict(job, data=dict(data, head_sha=head, actor_id=actor['id'])))
             tree = self.tree(job, head)
             # These are freshly observed selection facts, not a completed PLAN.
             # Recall and model admission need them before selecting source paths.
@@ -603,7 +612,7 @@ class GitHubEngineeringBackend:
                 args = node['arguments']
                 def load():
                     blob = self.api(root + '/git/blobs/' + args['sha'], job=job)
-                    if blob['encoding'] != 'base64' or blob['size'] > 256 * 1024:
+                    if blob['encoding'] != 'base64' or blob['size'] > 4 * 1024 * 1024:
                         raise ValueError('File is outside the text inspection budget')
                     content = base64.b64decode(blob['content']).decode('utf-8')
                     if blob_sha(content) != args['sha'] or '\0' in content:
@@ -630,7 +639,7 @@ class GitHubEngineeringBackend:
             files = {node['arguments']['path']: results[node['id']] for node in nodes}
             if any('content' not in value for value in files.values()):
                 raise ValueError('Some source files could not be inspected')
-            if sum(len(value['content']) for value in files.values()) > 512 * 1024:
+            if sum(len(value['content']) for value in files.values()) > 16 * 1024 * 1024:
                 raise ValueError('Selected files exceed the retained context budget')
             excerpt_limit = min(16000, 140000 // max(1, len(files)))
             files = {path: dict(value, visible_characters=excerpt_limit) for path, value in files.items()}
@@ -649,17 +658,26 @@ class GitHubEngineeringBackend:
             data.pop('read_batch', None)
             return result
         if phase == 'IMPLEMENT':
-            excerpts = {path: {'sha': value['sha'], 'content': value['content'][:value.get('visible_characters', 16000)], 'partial': len(value['content']) > value.get('visible_characters', 16000)}
-                        for path, value in data['files'].items()}
-            proposal = self.model(job, 'coding agent', {'plan': data['plan'], 'files': excerpts, 'ci': data.get('ci'), 'review': data.get('review')})
+            from v14.engineering_workspace import act, view
+            proposal = self.model(job, 'coding agent', view(data))
+            if 'workspace_action' in proposal:
+                if data.get('workspace_iterations', 0) >= 120:
+                    raise ValueError('Workspace iteration allowance reached; receipts are retained')
+                receipt = act(self, job, proposal['workspace_action'])
+                self.record_evidence(job, {'workspace_receipt': receipt})
+                return {'workspace_continue': True, 'workspace_iterations': data.get('workspace_iterations', 0) + 1,
+                        'workspace_receipts': (data.get('workspace_receipts', []) + [receipt])[-12:], 'files': data['files']}
             changes = prepare_changes(proposal, data['files'], data['tree'])
-            return {'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
+            return {'workspace_continue': False, 'changes': changes, 'summary': str(proposal.get('summary', 'Engineering changes'))[:2000]}
         if phase == 'REVIEW':
             patches = []
             for change in data['changes']:
                 before = data['files'].get(change['path'], {}).get('content', '')
                 after = change['content'] or ''
                 patches.append(''.join(difflib.unified_diff(before.splitlines(True), after.splitlines(True), fromfile=change['path'], tofile=change['path'])))
+            from v14.engineering_source import prepare_source
+            parent = self.api(root + '/git/commits/' + data['head_sha'], job=job)
+            data['source_preparation'] = prepare_source(job, self.token(), parent['tree']['sha'], self.cancellation(job))
             validation = validate_checkout(job, data['changes'])
             review = self.model(job, 'selected-model reviewer', {'plan': data['plan'], 'diff': patches, 'ci': data.get('ci'),
                                                               'validation': validation})
@@ -723,7 +741,10 @@ class GitHubEngineeringBackend:
             pr = self.api(root + '/pulls/' + str(data['pr']), job=job)
             if pr.get('merged') is not True or pr['head']['sha'] != data['head_sha'] or pr.get('merge_commit_sha') != data['merge_sha'] or pr['base']['ref'] != job['request']['base']:
                 raise ValueError('Merged PR identity could not be verified')
-            return {'result': {'merged': True, 'merge_sha': data['merge_sha'], 'pr_url': data['pr_url']}}
+            from v14.engineering_post_merge import inspect
+            post_merge = inspect(self, job)
+            return {'post_merge': post_merge, 'result': {'merged': True, 'merge_sha': data['merge_sha'], 'pr_url': data['pr_url'],
+                                                       'qualification': post_merge['status']}}
         raise ValueError('Unsupported engineering phase')
 
     @staticmethod
@@ -733,7 +754,18 @@ class GitHubEngineeringBackend:
     def find_pr(self, job):
         owner = job['request']['repository'].split('/')[0]
         prs = self.paged(self.root(job) + '/pulls?state=all&head=' + quote(owner + ':' + job['request']['branch'], safe='') + '&base=' + quote(job['request']['base'], safe=''), job=job)
-        matching = [pr for pr in prs if job['id'] in (pr.get('body') or '') and pr['head']['sha'] == job['data']['head_sha']]
+        owner_job = job.get('pr_owner_job_id', job['id'])
+        if owner_job != job['id'] and (not job.get('continuation_of') or
+                job.get('continuation_branch') != job['request']['branch'] or
+                job.get('continuation_actor_id') != job['data'].get('actor_id')):
+            raise ValueError('Continuation PR ownership could not be verified')
+        matching = [pr for pr in prs if ('`' + owner_job + '`') in (pr.get('body') or '')
+                    and pr['head']['sha'] == job['data']['head_sha']
+                    and pr.get('state', 'open') == 'open'
+                    and (job.get('continuation_pr') is None or pr['number'] == job['continuation_pr'])
+                    and pr['head'].get('ref', job['request']['branch']) == job['request']['branch']
+                    and pr.get('base', {}).get('ref', job['request']['base']) == job['request']['base']
+                    and pr['head'].get('repo', {}).get('full_name', job['request']['repository']).lower() == job['request']['repository'].lower()]
         if len(matching) > 1:
             raise ValueError('Ambiguous PR recovery')
         if matching:
@@ -773,17 +805,24 @@ class GitHubEngineeringBackend:
                 raise ValueError('Missing check cursor')
         else:
             raise ValueError('Check inventory exceeds pagination bound')
-        failed_checks = [check for check in checks if check.get('conclusion', check.get('state')) in {'FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'ACTION_REQUIRED', 'STALE'}]
+        failed_checks = [check for check in checks if check.get('conclusion', check.get('state')) in {'FAILURE', 'ERROR', 'CANCELLED', 'TIMED_OUT', 'STALE'}]
+        blocked_checks = [check for check in checks if check.get('conclusion') in {'STARTUP_FAILURE', 'ACTION_REQUIRED'}
+                          or check.get('status') == 'COMPLETED' and check.get('isRequired') is not False
+                          and check.get('conclusion') in {'SKIPPED', 'NEUTRAL', None}]
         checks_known = bool(checks) and all(type(check.get('isRequired')) is bool for check in checks)
-        passed = checks_known and not failed_checks and all(
+        passed = checks_known and not blocked_checks and not failed_checks and all(
             (check.get('status') == 'COMPLETED' or 'conclusion' not in check and check.get('state') == 'SUCCESS') and
             (check.get('conclusion', check.get('state')) == 'SUCCESS' or not check['isRequired'] and check.get('conclusion') in {'NEUTRAL', 'SKIPPED'}) for check in checks)
         result = {'node_id': pr['id'], 'pr': job['data']['pr'], 'head_sha': pr['headRefOid'], 'base_sha': pr['baseRefOid'], 'state': pr['state'],
-                  'checks_passed': passed, 'requested_validation_passed': passed, 'github_permits_merging': pr['mergeStateStatus'] == 'CLEAN' and pr['mergeable'] == 'MERGEABLE', 'checks_failed': bool(failed_checks), 'draft': pr['isDraft'],
+                  'ci_verdict': 'BLOCKED' if blocked_checks else 'FAILED' if failed_checks else 'PASSED' if passed else 'PENDING',
+                  'checks_blocked': bool(blocked_checks), 'checks_passed': passed, 'requested_validation_passed': passed, 'github_permits_merging': pr['mergeStateStatus'] == 'CLEAN' and pr['mergeable'] == 'MERGEABLE', 'checks_failed': bool(failed_checks), 'draft': pr['isDraft'],
                   'mergeable': pr['mergeable'] == 'MERGEABLE', 'policy_verified': pr['mergeStateStatus'] == 'CLEAN',
                   'reviews_satisfied': 'reviewDecision' in pr and pr['reviewDecision'] in {None, 'APPROVED'},
                   'checks': [{'name': check.get('name', check.get('context')), 'status': check.get('conclusion', check.get('state', check.get('status'))), 'required': check.get('isRequired')} for check in checks],
                   'message': 'Checks passed; waiting for required reviews or merge policy' if passed else 'CI validation is in progress'}
+        if blocked_checks:
+            result.update(message='Completed CI checks require configuration or workflow recovery: ' + ', '.join(str(check.get('name', check.get('context', 'unknown'))) for check in blocked_checks),
+                          recovery_action='REPAIR_WORKFLOW_CONFIGURATION', blocked_checks=blocked_checks)
         if passed:
             # Approval displays the entire PR, including earlier repair commits.
             result['changed_files'] = [entry['filename'] for entry in self.paged(self.root(job) + '/pulls/' + str(job['data']['pr']) + '/files', job=job)]

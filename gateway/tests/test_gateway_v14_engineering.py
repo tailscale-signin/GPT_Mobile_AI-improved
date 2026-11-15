@@ -34,7 +34,7 @@ class Backend:
         return {'PLAN': {'head_sha': 'a' * 40}, 'READ': {'files': {}}, 'IMPLEMENT': {'changes': [{'path': 'file', 'content': 'new'}]},
                 'REVIEW': {'review': {'approved': True, 'issues': []}, 'local_validation': {'patch_identity': 'fixture-patch',
                     'requirement_evidence': [{'requirement_id': 'build-fix', 'kind': 'behavior_test', 'name': 'build-fix', 'scope': 'behavior', 'status': 'PASSED'}]}}, 'COMMIT': {'head_sha': 'a' * 40},
-                'OPEN_PR': {'pr': 7, 'pr_url': 'https://github.com/owner/repo/pull/7'}, 'VERIFY': {'result': {'merged': True, 'merge_sha': 'c' * 40}}}[phase]
+                'OPEN_PR': {'pr': 7, 'pr_url': 'https://github.com/owner/repo/pull/7'}, 'VERIFY': {'post_merge': {'status': 'PASSED'}, 'result': {'merged': True, 'merge_sha': 'c' * 40}}}[phase]
 
     def inspect(self, job):
         self.calls.append('inspect')

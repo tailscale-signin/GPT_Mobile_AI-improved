@@ -314,6 +314,15 @@ class EngineeringBackendTests(unittest.TestCase):
                 self.assertEqual(case['passed'], result['requested_validation_passed'])
                 self.assertTrue(result['github_permits_merging'])
 
+    def test_terminal_ci_blockers_are_not_polled_as_pending(self):
+        for conclusion in ('STARTUP_FAILURE', 'ACTION_REQUIRED', 'SKIPPED', 'NEUTRAL'):
+            with self.subTest(conclusion=conclusion):
+                self.pages = [[dict(self.check, conclusion=conclusion)]]
+                observed = self.backend.inspect(self.job)
+                self.assertEqual('BLOCKED', observed['ci_verdict'])
+                self.assertTrue(observed['checks_blocked'])
+                self.assertFalse(observed['checks_passed'])
+
     def test_token_rotation_preserves_account_memory_namespace(self):
         backend = GitHubEngineeringBackend(self.runtime)
         backend.api = Mock(return_value={'id': 42, 'login': 'owner'})

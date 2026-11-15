@@ -26,12 +26,13 @@ import service
 requests = json.load(open('/evaluator/inputs.json'))
 outputs = []
 for request in requests:
+    before = json.dumps(request, sort_keys=True, ensure_ascii=True, allow_nan=False)
     try:
         value = service.handle(request)
         first = json.loads(json.dumps(value, allow_nan=False))
-        outputs.append({'output': first})
+        outputs.append({'output': first, 'input_preserved': before == json.dumps(request, sort_keys=True, ensure_ascii=True, allow_nan=False)})
     except BaseException as error:
-        outputs.append({'error': type(error).__name__})
+        outputs.append({'error': type(error).__name__, 'input_preserved': False})
 print(json.dumps({'outputs': outputs}, ensure_ascii=True, allow_nan=False))
 '''
 
@@ -198,7 +199,7 @@ def execute(sources, inputs, settings, cancel=None, *, docker=None, retain=None,
                 outputs = payload.get('outputs')
                 if not isinstance(outputs, list) or len(outputs) != len(inputs):
                     raise ValueError('Missing case outputs')
-                if any(not isinstance(row, dict) or set(row) - {'output', 'error'} for row in outputs):
+                if any(not isinstance(row, dict) or set(row) - {'output', 'error', 'input_preserved'} for row in outputs):
                     raise ValueError('Malformed case outputs')
             except (ValueError, AttributeError, TypeError):
                 return {'status': 'FAILED', 'executed': True, 'outputs': [], 'exitCode': 0,

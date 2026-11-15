@@ -4920,7 +4920,7 @@ class ChatRepositoryImpl(
                 maxGeneratedCharacters = budgetSettings.responseCharacterLimit,
                 detectRepetition = budgetSettings.repetitionGuardEnabled,
                 initialContextTokens = contextPlan.promptTokens,
-                finalResponseReserveTokens = minOf(contextPlan.outputTokens ?: 32768, limits.contextTokens / 4),
+                finalResponseReserveTokens = resolvedOutputCap,
                 finalResponseToolCallReserve = maxOf(customRunner.limits.finalResponseToolCallReserve, reservedFinalToolCalls),
                 maxReplayTokens = dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.tokens(limits.contextTokens, contextPlan.promptTokens, resolvedOutputCap ?: 4096, if (githubTask) minOf(limits.contextTokens / 3, 8_192) else delegationSettings.primaryReplayTokens),
                 maxReplayResultTokens = if (githubTask) minOf(limits.contextTokens / 16, 2_048).coerceAtLeast(64) else delegationSettings.primaryReplayResultTokens

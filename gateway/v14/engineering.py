@@ -273,6 +273,11 @@ class EngineeringStore:
             previous = self.get_in_transaction(db, receipt.get('previous_job_id'), principal)
             if previous:
                 job.update(continuation_of=previous['id'], continuation_branch=previous['request']['branch'])
+                same_target = all(previous['request'].get(key) == request.get(key) for key in ('repository', 'branch', 'base'))
+                if same_target and previous.get('conversation_id') == receipt['conversation_id']:
+                    job['pr_owner_job_id'] = previous.get('pr_owner_job_id', previous['id'])
+                    job['continuation_actor_id'] = previous.get('data', {}).get('actor_id')
+                    job['continuation_pr'] = previous.get('data', {}).get('pr')
                 head = previous.get('data', {}).get('head_sha')
                 if isinstance(head, str) and SHA.fullmatch(head):
                     job['continuation_head_sha'] = head
@@ -826,6 +831,10 @@ class EngineeringService:
                     job['approval'] = None
                     job['message'] = 'The working branch changed outside this job. Review the new head before continuing.'
                     phase = 'NEEDS_INPUT'
+                elif output.get('checks_blocked'):
+                    job['data']['ci'] = output
+                    job['message'] = output.get('message', 'A completed CI check needs attention')
+                    phase = 'NEEDS_INPUT'
                 elif output.get('checks_failed'):
                     fingerprint = output['failure_fingerprint']
                     job['data']['ci'] = output
@@ -860,6 +869,8 @@ class EngineeringService:
                 job['data'].update(output)
                 if phase == 'READ' and accepted_scope(job['request']) in {'read', 'plan'}:
                     phase = 'COMPLETED'
+                elif phase == 'IMPLEMENT' and output.get('workspace_continue'):
+                    phase = 'IMPLEMENT'
                 elif phase == 'IMPLEMENT':
                     patch = digest(output.get('changes', []))
                     if not output.get('changes') or patch in job['patches']:
@@ -879,8 +890,18 @@ class EngineeringService:
                     gate = self.completion_verification(job, job['data'].get('readiness', {}), merged=True)
                     job['data']['completion_verification'] = gate
                     self.evidence.append(job, 'completion_gate', gate)
-                    phase = 'COMPLETED' if gate['passed'] else 'NEEDS_INPUT'
-                    if not gate['passed']:
+                    post_merge = output.get('post_merge', {})
+                    if post_merge.get('status') == 'PENDING' and self.store.now() < job['deadline']:
+                        phase, delay = 'VERIFY', 30
+                        job['message'] = 'Merge confirmed; verifying workflows on the resulting revision'
+                    elif post_merge.get('status') != 'PASSED':
+                        phase = 'NEEDS_INPUT'
+                        gate['passed'] = False
+                        gate['failures'].append(post_merge.get('reason', 'POST_MERGE_EVIDENCE_REQUIRED'))
+                        job['message'] = 'Merge confirmed; resulting revision is not qualified: ' + post_merge.get('reason', 'POST_MERGE_EVIDENCE_REQUIRED')
+                    else:
+                        phase = 'COMPLETED' if gate['passed'] else 'NEEDS_INPUT'
+                    if not gate['passed'] and post_merge.get('status') == 'PASSED':
                         job['message'] = 'Merge occurred but completion evidence is incomplete: ' + '; '.join(gate['failures'])
                 else:
                     phase = 'CI' if phase == 'PROMOTE' else PHASES[PHASES.index(phase) + 1]

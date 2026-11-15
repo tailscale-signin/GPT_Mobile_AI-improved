@@ -109,6 +109,7 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
         return result
     outputs = observation.get('outputs', [])
     received = len(outputs) == len(inputs)
+    preserved = received and all(row.get('input_preserved') is True for row in outputs)
     outcomes = [received and 'output' in outputs[i] and same(outputs[i]['output'], expected)
                 for i, expected in enumerate(targets)]
     repeated = [received and 'output' in outputs[len(vectors) + i] and same(outputs[len(vectors) + i]['output'], expected)
@@ -134,15 +135,15 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
     functional = outcomes[:-2] or outcomes
     regression = outcomes[-2:]
     result.update(executed=True, graded=True,
-                  resolved=bool(outcomes) and all(outcomes) and all(repeated),
-                  status='PASSED' if outcomes and all(outcomes) and all(repeated) else 'FAILED',
+                  resolved=bool(outcomes) and all(outcomes) and all(repeated) and preserved,
+                  status='PASSED' if outcomes and all(outcomes) and all(repeated) and preserved else 'FAILED',
                   dimensions={'functional': sum(functional) / len(functional),
                               'regression': sum(regression) / len(regression),
                               'tests': len(killed_faults) / len(task['sources']),
                               'diagnosis': sum(bool(x) for x in diagnosed) / len(task['sources']),
                               'design': source_design(candidate),
                               'workflow': 1.0, 'recovery': sum(repeated) / len(repeated),
-                              'safety': 1.0, 'evidence': float(truthful)},
+                              'safety': float(preserved), 'evidence': float(truthful)},
                   checks={'hiddenPassed': sum(outcomes), 'hiddenTotal': len(outcomes),
                           'replayPassed': sum(repeated), 'replayTotal': len(repeated),
                           'validRegressionVectors': len(trusted_tests), 'bugRevealingRegressionVectors': sum(tested),
@@ -151,7 +152,7 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
                   patchDigest=digest(candidate), outputDigest=observation.get('outputDigest'),
                   validationMs=observation.get('durationMs'), sandboxImageDigest=settings['sandbox_image'].split('@')[-1],
                   executionScope='LOCAL_CONTAINER_NO_NETWORK',
-                  inputMutationVerification='NOT_VERIFIED',
+                  inputMutationVerification='PASSED' if preserved else 'FAILED' if any(row.get('input_preserved') is False for row in outputs) else 'NOT_VERIFIED',
                   dimensionDefinitions={
                       'functional': 'Hidden contract vectors', 'regression': 'Empty/invalid request boundaries',
                       'tests': 'Correct model-authored regression vectors that detect each independently calibrated faulty module',

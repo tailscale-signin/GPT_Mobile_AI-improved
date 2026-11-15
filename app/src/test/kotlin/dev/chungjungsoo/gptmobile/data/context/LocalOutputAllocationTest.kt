@@ -24,7 +24,13 @@ class LocalOutputAllocationTest {
 
     @Test fun replayPreservesLargeUsableContextButDistrustsAdvertisedHugeLimits() {
         assertTrue(ReplayAllowance.tokens(32768, 5000, 4096, 4000) > 4000)
-        assertEquals(ReplayAllowance.tokens(32768, 5000, 4096, 4000), ReplayAllowance.tokens(Int.MAX_VALUE, 5000, 4096, 4000))
+        assertEquals(0, ReplayAllowance.tokens(Int.MAX_VALUE, 5000, 4096, 4000))
+        val large = ReplayAllowance.allocate(131072, 40000, 4096, 4096)
+        assertEquals(131072, large.ceiling)
+        assertEquals(4096, large.output)
+        assertTrue(large.replay > 0)
+        val ordinary = ReplayAllowance.allocate(32768, 12000, 2048, 4096)
+        assertTrue(12000L + ordinary.replay + ordinary.output + 256 < ordinary.ceiling)
     }
 
     @Test fun toolStreamAcceptsBoundedOverflowAndRejectsBeyondTheBuffer() {

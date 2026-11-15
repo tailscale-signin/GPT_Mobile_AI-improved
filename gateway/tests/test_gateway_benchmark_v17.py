@@ -240,7 +240,7 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
             with self.subTest(task=task['id']):
                 def execute(candidate, inputs, *_args, **_kwargs):
                     self.assertEqual(task['referenceSources'], candidate)
-                    return {'executed': True, 'status': 'COMPLETED', 'outputs': [{'output': fixtures.expected(task, vector)} for vector in inputs]}
+                    return {'executed': True, 'status': 'COMPLETED', 'outputs': [{'output': fixtures.expected(task, vector), 'input_preserved': True} for vector in inputs]}
                 result = coding.grade(task, gold_proposal(task), {'sandbox_image': 'python@sha256:' + 'a' * 64}, threading.Event(), execute=execute)
                 self.assertTrue(result['resolved'])
                 self.assertTrue(result['graded'])
@@ -336,7 +336,7 @@ class CodingFixtureCalibrationTest(unittest.TestCase):
                 return dict(receipt, firstMs=10, totalMs=20)
             result = full_cases('quick')[0]
             with patch.object(fixtures, 'suite', return_value=[task]), patch.object(sandbox, 'preflight', return_value='docker'), \
-                    patch.object(sandbox, 'execute', return_value={'status': 'COMPLETED', 'outputs': [{'output': fixtures.expected(task, vector)} for vector in task['vectors']]}), \
+                    patch.object(sandbox, 'execute', return_value={'status': 'COMPLETED', 'outputs': [{'output': fixtures.expected(task, vector), 'input_preserved': True} for vector in task['vectors']]}), \
                     patch.object(coding, 'grade', return_value=result), patch.object(runner, 'measure_case', side_effect=measured):
                 runner.code(run)
             saved = store.get(run['id'])['cases'][0]

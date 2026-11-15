@@ -17,7 +17,7 @@ class CodingEvidenceValidationTest(unittest.TestCase):
         task = fixtures.suite()[0]
         def execute(candidate, inputs, *_args, **_kwargs):
             self.assertEqual(task['referenceSources'], candidate)
-            return {'executed': True, 'status': 'COMPLETED', 'outputs': [{'output': fixtures.expected(task, vector)} for vector in inputs]}
+            return {'executed': True, 'status': 'COMPLETED', 'outputs': [{'output': fixtures.expected(task, vector), 'input_preserved': True} for vector in inputs]}
         for filename in (42, None, {}, True):
             with self.subTest(filename=filename):
                 value = {'changes': [{'path': path, 'expected_blob_sha': blob_sha(source),

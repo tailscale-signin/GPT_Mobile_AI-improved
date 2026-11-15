@@ -145,7 +145,19 @@ class GatewayGraphRepository @Inject constructor(
             verifyAdmission(context, expectedGatewayProfileUid, admitted)
             currentCoroutineContext().ensureActive()
             dispatched = true
-            val result = client.graph(frozenConfig, payload)
+            // Graph status is a revision-pinned read even though its transport uses POST.
+            // A lost status response cannot change the remote index. Retry once only
+            // for a transport IOException, never an index, cancel, TLS or HTTP failure.
+            val result = try {
+                client.graph(frozenConfig, payload)
+            } catch (interrupted: java.io.IOException) {
+                if (action != "status" || interrupted is javax.net.ssl.SSLException) throw interrupted
+                // A suspended read may outlive an account, branch or permission change.
+                // Reconfirm the original owner before allowing one bounded new read.
+                verifyAdmission(context, expectedGatewayProfileUid, admitted)
+                currentCoroutineContext().ensureActive()
+                client.graph(frozenConfig, payload)
+            }
             currentCoroutineContext().ensureActive()
             verifyResult(context, result)
             if (action == "index") {

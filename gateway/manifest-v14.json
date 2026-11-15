@@ -107,7 +107,7 @@
     "desktop/README.md": "56699d810e19bc764fa16d470e4e8940bea9d57df2a36384abab52abb7fb3f47",
     "desktop/release_checks_dialog.py": "eb0ab8d2ea0681329ab3650f90e642a3e5b49a3efc90fb6adb2c3027b505e445",
     "desktop/releases.py": "f5cc699239f1eccdf987fd121c3aa1fc6d5b23de62150c70b917224e020855dc",
-    "desktop/repository_validation_panel.py": "42e90cd64a7e12b019506534a0225ef3ee5d988ea1cf62904b774f8a96cc867d",
+    "desktop/repository_validation_panel.py": "a33c688372ff22fbeab60d713b5bc24a8c317e5296871063d694f35c938e77c3",
     "desktop/repository_validation.py": "986ba7a5cd1ae2165e7f658dccf139ab6ac52b44876840ed3b5a8c11c96ecae0",
     "desktop/requirements-build.txt": "bf443a749195361170b824b2018658e50e41e7f43ea11758a91648e96eae8426",
     "desktop/smoke_windows.py": "0b97f3ca73c158520d63dc71e4cf25412fd36acd471240ac986cf3a31a7d1e56",

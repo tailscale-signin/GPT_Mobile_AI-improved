@@ -157,7 +157,7 @@ class RepositoryValidationPanel:
             setattr(self, attr, button)
             self.inputs.append(button)
         guide = ttk.Button(frame, text='Guided Docker / WSL setup...', command=self.open_guided_setup)
-        guide.grid(row=4, column=0, columnspan=2, sticky='w', pady=(6, 2))
+        guide.grid(row=6, column=0, columnspan=2, sticky='w', pady=(6, 2))
         self.inputs.append(guide)
         self.cancel_button = ttk.Button(buttons, text='Cancel', command=lambda: self.cancel.set(), state='disabled', padding=(8, 8))
         self.cancel_button.pack(side='left')

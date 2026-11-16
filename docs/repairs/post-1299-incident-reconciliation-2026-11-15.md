@@ -1,0 +1,41 @@
+# Post-1299 diagnostic reconciliation (November 15, 2026)
+
+## Provenance and safety
+
+- Repository: `tailscale-signin/GPT_Mobile_AI-improved`. PR #1299 was merged into `main` at `4a1d790939ae1ab50bb582bbf8ce7c34000e1d1c` before this intake. PR #1349 is its single follow-up branch.
+- Incoming archive: `diagnostics-7b550448-…-part-1-….zip`, captured on Android **0.9.66.7 build 141**, app commit `482eb81645e462f0690979d152cd02070ee4eda3`. This build is older than the merged main. The capture was completed but not fully comprehensive. The 20 retained issue-correlation records are not an exhaustive replay of all 25 GitHub issues.
+- The archive contains configuration and profile records. Do not attach or paste these raw records into public GitHub issues. Preserve only allowlisted evidence, privacy-safe hashes, enum categories, measured counts, and revision-bound receipts. A missing field is unknown, not false.
+- Audit window: 25 open issues, #1293–#1348 as retrieved on November 15 Toronto time. Not every issue in that numeric range is open. All listed observations are from reports, not reproductions on a newly installed/current app build.
+
+## All 25 open issues: evidence, disposition and corrective action
+
+| Issue(s) | Count | Observed failure | Resolution and required next evidence |
+| --- | ---: | --- | --- |
+| #1348, #1340 | 2 | OpenRouter HTTP **429**, with measured retry-after delays and no response content | Respect server delay and persist one resumable wait when a *proven* checkpoint exists. Keep `remoteAcceptance=NO` distinct from a successful retry. Capture a later scheduler outcome bound to the originating run; never invent recovery. These are provider responses, not proof of an app source regression. |
+| #1347, #1344, #1310, #1293 | 4 | GitHub status required-check policy unavailable; branch protection endpoint returned **404** | Retain endpoint name, 404 classification and permission-header **names only**, ruleset coverage, connection capability and exact repo/head. Use active rulesets if authorized, but do not interpret an inaccessible endpoint as no required checks. Requires privileged policy observation or a separately verified substitute before `completion_verified`. |
+| #1342, #1341, #1312, #1298 | 4 | GitHub full-catalog tasks ended without verified capability prerequisites or authorized test fixtures; some reports counted **7 approval** and **47 input** blockers | Keep read-only progress, request exact missing input/approval per operation family, resume under the same task identity after permission/fixture prerequisites are met. Do not repeatedly invoke forbidden operations or claim full-catalog coverage. |
+| #1346, #1343, #1335, #1327, #1326, #1311 | 6 | Generic `CHAT_FAILED`: raw producer code unrecognized or absent, some lacking a reliable stage or exception | **PR #1349:** debounce now differentiates independently observed failure stage or privacy-safe exception fingerprint; regression tests cover both. For remaining code-less failures, the producer must attach a trusted failure stage, provenance, invocation and typed transport error before it can be classified. Do not infer cause from a nearby prior run. |
+| #1345 | 1 | `GATEWAY_CAPABILITY_UNAVAILABLE` in Llama connection preflight | Re-evaluate model loaded state, gateway identity, negotiated capabilities and reachability on the installed Windows gateway; retain capability version, route state and source-build match as typed diagnostics when available. No evidence of restored gateway service in this archive. |
+| #1336, #1323 | 2 | `REPOSITORY_GRAPH_UNAVAILABLE` during `status` read; one observed HTTP **500**, the other lacks an HTTP status | Merged #1299 already added a revision/authority-fenced single native read retry. Verify its exact-head behavior with permission-preserving tests and a new build. Retain physical dispatch state, observed HTTP status, allowed retry and native-tool receipt per attempt. |
+| #1328 | 1 | Kokoro `PRONUNCIATION_UNAVAILABLE` during voice playback; recognized speech and measured first-audio latency are present | Merged #1299 already added safe pre-audio unknown-word fallback. Validate on a real device, including spoken words, captions, interruptions and fallback latency; a host test is not proof of audibility. |
+| #1324 | 1 | `RECONCILIATION_REQUIRED` after tool/fixture blockers | Inspect saved operation receipts before any replay. Preserve attempted/accepted/unknown mutation counts, reconciliation identity, pending tool IDs and authority revision. Unapproved fixture creation is not a source patch. |
+| #1321 | 1 | `GITHUB_TOOL_CONTEXT_BUDGET`; observed route 5,632 tokens, tool schema needed 2,280, available 1,673 | Allocate schema after verified physical route capacity and reserve; compact or narrow the admitted catalog without silently omitting required tools. Re-test on exact selected local model/context settings. |
+| #1304, #1305 | 2 | `CONTEXT_CAPACITY_EXCEEDED`; observed conservative 4,096 capacity versus more than 10,400 prompt tokens | Use verified selected-route window and a bounded safe context reserve; summarize/prune histories rather than repeatedly submitting oversized requests. Merged #1299 changed the proportional local admission reserve, but this old build cannot verify it. |
+| #1300 | 1 | `BUDGET_RESTRICTED` after a successfully dispatched GitHub CI workflow read (HTTP 200); result-bytes ceiling reached | Retain read receipt and page cursor, return a bounded projection and explicit resume path. Do not relabel a successful remote read as a network failure or silently raise accepted budgets. |
+
+**Total: 25 open issue reports in 10 categories.** This document is a triage ledger; an old-build report, a merged patch, or a passing synthetic test alone is not grounds to close a confirmed runtime regression.
+
+## Additional evidence visible in the uploaded archive
+
+The 20 most recent retained issue-correlations also included `INVALID_ARGUMENTS` (2), `GITHUB_TRANSIENT_NETWORK` (2), `DNS_RESOLUTION_FAILED` (1), and `GITHUB_CIRCUIT_OPEN` (1). These observations are not automatically equivalent to additional currently open GitHub issues. Other retained correlations covered `PROVIDER_RATE_LIMITED` (5), `GITHUB_TASK_INCOMPLETE` (4), `CHAT_FAILED` (3), `REPOSITORY_GRAPH_UNAVAILABLE` (1), and `GATEWAY_CAPABILITY_UNAVAILABLE` (1). Investigate unknown arguments against the exact pinned tool schema; for DNS and the circuit breaker, record observed network/route health, cooldown source and replay safety instead of blindly retrying.
+
+## Closure / verification contract
+
+1. **Fixed:** tag the issue with the exact fixing PR/commit, test(s), and a subsequent matching installed-build or live-operation observation. No stale predecessor build may qualify the current head.
+2. **Diagnostic-limited:** retain a privacy-safe source-owned missing-evidence list plus a tested capture improvement, explain what remains unobserved, provide repro instructions, and close using a transparent `not_planned`/follow-up disposition only if the tracked request is explicitly triaged rather than falsely described as repaired.
+3. **External blocker:** record missing permissions, quota, installed runtime, approval or network route, plus next responsible action. Keep the issue open while the required action is pending, or close explicitly as external/duplicate if an accountable tracking issue retains it.
+4. **Merge:** exact PR head must pass the canonical Required verification aggregate plus all applicable Android, emulator, gateway/Windows, Kotlin format, CodeQL and diagnostic checks. A draft, pending, skipped-required or failed check is not merge-ready.
+
+## New regression scope in #1349
+
+The in-memory issue-report deduplication previously keyed generic reports by public category and available run/invocation/call IDs but omitted the observed failed stage and already privacy-safe exception fingerprint. Two distinct failures during the three-second debounce could be collapsed. The patch adds these observed dimensions without changing the public report contract, leaving same-incident deduplication and source-owned causal identity rules intact. Tests assert distinct stage and type retention, same-key duplicate suppression and no private exception text in approved payloads.

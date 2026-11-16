@@ -2,6 +2,9 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import json
+
+from scripts import check_release_scope as release_scope
 
 spec = importlib.util.spec_from_file_location("native_smoke", Path(__file__).resolve().parents[1] / "check_native_memory_smoke.py")
 smoke = importlib.util.module_from_spec(spec)
@@ -133,6 +136,19 @@ INSTRUMENTATION_STATUS_CODE: 0
         self.assertIn("os.environ.get('ACCEPTANCE_EMULATOR_API') == '34'", acceptance)
         self.assertIn("os.environ.get('ACCEPTANCE_EMULATOR_TARGET') == 'default'", acceptance)
         self.assertIn('optional_assumption_reasons=aosp_tts_assumptions', acceptance)
+
+
+    def test_current_scoped_release_includes_exact_aosp_smoke_fixes_and_no_generic_scripts(self):
+        root = Path(__file__).resolve().parents[2]
+        manifest = json.loads((root / 'release-scope.json').read_text())
+        required = ['scripts/check_native_memory_smoke.py', 'scripts/tests/test_native_memory_smoke.py']
+        self.assertEqual('scoped', release_scope.validate(root, manifest, required))
+        for path in required:
+            with self.subTest(path=path):
+                self.assertIn(path, manifest['allowedPaths'])
+        self.assertNotIn('scripts/', manifest['allowedPaths'])
+        with self.assertRaisesRegex(ValueError, 'Changes outside release scope'):
+            release_scope.validate(root, manifest, required + ['scripts/unrelated-regression.py'])
 
 
 if __name__ == "__main__":

@@ -2985,6 +2985,8 @@
     "gateway/desktop/engineering_setup.py",
     "gateway/desktop/engineering_setup_panel.py",
     "gateway/tests/test_gateway_engineering_onboarding.py",
-    "gateway/tests/test_gateway_benchmark_setup.py"
+    "gateway/tests/test_gateway_benchmark_setup.py",
+    "scripts/check_native_memory_smoke.py",
+    "scripts/tests/test_native_memory_smoke.py"
   ]
 }

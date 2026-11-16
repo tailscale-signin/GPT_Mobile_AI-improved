@@ -22,7 +22,8 @@ data class ProviderLimitDecision(
     val retrySource: String? = null,
     val consecutiveRejections: Int = 0,
     val checkpointContinuationAllowed: Boolean = false,
-    val gitHubCheckpoint: GitHubProviderCheckpoint? = null
+    val gitHubCheckpoint: GitHubProviderCheckpoint? = null,
+    val limitSource: String? = null
 ) {
     val mayWait: Boolean get() = knownNotAccepted || checkpointContinuationAllowed && gitHubCheckpoint != null
 
@@ -130,13 +131,14 @@ private fun providerHttpLimitDecision(config: ProviderRequestConfig, model: Stri
         profileUid = requireNotNull(config.profileUid),
         model = model,
         retryAt = retryAt,
-        scope = ProviderCooldown.scope(config),
+        scope = failure.cooldownScope ?: ProviderCooldown.scope(config, failure.limitSource),
         category = FreeFailureCategory.PROVIDER_RATE_LIMITED.name,
         knownNotAccepted = failure.knownNotAccepted && !receivedPayload,
         continuationPrefixDigest = prefixDigest.takeUnless { receivedPayload },
         httpStatus = failure.status.takeUnless { failure.beforeDispatch },
         retrySource = failure.retrySource,
         consecutiveRejections = failure.consecutiveRejections,
-        checkpointContinuationAllowed = failure.checkpointContinuationAllowed
+        checkpointContinuationAllowed = failure.checkpointContinuationAllowed,
+        limitSource = failure.limitSource
     )
 }

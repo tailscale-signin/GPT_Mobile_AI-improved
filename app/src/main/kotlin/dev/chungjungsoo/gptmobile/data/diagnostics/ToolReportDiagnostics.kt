@@ -147,7 +147,7 @@ internal object ToolReportDiagnostics {
                     (pagination[source] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
                         ?.let { put(target, it) }
                 }
-                put("remote_pagination_reason", (receipt.getValue("traversal_state") as JsonPrimitive).content)
+                (receipt?.get("traversal_state") as? JsonPrimitive)?.contentOrNull?.let { put("remote_pagination_reason", it) }
             }
         }
         if (event.modelToolName.substringBefore("__") == "repository_graph" &&

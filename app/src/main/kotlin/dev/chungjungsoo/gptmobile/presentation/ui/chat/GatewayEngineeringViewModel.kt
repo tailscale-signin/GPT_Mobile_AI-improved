@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringBinding
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringRepository
 import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringSettings
+import dev.chungjungsoo.gptmobile.data.github.GatewayObserverPolling
 import dev.chungjungsoo.gptmobile.data.github.GitHubConversationContext
 import dev.chungjungsoo.gptmobile.di.IoDispatcher
 import javax.inject.Inject
@@ -89,13 +90,13 @@ class GatewayEngineeringViewModel @Inject constructor(
                 var nextDelayMillis = 30_000L
                 try {
                     val bindings = repository.bindings(chatId)
-                    for (binding in bindings) {
-                        // Foreground observation cannot create or resume a saved request.
-                        repository.observe(binding.request.requestId)
+                    // An unavailable older job must not starve later jobs in this chat.
+                    val failure = GatewayObserverPolling.observeAll(bindings.map { it.request.requestId }) {
+                        repository.observe(it)
                     }
                     val saved = repository.bindings(chatId)
-                    updateForEpoch(selectedEpoch) { it.copy(bindings = saved, error = null) }
-                    val activeStates = setOf("QUEUED", "ACCEPTED", "STARTING", "RUNNING", "PLAN", "READ", "IMPLEMENT", "TEST", "COMMIT", "OPEN_PR", "CI", "WAIT_CI", "MERGE", "VERIFY")
+                    updateForEpoch(selectedEpoch) { it.copy(bindings = saved, error = failure?.message) }
+                    val activeStates = setOf("QUEUED", "ACCEPTED", "STARTING", "RUNNING", "PLAN", "READ", "IMPLEMENT", "REVIEW", "TEST", "COMMIT", "OPEN_PR", "CI", "WAIT_CI", "PROMOTE", "MERGE", "VERIFY", "CANCELLING")
                     val active = saved.any { binding -> binding.job == null || binding.job.state.uppercase() in activeStates }
                     nextDelayMillis = if (active) 5_000 else 30_000
                 } catch (cancelled: CancellationException) {

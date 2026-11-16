@@ -92,3 +92,41 @@ score is inferred from source changes and controlled tests.
 - The `explore` workspace action now degrades from a failed graph transport or observed graph HTTP 5xx into exact-head, read-only text search over the pinned Git mirror. It retains `graph_status=UNAVAILABLE` and a typed `graph_reason`; it does **not** downgrade permission/cancellation failures or rewrite remote state. The `symbols` and `relationships` graph-only actions continue to surface their original failure.
 - Investigator checkpoints are now bound to model, selected execution route, principal/actor, permission revision, source SHA and task identity. Only complete findings can be reused. Malformed model output remains a typed, bounded `FORMAT_REJECTED` result, and a later authorized attempt can retry without treating that failed checkpoint as successful work.
 - Regression tests cover graph connection failure, HTTP 503, HTTP 403, cancellation, transient invalid structured output, and checkpoint rebinding. These are host-level source validations, not proof of live device or deployed Gateway behavior. Exact-head CI and real engineering qualification remain required before merge.
+
+
+## Wiring follow-up on PR #1299
+
+Starting revision: `c51c3ce2762b8e244a038c8702eff04e76f8f2a2`.
+Base: `main` at `e9610259b7238043de7aaad937a865c65976ff5b`.
+All changes remain on `fix/post-1203-diagnostics-2026-11-15`.
+
+| Connection reviewed | Finding and resulting behavior |
+| --- | --- |
+| Foreground panel → ViewModel → repository observation → saved bindings | A failed older job aborted the entire foreground loop. Observations now isolate individual failures, publish successful sibling updates, retain the first error, and propagate cancellation immediately. |
+| Explicit chat refresh → engineering observation → conversation transcript | The same failure also prevented transcript synchronization. Refresh now attempts the remaining saved jobs and transcript before reporting the original job error. It does not create or resume jobs. |
+| Server phase → foreground polling interval | REVIEW, PROMOTE and CANCELLING were omitted from active polling. They now use the existing five-second interval rather than thirty seconds. |
+| Coding prompt → workspace dispatcher → static discovery → next model action | A ten-file page could contain more than 256 test cases; slicing the result dropped the remainder permanently. Case/file cursors now retain every eligible case, including within one large file. Cursor identity covers source SHA, query, matching paths and the approved check catalog. The coding prompt explicitly requests continuation through `next_cursor`. |
+| Checkpoint route → bounded diff → Android client → evidence dialog | The server already reports a truncated diff. Android now shows that warning, as the desktop does. |
+| Checkpoint UI → repository → restore marker/revision → server transaction | Existing exact-revision, gateway/account, unpublished-candidate and uncertain-mutation guards were traced and retained. Controlled Gateway restoration tests remain distinct from live remote execution. |
+| Physical inference → budget receipt → journal → job projection → Android receipt | Existing selected-binding/model and token-allocation receipts were traced and retained. No client-side budget reallocation or fallback model was introduced. |
+
+The 571-case static-discovery regression crosses both the per-page case limit and
+the ten-file boundary without omissions or duplicate cases. Changed-query,
+changed-source, changed-check-catalog and invalid cursors are rejected. Discovery
+still reports oversized files as skipped and does not execute tests or grant edit
+authority. The existing bounded workspace retention limit remains in force.
+
+The focused Kotlin host harness executes the production ViewModel and the exact
+repository polling/refresh methods with dependency boundaries. Eight JUnit cases
+pass, including cancellation, failed sibling observation, transcript refresh,
+active-stage polling and stale cross-chat results. The two new foreground
+regressions fail against the preceding ViewModel. This is not an Android build or
+a physical-device result. The committed HTTP-client preview regression also runs
+in the repository's Android unit suite.
+
+Canonical fast validation passes all 512 script tests and policy/resource checks.
+Gateway aggregate validation and exact published CI status are recorded in the
+development task checkpoint. Generated source inventories and package hashes are
+refreshed. Full Android, installed Windows/phone behavior and live production
+qualification remain separate requirements; this review does not claim every
+runtime path or the ten production scenarios is verified.

@@ -259,5 +259,41 @@
     "No branch deletion or force push"
   ],
   "composition_baseline": "aaa3bcd8c4fd188598c0849ac6fa83fe7d686a75",
-  "source_checkpoint": "59f8db9316e4377f4152f81f4d1e28898b7e38ea"
+  "source_checkpoint": "59f8db9316e4377f4152f81f4d1e28898b7e38ea",
+  "wiring_follow_up": {
+    "repository": "tailscale-signin/GPT_Mobile_AI-improved",
+    "base_branch": "main",
+    "base_sha": "e9610259b7238043de7aaad937a865c65976ff5b",
+    "working_branch": "fix/post-1203-diagnostics-2026-11-15",
+    "reviewed_head": "c51c3ce2762b8e244a038c8702eff04e76f8f2a2",
+    "state": "LOCAL_VALIDATION_PASSED_PENDING_PUBLISHED_CI",
+    "intent": [
+      "Isolate foreground job observation failures while preserving cancellation and visible errors",
+      "Make static test discovery fully pageable within large files and bind cursors to pinned evidence",
+      "Preserve checkpoint preview truncation information in Android"
+    ],
+    "runtime_receipts": false,
+    "local_validation": {
+      "canonical_fast_script_tests": 512,
+      "focused_kotlin_host_tests": 8,
+      "gateway_python_suites": 100,
+      "gateway_python_tests": 1412,
+      "gateway_python_passed": 1384,
+      "gateway_python_skipped": 28,
+      "gateway_browser_tests": 7,
+      "gateway_aggregate_exit_code": 0,
+      "changed_kotlin_lint": "PASS",
+      "worktree_release_scope": "PASS",
+      "package_hashes_verified": 345,
+      "source_inventory": "PASS",
+      "android_build": "NOT_RUN_LOCALLY",
+      "physical_device_and_installed_gateway": "NOT_RUN"
+    },
+    "verification_boundaries": [
+      "Kotlin host tests execute the production ViewModel and extracted polling/refresh methods with dependency stubs; full Android wiring must pass hosted unit/build checks.",
+      "Gateway tests use local services, temporary Git repositories and fixtures. They are not deployed-service production qualification.",
+      "The first aggregate run encountered a stale generated package manifest; regeneration and a complete aggregate rerun passed.",
+      "Exact published-head CI is pending; no merge or deployed runtime success is claimed."
+    ]
+  }
 }

@@ -429,7 +429,8 @@ class GatewayEngineeringClient internal constructor(
         require(jobId.matches(Regex("eng_[a-f0-9]{32}")) && checkId.matches(Regex("[a-f0-9]{64}")))
         val value = json.parseToJsonElement(request(config, "jobs/$jobId/checkpoints/$checkId")).jsonObject
         check(value["job_id"]?.jsonPrimitive?.content == jobId && value["check_id"]?.jsonPrimitive?.content == checkId)
-        return value["diff"]?.jsonPrimitive?.content.orEmpty() + "\n\nTest output:\n" + value["output"]?.jsonPrimitive?.content.orEmpty()
+        val truncation = if (value["truncated"] == JsonPrimitive(true)) "\n[Diff truncated]" else ""
+        return value["diff"]?.jsonPrimitive?.content.orEmpty() + truncation + "\n\nTest output:\n" + value["output"]?.jsonPrimitive?.content.orEmpty()
     }
 
     suspend fun restoreCandidate(config: ProviderRequestConfig, job: GatewayEngineeringJob, checkId: String): GatewayEngineeringJob {

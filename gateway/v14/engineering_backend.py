@@ -510,7 +510,7 @@ class GitHubEngineeringBackend:
                        'Search without paths or repo_search searches the entire pinned repository, with query, mode literal/regex, glob, and next_cursor as cursor. '
                        'Use explore for graph-first retrieval, symbols/relationships for revision-bound code graph context, glob for filenames. '
                        'Follow every next_cursor until relevant source is found; read cited ranges before editing. '
-                       'discover_tests statically lists cases and approved_check_indices. run_test/compile_module/lint_changed_files/check_patch select a matching check_index; no command strings are accepted. '
+                       'discover_tests statically lists cases and approved_check_indices; repeat the same query with next_cursor as cursor to continue, including within a large test file. run_test/compile_module/lint_changed_files/check_patch select a matching check_index; no command strings are accepted. '
                        'compare_candidates takes left_check_id and right_check_id. '
                        'Use hunks:[{start_line:1,old:exact old text,new:replacement}] instead of edits for repeated anchors. '
                        'Use requirements with offset to read additional acceptance requirements in groups of four. '

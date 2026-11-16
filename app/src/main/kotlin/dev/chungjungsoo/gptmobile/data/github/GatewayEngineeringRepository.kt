@@ -550,8 +550,11 @@ class GatewayEngineeringRepository @Inject constructor(
     }
 
     suspend fun refreshChat(chatId: Int) {
-        for (binding in bindings(chatId)) observe(binding.request.requestId)
+        val failure = GatewayObserverPolling.observeAll(bindings(chatId).map { it.request.requestId }) { observe(it) }
         conversations.refreshChat(chatId)
+        // Refresh the available transcript before reporting a saved job's failure.
+        // Observation never creates or resumes that job.
+        failure?.let { throw it }
     }
 
     /** This method is invoked by explicit UI buttons; it is never registered as an AI tool. */
@@ -587,6 +590,20 @@ class GatewayEngineeringRepository @Inject constructor(
 
 // Scheduling only: this does not create, resume or approve a gateway job.
 internal object GatewayObserverPolling {
+    suspend fun observeAll(ids: List<String>, observe: suspend (String) -> Unit): Exception? {
+        var firstFailure: Exception? = null
+        for (id in ids) {
+            try {
+                observe(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (firstFailure == null) firstFailure = failure
+            }
+        }
+        return firstFailure
+    }
+
     fun select(ids: List<String>, lastAttempt: Map<String, Long>, limit: Int = 16): List<String> =
         ids.sortedWith(compareBy<String> { lastAttempt[it] ?: Long.MIN_VALUE }.thenBy { it })
             .take(limit.coerceAtLeast(0))

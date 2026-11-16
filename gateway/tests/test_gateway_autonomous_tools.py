@@ -179,6 +179,68 @@ class AutonomousToolsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'HUNK_CONFLICT'):
             prepare_changes(proposal, files, tree, head_sha=self.head)
 
+    def test_static_discovery_pages_within_large_files_without_losing_cases(self):
+        sources = {}
+        expected = []
+        self.job['data']['tree'] = {}
+        # Cross both the 256-case and ten-file boundaries using actual source parsing.
+        for index, count in enumerate([300, 260] + [1] * 11):
+            path = f'test_{index:02}.py'
+            content = 'import unittest\nclass Tests(unittest.TestCase):\n' + ''.join(
+                f'    def test_{number}(self): pass\n' for number in range(count))
+            sha = blob_sha(content)
+            sources[sha] = {'encoding': 'base64', 'size': len(content),
+                            'content': base64.b64encode(content.encode()).decode()}
+            self.job['data']['tree'][path] = {'sha': sha, 'mode': '100644'}
+            expected.extend(f'test_{index:02}.Tests.test_{number}' for number in range(count))
+        self.backend.api.side_effect = lambda url, **_: sources[url.rsplit('/', 1)[-1]]
+        checks = [{'index': 3, 'cases': [expected[299]]}]
+        observed, cursor, pages = [], None, []
+        with patch('v14.engineering_workspace_checks.catalog', return_value=('policy', checks)):
+            for _ in range(10):
+                result = self.action(action='discover_tests', cursor=cursor)
+                self.assertFalse(result['executed'])
+                self.assertLessEqual(len(result['tests']), 256)
+                observed.extend(result['tests'])
+                pages.append(result)
+                cursor = result['next_cursor']
+                if cursor is None:
+                    break
+        self.assertIsNone(cursor)
+        self.assertEqual(expected, [row['case_id'] for row in observed])
+        self.assertEqual(571, len({row['case_id'] for row in observed}))
+        self.assertEqual([3], observed[299]['approved_check_indices'])
+        self.assertEqual('APPROVED', observed[299]['policy_state'])
+        self.assertEqual(256, pages[0]['next_cursor']['case_offset'])
+        self.assertEqual(0, pages[0]['next_cursor']['file_offset'])
+        self.assertIsNone(pages[0]['next_offset'])  # Never silently skip a partial file.
+        self.assertTrue(all(page['truncated'] for page in pages[:-1]))
+        self.assertFalse(pages[-1]['truncated'])
+        self.assertTrue(all('source_exposure' not in value for value in self.job['data']['files'].values()))
+
+    def test_static_discovery_cursor_rejects_changed_identity_and_invalid_offsets(self):
+        from v14.adaptive_validation import discover
+        self.job['data']['tree'] = {
+            f'test_{index}.py': {'sha': 'b' * 40, 'mode': '100644'} for index in range(12)}
+        with patch('v14.adaptive_validation.load_file', return_value={'sha': 'b' * 40, 'content': ''}):
+            result = discover(self.backend, self.job, {}, [])
+            cursor = result['next_cursor']
+            self.assertEqual(10, cursor['file_offset'])
+            self.assertEqual(10, result['next_offset'])
+            invalid = [dict(cursor, binding='changed'), dict(cursor, file_offset=-1),
+                       dict(cursor, case_offset=True), dict(cursor, case_offset=1),
+                       dict(cursor, file_offset=13), dict(cursor, file_offset=12, case_offset=1)]
+            for value in invalid:
+                with self.subTest(cursor=value), self.assertRaises(ValueError):
+                    discover(self.backend, self.job, {'cursor': value}, [])
+            with self.assertRaises(ValueError):
+                discover(self.backend, self.job, {'cursor': cursor, 'query': 'test'}, [])
+            with self.assertRaises(ValueError):
+                discover(self.backend, self.job, {'cursor': cursor}, [{'index': 1, 'cases': []}])
+            self.job['data']['head_sha'] = 'c' * 40
+            with self.assertRaises(ValueError):
+                discover(self.backend, self.job, {'cursor': cursor}, [])
+
     def test_conflicted_patch_returns_to_same_coding_loop_without_writes(self):
         source = 'answer = 1\n'
         sha = blob_sha(source)

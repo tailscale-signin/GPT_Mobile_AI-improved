@@ -54,6 +54,34 @@ class GradleRetryTest(unittest.TestCase):
             self.assertLess(time.monotonic() - started, 2)
             self.assertEqual(1, len(counter.read_text().splitlines()))
 
+    def test_published_kotlin_plugin_lookup_without_status_retries_only_exact_version(self):
+        lines = [
+            "Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', "
+            "artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found",
+            "Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')",
+        ]
+        self.assertTrue(retry.retryable(lines))
+        self.assertFalse(retry.retryable([lines[0]]))
+        self.assertFalse(retry.retryable([lines[1]]))
+        self.assertFalse(retry.retryable([line.replace('2.4.20', '2.4.21') for line in lines]))
+        self.assertFalse(retry.retryable(lines + ["Received HTTP response code: 404"]))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = pathlib.Path(directory)
+            counter, fake = root / 'attempts', root / 'gradlew'
+            fake.write_text(
+                '#!/bin/sh\n'
+                + f'echo attempt >> "{counter}"\n'
+                + f'if [ "$(wc -l < "{counter}")" -eq 1 ]; then\n'
+                + "echo \"Plugin [id: 'org.jetbrains.kotlin.multiplatform', version: '2.4.20', "
+                + "artifact: 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20', apply: false] was not found\"\n"
+                + "echo \"Plugin Repositories (could not resolve plugin artifact 'org.jetbrains.kotlin:kotlin-gradle-plugin:2.4.20')\"\n"
+                + 'exit 1\nfi\nexit 0\n'
+            )
+            fake.chmod(0o755)
+            self.assertEqual(0, retry.run([':app:lintDebug'], delay_seconds=0, executable=str(fake)))
+            self.assertEqual(2, len(counter.read_text().splitlines()))
+
     def test_dependency_throttling_is_retryable(self):
         self.assertTrue(retry.retryable(['Could not resolve dependency.', 'Received status code 429 from server: Too Many Requests']))
         self.assertTrue(retry.retryable(['Could not GET resource.', 'HTTP 503']))

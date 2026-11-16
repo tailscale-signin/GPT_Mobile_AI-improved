@@ -253,6 +253,52 @@ class ToolReportIncidentProjectionTest {
 
     private fun event(arguments: String) = ToolEvent("private-event", "private-run", 1, "private-call", null, null, "github_issue", "github_issue", arguments, null, null, "FAILED")
 
+    @Test fun genericGitHubPrecheckOnlyReportsHashesFromExactObservedExceptionReceipt() {
+        val event = event("""{"action":"ranges","ranges":[{"path":"README.md"}]}""")
+            .copy(modelToolName = "github_read__selected")
+        val receipt = buildJsonObject {
+            put("schema", "github.dispatch.v1")
+            put("call_id", event.callId)
+            put("error_code", "TOOL_FAILURE")
+            put("phase", "PREFLIGHT_REJECTED")
+            put("dispatched", false)
+            put("requires_reconciliation", false)
+            put("cause_types", JsonArray(listOf(JsonPrimitive("java.lang.IllegalStateException"))))
+            put("private_exception_message", "token and local-private-path")
+        }
+        val failure = AgentToolResult(
+            event.callId,
+            ToolResultContent.Text("private failure description"),
+            true,
+            errorCode = "TOOL_FAILURE",
+            dispatched = false,
+            executionReceipt = receipt
+        )
+        val fields = ToolReportDiagnostics.fields(event, failure)
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        val hashes = requireNotNull(report.values["exception_type_hashes"] as? JsonArray)
+        assertEquals(1, hashes.size)
+        assertEquals(
+            JsonPrimitive(IssueReportContext.identifierHash("tool-exception-type", "java.lang.IllegalStateException")),
+            hashes.single()
+        )
+        assertTrue(report.isValid())
+        assertFalse(report.toString().contains("IllegalStateException"))
+        assertFalse(report.toString().contains("token and local-private-path"))
+        assertFalse(report.toString().contains("private failure description"))
+
+        val withoutTypes = failure.copy(executionReceipt = JsonObject(receipt - "cause_types"))
+        assertFalse("exception_type_hashes" in ToolReportDiagnostics.fields(event, withoutTypes))
+        assertFalse("exception_type_hashes" in ToolReportDiagnostics.fields(event.copy(callId = "other-call"), failure))
+        assertFalse("exception_type_hashes" in ToolReportDiagnostics.fields(event, failure.copy(dispatched = true)))
+        assertFalse(
+            "exception_type_hashes" in ToolReportDiagnostics.fields(
+                event,
+                failure.copy(executionReceipt = JsonObject(receipt + ("call_id" to JsonPrimitive("other-call"))))
+            )
+        )
+    }
+
     @Test fun changedPrHeadReportRetainsOnlyMeasuredReadCounts() {
         val event = event("""{"action":"context","pull_number":1349}""")
             .copy(modelToolName = "github_pr__selected")

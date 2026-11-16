@@ -119,6 +119,32 @@ internal object ToolReportDiagnostics {
             putAll(typeShape(arguments, "argument"))
         }
         val receipt = result.executionReceipt
+        // Retain only a bounded hash of an already-captured, sanitized exception
+        // type. Never infer one from generic TOOL_FAILURE text or a precheck label.
+        // A source-owned, call-bound receipt must establish that no operation ran.
+        if (
+            result.isError &&
+            result.errorCode == "TOOL_FAILURE" &&
+            !result.dispatched &&
+            event.modelToolName.substringBefore("__").startsWith("github_") &&
+            receipt?.get("schema") in setOf(JsonPrimitive("github.dispatch.v1"), JsonPrimitive("gptmobile.tool-execution.v1")) &&
+            receipt["call_id"] == JsonPrimitive(result.callId) &&
+            receipt["error_code"] == JsonPrimitive(result.errorCode) &&
+            receipt["dispatched"] == JsonPrimitive(false) &&
+            receipt["requires_reconciliation"] == JsonPrimitive(false) &&
+            receipt["phase"] in setOf(JsonPrimitive("PREFLIGHT_REJECTED"), JsonPrimitive("tool_precheck"))
+        ) {
+            val observed = (receipt["cause_types"] as? JsonArray)
+                ?.takeIf { it.size in 1..8 }
+                ?.mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.contentOrNull }
+                ?.takeIf { types ->
+                    types.isNotEmpty() &&
+                        types.all { it.length in 1..160 && it.matches(Regex("[A-Za-z0-9_.$]+")) }
+                }
+            observed?.distinct()?.mapNotNull { IssueReportContext.identifierHash("tool-exception-type", it) }
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { put("exception_type_hashes", JsonArray(it.map(::JsonPrimitive))) }
+        }
         // GitHubDispatchAccounting owns the dispatch receipt. Match it to the
         // persisted tool call, and never derive a revision from response prose.
         if (event.modelToolName.substringBefore("__") == "github_pr" &&

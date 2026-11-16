@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ed387ce91f2802769af4121a1b4ced93466435d3045bb9908bb8a194827c681b",
+  "source_digest": "0cb8cc361cda3bd4d6d0ac2b8b14c6e8f677cc32ef9a7a7d5ddee09af8d9af9f",
   "file_count": 2661,
-  "indexed_line_count": 431664,
+  "indexed_line_count": 431668,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -172,7 +172,7 @@
       "id": "authentication_service",
       "label": "Authentication broker software",
       "file_count": 9,
-      "indexed_line_count": 2549
+      "indexed_line_count": 2553
     },
     {
       "id": "external_integrations",
@@ -17377,8 +17377,8 @@
       "path": "authentication/incident_report_contract.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "a9a390f7ea71112bb5ba2441be6535474debf15431cf1881622157022fb9db1d",
-      "indexed_lines": 725
+      "sha256": "e272c291b021fd92c47727224502f4f99bd6559de5d2e588b889ef3f9c424be8",
+      "indexed_lines": 728
     },
     {
       "path": "authentication/issue_report_app.py",
@@ -17391,8 +17391,8 @@
       "path": "authentication/issue_report_diagnostics.py",
       "area_id": "authentication_service",
       "kind": "source",
-      "sha256": "7bcb8d25abd23db1d255a43bdc9d5bb44d111b2241ce97f01e83976719bfa52b",
-      "indexed_lines": 417
+      "sha256": "2d20df21eef1826d57351b86579df8b9f772ac2ec923ce715c78023aebb43701",
+      "indexed_lines": 418
     },
     {
       "path": "authentication/issue_reports.py",

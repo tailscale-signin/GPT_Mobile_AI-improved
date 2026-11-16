@@ -62,7 +62,13 @@ class GatewayEngineeringRepository @Inject constructor(
     suspend fun setContinuousEngineering(enabled: Boolean) {
         settings.mutateFeatureSettings { current ->
             val options = current.githubEngineeringSettings
-            val duration = if (enabled) 0 else if (options.durationHours == 0) GatewayEngineeringSettings().durationHours else options.durationHours
+            val duration = if (enabled) {
+                0
+            } else if (options.durationHours == 0) {
+                GatewayEngineeringSettings().durationHours
+            } else {
+                options.durationHours
+            }
             current.copy(githubEngineeringSettings = options.copy(durationHours = duration))
         }
     }
@@ -489,7 +495,9 @@ class GatewayEngineeringRepository @Inject constructor(
             // Retain only an already-observed wait. This read never dispatches
             // inference or repeats a command, and the cache enforces privacy.
             dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.engineeringWait(
-                snapshot, binding.request.profileId, binding.request.model
+                snapshot,
+                binding.request.profileId,
+                binding.request.model,
             )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
             if (binding.request.executionBindingId != null) {
                 check(snapshot.executionBindingId == binding.request.executionBindingId && snapshot.executionBinding == binding.executionAdmission?.binding) { "The retained execution identity changed." }

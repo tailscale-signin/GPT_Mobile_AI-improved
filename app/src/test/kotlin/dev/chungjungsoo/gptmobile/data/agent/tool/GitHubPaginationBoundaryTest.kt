@@ -232,6 +232,41 @@ class GitHubPaginationBoundaryTest {
         assertEquals(JsonPrimitive(true), Json.parseToJsonElement(text).jsonObject["observationTruncated"])
     }
 
+    @Test fun savedViewContextMismatchCorrectsToTheIssuingToolAlias() {
+        val views = GitHubResultViews()
+        val originalArguments = json("""{"action":"list","owner":"owner","repo":"repo"}""")
+        val original = AgentToolResult(
+            "original",
+            ToolResultContent.Json(json("""{"items":[{"id":1}],"has_more":false}""")),
+            false
+        )
+        val initial = (views.present("authorized-scope", "github_pr", "github_pr__original", original, originalArguments)
+            .content as ToolResultContent.Json).value.jsonObject
+        val cursor = initial.getValue("recovery_call").jsonObject.getValue("arguments").jsonObject
+            .getValue("view_cursor") as JsonPrimitive
+
+        val rejected = views.read(
+            "authorized-scope",
+            "github_pr",
+            "github_pr__other",
+            cursor.content,
+            "mismatched-context",
+            json("""{"action":"context","owner":"owner","repo":"repo"}""")
+        )
+        assertFalse(rejected.dispatched)
+        assertEquals("INVALID_ARGUMENTS", rejected.errorCode)
+        val body = (rejected.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive("SAVED_VIEW_CONTEXT_MISMATCH"), body["reason"])
+        val corrected = body.getValue("correction_call").jsonObject
+        assertEquals(JsonPrimitive("github_pr__original"), corrected["tool"])
+        assertEquals(cursor, corrected.getValue("arguments").jsonObject["view_cursor"])
+        val identity = body.getValue("recovery_identity").jsonObject
+        assertEquals(JsonPrimitive("github_pr__original"), identity["original_model_tool"])
+        assertEquals(JsonPrimitive("github_pr__other"), identity["requested_model_tool"])
+        assertEquals(JsonPrimitive(false), identity["mutation_replay_allowed"])
+        assertFalse(rejected.executionReceipt.toString().contains(cursor.content))
+    }
+
     @Test fun savedReadsAcceptMatchingSelectorsAndRejectScopeChanges() {
         val views = GitHubResultViews()
         val request = json("""{"action":"runs","owner":"o","repo":"r","workflow_id":"build.yml","page":1,"per_page":20}""")

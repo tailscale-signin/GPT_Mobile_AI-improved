@@ -301,7 +301,23 @@ internal class GitHubResultViews(
                         put("reason", "SAVED_VIEW_CONTEXT_MISMATCH")
                         put("conflicting_fields", JsonArray(conflictingFields.keys.sorted().map(::JsonPrimitive)))
                         put("message", "Saved-page context differs from the retained request. Use only the exact view_cursor; a saved read cannot change repository, revision, action or read selectors. Nothing was dispatched.")
-                        put("correction_call", savedCall(modelName, cursor))
+                        // The cursor was issued by the retained view, which can use a
+                        // different model-visible connection alias from this request.
+                        // A correction on the requesting alias would repeat the mismatch.
+                        put("correction_call", savedCall(entry.modelName, cursor))
+                        put(
+                            "recovery_identity",
+                            recoveryIdentity(
+                                scope = scope,
+                                cursor = cursor,
+                                originalOperation = entry.operation,
+                                originalModelName = entry.modelName,
+                                requestedOperation = operation,
+                                requestedModelName = modelName,
+                                reason = "SAVED_VIEW_CONTEXT_MISMATCH",
+                                sourceRecoveryAvailable = entry.sourceRecovery != null
+                            )
+                        )
                     }
                 ),
                 true,

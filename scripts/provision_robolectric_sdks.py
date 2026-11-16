@@ -25,6 +25,9 @@ SDKS = {
     }
 }
 BASE = "https://repo.maven.apache.org/maven2/org/robolectric/android-all-instrumented"
+# A separately routed canonical Maven Central endpoint. Both hosts are trusted
+# only as transports: every jar and POM still requires the pinned SHA-512.
+MAVEN_CENTRAL_ALTERNATE_BASE = "https://repo1.maven.org/maven2/org/robolectric/android-all-instrumented"
 TRANSIENT_STATUS = {408, 429, 500, 502, 503, 504}
 TRANSIENT_ATTEMPTS = 3
 THROTTLED_ATTEMPTS = 6
@@ -67,13 +70,18 @@ def download(target, url, digest, deadline, opener=urllib.request.urlopen, wait=
         return
     target.parent.mkdir(parents=True, exist_ok=True)
     attempts_allowed = TRANSIENT_ATTEMPTS
+    # Never redirect caller-provided URLs. Rotate only the two known Maven
+    # Central origins for source-owned Robolectric artifacts during retry.
+    sources = (url,)
+    if url.startswith(BASE + "/"):
+        sources = (url, MAVEN_CENTRAL_ALTERNATE_BASE + url[len(BASE):])
     for attempt in range(THROTTLED_ATTEMPTS):
         temporary = None
         try:
             remaining = deadline - clock()
             if remaining <= 0:
                 raise TimeoutError("Robolectric provisioning deadline expired")
-            with opener(url, timeout=min(20, remaining)) as source, tempfile.NamedTemporaryFile(dir=target.parent, suffix=".part", delete=False) as output:
+            with opener(sources[attempt % len(sources)], timeout=min(20, remaining)) as source, tempfile.NamedTemporaryFile(dir=target.parent, suffix=".part", delete=False) as output:
                 temporary = Path(output.name)
                 total = 0
                 while chunk := source.read(65536):

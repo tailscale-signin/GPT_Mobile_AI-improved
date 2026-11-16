@@ -119,6 +119,25 @@ internal object ToolReportDiagnostics {
             putAll(typeShape(arguments, "argument"))
         }
         val receipt = result.executionReceipt
+        // GitHubDispatchAccounting owns the dispatch receipt. Match it to the
+        // persisted tool call, and never derive a revision from response prose.
+        if (event.modelToolName.substringBefore("__") == "github_pr" &&
+            action == "context" &&
+            result.isError &&
+            result.errorCode == "GITHUB_PR_HEAD_CHANGED" &&
+            result.dispatched &&
+            receipt?.get("schema") == JsonPrimitive("github.dispatch.v1") &&
+            receipt["live_read_performed"] == JsonPrimitive(true)
+        ) {
+            put("pr_context_revision_changed", true)
+            for ((source, target) in listOf(
+                "read_requests" to "pr_context_read_requests",
+                "read_response_observations" to "pr_context_read_responses"
+            )) {
+                (receipt[source] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                    ?.takeIf { it in 0..100 }?.let { put(target, it) }
+            }
+        }
         // A successful upstream HTTP response does not prove full pagination coverage.
         // Preserve only typed counts and flags from the call-bound traversal receipt,
         // never upstream record IDs, URLs or unbounded provider text.

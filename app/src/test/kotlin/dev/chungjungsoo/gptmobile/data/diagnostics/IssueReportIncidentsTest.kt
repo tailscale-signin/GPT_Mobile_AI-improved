@@ -354,6 +354,37 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun differentGenericChatFailureStagesAreNotSuppressedByTheSameErrorCode() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val admission = mapOf("failed_stage" to "provider_admission")
+        val synthesis = mapOf("failed_stage" to "final_synthesis")
+        IssueReportIncidents.chatFailure("UNRECOGNIZED_CAUSE", false, null, admission)
+        IssueReportIncidents.chatFailure("UNRECOGNIZED_CAUSE", false, null, synthesis)
+        IssueReportIncidents.chatFailure("UNRECOGNIZED_CAUSE", false, null, admission)
+
+        val reports = IssueReportIncidents.pending.value
+        assertEquals(2, reports.size)
+        assertEquals(listOf("CHAT_FAILED", "CHAT_FAILED"), reports.map { it.errorCode })
+        assertEquals(listOf("provider_admission", "final_synthesis"), reports.map { it.context?.stage })
+    }
+
+    @Test
+    fun differentSanitizedExceptionFingerprintsAreNotSuppressedByTheSameErrorCode() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val first = IllegalArgumentException("PRIVATE_FIRST_EXCEPTION")
+        val second = IllegalStateException("PRIVATE_SECOND_EXCEPTION")
+        IssueReportIncidents.chatFailure("UNRECOGNIZED_CAUSE", false, first)
+        IssueReportIncidents.chatFailure("UNRECOGNIZED_CAUSE", false, second)
+        IssueReportIncidents.chatFailure("UNRECOGNIZED_CAUSE", false, first)
+
+        val reports = IssueReportIncidents.pending.value
+        assertEquals(2, reports.size)
+        assertEquals(listOf("CHAT_FAILED", "CHAT_FAILED"), reports.map { it.errorCode })
+        assertTrue(reports.mapNotNull { it.context?.exceptionFingerprint }.distinct().size == 2)
+        assertFalse(reports.any { "PRIVATE_" in it.approvedPayload() })
+    }
+
+    @Test
     fun distinctKnownChatFailuresAreNotCollapsedIntoOneGenericIncident() {
         LocalDiagnosticsPolicy.setEnabled(true)
         IssueReportIncidents.chatFailure("GATEWAY_ENGINEERING_GITHUB_REQUIRED", false)

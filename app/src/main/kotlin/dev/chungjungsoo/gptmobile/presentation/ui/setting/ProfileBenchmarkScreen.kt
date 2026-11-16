@@ -412,6 +412,36 @@ fun ProfileBenchmarkScreen(
                         }
                     )
                 }
+                item(key = "github_ai_audit_controls") {
+                    GitHubAiProfileAuditControls(
+                        profiles = auditModelCandidates,
+                        ready = ready,
+                        busy = session != null || progress != null,
+                        onStart = { profileUid, allActions ->
+                            if (viewModel.startGitHubToolAudit(profileUid, allActions)) cancellationRequestedFor = null
+                        }
+                    )
+                }
+                val githubProfileRuns = batches.filter { it.mode == BenchmarkMode.GITHUB_INTEGRATION }.sortedByDescending { it.createdAt }.take(5)
+                if (githubProfileRuns.isNotEmpty()) {
+                    item(key = "github_ai_audit_saved_header") {
+                        Text("Saved GitHub AI tool audits", style = MaterialTheme.typography.titleMedium)
+                    }
+                    items(githubProfileRuns, key = { "github.ai.audit." + it.id }) { batch ->
+                        BenchmarkQueueCard(
+                            batch,
+                            session == batch.id,
+                            viewModel::skipProfile,
+                            requestCancel,
+                            onResume = { viewModel.resumeRemaining(batch.id) },
+                            onRetry = { viewModel.retryFailed(batch.id) },
+                            onRunWithProfileSettings = { viewModel.retryFailed(batch.id, BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) },
+                            onResults = { mode = BenchmarkMode.GITHUB_INTEGRATION; tab = 5 },
+                            runs = history,
+                            onExport = { requestExport(false, null) }
+                        )
+                    }
+                }
                 if (selectedAudit == null) {
                     item { Text("No app audit has been recorded. Run an audit to see its accepted plan, measured coverage and category results.") }
                 } else {

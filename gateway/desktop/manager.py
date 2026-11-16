@@ -134,6 +134,11 @@ class Supervisor:
         atomic_json(self.root / 'status.json', status, retry_windows_sharing=True)
         self.status = status
 
+    def respond(self, payload):
+        # Windows readers can briefly deny a same-directory atomic replacement.
+        # Retry the same fsynced response, preserving the exact request identity.
+        atomic_json(self.root / 'response.json', payload, retry_windows_sharing=True)
+
     def control(self, action=None):
         url = 'http://' + authority(control_host(self.cfg), self.cfg['port']) + '/gateway/admin/maintenance'
         response = self.http.request('POST' if action else 'GET', url,
@@ -413,13 +418,13 @@ class Supervisor:
                 current_cfg = load(self.root)
                 if action in {'stop', 'restart'}:
                     accepted = self.stop()
-                    atomic_json(self.root / 'response.json', {'id': ident, 'accepted': accepted, 'error': 'Active work must finish before restarting'})
+                    self.respond({'id': ident, 'accepted': accepted, 'error': 'Active work must finish before restarting'})
                     if accepted:
                         self.publish(state='stopped')
                         return RESTART if action == 'restart' else 0
                 elif action == 'export-debug':
                     self.export_diagnostics()
-                    atomic_json(self.root / 'response.json', {'id': ident, 'accepted': True})
+                    self.respond({'id': ident, 'accepted': True})
                     # Do not acknowledge this request again through update checks.
                     ident = None
                 elif action not in {None, 'check', 'install'}:
@@ -431,7 +436,7 @@ class Supervisor:
                     if candidate and current_cfg['update_mode'] == 'notify':
                         self.notify(candidate['version'])
                     if ident:
-                        atomic_json(self.root / 'response.json', {'id': ident, 'accepted': True})
+                        self.respond({'id': ident, 'accepted': True})
                 automatic = current_cfg['update_mode'] == 'auto' and time.monotonic() >= next_activate
                 failed = read_pointer(self.root).get('failedVersion')
                 if candidate and (action == 'install' or automatic and candidate['version'] != failed):
@@ -446,7 +451,7 @@ class Supervisor:
                 next_check = time.monotonic() + 3600
                 next_activate = time.monotonic() + 3600
                 if ident:
-                    atomic_json(self.root / 'response.json', {'id': ident, 'accepted': False, 'error': str(exc)})
+                    self.respond({'id': ident, 'accepted': False, 'error': str(exc)})
             time.sleep(.5)
 
 

@@ -170,6 +170,56 @@ class SettingsTests(unittest.TestCase):
                 self.assertEqual({'id': 'accepted-id', 'accepted': True}, request(root, 'restart', timeout=1))
 
 
+    def test_manager_response_retries_windows_access_denial_with_unchanged_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / 'response.json'
+            atomic_json(path, {'id': 'old', 'accepted': True})
+            manager = Supervisor.__new__(Supervisor)
+            manager.root = root
+            actual_replace = os.replace
+            attempts = []
+            payload = {'id': 'new', 'accepted': True}
+
+            def transient_replace(source, destination):
+                attempts.append(Path(source).read_bytes())
+                if len(attempts) <= 2:
+                    error = PermissionError(13, 'Windows reader denies replacement')
+                    error.winerror = 5
+                    raise error
+                return actual_replace(source, destination)
+
+            with patch('desktop.configuration.sys.platform', 'win32'), \
+                    patch('desktop.configuration.os.replace', side_effect=transient_replace), \
+                    patch('desktop.configuration.time.sleep') as sleep:
+                manager.respond(payload)
+            self.assertEqual(3, len(attempts))
+            self.assertEqual(2, sleep.call_count)
+            self.assertTrue(all(value == attempts[0] for value in attempts))
+            self.assertEqual(payload, json.loads(path.read_text(encoding='utf-8')))
+            self.assertEqual([path], list(root.iterdir()))
+
+    def test_manager_response_permanent_windows_denial_preserves_previous_receipt(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            path = root / 'response.json'
+            old = {'id': 'prior', 'accepted': True}
+            atomic_json(path, old)
+            manager = Supervisor.__new__(Supervisor)
+            manager.root = root
+            denied = PermissionError(13, 'Persistent replacement denial')
+            denied.winerror = 5
+            with patch('desktop.configuration.sys.platform', 'win32'), \
+                    patch('desktop.configuration.os.replace', side_effect=denied) as replace, \
+                    patch('desktop.configuration.time.sleep') as sleep:
+                with self.assertRaises(PermissionError) as caught:
+                    manager.respond({'id': 'new', 'accepted': True})
+            self.assertIs(denied, caught.exception)
+            self.assertEqual(6, replace.call_count)
+            self.assertEqual(5, sleep.call_count)
+            self.assertEqual(old, json.loads(path.read_text(encoding='utf-8')))
+            self.assertEqual([path], list(root.iterdir()))
+
     def test_settings_preflight_rejects_invalid_origin_without_writing_installation(self):
         with tempfile.TemporaryDirectory() as temp:
             root=Path(temp)/'install';settings=Path(temp)/'chosen.json'

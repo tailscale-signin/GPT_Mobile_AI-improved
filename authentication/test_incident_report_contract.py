@@ -24,6 +24,39 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_pr_context_race_capture_is_bounded_and_does_not_reveal_revision_or_cause(self):
+        observed = {"pr_context_revision_changed": True, "pr_context_read_requests": 3, "pr_context_read_responses": 3}
+        capture = self.capture("TOOL", observed)
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        report = self.report(capture)
+        report["errorCode"] = "GITHUB_PR_HEAD_CHANGED"
+        _, issue = issue_from_report(report)
+        for field in observed:
+            self.assertIn(f"| {field} |", issue["body"])
+        self.assertNotIn("private-head-sha", issue["body"])
+        self.assertEqual(observed, {field: capture["values"][field] for field in capsule.PR_CONTEXT_RACE_FIELDS})
+        for field, valid, invalid in (
+            ("pr_context_revision_changed", True, ["true", 1, "private", None]),
+            ("pr_context_read_requests", 3, [-1, "3", True, 16000001]),
+            ("pr_context_read_responses", 3, [-1, "3", True, 16000001]),
+        ):
+            for value in invalid:
+                with self.subTest(field=field, value=value), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("TOOL", {field: value}))
+            for area in CORE_FIELDS.keys() - {"TOOL"}:
+                with self.subTest(field=field, area=area), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture(area, {field: valid}))
+            missing = self.capture("TOOL")
+            missing["unavailableFields"].append(field)
+            with self.assertRaises(ValueError):
+                validate_diagnostics(missing)
+        legacy = {"schemaVersion": 1, "area": "TOOL", "capturedAtMillis": 1000,
+                  "captureMode": "INCIDENT", "values": {}, "unavailableFields": sorted(CORE_FIELDS["TOOL"])}
+        self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        legacy["values"]["pr_context_revision_changed"] = True
+        with self.assertRaises(ValueError):
+            validate_diagnostics(legacy)
+
     def test_search_validation_names_preserve_observed_order_without_private_values_or_siblings(self):
         key = "search_validation_field_names"
         names = ["fuzzy_threshold", "context_lines", "max_new_blobs", "batch_size"]

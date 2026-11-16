@@ -1656,7 +1656,7 @@ class ProviderAdaptersTest {
             events
         )
         assertNull(api.responseRequests.single().tools)
-        assertEquals(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, profileName = profile.name, profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile), configuredProfileReasoning = profile.reasoning, providerType = "OPENAI"), api.configs.single())
+        assertEquals(ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, profileName = profile.name, profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile), configuredProfileReasoning = profile.reasoning, providerType = "OPENAI", selectedModel = profile.model), api.configs.single())
     }
 
     @Test
@@ -2062,7 +2062,8 @@ class ProviderAdaptersTest {
             profileName = profile.name,
             profileRevision = dev.chungjungsoo.gptmobile.data.context.ConfiguredDispatchAuthority.profileRevision(profile),
             configuredProfileReasoning = profile.reasoning,
-            providerType = "GROQ"
+            providerType = "GROQ",
+            selectedModel = profile.model
         )
         assertEquals(listOf(expectedConfig, expectedConfig), groq.configs)
     }

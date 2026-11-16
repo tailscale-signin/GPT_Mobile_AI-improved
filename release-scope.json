@@ -2991,6 +2991,7 @@
     "scripts/tests/test_native_memory_smoke.py",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenRouterRateLimitScopes.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenRouterRateLimitScopesTest.kt",
-    "gateway/tests/test_gateway_benchmark_patch_recovery.py"
+    "gateway/tests/test_gateway_benchmark_patch_recovery.py",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterOptionsTest.kt"
   ]
 }

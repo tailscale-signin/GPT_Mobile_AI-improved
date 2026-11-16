@@ -7,6 +7,7 @@ import dev.chungjungsoo.gptmobile.data.dto.openai.request.ChatMessage
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -30,7 +31,9 @@ class OpenRouterOptionsTest {
         assertEquals(0.0f, options.presencePenalty ?: 0f, 0.001f)
         assertEquals(1.03f, options.repetitionPenalty ?: 0f, 0.001f)
         assertEquals(42, options.seed)
-        assertEquals("price", options.provider?.sort)
+        assertEquals(null, options.provider?.sort)
+        // Default routing must not force cheapest-first; explicit profile routing may still select it.
+        assertFalse(json.encodeToString(options).contains("\"sort\""))
         assertEquals(true, options.provider?.allowFallbacks)
         assertEquals(null, options.provider?.ignore)
     }

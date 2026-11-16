@@ -47,6 +47,34 @@ class VoiceDiagnosticTraceTest {
         assertNull(VoiceDiagnosticTrace.manualSnapshot())
     }
 
+    @Test
+    fun pronunciationAndFocusEvidenceIsBoundedSourceOwnedAndDoesNotExposeSpeech() {
+        val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, {})
+        val first = trace.advance(1, reset = true)
+        first.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        first.pronunciationFailure(Int.MAX_VALUE, 4, audioQueued = true, firstAudioObserved = true)
+        first.playbackFocusTransition("PAUSE")
+        first.playbackFocusTransition("RESTORE")
+        first.playbackFocusTransition("private-unknown-event")
+        val observed = trace.incidentFields()
+        assertEquals(16_000_000L, observed["voice_pronunciation_unknown_words"])
+        assertEquals(4L, observed["voice_pronunciation_initialisms"])
+        assertEquals(true, observed["voice_pronunciation_audio_queued"])
+        assertEquals(true, observed["voice_pronunciation_first_audio_observed"])
+        assertEquals("RESTORE", observed["voice_focus_last_transition"])
+        assertEquals(2L, observed["voice_focus_transition_count"])
+        val approved = requireNotNull(VoiceDiagnosticTrace.manualSnapshot()).values
+        assertTrue("voice_pronunciation_unknown_words" in approved)
+        assertTrue("voice_focus_last_transition" in approved)
+        assertFalse(approved.toString().contains("private-unknown-event"))
+        val fresh = trace.beginReply(2)
+        fresh.engine(VoiceDiagnosticTrace.Engine.KOKORO)
+        assertFalse("voice_pronunciation_unknown_words" in trace.incidentFields())
+        assertFalse("voice_focus_transition_count" in trace.incidentFields())
+        first.playbackFocusTransition("STOP")
+        assertFalse("voice_focus_last_transition" in trace.incidentFields())
+    }
+
     @Test fun staleGenerationsAndOlderSessionsCannotPopulateTheCurrentSnapshot() {
         val retained = mutableListOf<IssueReportDiagnostics>()
         val trace = VoiceDiagnosticTrace({ 10 }, { 1000 }, { true }, retained::add)

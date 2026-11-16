@@ -361,7 +361,9 @@ internal class KokoroVoiceOutput(
             .setAudioAttributes(playbackAttributes)
             .setOnAudioFocusChangeListener({ change ->
                 if (active === playback) {
-                    when (kokoroFocusAction(change)) {
+                    val focusAction = kokoroFocusAction(change)
+                    playback.diagnostics?.playbackFocusTransition(focusAction.name)
+                    when (focusAction) {
                         KokoroFocusAction.RESTORE -> {
                             val paused = playback.focusPaused
                             playback.focusPaused = false
@@ -500,6 +502,12 @@ internal class KokoroVoiceOutput(
                 playback.removedFormatCharacters += observation.removedFormatCharacters
                 val parts = projection.parts
                 if (parts == null) {
+                    playback.diagnostics?.pronunciationFailure(
+                        playback.unknownWords,
+                        playback.initialisms,
+                        playback.queuedAudio,
+                        playback.firstFrame
+                    )
                     timing("pronunciation_unavailable", playback, "reason=${observation.failure?.name ?: "UNKNOWN"} · unknownWords=${playback.unknownWords} · normalizedFormats=${playback.removedFormatCharacters}")
                     main.post {
                         // A verified on-device speech fallback may read the complete buffered reply

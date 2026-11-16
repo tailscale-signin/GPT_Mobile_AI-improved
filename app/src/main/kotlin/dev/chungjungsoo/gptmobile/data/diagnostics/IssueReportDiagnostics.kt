@@ -193,7 +193,7 @@ internal data class IssueReportDiagnostics(
         private val composerEvents = setOf("ATTACHED", "DETACHED", "EDITOR_FOCUSED", "EDITOR_UNFOCUSED", "IME_VISIBLE", "IME_HIDDEN", "WINDOW_FOCUSED", "WINDOW_UNFOCUSED", "CHAT_ENABLED", "CHAT_DISABLED", "INPUT_TOUCH", "INPUT_KEYBOARD", "LIFECYCLE_CREATE", "LIFECYCLE_START", "LIFECYCLE_RESUME", "LIFECYCLE_PAUSE", "LIFECYCLE_STOP", "LIFECYCLE_DESTROY", "RELEASE_SEND", "RELEASE_SHORTCUT", "RELEASE_BACKGROUND_TAP", "RELEASE_DISABLED", "RELEASE_LIFECYCLE_STOP", "RELEASE_DISPOSE")
         private val completionEvidenceFields = setOf("empty_completion_observed_attempts", "empty_completion_reasoning_only_attempts")
         private val voicePackStateFields = setOf("voice_install_recognition_status", "voice_install_playback_status")
-        private val voiceCapturePlaybackFields = setOf("voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment")
+        private val voiceCapturePlaybackFields = setOf("voice_playback_failure", "voice_playback_focus_attempts", "voice_capture_silenced_stage", "voice_caption_alignment", "voice_focus_last_transition", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed")
         private val voiceInstallEvidenceFields = setOf(
             "voice_install_pending_reason",
             "voice_install_elapsed_ms",
@@ -257,7 +257,7 @@ internal data class IssueReportDiagnostics(
             "acceptance_fixture_creation_admissible", "status_branch_protected", "status_policy_complete",
             "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed",
             "transport_complete", "generation_completed", "request_replay_allowed", "logical_continuation_allowed", "privacy_zdr_required", "privacy_fallbacks_allowed",
-            "composer_enabled", "composer_window_focused", "composer_focused", "composer_ime_visible", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "gateway_admission_ready", "model_preparation_load_accepted"
+            "composer_enabled", "composer_window_focused", "composer_focused", "composer_ime_visible", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_input_silenced", "voice_pronunciation_audio_queued", "voice_pronunciation_first_audio_observed", "gateway_admission_ready", "model_preparation_load_accepted"
         )
         private val attempts = completionEvidenceFields + setOf("backend_attempts", "backend_completed_attempts", "backend_failed_attempt", "repair_attempts", "repair_attempt_limit")
         private val durations = setOf(
@@ -286,7 +286,7 @@ internal data class IssueReportDiagnostics(
             "configured_output_limit", "effective_output_limit", "backend_output_limit", "input_tokens", "output_tokens", "reasoning_tokens", "visible_output_bytes", "reasoning_output_bytes",
             "privacy_provider_allowlist_count", "privacy_provider_denylist_count", "privacy_provider_order_count", "missing_field_count", "invalid_field_count", "validation_error_count",
             "effective_call_limit", "used_calls", "remaining_calls", "verification_reserve", "pending_continuations", "unresolved_outcomes", "unmet_criterion_count", "unmet_criterion_omitted_count",
-            "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters"
+            "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_focus_transition_count", "voice_pronunciation_unknown_words", "voice_pronunciation_initialisms"
         )
         private val finishReasons = setOf("STOP", "TOOL_CALLS", "LENGTH", "CONTENT_FILTER", "OTHER", "UNKNOWN")
         private val enums = mapOf(
@@ -364,6 +364,7 @@ internal data class IssueReportDiagnostics(
             "voice_caption_alignment" to setOf("NO_TIMING", "EXACT_RANGE", "TEXT_UNMAPPED"),
             "voice_focus_result" to setOf("GRANTED", "DENIED", "ERROR", "NOT_REQUESTED"),
             "voice_first_audio_basis" to setOf("UTTERANCE_START", "PLAYBACK_HEAD"),
+            "voice_focus_last_transition" to setOf("RESTORE", "PAUSE", "DUCK", "STOP"),
             "gateway_reason_code" to GatewayInputRejectionDetails.reasonCodes + modelPreparationReasonCodes,
             "gateway_failure_phase" to setOf("model_preparation", "connection_preflight", "provider_admission", "request_validation", "engineering_guard", "binding_admission", "message_admission", "conversation_admission", "execution_admission", "gateway_recovery", "transport"),
             "gateway_state" to setOf("QUEUED", "RUNNING", "WAITING_FOR_CLIENT_TOOL", "WAITING_FOR_APPROVAL", "PAUSED", "CANCELLING", "CANCELLED", "COMPLETED", "FAILED"),

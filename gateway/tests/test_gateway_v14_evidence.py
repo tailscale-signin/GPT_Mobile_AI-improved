@@ -63,7 +63,25 @@ class EvidenceTests(unittest.TestCase):
                 validate_request(dict(request, acceptance=value))
 
 
-class CompletionIntegrationTests(fixtures.DurableEngineeringTests):
+    def test_evidence_suite_does_not_duplicate_engineering_endurance_tests(self):
+        evidence_cases = set(unittest.defaultTestLoader.getTestCaseNames(CompletionIntegrationTests))
+        self.assertEqual({
+            'test_required_feature_path_stops_before_merge_prompt',
+            'test_empty_ci_receipts_cannot_create_a_merge_prompt',
+        }, evidence_cases)
+        self.assertIn(
+            'test_until_complete_checkpoints_one_thousand_steps_without_resetting_authority',
+            unittest.defaultTestLoader.getTestCaseNames(fixtures.DurableEngineeringTests),
+        )
+
+
+class CompletionIntegrationTests(unittest.TestCase):
+    # Reuse the durable service fixture without inheriting its 47 engineering
+    # tests. Inheritance duplicated the 1,000-step SQLite endurance test and
+    # exceeded the evidence suite's 120-second Windows CI watchdog.
+    setUp = fixtures.DurableEngineeringTests.setUp
+    tearDown = fixtures.DurableEngineeringTests.tearDown
+
     def test_required_feature_path_stops_before_merge_prompt(self):
         self.request['acceptance'] = [{'id': 'requested', 'paths': ['missing.kt'], 'checks': ['tests']}]
         job = self.store.create('owner', self.request)

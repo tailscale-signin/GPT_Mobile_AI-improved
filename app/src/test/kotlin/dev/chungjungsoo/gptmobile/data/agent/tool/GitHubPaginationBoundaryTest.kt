@@ -167,6 +167,20 @@ class GitHubPaginationBoundaryTest {
         assertFalse(boundary.repeatsRemotePage("github_ci", json("""{"view_cursor":"saved:1"}"""), json("""{"workflow_runs":[2]}""")))
     }
 
+    @Test fun verifiedSecondPageCannotInheritTheOldFirstPageTraversal() {
+        val boundary = GitHubPaginationBoundary()
+        val first = json("""{"action":"runs","owner":"owner","repo":"repo","page":1,"per_page":2}""")
+        val second = json("""{"action":"runs","owner":"owner","repo":"repo","page":2,"per_page":2,"verify_live":true}""")
+        boundary.assessPage("github_ci", first, json("""{"has_more":true,"total_count":2,"workflow_runs":[{"id":1}]}"""))
+        assertEquals(null, boundary.completedPage("github_ci", second))
+        val fresh = boundary.assessPage("github_ci", second, json("""{"has_more":false,"total_count":2,"workflow_runs":[{"id":2}]}"""))
+        val progress = fresh.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(1), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(false), progress["contiguous_from_first_page"])
+        assertEquals(JsonPrimitive(false), progress["complete"])
+        assertEquals(JsonArray(listOf(JsonPrimitive(2))), progress["remote_pages_observed"])
+    }
+
     @Test fun terminalPagePreventsRemoteOverrunButAllowsRefreshAndDifferentScope() {
         var time = 0L
         val boundary = GitHubPaginationBoundary { time }

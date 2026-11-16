@@ -31,7 +31,10 @@ internal object GitHubProfileAuditSuite {
             actions.map { variant ->
                 val action = variant.takeUnless { it == "default" }
                 GitHubProfileAuditFixture(
-                    "github-ai-v1:$operation:$variant", operation, action, definition,
+                    "github-ai-v1:$operation:$variant",
+                    operation,
+                    action,
+                    definition,
                     arguments(operation.removeSuffix("_inspect"), action, properties.keys)
                 )
             }
@@ -46,14 +49,22 @@ internal object GitHubProfileAuditSuite {
     fun actionCount(): Int = fixtures.size
 
     fun cases(allActions: Boolean): List<BenchmarkCase> {
-        val selected = if (allActions) fixtures else fixtures.groupBy { it.operation }.values.map { family ->
-            family.firstOrNull { it.action in setOf("list", "status", "workflows", "capabilities", "search", "resolve", "ranges") }
-                ?: family.first()
-        }
+        val selected =
+            if (allActions) {
+                fixtures
+            } else {
+                fixtures.groupBy { it.operation }.values.map { family ->
+                    family.firstOrNull { it.action in setOf("list", "status", "workflows", "capabilities", "search", "resolve", "ranges") }
+                        ?: family.first()
+                }
+            }
         return selected.map { item ->
             BenchmarkCase(
-                id = item.id, label = item.operation + " · " + (item.action ?: "default"),
-                category = "tools", workload = WORKLOAD, validatorVersion = "benchmark-validator-v5",
+                id = item.id,
+                label = item.operation + " · " + (item.action ?: "default"),
+                category = "tools",
+                workload = WORKLOAD,
+                validatorVersion = "benchmark-validator-v5",
                 prompt = "You are testing an isolated, in-memory GitHub tool fixture, NOT an actual repository. " +
                     "Call the provided tool " + item.operation + " exactly once using precisely these arguments: " +
                     item.arguments + ". After receiving the tool result, output only the value of FIXTURE_CODE, no other text or tool call."
@@ -133,12 +144,17 @@ internal object GitHubProfileAuditSuite {
                 str("expected_head_sha", sha)
                 str("message", "Offline fixture")
                 if ("files" in fields) {
-                    put("files", buildJsonArray {
-                        add(buildJsonObject {
-                            put("path", "fixture.txt")
-                            put("content", "fixture")
-                        })
-                    })
+                    put(
+                        "files",
+                        buildJsonArray {
+                            add(
+                                buildJsonObject {
+                                    put("path", "fixture.txt")
+                                    put("content", "fixture")
+                                }
+                            )
+                        }
+                    )
                 }
             }
             "github_commit" -> {
@@ -245,5 +261,4 @@ internal object GitHubProfileAuditSuite {
             }
         }
     }
-
 }

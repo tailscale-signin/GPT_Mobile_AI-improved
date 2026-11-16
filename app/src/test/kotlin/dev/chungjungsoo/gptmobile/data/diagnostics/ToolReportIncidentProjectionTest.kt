@@ -205,5 +205,44 @@ class ToolReportIncidentProjectionTest {
         }
     }
 
+    @Test fun incompleteGitHubPaginationRetainsSafeCountsWithoutRawRecords() {
+        val event = event("""{"action":"runs","page":7,"per_page":30}""")
+            .copy(modelToolName = "github_ci__selected")
+        val receipt = buildJsonObject {
+            put("traversal_state", "INCOMPLETE")
+            put("pagination_progress", buildJsonObject {
+                put("schema", "github.pagination-progress.v1")
+                put("remote_page", 7)
+                put("remote_pages_observed", JsonArray((1..7).map(::JsonPrimitive)))
+                put("reported_total", 206)
+                put("unique_records_observed", 197)
+                put("duplicate_records_on_page", 7)
+                put("contiguous_from_first_page", true)
+                put("upstream_changed_during_traversal", false)
+                put("private_record_id", "never include this")
+            })
+        }
+        val result = AgentToolResult(
+            event.callId, ToolResultContent.Text("private-upstream-response"), true,
+            errorCode = "GITHUB_PAGINATION_INCOMPLETE", executionReceipt = receipt, dispatched = true
+        )
+        val fields = ToolReportDiagnostics.fields(event, result)
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(3, report.schemaVersion)
+        assertEquals(JsonPrimitive(7), report.values["remote_pagination_page"])
+        assertEquals(JsonPrimitive(7), report.values["remote_pagination_pages_observed"])
+        assertEquals(JsonPrimitive(206), report.values["remote_pagination_reported_total"])
+        assertEquals(JsonPrimitive(197), report.values["remote_pagination_unique_records"])
+        assertEquals(JsonPrimitive(7), report.values["remote_pagination_duplicate_records"])
+        assertEquals(JsonPrimitive(true), report.values["remote_pagination_contiguous"])
+        assertEquals(JsonPrimitive(false), report.values["remote_pagination_changed"])
+        assertEquals(JsonPrimitive("INCOMPLETE"), report.values["remote_pagination_reason"])
+        assertFalse(report.toString().contains("never include this"))
+        assertFalse(report.toString().contains("private-upstream-response"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(callId = "different-call"), result).containsKey("remote_pagination_reason"))
+        assertFalse(ToolReportDiagnostics.fields(event, result.copy(executionReceipt = JsonObject(receipt + ("traversal_state" to JsonPrimitive("COMPLETE"))))).containsKey("remote_pagination_reason"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(modelToolName = "github_issue"), result).containsKey("remote_pagination_reason"))
+    }
+
     private fun event(arguments: String) = ToolEvent("private-event", "private-run", 1, "private-call", null, null, "github_issue", "github_issue", arguments, null, null, "FAILED")
 }

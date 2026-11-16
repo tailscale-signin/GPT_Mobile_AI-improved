@@ -814,6 +814,7 @@
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/DelegationBenchmarkRating.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/DelegationBenchmarkRunner.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/DynamicScoreEngine.kt",
+        "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubProfileAuditSuite.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/IntelligenceBenchmark.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/LocalBenchmarkOutput.kt",
         "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/LocalRuntimeBenchmarkSuite.kt",

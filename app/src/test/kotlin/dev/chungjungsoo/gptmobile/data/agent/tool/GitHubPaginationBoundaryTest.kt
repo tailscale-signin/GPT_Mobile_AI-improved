@@ -240,8 +240,8 @@ class GitHubPaginationBoundaryTest {
             ToolResultContent.Json(json("""{"items":[{"id":1}],"has_more":false}""")),
             false
         )
-        val initial = (views.present("authorized-scope", "github_pr", "github_pr__original", original, originalArguments)
-            .content as ToolResultContent.Json).value.jsonObject
+        val presented = views.present("authorized-scope", "github_pr", "github_pr__original", original, originalArguments)
+        val initial = (presented.content as ToolResultContent.Json).value.jsonObject
         val cursor = initial.getValue("recovery_call").jsonObject.getValue("arguments").jsonObject
             .getValue("view_cursor") as JsonPrimitive
 

@@ -161,7 +161,7 @@
     "tests/test_gateway_benchmark_evidence_validation.py": "7dddd1a8cce2a37572124a3430639a5c0d3cac5d283698a36c63bebbc6db97ea",
     "tests/test_gateway_benchmark_qualification.py": "d57c36141fb799c5352aca4163d0de9034dbea0c68c993db47867526c44a1bc6",
     "tests/test_gateway_benchmark_setup.py": "d662bcd704abd925eda98c730b4afa05b39e5997b0adc250daac6e48a1fa26d9",
-    "tests/test_gateway_benchmark_v17.py": "353e092c90a04b8af28e9c8a5b87b02c4cc1fd796502533a7514a43c55958861",
+    "tests/test_gateway_benchmark_v17.py": "7127f838a39bff93e5b131c51cdd868b1e07afed47c8ad7b05bc8d74c972a8bb",
     "tests/test_gateway_browser_bridge.mjs": "673e8604bd44317355c9824213d1d1f6c9ce12eef81f7b093b75e2bc621568b0",
     "tests/test_gateway_capabilities.py": "fd9007218951b687f199f37d72881c4cf9482016be585cdc67942a71b39d4664",
     "tests/test_gateway_command_outcomes.py": "af672663eca137a980de6cf98dbd9cef253fc8fa019cfbfc79fde2946e9d771a",

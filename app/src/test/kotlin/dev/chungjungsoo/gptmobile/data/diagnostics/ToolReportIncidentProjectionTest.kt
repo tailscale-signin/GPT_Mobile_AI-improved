@@ -285,5 +285,4 @@ class ToolReportIncidentProjectionTest {
         assertFalse(ToolReportDiagnostics.fields(event, result.copy(dispatched = false)).containsKey("pr_context_revision_changed"))
         assertFalse(ToolReportDiagnostics.fields(event, result.copy(executionReceipt = JsonObject(receipt + ("live_read_performed" to JsonPrimitive(false))))).containsKey("pr_context_revision_changed"))
     }
-
 }

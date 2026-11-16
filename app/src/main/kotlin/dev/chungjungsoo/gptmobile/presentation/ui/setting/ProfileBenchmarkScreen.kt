@@ -436,7 +436,10 @@ fun ProfileBenchmarkScreen(
                             onResume = { viewModel.resumeRemaining(batch.id) },
                             onRetry = { viewModel.retryFailed(batch.id) },
                             onRunWithProfileSettings = { viewModel.retryFailed(batch.id, BenchmarkExecutionPolicy.PROFILE_SETTINGS_V1) },
-                            onResults = { mode = BenchmarkMode.GITHUB_INTEGRATION; tab = 5 },
+                            onResults = {
+                                mode = BenchmarkMode.GITHUB_INTEGRATION
+                                tab = 5
+                            },
                             runs = history,
                             onExport = { requestExport(false, null) }
                         )

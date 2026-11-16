@@ -256,6 +256,12 @@ internal class KokoroVoiceOutput(
 
         @Volatile var queuedAudio = false
 
+        @Volatile var focusPaused = false
+
+        @Volatile var focusDucked = false
+
+        @Volatile var focusPauseStartedAt: Long? = null
+
         var track: AudioTrack? = null
         var underruns: Int? = null
 
@@ -354,11 +360,57 @@ internal class KokoroVoiceOutput(
         val focus = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
             .setAudioAttributes(playbackAttributes)
             .setOnAudioFocusChangeListener({ change ->
-                if (change < 0) fail(playback, "audio_focus_lost", "Audio paused because another app needs the speaker.", canFallback = false)
+                if (active === playback) {
+                    when (kokoroFocusAction(change)) {
+                        KokoroFocusAction.RESTORE -> {
+                            val paused = playback.focusPaused
+                            playback.focusPaused = false
+                            playback.focusPauseStartedAt = null
+                            playback.focusDucked = false
+                            playback.lastProgress = SystemClock.elapsedRealtime()
+                            val failed = runCatching {
+                                playback.trackLock.withLock {
+                                    playback.track?.setVolume(1f)
+                                    if (paused && playback.queuedAudio) playback.track?.play()
+                                }
+                            }.exceptionOrNull()
+                            if (failed != null) {
+                                fail(playback, "audio_focus_resume_failed", "Audio could not resume. Your reply is available in chat.", canFallback = false, cause = failed)
+                            }
+                        }
+                        KokoroFocusAction.PAUSE -> {
+                            playback.focusPaused = true
+                            playback.focusPauseStartedAt = SystemClock.elapsedRealtime()
+                            playback.trackLock.withLock { runCatching { playback.track?.pause() } }
+                            timing("audio_focus_paused", playback)
+                        }
+                        KokoroFocusAction.DUCK -> {
+                            playback.focusDucked = true
+                            playback.trackLock.withLock { runCatching { playback.track?.setVolume(0.2f) } }
+                            timing("audio_focus_ducked", playback)
+                        }
+                        KokoroFocusAction.STOP -> fail(
+                            playback,
+                            "audio_focus_lost",
+                            "Audio stopped because another app needs the speaker. Your reply is available in chat.",
+                            canFallback = false
+                        )
+                        KokoroFocusAction.IGNORE -> Unit
+                    }
+                }
             }, main).build()
         val watchdog = object : Runnable {
             override fun run() {
                 if (active !== playback) return
+                if (playback.focusPaused) {
+                    val pausedAt = playback.focusPauseStartedAt
+                    if (pausedAt != null && SystemClock.elapsedRealtime() - pausedAt >= KOKORO_FOCUS_PAUSE_MAX_MS) {
+                        fail(playback, "audio_focus_timeout", "Playback was interrupted by another app. You can replay the reply.")
+                    } else {
+                        main.postDelayed(this, 1_000)
+                    }
+                    return
+                }
                 if ((playback.synthesizing || playback.sealed || playback.segments.isNotEmpty()) &&
                     SystemClock.elapsedRealtime() - playback.lastProgress >= WATCHDOG_MS
                 ) {
@@ -542,6 +594,7 @@ internal class KokoroVoiceOutput(
                 val registered = playback.trackLock.withLock {
                     if (active !== playback) return@withLock false
                     playback.track = track
+                    if (playback.focusDucked) track.setVolume(0.2f)
                     true
                 }
                 if (!registered) return
@@ -592,7 +645,7 @@ internal class KokoroVoiceOutput(
                     if (!playing && offset == 0) track.setStartThresholdInFrames(startThreshold)
                     track.write(samples, offset, samples.size - offset, AudioTrack.WRITE_NON_BLOCKING).also { count ->
                         if (!playing && offset + count >= startThreshold) {
-                            track.play()
+                            if (!playback.focusPaused) track.play()
                             drainedAt?.let { drained ->
                                 playback.bufferRestarts++
                                 playback.longestRefillMs = maxOf(playback.longestRefillMs, SystemClock.elapsedRealtime() - drained)

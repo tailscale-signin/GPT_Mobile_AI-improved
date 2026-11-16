@@ -233,9 +233,28 @@ internal object IssueReportIncidents {
             } else {
                 "EXCEPTION"
             }
+            // A trusted TOOL_RESULT failure can carry a dispatched result phase
+            // even when the producer did not supply a broad failed_stage. Only
+            // synthesize the constant execution boundary for source-owned phases:
+            // never turn a precheck refusal or an unknown outcome into a remote failure.
+            val toolDispatchPhase = when (val value = fields["tool_dispatch_phase"]) {
+                is String -> value
+                is JsonPrimitive -> value.contentOrNull
+                else -> null
+            }
+            val reportFields = if (
+                feature == ReportFeature.TOOLS &&
+                reportSource == "TOOL_RESULT" &&
+                toolDispatchPhase in setOf("READ_FAILED", "OBSERVED", "FAILED") &&
+                listOf("failed_stage", "failedStage", "failurePhase", "phase", "stage").none { it in fields }
+            ) {
+                fields + ("failed_stage" to "tool_execution")
+            } else {
+                fields
+            }
             val evidence = IssueReportContext.fromFields(
                 reportSource,
-                IssueReportIncidentCapsule.fields(feature, reportSource, publicCode, if (feature == ReportFeature.APP) fields + appDiagnosticFields(code) else fields)
+                IssueReportIncidentCapsule.fields(feature, reportSource, publicCode, if (feature == ReportFeature.APP) reportFields + appDiagnosticFields(code) else reportFields)
             )
             // Distinct failures may share a public code and run within the debounce window.
             // Retain observed stage and a sanitized exception fingerprint in the private key;

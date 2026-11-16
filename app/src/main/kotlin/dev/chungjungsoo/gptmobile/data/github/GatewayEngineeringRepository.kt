@@ -497,7 +497,7 @@ class GatewayEngineeringRepository @Inject constructor(
             dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.engineeringWait(
                 snapshot,
                 binding.request.profileId,
-                binding.request.model,
+                binding.request.model
             )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
             if (binding.request.executionBindingId != null) {
                 check(snapshot.executionBindingId == binding.request.executionBindingId && snapshot.executionBinding == binding.executionAdmission?.binding) { "The retained execution identity changed." }

@@ -268,3 +268,40 @@ For coding benchmark reports, retain only the case ID/family, selected-model rou
 For Android issues, source-owned call/dispatch identity and typed failure stages must be preserved when available. Missing evidence stays explicitly unknown. Device-only voice, branch-protection permissions, provider quotas and real gateway availability cannot be replaced by synthetic fixtures.
 
 **Closure and merge gate:** Verify the exact final PR head, required Actions checks, and follow-up behavior on the installed build before closing a report as fixed. Diagnostic-limited reports may close only with a documented missing-evidence list, a tested reporter improvement and an accountable follow-up tracker. Do not merge a failing or draft head merely because the initial benchmark was incomplete.
+
+
+---
+
+## New report frontier #1363–#1380 and bounded benchmark scheduling
+
+### Current reported state (16 November, 2026)
+
+The live GitHub issue frontier grew by 18 reports to #1380 after the earlier 31-report intake. These are from Android 0.9.66.7 build 141 at app source `72a2cd0884874dec9be9e6411e72cd6dd0751db1`, **not** from an installed build corresponding to this PR. Report states are an intake snapshot and can change independently of the source branch.
+
+| Reports | Source-owned evidence | Corrective/diagnostic next step |
+| --- | --- | --- |
+| #1363, #1364, #1365 | `github_read` rejects unsupported top-level `path`, `UNKNOWN_FIELD`, not dispatched; later attempts exhausted | Root-cause tracker #1363 remains open. Verify selected-profile schema/handoff and one corrective retry with the action-specific `ranges` form. Never guess read scope or expand read permissions. #1364/#1365 closed strictly as linked duplicates, not fixed. |
+| #1366, #1367, #1368, #1369 | `SAVED_VIEW_UNAVAILABLE`, `BODY_MISSING`, no remote dispatch; one originating run, different operations (`github_read`, `github_ci`, `github_issue`) | Root-cause tracker #1366 remains open; #1367–#1369 linked duplicates only. Inspect saved-body/access atomicity, quota pruning and scope/restart. Next report should record *booleans* for persisted body/access and bounded storage pressure without raw cursors, source text or values. Never replay a mutation to repair a missing read-body cache. |
+| #1370, #1371, #1376 | OpenRouter DNS failures in model continuation; no terminal transport or generated content | Capture retry authority, DNS/route health and confirmed continuation receipt; resume only under verified replay/continuation policy. |
+| #1372 | A `github_ci` saved-view handle supplied to `github_read` is rejected as `SAVED_VIEW_WRONG_OPERATION` before dispatch | Protective cross-operation handle fence is working. Provide the exact originating tool/continuation call to the model; never translate a handle into another tool's authority. |
+| #1373 | `GITHUB_EVIDENCE_REQUIRED` on `github_read`; required evidence identifier not proven | Preserve no-dispatch state; discover evidence ID from an authorized source read before resuming. |
+| #1374, #1380 | OpenRouter HTTP 200 response stream aborted with reasoning bytes but **0 visible output bytes**; request replay disallowed | Distinguish accepted unfinished model generation from safe re-request. Check continuation checkpoint and connection persistence; never silently resend an accepted generation. |
+| #1375 | GitHub `branches` read: DNS transport, three unanswered requests, 30-second waiting | Respect bounded retry schedule; retain read/transport receipts and avoid treating a network error as a completed repository observation. |
+| #1377 | Precheck `INVALID_ARGUMENTS` with a query-shaped invocation | Capture exact chosen tool contract, safe invalid-field names and accepted correction receipt before classifying. Do not infer tool from argument shape alone. |
+| #1378 | `github_read` dependency precheck fails before dispatch (`native_dependency_state=FAILED`, one dependency) | Retain the predecessor's typed failure and dependency binding; do not fail the dependent read as an independent network outage. |
+| #1379 | A saved-view body was restored; subsequent `GITHUB_TRANSIENT_NETWORK` guard observed with no dispatch | Separate the successful local restore from the ensuing remote readiness failure. Recheck network when permitted; preserve both receipts. |
+
+### Dispositions and outstanding source work
+
+- External/expected guard reports #1348, #1353, #1358, #1361, and #1362 were closed **not_planned** with source-owned evidence and explicit language stating no software repair or external provider recovery was claimed.
+- #1367–#1369 closed as duplicates of the **still-open** #1366; #1364/#1365 closed as duplicates of the **still-open** #1363. All original report bodies remain retained on GitHub.
+- Remaining execution failures, source diagnosis and physical-device issues stay open until matching-current-build reproducibility or a properly tested reporter enhancement supports a clearly documented closure.
+
+### Additional Gateway runner correction
+
+- `gateway/benchmarks/runner.py` now submits only up to the selected comparison concurrency and admits the next trial after a predecessor settles. On interrupted/unknown outcomes it fences new dispatch, sets the shared cancellation event, and cancels pending requests. This avoids queueing every trial ahead of cancellation and leaves already-admitted requests to settle.
+- The source manifest and generated app audit inventory were refreshed to match the exact Python content. Concurrency cancellation must pass the existing `test_unknown_concurrent_outcome_fences_queued_trials_and_keeps_completed_pair_evidence` regression on both Ubuntu and Windows before a merge claim.
+
+### Outstanding qualification
+
+A local `qwen3.5-9b` coding run and fresh Android device/provider/voice observations were **not** executed by these GitHub source edits. The acceptance gap for independent caller-input preservation remains and keeps the coding score unqualified. This report is not a warrant for blanket issue closure or bypassing strict required checks.

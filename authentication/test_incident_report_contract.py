@@ -965,6 +965,35 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("VOICE", {key: "raw recorder or speech text"}))
 
+    def test_kokoro_pronunciation_focus_receipt_is_bounded_and_contains_no_spoken_text(self):
+        values = {
+            "voice_playback_failure": "AUDIO_FOCUS_TIMEOUT",
+            "voice_focus_last_transition": "PAUSE",
+            "voice_focus_transition_count": 2,
+            "voice_pronunciation_unknown_words": 1,
+            "voice_pronunciation_initialisms": 3,
+            "voice_pronunciation_audio_queued": True,
+            "voice_pronunciation_first_audio_observed": True,
+        }
+        receipt = self.capture("VOICE", values)
+        validate_diagnostics(receipt)
+        self.assertEqual(values, receipt["values"])
+        for reason in ("AUDIO_FOCUS_TIMEOUT", "AUDIO_FOCUS_RESUME_FAILED"):
+            validate_diagnostics(self.capture("VOICE", {"voice_playback_failure": reason}))
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("PROVIDER", values))
+        invalid = {
+            "voice_focus_last_transition": "PRIVATE_SPEECH",
+            "voice_focus_transition_count": -1,
+            "voice_pronunciation_unknown_words": 16_000_001,
+            "voice_pronunciation_initialisms": "PRIVATE_SPEECH",
+            "voice_pronunciation_audio_queued": "true",
+            "voice_pronunciation_first_audio_observed": None,
+        }
+        for field, bad in invalid.items():
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("VOICE", {field: bad}))
+
     def test_github_prerequisite_evidence_is_typed_and_keeps_policy_unknown(self):
         values = {"repository_graph_observation": "NOT_INDEXED", "graph_input_blocked_count": 16,
                   "workflow_dependency_observation": "MISSING_EXECUTED_JOB",

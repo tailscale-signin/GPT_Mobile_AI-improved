@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import unittest
 
 from benchmarks.engineering_qualification import snapshot
+from v14.engineering import record_verified_mutation_reconciliation
 
 
 class EngineeringQualificationMeasurementsTest(unittest.TestCase):
@@ -26,6 +27,43 @@ class EngineeringQualificationMeasurementsTest(unittest.TestCase):
             store=SimpleNamespace(now=lambda: 2, tx=lambda read: (deepcopy(attempts), [])),
         )
         return snapshot(service, 'owner', job['id'], 'existing_pr')
+
+    def test_lost_mutation_requires_a_matched_dispatched_reconciliation(self):
+        job_id = 'eng_' + 'a' * 32
+        operation_id = 'operation_' + 'b' * 40
+        dispatched = {'dispatched': True, 'job_id': job_id, 'operation_id': operation_id,
+                      'request_ref': {'sha256': 'c' * 64}}
+        job = {'id': job_id, 'state': 'COMPLETED', 'created_at': 1, 'finished_at': 2,
+               'request': {'repository': 'owner/repo', 'model': 'selected', 'execution_binding_id': 'binding'},
+               'data': {'head_sha': 'a' * 40, 'completion_verification': {'passed': True,
+                        'requirements': [{'id': 'lost_mutation', 'status': 'BEHAVIOR_VERIFIED'}]}},
+               'repairs': {}}
+        attempts = [{'dispatched': True, 'state': 'COMPLETED', 'usage': {'total_tokens': 7}}]
+        def evaluate(ops):
+            service = SimpleNamespace(evidence_access=lambda principal, key: deepcopy(job),
+                store=SimpleNamespace(now=lambda: 2, tx=lambda read: (deepcopy(attempts), deepcopy(ops))))
+            return snapshot(service, 'owner', job_id, 'lost_mutation')
+        before = evaluate([dispatched])
+        self.assertEqual('NOT_VERIFIED', before['status'])
+        self.assertEqual(0, before['duplicate_writes'])
+        self.assertFalse(before['lost_mutation_reconciliation_observed'])
+        job['data']['latest_operation'] = dict(dispatched, state='UNKNOWN_OUTCOME', binding_id='binding')
+        proof = record_verified_mutation_reconciliation(job, 'COMMIT', {'head_sha': 'd' * 40})
+        self.assertIsNotNone(proof)
+        self.assertEqual('UNKNOWN_OUTCOME', proof['original_state'])
+        self.assertEqual('PASSED', evaluate([dispatched])['status'])
+        self.assertEqual('NOT_VERIFIED', evaluate([])['status'])
+
+    def test_host_reconciliation_refuses_prepared_or_unrelated_operations(self):
+        job = {'id': 'eng_test', 'request': {'execution_binding_id': 'binding'},
+               'data': {'head_sha': 'a' * 40, 'latest_operation': {
+                   'job_id': 'eng_test', 'operation_id': 'operation_test', 'state': 'PREPARED',
+                   'dispatched': False, 'binding_id': 'binding'}}}
+        self.assertIsNone(record_verified_mutation_reconciliation(job, 'COMMIT', {'head_sha': 'b' * 40}))
+        job['data']['latest_operation'].update(state='UNKNOWN_OUTCOME', dispatched=True)
+        self.assertIsNone(record_verified_mutation_reconciliation(job, 'READ', {'head_sha': 'b' * 40}))
+        self.assertIsNone(record_verified_mutation_reconciliation(job, 'COMMIT', {}))
+        self.assertNotIn('mutation_reconciliations', job['data'])
 
     def test_completed_job_without_attempt_measurements_is_not_qualified(self):
         result = self.result([])

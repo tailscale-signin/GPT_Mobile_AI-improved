@@ -45,6 +45,22 @@ def snapshot(service, principal, job_id, scenario):
     # reconciliation attests intent identities, duplicate writes remain unknown.
     intents = [row.get('request_ref', {}).get('sha256') for row in writes]
     duplicates = len(intents) - len(set(intents)) if intents and all(intents) and complete_records else None
+    # A successful job with zero duplicate intents does not prove any mutation
+    # outcome was lost. Require host-produced reconciliation of an observed write.
+    dispatched_ids = {row.get('operation_id') for row in writes if row.get('job_id') == job_id}
+    observed = data.get('mutation_reconciliations')
+    observed = observed if isinstance(observed, list) else []
+    lost_mutation_proven = any(
+        isinstance(row, dict) and row.get('schema') == 'gateway.mutation-reconciliation.v1'
+        and row.get('job_id') == job_id and row.get('operation_id') in dispatched_ids
+        and row.get('phase') in {'COMMIT', 'OPEN_PR', 'PROMOTE', 'MERGE'}
+        and row.get('original_dispatch_observed') is True
+        and row.get('remote_state_verified') is True and row.get('replay_performed') is False
+        and row.get('original_state') in {'DISPATCHED', 'UNKNOWN_OUTCOME'}
+        and isinstance(row.get('remote_result_sha256'), str)
+        and len(row['remote_result_sha256']) == 64
+        for row in observed
+    ) if complete_records else False
     verdicts = data.get('completion_verification', {}).get('requirements', [])
     accepted = {row['id'] for row in verdicts if row.get('status') == 'BEHAVIOR_VERIFIED'}
     signals = {
@@ -53,7 +69,7 @@ def snapshot(service, principal, job_id, scenario):
         'ci_repair': completed and bool(job.get('repairs')) and 'ci_repair' in accepted,
         'existing_pr': completed and bool(job.get('continuation_pr')) and job['continuation_pr'] == data.get('pr'),
         'context_rotation': completed and bool(data.get('context_compaction')),
-        'lost_mutation': completed and duplicates == 0 and 'lost_mutation' in accepted,
+        'lost_mutation': completed and duplicates == 0 and lost_mutation_proven and 'lost_mutation' in accepted,
         'gateway_restart': completed and len(boot_ids) > 1,
         'phone_disconnect': completed and 'phone_disconnect' in accepted,
         'terminal_ci_blocker': job['state'] in {'NEEDS_INPUT', 'FAILED'} and bool(data.get('ci')) and not completed and 'terminal_ci_blocker' in accepted,
@@ -74,6 +90,7 @@ def snapshot(service, principal, job_id, scenario):
             'first_attempt_success': (completed and not bool(job.get('repairs')) and
                                       all(row.get('state') == 'COMPLETED' for row in dispatched)) if attempts_measured else None,
             'repair_attempts': sum(job.get('repairs', {}).values()), 'duplicate_writes': duplicates,
+            'lost_mutation_reconciliation_observed': lost_mutation_proven,
             'duplicate_write_measurement': 'REPEATED_IDENTICAL_DISPATCH_INTENTS' if duplicates is not None else 'NOT_MEASURED',
             'false_completion': false_completion, 'elapsed_seconds': max(0, job.get('finished_at', service.store.now()) - job['created_at']),
             'tokens': tokens, 'measurement_complete': complete_records,

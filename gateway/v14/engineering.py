@@ -36,6 +36,33 @@ MUTATIONS = {'COMMIT', 'OPEN_PR', 'PROMOTE', 'MERGE'}
 SHA = re.compile(r'^[0-9a-f]{40}$')
 
 
+def record_verified_mutation_reconciliation(job, phase, recovered):
+    """Store proof of a previously uncertain dispatch confirmed by a host read.
+
+    Called only after the backend independently checks the exact remote commit,
+    pull request or merge identity. Never authorizes a second mutation.
+    """
+    operation = job.get('data', {}).get('latest_operation')
+    if (phase not in MUTATIONS or not isinstance(recovered, dict) or not recovered
+            or not isinstance(operation, dict) or operation.get('dispatched') is not True
+            or operation.get('state') not in {'DISPATCHED', 'UNKNOWN_OUTCOME'}
+            or operation.get('job_id') != job.get('id')
+            or operation.get('binding_id') != job.get('request', {}).get('execution_binding_id')
+            or not isinstance(operation.get('operation_id'), str)):
+        return None
+    row = {'schema': 'gateway.mutation-reconciliation.v1',
+           'job_id': job['id'], 'operation_id': operation['operation_id'], 'phase': phase,
+           'original_state': operation['state'], 'original_dispatch_observed': True,
+           'remote_state_verified': True, 'replay_performed': False,
+           'source_head_sha': job['data'].get('head_sha'),
+           'remote_result_sha256': fingerprint(recovered)}
+    previous = job['data'].get('mutation_reconciliations', [])
+    previous = previous if isinstance(previous, list) else []
+    if not any(isinstance(item, dict) and item.get('operation_id') == row['operation_id'] for item in previous):
+        job['data']['mutation_reconciliations'] = (previous + [row])[-32:]
+    return row
+
+
 def principal_authorized(config, principal, devices):
     if config.mode == 'open_network':
         return config.remote_engineering and principal == 'network:shared'
@@ -1130,6 +1157,7 @@ class EngineeringService:
                     job['message'] = 'An interrupted write has an unknown outcome. Reconciliation is required; the write was not repeated.'
                     phase = 'NEEDS_INPUT'
                 else:
+                    record_verified_mutation_reconciliation(job, phase, output)
                     job['data'].update(output)
                     phase = {'COMMIT': 'OPEN_PR', 'OPEN_PR': 'CI', 'PROMOTE': 'CI', 'MERGE': 'VERIFY'}[phase]
             elif phase == 'MERGE':
@@ -1315,6 +1343,7 @@ class EngineeringService:
                 except Exception:
                     pass
                 if recovered is not None:
+                    record_verified_mutation_reconciliation(job, job['state'], recovered)
                     job['data'].update(recovered)
                     output = recovered
                     phase = {'COMMIT': 'OPEN_PR', 'OPEN_PR': 'CI', 'PROMOTE': 'CI', 'MERGE': 'VERIFY'}[job['state']]

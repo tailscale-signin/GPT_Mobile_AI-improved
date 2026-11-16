@@ -75,6 +75,7 @@ internal class BenchmarkCaseExecution(
     private val code = test.expected.takeIf { test.calculatorExpression != null || test.workload == "permanent_error_decision" } ?: "PKG-${UUID.randomUUID().toString().take(8)}"
     private val scenario = BenchmarkToolScenario(test, code)
     private val expectedErrors = mutableSetOf<String>()
+
     /** Completed tool rounds without a usable final answer are graded as model failures. */
     private var toolRoundLimitReached = false
     private fun captureExecution(observed: dev.chungjungsoo.gptmobile.data.localruntime.RuntimeExecutionReceipt? = observeRuntime()) {
@@ -496,14 +497,18 @@ internal class BenchmarkCaseExecution(
         if (finishReason?.lowercase() in setOf("length", "max_tokens", "output_limit") && test.category != "speed" && test.performanceTrial?.acceptsOutputLimit != true) {
             return result.copy(outcome = BenchmarkOutcome.PARTIAL, intelligenceSemantics = benchmarkIntelligenceEvidence(test, rawAnswer, complete = false), validation = validation?.copy(gradePassed = false), failureCategory = "OUTPUT_LIMIT", failure = BenchmarkFailure("OUTPUT_LIMIT", "generation", "The final answer reached its output limit.", owner = "request", scope = "request", failureScope = BenchmarkFailureScope.REQUEST), timingEligible = false)
         }
-        return if (passed) result else result.copy(
-            failureCategory = when {
-                toolRoundLimitReached -> "MODEL_TOOL_ROUND_LIMIT"
-                insufficientTiming -> "INSUFFICIENT_TIMING_SAMPLE"
-                test.category == "tools" && calls.isNotEmpty() && calls.values.any { !scenario.valid(it) } -> "MODEL_TOOL_ARGUMENTS_INVALID"
-                else -> "MODEL_QUALITY"
-            }
-        )
+        return if (passed) {
+            result
+        } else {
+            result.copy(
+                failureCategory = when {
+                    toolRoundLimitReached -> "MODEL_TOOL_ROUND_LIMIT"
+                    insufficientTiming -> "INSUFFICIENT_TIMING_SAMPLE"
+                    test.category == "tools" && calls.isNotEmpty() && calls.values.any { !scenario.valid(it) } -> "MODEL_TOOL_ARGUMENTS_INVALID"
+                    else -> "MODEL_QUALITY"
+                }
+            )
+        }
     }
 
     private fun message(text: String) = MessageV2(content = text, platformType = null)

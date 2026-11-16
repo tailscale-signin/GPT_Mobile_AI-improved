@@ -60,6 +60,7 @@ class BenchmarkFailurePolicyTest {
         requireBenchmarkOutputContract(profile, "task", 2048)
         assertEquals(768, benchmarkCompletionBudget(profile, "speed"))
     }
+
     @Test
     fun pendingGatewayToolResultsStopProfileUntilExactReconciliation() {
         val failure = benchmarkFailure(
@@ -69,11 +70,15 @@ class BenchmarkFailurePolicyTest {
             )
         )
         val sample = BenchmarkSample(
-            "github-ci", "GitHub CI", "tools", failure.outcome(),
-            failureCategory = failure.code, failure = failure, requestDispatched = true
+            "github-ci",
+            "GitHub CI",
+            "tools",
+            failure.outcome(),
+            failureCategory = failure.code,
+            failure = failure,
+            requestDispatched = true
         )
         assertEquals("CLIENT_TOOL_RESULTS_REQUIRED", failure.code)
         assertEquals(BenchmarkRecoveryAction.STOP_PROFILE, sample.recoveryAction())
     }
-
 }

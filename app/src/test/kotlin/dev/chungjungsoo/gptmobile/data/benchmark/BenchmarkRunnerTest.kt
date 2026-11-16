@@ -622,6 +622,7 @@ class BenchmarkRunnerTest {
         assertEquals(benchmarkHash(answer), result.answerHash)
         assertFalse(result.completed)
     }
+
     @Test
     fun githubFixtureToolRoundExhaustionIsGradedAsModelFailureNotGatewayFailure() = runTest {
         val test = GitHubProfileAuditSuite.cases(allActions = false).first()
@@ -645,5 +646,4 @@ class BenchmarkRunnerTest {
         assertEquals("MODEL_TOOL_ROUND_LIMIT", result.failureCategory)
         assertEquals(BenchmarkRecoveryAction.CONTINUE_INDEPENDENT_CASES, result.recoveryAction())
     }
-
 }

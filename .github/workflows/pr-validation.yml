@@ -392,7 +392,7 @@ jobs:
           node-version: '22'
       - name: Validate workflow syntax
         run: |
-          curl --fail --location --retry 3 https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tgz"
+          curl --fail --location --retry 3 --retry-all-errors --retry-delay 2 --retry-max-time 120 --connect-timeout 15 https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz -o "$RUNNER_TEMP/actionlint.tgz"
           echo "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757  $RUNNER_TEMP/actionlint.tgz" | sha256sum --check
           tar -xzf "$RUNNER_TEMP/actionlint.tgz" -C "$RUNNER_TEMP" actionlint
           "$RUNNER_TEMP/actionlint" -shellcheck= -pyflakes=

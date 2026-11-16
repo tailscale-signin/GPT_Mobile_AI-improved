@@ -252,6 +252,7 @@
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringClientTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringModelsTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringPrerequisiteTest.kt",
+        "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRefreshTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringStoreTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringSubmissionTest.kt",
         "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayExecutionBudgetReceiptTest.kt",

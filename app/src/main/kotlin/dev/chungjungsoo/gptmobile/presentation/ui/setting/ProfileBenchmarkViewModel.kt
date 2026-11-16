@@ -449,10 +449,14 @@ class ProfileBenchmarkViewModel @Inject constructor(
             id = UUID.randomUUID().toString(),
             mode = BenchmarkMode.GITHUB_INTEGRATION,
             createdAt = System.currentTimeMillis(),
-            items = listOf(BenchmarkQueueItem(
-                0, target.benchmarkSnapshot(), UUID.randomUUID().toString(),
-                benchmarkConfigKey(target, localEnvironment.value, policy)
-            )),
+            items = listOf(
+                BenchmarkQueueItem(
+                    0,
+                    target.benchmarkSnapshot(),
+                    UUID.randomUUID().toString(),
+                    benchmarkConfigKey(target, localEnvironment.value, policy)
+                )
+            ),
             caseManifest = suite,
             localEnvironment = localEnvironment.value,
             executionPolicy = policy

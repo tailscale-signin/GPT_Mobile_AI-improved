@@ -2992,6 +2992,11 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenRouterRateLimitScopes.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenRouterRateLimitScopesTest.kt",
     "gateway/tests/test_gateway_benchmark_patch_recovery.py",
-    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterOptionsTest.kt"
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterOptionsTest.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroFocusPolicy.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkAuditPolicyTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroFocusPolicyTest.kt",
+    "docs/repairs/benchmark-1794850459049-2026-11-16.md",
+    "docs/repairs/issue-frontier-2026-11-16.md"
   ]
 }

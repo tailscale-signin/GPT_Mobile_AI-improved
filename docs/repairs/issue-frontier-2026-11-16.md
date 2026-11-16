@@ -45,4 +45,3 @@ For each issue, obtain an exact commit/ref and app build, a source-owned failure
 ## Follow-up benchmark acceptance
 
 Run a selected-profile 14-family smoke test, then 114-case offline suite. These tests do not exercise live GitHub permissions. Test real reads separately with authority-fenced no-mutation access; do not use mutation replays to clear a pending gateway HTTP 409.
-

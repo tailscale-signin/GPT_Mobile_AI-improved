@@ -157,6 +157,7 @@ class VoiceDiagnosticTrace internal constructor(
             owner.values["voice_focus_result"] = result.name
             owner.values["voice_playback_focus_attempts"] = attempt
         }
+
         /** Counts and already-audible state only; no unsupported word or reply text leaves the device. */
         fun pronunciationFailure(unknownWords: Int, initialisms: Int, audioQueued: Boolean, firstAudioObserved: Boolean) = owner.record(this) {
             owner.values["voice_pronunciation_unknown_words"] = unknownWords.toLong().coerceIn(0L, MAX_COUNT)
@@ -164,6 +165,7 @@ class VoiceDiagnosticTrace internal constructor(
             owner.values["voice_pronunciation_audio_queued"] = audioQueued
             owner.values["voice_pronunciation_first_audio_observed"] = firstAudioObserved
         }
+
         /** A transient focus interruption is not the same event as permanent loss. */
         fun playbackFocusTransition(action: String) = owner.record(this) {
             if (action in setOf("RESTORE", "PAUSE", "DUCK", "STOP")) {

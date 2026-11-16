@@ -116,6 +116,8 @@ DURATIONS.add("github_transport_wait_ms")
 FIELDS_BY_AREA['VOICE'].update(['voice_install_state', 'voice_install_scheduler', 'voice_install_failure', 'voice_install_stop_reason', 'voice_install_progress_percent'])
 FIELDS_BY_AREA['TOOL'].update(['github_transport_kind', 'github_transport_wait_ms', 'read_range_count', 'read_invalid_window_count', 'argument_page_size'])
 FIELDS_BY_AREA['PROVIDER'].update(['reasoning_requested_mode', 'reasoning_admission_basis'])
+ENUMS['tool_protocol_frame_kind'] = {'MISSING_FUNCTION_NAME', 'UNFINISHED_STREAM', 'NON_OBJECT_ARGUMENTS', 'MALFORMED_JSON'}
+FIELDS_BY_AREA['PROVIDER'].add('tool_protocol_frame_kind')
 FIELDS_BY_AREA['ACCEPTANCE'].update(['repository_input_blocked_count', 'workflow_input_blocked_count', 'live_evidence_blocked_count', 'acceptance_failed_operation_count'])
 
 ENUMS.update({"reasoning_route_kind": {"GATEWAY", "DIRECT"}, "reasoning_control_state": {"VERIFIED", "UNSUPPORTED", "UNVERIFIED"}})

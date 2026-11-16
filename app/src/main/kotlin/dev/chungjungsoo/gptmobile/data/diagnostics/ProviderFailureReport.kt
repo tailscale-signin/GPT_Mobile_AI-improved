@@ -31,6 +31,13 @@ internal object ProviderFailureReport {
         for (key in listOf("reasoning_probe_outcome", "reasoning_probe_attempts", "reasoning_probe_age_ms", "reasoning_metadata_age_ms", "reasoning_capability_age_ms", "reasoning_model_state", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash")) {
             failure.failureDetails?.get(key)?.let { put(key, it) }
         }
+        if (receipt.errorCode == "TOOL_PROTOCOL_INVALID_FRAME") {
+            val reason = (failure.failureDetails?.get("tool_protocol_frame_kind") as? JsonPrimitive)
+                ?.takeIf { it.isString }
+                ?.contentOrNull
+            reason?.takeIf { it in setOf("MISSING_FUNCTION_NAME", "UNFINISHED_STREAM", "NON_OBJECT_ARGUMENTS", "MALFORMED_JSON") }
+                ?.let { put("tool_protocol_frame_kind", it) }
+        }
         if (failure.errorCode.equals("CONVERSATION_CONFLICT", ignoreCase = true)) {
             val details = failure.failureDetails.orEmpty()
             val kind = (details["active_job_kind"] as? JsonPrimitive)?.contentOrNull

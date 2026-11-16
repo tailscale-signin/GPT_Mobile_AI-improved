@@ -6,6 +6,8 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolStreamGuard
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.ChatToolCallDelta
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 class ChatCompletionsEventAssembler {
     // Fragment slots consume memory even before they become executable calls.
@@ -87,7 +89,7 @@ class ChatCompletionsEventAssembler {
         val events = completed.values.map { call ->
             val name = call.name
             if (name.isNullOrBlank()) {
-                ProviderEvent.Failed("Provider returned an incomplete function call.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME")
+                invalidToolFrame("Provider returned an incomplete function call.", "MISSING_FUNCTION_NAME")
             } else {
                 // Some compatible servers omit IDs; preserve supplied IDs and replay generated ones.
                 val callId = call.callId?.takeIf(String::isNotBlank) ?: "call_${java.util.UUID.randomUUID()}"
@@ -112,9 +114,16 @@ class ChatCompletionsEventAssembler {
     fun discardIncomplete(): List<ProviderEvent> {
         if (pending.isEmpty()) return emptyList()
         pending.clear()
-        return listOf(ProviderEvent.Failed("Provider stopped before completing the tool call. No incomplete tool was run.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
+        return listOf(invalidToolFrame("Provider stopped before completing the tool call. No incomplete tool was run.", "UNFINISHED_STREAM"))
     }
 }
+
+/** A closed parser-owned reason. Never retain tool arguments or provider fragments. */
+private fun invalidToolFrame(message: String, kind: String): ProviderEvent.Failed = ProviderEvent.Failed(
+    message,
+    errorCode = "TOOL_PROTOCOL_INVALID_FRAME",
+    failureDetails = buildJsonObject { put("tool_protocol_frame_kind", kind) }
+)
 
 internal fun toolCall(callId: String, name: String, arguments: String): List<ProviderEvent> {
     if (callId.length > 256) throw ToolBatchOversizeException("CALL_ID_CHARACTERS", callId.length, 256)
@@ -125,9 +134,9 @@ internal fun toolCall(callId: String, name: String, arguments: String): List<Pro
         if (parsed is JsonObject) {
             listOf(ProviderEvent.ToolCall(callId, name, parsed))
         } else {
-            listOf(ProviderEvent.Failed("Tool arguments must be a JSON object.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
+            listOf(invalidToolFrame("Tool arguments must be a JSON object.", "NON_OBJECT_ARGUMENTS"))
         }
     } catch (_: Exception) {
-        listOf(ProviderEvent.Failed("Tool arguments were not valid JSON.", errorCode = "TOOL_PROTOCOL_INVALID_FRAME"))
+        listOf(invalidToolFrame("Tool arguments were not valid JSON.", "MALFORMED_JSON"))
     }
 }

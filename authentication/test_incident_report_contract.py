@@ -24,6 +24,17 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_tool_protocol_frame_kind_is_closed_and_private_input_never_published(self):
+        observed = self.capture("PROVIDER", {
+            "provider_failure_code": "TOOL_PROTOCOL_INVALID_FRAME",
+            "tool_protocol_frame_kind": "MALFORMED_JSON",
+        })
+        self.assertEqual(observed, validate_diagnostics(copy.deepcopy(observed)))
+        for invalid in ("private arguments", "OTHER", None, 3):
+            forged = copy.deepcopy(observed)
+            forged["values"]["tool_protocol_frame_kind"] = invalid
+            self.assertIsNone(validate_diagnostics(forged))
+
     def test_pr_context_race_capture_is_bounded_and_does_not_reveal_revision_or_cause(self):
         observed = {"pr_context_revision_changed": True, "pr_context_read_requests": 3, "pr_context_read_responses": 3}
         capture = self.capture("TOOL", observed)

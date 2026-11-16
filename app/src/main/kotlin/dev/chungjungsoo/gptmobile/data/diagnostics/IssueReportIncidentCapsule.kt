@@ -66,7 +66,7 @@ internal object IssueReportIncidentCapsule {
     private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
     val toolFailureFields = setOf("url_reader_dns_state", "url_reader_availability", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
-    val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection")
+    val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection", "tool_protocol_frame_kind")
     val combinedDeliveryFields = setOf("combined_requirement_gap", "combined_issue_count")
     private val handoffReconciliationCounts = setOf("handoff_replay_receipt_count", "handoff_replay_matched_count", "handoff_durable_receipt_count", "handoff_durable_matched_count", "handoff_retained_matched_count")
     private val handoffReconciliationHashes = setOf("handoff_tool_binding_hash", "handoff_saved_tool_binding_hash", "handoff_evidence_digest_hash", "handoff_journal_digest_hash")
@@ -210,6 +210,7 @@ internal object IssueReportIncidentCapsule {
         "tool_permission_scope" to setOf("ANDROID_LOCATION", "GITHUB_LOCAL_GRANT"),
         "tls_failure_kind" to setOf("CERTIFICATE", "PROTOCOL", "HANDSHAKE", "OTHER"),
         "provider_tool_rejection" to setOf("TOOL_USE_FAILED"),
+        "tool_protocol_frame_kind" to setOf("MISSING_FUNCTION_NAME", "UNFINISHED_STREAM", "NON_OBJECT_ARGUMENTS", "MALFORMED_JSON"),
         "reasoning_probe_observation" to setOf("GATEWAY_OBSERVATION_AVAILABLE", "DEADLINE_WITHOUT_GATEWAY_OBSERVATION", "NO_GATEWAY_OBSERVATION"),
         "gateway_terminal_status" to setOf("completed", "failed", "cancelled", "canceled", "interrupted"),
         "gateway_result_quality" to setOf("complete", "partial"),

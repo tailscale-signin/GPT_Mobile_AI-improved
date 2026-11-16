@@ -30,6 +30,21 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderFailureReportTest {
+    @Test
+    fun toolProtocolFrameReportOnlyRetainsAClosedParserReason() {
+        val failure = dev.chungjungsoo.gptmobile.data.agent.provider.toolCall("call", "weather", "{")
+            .single() as ProviderEvent.Failed
+        val receipt = ProviderFailureReceipt.from(profile, "primary", failure)
+        val fields = ProviderFailureReport.fields("run", failure, receipt)
+        assertEquals(JsonPrimitive("MALFORMED_JSON"), fields["tool_protocol_frame_kind"])
+        val diagnostic = requireNotNull(IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_000L).diagnostics)
+        assertEquals(JsonPrimitive("MALFORMED_JSON"), diagnostic.values["tool_protocol_frame_kind"])
+        assertTrue("TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1" in diagnostic.requiredServiceFeatures())
+        val unrelated = failure.copy(errorCode = "CONTEXT_CAPACITY_EXCEEDED")
+        val other = ProviderFailureReport.fields("run", unrelated, ProviderFailureReceipt.from(profile, "primary", unrelated))
+        assertFalse("tool_protocol_frame_kind" in other)
+    }
+
     private val profile = PlatformV2(uid = "private-profile", name = "Private selected profile", model = "private-model", compatibleType = ClientType.LLAMA)
 
     private fun profileSelectionError(registered: Boolean = true) = dev.chungjungsoo.gptmobile.data.context.GitHubProfileSelectionRejected(

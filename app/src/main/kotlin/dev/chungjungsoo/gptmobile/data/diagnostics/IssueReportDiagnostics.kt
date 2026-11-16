@@ -103,6 +103,7 @@ internal data class IssueReportDiagnostics(
         if ((values.keys + omittedFields).any { it in voiceCapturePlaybackFields || it in voicePackStateFields }) add("VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in composerEvidenceFields }) add("COMPOSER_IME_EVIDENCE_V1")
         if ((values.keys + omittedFields).any { it in completionEvidenceFields } || values["provider_failure_code"] == JsonPrimitive("TOOL_PROTOCOL_INVALID_FRAME")) add("COMPLETION_EVIDENCE_V1")
+        if ("tool_protocol_frame_kind" in values || "tool_protocol_frame_kind" in omittedFields) add("TOOL_PROTOCOL_FRAME_DIAGNOSTICS_V1")
         if (values["voice_phase"] == JsonPrimitive("PREPARING")) add("VOICE_PLAYBACK_PHASE_V1")
         if ((values.keys + omittedFields).any { it in admissionFields }) add("ADMISSION_DIAGNOSTICS_V1")
         if ((values.keys + omittedFields).any { it in reconciliationFields } || (values["provider_failure_code"] as? JsonPrimitive)?.contentOrNull in reconciliationCodes) {
@@ -222,7 +223,7 @@ internal data class IssueReportDiagnostics(
                 IssueReportIncidentCapsule.combinedDeliveryFields +
                 IssueReportIncidentCapsule.acceptanceBlockerFields
         }
-        val failureDetailFields = setOf("provider_failure_stage", "provider_failure_domain", "provider_failure_code", "voice_reply_state", "voice_reply_characters", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "chat_failure_code_state", "provider_error_code_state", "provider_error_origin", "sqlite_constraint_kind", "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections", "provider_limit_source", "provider_cooldown_scope_hash", "unmet_requirement_count", "unmet_capability_count")
+        val failureDetailFields = setOf("provider_failure_stage", "provider_failure_domain", "provider_failure_code", "voice_reply_state", "voice_reply_characters", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "chat_failure_code_state", "provider_error_code_state", "provider_error_origin", "sqlite_constraint_kind", "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections", "tool_protocol_frame_kind", "provider_limit_source", "provider_cooldown_scope_hash", "unmet_requirement_count", "unmet_capability_count")
         private val newEvidenceFieldNames = setOf("end_line", "max_lines", "start_offset", "ranges", "evidence_id").map(::JsonPrimitive).toSet()
         const val MAX_BYTES = 3072
         const val MAX_CRITERIA = 8
@@ -342,6 +343,7 @@ internal data class IssueReportDiagnostics(
             // value; never expose its untrusted message or arbitrary code.
             "provider_error_code_state" to setOf("ABSENT"),
             "provider_error_origin" to setOf("OPENAI_COMPAT_STREAM_ERROR_VALUE"),
+            "tool_protocol_frame_kind" to setOf("MISSING_FUNCTION_NAME", "UNFINISHED_STREAM", "NON_OBJECT_ARGUMENTS", "MALFORMED_JSON"),
             "provider_limit_source" to setOf("upstream_provider_shared_pool", "openrouter_free_tier_per_minute", "openrouter_free_tier_daily"),
 
             "response_format" to setOf("TEXT", "GITHUB_REVIEW_V1", "CLAIM_JSON"),

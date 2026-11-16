@@ -69,8 +69,11 @@ class ProviderLimitDecisionTest {
 
     @Test fun credentialCooldownIsSharedAcrossProfilesForTheSameModelOnlyWithoutPersistingCredentials() {
         val paid = ProviderRequestConfig(
-            "https://openrouter.ai/api/v1", "private-credential",
-            profileUid = "one", providerType = "OPENROUTER", selectedModel = "one-model"
+            "https://openrouter.ai/api/v1",
+            "private-credential",
+            profileUid = "one",
+            providerType = "OPENROUTER",
+            selectedModel = "one-model"
         )
         val failure = ProviderHttpFailure(429, 2_000, knownNotAccepted = true, observedAtMillis = 10_000)
         val first = requireNotNull(providerLimitDecision(paid, "one-model", false, failure))

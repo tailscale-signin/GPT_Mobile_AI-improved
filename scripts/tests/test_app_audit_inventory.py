@@ -133,7 +133,36 @@ class AppAuditInventoryTest(unittest.TestCase):
     def test_committed_inventory_matches_current_source(self):
         root = SCRIPT.parents[1]
         data = inventory.document(root)
-        self.assertEqual(json.dumps(data, indent=2, ensure_ascii=True) + '\n', (root / inventory.ASSET).read_text())
+        committed_text = (root / inventory.ASSET).read_text()
+        committed = json.loads(committed_text)
+        observed_paths = {row['path']: row for row in data['files']}
+        committed_paths = {row['path']: row for row in committed['files']}
+        only_actual = sorted(observed_paths.keys() - committed_paths.keys())
+        only_committed = sorted(committed_paths.keys() - observed_paths.keys())
+        changed_paths = sorted(
+            path for path in observed_paths.keys() & committed_paths.keys()
+            if observed_paths[path] != committed_paths[path]
+        )
+        # Do not print source content, credentials, or arbitrary exception text.
+        # A failing CI job should identify the precise bounded source inventory
+        # difference instead of a truncated 600-KB JSON string comparison.
+        detail = {
+            'actual_digest': data['source_digest'],
+            'committed_digest': committed.get('source_digest'),
+            'actual_file_count': data['file_count'],
+            'committed_file_count': committed.get('file_count'),
+            'only_actual_count': len(only_actual),
+            'only_committed_count': len(only_committed),
+            'changed_count': len(changed_paths),
+            'only_actual_paths': only_actual[:12],
+            'only_committed_paths': only_committed[:12],
+            'changed_paths': changed_paths[:12],
+        }
+        self.assertEqual(
+            json.dumps(data, indent=2, ensure_ascii=True) + '\n',
+            committed_text,
+            'Source inventory mismatch (source names only): ' + json.dumps(detail, sort_keys=True),
+        )
         self.assertEqual(inventory.kotlin_document(data), (root / inventory.KOTLIN).read_text())
 
 

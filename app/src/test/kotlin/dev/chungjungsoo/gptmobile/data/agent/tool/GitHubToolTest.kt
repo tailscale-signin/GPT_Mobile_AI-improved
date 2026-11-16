@@ -1359,4 +1359,29 @@ class GitHubToolTest {
             http.close()
         }
     }
+
+    @Test fun workflowRunPageCompactsNestedProfilesBeforePagination() = runTest {
+        val http = HttpClient(MockEngine { request ->
+            assertEquals("/repos/o/r/actions/runs", request.url.encodedPath)
+            respond("""{"total_count":1,"workflow_runs":[{"id":73,"name":"CI","status":"completed","conclusion":"success","head_sha":"abc","actor":{"login":"reviewer","id":7,"email":"private-email","organizations_url":"private-profile-url"},"triggering_actor":{"login":"reviewer","id":7,"private":"private-details"},"head_commit":{"id":"abc","message":"private-commit-message","author":{"email":"private-author"}},"artifacts_url":"https://api.github.com/artifacts"}]}""")
+        })
+        try {
+            val result = GitHubTool("token", http).execute("compact-run", buildJsonObject {
+                put("action", "list_workflow_runs")
+                put("owner", "o")
+                put("repo", "r")
+                put("per_page", 30)
+            })
+            val output = (result.content as ToolResultContent.Text).text
+            val row = Json.parseToJsonElement(output).jsonObject.getValue("workflow_runs").jsonArray.single().jsonObject
+            assertEquals("reviewer", row.getValue("actor").jsonObject.getValue("login").jsonPrimitive.content)
+            assertEquals("7", row.getValue("actor").jsonObject.getValue("id").jsonPrimitive.content)
+            assertEquals("abc", row.getValue("head_commit").jsonObject.getValue("id").jsonPrimitive.content)
+            assertEquals("https://api.github.com/artifacts", row.getValue("artifacts_url").jsonPrimitive.content)
+            assertFalse(output.contains("private-"))
+        } finally {
+            http.close()
+        }
+    }
+
 }

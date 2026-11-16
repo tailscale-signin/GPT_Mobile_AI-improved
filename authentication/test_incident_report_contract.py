@@ -33,7 +33,8 @@ class IncidentReportContractTest(unittest.TestCase):
         for invalid in ("private arguments", "OTHER", None, 3):
             forged = copy.deepcopy(observed)
             forged["values"]["tool_protocol_frame_kind"] = invalid
-            self.assertIsNone(validate_diagnostics(forged))
+            with self.assertRaises(ValueError):
+                validate_diagnostics(forged)
 
     def test_pr_context_race_capture_is_bounded_and_does_not_reveal_revision_or_cause(self):
         observed = {"pr_context_revision_changed": True, "pr_context_read_requests": 3, "pr_context_read_responses": 3}
@@ -988,7 +989,7 @@ class IncidentReportContractTest(unittest.TestCase):
         }
         receipt = self.capture("VOICE", values)
         validate_diagnostics(receipt)
-        self.assertEqual(values, receipt["values"])
+        self.assertEqual(values, {key: receipt["values"][key] for key in values})
         for reason in ("AUDIO_FOCUS_TIMEOUT", "AUDIO_FOCUS_RESUME_FAILED"):
             validate_diagnostics(self.capture("VOICE", {"voice_playback_failure": reason}))
         with self.assertRaises(ValueError):

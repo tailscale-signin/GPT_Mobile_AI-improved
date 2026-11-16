@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "7947e25d5c6d3767d94891d39522d214eb4fb125e116f4231f3c63376816f3ec",
+  "source_digest": "eac1ff78fea5c73d080bea8cce3153d4d7a42647b744628c9f489d7f4509c3d1",
   "file_count": 2657,
-  "indexed_line_count": 430519,
+  "indexed_line_count": 430557,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 166,
-      "indexed_line_count": 75574
+      "indexed_line_count": 75612
     },
     {
       "id": "authentication_service",
@@ -18266,8 +18266,8 @@
       "path": "gateway/v14/engineering_specialists.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "5661a09c7b37ebdf97a15dea21c237a92d0ae582aecc8334aa84756a44eaa542",
-      "indexed_lines": 103
+      "sha256": "756e4c17ac7207231c195b2c1606d7712acec0eaaa07db01ac0e81917716419e",
+      "indexed_lines": 123
     },
     {
       "path": "gateway/v14/engineering_validation.py",
@@ -18553,8 +18553,8 @@
       "path": "gateway/v14/workspace_search.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "47bbba7f524d52f20121e75a2ffcec69299bb39e623c40f4d468d4d963213821",
-      "indexed_lines": 139
+      "sha256": "ec58767ddff53d50fc3f1ffd3c5fb48046506f7f8f71b143916cbadc5d556c3c",
+      "indexed_lines": 157
     },
     {
       "path": "local-gguf-runtime/src/main/AndroidManifest.xml",

@@ -29,7 +29,7 @@ def investigate(backend, job, tasks):
     # A matching source alone cannot authorize replaying findings from a different
     # selected model, execution route, actor or permission revision.
     identity = {'head_sha': job['data']['head_sha'], 'tasks': tasks,
-                'model': job['request']['model'], 'execution_binding_id': job['request'].get('execution_binding_id'),
+                'model': job['request'].get('model'), 'execution_binding_id': job['request'].get('execution_binding_id'),
                 'principal': job.get('principal'), 'actor_id': job['data'].get('actor_id'),
                 'permission_revision': job['data'].get('permission_revision')}
     binding = hashlib.sha256(json.dumps(identity, sort_keys=True).encode()).hexdigest()

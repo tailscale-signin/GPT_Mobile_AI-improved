@@ -4,6 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
+    "Add an explicit saved-AI-profile GitHub tool audit with live model requests, isolated fixture tool execution, full model-facing action inventory, durable case results and negative-write regression coverage.",
     "Repair final request budgeting, local tool projection, workspace evidence and logs, recovery and completion receipts, and explicit client recovery review. Classify terminal Android CI blockers and keep the validation form scrollable.",
     "Add shared Android admission/replay allocation and action-specific GitHub schema selection; approved workspace check selection and bounded logs; static behavior-test discovery; bounded selected-model investigators; exact-revision artifact and isolated release checks; and idempotent main-build recovery with fresh approval, remaining budgets and cancellation propagation.",
     "Restore bounded Ollama typed transport recovery only under explicit producer retry and replay authority, retain terminal rejection and uncertain-outcome evidence, and disclose the remaining Kokoro word-timing limitation for #1114.",
@@ -160,6 +161,7 @@
     "Provide operator-approved pinned Python sandbox preparation, offline coding-benchmark preflight, Windows onboarding, typed setup diagnosis and retained regression evidence without downloading automatically during benchmark execution."
   ],
   "limitations": [
+    "GitHub AI tool audit exercises selected-profile tool calls against isolated offline fixtures, not live GitHub authorization or mutations; bounded live-read probes remain separately qualified.",
     "The separate ten-scenario production engineering benchmark has not been executed. Its scenario list is retained in the engineering follow-up; execution still requires a designated test repository and runtime. A live 9,043-token request replay on the 5,632-token route, installed phone/Windows gateway acceptance, physical installation and smoke qualification remain unverified. Configured container release checks do not establish physical-device coverage.",
     "The new keyboard and completion diagnostics require a hosted reporter advertising COMPOSER_IME_EVIDENCE_V1 and COMPLETION_EVIDENCE_V1. Confirm keyboard behavior on the affected Android device and empty model responses on the original route.",
     "Voice capture and playback report fields require a hosted reporter advertising VOICE_CAPTURE_PLAYBACK_EVIDENCE_V1. Exact caption highlighting requires speech-engine timing for the displayed utterance. The affected phone and private gateway validation policy require live verification.",
@@ -246,6 +248,10 @@
     "Gateway Windows installer"
   ],
   "allowedPaths": [
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkToolScenario.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubProfileAuditSuite.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubAiProfileAuditControls.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubProfileAuditSuiteTest.kt",
     "gateway/desktop/engineering_composer.py",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolicy.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubEngineeringCiPolling.kt",

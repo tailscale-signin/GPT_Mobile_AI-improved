@@ -127,7 +127,7 @@ class OpenAIAPIImpl @Inject constructor(
         timeoutSeconds: Int,
         config: ProviderRequestConfig
     ): Flow<ChatCompletionChunk> = flow {
-        var config = if (config.freeProvider != null) config.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else config
+        var config = (if (config.freeProvider != null) config.copy(freeDiagnostics = dev.chungjungsoo.gptmobile.data.free.FreeRequestDiagnostics()) else config).copy(selectedModel = request.model)
         val workerBudget = kotlinx.coroutines.currentCoroutineContext()[WorkerRequestBudget]
         val connectionTimeout = kotlinx.coroutines.currentCoroutineContext()[ProfileConnectionTimeout]?.millis
         var receivedAssistantPayload = false
@@ -798,10 +798,10 @@ class OpenAIAPIImpl @Inject constructor(
         var receivedTerminal = false
         var resolvedFreeModel: String? = null
         var preparedRequest = request.withModelSamplingPolicy()
-        var effectiveConfig = config
+        var effectiveConfig = config.copy(selectedModel = request.model)
         try {
             effectiveConfig = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
-                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
+                gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(effectiveConfig, request.model))
             }
             val endpoint = effectiveConfig.buildEndpoint("responses")
 

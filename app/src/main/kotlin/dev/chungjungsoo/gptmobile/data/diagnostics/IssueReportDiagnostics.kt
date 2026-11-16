@@ -414,8 +414,12 @@ internal data class IssueReportDiagnostics(
             "VOICE" to voiceInstallEvidenceFields + voicePackStateFields + voiceCapturePlaybackFields + setOf("voice_install_state", "voice_install_scheduler", "voice_install_failure", "voice_install_stop_reason", "voice_install_progress_percent", "voice_reply_state", "voice_reply_characters", "voice_session_id_hash", "profile_hash", "model_hash", "voice_generation", "voice_engine", "voice_phase", "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_speech_end_to_transcript_ms", "voice_transcript_to_request_ms", "voice_request_to_response_ms", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_focus_result", "voice_input_silenced", "voice_first_audio_basis"),
             "GATEWAY" to setOf("queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason", "status_policy_recovery") + commonHashes + modelPreparationFields + setOf("checkpoint_hash", "original_error_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed"),
             "APP" to composerEvidenceFields + commonHashes + setOf("original_error_code_hash", "app_exit_kind", "chat_failure_code_state"),
-            "INCIDENT" to commonHashes + setOf("original_error_code_hash", "chat_failure_code_state",
-                "provider_error_code_state", "provider_error_origin")
+            "INCIDENT" to commonHashes + setOf(
+                "original_error_code_hash",
+                "chat_failure_code_state",
+                "provider_error_code_state",
+                "provider_error_origin"
+            )
         )
         private val coreFields = mapOf(
             "PROVIDER" to listOf("profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"),

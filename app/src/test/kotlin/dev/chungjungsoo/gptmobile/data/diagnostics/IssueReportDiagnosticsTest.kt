@@ -28,14 +28,17 @@ class IssueReportDiagnosticsTest {
         assertTrue(snapshot.isValid())
         val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_800_000_000_000L)
         assertEquals(snapshot.values["provider_error_origin"], context.diagnostics?.values?.get("provider_error_origin"))
-        val untrusted = requireNotNull(IssueReportDiagnostics.fromFields(
-            "CHAT_FAILURE", fields + mapOf("provider_error_origin" to "https://private-host/key", "provider_error_code_state" to "secret"), 1_800_000_000_000L
-        ))
+        val untrusted = requireNotNull(
+            IssueReportDiagnostics.fromFields(
+                "CHAT_FAILURE",
+                fields + mapOf("provider_error_origin" to "https://private-host/key", "provider_error_code_state" to "secret"),
+                1_800_000_000_000L
+            )
+        )
         assertFalse("provider_error_origin" in untrusted.values)
         assertFalse("provider_error_code_state" in untrusted.values)
         assertFalse("https://private-host/key" in untrusted.toString())
     }
-
 
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)

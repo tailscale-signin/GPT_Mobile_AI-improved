@@ -9,7 +9,10 @@ import org.junit.Test
 
 class OpenRouterRateLimitScopesTest {
     private fun config(model: String) = ProviderRequestConfig(
-        "https://openrouter.ai/api/v1", "test-token", providerType = "OPENROUTER", selectedModel = model
+        "https://openrouter.ai/api/v1",
+        "test-token",
+        providerType = "OPENROUTER",
+        selectedModel = model
     )
 
     @Test fun unrelatedPaidModelsDoNotShareUpstreamCooldowns() {
@@ -17,8 +20,10 @@ class OpenRouterRateLimitScopesTest {
         val second = config("vendor/b")
         assertNotEquals(OpenRouterRateLimitScopes.identity(first), OpenRouterRateLimitScopes.identity(second))
         assertFalse(OpenRouterRateLimitScopes.admissionIdentities(second).contains(OpenRouterRateLimitScopes.identity(first)))
-        assertEquals(OpenRouterRateLimitScopes.identity(first),
-            OpenRouterRateLimitScopes.identity(first, "upstream_provider_shared_pool"))
+        assertEquals(
+            OpenRouterRateLimitScopes.identity(first),
+            OpenRouterRateLimitScopes.identity(first, "upstream_provider_shared_pool")
+        )
     }
 
     @Test fun verifiedFreeTierQuotaIsSharedOnlyByFreeModels() {
@@ -34,25 +39,37 @@ class OpenRouterRateLimitScopesTest {
 
     @Test fun unknown429RemainsModelSpecific() {
         val a = config("vendor/a:free")
-        assertEquals(OpenRouterRateLimitScopes.identity(a),
-            OpenRouterRateLimitScopes.identity(a, "unrecognized_future_value"))
-        assertNotEquals(OpenRouterRateLimitScopes.identity(a),
-            OpenRouterRateLimitScopes.identity(a, "openrouter_free_tier_per_minute"))
+        assertEquals(
+            OpenRouterRateLimitScopes.identity(a),
+            OpenRouterRateLimitScopes.identity(a, "unrecognized_future_value")
+        )
+        assertNotEquals(
+            OpenRouterRateLimitScopes.identity(a),
+            OpenRouterRateLimitScopes.identity(a, "openrouter_free_tier_per_minute")
+        )
     }
 
     @Test fun parsesTypedErrorMetadataNotFreeformMessage() {
-        assertEquals("openrouter_free_tier_per_minute", OpenRouterRateLimitScopes.sourceFromBody(
-            """{"error":{"code":429,"metadata":{"limit_source":"openrouter_free_tier_per_minute"}}}"""
-        ))
-        assertEquals("upstream_provider_shared_pool", OpenRouterRateLimitScopes.sourceFromBody(
-            """{"error":{"metadata":{"limit_source":"upstream_provider_shared_pool"}}}"""
-        ))
+        assertEquals(
+            "openrouter_free_tier_per_minute",
+            OpenRouterRateLimitScopes.sourceFromBody(
+                """{"error":{"code":429,"metadata":{"limit_source":"openrouter_free_tier_per_minute"}}}"""
+            )
+        )
+        assertEquals(
+            "upstream_provider_shared_pool",
+            OpenRouterRateLimitScopes.sourceFromBody(
+                """{"error":{"metadata":{"limit_source":"upstream_provider_shared_pool"}}}"""
+            )
+        )
         assertNull(OpenRouterRateLimitScopes.sourceFromBody("""{"error":{"message":"openrouter_free_tier_per_minute"}}"""))
     }
 
     @Test fun otherProvidersRetainCredentialScope() {
         val a = ProviderRequestConfig("https://api.groq.com/v1", "same-key", selectedModel = "a")
-        assertEquals(OpenRouterRateLimitScopes.identity(a),
-            OpenRouterRateLimitScopes.identity(a.copy(selectedModel = "b")))
+        assertEquals(
+            OpenRouterRateLimitScopes.identity(a),
+            OpenRouterRateLimitScopes.identity(a.copy(selectedModel = "b"))
+        )
     }
 }

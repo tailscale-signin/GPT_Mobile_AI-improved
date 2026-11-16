@@ -101,5 +101,39 @@ INSTRUMENTATION_STATUS_CODE: 0
                 self.check_output(invalid)
 
 
+    def test_aosp_no_english_tts_is_only_an_exactly_identified_prerequisite_skip(self):
+        voice_class = 'dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest'
+        voice_test = 'kokoroDelegateFallsBackToRealAndroidTextToSpeechWhenModelIsMissing'
+        reason = 'The Android device has no available English TTS voice'
+        identity = (voice_class, voice_test)
+        skipped = (f'INSTRUMENTATION_STATUS: class={voice_class}\n'
+                   f'INSTRUMENTATION_STATUS: test={voice_test}\n'
+                   f'INSTRUMENTATION_STATUS: stack=org.junit.AssumptionViolatedException: {reason}\n'
+                   'INSTRUMENTATION_STATUS_CODE: -4\n')
+        self.check_output(skipped + self.FINISH, test_class=voice_class, test_method=voice_test,
+                          optional_assumption_reasons={identity: reason})
+        with self.assertRaisesRegex(ValueError, 'failed or was skipped'):
+            self.check_output(skipped + self.FINISH, test_class=voice_class, test_method=voice_test)
+        for bad in (skipped.replace(reason, 'Unrelated instrumentation failure'),
+                    skipped.replace('CODE: -4', 'CODE: -2')):
+            with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'failed or was skipped'):
+                self.check_output(bad + self.FINISH, test_class=voice_class, test_method=voice_test,
+                                  optional_assumption_reasons={identity: reason})
+        with self.assertRaisesRegex(ValueError, 'did not execute'):
+            self.check_output(self.FINISH, test_class=voice_class, test_method=voice_test,
+                              optional_assumption_reasons={identity: reason})
+        with self.assertRaisesRegex(ValueError, 'did not execute'):
+            self.check_output(skipped + self.FINISH, optional_assumption_reasons={identity: reason})
+
+    def test_aosp_tts_prerequisite_scope_is_bound_to_ci_emulator_matrix(self):
+        root = Path(__file__).resolve().parents[2]
+        workflow = (root / '.github/workflows/release-0950-acceptance.yml').read_text()
+        acceptance = (root / 'scripts/run_release0950_acceptance.sh').read_text()
+        self.assertIn('ACCEPTANCE_EMULATOR_API=${{ matrix.api }} ACCEPTANCE_EMULATOR_TARGET=${{ matrix.target }}', workflow)
+        self.assertIn("os.environ.get('ACCEPTANCE_EMULATOR_API') == '34'", acceptance)
+        self.assertIn("os.environ.get('ACCEPTANCE_EMULATOR_TARGET') == 'default'", acceptance)
+        self.assertIn('optional_assumption_reasons=aosp_tts_assumptions', acceptance)
+
+
 if __name__ == "__main__":
     unittest.main()

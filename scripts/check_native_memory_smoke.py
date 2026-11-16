@@ -27,12 +27,14 @@ def check_reports(directory):
     print(f"Native memory smoke: {TEST_CLASS}.{TEST_METHOD} passed on {len(matched)} device(s)")
 
 
-def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD, *, optional_assumptions=()):
+def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD, *, optional_assumptions=(), optional_assumption_reasons=None):
     """Validate raw am instrument packets; adb's exit code is not a test result."""
     packet = {}
     started = False
     passed = False
     finished = False
+    optional_target_skipped = False
+    optional_assumption_reasons = optional_assumption_reasons or {}
     for line in Path(output).read_text().splitlines():
         if line.startswith(("INSTRUMENTATION_FAILED:", "INSTRUMENTATION_ABORTED:")):
             raise ValueError(f"Native instrumentation aborted: {line}")
@@ -43,7 +45,16 @@ def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD
         elif line.startswith("INSTRUMENTATION_STATUS_CODE: "):
             code = int(line.removeprefix("INSTRUMENTATION_STATUS_CODE: "))
             identity = (packet.get("class"), packet.get("test"))
-            optional_skip = code == -4 and identity in optional_assumptions and identity != (test_class, test_method)
+            permitted_reason = optional_assumption_reasons.get(identity)
+            reason_matched = (
+                code == -4 and permitted_reason is not None
+                and packet.get("stack", "").endswith(permitted_reason)
+            )
+            optional_skip = (
+                code == -4 and identity in optional_assumptions and identity != (test_class, test_method)
+            ) or reason_matched
+            if reason_matched and identity == (test_class, test_method):
+                optional_target_skipped = True
             if code < 0 and not optional_skip:
                 raise ValueError(f"Native smoke failed or was skipped: {packet}")
             if packet.get("class") == test_class and packet.get("test") == test_method:
@@ -60,6 +71,9 @@ def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD
             if int(line.removeprefix("INSTRUMENTATION_CODE: ")) != -1 or finished:
                 raise ValueError(f"Native instrumentation did not finish successfully: {line}")
             finished = True
+    if optional_target_skipped and finished and not started and not passed:
+        print(f"Instrumentation: {test_class}.{test_method} skipped for the exact approved device prerequisite")
+        return
     if not (started and passed and finished):
         raise ValueError("Native encoder/index test did not execute and complete successfully")
     print(f"Instrumentation: {test_class}.{test_method} executed and passed")

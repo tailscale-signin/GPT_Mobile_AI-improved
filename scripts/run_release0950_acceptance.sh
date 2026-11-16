@@ -217,6 +217,15 @@ for test in (
     'largeTextTranscriptActionsRemainReachableAndKeepMessageOwnership',
 ):
     check_instrumentation(folder / 'voice-transcript-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.VoiceTranscriptInstrumentedTest', test)
+# API34's AOSP guest has no English Android TTS engine; API36 Google APIs must
+# still run actual Android fallback playback. Never ignore other failures.
+aosp_tts_assumptions = {}
+if os.environ.get('ACCEPTANCE_EMULATOR_API') == '34' and os.environ.get('ACCEPTANCE_EMULATOR_TARGET') == 'default':
+    aosp_tts_assumptions = {
+        ('dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest',
+         'kokoroDelegateFallsBackToRealAndroidTextToSpeechWhenModelIsMissing'):
+        'The Android device has no available English TTS voice'
+    }
 for test in (
     'packagedNativeSpeechRuntimeMatchesItsJavaApi',
     'kokoroPlaybackClassVerifiesBeforeAnyModelIsInstalled',
@@ -224,7 +233,8 @@ for test in (
     'modelInstallRequiresExplicitAction',
     'downloadCancellationAndModelRemovalHaveSeparateActions',
 ):
-    check_instrumentation(folder / 'local-voice-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest', test)
+    check_instrumentation(folder / 'local-voice-instrumentation.txt', 'dev.chungjungsoo.gptmobile.presentation.ui.voice.LocalVoicePluginInstrumentedTest', test,
+                          optional_assumption_reasons=aosp_tts_assumptions)
 for test in ('roundTripOverwriteAndDelete', 'rejectsUnsafeReferencesAndOversizedSecrets', 'rejectsMalformedRecords', 'oversizedRecordIsRejectedBeforeAllocationAndSizeDoesNotRequireAKey', 'rejectsRecordMovedToAnotherReference', 'missingKeystoreKey_preservesEncryptedRecord'):
     check_instrumentation(folder / 'secret-vault-instrumentation.txt', 'dev.chungjungsoo.gptmobile.data.security.SecretVaultInstrumentedTest', test)
 for test in ('readableDescriptorWithDeniedPathCanBeExplicitlyImported', 'compatibleSourceRemainsInPlaceAndProbeDoesNotOwnItsDescriptor', 'oversizedFileIsRejectedInsteadOfOfferingAnImpossibleCopy'):

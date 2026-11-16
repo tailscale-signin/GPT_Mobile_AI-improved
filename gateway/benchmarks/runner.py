@@ -79,7 +79,8 @@ class BenchmarkRunner:
                 'gapMs': measured['maximumContentGapMs'], 'inputTokens': usage.get('prompt_tokens'),
                 'outputTokens': usage.get('completion_tokens'),
                 'tokensPerSecond': 1000 * tokens / elapsed if tokens and elapsed else None,
-                'outputDigest': measured['outputSha256'], 'finishReason': measured['finishReason'],
+                'outputDigest': measured['outputSha256'], 'outputBytes': measured['outputBytes'],
+                'finishReason': measured['finishReason'],
                 'requestedModel': run['request']['model'], 'transport': 'HTTP_SSE',
                 'observedModel': measured['observedModel'], 'modelReceipt': measured['modelReceipt'],
                 'identityScope': measured['identityScope'], 'gatewayJobId': measured['gatewayJobId'],
@@ -248,10 +249,21 @@ class BenchmarkRunner:
                     return True
                 try:
                     timing = self.measure_case(run, task['id'], turns, None, validate=capture, output_tokens=4096)
-                    final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker,
-                                         execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
+                    # A terminated-at-max-tokens response is not an anchor error.
+                    # Never pass a truncated JSON proposal into the evaluator.
+                    finish = timing.get('finishReason')
+                    if finish != 'stop':
+                        code = 'PATCH_OUTPUT_TRUNCATED' if finish == 'length' else 'PATCH_GENERATION_INCOMPLETE'
+                        final = coding.rejected_submission(task, code)
+                    else:
+                        final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker,
+                                             execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
                     final['timing'] = {key: timing.get(key) for key in ('firstMs', 'totalMs', 'inputTokens', 'outputTokens', 'finishReason')}
-                    final.update({key: timing.get(key) for key in ('observedModel', 'modelReceipt', 'identityScope', 'gatewayJobId')})
+                    # Case-level evidence is sufficient for later issue triage
+                    # without storing unapproved model-generated patch content.
+                    final.update({key: timing.get(key) for key in (
+                        'observedModel', 'modelReceipt', 'identityScope', 'gatewayJobId',
+                        'outputDigest', 'outputBytes')})
                 except sandbox.SandboxInterrupted as error:
                     self.sandbox_interrupted(run, ordinal, task, error, 'CANDIDATE', attempts, timing)
                     raise
@@ -267,11 +279,14 @@ class BenchmarkRunner:
                 # proposal. Observed candidate failures remain repairable.
                 if final.get('resolved') or final.get('integrity') == 'VIOLATION' or final['status'] in {'ERROR', 'BLOCKED'}:
                     break
-                turns = [{'role': 'user', 'content': fixtures.prompt(task)},
-                         {'role': 'assistant', 'content': answer[0] if answer else '{}'},
-                         {'role': 'user', 'content': 'The independent evaluator did not resolve the task. '
-                          + json.dumps({key: final.get(key) for key in ('error', 'checks')})
-                          + '. Return a full corrected proposal against the original displayed files. Hidden answers remain unavailable.'}]
+                # Do not reintroduce a full, possibly truncated assistant answer:
+                # that wastes scarce local context and can repeat malformed data.
+                feedback = {key: final[key] for key in ('error', 'failureStage', 'repairHint', 'checks') if final.get(key) is not None}
+                turns = [{'role': 'user', 'content': fixtures.prompt(task) +
+                          '\nPrevious submission failed independent validation: ' +
+                          json.dumps(feedback, sort_keys=True, ensure_ascii=True) +
+                          '\nReturn ONE concise complete JSON proposal for the ORIGINAL displayed files. '
+                          'Use their exact BLOB hashes and unique anchors. No Markdown; do not claim tests ran.'}]
             final['attempts'] = attempts
             final['firstSubmissionScore'] = attempts[0].get('score')
             final['firstSubmissionResolved'] = attempts[0].get('resolved', False)

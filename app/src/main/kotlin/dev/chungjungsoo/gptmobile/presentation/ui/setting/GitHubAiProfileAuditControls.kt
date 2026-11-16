@@ -31,10 +31,11 @@ internal fun GitHubAiProfileAuditControls(
     profiles: List<PlatformV2>,
     ready: Boolean,
     busy: Boolean,
-    onStart: (String, Boolean) -> Unit
+    onStart: (String, Boolean, Boolean) -> Unit
 ) {
     var profileUid by rememberSaveable { mutableStateOf<String?>(null) }
     var allActions by rememberSaveable { mutableStateOf(false) }
+    var strictDeterministic by rememberSaveable { mutableStateOf(false) }
     val selected = profiles.singleOrNull { it.uid == profileUid }
     Card(Modifier.fillMaxWidth().testTag("github_ai_audit_controls")) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -71,6 +72,20 @@ internal fun GitHubAiProfileAuditControls(
                 Checkbox(checked = allActions, onCheckedChange = null, enabled = !busy)
                 Text("Full action-by-action coverage", Modifier.weight(1f))
             }
+            Row(
+                Modifier.fillMaxWidth().toggleable(strictDeterministic, enabled = !busy, role = Role.Checkbox) {
+                    strictDeterministic = it
+                }.padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Checkbox(checked = strictDeterministic, onCheckedChange = null, enabled = !busy)
+                Text("Strict deterministic policy (requires verified model reasoning control)", Modifier.weight(1f))
+            }
+            Text(
+                "By default the audit preserves the saved profile's model, reasoning and sampling settings. " +
+                    "Strict deterministic testing may block a model that cannot prove Reasoning OFF.",
+                style = MaterialTheme.typography.bodySmall
+            )
             val count = if (allActions) GitHubProfileAuditSuite.actionCount() else GitHubProfileAuditSuite.familyCount()
             Text(
                 "$count isolated scenarios · " + if (allActions) "every advertised GitHub tool action" else "one check per GitHub tool family",
@@ -83,7 +98,7 @@ internal fun GitHubAiProfileAuditControls(
                 style = MaterialTheme.typography.bodySmall
             )
             Button(
-                onClick = { selected?.let { onStart(it.uid, allActions) } },
+                onClick = { selected?.let { onStart(it.uid, allActions, strictDeterministic) } },
                 enabled = ready && !busy && selected != null,
                 modifier = Modifier.fillMaxWidth().testTag("github_ai_audit_start")
             ) {

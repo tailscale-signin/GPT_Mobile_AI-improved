@@ -430,7 +430,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
     }
 
     /** Uses exactly the selected saved AI profile, never the active chat, a reviewer or another provider. */
-    fun startGitHubToolAudit(profileUid: String, allActions: Boolean): Boolean {
+    fun startGitHubToolAudit(profileUid: String, allActions: Boolean, strictDeterministic: Boolean = false): Boolean {
         if (execution.isRunning || !mutableReady.value) return false
         val target = profiles.value.singleOrNull {
             it.uid == profileUid && it.enabled && it.model.isNotBlank()
@@ -444,7 +444,7 @@ class ProfileBenchmarkViewModel @Inject constructor(
             mutableError.value = "GitHub tool contracts are unavailable in this build."
             return false
         }
-        val policy = BenchmarkExecutionPolicy.DETERMINISTIC_CAPABILITY_V1
+        val policy = dev.chungjungsoo.gptmobile.data.benchmark.githubAuditExecutionPolicy(strictDeterministic)
         val batch = BenchmarkBatch(
             id = UUID.randomUUID().toString(),
             mode = BenchmarkMode.GITHUB_INTEGRATION,

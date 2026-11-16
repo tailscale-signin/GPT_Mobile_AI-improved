@@ -417,8 +417,8 @@ fun ProfileBenchmarkScreen(
                         profiles = auditModelCandidates,
                         ready = ready,
                         busy = session != null || progress != null,
-                        onStart = { profileUid, allActions ->
-                            if (viewModel.startGitHubToolAudit(profileUid, allActions)) cancellationRequestedFor = null
+                        onStart = { profileUid, allActions, strictDeterministic ->
+                            if (viewModel.startGitHubToolAudit(profileUid, allActions, strictDeterministic)) cancellationRequestedFor = null
                         }
                     )
                 }

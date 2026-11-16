@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "4b5594a0ca4401ccb0431e260cc53040bae4617f6ac26d39f06a8dccd274396d",
+  "source_digest": "8be70459371b3e930509c37d324ce4e560b3f5d28969f15c3838a385238cbb90",
   "file_count": 2662,
-  "indexed_line_count": 431996,
+  "indexed_line_count": 432004,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 237,
-      "indexed_line_count": 39303
+      "indexed_line_count": 39311
     },
     {
       "id": "research",
@@ -6436,8 +6436,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringRepository.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "65a9b10e1f222fa3dd3e9b9f820817c5e6aba0f17398012cf4d01041aac01484",
-      "indexed_lines": 627
+      "sha256": "482b4981179fc7454b39915a552c335b63f665d605845d9797cedfd7f90c907f",
+      "indexed_lines": 635
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GatewayEngineeringStore.kt",

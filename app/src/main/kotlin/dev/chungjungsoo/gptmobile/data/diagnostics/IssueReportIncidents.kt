@@ -47,7 +47,9 @@ internal object IssueReportIncidents {
         val invocationId: String?,
         val callId: String?,
         val jobId: String?,
-        val activeJobId: String?
+        val activeJobId: String?,
+        val stage: String?,
+        val exceptionFingerprint: String?
     )
     private val lastFailures = mutableMapOf<FailureKey, Long>()
     private val lastCauses = mutableMapOf<IssueReportIncidentCapsule.CausalIdentity, Long>()
@@ -235,7 +237,11 @@ internal object IssueReportIncidents {
                 reportSource,
                 IssueReportIncidentCapsule.fields(feature, reportSource, publicCode, if (feature == ReportFeature.APP) fields + appDiagnosticFields(code) else fields)
             )
-            val key = FailureKey(feature, publicCode, evidence.runIdHash, evidence.invocationIdHash, evidence.callIdHash, evidence.jobIdHash, evidence.activeJobIdHash)
+            // Distinct failures may share a public code and run within the debounce window.
+            // Retain observed stage and a sanitized exception fingerprint in the private key;
+            // neither raw exception text nor stack details are stored in this index.
+            val fingerprint = evidence.exceptionFingerprint ?: error?.let(IssueReportContext::exceptionFingerprint)
+            val key = FailureKey(feature, publicCode, evidence.runIdHash, evidence.invocationIdHash, evidence.callIdHash, evidence.jobIdHash, evidence.activeJobIdHash, evidence.stage, fingerprint)
             evidence.diagnostics?.let(ReportDiagnosticSnapshots::retain)
             addEvent('E', feature, publicCode)
             val cause = IssueReportIncidentCapsule.identity(evidence, publicCode)

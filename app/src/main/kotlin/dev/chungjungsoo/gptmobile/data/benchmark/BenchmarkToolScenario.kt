@@ -4,9 +4,9 @@ import dev.chungjungsoo.gptmobile.data.agent.AgentTool
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
+import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.CalculatorTool
-import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -87,8 +87,10 @@ internal class BenchmarkToolScenario(private val test: BenchmarkCase, private va
     }
 
     fun valid(call: ProviderEvent.ToolCall): Boolean = when {
-        githubFixture != null -> call.name == githubFixture.operation && call.arguments == githubFixture.arguments &&
-            ToolArgumentValidator.errors(call.arguments, githubFixture.definition.inputSchema).isEmpty()
+        githubFixture != null ->
+            call.name == githubFixture.operation &&
+                call.arguments == githubFixture.arguments &&
+                ToolArgumentValidator.errors(call.arguments, githubFixture.definition.inputSchema).isEmpty()
         test.calculatorExpression != null -> call.name == "calculate_expression" && call.arguments == buildJsonObject { put("expression", test.calculatorExpression) }
         research && call.name == "benchmark_search" -> call.arguments == buildJsonObject { put("query", "parcel") }
         research && call.name == "benchmark_read" -> call.arguments == buildJsonObject { put("url", "fixture://parcel-record") }

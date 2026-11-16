@@ -252,4 +252,38 @@ class ToolReportIncidentProjectionTest {
     }
 
     private fun event(arguments: String) = ToolEvent("private-event", "private-run", 1, "private-call", null, null, "github_issue", "github_issue", arguments, null, null, "FAILED")
+
+    @Test fun changedPrHeadReportRetainsOnlyMeasuredReadCounts() {
+        val event = event("""{"action":"context","pull_number":1349}""")
+            .copy(modelToolName = "github_pr__selected")
+        val receipt = buildJsonObject {
+            put("schema", "github.dispatch.v1")
+            put("live_read_performed", true)
+            put("read_requests", 3)
+            put("read_response_observations", 3)
+            put("private_head_sha", "never-expose-this")
+        }
+        val result = AgentToolResult(
+            event.callId,
+            ToolResultContent.Text("private-error-body"),
+            true,
+            errorCode = "GITHUB_PR_HEAD_CHANGED",
+            executionReceipt = receipt,
+            dispatched = true
+        )
+        val fields = ToolReportDiagnostics.fields(event, result)
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("GITHUB_PR_HEAD_CHANGED"), report.values["tool_error_code"])
+        assertEquals(JsonPrimitive(true), report.values["pr_context_revision_changed"])
+        assertEquals(JsonPrimitive(3), report.values["pr_context_read_requests"])
+        assertEquals(JsonPrimitive(3), report.values["pr_context_read_responses"])
+        assertTrue(IssueReportIncidentCapsule.GITHUB_PR_CONTEXT_RACE_FEATURE in report.requiredServiceFeatures())
+        assertFalse(report.toString().contains("never-expose-this"))
+        assertFalse(report.toString().contains("private-error-body"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(callId = "wrong"), result).containsKey("pr_context_revision_changed"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(modelToolName = "github_ci"), result).containsKey("pr_context_revision_changed"))
+        assertFalse(ToolReportDiagnostics.fields(event, result.copy(dispatched = false)).containsKey("pr_context_revision_changed"))
+        assertFalse(ToolReportDiagnostics.fields(event, result.copy(executionReceipt = JsonObject(receipt + ("live_read_performed" to JsonPrimitive(false))))).containsKey("pr_context_revision_changed"))
+    }
+
 }

@@ -24,6 +24,10 @@ internal object ProviderFailureReport {
         metadata: GatewayResponseMetadata? = null
     ): JsonObject = buildJsonObject {
         put("diagnostic_area", "PROVIDER")
+        // Closed, content-free rate-limit evidence for future provider incident triage.
+        for (key in listOf("provider_limit_source", "provider_cooldown_scope_hash")) {
+            failure.failureDetails?.get(key)?.let { put(key, it) }
+        }
         for (key in listOf("reasoning_probe_outcome", "reasoning_probe_attempts", "reasoning_probe_age_ms", "reasoning_metadata_age_ms", "reasoning_capability_age_ms", "reasoning_model_state", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash")) {
             failure.failureDetails?.get(key)?.let { put(key, it) }
         }
@@ -135,6 +139,9 @@ internal object ProviderFailureReport {
             put("provider_checkpoint_present", limit.gitHubCheckpoint != null)
             put("provider_checkpoint_continuation_allowed", limit.checkpointContinuationAllowed)
             limit.consecutiveRejections.bounded()?.let { put("provider_consecutive_rejections", it) }
+            limit.limitSource?.let { put("provider_limit_source", it) }
+            limit.scope.takeIf { it.startsWith("provider:") }?.removePrefix("provider:")
+                ?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { put("provider_cooldown_scope_hash", it) }
         }
         val backend = receipt.gatewayAttemptEvidence
         listOf("attempts" to "backend_attempts", "completed_attempts" to "backend_completed_attempts", "failed_attempt" to "backend_failed_attempt")

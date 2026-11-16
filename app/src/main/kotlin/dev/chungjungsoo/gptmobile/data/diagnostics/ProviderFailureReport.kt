@@ -38,7 +38,7 @@ internal object ProviderFailureReport {
             reason?.takeIf { it in setOf("MISSING_FUNCTION_NAME", "UNFINISHED_STREAM", "NON_OBJECT_ARGUMENTS", "MALFORMED_JSON") }
                 ?.let { put("tool_protocol_frame_kind", it) }
         }
-        if (failure.errorCode.equals("CONVERSATION_CONFLICT", ignoreCase = true)) {
+        if (failure.errorCode in setOf("CONVERSATION_CONFLICT", "CLIENT_TOOL_RESULTS_REQUIRED")) {
             val details = failure.failureDetails.orEmpty()
             val kind = (details["active_job_kind"] as? JsonPrimitive)?.contentOrNull
             kind?.takeIf { it in setOf("generation", "engineering") }?.let { put("conflict_active_job_kind", it) }

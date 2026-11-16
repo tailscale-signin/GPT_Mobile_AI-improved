@@ -36,6 +36,19 @@ class IncidentReportContractTest(unittest.TestCase):
             with self.assertRaises(ValueError):
                 validate_diagnostics(forged)
 
+    def test_pending_gateway_tool_results_accept_closed_handoff_diagnostics(self):
+        capture = self.capture("PROVIDER", {
+            "provider_failure_code": "CLIENT_TOOL_RESULTS_REQUIRED",
+            "conflict_pending_tool_count": 2,
+            "conflict_pending_tool_state": "IDENTIFIED",
+            "conflict_pending_tool_ids_hash": "a" * 64,
+            "conflict_handoff_sequence": 3,
+        })
+        self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+        for value in ("private job", "CLIENT_TOOL_RESULTS_REQUIRED extra", False, -1):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("PROVIDER", {"provider_failure_code": value}))
+
     def test_pr_context_race_capture_is_bounded_and_does_not_reveal_revision_or_cause(self):
         observed = {"pr_context_revision_changed": True, "pr_context_read_requests": 3, "pr_context_read_responses": 3}
         capture = self.capture("TOOL", observed)

@@ -157,7 +157,7 @@ ENUMS["workflow_dependency_observation"] = {"UNOBSERVED", "READ_FAILED", "OBSERV
 FIELDS_BY_AREA["ACCEPTANCE"].update({"repository_graph_observation", "graph_input_blocked_count", "workflow_dependency_observation"})
 
 # Bounded evidence from the owning request and the exact retained verdict.
-ENUMS["provider_failure_code"].update({"CONVERSATION_CONFLICT", "GITHUB_CIRCUIT_OPEN", "REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED"})
+ENUMS["provider_failure_code"].update({"CONVERSATION_CONFLICT", "CLIENT_TOOL_RESULTS_REQUIRED", "GITHUB_CIRCUIT_OPEN", "REASONING_OFF_UNSUPPORTED", "REASONING_ON_UNSUPPORTED"})
 ENUMS["conflict_active_job_kind"] = {"generation", "engineering"}
 ENUMS["github_cooldown_stop"] = {"WAIT_ALREADY_USED", "WAIT_LIMIT", "TASK_DEADLINE"}
 HASH_FIELDS.add("conflict_conversation_hash")

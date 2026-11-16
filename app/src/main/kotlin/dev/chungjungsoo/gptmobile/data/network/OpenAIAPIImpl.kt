@@ -323,7 +323,7 @@ class OpenAIAPIImpl @Inject constructor(
                                         response.headers["X-Gateway-Job-ID"].isNullOrBlank(),
                                     rateReset = response.headers["X-RateLimit-Reset"],
                                     errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                    errorType = rateLimitErrorType(errorBody)
+                                    errorType = rateLimitErrorType(errorBody), limitSource = OpenRouterRateLimitScopes.sourceFromBody(errorBody)
                                 )
                             }
                             if (!retainedGatewayAttempts) throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)
@@ -514,7 +514,7 @@ class OpenAIAPIImpl @Inject constructor(
                                     knownNotAccepted = !receivedAssistantPayload,
                                     rateReset = response.headers["X-RateLimit-Reset"],
                                     errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                    errorType = rateLimitErrorType(data),
+                                    errorType = rateLimitErrorType(data), limitSource = OpenRouterRateLimitScopes.sourceFromBody(data),
                                     checkpointContinuationAllowed = true
                                 )
                             }
@@ -882,7 +882,7 @@ class OpenAIAPIImpl @Inject constructor(
                                                 response.headers["X-Gateway-Job-ID"].isNullOrBlank(),
                                             rateReset = response.headers["X-RateLimit-Reset"],
                                             errorOrigin = response.headers["X-OpenRouter-Error-Origin"],
-                                            errorType = rateLimitErrorType(errorBody)
+                                            errorType = rateLimitErrorType(errorBody), limitSource = OpenRouterRateLimitScopes.sourceFromBody(errorBody)
                                         )
                                     }
                                     throwIfToolDefinitionsRejected(response.status.value, !request.tools.isNullOrEmpty(), errorBody)

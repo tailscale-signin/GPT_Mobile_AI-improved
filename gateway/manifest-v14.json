@@ -153,8 +153,8 @@
     "tests/test_deep_research_overhaul.py": "75db5e20ef7d740240e709e85edba4400c7ed3290fdafe4230eace5992117104",
     "tests/test_gateway_acceptance_discovery.py": "c6d0ac396f60f0884f791a1f2b615446fc661e7598e798036543a634e5e717d2",
     "tests/test_gateway_adaptive_sampling.py": "c246b4e5c1f8822af877ce2a6c5fa8c6e03bacd7c9680ac054df112832a4e10b",
-    "tests/test_gateway_autonomous_recovery.py": "389210b22b98f6053f12865254551e72c7c3261a7c46fb59789a9136ecf891d5",
-    "tests/test_gateway_autonomous_tools.py": "2bf24fb3e730e9e1a9f892be51e80d497bd5ada7e74ed2257805f48be11b14ee",
+    "tests/test_gateway_autonomous_recovery.py": "a166abe6fab8c1d914b919bb118641afa792945506cdf46fcb3328a4cfab1d17",
+    "tests/test_gateway_autonomous_tools.py": "a74cf7803e41ecf788157a29608ec6e4100ded1d3d9cf856a2a8af2dfa4c6123",
     "tests/test_gateway_backend_diagnostics.py": "e6161fb500ef293ad2490ce15af295b25ef5cbda44e70e072d4921da834ef340",
     "tests/test_gateway_batch_deferral.py": "5139c6f2d91130966b2a5fe1eaa999d938720ee385eb848c0edb1555af44d250",
     "tests/test_gateway_benchmark_cleanup.py": "4da20f33e0c03651c95dd3f743f7c74ae9bf7ee2636f2294019a9c43c79430d4",
@@ -307,7 +307,7 @@
     "v14/engineering_routes.py": "2b2ad5dc3b83ed818dfbff40d3a41cb0a9e1ba0f7dd37689ae43ccf386198577",
     "v14/engineering_scope.py": "7aed6367b49de3b6b935dc164e9371f0022abd4b7355f971e3f2e69aac4572a0",
     "v14/engineering_source.py": "7aa4530e19ce10210a5b7ab0e427e77b31b72580ef521bd650a592ed986f013f",
-    "v14/engineering_specialists.py": "5661a09c7b37ebdf97a15dea21c237a92d0ae582aecc8334aa84756a44eaa542",
+    "v14/engineering_specialists.py": "3021ef75df05edb86baebca6c7520bb5c49215485c90f3329ad1532611ac735f",
     "v14/engineering_validation.py": "39ca733f8fcc75a797135e72fd876f4e7a2f0b2272a67ebd8cbccf5a521b0699",
     "v14/engineering_workflows.py": "b1d66e7d93b43db1892c04b76c1289bff62a5647a467f4ba971c922672904bf9",
     "v14/engineering_workspace.py": "0198f9a4ee00422a3fa1010d37b513874899a66c995b499e381019db424a4a84",
@@ -348,6 +348,6 @@
     "v14/tools.py": "528eeb0a680b257d3de4bb856afc67a1ddd493763a7d7ed0ba2e9c052fbceb63",
     "v14/usage.py": "78ed6358fe1ea50c045d41438aeb57d40ea1e6c2f84fd0f66d01b1204ae316c7",
     "v14/validation_host.py": "a06b03dcb7e5b31aa50a40de8ede44ef446c3922c33ca46033deccda4296632e",
-    "v14/workspace_search.py": "47bbba7f524d52f20121e75a2ffcec69299bb39e623c40f4d468d4d963213821"
+    "v14/workspace_search.py": "ec58767ddff53d50fc3f1ffd3c5fb48046506f7f8f71b143916cbadc5d556c3c"
   }
 }

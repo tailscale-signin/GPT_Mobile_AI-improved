@@ -1192,7 +1192,7 @@ class GitHubTool(
                     runs.forEach { item ->
                         add(
                             buildJsonObject {
-// Avoid retaining nested actor/commit objects which make a
+                                // Avoid retaining nested actor/commit objects which make a
                                 // valid workflow page exceed the model-visible byte allowance.
                                 listOf("id", "workflow_id", "name", "path", "display_title", "event", "status", "conclusion", "head_branch", "head_sha", "run_number", "run_attempt", "run_started_at", "created_at", "updated_at", "html_url", "jobs_url", "logs_url", "artifacts_url").forEach { key ->
                                     item.jsonObject[key]?.let { put(key, it) }

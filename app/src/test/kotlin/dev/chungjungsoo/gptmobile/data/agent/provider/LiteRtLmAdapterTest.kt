@@ -1304,7 +1304,7 @@ class LiteRtLmAdapterTest {
             listOf(
                 ProviderEvent.PhaseChanged(LocalInferencePhase.INSPECTING),
                 ProviderEvent.Notice(LiteRtLmAdapter.DEFAULT_TOO_MANY_IMAGES, persistent = true),
-                configuredLocalRequest(images = 10),
+                configuredLocalRequest(images = 10, effectiveOutputTokens = 880),
                 ProviderEvent.TextDelta("ok", OutputLineage(OutputOrigin.MODEL_TEXT)),
                 ProviderEvent.Completed
             ),
@@ -1857,7 +1857,7 @@ class LiteRtLmAdapterTest {
             AgentToolResult(id, ToolResultContent.Text("Verified observation"), false)
         }
         val events = adapter(runtime).openSession(
-            turns("What can you do?"),
+            turns("Use lookup to answer this request."),
             localPlatform().copy(maxTokens = 8192, systemPrompt = "System instruction ".repeat(185)),
             listOf(tool)
         ).streamRound(emptyList(), emptyList()).toList()
@@ -3182,10 +3182,10 @@ class LiteRtLmAdapterTest {
         assertTrue(events.last() is ProviderEvent.Completed)
     }
 
-    private fun configuredLocalRequest(images: Int = 0) = ProviderEvent.RequestConfigured(
+    private fun configuredLocalRequest(\n        images: Int = 0,\n        effectiveOutputTokens: Int = 1024\n    ) = ProviderEvent.RequestConfigured(
         configuredProfileOutputTokens = 1024,
         requestedOutputTokens = 1024,
-        effectiveOutputTokens = 1024,
+        effectiveOutputTokens = effectiveOutputTokens,
         configuredProfileType = ClientType.LITERT_LM.name,
         actualAccelerator = LocalAccelerators.GPU,
         artifactRuntime = "LITERT_MODEL",

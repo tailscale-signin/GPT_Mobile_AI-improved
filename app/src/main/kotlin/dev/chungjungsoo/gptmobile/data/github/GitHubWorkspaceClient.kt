@@ -510,7 +510,7 @@ class GitHubWorkspaceClient(
                 pageResult(request("$root/pulls/$number/files?$pagination"), page, perPage, "filename", "status", "additions", "deletions", "changes", "sha", "previous_filename", "patch")
             }
             "get_pull_request_comments" -> pullRequestComments(root, required("pull_number").toInt().also { require(it > 0) }, page)
-"pr_context" -> {
+            "pr_context" -> {
                 val number = required("pull_number").toInt().also { require(it > 0) }
                 try {
                     prContext(root, number, args, page)

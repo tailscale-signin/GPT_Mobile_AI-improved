@@ -16,13 +16,14 @@ class ProviderCooldownPreflightTest {
 
     @Test fun sharedPaidCooldownIsKnownBeforePreparationAndDoesNotClaimAnotherHttpRejection() = runBlocking {
         val profile = profile()
-        val config = ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid)
+        val config = ProviderRequestConfig(profile.apiUrl, profile.token, profileUid = profile.uid, selectedModel = profile.model)
         withContext(ProviderWaitContext(durableRateLimits = true) {}) {
             val failure = ProviderCooldown.rejected(config, 429, "60", knownNotAccepted = true)
-            val preflight = requireNotNull(providerPreflightLimit(profile.copy(uid = "other", model = "other-model")))
+            assertNull(providerPreflightLimit(profile.copy(uid = "other", model = "other-model")))
+            val preflight = requireNotNull(providerPreflightLimit(profile.copy(uid = "other")))
             assertEquals(ProviderCooldown.scope(config), preflight.scope)
             assertEquals("other", preflight.profileUid)
-            assertEquals("other-model", preflight.model)
+            assertEquals(profile.model, preflight.model)
             assertEquals("LOCAL_COOLDOWN_ACTIVE", preflight.category)
             assertEquals("SHARED_COOLDOWN", preflight.retrySource)
             assertEquals(1, preflight.consecutiveRejections)
@@ -37,12 +38,12 @@ class ProviderCooldownPreflightTest {
     @Test fun anAvailableAlternateCredentialRemainsDispatchableAndAllBlockedKeysUseTheEarliestDeadline() {
         val profile = profile()
         val alternate = "alternate-${UUID.randomUUID()}"
-        ProviderCooldown.defer(ProviderRequestConfig(profile.apiUrl, profile.token), "120")
+        ProviderCooldown.defer(ProviderRequestConfig(profile.apiUrl, profile.token, selectedModel = profile.model), "120")
         val multiple = profile.copy(token = "${profile.token}\n$alternate")
         assertNull(ProviderCooldown.preflight(multiple))
-        ProviderCooldown.defer(ProviderRequestConfig(profile.apiUrl, alternate), "60")
+        ProviderCooldown.defer(ProviderRequestConfig(profile.apiUrl, alternate, selectedModel = profile.model), "60")
         val result = requireNotNull(ProviderCooldown.preflight(multiple))
-        assertEquals(ProviderCooldown.scope(ProviderRequestConfig(profile.apiUrl, alternate)), result.scope)
+        assertEquals(ProviderCooldown.scope(ProviderRequestConfig(profile.apiUrl, alternate, selectedModel = profile.model)), result.scope)
         assertTrue(result.retryAt - System.currentTimeMillis() in 50_000..61_000)
     }
 
@@ -50,8 +51,8 @@ class ProviderCooldownPreflightTest {
         val profile = profile()
         val alternate = "alternate-${UUID.randomUUID()}"
         val multiple = profile.copy(token = "${profile.token}\n$alternate")
-        ProviderCooldown.defer(ProviderRequestConfig(profile.apiUrl, profile.token), "60")
-        ProviderCooldown.defer(ProviderRequestConfig(profile.apiUrl, alternate), "120")
+        ProviderCooldown.defer(ProviderRequestConfig(profile.apiUrl, profile.token, selectedModel = profile.model), "60")
+        ProviderCooldown.defer(ProviderRequestConfig(profile.apiUrl, alternate, selectedModel = profile.model), "120")
         val first = requireNotNull(ProviderCooldown.preflight(multiple))
         repeat(2) {
             val next = requireNotNull(ProviderCooldown.preflight(multiple))

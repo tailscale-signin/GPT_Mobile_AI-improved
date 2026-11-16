@@ -42,7 +42,14 @@ internal object IssueReportManualCapture {
     }
 
     /** Takes the rendered preview, not a fresh snapshot collected after the user pressed Send. */
-    fun submission(preview: IssueReport, title: String, description: String, include: Boolean, relatedIssueNumber: Int? = null): IssueReport {
+    fun submission(
+        preview: IssueReport,
+        title: String,
+        description: String,
+        include: Boolean,
+        relatedIssueNumber: Int? = null,
+        attachment: IssueReportAttachment? = null
+    ): IssueReport {
         require(preview.source == "manual")
         // Retain the metadata already shown in the preview. Constructing a fresh
         // report here would read Android state after review and break pure callers.
@@ -59,7 +66,8 @@ internal object IssueReportManualCapture {
             title = diagnosticMessageForStorage(title.trim()).issueReportPrefix(IssueReport.TITLE_LIMIT),
             description = diagnosticMessageForStorage(body.trim()).issueReportPrefix(IssueReport.DESCRIPTION_LIMIT),
             events = if (include) preview.events else emptyList(),
-            context = context
+            context = context,
+            attachment = attachment?.also { require(it.valid()) }
         )
     }
 }

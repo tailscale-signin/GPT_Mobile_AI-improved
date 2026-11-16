@@ -7,6 +7,28 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSpeechBufferTest {
+    @Test fun conversationalModesKeepTheFirstPhraseShortAndUseLargerFollowups() {
+        val first = "One two three four "
+        val followUp = "five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty "
+        val buffer = VoiceSpeechBuffer()
+        val words = VoicePerformanceMode.BALANCED.followUpWords
+        assertEquals(listOf(first), buffer.append(first, final = false, earlyStart = true, followUpWords = words))
+        assertEquals(emptyList<String>(), buffer.append(first + "five six seven ", final = false, earlyStart = true, followUpWords = words))
+        assertEquals(listOf(followUp), buffer.append(first + followUp, final = false, earlyStart = true, followUpWords = words))
+        assertEquals(listOf("Finished."), buffer.append(first + followUp + "Finished.", final = true, earlyStart = true, followUpWords = words))
+    }
+
+    @Test fun quietLimiterPreservesNonQuietSamplesAndCapsSilenceAcrossNativeBatches() {
+        val limiter = VoiceQuietLimiter(sampleRate = 8000, maxQuietMs = 70)
+        val first = floatArrayOf(.01f) + FloatArray(450)
+        assertTrue(first.contentEquals(limiter.filter(first)))
+        val second = FloatArray(200) + floatArrayOf(-.02f, .001f) + FloatArray(500)
+        val expected = FloatArray(110) + floatArrayOf(-.02f, .001f) + FloatArray(500)
+        assertTrue(expected.contentEquals(limiter.filter(second)))
+        assertEquals(60, limiter.filter(FloatArray(100)).size)
+        assertEquals(0, limiter.filter(FloatArray(100)).size)
+    }
+
     @Test fun everyCharacterLinkBoundaryKeepsLabelsWithoutSpeakingDestinationsOrRepeatingWords() {
         val buffer = VoiceSpeechBuffer()
         val input = "See https://private.example/path?token=opaque, " +

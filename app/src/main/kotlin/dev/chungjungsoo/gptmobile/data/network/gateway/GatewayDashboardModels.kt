@@ -45,6 +45,7 @@ internal data class GatewayDashboardSnapshot(
     val devices: List<GatewayDashboardDevice>?,
     val activities: List<GatewayDashboardActivity>?,
     val historyAvailable: Boolean,
+    val capabilityInventory: GatewayToolInventory?,
     val uptime: Double?,
     val requests: Long?,
     val errors: Long?,
@@ -163,6 +164,9 @@ internal fun parseGatewayDashboard(value: JsonObject): GatewayDashboardSnapshot 
     } else {
         null
     }
+    val capabilityInventory = (value["capabilityInventory"] as? JsonObject)
+        ?.takeIf { availability.flag("capabilities") }
+        ?.let { parseGatewayToolInventory(it, ((value.number("capturedAt") ?: 0.0) * 1000).toLong()) }
     return GatewayDashboardSnapshot(
         instance,
         value.number("capturedAt"),
@@ -177,6 +181,7 @@ internal fun parseGatewayDashboard(value: JsonObject): GatewayDashboardSnapshot 
         devices,
         activity,
         history,
+        capabilityInventory,
         value.number("uptime"),
         value.count("requests"),
         value.count("errors"),

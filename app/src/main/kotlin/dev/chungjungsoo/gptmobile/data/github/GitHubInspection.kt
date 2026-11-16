@@ -33,6 +33,7 @@ internal class GitHubInspection(private val get: suspend (String) -> JsonElement
             put("available", false)
             put("state", "unknown")
             put("http_status", (failure as? GitHubRequestRejected)?.status?.takeIf { it in 100..599 })
+            (failure as? GitHubRequestRejected)?.policyObservationFor(path)?.let { put("policy_response_observation", it) }
             put("reason", "Endpoint unavailable or access denied; no permission or absence inferred.")
         }
     }

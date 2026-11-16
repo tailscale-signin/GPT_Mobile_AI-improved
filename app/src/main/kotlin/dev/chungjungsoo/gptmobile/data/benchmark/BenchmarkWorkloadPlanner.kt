@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.benchmark
 
+import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
+
 /** Stable context tiers keep differently sized fixtures out of the same scoring cohort. */
 internal object BenchmarkWorkloadPlanner {
     fun contextTier(tokens: Int): Int = Integer.highestOneBit(tokens.coerceIn(256, 32768))
@@ -8,7 +10,9 @@ internal object BenchmarkWorkloadPlanner {
         if (contextTokens == null) return suite
         // Match LocalContextPlanner's UTF-8 bytes / 2 estimate. Leave room for
         // output, chat template, system/capability instructions and slack. Historical suites retain their original reserve.
-        val promptBudget = (contextTier(contextTokens) - reserveTokens).coerceAtLeast(128)
+        val promptBudget = (
+            RequestAdmission.maximumEstimatedPrompt(contextTier(contextTokens).toLong()) - reserveTokens
+            ).coerceAtLeast(128).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
         return suite.map { test ->
             val budget = when (test.workload) {
                 "short" -> maxOf(128, promptBudget / 4)

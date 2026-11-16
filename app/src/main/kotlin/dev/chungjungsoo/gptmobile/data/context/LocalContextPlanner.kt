@@ -66,13 +66,14 @@ internal object LocalContextPlanner {
                 ?: selected.sumOf { estimate(it.name) + estimate(it.description) + estimate(it.inputSchema.toString()) + 32 }
             ) +
             renderCapabilityPrompt?.let { estimate(it(selected)) }.orZero()
-        // Tool definitions are charged below at their measured cost. Reserving another
-        // tool block here double-counted the same tokens and caused local conversations
-        // to silently receive zero tools on small-context models.
-        val templateReserve = 256 // Matches the minimum uncertainty reserve at physical dispatch.
+        var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
+        // Tool definitions are charged below at their measured cost. Physical
+        // admission adds uncertainty to the *fully rendered* prompt, so every
+        // provisional catalog below recomputes that reserve from its own upper
+        // bound. Do not both subtract a fixed reserve here and invert the admission
+        // estimator later: that double reservation rejected otherwise valid work.
         // Reserve explicit result headroom for small local contexts; larger engines have
         // provider-level response budgeting and should not lose tools unnecessarily.
-        var used = estimate(systemPrompt.orEmpty()) + estimate(currentUserPrompt) + imageCount.toLong() * IMAGE_TOKEN_ESTIMATE
         val requiredTools = rankedTools.filter { it.name in requiredNames }
         fun cost(turn: ConversationTurn): Long = estimate(turn.userMessage.effectiveContent()) +
             estimate(turn.assistantMessage?.effectiveContent().orEmpty()) + 32 +
@@ -85,21 +86,45 @@ internal object LocalContextPlanner {
         // template safety, and at least a modest reply. The delivery budget below
         // enforces the smaller result allowance on every tool callback. At least
         // 512 bytes are needed before executeBoundTool can dispatch any tool.
-        val minimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 512, if (contextTokens >= 4096) 512 else 128)
-        val minimumBudget = GitHubSchemaBudget(contextTokens, used, minimumReply, templateReserve + 1, 256)
+        val preferredMinimumReply = minOf(outputLimit?.takeIf { it > 0 } ?: 512, if (contextTokens >= 4096) 512 else 128)
+        val requiredPrompt = used + requiredSchemaTokens
+        val requiredSafety = preflightSafetyReserve(requiredPrompt)
+        // A required tool may borrow reply space down to 128 tokens, but never
+        // schema space or the 512-byte minimum result envelope needed to dispatch.
+        val minimumReply = if (
+            requiredTools.isNotEmpty() &&
+            requiredPrompt + requiredSafety + 256 + preferredMinimumReply >= contextTokens
+        ) {
+            minOf(preferredMinimumReply, 128)
+        } else {
+            preferredMinimumReply
+        }
+        val minimumBudget = GitHubSchemaBudget(contextTokens, used, minimumReply, requiredSafety + 1, 256)
         val minimumSchemaAllowance = minimumBudget.available
         if (githubRequiredNames.isNotEmpty() && requiredSchemaTokens > minimumSchemaAllowance) {
             throw GitHubToolContextBudgetException(requiredSchemaTokens, minimumSchemaAllowance, minimumBudget)
         }
-        val resultHeadroom = contextTokens.toLong() - used - requiredSchemaTokens - templateReserve - minimumReply - 1
+        val resultHeadroom = contextTokens.toLong() - requiredPrompt - requiredSafety - minimumReply - 1
         val toolResultReserve = if (relevantTools.isEmpty()) {
             0
         } else {
-            minOf(maxOf(256, contextTokens / 4).toLong(), resultHeadroom.coerceAtLeast(256)).toInt()
+            minOf(maxOf(256, contextTokens / 4).toLong(), resultHeadroom.coerceAtLeast(0)).toInt()
         }
-        val safetyReserve = templateReserve + toolResultReserve + 1
-        val baselineOutput = LocalOutputAllocation.reserve(contextTokens, used + requiredSchemaTokens, safetyReserve, outputLimit, minimum = minimumReply)
-        val baselinePromptLimit = contextTokens.toLong() - baselineOutput - templateReserve - toolResultReserve
+        require(requiredTools.isEmpty() || toolResultReserve >= 256) {
+            "LOCAL_CONTEXT_EXHAUSTED: required tools need at least 512 bytes of result headroom. Select fewer tools, shorten context or choose a compatible larger-context model. The input was retained."
+        }
+        val baselineOutput = LocalOutputAllocation.reserve(
+            contextTokens,
+            requiredPrompt,
+            requiredSafety + toolResultReserve + 1,
+            outputLimit,
+            minimum = minimumReply
+        )
+        fun promptLimitExclusive(outputReserve: Int): Long {
+            val available = contextTokens.toLong() - outputReserve - toolResultReserve
+            return (RequestAdmission.maximumEstimatedPrompt(available) + 1).coerceAtMost(contextTokens.toLong())
+        }
+        val baselinePromptLimit = promptLimitExclusive(baselineOutput)
         var anchorTokens = 0L
         // Keep the history anchors that fit before optional schemas are considered.
         // Reserving a capability must borrow reply space rather than evict documents.
@@ -121,13 +146,20 @@ internal object LocalContextPlanner {
         if (contextTokens >= 4096) {
             val minimumReply = minOf(baselineOutput, 512)
             rankedTools.filterNot { it in catalogTools }.forEach { tool ->
-                if (used + anchorTokens + schemaCost(catalogTools + tool) + safetyReserve + minimumReply < contextTokens) {
+                if (used + anchorTokens + schemaCost(catalogTools + tool) < promptLimitExclusive(minimumReply)) {
                     catalogTools += tool
                 }
             }
         }
-        val outputReserve = LocalOutputAllocation.reserve(contextTokens, used + anchorTokens + schemaCost(catalogTools), safetyReserve, outputLimit, minimum = minimumReply)
-        val promptLimit = contextTokens.toLong() - outputReserve - templateReserve - toolResultReserve
+        val catalogPrompt = used + anchorTokens + schemaCost(catalogTools)
+        val outputReserve = LocalOutputAllocation.reserve(
+            contextTokens,
+            catalogPrompt,
+            preflightSafetyReserve(catalogPrompt) + toolResultReserve + 1,
+            outputLimit,
+            minimum = minimumReply
+        )
+        val promptLimit = promptLimitExclusive(outputReserve)
         require(used < promptLimit) {
             "This message and system instructions exceed this local model's $contextTokens-token context. " +
                 "Shorten the message or system instructions, remove attachments, or choose a model with a larger context. " +
@@ -150,7 +182,7 @@ internal object LocalContextPlanner {
         val missingRequiredNames = requiredNames - selectedTools.map { it.name }.toSet()
         if (missingRequiredNames.isNotEmpty()) {
             if (missingRequiredNames.any { it in githubRequiredNames || dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool.operationName(it) != null }) {
-                val budget = GitHubSchemaBudget(contextTokens, minimumBudget.input, outputReserve, templateReserve + 1, toolResultReserve)
+                val budget = GitHubSchemaBudget(contextTokens, minimumBudget.input, outputReserve, requiredSafety + 1, toolResultReserve)
                 throw GitHubToolContextBudgetException(requiredSchemaTokens, availableSchemaTokens, budget)
             }
             throw IllegalArgumentException("Required tool schemas do not fit this local context. Select fewer tools or a larger-context model; the app cannot complete this tool-dependent request without them.")
@@ -288,6 +320,10 @@ internal object LocalContextPlanner {
         val descriptor = (tool.name + " " + tool.description).lowercase()
         return words.count { it in descriptor }
     }
+
+    /** Exact uncertainty policy used by physical admission for an estimated prompt. */
+    internal fun preflightSafetyReserve(estimatedPromptTokens: Long): Int =
+        RequestAdmission.estimateSafety(estimatedPromptTokens).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
 
     // JSON/tool templates and multilingual input cost more than English prose.
     private fun estimate(text: String): Long = (text.toByteArray(Charsets.UTF_8).size.toLong() + 1) / 2

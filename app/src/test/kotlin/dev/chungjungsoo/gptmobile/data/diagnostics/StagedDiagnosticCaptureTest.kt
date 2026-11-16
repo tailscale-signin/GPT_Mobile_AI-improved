@@ -11,6 +11,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -25,6 +26,119 @@ import org.junit.Test
 
 class StagedDiagnosticCaptureTest {
     private val available = DiagnosticCaptureOptions(minimumHeadroomBytes = 0)
+
+    @Test fun skippedHeapRetryRetainsItsOwnAdmissionSampleWithoutAnotherSourceAttempt() = temporary { directory ->
+        runBlocking {
+            val mib = 1024L * 1024
+            var attempts = 0
+            var pressure = false
+            var pressureSamples = 0
+            val result = StagedDiagnosticCapture.capture(
+                directory,
+                "retry-sample",
+                listOf(
+                    stage("workspace") { sink ->
+                        attempts++
+                        pressure = true
+                        sink.checkBudget()
+                        error("The rejecting guard must stop source collection")
+                    }
+                ),
+                available.copy(
+                    minimumHeadroomBytes = 16 * mib,
+                    memorySampler = {
+                        val headroom = if (!pressure) {
+                            32 * mib
+                        } else {
+                            when (pressureSamples++) {
+                                0 -> 8 * mib
+                                1 -> 24 * mib
+                                2 -> 12 * mib
+                                else -> 32 * mib
+                            }
+                        }
+                        memory(headroom)
+                    }
+                )
+            )
+            val observed = receipt(result, "workspace")
+            assertEquals(1, attempts)
+            assertEquals(4, pressureSamples)
+            assertFalse(result.complete)
+            assertEquals("JavaHeapWorkDeferred", observed.text("errorClass"))
+            assertEquals(JsonPrimitive(8 * mib), observed.getValue("heapDeferral").jsonObject.getValue("memory").jsonObject["javaHeadroomBytes"])
+            assertEquals(JsonPrimitive(24 * mib), observed.getValue("memoryAfter").jsonObject["javaHeadroomBytes"])
+            assertEquals(JsonPrimitive(32 * mib), result.manifest.getValue("memoryAtCompletion").jsonObject["javaHeadroomBytes"])
+            assertEquals(JsonPrimitive("HEADROOM_BELOW_REQUIRED"), observed["heapPressureRetrySkipped"])
+            assertEquals(JsonPrimitive(12 * mib), observed["retryHeadroomBytes"])
+            assertEquals(JsonPrimitive(16 * mib), observed["retryRequiredHeadroomBytes"])
+            assertFalse(observed.containsKey("heapPressureRetry"))
+            assertEquals(result.manifest, StagedDiagnosticCapture.verify(result.file))
+        }
+    }
+
+    @Test fun configurationPrecedesHistoryWithTheSameGuardAndResumableStageIdentity() = temporary { directory ->
+        runBlocking {
+            val mib = 1024L * 1024
+            var pressure = false
+            var interrupt = true
+            var configurationCaptures = 0
+            val order = mutableListOf<String>()
+            val stages = listOf(
+                DiagnosticCaptureStage("workspace", "workspace.jsonl", resumableRecords = true) { sink ->
+                    order += "workspace"
+                    val after = sink.resumeCursor?.get("afterRowId")?.jsonPrimitive?.content?.toInt() ?: 0
+                    for (row in after + 1..3) {
+                        if (row == 2 && interrupt) pressure = true
+                        sink.checkBudget()
+                        sink.logicalRecord { sink.record("{\"row\":$row}") }
+                        sink.checkpoint(JsonObject(mapOf("afterRowId" to JsonPrimitive(row))))
+                    }
+                },
+                DiagnosticCaptureStage("feature_settings", "feature-settings.jsonl", content = DiagnosticStageContent.CONFIGURATION) { sink ->
+                    configurationCaptures++
+                    order += "feature_settings"
+                    sink.note("{\"configuration\":true}")
+                }
+            )
+            val options = available.copy(minimumHeadroomBytes = 16 * mib, memorySampler = { memory(if (pressure) 12 * mib else 32 * mib) })
+            val first = StagedDiagnosticCapture.capture(directory, "configuration-priority", stages, options)
+            assertEquals(listOf("feature_settings", "workspace"), order)
+            assertFalse(first.complete)
+            assertEquals("COMPLETED", receipt(first, "feature_settings").text("status"))
+            assertEquals(JsonPrimitive(16 * mib), receipt(first, "feature_settings").getValue("memoryGuard").jsonObject["minimumRequiredHeadroomBytes"])
+            assertEquals(JsonPrimitive(1), receipt(first, "workspace").getValue("cursor").jsonObject["afterRowId"])
+            val session = File(directory, "diagnostic-capture-checkpoints/${first.sessionId}/session.json")
+            // This is the pre-change plan identity for the unchanged caller declarations above.
+            val originalPlan = JsonPrimitive("2a9985408eb917edb3c227d4f10a4fb2f3e8f7f6ca1038c8b4b1193385a1093d")
+            assertEquals(originalPlan, Json.parseToJsonElement(session.readText()).jsonObject["stagePlanHash"])
+            pressure = false
+            interrupt = false
+            val resumed = StagedDiagnosticCapture.capture(directory, "configuration-priority", stages, options, first.sessionId)
+            assertTrue(resumed.complete)
+            assertEquals(first.sessionId, resumed.sessionId)
+            assertEquals(originalPlan, Json.parseToJsonElement(session.readText()).jsonObject["stagePlanHash"])
+            assertEquals(listOf("feature_settings", "workspace", "workspace"), order)
+            assertEquals(1, configurationCaptures)
+            assertEquals(JsonPrimitive(3), receipt(resumed, "workspace").getValue("cursor").jsonObject["afterRowId"])
+            assertEquals(receipt(first, "workspace")["sha256"], receipt(resumed, "workspace").getValue("continuedFrom").jsonObject["sha256"])
+            assertEquals(JsonPrimitive(2L), resumed.manifest["archivePart"])
+            ZipFile(resumed.file).use { zip ->
+                val tail = zip.getInputStream(zip.getEntry("workspace.jsonl")).bufferedReader().use { it.readLines() }
+                assertEquals(listOf("{\"row\":2}", "{\"row\":3}"), tail)
+            }
+            assertEquals(resumed.manifest, StagedDiagnosticCapture.verify(resumed.file))
+            val blocked = StagedDiagnosticCapture.capture(
+                File(directory, "still-constrained"),
+                "same-guard",
+                listOf(stages.last()),
+                options.copy(memorySampler = { memory(12 * mib) })
+            )
+            assertFalse(blocked.complete)
+            assertEquals("JAVA_HEAP_PRESSURE", receipt(blocked, "feature_settings").text("omissionReason"))
+            assertEquals(1, configurationCaptures)
+        }
+    }
 
     @Test fun heapRecoveryResumesCommittedRowsAndRetainsTheActualDeferralSample() = temporary { directory ->
         runBlocking {

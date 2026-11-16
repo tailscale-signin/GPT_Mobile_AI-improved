@@ -49,6 +49,7 @@ internal object GitHubExecutionLimits {
             GitHubStatusRequest.health(task) -> minOf(32, selected.toolCalls)
             GitHubStatusRequest.matches(task) -> 6
             GitHubTestChecklist.integration(task) -> minOf(256, selected.toolCalls)
+            selected.id == "diagnose_ci" -> selected.toolCalls
             GitHubTaskCoverage.boundedDiagnostic(task) -> 32
             GitHubRequestCompletion.informational(task) -> 64
             else -> selected.toolCalls

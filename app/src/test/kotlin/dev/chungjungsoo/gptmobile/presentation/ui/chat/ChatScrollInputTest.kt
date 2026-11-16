@@ -55,7 +55,7 @@ class ChatScrollInputTest {
                     followCount++
                 })
                 LazyColumn(
-                    Modifier.width(240.dp).height(180.dp).then(input.modifier).nestedScroll(childConnection, dispatcher),
+                    Modifier.width(240.dp).height(180.dp).then(input.modifier).nestedScroll(childConnection, dispatcher).testTag("conversation-edge"),
                     state = state
                 ) {
                     items(7) { Text("Message $it", Modifier.height(40.dp)) }
@@ -75,6 +75,21 @@ class ChatScrollInputTest {
             assertEquals(1, followCount)
             dispatcher.dispatchPostScroll(Offset.Zero, downward, NestedScrollSource.SideEffect)
             assertEquals(1, followCount)
+            following = false
+        }
+        // The same edge arrival while a touch is held must wait for release.
+        compose.onNodeWithTag("conversation-edge").performTouchInput { down(center) }
+        compose.runOnIdle {
+            val downward = Offset(0f, -24f)
+            dispatcher.dispatchPreScroll(downward, NestedScrollSource.UserInput)
+            dispatcher.dispatchPostScroll(Offset.Zero, downward, NestedScrollSource.UserInput)
+            assertFalse(following)
+            assertEquals(1, followCount)
+        }
+        compose.onNodeWithTag("conversation-edge").performTouchInput { up() }
+        compose.runOnIdle {
+            assertTrue(following)
+            assertEquals(2, followCount)
         }
     }
 

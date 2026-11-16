@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
+import dev.chungjungsoo.gptmobile.data.agent.ToolInventoryPaginationEvidence
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import java.security.MessageDigest
@@ -19,6 +20,10 @@ internal object ToolReportDiagnostics {
     private val actions = setOf("status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch")
     private val errors = setOf("APP_ERROR", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED", "GITHUB_COOLDOWN_ACTIVE")
     private val reasons = setOf("BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH")
+
+    // Closed graph-specific codes are emitted only by an exact call-bound, source-owned graph receipt.
+    // Keep them separate from generic tool reasons so arbitrary tool receipts cannot impersonate graph evidence.
+    private val graphReasons = setOf("GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER")
     private val phases = setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED")
 
     /** The public alias describes the retained earlier index; the unsent current result stays unchanged. */
@@ -52,6 +57,8 @@ internal object ToolReportDiagnostics {
         put("run_id_hash", IssueReportContext.identifierHash("run", event.runId))
         put("call_id_hash", IssueReportContext.identifierHash("call", event.callId))
         put("tool_name_hash", IssueReportContext.identifierHash("tool-name", event.modelToolName))
+        putAll(ToolInventoryPaginationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
+        putAll(dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.reportFields(result, event.callId, event.modelToolName, event.arguments))
         result.errorCode?.takeIf { it in errors }?.let { put("tool_error_code", it) }
         if (event.modelToolName == "read_url" &&
             result.errorCode in setOf("DNS_FAILED", "DNS_RECOVERY") &&
@@ -63,6 +70,36 @@ internal object ToolReportDiagnostics {
         put("original_error_code_hash", IssueReportContext.identifierHash("tool-error-code", result.errorCode))
         if (result.executionReceipt?.containsKey("mcp_failure_phase") == true) {
             put("mcp_connection_hash", IssueReportContext.identifierHash("mcp-connection", event.connectionUidSnapshot))
+        }
+        val admission = (result.executionReceipt?.get("dependency_admission_reasons") as? JsonArray)?.singleOrNull()
+        if (event.modelToolName == "read_url" && result.isError && !result.dispatched && result.errorCode == "NOT_DISPATCHED") {
+            val observation = when (admission) {
+                JsonPrimitive("REPEAT_LIMIT") -> "REPEAT_LIMIT"
+                JsonPrimitive("REPEATED_FAILURE") -> "REPEATED_FAILURE"
+                else -> null
+            }
+            observation?.let { put("url_reader_availability", it) }
+        }
+        val reader = result.executionReceipt
+        if (event.modelToolName == "read_url" &&
+            result.isError &&
+            result.errorCode == "SOURCE_UNAVAILABLE" &&
+            reader?.get("schema") == JsonPrimitive("gptmobile.search-operation.v1") &&
+            reader["provider"] == JsonPrimitive("read_url") &&
+            reader["callId"] == JsonPrimitive(result.callId) &&
+            reader["errorCode"] == JsonPrimitive(result.errorCode)
+        ) {
+            val observation = if (result.dispatched &&
+                reader["requestSent"] == JsonPrimitive(true) &&
+                reader["httpStatus"] in setOf(JsonPrimitive(404), JsonPrimitive(405), JsonPrimitive(410))
+            ) {
+                JsonPrimitive("HTTP_UNAVAILABLE")
+            } else if (!result.dispatched && reader["requestSent"] == JsonPrimitive(false) && reader["httpStatus"] == null) {
+                reader["source_availability_observation"]?.takeIf { it in setOf(JsonPrimitive("NEGATIVE_CACHE"), JsonPrimitive("TURN_SUPPRESSION")) }
+            } else {
+                null
+            }
+            observation?.let { put("url_reader_availability", it) }
         }
         val reason = (result.executionReceipt?.get("reason_code") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
             ?: (result.executionReceipt?.get("reasonCode") as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
@@ -88,6 +125,12 @@ internal object ToolReportDiagnostics {
             action != null &&
             receipt["action"] == JsonPrimitive(action)
         ) {
+            // The HTTP status and uncertainty belong to the original graph operation,
+            // not the report preview. A mismatched/edited receipt must not supply its cause.
+            if (result.isError && receipt["error_code"] == JsonPrimitive(result.errorCode)) {
+                (receipt["reason_code"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+                    ?.takeIf { it in graphReasons }?.let { put("tool_reason_code", it) }
+            }
             (receipt["graph_index_attempt_hash"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
                 ?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }?.let { put("graph_index_attempt_hash", it) }
         }

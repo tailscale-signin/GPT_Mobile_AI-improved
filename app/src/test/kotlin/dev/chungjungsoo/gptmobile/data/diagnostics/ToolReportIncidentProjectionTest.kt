@@ -5,6 +5,7 @@ import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.tool.RepositoryGraphTool
 import dev.chungjungsoo.gptmobile.data.database.entity.ToolEvent
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphAdmissionException
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import dev.chungjungsoo.gptmobile.data.github.GatewayGraphOperationException
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.JsonArray
@@ -60,6 +61,55 @@ class ToolReportIncidentProjectionTest {
         assertEquals("REPOSITORY_GRAPH_UNAVAILABLE", ToolReportDiagnostics.reportCode(event, result.copy(errorCode = "REPOSITORY_GRAPH_UNAVAILABLE")))
         assertNull(ToolReportDiagnostics.reportCode(event, result.copy(executionReceipt = null, content = ToolResultContent.Text("GRAPH_INDEX_OUTCOME_UNKNOWN CHECK_SAVED_INDEX requires_reconciliation=true"))))
         assertEquals(original, result.executionReceipt)
+    }
+
+    @Test fun http500IndexReportsExactBoundedGraphReasonWithoutDisclosingGatewayIdentity() = runBlocking {
+        val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
+        val attempted = "a".repeat(64)
+        val tool = RepositoryGraphTool(event.modelToolName) {
+            throw GatewayGraphOperationException(
+                GatewayGraphHttpFailure(500),
+                "private-gateway-host",
+                "private gateway name",
+                "CHECK_SAVED_INDEX",
+                true,
+                indexAttemptHash = attempted,
+                currentIndexOutcomeUnknown = true
+            )
+        }
+        val result = tool.execute(event.callId, buildJsonObject { put("action", "index") })
+        val fields = ToolReportDiagnostics.fields(event, result)
+        assertEquals("REPOSITORY_GRAPH_UNAVAILABLE", result.errorCode)
+        assertEquals("GRAPH_HTTP_REJECTED", fields["tool_reason_code"])
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("GRAPH_HTTP_REJECTED"), report.values["tool_reason_code"])
+        assertEquals(JsonPrimitive(attempted), report.values["graph_index_attempt_hash"])
+        assertFalse(report.toString().contains("private-gateway"))
+        assertFalse(ToolReportDiagnostics.fields(event.copy(callId = "different-call"), result).containsKey("tool_reason_code"))
+        val forged = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("call_id" to JsonPrimitive("other-call"))))
+        assertFalse(ToolReportDiagnostics.fields(event, forged).containsKey("tool_reason_code"))
+        val forgedReason = result.copy(executionReceipt = JsonObject(requireNotNull(result.executionReceipt) + ("reason_code" to JsonPrimitive("UNTRUSTED_GRAPH_CAUSE"))))
+        assertFalse(ToolReportDiagnostics.fields(event, forgedReason).containsKey("tool_reason_code"))
+    }
+
+    @Test fun gatewayHttp500ClosedClassProjectsThroughOwnedToolReceipt() = runBlocking {
+        val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
+        val failure = GatewayGraphHttpFailure.fromResponse(500, null, buildJsonObject { put("code", "graph_internal_storage_error") })
+        val tool = RepositoryGraphTool(event.modelToolName) {
+            throw GatewayGraphOperationException(
+                failure,
+                "private-host",
+                "private title",
+                "CHECK_SAVED_INDEX",
+                true,
+                indexAttemptHash = "b".repeat(64),
+                currentIndexOutcomeUnknown = true
+            )
+        }
+        val result = tool.execute(event.callId, buildJsonObject { put("action", "index") })
+        val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", ToolReportDiagnostics.fields(event, result), 1_800_000_000_000))
+        assertEquals(JsonPrimitive("GRAPH_INTERNAL_STORAGE"), report.values["tool_reason_code"])
+        assertFalse(report.toString().contains("private"))
     }
 
     @Test fun transportAndSavedCursorRejectionsKeepTypedReasonsWithoutArgumentValues() {
@@ -132,6 +182,27 @@ class ToolReportIncidentProjectionTest {
         assertEquals(JsonPrimitive("DNS_RESOLUTION_FAILED"), snapshot.values["tool_error_code"])
         assertFalse(snapshot.toString().contains("private-source"))
         assertTrue("RECOVERY_OBSERVATIONS_V1" in snapshot.requiredServiceFeatures())
+    }
+
+    @Test fun missingUrlProjectionDistinguishesNetworkFromNegativeCache() {
+        val event = event("""{"url":"https://example.com/private-source"}""").copy(modelToolName = "read_url")
+        for (dispatched in listOf(true, false)) {
+            val receipt = buildJsonObject {
+                put("schema", "gptmobile.search-operation.v1")
+                put("provider", "read_url")
+                put("callId", event.callId)
+                put("errorCode", "SOURCE_UNAVAILABLE")
+                put("requestSent", dispatched)
+                if (dispatched) put("httpStatus", 404) else put("source_availability_observation", "NEGATIVE_CACHE")
+            }
+            val result = AgentToolResult(event.callId, ToolResultContent.Text("private-source"), true, errorCode = "SOURCE_UNAVAILABLE", executionReceipt = receipt, dispatched = dispatched)
+            val fields = ToolReportDiagnostics.fields(event, result)
+            val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+            assertEquals(JsonPrimitive(if (dispatched) "HTTP_UNAVAILABLE" else "NEGATIVE_CACHE"), snapshot.values["url_reader_availability"])
+            assertTrue("URL_READER_AVAILABILITY_V1" in snapshot.requiredServiceFeatures())
+            assertFalse(snapshot.toString().contains("private-source"))
+            assertNull(ToolReportDiagnostics.fields(event.copy(callId = "other-call"), result)["url_reader_availability"])
+        }
     }
 
     private fun event(arguments: String) = ToolEvent("private-event", "private-run", 1, "private-call", null, null, "github_issue", "github_issue", arguments, null, null, "FAILED")

@@ -288,8 +288,36 @@ internal class GitHubOutputContinuationSession(
                     reopen(draft, exchanges, tools)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
-                } catch (_: Exception) {
-                    emit(ProviderEvent.Failed("OUTPUT_CONTINUATION_UNAVAILABLE: The saved GitHub draft could not fit the current context or reach its provider. Draft and operation receipts remain available.", errorCode = "OUTPUT_CONTINUATION_UNAVAILABLE", taskOutcome = "PARTIAL"))
+                } catch (error: Exception) {
+                    val causes = generateSequence<Throwable>(error) { it.cause?.takeUnless { next -> next === it } }.take(16)
+                    val authorityFailure = causes.firstOrNull {
+                        it is dev.chungjungsoo.gptmobile.data.context.DispatchPolicyChangedException ||
+                            it is dev.chungjungsoo.gptmobile.data.context.ProviderWaitAuthorityChanged ||
+                            it is SavedEvidenceAccessDenied ||
+                            it is ProviderRecoveryFailure
+                    }
+                    if (authorityFailure != null) throw authorityFailure
+                    val original = dev.chungjungsoo.gptmobile.data.network.providerExceptionDetails(error, partialOutput = false)
+                    val contextBlocked = error is IllegalArgumentException && error.message?.startsWith("CONTINUATION_CONTEXT_CAPACITY:") == true
+                    val failure = ProviderEvent.Failed(
+                        original?.message ?: if (contextBlocked) error.message.orEmpty() else "The saved GitHub draft could not be reopened. Draft and operation receipts remain available.",
+                        errorCode = original?.code ?: if (contextBlocked) "CONTEXT_CAPACITY_EXCEEDED" else "OUTPUT_CONTINUATION_UNAVAILABLE",
+                        taskOutcome = "PARTIAL",
+                        failureDetails = JsonObject(
+                            original?.failureDetails.orEmpty() + buildJsonObject {
+                                put("failed_stage", "final_synthesis")
+                                put("draft_retained", draft.isNotBlank())
+                                put("request_replay_allowed", false)
+                                put("cause_types", JsonArray(dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).map(::JsonPrimitive)))
+                                if (contextBlocked) {
+                                    put("dispatched", false)
+                                    put("retryable", false)
+                                }
+                            }
+                        )
+                    )
+                    save("INTERRUPTED", resumable = true, failure = failure)
+                    emit(failure)
                     return@flow
                 }
                 check(!active.handlesToolsInternally) { "GitHub continuation requires client-owned tools; reconcile server-owned actions before resuming." }

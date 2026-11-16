@@ -8,6 +8,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VoiceSessionTest {
+    @Test fun disablingEarlySpeechKeepsCaptionsLiveAndWaitsForTheTerminalReply() {
+        audio.streamsReplies = true
+        start()
+        session.speakWhileGenerating = false
+        audio.listeners.last().final("Explain this")
+        val partial = "Here is the answer "
+        session.streamReply("run", partial)
+        assertEquals(partial, session.state.reply)
+        assertTrue(audio.spoken.isEmpty())
+        assertEquals(0, audio.opened)
+
+        val final = partial + "with the full details."
+        session.reply("run", final)
+        assertEquals(final, audio.spoken.joinToString(""))
+        assertEquals(1, audio.opened)
+        assertEquals(1, audio.sealed)
+    }
+
     @Test fun `Android speech starts at a stable word boundary before the final answer and stays sequential`() {
         start()
         audio.listeners.last().final("Explain this")

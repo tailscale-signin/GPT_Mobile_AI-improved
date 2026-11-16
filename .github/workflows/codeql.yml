@@ -100,8 +100,11 @@ jobs:
       run: |
         # Force these compilers, while reusing the freshly generated sources so
         # KSP/KAPT graphs can be released with the preceding Gradle process.
+        # Run 43739302243 exhausted the 4 GiB Kotlin heap in ASM frame analysis
+        # while CodeQL tracing was active. Keep a single worker and bound this
+        # compile-only process below the hosted runner's RAM + swap allowance.
         python3 scripts/build_metrics.py --label codeql-build --output build/reports/profile/codeql-metrics.json -- python3 scripts/gradle_retry.py -- :app:compileDebugKotlin --rerun :app:compileDebugJavaWithJavac --rerun \
-          -Dorg.gradle.jvmargs="-Xmx4096m -XX:MaxMetaspaceSize=1024m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8" \
+          -Dorg.gradle.jvmargs="-Xmx4608m -XX:MaxMetaspaceSize=768m -XX:+UseG1GC -XX:+ParallelRefProcEnabled -Dfile.encoding=UTF-8" \
           -Pkotlin.incremental=false --no-daemon --no-build-cache --max-workers=1 --stacktrace --info --profile
 
     - name: Perform CodeQL Analysis

@@ -29,6 +29,7 @@ internal class GitHubBoundRepositoryTool(
         repository.copy(owner = requireNotNull(owner), repo = requireNotNull(repo))
     }
     override val definition get() = delegate.definition
+    override val searchValidationOwner get() = delegate.searchValidationOwner
     override val managesExecutionBudget get() = delegate.managesExecutionBudget
     override val coordinatesChildWork get() = delegate.coordinatesChildWork
     override val executionOwner get() = (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
@@ -77,8 +78,9 @@ internal class GitHubBoundRepositoryTool(
 
     /** Verification must see the exact normalized target supplied to the executor. */
     private fun retainBinding(result: AgentToolResult, original: JsonObject, bounded: JsonObject): AgentToolResult {
-        if (bounded == original || result.executionReceipt?.get("corrected_arguments") is JsonObject) return result
-        return result.copy(executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("corrected_arguments" to bounded)))
+        val observed = dev.chungjungsoo.gptmobile.data.agent.GitHubSearchValidationEvidence.rebindRepositoryArguments(result, definition.name, bounded, original)
+        if (bounded == original || observed.executionReceipt?.get("corrected_arguments") is JsonObject) return observed
+        return observed.copy(executionReceipt = JsonObject(observed.executionReceipt.orEmpty() + ("corrected_arguments" to bounded)))
     }
 
     private fun boundArguments(arguments: JsonObject): JsonObject {

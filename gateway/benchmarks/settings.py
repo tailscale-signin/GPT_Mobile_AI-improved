@@ -4,6 +4,7 @@ from pathlib import Path
 import re
 
 from desktop.configuration import atomic_json
+from v14.state_lock import StateDirectoryLock
 
 DEFAULTS = {'schema': 1, 'sandbox_image': '', 'sandbox_seconds': 30, 'repair_attempts': 1}
 
@@ -33,7 +34,63 @@ def load_settings(root):
     return validate(json.loads(path.read_text(encoding='utf-8')))
 
 
-def save_settings(root, value):
+def save_settings(root, value, *, expected=None):
+    """Serialize edits so background image setup cannot overwrite newer settings."""
     result = validate(value)
-    atomic_json(Path(root) / 'data' / 'benchmark-settings.json', result)
+    lock = StateDirectoryLock(Path(root).resolve() / 'data' / 'benchmark-settings-lock' / 'owner')
+    lock.acquire()
+    try:
+        if expected is not None and load_settings(root) != validate(expected):
+            raise ValueError('Benchmark settings changed; reload before saving.')
+        atomic_json(Path(root) / 'data' / 'benchmark-settings.json', result, retry_windows_sharing=True)
+    finally:
+        lock.release()
     return result
+
+
+def smoke_sandbox_image(image, *, cancel=None):
+    """Exercise unprivileged offline Python, using the approved local Docker context."""
+    from desktop import repository_validation as setup
+    token = 'GATEWAY_BENCHMARK_PYTHON_READY_V1'
+    output = setup.docker_run([
+        'run', '--rm', '--pull=never', '--network=none', '--cap-drop=ALL',
+        '--security-opt=no-new-privileges', '--read-only', '--pids-limit=64',
+        '--memory=512m', '--cpus=2', '--user=65534:65534',
+        '--tmpfs=/tmp:rw,nosuid,nodev,size=64m', '--workdir=/tmp',
+        '--env=HOME=/tmp', image, 'python3', '-I', '-B', '-c',
+        'print("' + token + '")',
+    ], cancel=cancel, timeout=30, label='Verify benchmark sandbox')
+    if output != token:
+        raise ValueError('Isolated Python did not produce the required sandbox startup receipt.')
+    return True
+
+
+def prepare_sandbox(root, *, expected=None, cancel=None, progress=lambda message: None):
+    """Only explicit operator action can pull and save an immutable sandbox image."""
+    from desktop import repository_validation as setup
+    from v14.validation_host import executable
+    from benchmarks.sandbox import preflight
+
+    original = load_settings(root)
+    if expected is not None and original != validate(expected):
+        raise ValueError('Benchmark settings changed; reload before preparing.')
+    setup.cancelled(cancel)
+    progress('Checking local Linux Docker engine…')
+    docker = executable('docker')
+    setup.check_docker(docker, cancel=cancel)
+    progress('Pulling official Python and resolving verified registry digest…')
+    image = setup.pin_image(docker, setup.DEFAULT_IMAGE, prepare=True, cancel=cancel)
+    progress('Inspecting immutable local image…')
+    preflight(dict(original, sandbox_image=image))
+    progress('Testing restricted offline Python execution…')
+    smoke_sandbox_image(image, cancel=cancel)
+    setup.cancelled(cancel)
+    save_settings(root, dict(original, sandbox_image=image), expected=original)
+    return image
+
+def verify_submission(root, suite):
+    """Fail fast for a coding run, without downloading or preparing any image."""
+    if suite == 'coding':
+        from benchmarks.sandbox import preflight
+        return preflight(load_settings(root))
+    return None

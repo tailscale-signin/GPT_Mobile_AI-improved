@@ -51,7 +51,12 @@ def create_app(public_url, reporter, rate_key):
             response["reportDiagnosticFeatures"].extend([
                 "ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
                 "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1",
-                "SQLITE_CONSTRAINT_EVIDENCE_V1",
+                "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1",
+                "TOOL_REPEAT_HISTORY_EVIDENCE_V1",
+                "GITHUB_CI_SEMANTIC_EVIDENCE_V1",
+                "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1",
+                "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1",
+                "REPORT_TEXT_ATTACHMENT_V1",
             ])
         return response
 

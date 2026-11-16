@@ -7,6 +7,7 @@ import json
 import re
 
 from v14.engineering_artifacts import CHUNK
+from v14.adaptive_validation import capabilities, discover
 
 from v14.engineering_validation import load_policy, patch_identity, validate
 
@@ -18,7 +19,8 @@ def catalog(job):
     if not admitted or admitted != policy_sha:
         raise ValueError('Workspace checks require the unchanged admitted validation policy')
     return policy_sha, [{'index': index, 'command': command,
-                         'cases': [item['case_id'] for item in coverage if item['command_index'] == index]}
+                         'cases': [item['case_id'] for item in coverage if item['command_index'] == index],
+                         'capabilities': capabilities(command, [item for item in coverage if item['command_index'] == index])}
                         for index, command in enumerate(commands)]
 
 
@@ -42,7 +44,26 @@ def act(backend, job, action):
 
     data = job['data']
     kind = action['action']
+    if kind == 'inspect_failure':
+        kind = 'check_output'
     artifacts = backend.private_artifacts
+    if kind == 'discover_tests':
+        _, checks = catalog(job)
+        return discover(backend, job, action, checks)
+    if kind == 'compare_candidates':
+        import difflib
+        left = retained_candidate(backend, job, action.get('left_check_id'))
+        right = retained_candidate(backend, job, action.get('right_check_id'))
+        before, after = {c['path']: c for c in left}, {c['path']: c for c in right}
+        patches = []
+        for path in sorted(before.keys() | after.keys()):
+            source = data.get('files', {}).get(path, {}).get('content', '')
+            a = before[path]['content'] if path in before else source
+            b = after[path]['content'] if path in after else source
+            patches.append(''.join(difflib.unified_diff((a or '').splitlines(True), (b or '').splitlines(True), fromfile=path, tofile=path)))
+        diff = ''.join(patches)
+        return {'diff': diff[:12000], 'truncated': len(diff) > 12000, 'scope': 'candidate_comparison',
+                'left_patch_identity': patch_identity(data['head_sha'], left), 'right_patch_identity': patch_identity(data['head_sha'], right)}
     if kind == 'checks':
         policy_sha, checks = catalog(job)
         return {'policy_sha256': policy_sha, 'checks': checks, 'scope': 'exploratory'}
@@ -91,6 +112,8 @@ def act(backend, job, action):
     index = action.get('check_index')
     if type(index) is not int or not 0 <= index < len(checks):
         raise ValueError('Select an exact approved check_index from checks')
+    if kind in {'run_test', 'compile_module', 'lint_changed_files', 'check_patch'} and kind not in checks[index]['capabilities']:
+        raise ValueError('The selected approved command does not provide this capability')
     proposal = action.get('proposal')
     attempt = action.get('attempt_id')
     if attempt is not None and (not isinstance(attempt, str) or not re.fullmatch('[a-zA-Z0-9_-]{1,64}', attempt)):

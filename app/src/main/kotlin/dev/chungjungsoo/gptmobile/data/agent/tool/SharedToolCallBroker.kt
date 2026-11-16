@@ -52,6 +52,7 @@ class SharedToolCallBroker(
 
         return object : OwnedAgentTool {
             override val definition = tool.definition
+            override val searchValidationOwner get() = tool.searchValidationOwner
             override val managesExecutionBudget = tool.managesExecutionBudget
             override val coordinatesChildWork = tool.coordinatesChildWork
             override val executionOwner = (tool as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT
@@ -111,7 +112,8 @@ class SharedToolCallBroker(
         }
         try {
             entry.result.start()
-            return entry.result.await().copy(callId = callId, sharedResult = shared)
+            val result = entry.result.await()
+            return result.copy(callId = callId, sharedResult = shared, searchValidationEvidence = result.searchValidationEvidence.takeUnless { shared })
         } finally {
             val cancelProducer = synchronized(entries) {
                 entry.subscribers--

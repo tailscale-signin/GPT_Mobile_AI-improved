@@ -21,7 +21,7 @@ from desktop.manager import request
 from v14 import VERSION
 from v14.state_lock import StateDirectoryLock, StateDirectoryAlreadyOwned
 
-PAGES = ['Overview', 'Chat', 'Saved', 'Jobs', 'Benchmarks']
+PAGES = ['Overview', 'Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks']
 
 
 class Dashboard:
@@ -237,11 +237,16 @@ class Dashboard:
         self.displayed = candidates
         self.table.delete(*self.table.get_children())
         device_page = page == 'Devices'
+        tool_page = page == 'Tools'
         for col, title in [('kind', 'CLIENT' if device_page else 'TYPE'), ('title', 'ADDRESS / AGENT' if device_page else 'ACTIVITY'), ('state', 'CONNECTION' if device_page else 'STATE'), ('updated', 'LAST SEEN' if device_page else 'UPDATED')]:
-            self.table.heading(col, text=title)
+            self.table.heading(col, text=({'kind': 'SOURCE', 'title': 'CAPABILITY', 'state': 'OBSERVED', 'updated': 'LAST USED'}[col] if tool_page else title))
         for index, item in enumerate(self.displayed):
             status = item.get('state', '') if device_page else item.get('status', '')
-            if device_page:
+            if tool_page:
+                metric = item.get('metrics') if isinstance(item.get('metrics'), dict) else {}
+                values = (str(item.get('sourceId') or 'Gateway'), item.get('name') or 'Unnamed tool',
+                          f"{metric.get('success', 0)} ok / {metric.get('failure', 0)} failed", age(metric.get('lastUsed')))
+            elif device_page:
                 status = self.device_status(item)
                 values = ('DEVICE', f'{item.get("address", "Unknown")}  ·  {item.get("agent") or "Client type unavailable"}', status, age(item.get('lastSeen')))
             else:
@@ -269,7 +274,11 @@ class Dashboard:
         if not selected or int(selected[0]) >= len(self.displayed):
             return
         item = self.displayed[int(selected[0])]
-        if self.history_page() == 'Devices':
+        if self.history_page() == 'Tools':
+            metric = item.get('metrics') if isinstance(item.get('metrics'), dict) else {}
+            latency = 'Not measured' if metric.get('sampleCount', 0) == 0 else f"p50 {metric.get('p50Millis')} ms · p95 {metric.get('p95Millis')} ms"
+            content = f"{item.get('category', 'Gateway MCP')} · {item.get('description') or 'No description'}\nMeasured retained activity: {metric.get('total', 0)} calls · {latency}. Availability beyond discovery is not verified."
+        elif self.history_page() == 'Devices':
             content = f'Observed address: {item.get("address")}  ·  Requests this session: {item.get("requests", 0)}\nKey-free connections are grouped by socket address; this is not a verified device identity.'
         else:
             content = '  ·  '.join(str(item[key]) for key in ('detail', 'branch', 'peer', 'id') if item.get(key))

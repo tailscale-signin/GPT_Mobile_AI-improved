@@ -85,6 +85,22 @@ class CatalogReadinessRegressionTest {
         }
     }
 
+    @Test fun formerCursorOutsideTheCurrentInventoryOffersAStaleVersionRestart() = runTest {
+        val catalog = ProgressiveToolCatalog(listOf(tool("operation_one").tool.definition), "list tools")
+        val rejected = catalog.execute(
+            "former-page",
+            buildJsonObject {
+                put("inventory_cursor", 12)
+                put("inventory_version", "former-version")
+            }
+        )
+        assertEquals("STALE_INVENTORY", rejected.errorCode)
+        assertFalse(rejected.dispatched)
+        assertEquals(JsonPrimitive("INVENTORY_VERSION_CHANGED"), rejected.executionReceipt?.get("reason_code"))
+        val restart = (rejected.content as ToolResultContent.Json).value.jsonObject
+        assertEquals(JsonPrimitive(true), restart["restart_offered"])
+    }
+
     @Test fun guessedInitialVersionGetsOnlyOneStructuredRestartAndExactContinuationWorks() = runTest {
         val definitions = (1..20).map { tool("operation_$it").tool.definition }
         val catalog = ProgressiveToolCatalog(definitions, "list tools")

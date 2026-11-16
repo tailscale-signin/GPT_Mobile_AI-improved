@@ -104,8 +104,10 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
@@ -165,6 +167,8 @@ import kotlinx.coroutines.withContext
 
 private const val PERMISSION_ACCESS_LOCAL_NETWORK = "android.permission.ACCESS_LOCAL_NETWORK"
 
+internal val LocalGitHubFadeProfile = androidx.compose.runtime.staticCompositionLocalOf { GitHubFadeProfile.ADAPTIVE }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChatScreen(
@@ -177,6 +181,7 @@ fun ChatScreen(
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
     embeddedHeaderHeight: Dp = 0.dp,
+    embeddedHeaderExpansion: Float = 0f,
     allowResearchPanels: Boolean = true,
     exportRequestedForChatId: Int? = null,
     onExportHandled: () -> Unit = {},
@@ -193,6 +198,7 @@ fun ChatScreen(
             onInspectContext = onInspectContext,
             showTopBar = showTopBar,
             embeddedHeaderHeight = embeddedHeaderHeight,
+            embeddedHeaderExpansion = embeddedHeaderExpansion,
             allowResearchPanels = allowResearchPanels,
             exportRequestedForChatId = exportRequestedForChatId,
             onExportHandled = onExportHandled,
@@ -215,6 +221,7 @@ private fun ChatScreenContent(
     onInspectContext: ((Int, String) -> Unit)? = null,
     showTopBar: Boolean = true,
     embeddedHeaderHeight: Dp,
+    embeddedHeaderExpansion: Float,
     allowResearchPanels: Boolean,
     exportRequestedForChatId: Int?,
     onExportHandled: () -> Unit,
@@ -746,6 +753,8 @@ private fun ChatScreenContent(
     val scrollInput = rememberChatScrollInput(
         listState = listState,
         touchSlop = touchSlop,
+        roomId = chatRoom.id,
+        bottomTolerancePx = with(promptDensity) { 2.dp.toPx() },
         onDetach = {
             promptAnchor.detach()
             githubScrollMode = promptAnchor.mode
@@ -853,6 +862,14 @@ private fun ChatScreenContent(
                     .then(transcriptTiming)
                     .fillMaxSize()
                     .then(scrollInput.modifier)
+                    .semantics {
+                        customActions = listOf(
+                            CustomAccessibilityAction("Follow latest messages") {
+                                followChatBottom()
+                                true
+                            }
+                        )
+                    }
                     .chatMessageBackdrop(
                         topFadeStart = if (embeddedHeaderHeight == 0.dp && featureSettings.edgeFades) {
                             (innerPadding.calculateTopPadding() + 16.dp - viewportHeight * 0.05f).coerceAtLeast(0.dp)
@@ -861,7 +878,7 @@ private fun ChatScreenContent(
                         },
                         topFade = when {
                             !featureSettings.edgeFades -> 0.dp
-                            embeddedHeaderHeight > 0.dp -> gitHubTopFadeHeight(embeddedHeaderHeight.value, stableWindowHeight.value, true).dp
+                            embeddedHeaderHeight > 0.dp -> gitHubTopFadeHeight(embeddedHeaderHeight.value, stableWindowHeight.value, true, embeddedHeaderExpansion, LocalGitHubFadeProfile.current).dp
                             else -> gitHubTopFadeHeight(
                                 (innerPadding.calculateTopPadding() + 48.dp - viewportHeight * 0.05f).value,
                                 stableWindowHeight.value,
@@ -2647,13 +2664,18 @@ fun ChatInputBox(
             composerLifecycle.lifecycle.removeObserver(observer)
         }
     }
-    LaunchedEffect(inputState, composerDiagnostics, composerIme, composerDensity, composerWindow, composerInputMode, composerLifecycle, chatEnabled) {
-        if (composerDiagnostics == null) return@LaunchedEffect
-        snapshotFlow { observedComposerState() }.collect(composerDiagnostics::observe)
+    val focusRecovery = remember(inputState) { ComposerFocusRecovery() }
+    val hasHardwareKeyboard = androidx.compose.ui.platform.LocalConfiguration.current.keyboard == android.content.res.Configuration.KEYBOARD_QWERTY
+    LaunchedEffect(inputState, composerDiagnostics, composerIme, composerDensity, composerWindow, composerInputMode, composerLifecycle, chatEnabled, hasHardwareKeyboard, composerKeyboard) {
+        snapshotFlow { observedComposerState() }.collect { observed ->
+            composerDiagnostics?.observe(observed)
+            if (focusRecovery.observe(observed, hasHardwareKeyboard) && observedComposerState() == observed) composerKeyboard?.show()
+        }
     }
     var restingFocusEnabled by remember(inputState) { mutableStateOf(false) }
     var restingFocused by remember(inputState) { mutableStateOf(false) }
     fun releaseComposerInput(actor: ComposerInputDiagnostics.Release, disposing: Boolean = false) {
+        focusRecovery.release()
         composerDiagnostics?.observe(observedComposerState())
         composerDiagnostics?.release(actor)
         // A tab can remove only the composer while the parent chat stays mounted.
@@ -2680,16 +2702,14 @@ fun ChatInputBox(
         composerDiagnostics?.observe(observedComposerState())
         reportComposerFocus(composerFocused)
     }
-    val releaseOnDispose = key(inputState, composerFocusManager, composerKeyboard) {
-        // Refresh diagnostic authority without making policy changes release the
-        // editor. The state holder also belongs to this exact editor/owner tuple.
+    val releaseOnDispose = key(inputState) {
         androidx.compose.runtime.rememberUpdatedState {
             releaseComposerInput(ComposerInputDiagnostics.Release.DISPOSE, disposing = true)
         }
     }
     // Keep physical cleanup after the capture effect: Compose forgets effects in
     // reverse order, so release is recorded before that capture is detached.
-    DisposableEffect(inputState, composerFocusManager, composerKeyboard) {
+    DisposableEffect(inputState) {
         onDispose { releaseOnDispose.value() }
     }
     LifecycleEventEffect(Lifecycle.Event.ON_STOP) { releaseComposerInput(ComposerInputDiagnostics.Release.LIFECYCLE_STOP) }

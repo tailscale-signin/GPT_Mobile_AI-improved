@@ -135,7 +135,7 @@ class ReadUrlTool(
         return requestLocks[(url.hashCode() and Int.MAX_VALUE) % requestLocks.size].withLock {
             val until = missingUntil[url]
             if (until != null && until > System.currentTimeMillis()) {
-                error(callId, "Read URL failed: this exact source recently returned 404/405/410. Search for another URL; repeating it will not recover the page.")
+                sourceUnavailable(callId, "This exact source recently returned 404/405/410. Choose another source.", "NEGATIVE_CACHE")
             } else {
                 missingUntil.remove(url)
                 executeOnce(callId, arguments)
@@ -145,7 +145,7 @@ class ReadUrlTool(
 
     private suspend fun executeOnce(callId: String, arguments: JsonObject): AgentToolResult {
         val start = parseUrl(arguments) ?: return error(callId, "Read URL failed: url must be a valid HTTP(S) URL without userinfo or fragment.")
-        if (start.toASCIIString() in unavailableUrls) return error(callId, "Read URL failed: this source was already unavailable in this turn. Choose another source.")
+        if (start.toASCIIString() in unavailableUrls) return sourceUnavailable(callId, "This source was already unavailable in this turn. Choose another source.", "TURN_SUPPRESSION")
         if (!dev.chungjungsoo.gptmobile.data.research.academic.ResearchConnectivityGate.shared.available(start.host)) return error(callId, "DNS_RECOVERY: waiting for network recovery after DNS failures on multiple services.")
         var responseReceived = false
         val result = try {
@@ -552,6 +552,13 @@ class ReadUrlTool(
             "Read failed · host=${uri.host.orEmpty().take(160)} · category=$category · exception=$exceptionType" +
                 detail?.takeIf { it.isNotBlank() }?.let { " · detail=${it.take(240)}" }.orEmpty(),
             "W"
+        )
+    }
+
+    private fun sourceUnavailable(callId: String, detail: String, observation: String): AgentToolResult {
+        val result = error(callId, "Read URL failed: $detail", code = "SOURCE_UNAVAILABLE")
+        return result.copy(
+            executionReceipt = JsonObject(result.executionReceipt.orEmpty() + ("source_availability_observation" to JsonPrimitive(observation)))
         )
     }
 

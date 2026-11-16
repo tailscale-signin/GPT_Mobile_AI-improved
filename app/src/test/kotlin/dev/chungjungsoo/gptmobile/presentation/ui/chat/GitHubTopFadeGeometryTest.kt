@@ -12,6 +12,14 @@ class GitHubTopFadeGeometryTest {
         assertEquals(collapsed, gitHubTopFadeHeight(48f, 800f, true), 0f)
     }
 
+    @Test fun profilesInterpolateFromTheSameCollapsedDepth() {
+        GitHubFadeProfile.entries.forEach { profile ->
+            assertEquals(72f, gitHubTopFadeHeight(48f, 800f, true, 0f, profile), .001f)
+            assertEquals(48f + profile.expandedExtra * 800f, gitHubTopFadeHeight(48f, 800f, true, 1f, profile), .001f)
+        }
+        assertEquals(100f, gitHubTopFadeHeight(48f, 800f, true, .5f), .001f)
+    }
+
     @Test fun keyboardDoesNotEnterTheWindowReferenceAndDisabledFadesStayDisabled() {
         // The same stable pre-IME window is used throughout keyboard animation.
         listOf(800f, 600f, 400f).forEach { viewport ->

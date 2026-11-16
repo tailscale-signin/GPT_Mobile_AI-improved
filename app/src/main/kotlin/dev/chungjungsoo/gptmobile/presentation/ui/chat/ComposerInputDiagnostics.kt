@@ -156,3 +156,41 @@ class ComposerInputDiagnostics internal constructor(
         }
     }
 }
+
+/** Retries only a hide observed while the editor's window was unfocused. */
+internal class ComposerFocusRecovery {
+    private var previous: ComposerInputDiagnostics.State? = null
+    private var hiddenDuringInterruption = false
+    private var used = false
+
+    fun release() {
+        hiddenDuringInterruption = false
+        used = true
+    }
+
+    fun observe(state: ComposerInputDiagnostics.State, hasHardwareKeyboard: Boolean): Boolean {
+        val prior = previous
+        previous = state
+        if (!state.focused) {
+            hiddenDuringInterruption = false
+            used = false
+            return false
+        }
+        if (hasHardwareKeyboard ||
+            !state.enabled ||
+            state.inputMode != ComposerInputDiagnostics.InputMode.TOUCH ||
+            state.lifecycle != ComposerInputDiagnostics.LifecycleState.RESUMED
+        ) {
+            release()
+            return false
+        }
+        if (state.imeVisible) {
+            hiddenDuringInterruption = false
+        } else if (prior?.focused == true && prior.imeVisible && !state.windowFocused) {
+            hiddenDuringInterruption = true
+        }
+        if (used || !hiddenDuringInterruption || !state.windowFocused) return false
+        release()
+        return true
+    }
+}

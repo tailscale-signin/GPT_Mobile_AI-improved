@@ -1,10 +1,6 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.voice
 
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.snap
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -38,10 +34,9 @@ import androidx.compose.material.icons.rounded.VolumeOff
 import androidx.compose.material.icons.rounded.VolumeUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
@@ -56,7 +51,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -92,7 +86,8 @@ internal data class VoiceConversationUiState(
     val profileError: String?,
     val preferencesApplied: Boolean,
     val waitingApproval: Boolean,
-    val draft: String
+    val draft: String,
+    val outputLevel: kotlinx.coroutines.flow.StateFlow<Float?>? = null
 )
 
 internal class VoiceConversationActions(
@@ -111,6 +106,7 @@ internal class VoiceConversationActions(
     val replay: () -> Unit,
     val openChat: () -> Unit,
     val toggleMicrophone: () -> Unit,
+    val toggleCaptions: () -> Unit = {},
     val openAudioRoute: () -> Unit,
     val end: () -> Unit
 )
@@ -194,7 +190,7 @@ private fun VoiceConversationStatus(state: VoiceConversationUiState, actions: Vo
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        VoiceWave(state.session, Modifier.widthIn(max = 520.dp).fillMaxWidth().height(if (compact) 112.dp else 192.dp).clearAndSetSemantics {})
+        VoiceWave(state.session, Modifier.widthIn(max = 520.dp).fillMaxWidth().height(if (compact) 92.dp else 154.dp).clearAndSetSemantics {}, state.outputLevel)
         VoiceStatusChip(state)
         Text(voiceListeningHint(state.session), Modifier.padding(top = 10.dp, bottom = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center)
         VoiceConversationSetup(state, actions)
@@ -275,23 +271,30 @@ private fun voiceListeningHint(state: VoiceState): String = when {
 
 @Composable
 private fun VoiceConversationControls(state: VoiceConversationUiState, actions: VoiceConversationActions) {
-    Surface(
+    Row(
         Modifier.padding(top = 8.dp).widthIn(max = 480.dp).fillMaxWidth(),
-        shape = RoundedCornerShape(36.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerLow,
-        border = BorderStroke(
-            1.dp,
-            Brush.horizontalGradient(
-                listOf(MaterialTheme.colorScheme.primary.copy(alpha = .12f), MaterialTheme.colorScheme.primary.copy(alpha = .34f), MaterialTheme.colorScheme.tertiary.copy(alpha = .12f))
-            )
-        ),
-        tonalElevation = 2.dp
+        horizontalArrangement = Arrangement.SpaceEvenly,
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-            VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, false, Modifier.weight(1f))
-            VoiceMicrophoneControl(state, actions.toggleMicrophone)
-            VoiceControl("Audio", if (state.session.speaker) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff, actions.openAudioRoute, !state.session.speaker, Modifier.weight(1f))
+        VoiceControl("Text chat", Icons.Rounded.ChatBubbleOutline, actions.openChat, false, Modifier.weight(1f))
+        VoiceMicrophoneControl(state, actions.toggleMicrophone)
+        VoiceControl("Audio", if (state.session.speaker) Icons.Rounded.VolumeUp else Icons.Rounded.VolumeOff, actions.openAudioRoute, !state.session.speaker, Modifier.weight(1f))
+        VoiceCaptionsControl(state, actions.toggleCaptions, Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun VoiceCaptionsControl(state: VoiceConversationUiState, toggle: () -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        IconToggleButton(
+            checked = state.captions,
+            onCheckedChange = { toggle() },
+            enabled = state.preferencesApplied,
+            modifier = Modifier.size(52.dp).testTag("voice_captions_toggle")
+        ) {
+            Icon(Icons.Rounded.Subtitles, "Captions", Modifier.size(24.dp))
         }
+        Text("Captions", Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
     }
 }
 
@@ -300,13 +303,6 @@ private fun VoiceMicrophoneControl(state: VoiceConversationUiState, toggle: () -
     val listening = state.session.phase == VoicePhase.LISTENING
     val playing = state.session.phase in setOf(VoicePhase.PREPARING, VoicePhase.SPEAKING)
     val colors = MaterialTheme.colorScheme
-    val active = listening || playing
-    val animated = voiceMotionEnabled()
-    val container by animateColorAsState(
-        if (active) colors.primary else colors.primaryContainer,
-        animationSpec = if (animated) tween(240) else snap(),
-        label = "Voice microphone state"
-    )
     val (icon, label) = when {
         playing -> Icons.Rounded.Stop to "Stop reply"
         state.session.muted -> Icons.Rounded.MicOff to "Start listening"
@@ -315,22 +311,12 @@ private fun VoiceMicrophoneControl(state: VoiceConversationUiState, toggle: () -
         else -> Icons.Rounded.Mic to "Turn microphone off"
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.size(112.dp), contentAlignment = Alignment.Center) {
-            if (listening || playing) {
-                val level = if (listening && state.session.hasAudioLevel) state.session.level.takeIf(Float::isFinite)?.coerceIn(0f, 1f) ?: 0f else 0f
-                Canvas(Modifier.matchParentSize()) {
-                    drawCircle(colors.primary, radius = (52 + level * 3).dp.toPx(), alpha = .2f + level * .2f, style = Stroke(2.dp.toPx()))
-                }
-            }
-            FilledIconButton(
-                onClick = toggle,
-                enabled = playing || state.enabled && state.voiceReady && state.preferencesApplied && state.recognitionReady,
-                modifier = Modifier.size(96.dp).testTag("voice_microphone_toggle"),
-                colors = IconButtonDefaults.filledIconButtonColors(
-                    containerColor = container,
-                    contentColor = if (active) colors.onPrimary else colors.onPrimaryContainer
-                )
-            ) { Icon(icon, label, Modifier.size(36.dp)) }
+        IconButton(
+            onClick = toggle,
+            enabled = playing || state.enabled && state.voiceReady && state.preferencesApplied && state.recognitionReady,
+            modifier = Modifier.size(72.dp).testTag("voice_microphone_toggle")
+        ) {
+            Icon(icon, label, Modifier.size(32.dp), tint = if (listening || playing) colors.primary else colors.onSurface)
         }
         Text(
             if (playing) {
@@ -351,11 +337,9 @@ private fun VoiceMicrophoneControl(state: VoiceConversationUiState, toggle: () -
 @Composable
 private fun VoiceControl(label: String, image: ImageVector, click: () -> Unit, selected: Boolean, modifier: Modifier = Modifier) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        FilledIconButton(
-            onClick = click,
-            modifier = Modifier.size(52.dp),
-            colors = IconButtonDefaults.filledIconButtonColors(containerColor = if (selected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surfaceContainerHigh)
-        ) { Icon(image, label, Modifier.size(24.dp)) }
+        IconButton(onClick = click, modifier = Modifier.size(52.dp)) {
+            Icon(image, label, Modifier.size(24.dp), tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+        }
         Text(label, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
     }
 }

@@ -38,7 +38,7 @@ internal data class IssueReportDiagnostics(
         values.forEach { (key, value) -> copied[key] = validatedValue(key, value) ?: return null }
         if (!alignedCriteria(copied) || !alignedComposer(copied) || schemaVersion == 3 && !IssueReportIncidentCapsule.aligned(copied)) return null
         val expectedUnavailable = requiredFields(area, schemaVersion).filterNot { it in copied }
-        val optionalUnavailable = reasoningProbeFields.intersect(allowed) - copied.keys
+        val optionalUnavailable = (reasoningProbeFields + IssueReportIncidentCapsule.policyResponseFields + IssueReportIncidentCapsule.repeatHistoryFields).intersect(allowed) - copied.keys
         if (!unavailableFields.containsAll(expectedUnavailable) || unavailableFields.any { it !in expectedUnavailable && it !in optionalUnavailable } || unavailableFields.distinct().size != unavailableFields.size) return null
         val snapshot = copy(values = copied.toMap(), unavailableFields = unavailableFields.toList(), omittedFields = omittedFields.toList())
         return snapshot.takeIf { IssueReport.json.encodeToString(serializer(), it).encodeToByteArray().size <= MAX_BYTES }
@@ -55,6 +55,11 @@ internal data class IssueReportDiagnostics(
         }
 
     internal fun requiredServiceFeatures(): Set<String> = buildSet {
+        if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.policyResponseFields }) add(IssueReportIncidentCapsule.GITHUB_POLICY_RESPONSE_FEATURE)
+        if ((values.keys + omittedFields + unavailableFields).any { it in IssueReportIncidentCapsule.repeatHistoryFields }) add(IssueReportIncidentCapsule.REPEAT_HISTORY_FEATURE)
+        if ("semantic_ci_rules" in values || "semantic_ci_rules" in omittedFields) add(IssueReportIncidentCapsule.GITHUB_CI_SEMANTIC_FEATURE)
+        if ("search_validation_field_names" in values || "search_validation_field_names" in omittedFields) add(IssueReportIncidentCapsule.GITHUB_SEARCH_VALIDATION_FEATURE)
+        if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.inventoryPaginationFields }) add(IssueReportIncidentCapsule.TOOL_INVENTORY_PAGINATION_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.repeatAdmissionFields }) add(IssueReportIncidentCapsule.REPEAT_ADMISSION_FEATURE)
         if ((values.keys + omittedFields).any { it in IssueReportIncidentCapsule.toolEventPersistenceFields }) add(IssueReportIncidentCapsule.TOOL_EVENT_PERSISTENCE_FEATURE)
         if ("sqlite_constraint_kind" in values || "sqlite_constraint_kind" in omittedFields) add(IssueReportIncidentCapsule.SQLITE_CONSTRAINT_FEATURE)
@@ -113,6 +118,9 @@ internal data class IssueReportDiagnostics(
             }
         ) {
             add("RUN_FAILURE_EVIDENCE_V1")
+        }
+        if ("url_reader_availability" in values || "url_reader_availability" in omittedFields) {
+            add(IssueReportIncidentCapsule.URL_READER_AVAILABILITY_FEATURE)
         }
         if ((values.keys + omittedFields).any { it in recoveryObservationFields } ||
             (values["saved_view_restore_state"] as? JsonPrimitive)?.contentOrNull in setOf("BODY_MISSING", "CURSOR_INDEX_MISSING", "INVALID_VIEW_ID") ||
@@ -213,7 +221,7 @@ internal data class IssueReportDiagnostics(
                 IssueReportIncidentCapsule.combinedDeliveryFields +
                 IssueReportIncidentCapsule.acceptanceBlockerFields
         }
-        val failureDetailFields = setOf("provider_failure_stage", "provider_failure_domain", "provider_failure_code", "voice_reply_state", "voice_reply_characters", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "chat_failure_code_state", "sqlite_constraint_kind", "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections", "unmet_requirement_count", "unmet_capability_count")
+        val failureDetailFields = setOf("provider_failure_stage", "provider_failure_domain", "provider_failure_code", "voice_reply_state", "voice_reply_characters", "tool_action", "tool_error_code", "tool_reason_code", "tool_dispatch_phase", "unknown_field_count", "chat_failure_code_state", "provider_error_code_state", "provider_error_origin", "sqlite_constraint_kind", "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections", "unmet_requirement_count", "unmet_capability_count")
         private val newEvidenceFieldNames = setOf("end_line", "max_lines", "start_offset", "ranges", "evidence_id").map(::JsonPrimitive).toSet()
         const val MAX_BYTES = 3072
         const val MAX_CRITERIA = 8
@@ -326,9 +334,13 @@ internal data class IssueReportDiagnostics(
             "voice_reply_state" to setOf("FAILED_WITHOUT_DETAILS", "EMPTY_REPLY"),
             "tool_action" to setOf("status", "list", "headers", "context", "comments", "reviews", "threads", "history", "commit", "branch", "changes", "checks", "workflows", "runs", "jobs", "logs", "failure", "read", "search", "create", "update", "close", "reopen", "review", "diff", "summary", "files", "tree", "get", "rerun", "rerun_failed_jobs", "cancel", "dispatch"),
             "tool_error_code" to setOf("APP_ERROR", "DNS_RESOLUTION_FAILED", "TOOL_FAILURE", "INVALID_ARGUMENTS", "TOOL_UNAVAILABLE", "SAVED_VIEW_UNAVAILABLE", "GITHUB_VALIDATION_FAILED", "HTTP_ERROR", "GITHUB_NOT_FOUND_OR_INACCESSIBLE", "GITHUB_REVIEW_BLOCKED", "PRECHECK_REJECTED", "TOOL_OUTCOME_UNKNOWN", "UNKNOWN_TOOL", "GITHUB_CONFLICT", "GITHUB_COOLDOWN_ACTIVE", "GITHUB_PRIMARY_RATE_LIMITED", "GITHUB_SECONDARY_RATE_LIMITED", "GITHUB_FORBIDDEN_UNKNOWN", "GITHUB_ENDPOINT_PERMISSION_REQUIRED"),
-            "tool_reason_code" to setOf("BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH"),
+            "tool_reason_code" to setOf("BUDGET_EXHAUSTED", "TOOL_BATCH_OVERSIZE", "DUPLICATE_INVOCATION", "REPEATED_FAILURE", "BUDGET_CHECKPOINT_UNAVAILABLE", "UNSUPPORTED_TOOL_CONTRACT", "UNSUPPORTED_OPERATION", "UNKNOWN_TOOL", "SAVED_VIEW_WRONG_OPERATION", "SAVED_VIEW_CURSOR_ALTERED", "TOOL_ARGUMENT_SCHEMA_REJECTED", "TOOL_ARGUMENT_CONSTRAINT_REJECTED", "ISSUE_SELECTOR_REQUIRED", "PR_SELECTOR_REQUIRED", "SAVED_VIEW_CONTEXT_MISMATCH", "GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER"),
             "tool_dispatch_phase" to setOf("PREFLIGHT_REJECTED", "READ_FAILED", "OBSERVED", "OUTCOME_UNKNOWN", "PARTIAL_ACCEPTED", "COMPLETED", "FAILED", "PRECHECK_REJECTED"),
             "chat_failure_code_state" to setOf("ABSENT", "KNOWN", "UNRECOGNIZED"),
+            // These states come from the actual OpenAI-compatible stream error
+            // value; never expose its untrusted message or arbitrary code.
+            "provider_error_code_state" to setOf("ABSENT"),
+            "provider_error_origin" to setOf("OPENAI_COMPAT_STREAM_ERROR_VALUE"),
 
             "response_format" to setOf("TEXT", "GITHUB_REVIEW_V1", "CLAIM_JSON"),
             "finish_reason" to finishReasons,
@@ -389,6 +401,7 @@ internal data class IssueReportDiagnostics(
             "PROVIDER" to reasoningProbeFields + githubCooldownFields + profileSelectionFields + completionEvidenceFields + capacityEvidenceFields + githubSchemaBudgetFields + conflictEvidenceFields + conflictFields + capacityDetailFields + setOf("reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action", "reasoning_model_state") + commonHashes + setOf(
                 "reasoning_requested_mode", "reasoning_admission_basis", "reasoning_route_kind", "reasoning_control_state", "reasoning_template_hash",
                 "provider_failure_stage", "provider_failure_domain", "provider_failure_code",
+                "provider_error_code_state", "provider_error_origin", "chat_failure_code_state",
                 "provider_wait_eligible", "provider_checkpoint_present", "provider_checkpoint_continuation_allowed", "provider_consecutive_rejections",
                 "original_error_code_hash", "server_request_id_hash", "generation_id_hash", "response_format", "finish_reason", "configured_output_limit", "effective_output_limit", "backend_output_limit",
                 "input_tokens", "output_tokens", "reasoning_tokens", "visible_output_bytes", "reasoning_output_bytes", "backend_attempts", "backend_completed_attempts", "backend_failed_attempt",
@@ -401,7 +414,12 @@ internal data class IssueReportDiagnostics(
             "VOICE" to voiceInstallEvidenceFields + voicePackStateFields + voiceCapturePlaybackFields + setOf("voice_install_state", "voice_install_scheduler", "voice_install_failure", "voice_install_stop_reason", "voice_install_progress_percent", "voice_reply_state", "voice_reply_characters", "voice_session_id_hash", "profile_hash", "model_hash", "voice_generation", "voice_engine", "voice_phase", "voice_capture_attempts", "voice_read_calls", "voice_captured_samples", "voice_nonzero_samples", "voice_recognized_characters", "voice_speech_end_to_transcript_ms", "voice_transcript_to_request_ms", "voice_request_to_response_ms", "voice_response_to_queue_ms", "voice_queue_to_synthesis_ms", "voice_synthesis_to_first_audio_ms", "voice_response_to_first_audio_ms", "voice_warmup_ms", "voice_engine_warm", "voice_permission_granted", "voice_foreground", "voice_muted", "voice_focus_result", "voice_input_silenced", "voice_first_audio_basis"),
             "GATEWAY" to setOf("queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason", "status_policy_recovery") + commonHashes + modelPreparationFields + setOf("checkpoint_hash", "original_error_code_hash", "gateway_state", "transport_complete", "request_replay_allowed", "logical_continuation_allowed"),
             "APP" to composerEvidenceFields + commonHashes + setOf("original_error_code_hash", "app_exit_kind", "chat_failure_code_state"),
-            "INCIDENT" to commonHashes + setOf("original_error_code_hash", "chat_failure_code_state")
+            "INCIDENT" to commonHashes + setOf(
+                "original_error_code_hash",
+                "chat_failure_code_state",
+                "provider_error_code_state",
+                "provider_error_origin"
+            )
         )
         private val coreFields = mapOf(
             "PROVIDER" to listOf("profile_hash", "model_hash", "configured_output_limit", "output_tokens", "finish_reason", "backend_attempts", "transport_complete"),
@@ -437,7 +455,7 @@ internal data class IssueReportDiagnostics(
             val values = linkedMapOf<String, JsonElement>()
             if (mode != "NO_CAPTURE") {
                 allowed.forEach { key ->
-                    element(fields[key])?.let { validatedValue(key, it) }?.let { values[key] = it }
+                    element(fields[key], if (key == "semantic_ci_rules") 9 else MAX_CRITERIA)?.let { validatedValue(key, it) }?.let { values[key] = it }
                 }
             }
             val omitted = mutableListOf<String>()
@@ -459,6 +477,11 @@ internal data class IssueReportDiagnostics(
                     values.remove(it)
                     omitted.add(it)
                 }
+            }
+            // Filtering an invalid member must not turn a partial history into
+            // observed empty/complete history or invalidate unrelated operands.
+            if (!IssueReportIncidentCapsule.repeatHistoryAligned(values)) {
+                IssueReportIncidentCapsule.repeatHistoryFields.forEach(values::remove)
             }
             if (version == 3 && !IssueReportIncidentCapsule.aligned(values)) {
                 listOf("argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types").filter { it in values }.forEach {
@@ -490,7 +513,14 @@ internal data class IssueReportDiagnostics(
                     shapePair != null -> listOf("${shapePair}_field_names", "${shapePair}_field_types").filter { it in values }
                     else -> listOf(key)
                 }
-                remove.forEach {
+                val removedFields = if (IssueReportIncidentCapsule.repeatHistoryFields.any { it in values } &&
+                    remove.any { it in IssueReportIncidentCapsule.repeatHistoryFields || it in IssueReportIncidentCapsule.repeatAdmissionFields }
+                ) {
+                    (remove + IssueReportIncidentCapsule.repeatHistoryFields).distinct()
+                } else {
+                    remove
+                }
+                removedFields.forEach {
                     values.remove(it)
                     omitted.add(it)
                 }
@@ -584,13 +614,13 @@ internal data class IssueReportDiagnostics(
             else -> null
         }
 
-        private fun element(value: Any?): JsonElement? = when (value) {
+        private fun element(value: Any?, maxListItems: Int = MAX_CRITERIA): JsonElement? = when (value) {
             is JsonElement -> value
             is String -> value.takeIf { it.length <= 128 }?.let(::JsonPrimitive)
             is Boolean -> JsonPrimitive(value)
             is Int -> JsonPrimitive(value)
             is Long -> JsonPrimitive(value)
-            is List<*> -> value.takeIf { it.size <= MAX_CRITERIA }?.let { JsonArray(it.map { item -> string(item)?.let(::JsonPrimitive) ?: return null }) }
+            is List<*> -> value.takeIf { it.size <= maxListItems }?.let { JsonArray(it.map { item -> string(item)?.let(::JsonPrimitive) ?: return null }) }
             else -> null
         }
     }

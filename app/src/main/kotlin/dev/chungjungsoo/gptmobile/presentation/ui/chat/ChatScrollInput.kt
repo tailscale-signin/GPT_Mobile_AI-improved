@@ -20,18 +20,26 @@ import androidx.compose.ui.unit.Velocity
 
 internal class ChatScrollInput {
     var dragging by mutableStateOf(false)
+    var pointerActive = false
     var modifier: Modifier = Modifier
 }
 
 /** The same deliberate bottom arrival is used by normal, Combined, Gateway and GitHub chat. */
 @Composable
-internal fun rememberChatScrollInput(listState: LazyListState, touchSlop: Float, onDetach: () -> Unit, onFollow: () -> Unit): ChatScrollInput {
-    val input = remember(listState, touchSlop) { ChatScrollInput() }
-    val gesture = remember(listState, touchSlop) { GitHubPromptAnchor(touchSlop, GitHubScrollMode.FOLLOW_BOTTOM) }
+internal fun rememberChatScrollInput(
+    listState: LazyListState,
+    touchSlop: Float,
+    roomId: Int = 0,
+    bottomTolerancePx: Float = 1f,
+    onDetach: () -> Unit,
+    onFollow: () -> Unit
+): ChatScrollInput {
+    val input = remember(listState, touchSlop, roomId) { ChatScrollInput() }
+    val gesture = remember(listState, touchSlop, roomId) { GitHubPromptAnchor(touchSlop, GitHubScrollMode.FOLLOW_BOTTOM) }
     val detach by rememberUpdatedState(onDetach)
     val follow by rememberUpdatedState(onFollow)
     fun followIfAtBottom() {
-        if (gesture.shouldFollowAtBottom(listState.isAtGitHubBottom())) {
+        if (gesture.shouldFollowAtBottom(listState.layoutInfo.totalItemsCount > 0 && listState.gitHubDistanceToBottom() <= bottomTolerancePx)) {
             gesture.followBottom()
             input.dragging = false
             follow()
@@ -50,9 +58,9 @@ internal fun rememberChatScrollInput(listState: LazyListState, touchSlop: Float,
             }
 
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
-                // A deliberate downward scroll can arrive at an already reached edge,
-                // where the list consumes nothing. Geometry changes alone cannot attach.
-                if (consumed.y < 0f || available.y < 0f) currentFollowIfAtBottom()
+                // Wheels can reach the edge without a pointer release or a fling.
+                // A held touch still waits for its release or completed fling.
+                if (!input.pointerActive && source == NestedScrollSource.UserInput && (consumed.y < 0f || available.y < 0f)) currentFollowIfAtBottom()
                 return Offset.Zero
             }
 
@@ -62,7 +70,7 @@ internal fun rememberChatScrollInput(listState: LazyListState, touchSlop: Float,
             }
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity {
-                if (consumed.y < 0f || available.y < 0f) currentFollowIfAtBottom()
+                currentFollowIfAtBottom()
                 gesture.finishScroll()
                 input.dragging = false
                 return Velocity.Zero
@@ -73,6 +81,7 @@ internal fun rememberChatScrollInput(listState: LazyListState, touchSlop: Float,
         Modifier.nestedScroll(connection).pointerInput(gesture) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                input.pointerActive = true
                 gesture.followBottom()
                 var released = false
                 try {
@@ -81,6 +90,7 @@ internal fun rememberChatScrollInput(listState: LazyListState, touchSlop: Float,
                     } while (event.changes.any { it.pressed })
                     released = true
                 } finally {
+                    input.pointerActive = false
                     gesture.endGesture(cancelled = !released)
                     input.dragging = false
                     if (released) currentFollowIfAtBottom()

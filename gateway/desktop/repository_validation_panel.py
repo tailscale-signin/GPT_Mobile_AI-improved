@@ -85,7 +85,7 @@ class RepositoryValidationPanel:
         self.inputs.append(choose)
         self.status = tk.StringVar(master=frame)
         self.status_label = ttk.Label(frame, textvariable=self.status, style='Muted.TLabel', wraplength=530, justify='left')
-        self.status_label.grid(row=2, column=0, columnspan=2, sticky='ew', pady=3)
+        self.status_label.grid(row=3, column=0, columnspan=2, sticky='ew', pady=3)
         self.advanced_visible = tk.BooleanVar(master=frame, value=False)
         self.advanced_toggle = ttk.Checkbutton(frame, text='Advanced validation settings', variable=self.advanced_visible,
                                                command=self.toggle_advanced)
@@ -146,10 +146,9 @@ class RepositoryValidationPanel:
         self.reset_button.grid(row=11, column=0, columnspan=3, sticky='w', pady=5)
         self.inputs.append(self.reset_button)
         buttons = ttk.Frame(frame)
-        # Keep the primary actions in the fixed portion of the page. On a
-        # minimum-height Windows window, placing them below the expandable
-        # editor can put their hit targets underneath Settings' footer.
-        buttons.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(4, 0))
+        # Reserve the upper visible portion for actual action hit targets. The
+        # longer dynamic status is below them and can scroll independently.
+        buttons.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(4, 0))
         for attr, label, command in [('prepare_button', 'Prepare & save', lambda: self.start(True)),
                                      ('check_button', 'Check setup', lambda: self.start(False)),
                                      ('save_button', 'Save policy', self.save), ('reload_button', 'Reload', self.reload)]:
@@ -157,6 +156,9 @@ class RepositoryValidationPanel:
             button.pack(side='left', padx=(0, 4))
             setattr(self, attr, button)
             self.inputs.append(button)
+        guide = ttk.Button(frame, text='Guided Docker / WSL setup...', command=self.open_guided_setup)
+        guide.grid(row=6, column=0, columnspan=2, sticky='w', pady=(6, 2))
+        self.inputs.append(guide)
         self.cancel_button = ttk.Button(buttons, text='Cancel', command=lambda: self.cancel.set(), state='disabled', padding=(8, 8))
         self.cancel_button.pack(side='left')
         self.toggle_advanced()
@@ -166,6 +168,12 @@ class RepositoryValidationPanel:
         self.frame.bind('<Destroy>', self.destroyed, add='+')
         self.reload(confirm=False)
         _PANELS.add(self)
+
+    def open_guided_setup(self):
+        if self.busy or self.closed:
+            return
+        from desktop.engineering_setup_panel import show
+        show(self.root, parent=self.frame.winfo_toplevel())
 
     def notice(self, message):
         self.status.set(message if len(message) <= 190 else message[:187] + '…')
@@ -278,12 +286,28 @@ class RepositoryValidationPanel:
 
     def toggle_advanced(self):
         if self.advanced_visible.get():
-            # grid_remove retains a widget's layout, but explicitly restoring
-            # the slot is reliable across the Tk builds shipped with Windows.
+            # grid_remove retains layout but needs explicit restoration on Windows.
             self.advanced.grid(row=5, column=0, columnspan=2, sticky='ew', pady=4)
+            # Expanded Custom actions must be above the fixed Settings footer.
+            self.frame.after_idle(self.show_advanced_actions)
         else:
             self.advanced.grid_remove()
             self.viewport.yview_moveto(0)
+
+    def show_advanced_actions(self):
+        if self.closed or not self.advanced_visible.get():
+            return
+        try:
+            viewport = self.viewport
+            viewport.update_idletasks()
+            if not self.discovery_button.winfo_viewable():
+                return
+            top = self.discovery_button.winfo_rooty() - viewport.winfo_rooty()
+            offset = viewport.canvasy(0) + top - 12
+            viewport.yview_moveto(max(0, offset) / max(1, self.content.winfo_height()))
+            viewport.update_idletasks()
+        except tk.TclError:
+            pass
 
     def fill(self, options):
         self.loading = True

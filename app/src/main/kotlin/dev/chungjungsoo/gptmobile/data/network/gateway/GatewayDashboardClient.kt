@@ -22,9 +22,108 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.longOrNull
 
 internal class GatewayDashboardAccessDenied : IllegalStateException("Gateway access was denied. Check this connection in GitHub settings.")
+
+internal data class GatewayObservedToolMetrics(
+    val total: Long,
+    val success: Long,
+    val failure: Long,
+    val p50Millis: Long?,
+    val p95Millis: Long?,
+    val sampleCount: Long,
+    val lastUsed: Double?
+)
+
+internal data class GatewayInventoryTool(
+    val name: String,
+    val description: String?,
+    val inputFields: List<String>,
+    val id: String = name,
+    val sourceId: String = "legacy-gateway",
+    val authorized: Boolean? = null,
+    val enabled: Boolean = true,
+    val executableNow: Boolean? = null,
+    val blockedReason: String? = null,
+    val metrics: GatewayObservedToolMetrics? = null
+) {
+    val category: String get() = when {
+        name.startsWith("github_", ignoreCase = true) -> "GitHub"
+        name.startsWith("web_", ignoreCase = true) -> "Web"
+        else -> "Gateway MCP"
+    }
+}
+
+internal data class GatewayToolInventory(
+    val tools: List<GatewayInventoryTool>,
+    val declaredCount: Int,
+    val observedAtMillis: Long,
+    val status: String = "PARTIAL",
+    val scope: String = "legacy_gateway_mcp",
+    val reason: String? = null,
+    val hasMore: Boolean = false,
+    val cursorLineage: String? = null
+)
+
+internal fun parseGatewayToolInventory(source: JsonObject, observedAtMillis: Long): GatewayToolInventory {
+    if ((source["schema"] as? JsonPrimitive)?.contentOrNull == "gptmobile.gateway.capability-inventory.v1") {
+        require((source["schemaVersion"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull == 1)
+        val rows = requireNotNull(source["tools"] as? JsonArray)
+        val count = requireNotNull((source["visibleCount"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull)
+        require(count == rows.size && count in 0..2048)
+        val status = (source["status"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull
+        require(status in setOf("COMPLETE", "PARTIAL", "STALE", "BLOCKED", "NOT_DISCOVERED"))
+        val tools = rows.map { element ->
+            val row = requireNotNull(element as? JsonObject)
+            fun text(key: String, maximum: Int): String? = (row[key] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.take(maximum)
+            fun count(key: String): Long? = (row[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it >= 0 }
+            fun flag(key: String): Boolean? = (row[key] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+            val name = requireNotNull(text("name", 200)).also { require(it.isNotBlank() && it.none(Char::isISOControl)) }
+            val id = requireNotNull(text("id", 64)).also { require(it.matches(Regex("[a-f0-9]{64}"))) }
+            val sourceId = requireNotNull(text("sourceId", 80)).also { require(it.isNotBlank() && it.none(Char::isISOControl)) }
+            val fields = (row["inputFields"] as? JsonArray).orEmpty().mapNotNull { (it as? JsonPrimitive)?.takeIf { value -> value.isString }?.contentOrNull }
+            require(fields.size <= 32 && fields.distinct().size == fields.size && fields.all { it.matches(Regex("[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}")) })
+            val metrics = (row["metrics"] as? JsonObject)?.let { metric ->
+                fun metricCount(key: String) = (metric[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it >= 0 }
+                fun metricNumber(key: String) = (metric[key] as? JsonPrimitive)?.takeUnless { it.isString }?.doubleOrNull?.takeIf { it.isFinite() && it >= 0 }
+                val total = requireNotNull(metricCount("total"))
+                val success = requireNotNull(metricCount("success"))
+                val failure = requireNotNull(metricCount("failure"))
+                val samples = requireNotNull(metricCount("sampleCount"))
+                require(success + failure <= total && samples <= success)
+                GatewayObservedToolMetrics(total, success, failure, metricCount("p50Millis"), metricCount("p95Millis"), samples, metricNumber("lastUsed"))
+            }
+            GatewayInventoryTool(name, text("description", 400), fields, id, sourceId, flag("authorized"), flag("enabled") ?: false, flag("executableNow"), text("blockedReason", 160), metrics)
+        }
+        require(tools.distinctBy { it.id }.size == tools.size && tools.distinctBy { it.sourceId to it.name }.size == tools.size)
+        val scope = (source["scope"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull.orEmpty().take(100)
+        val reason = (source["reason"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.take(500)
+        val hasMore = (source["hasMore"] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull ?: false
+        val lineage = (source["cursorLineage"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+        return GatewayToolInventory(tools.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }, count, observedAtMillis, requireNotNull(status), scope, reason, hasMore, lineage)
+    }
+    val rows = requireNotNull(source["value"] as? JsonArray)
+    val count = requireNotNull((source["Count"] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull)
+    require(count == rows.size)
+    val tools = rows.map { row ->
+        val function = requireNotNull((row as? JsonObject)?.get("function") as? JsonObject)
+        val name = requireNotNull((function["name"] as? JsonPrimitive)?.takeIf { it.isString }?.contentOrNull)
+        require(name.isNotBlank() && name.length <= 200 && name.none(Char::isISOControl))
+        val description = (function["description"] as? JsonPrimitive)?.takeIf { it.isString }?.content?.take(400)
+        val fields = ((function["parameters"] as? JsonObject)?.get("properties") as? JsonObject)?.keys.orEmpty()
+        GatewayInventoryTool(name, description, fields.filter { it.matches(Regex("[A-Za-z_][A-Za-z0-9_.-]{0,63}")) }.sorted().take(32))
+    }
+    require(tools.distinctBy { it.name }.size == tools.size)
+    return GatewayToolInventory(tools.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }, count, observedAtMillis)
+}
 
 internal interface GatewayDashboardSource {
     suspend fun read(config: ProviderRequestConfig): GatewayDashboardObservation?
@@ -99,6 +198,36 @@ internal class GatewayDashboardClient internal constructor(private val http: Htt
                     }
                     GatewayClientDiagnostics.observeInstance(config, snapshot.instanceId)
                     GatewayDashboardObservation(snapshot, System.currentTimeMillis())
+                }
+            }
+        }
+    }
+
+    suspend fun readToolInventory(config: ProviderRequestConfig): GatewayToolInventory? = readToolInventory(config, "gateway/dashboard", normalized = true)
+        ?: readToolInventory(config, "gateway/tools", normalized = false)
+
+    private suspend fun readToolInventory(config: ProviderRequestConfig, path: String, normalized: Boolean): GatewayToolInventory? {
+        val endpoint = config.buildEndpoint(path)
+        return LocalEndpointConnectionPolicy.probe(endpoint, evictIdleConnections) {
+            gatewayClientExchange(config, "dashboard", safeRead = true) { headers ->
+                http.prepareGet(endpoint) {
+                    config.token?.takeIf(String::isNotBlank)?.let { bearerAuth(it) }
+                    headers.filterKeys { !it.equals("X-Gateway-Management", true) }.forEach { (key, value) -> header(key, value) }
+                    timeout {
+                        connectTimeoutMillis = 5_000
+                        requestTimeoutMillis = 8_000
+                        socketTimeoutMillis = 8_000
+                    }
+                }.execute { response ->
+                    if (response.status.value in setOf(404, 405)) return@execute null
+                    if (response.status.value in setOf(401, 403)) throw GatewayDashboardAccessDenied()
+                    check(response.status.isSuccess())
+                    val body = response.boundedMetadata(2_000_000)
+                    withContext(Dispatchers.Default) {
+                        val parsed = Json.parseToJsonElement(body) as JsonObject
+                        val inventory = if (normalized) parsed["capabilityInventory"] as? JsonObject else parsed
+                        inventory?.let { parseGatewayToolInventory(it, System.currentTimeMillis()) }
+                    }
                 }
             }
         }

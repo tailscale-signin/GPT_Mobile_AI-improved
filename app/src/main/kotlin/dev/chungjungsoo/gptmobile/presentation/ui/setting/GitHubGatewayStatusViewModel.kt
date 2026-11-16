@@ -31,6 +31,30 @@ internal class GitHubGatewayStatusViewModel @Inject constructor(private val sett
     private val mutableDiagnostics = MutableStateFlow(GatewayDiagnosticViewState())
     val diagnostics = mutableDiagnostics.asStateFlow()
     private var rowsJob: Job? = null
+    private var inventoryJob: Job? = null
+    private val mutableInventory = MutableStateFlow(GatewayCapabilityInventory())
+    val inventory = mutableInventory.asStateFlow()
+
+    fun refreshInventory() {
+        val target = mutable.value.target ?: return
+        val config = target.config ?: return
+        inventoryJob?.cancel()
+        val cached = mutableInventory.value.takeIf { it.identity == target.identity }?.observation
+        mutableInventory.value = GatewayCapabilityInventory(target.identity, cached, loading = true)
+        inventoryJob = viewModelScope.launch {
+            val result = try {
+                val observed = client.readToolInventory(config)
+                GatewayCapabilityInventory(target.identity, observed ?: cached, error = if (observed == null) "Tool inventory endpoint is unavailable." else null)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (denied: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayDashboardAccessDenied) {
+                GatewayCapabilityInventory(target.identity, error = "The selected connection cannot read this tool inventory.")
+            } catch (_: Exception) {
+                GatewayCapabilityInventory(target.identity, cached, error = "The tool inventory could not be verified.")
+            }
+            if (mutable.value.target?.identity == target.identity) mutableInventory.value = result
+        }
+    }
 
     init {
         viewModelScope.launch {
@@ -110,10 +134,19 @@ internal class GitHubGatewayStatusViewModel @Inject constructor(private val sett
         combine(settings.observePlatformV2s(), settings.observeFeatureSettings()) { profiles, features ->
             gatewayDashboardTarget(profileUid, profiles, features.githubProfileOverrides[profileUid]?.engineeringGatewayProfileUid)
         }.distinctUntilChanged().collectLatest { target ->
+            inventoryJob?.cancel()
+            mutableInventory.value = GatewayCapabilityInventory()
             monitor.observe(target, mutable.value) { mutable.value = it }
         }
     }
 }
+
+internal data class GatewayCapabilityInventory(
+    val identity: String? = null,
+    val observation: dev.chungjungsoo.gptmobile.data.network.gateway.GatewayToolInventory? = null,
+    val loading: Boolean = false,
+    val error: String? = null
+)
 
 internal data class GatewayDiagnosticViewState(
     val status: GatewayDiagnosticStatus = GatewayDiagnosticStatus(),

@@ -228,6 +228,90 @@ class VoicePluginAudioTest {
         assertEquals(VoiceRecognitionBackend.ANDROID_SPEECH_SERVICE, VoiceRecognitionBackend.fromSaved("ANDROID_SPEECH_SERVICE"))
     }
 
+    @Test fun streamedUnknownPronunciationUsesOfflineSpeechOnlyBeforeKokoroAudio() {
+        var kokoroFailure: ((VoicePlaybackFailure, Boolean) -> Unit)? = null
+        val bufferedByKokoro = mutableListOf<String>()
+        val offlineSpeech = mutableListOf<String>()
+        val failures = mutableListOf<String>()
+        var completed = 0
+        val output = object : KokoroOutput {
+            override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) = Unit
+
+            override fun openReplyWithFailure(
+                voice: KokoroVoice,
+                complete: () -> Unit,
+                error: (VoicePlaybackFailure, Boolean) -> Unit
+            ): VoiceReplyPlayback {
+                kokoroFailure = error
+                return object : VoiceReplyPlayback {
+                    override fun enqueue(text: String) {
+                        bufferedByKokoro += text
+                    }
+                    override fun finish() = Unit
+                }
+            }
+
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val plugin = VoicePluginAudio(system, local, output, { text, complete, _ ->
+            offlineSpeech += text
+            complete()
+        }) {}.apply { kokoroVoice = KokoroVoice.HEART }
+
+        val first = requireNotNull(plugin.openReplyWithFailure({ completed++ }) { failures += it.message })
+        first.enqueue("Here is ")
+        first.enqueue("an unfamiliar name.")
+        first.finish()
+        requireNotNull(kokoroFailure)(VoicePlaybackFailure("Pronunciation unavailable"), true)
+        assertEquals(listOf("Here is ", "an unfamiliar name."), bufferedByKokoro)
+        assertEquals(listOf("Here is an unfamiliar name."), offlineSpeech)
+        assertEquals(1, completed)
+        assertTrue(failures.isEmpty())
+
+        val second = requireNotNull(plugin.openReplyWithFailure({ completed++ }) { failures += it.message })
+        second.enqueue("This reply has already started.")
+        second.finish()
+        requireNotNull(kokoroFailure)(VoicePlaybackFailure("Pronunciation unavailable after playback started"), false)
+        assertEquals(listOf("Here is an unfamiliar name."), offlineSpeech)
+        assertEquals(listOf("Pronunciation unavailable after playback started"), failures)
+        assertEquals(1, completed)
+        plugin.close()
+    }
+
+    @Test fun strictKokoroOnlySettingStillRejectsOfflineFallback() {
+        var kokoroFailure: ((VoicePlaybackFailure, Boolean) -> Unit)? = null
+        var fallbackCalls = 0
+        val failures = mutableListOf<String>()
+        val output = object : KokoroOutput {
+            override fun speak(text: String, voice: KokoroVoice, complete: () -> Unit, error: (String, Boolean) -> Unit) = Unit
+            override fun openReplyWithFailure(
+                voice: KokoroVoice,
+                complete: () -> Unit,
+                error: (VoicePlaybackFailure, Boolean) -> Unit
+            ): VoiceReplyPlayback {
+                kokoroFailure = error
+                return object : VoiceReplyPlayback {
+                    override fun enqueue(text: String) = Unit
+                    override fun finish() = Unit
+                }
+            }
+            override fun stop() = Unit
+            override fun close() = Unit
+        }
+        val plugin = VoicePluginAudio(system, local, output, { _, _, _ -> fallbackCalls++ }) {}.apply {
+            kokoroVoice = KokoroVoice.HEART
+            requireLocalOutput = true
+        }
+        val playback = requireNotNull(plugin.openReplyWithFailure({}, { failures += it.message }))
+        playback.enqueue("A word that cannot be pronounced.")
+        playback.finish()
+        requireNotNull(kokoroFailure)(VoicePlaybackFailure("Unsupported word"), true)
+        assertEquals(0, fallbackCalls)
+        assertEquals(listOf("Unsupported word"), failures)
+        plugin.close()
+    }
+
     @Test fun kokoroUsesTheExistingPlaybackEntryAndFallsBackOnlyBeforeAudio() {
         val output = LocalOutput()
         val fallback = mutableListOf<String>()

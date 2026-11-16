@@ -19,3 +19,28 @@ internal object KokoroPcmBatches {
         return true
     }
 }
+
+/** Caps near-digital silence across callback and utterance boundaries without time-scaling speech. */
+internal class VoiceQuietLimiter(sampleRate: Int, maxQuietMs: Int) {
+    private val limit = sampleRate * maxQuietMs / 1000
+    private var quietFrames = 0
+
+    fun filter(samples: FloatArray): FloatArray {
+        var result: FloatArray? = null
+        var count = 0
+        for ((index, sample) in samples.withIndex()) {
+            if (kotlin.math.abs(sample) <= 0.0003f) {
+                if (quietFrames == limit) {
+                    if (result == null) result = samples.copyOf()
+                    continue
+                }
+                quietFrames++
+            } else {
+                quietFrames = 0
+            }
+            result?.set(count, samples[index])
+            count++
+        }
+        return result?.copyOf(count) ?: samples
+    }
+}

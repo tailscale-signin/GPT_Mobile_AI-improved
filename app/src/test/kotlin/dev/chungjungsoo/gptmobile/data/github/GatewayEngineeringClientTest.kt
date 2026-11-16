@@ -24,6 +24,24 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayEngineeringClientTest {
+    @Test fun candidatePreviewPreservesTheServersTruncationWarning() = runTest {
+        val jobId = "eng_" + "a".repeat(32)
+        val checkId = "b".repeat(64)
+        for (truncated in listOf(true, false)) {
+            http(
+                MockEngine { request ->
+                    assertEquals("/v1/gateway/engineering/jobs/$jobId/checkpoints/$checkId", request.url.encodedPath)
+                    respond("""{"job_id":"$jobId","check_id":"$checkId","diff":"+partial patch","truncated":$truncated,"output":"test output"}""")
+                }
+            ).use { http ->
+                val preview = GatewayEngineeringClient(http).candidateDetails(config, jobId, checkId)
+                assertTrue(preview.startsWith("+partial patch"))
+                assertTrue(preview.endsWith("test output"))
+                assertEquals(truncated, preview.contains("[Diff truncated]"))
+            }
+        }
+    }
+
     @Test fun preflightBlockersRetainSafeTypedRepairOnSuccessAndRejectionResponses() = runTest {
         val payload = GatewayEngineeringRequest("owner/repo", "feature", "main", "Repair build", "local", chatId = 1, requestId = "setup-block", sourceSha = "a".repeat(40))
         val preflight = GatewayEngineeringPreflight(

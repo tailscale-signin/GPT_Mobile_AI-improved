@@ -151,6 +151,8 @@ class VoiceSession(
     }
     var editBeforeSend = false
     var autoContinue = false
+    var speakWhileGenerating = true
+    internal var performanceMode = VoicePerformanceMode.BALANCED
     private fun replaceDraft() {
         draftGeneration++
         submittedDraft = null
@@ -509,7 +511,11 @@ class VoiceSession(
         streamComplete = complete
         // While generating, start after a stable phrase. A completed response or explicit
         // replay already has its full text and can retain natural sentence boundaries.
-        val chunks = speechBuffer.append(text, complete, earlyStart = !complete)
+        val chunks = if (complete || speakWhileGenerating) {
+            speechBuffer.append(text, complete, earlyStart = !complete, followUpWords = performanceMode.followUpWords)
+        } else {
+            emptyList()
+        }
         if (chunks == null) {
             stopAudio("response_revised")
             update(state.copy(phase = VoicePhase.THINKING, notice = "The response was revised. The current answer is available in chat."))

@@ -3,6 +3,7 @@ package dev.chungjungsoo.gptmobile.data.agent
 import dev.chungjungsoo.gptmobile.data.context.ContextBudgetService
 import dev.chungjungsoo.gptmobile.data.context.ContextPlan
 import dev.chungjungsoo.gptmobile.data.context.ConversationTurn
+import dev.chungjungsoo.gptmobile.data.context.RequestAdmission
 import dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings
 
 /** The repair replaces only the unfinished suffix; completed text and tool effects stay committed. */
@@ -31,29 +32,51 @@ internal fun planResponseContinuation(
     instruction: String,
     exchanges: List<AgentToolExchange>,
     preserveFullInput: Boolean = false,
-    advertisedTools: List<AgentToolDefinition> = emptyList()
+    advertisedTools: List<AgentToolDefinition> = emptyList(),
+    fitProviderBudget: Boolean = false
 ): ContextPlan {
     val limits = settings.normalized().let {
         it.copy(outputTokens = responseOutputAllowance(it, it.outputTokens.takeIf { output -> output > 0 } ?: 4096))
     }
-    val base = appendResponseContinuationContext(turns, instruction, "", exchanges)
-    val required = if (preserveFullInput) base else base.filter { it.isCurrentTurn }
     val reserve = limits.outputTokens
     val toolResultReserve = if (advertisedTools.isEmpty()) 0 else (limits.contextTokens / 8).coerceAtMost(8192)
     val safety = minOf(256, limits.contextTokens / 16)
-    val tailBudget = if (limits.contextTokens == Int.MAX_VALUE) {
-        4096
-    } else {
-        // Keep the selected schemas and room for their results alongside the task and evidence.
-        (limits.contextTokens.toLong() - reserve - toolResultReserve - safety - ContextBudgetService.breakdown(required, system, advertisedTools).total - 40)
-            .coerceIn(0, 4096).toInt()
+    val promptCeiling = when {
+        limits.contextTokens == Int.MAX_VALUE -> Int.MAX_VALUE.toLong()
+        fitProviderBudget -> RequestAdmission.maximumEstimatedPrompt(limits.contextTokens.toLong() - reserve - toolResultReserve) - 256
+        else -> limits.contextTokens.toLong() - reserve - toolResultReserve - safety
     }
+    fun required(source: List<ConversationTurn>) = if (preserveFullInput) source else source.filter { it.isCurrentTurn }
+    fun cost(source: List<ConversationTurn>) = ContextBudgetService.breakdown(source, system, advertisedTools).total
+    val bare = appendResponseContinuationContext(turns, instruction, "", emptyList())
+    val replayBudget = (promptCeiling - cost(required(bare)) - if (draft.isBlank()) 80 else 160)
+        .coerceIn(0, 8192).toInt()
+    val replayExchanges = if (fitProviderBudget && !preserveFullInput && exchanges.isNotEmpty() && ToolExchangeCompactor.estimateTokens(exchanges) > replayBudget) {
+        ToolExchangeCompactor.compact(exchanges, replayBudget, (replayBudget / 3).coerceAtLeast(1))
+    } else {
+        exchanges
+    }
+    val base = appendResponseContinuationContext(turns, instruction, "", replayExchanges)
+    val tailBudget = (promptCeiling - cost(required(base)) - 40).coerceIn(0, 4096).toInt()
     require(draft.isBlank() || tailBudget >= 48) {
         "CONTINUATION_CONTEXT_CAPACITY: The original request, completed evidence, selected tool schemas and output allowance leave no room for a saved answer tail. The full partial answer is retained."
     }
     val repetitionAllowance = LongResponsePolicy.requestedRepetitionCharacters(turns.lastOrNull { it.isCurrentTurn }?.userMessage?.content.orEmpty())
     val replay = LongResponsePolicy.continuationContext(draft, tailBudget.coerceAtLeast(0), repetitionAllowance)
-    val continued = appendResponseContinuationContext(turns, instruction, replay, exchanges)
+    var continued = appendResponseContinuationContext(turns, instruction, replay, replayExchanges)
+    if (fitProviderBudget) {
+        require(cost(required(continued)) <= promptCeiling) {
+            "CONTINUATION_CONTEXT_CAPACITY: The accepted task and its retained evidence do not fit the current provider budget."
+        }
+        if (!preserveFullInput && cost(continued) > promptCeiling) {
+            val remaining = (promptCeiling - cost(required(continued))).coerceAtLeast(0)
+            val history = continued.filterNot { it.isCurrentTurn }
+            val retained = dev.chungjungsoo.gptmobile.data.context.MemoryTokenWindow.select(history, remaining.toInt()) { turn ->
+                cost(listOf(turn)) - cost(emptyList())
+            }
+            continued = retained + continued.filter { it.isCurrentTurn }
+        }
+    }
     val plan = if (preserveFullInput && advertisedTools.isEmpty()) {
         ContextBudgetService.planFullInput(continued, system, limits)
     } else {

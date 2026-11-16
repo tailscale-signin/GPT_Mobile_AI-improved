@@ -120,6 +120,28 @@ class IssueReportManualCaptureTest {
     }
 
     @Test
+    fun textAttachmentIsRedactedAndIncludedOnlyAfterExplicitSelection() {
+        val original = "step one\nauthorization=Bearer ghp_ABCDEFGH12345678\nstep two".toByteArray()
+        val attachment = IssueReportAttachmentCapture.fromBytes("details.txt", "text/plain", original.size.toLong(), original)
+        assertFalse(attachment.text.contains("ABCDEFGH"))
+        assertEquals(64, attachment.sha256.length)
+
+        val without = IssueReportManualCapture.submission(manual(), "A problem", "Reproduction", false)
+        val with = IssueReportManualCapture.submission(manual(), "A problem", "Reproduction", false, attachment = attachment)
+        assertNull(without.attachment)
+        assertEquals(attachment, with.attachment)
+        assertTrue(with.approvedPayload().contains("details.txt"))
+        assertFalse(with.approvedPayload().contains("ABCDEFGH"))
+    }
+
+    @Test
+    fun textAttachmentRejectsUnsupportedOrAmbiguousBytes() {
+        assertTrue(runCatching { IssueReportAttachmentCapture.fromBytes("image.png", "image/png", 1, byteArrayOf(1)) }.isFailure)
+        assertTrue(runCatching { IssueReportAttachmentCapture.fromBytes("bad.txt", "text/plain", 2, byteArrayOf(0xC3.toByte(), 0x28)) }.isFailure)
+        assertTrue(runCatching { IssueReportAttachmentCapture.fromBytes("large.txt", "text/plain", null, ByteArray(4097) { 'x'.code.toByte() }) }.isFailure)
+    }
+
+    @Test
     fun followUpRedactsWholeCredentialsBeforeApplyingItsFinalLengthBound() {
         val prefix = "Follow-up to issue #882.\n\n"
         val description = "x".repeat(IssueReport.DESCRIPTION_LIMIT - prefix.length - 8) + " " + "ghp_ABCDEFGH12345678"

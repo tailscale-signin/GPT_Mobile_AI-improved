@@ -117,7 +117,8 @@ class AgentRunner(
     private val onToolResultCommitted: (suspend (ProviderEvent.ToolCall, AgentToolResult) -> Unit)? = null,
     private val onToolResultsRestored: (suspend (List<AgentToolExchange>) -> Unit)? = null,
     private val remainingTaskMillis: (suspend () -> Long?)? = null,
-    private val replayDispatcher: CoroutineDispatcher = Dispatchers.Default
+    private val replayDispatcher: CoroutineDispatcher = Dispatchers.Default,
+    private val diagnosticRunId: String? = null
 ) {
     private val replayRenderCache = ToolExchangeCompactor.RenderCache()
     private val replayCompactionLogGate = ReplayCompactionLogGate()
@@ -258,7 +259,7 @@ class AgentRunner(
         val initialSchemaTokens = selectedForRound(initialExposedDefinitions, selectDefinitions).sumOf { providerSchemaTokens(it, limits.githubMode) }
         val retainedUnknownOutcome = recovery?.unsettledCalls.orEmpty().any { !replayableRead(it, toolByName[it.name]) }
         val ciInvestigation = GitHubCiInvestigationRecovery(limits.githubTaskRequest)
-        val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery, retainedUnknownOutcome)
+        val state = LoopState(initialExecutableToolByName, initialExposedDefinitions, initialRounds, initialToolCallCount, initialToolMayHaveExecuted, initialRetriedWithoutTools, recovery, retainedUnknownOutcome, diagnosticRunId)
         if (state.restoredCalls.isNotEmpty() && recovery != null) {
             AppLogRecorder.record("Recovery", "TOOL_BATCH_RESTORED · checkpointVersion=1 · pendingCalls=${state.restoredCalls.size} · previouslyDispatched=${state.restoredDispatched.size} · completed=${recovery.completedCount} · failed=${recovery.failedCount} · uncertain=${recovery.unknownCount} · queued=${recovery.queuedCount} · rejected=${recovery.rejectedCount} · snapshotLoadMs=${recovery.loadMillis} · objectiveMs=${recovery.objectiveMillis ?: "none"} · objectiveStatus=${recovery.objectiveStatus} · measurement=checkpoint_load_only")
         }
@@ -440,7 +441,7 @@ class AgentRunner(
                 }
                 val completed = processToolCalls(
                     calls, toolByName, executableToolByName, exposedDefinitions, exchanges, dynamicTools, selectDefinitions,
-                    initialSchemaTokens, replayTokens, toolCallsByName, consecutiveToolFailures, blockedReadScopes,
+                    initialSchemaTokens, replayTokens, toolCallsByName, repeatAdmissionHistory, consecutiveToolFailures, blockedReadScopes,
                     remainingCalls, toolCallCount, restoredDispatched, restoredRetained, restoredCompleted, roundLimitReached, finalResponseRequested,
                     retriedWithoutTools, executionToolCallLimit, suppressedReadRounds, unproductiveDiscoveryRounds, unknownOutcomes, retainedUnknownOutcome, automaticRecovery, ciInvestigation,
                     admittedReplayLimit, consumedCallIds
@@ -508,7 +509,8 @@ class AgentRunner(
         initialToolMayHaveExecuted: Boolean,
         initialRetriedWithoutTools: Boolean,
         recovery: ToolBatchRecoverySnapshot?,
-        val retainedUnknownOutcome: Boolean
+        val retainedUnknownOutcome: Boolean,
+        diagnosticRunId: String?
     ) {
         var executableToolByName = initialExecutableToolByName
         var exposedDefinitions = initialExposedDefinitions
@@ -535,6 +537,7 @@ class AgentRunner(
         var restoredRetained = recovery?.pendingRetainedIds.orEmpty()
         var restoredCompleted = emptyMap<String, AgentToolResult>()
         val toolCallsByName = mutableMapOf<String, Int>()
+        val repeatAdmissionHistory = ToolRepeatAdmissionHistory.forLoop(diagnosticRunId, recovery, initialToolCallCount)
         val consecutiveToolFailures = mutableMapOf<String, Int>()
         val blockedReadScopes = mutableSetOf<String>()
         val unknownOutcomes = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -974,6 +977,7 @@ class AgentRunner(
         initialSchemaTokens: Long,
         replayTokens: Long,
         toolCallsByName: MutableMap<String, Int>,
+        repeatAdmissionHistory: ToolRepeatAdmissionHistory,
         consecutiveToolFailures: MutableMap<String, Int>,
         blockedReadScopes: MutableSet<String>,
         remainingCalls: Int,
@@ -1015,12 +1019,14 @@ class AgentRunner(
             if (node.call.callId in restoredCompleted) node.copy(dependencies = emptySet(), failureDependencies = emptySet()) else node
         }
         val admission = planToolBatch(calls, batchAllowance, toolsForBatch.keys, toolCallsByName, blockedReadScopes, if (limits.githubTask) limits.maxToolCalls else MAX_SAME_TOOL_CALLS_PER_RUN, restoredRetained, restoredCompleted.keys, ::failureScope)
-        val plan = dependencyClosedPlan(admission, dependencyPlan, restoredRetained)
+        val observedAdmission = repeatAdmissionHistory.capture(admission, calls, restoredRetained, restoredCompleted.keys)
+        val plan = dependencyClosedPlan(observedAdmission, dependencyPlan, restoredRetained)
         val executableCalls = plan.executable
         val deferredCalls = plan.deferred
         val perToolSuppressedIds = plan.perToolSuppressedIds
         val hostSuppressedIds = plan.hostSuppressedIds
         plan.acceptedByName.forEach { (name, count) -> toolCallsByName[name] = (toolCallsByName[name] ?: 0) + count }
+        repeatAdmissionHistory.commit(plan, restoredRetained, restoredCompleted.keys)
         if (plan.disabledNames.isNotEmpty()) {
             executableToolByName = executableToolByName.filterKeys { it !in plan.disabledNames }
             exposedDefinitions = exposedDefinitions.filterNot { it.name in plan.disabledNames && !(limits.githubMode && ProgressiveToolCatalog.isGitHubTool(it)) }
@@ -1041,6 +1047,7 @@ class AgentRunner(
             invalidatedAuthority,
             completed = { call, result ->
                 deliveredResults[call.callId] = if (call.callId in restoredCompleted) result else completeTool(call, result, invalidatedAuthority)
+                repeatAdmissionHistory.observe(call, deliveredResults.getValue(call.callId))
             },
             progress = { emit(AgentRunEvent.BatchProgress(it)) },
             dependencyPlan = dependencyPlan,
@@ -2151,7 +2158,7 @@ class AgentRunner(
         AgentContractValidation.admission(tool.definition, call.callId)?.let { return it }
         if (!tool.managesExecutionBudget) {
             val errors = ToolArgumentValidator.errors(call.arguments, tool.definition.inputSchema)
-            if (errors.isNotEmpty()) return requireNotNull(kotlinx.coroutines.currentCoroutineContext()[ToolArgumentRepairScope]).budget.rejection(call.callId, tool.definition, call.arguments, errors)
+            if (errors.isNotEmpty()) return requireNotNull(kotlinx.coroutines.currentCoroutineContext()[ToolArgumentRepairScope]).budget.rejection(call.callId, tool.definition, call.arguments, errors, searchValidationOwner = tool.searchValidationOwner)
         }
         val replayableRead = replayableRead(call, tool)
         var observedReceipt: AgentToolResult? = null

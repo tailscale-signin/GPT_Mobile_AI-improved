@@ -234,6 +234,7 @@ data class GatewayEngineeringJob(
     @SerialName("execution_binding_id") val executionBindingId: String? = null,
     @SerialName("execution_binding") val executionBinding: JsonObject? = null,
     @SerialName("latest_execution_receipt") val latestExecutionReceipt: JsonObject? = null,
+    @SerialName("execution_budget_receipt") val executionBudgetReceipt: GatewayExecutionBudgetReceipt? = null,
     @SerialName("blocked_reason") val blockedReason: JsonObject? = null,
     @SerialName("final_report") val finalReport: JsonObject? = null,
     @SerialName("gateway_id") val gatewayId: String? = null,

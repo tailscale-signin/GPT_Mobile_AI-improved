@@ -1,6 +1,7 @@
 """Graphical desktop client for gateway-owned, durable benchmark runs."""
 from datetime import datetime
 import json
+from pathlib import Path
 import queue
 import threading
 import time
@@ -12,7 +13,8 @@ import requests
 
 from desktop import benchmark, theme
 from benchmarks.contracts import TERMINAL
-from benchmarks.settings import load_settings, save_settings
+from benchmarks.settings import (load_settings, save_settings, prepare_sandbox,
+                                 smoke_sandbox_image, verify_submission)
 
 SUITES = {'Quick check': 'quick_check', 'Batch comparison': 'batch_comparison', 'GitHub coding': 'coding'}
 PRESETS = {'Quick': 'quick', 'Standard': 'standard', 'Deep': 'deep'}
@@ -81,6 +83,8 @@ class BenchmarkPanel(tk.Frame):
         self.preset.grid(row=0, column=2, padx=(0, 8))
         self.start = ttk.Button(controls, text='Run benchmark', style='Accent.TButton', command=self.run)
         self.start.grid(row=0, column=3)
+        ttk.Button(controls, text='Production tasks…', command=self.production_tasks).grid(row=1, column=0, columnspan=2, sticky='w', pady=6)
+        ttk.Button(controls, text='Setup coding sandbox…', command=lambda: open_benchmark_settings(self, self.root)).grid(row=1, column=2, columnspan=2, sticky='e', pady=6)
         self.model.bind('<<ComboboxSelected>>', lambda _: self.update_controls())
         self.suite.bind('<<ComboboxSelected>>', lambda _: self.explain())
         self.preset.bind('<<ComboboxSelected>>', lambda _: self.explain())
@@ -159,6 +163,44 @@ class BenchmarkPanel(tk.Frame):
             self.status.configure(wraplength=max(250, event.width - 12))
             self.summary_text.configure(wraplength=max(250, event.width - 24))
 
+    def production_tasks(self):
+        if self.busy:
+            return
+        path = filedialog.askopenfilename(parent=self, title='Open ten-scenario qualification manifest', filetypes=[('JSON', '*.json')])
+        if not path:
+            return
+        def inspect():
+            from desktop.conversation_client import Client
+            from desktop.configuration import atomic_json
+            from benchmarks.engineering_qualification import run_manifest
+            source = Path(path)
+            if source.stat().st_size > 1024 * 1024:
+                raise ValueError('Qualification manifest exceeds 1 MiB')
+            manifest = json.loads(source.read_text())
+            client = Client(self.root)
+            client.identity()
+            result = run_manifest(client, manifest)
+            atomic_json(source.with_suffix('.results.json'), result)
+            return result
+        self.launch('production-qualification', inspect, 'Reading exact production-job evidence…')
+
+    def show_qualification(self, report):
+        self.selected = None
+        self.metrics['score'].configure(text='Qualified' if report['qualified'] else 'Not qualified')
+        self.metrics['completion'].configure(text=str(report['passed']) + ' / 10')
+        self.metrics['latency'].configure(text='Not measured')
+        self.metrics['state'].configure(text='Production tasks')
+        measured = [row for row in report['cases'] if row.get('elapsed_seconds') is not None]
+        self.chart.set([(row['scenario'].replace('_', ' '), row['elapsed_seconds'], theme.CYAN if row['status'] == 'PASSED' else theme.ERROR) for row in measured], ' s')
+        self.summary_text.configure(text='Ten scenario-specific evidence gates. Missing runtime, recovery, device, or mutation observations remain unverified. Fixture scores are separate.')
+        self.case_table.delete(*self.case_table.get_children())
+        for index, row in enumerate(report['cases']):
+            self.case_table.insert('', 'end', iid=str(index), values=(row['scenario'].replace('_', ' '), row['status'],
+                'Not measured', 'Not measured', pretty(row.get('elapsed_seconds'), ' s')))
+        self.write_evidence(report)
+        self.tabs.select(self.pages['Overview'])
+        self.status.configure(text='Production evidence refreshed; results saved beside the selected manifest.')
+
     def activate(self):
         if not self.discovered and not self.busy:
             self.refresh_models()
@@ -170,7 +212,7 @@ class BenchmarkPanel(tk.Frame):
         descriptions = {
             'quick_check': 'Five short answer fixtures. Scores apply to this check only.',
             'batch_comparison': {'quick': '3', 'standard': '10', 'deep': '30'}[preset] + ' matched pairs: serial versus two concurrent HTTP requests. Native inference batching is not inferred.',
-            'coding': {'quick': '12 trials across 12 repair problems.', 'standard': '36 seeded trials across 12 repair problems.', 'deep': '96 seeded repair trials and 4 integration capstones: 16 problems, 100 trials.'}[preset] + ' Isolated local execution; no production GitHub writes.'}
+            'coding': {'quick': '12 trials across 12 repair problems.', 'standard': '36 seeded trials across 12 repair problems.', 'deep': '96 seeded repair trials and 4 integration capstones: 16 problems, 100 trials.'}[preset] + ' Requires prepared Python sandbox; choose Setup coding sandbox. No production GitHub writes.'}
         self.status.configure(text=descriptions[suite])
 
     def update_controls(self):
@@ -227,6 +269,8 @@ class BenchmarkPanel(tk.Frame):
             self.pending_start = {'model': self.model.get(), 'suite': SUITES[self.suite.get()], 'preset': PRESETS[self.preset.get()], 'request_id': 'desktop-' + uuid.uuid4().hex}
         pending = self.pending_start
         def submit():
+            # Offline verification happens before any request or idempotency receipt is sent.
+            verify_submission(self.root, pending['suite'])
             if '_binding' not in pending:
                 pending['_binding'] = benchmark.execution_binding(self.root)
             benchmark.save_pending(self.root, pending)
@@ -275,6 +319,8 @@ class BenchmarkPanel(tk.Frame):
                     self.status.configure(text='The original result was removed. Its request identity cannot execute again.')
                 else:
                     self.status.configure(text='No original request receipt is visible. No new work was sent. Restore the original connection and check again.')
+            elif event == 'production-qualification':
+                self.show_qualification(value)
             elif event == 'exported':
                 self.status.configure(text='Results exported with retained measurements and provenance.')
             elif event == 'removed':
@@ -385,33 +431,145 @@ class BenchmarkPanel(tk.Frame):
 
 
 def open_benchmark_settings(parent, root):
+    """Operator-approved setup; network and Docker work never run on Tk's thread."""
+    from benchmarks import sandbox
     window = tk.Toplevel(parent)
     theme.apply(window)
-    window.title('Advanced benchmark settings')
-    window.geometry('650x340')
-    content = tk.Frame(window, bg=theme.BG, padx=22, pady=22)
+    window.title('Coding benchmark sandbox')
+    window.geometry('710x460')
+    content = tk.Frame(window, bg=theme.BG, padx=24, pady=20)
     content.pack(fill='both', expand=True)
-    theme.label(content, 'Isolated coding sandbox', size=18, bold=True).pack(anchor='w')
-    theme.label(content, 'Use an installed Python 3 image pinned to its digest. The evaluator has no network or production credentials.', color=theme.MUTED, wraplength=600, justify='left').pack(anchor='w', pady=(8, 16))
+    theme.label(content, 'Coding benchmark sandbox', size=18, bold=True).pack(anchor='w')
+    theme.label(
+        content,
+        'Prepare the official Python image once. Gateway pins its verified registry digest, '
+        'tests offline execution and keeps generated code isolated from your PC.',
+        color=theme.MUTED, wraplength=635, justify='left'
+    ).pack(anchor='w', pady=(9, 14))
     try:
         settings = load_settings(root)
     except (OSError, ValueError) as error:
         messagebox.showerror('Benchmark settings', str(error), parent=window)
         window.destroy()
-        return
-    image = tk.StringVar(value=settings['sandbox_image'])
-    theme.label(content, 'Local image name@sha256:digest').pack(anchor='w')
-    ttk.Entry(content, textvariable=image).pack(fill='x', pady=(5, 14))
-    repairs = tk.StringVar(value=str(settings['repair_attempts']))
-    line = tk.Frame(content, bg=theme.BG)
-    line.pack(fill='x')
-    theme.label(line, 'Repair attempts per trial').pack(side='left')
-    ttk.Combobox(line, textvariable=repairs, values=('0', '1', '2'), state='readonly', width=4).pack(side='right')
+        return None
+
+    image = tk.StringVar(master=window, value=settings['sandbox_image'])
+    theme.label(content, 'Approved local image @sha256 digest (advanced/manual)').pack(anchor='w')
+    image_field = ttk.Entry(content, textvariable=image)
+    image_field.pack(fill='x', pady=(4, 12))
+    repairs = tk.StringVar(master=window, value=str(settings['repair_attempts']))
+    row = tk.Frame(content, bg=theme.BG)
+    row.pack(fill='x')
+    theme.label(row, 'Repair attempts per coding trial').pack(side='left')
+    repairs_field = ttk.Combobox(row, textvariable=repairs, values=('0', '1', '2'), state='readonly', width=4)
+    repairs_field.pack(side='right')
+    message = tk.StringVar(master=window, value='Not checked. Prepare the sandbox, or verify an existing approved pin.')
+    theme.label(content, '', textvariable=message, color=theme.MUTED, wraplength=635,
+                justify='left').pack(anchor='w', pady=(18, 4))
+    progress = ttk.Progressbar(content, mode='indeterminate')
+    progress.pack(fill='x', pady=(5, 12))
+    actions = tk.Frame(content, bg=theme.BG)
+    actions.pack(fill='x', pady=(12, 4))
+    events = queue.Queue()
+    cancel_event = threading.Event()
+    busy = False
+
     def save():
+        nonlocal settings
+        if busy:
+            return
         try:
-            save_settings(root, dict(settings, sandbox_image=image.get().strip(), repair_attempts=int(repairs.get())))
-        except (ValueError, OSError) as error:
+            settings = save_settings(
+                root, dict(settings, sandbox_image=image.get().strip(),
+                           repair_attempts=int(repairs.get())), expected=settings)
+        except (ValueError, OSError, RuntimeError) as error:
             messagebox.showerror('Benchmark settings', str(error), parent=window)
             return
-        window.destroy()
-    ttk.Button(content, text='Save settings', style='Accent.TButton', command=save).pack(anchor='e', pady=(20, 0))
+        message.set('Saved. The selected image will be verified before a coding run.')
+
+    def start(kind):
+        nonlocal busy
+        if busy:
+            return
+        if kind == 'prepare' and not messagebox.askyesno(
+                'Prepare coding benchmark sandbox',
+                'Gateway will download the official Python image from Docker Hub, verify its '
+                'immutable registry digest, test restricted offline Python and save the pin. '
+                'This replaces any manually entered sandbox image. Continue?', parent=window):
+            return
+        busy = True
+        cancel_event.clear()
+        for widget in (image_field, repairs_field, prepare_button, check_button, save_button):
+            widget.configure(state='disabled')
+        stop_button.configure(state='normal')
+        progress.start(12)
+        message.set('Preparing secure Python sandbox…' if kind == 'prepare' else 'Verifying installed sandbox…')
+        snapshot = dict(settings)
+        current_image = image.get().strip()
+
+        def worker():
+            try:
+                if kind == 'prepare':
+                    result = prepare_sandbox(root, expected=snapshot, cancel=cancel_event,
+                                             progress=lambda value: events.put(('progress', value)))
+                else:
+                    if current_image != snapshot['sandbox_image']:
+                        raise ValueError('Save the edited image digest before checking it.')
+                    sandbox.preflight(snapshot)
+                    smoke_sandbox_image(snapshot['sandbox_image'], cancel=cancel_event)
+                    result = snapshot['sandbox_image']
+                events.put(('success', result))
+            except (OSError, ValueError, RuntimeError, TimeoutError) as error:
+                events.put(('failure', str(error)[:240]))
+            except Exception:
+                events.put(('failure', 'Sandbox setup failed. Check Docker Desktop and retry.'))
+        threading.Thread(target=worker, name='benchmark-sandbox-setup', daemon=True).start()
+
+    def poll():
+        nonlocal settings, busy
+        while True:
+            try:
+                kind, value = events.get_nowait()
+            except queue.Empty:
+                break
+            if kind == 'progress':
+                message.set(value)
+                continue
+            busy = False
+            progress.stop()
+            for widget in (image_field, prepare_button, check_button, save_button):
+                widget.configure(state='normal')
+            repairs_field.configure(state='readonly')
+            stop_button.configure(state='disabled')
+            if kind == 'success':
+                try:
+                    settings = load_settings(root)
+                    image.set(settings['sandbox_image'])
+                    message.set('Verified: ' + value + ' · Restricted offline Python execution passed.')
+                except (OSError, ValueError):
+                    message.set('Sandbox check passed, but saved settings could not be reloaded.')
+            else:
+                message.set('Setup not changed: ' + value)
+        if window.winfo_exists():
+            window.after(120, poll)
+
+    prepare_button = ttk.Button(actions, text='Prepare sandbox', style='Accent.TButton',
+                                command=lambda: start('prepare'))
+    prepare_button.pack(side='left')
+    check_button = ttk.Button(actions, text='Check setup (offline)', command=lambda: start('check'))
+    check_button.pack(side='left', padx=8)
+    stop_button = ttk.Button(actions, text='Cancel setup', command=cancel_event.set, state='disabled')
+    stop_button.pack(side='left')
+    save_button = ttk.Button(actions, text='Save settings', command=save)
+    save_button.pack(side='right')
+    theme.label(content,
+                'Docker Desktop with Linux containers is required for coding benchmarks only. '
+                'Quick checks do not need Docker. Setup never changes the GitHub validation policy.',
+                color=theme.MUTED, wraplength=635, justify='left').pack(anchor='w', pady=(12, 0))
+
+    def destroyed(event):
+        if event.widget is window:
+            cancel_event.set()
+    window.bind('<Destroy>', destroyed, add='+')
+    window.after(120, poll)
+    return window

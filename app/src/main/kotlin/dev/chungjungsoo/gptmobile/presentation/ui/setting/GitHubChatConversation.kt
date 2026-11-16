@@ -22,6 +22,8 @@ import dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatScreen
 internal fun GitHubChatConversation(
     chatId: Int,
     headerHeight: Dp,
+    headerExpanded: Boolean = false,
+    fadeProfile: dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubFadeProfile = dev.chungjungsoo.gptmobile.presentation.ui.chat.GitHubFadeProfile.ADAPTIVE,
     profileUid: String,
     context: GitHubConversationContext,
     onBack: () -> Unit,
@@ -38,6 +40,11 @@ internal fun GitHubChatConversation(
     nativeDecisions: List<dev.chungjungsoo.gptmobile.data.github.GitHubNativeDecisionReceipt> = emptyList(),
     bottomInteractionContent: (@Composable () -> Unit)? = null
 ) {
+    val expansion by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (headerExpanded) 1f else 0f,
+        animationSpec = androidx.compose.animation.core.tween(280),
+        label = "GitHub header fade"
+    )
     GitHubChatNavigation(chatId, profileUid, headerHeight) { currentHeaderHeight ->
         val model: dev.chungjungsoo.gptmobile.presentation.ui.chat.ChatViewModel = androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel()
         val room by model.chatRoom.collectAsStateWithLifecycle()
@@ -70,6 +77,7 @@ internal fun GitHubChatConversation(
         }
         androidx.compose.runtime.CompositionLocalProvider(
             dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalChatProgressInHeader provides true,
+            dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubFadeProfile provides fadeProfile,
             dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubApprovalPending provides approvalPending,
             dev.chungjungsoo.gptmobile.presentation.ui.chat.LocalGitHubNativeDecisions provides nativeDecisions
         ) {
@@ -93,6 +101,7 @@ internal fun GitHubChatConversation(
                     onNavigateToLocalModels = onNavigateToLocalModels,
                     showTopBar = false,
                     embeddedHeaderHeight = currentHeaderHeight,
+                    embeddedHeaderExpansion = expansion,
                     allowResearchPanels = false,
                     exportRequestedForChatId = chatId.takeIf { exportRequested },
                     onExportHandled = onExportHandled,

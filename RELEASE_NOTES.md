@@ -1,3 +1,17 @@
+## Capability dashboard and consented report evidence
+
+Android and the Windows Gateway dashboard now share one normalized inventory of every authorized tool returned by the selected Gateway catalog, including stable contract-bound IDs, explicit complete/partial/blocked source states, and measured retained per-tool success, failure, and latency observations. Discovery does not claim live execution readiness, and capabilities outside the selected Gateway remain explicit.
+
+Manual public issue reports can optionally include a previewed UTF-8 text, Markdown, or JSON evidence file. Selection is off by default, limited to 4 KiB, redacted and bounded before review, and sent only after the user enables the attachment in the final preview. Images and arbitrary binary uploads remain unsupported until the reporting service has a safe attachment contract.
+
+Physical-device voice latency, underruns, sustained throughput, thermals, CPU-thread comparisons, and word timing remain unverified. Captions remain readable but untimed; the app does not fabricate word synchronization.
+
+## November 15 autonomous engineering workflow
+
+Repository tasks gain pinned whole-repository search and graph lookup, approved adaptive test selection, versioned execution-budget receipts, bounded specialist reviews and exact patch iteration. Android and Windows can inspect retained candidates and restore eligible unpublished local work for revalidation. Existing-PR adoption checks actual head/base identities; generated agent instructions reject SDK/schema drift. A separate ten-scenario runner assesses durable production evidence.
+
+Autonomous engineering production qualification is not established by host tests: installed Android/Windows interaction, selected-model live repository tasks, restart/disconnect recovery and the ten production scenarios require observed runtime evidence.
+
 # GPT Mobile 0.9.66.7
 
 ## Late report reliability repairs
@@ -357,3 +371,11 @@ Backend completion and repair diagnostics retain bounded serialized allowances, 
 Hosted report compatibility now negotiates context-v3 review extensions before dispatch. Original v1/v2 reports retain their bytes; already-approved extended-v2 reports require both v2 wire support and v3 capability, so an older service cannot accept readiness and then permanently reject those reports.
 
 Foreground microphone capture no longer fails solely because output audio focus is unavailable. Permission, lifecycle, recorder-state and Android input-silencing checks remain enforced. Unknown model exceptions retain their provider boundary and completed GitHub receipts without message-derived retries; typed rejected-provider HTTP 429 reports keep their rate-limit category and cooldown. Physical-device and live-provider recovery remain separately qualified.
+
+## PR #1299 report and attachment follow-up
+
+Continue PR #1203 on PR #1299 with bounded reader, repeat, search, pagination and policy diagnostics; preserve specific argument failures and admission observations; fit continuation replay to the correct context; refine voice pacing and presentation; improve partial exports; qualify pinned companion dependency overlays; and retain the concurrent measured voice activity, adaptive report review, chat interaction and Gateway dashboard presentation. Retain the concurrent pinned engineering exploration, approved adaptive checks, shared execution-budget receipts and revision-fenced checkpoint inspection. Fence checkpoint UI publications to the originating chat and retain unmeasured production-qualification results. Make committed repository-search fixture bytes deterministic across Windows and Unix while preserving the original regex assertions.
+
+PR #1299 diagnostic additions require the corresponding hosted reporter capabilities; old approved payloads remain pending and unchanged on incompatible services. The partial 6ead4ca1 archive cannot reconstruct omitted history, and deterministic tests do not establish historical private-service causes, deployed companion updates, physical-device speech or memory performance, or GPU execution.
+
+The detailed findings, execution scope and diagnostic contracts are recorded in [the follow-up plan](docs/repairs/post-merge-report-diagnostics-2026-11-15.md). Final current-source CI and merge receipts are recorded in the PR.

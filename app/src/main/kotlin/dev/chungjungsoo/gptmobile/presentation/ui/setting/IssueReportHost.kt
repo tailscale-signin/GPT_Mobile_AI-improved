@@ -1,21 +1,26 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -26,6 +31,7 @@ import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -36,10 +42,13 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -47,6 +56,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
 import dev.chungjungsoo.gptmobile.BuildConfig
 import dev.chungjungsoo.gptmobile.R
+import dev.chungjungsoo.gptmobile.data.diagnostics.AppLogRecorder
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportDiagnostics
@@ -54,6 +64,8 @@ import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportManualCapture
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportOutbox
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportRoute
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportSubmission
+import dev.chungjungsoo.gptmobile.presentation.common.FadingAlertDialog
+import dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -106,14 +118,14 @@ internal fun IssueReportHost(viewModel: IssueReportViewModel, showPrompts: Boole
         SnackbarHost(snackbar, Modifier.align(Alignment.BottomCenter).navigationBarsPadding())
     }
     when {
-        manual -> ManualIssueDialog(saving, error, manualPreview, reports, routes, route, draft, viewModel::updateDraft, viewModel::selectRoute, openGitHub, viewModel::closeManual, viewModel::submitManual, viewModel::previewManualDiagnostics, viewModel::selectReport)
+        manual -> ManualIssueDialog(saving, error, manualPreview, reports, routes, route, draft, viewModel::updateDraft, viewModel::selectManualAttachment, viewModel::selectRoute, openGitHub, viewModel::closeManual, viewModel::submitManual, viewModel::previewManualDiagnostics, viewModel::selectReport)
         submission != null -> submission?.let { report ->
             IssueSubmissionDialog(report, saving, error, routes, route, viewModel::selectRoute, openGitHub, viewModel::closeSubmission, { approvedRoute -> viewModel.retrySubmission(report.reportId, approvedRoute) }, { viewModel.removeFailed(report.reportId) }, { viewModel.followUpReport(report) }) {
                 report.issueNumber?.let { number -> runCatching { uriHandler.openUri("$ISSUE_TRACKER/$number") } }
             }
         }
         showPrompts -> incident?.let { report ->
-            AlertDialog(
+            FadingAlertDialog(
                 onDismissRequest = { viewModel.dismissIncident(report) },
                 title = { Text(stringResource(R.string.issue_report_debug_question)) },
                 text = {
@@ -156,6 +168,7 @@ private fun ManualIssueDialog(
     route: IssueReportRoute?,
     draft: IssueReportViewModel.ManualDraft,
     onDraft: (IssueReportViewModel.ManualDraft) -> Unit,
+    onAttachment: (android.net.Uri?) -> Unit,
     onRoute: (IssueReportRoute) -> Unit,
     onSetup: () -> Unit,
     onDismiss: () -> Unit,
@@ -167,59 +180,124 @@ private fun ManualIssueDialog(
     val description = draft.description
     val includeDiagnostics = draft.includeDiagnostics
     val descriptionLimit = IssueReportManualCapture.descriptionLimit(draft.relatedIssueNumber)
-    AlertDialog(
+    val appLogTracking by AppLogRecorder.enabled.collectAsStateWithLifecycle()
+    var reviewed by remember { mutableStateOf<IssueReport?>(null) }
+    val attachmentPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument(), onAttachment)
+    val reviewing = reviewed != null && reviewed === preview
+    val review = if (reviewing && preview != null) {
+        remember(preview, draft) {
+            IssueReportManualCapture.submission(
+                preview,
+                title,
+                description,
+                includeDiagnostics,
+                draft.relatedIssueNumber,
+                draft.attachment.takeIf { draft.includeAttachment }
+            )
+        }
+    } else {
+        null
+    }
+    AdaptiveIssueReportSurface(
         onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.issue_report_title)) },
+        title = { Text(stringResource(if (reviewing) R.string.issue_report_review_title else R.string.issue_report_title), Modifier.semantics { heading() }) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 ReportDestination(routes, route, saving, onRoute, onSetup)
                 draft.relatedIssueNumber?.let { Text(stringResource(R.string.issue_report_follow_up_to, it), style = MaterialTheme.typography.bodySmall) }
-                OutlinedTextField(
-                    title,
-                    { onDraft(draft.copy(title = it)) },
-                    Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(R.string.issue_report_short_title)) },
-                    supportingText = { Text(stringResource(R.string.issue_report_character_count, title.length, IssueReport.TITLE_LIMIT)) },
-                    isError = title.length > IssueReport.TITLE_LIMIT,
-                    singleLine = true,
-                    enabled = !saving
-                )
-                OutlinedTextField(
-                    description, { onDraft(draft.copy(description = it)) }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.issue_report_description)) },
-                    supportingText = { Text(stringResource(R.string.issue_report_character_count, description.length, descriptionLimit)) },
-                    isError = description.length > descriptionLimit, minLines = 2, maxLines = 5, enabled = !saving
-                )
-                Row(
-                    Modifier.fillMaxWidth().toggleable(includeDiagnostics, enabled = !saving, role = Role.Checkbox) {
-                        onDraft(draft.copy(includeDiagnostics = it))
-                        onDiagnostics(it)
-                    },
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Checkbox(checked = includeDiagnostics, onCheckedChange = null, enabled = !saving)
-                    Text(stringResource(R.string.issue_report_include_diagnostics))
-                }
-                if (includeDiagnostics) {
-                    DiagnosticAreaSelector(draft.diagnosticArea, saving) { area ->
-                        onDraft(draft.copy(diagnosticArea = area))
-                        onDiagnostics(true)
+                if (review != null) {
+                    Text(review.title.orEmpty(), style = MaterialTheme.typography.titleMedium)
+                    Text(review.description.orEmpty())
+                } else {
+                    OutlinedTextField(
+                        title,
+                        { onDraft(draft.copy(title = it)) },
+                        Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(R.string.issue_report_short_title)) },
+                        supportingText = { Text(stringResource(R.string.issue_report_character_count, title.length, IssueReport.TITLE_LIMIT)) },
+                        isError = title.length > IssueReport.TITLE_LIMIT,
+                        singleLine = true,
+                        enabled = !saving
+                    )
+                    OutlinedTextField(
+                        description, { onDraft(draft.copy(description = it)) }, Modifier.fillMaxWidth(), label = { Text(stringResource(R.string.issue_report_description)) },
+                        supportingText = { Text(stringResource(R.string.issue_report_character_count, description.length, descriptionLimit)) },
+                        isError = description.length > descriptionLimit, minLines = 2, maxLines = 5, enabled = !saving
+                    )
+                    Row(
+                        Modifier.fillMaxWidth().toggleable(includeDiagnostics, enabled = !saving, role = Role.Checkbox) {
+                            onDraft(draft.copy(includeDiagnostics = it))
+                            onDiagnostics(it)
+                        },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Checkbox(checked = includeDiagnostics, onCheckedChange = null, enabled = !saving)
+                        Text(stringResource(R.string.issue_report_include_diagnostics))
                     }
-                    preview?.context?.diagnostics?.let { capture ->
-                        if (capture.captureMode == "NO_CAPTURE" || capture.values.isEmpty()) {
-                            Text(stringResource(R.string.issue_report_capture_unavailable), style = MaterialTheme.typography.bodySmall)
-                        } else {
-                            Text(stringResource(R.string.issue_report_capture_time, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(Date(capture.capturedAtMillis))), style = MaterialTheme.typography.bodySmall)
-                            if (capture.unavailableFields.isNotEmpty() || capture.omittedFields.isNotEmpty()) Text(stringResource(R.string.issue_report_capture_partial), style = MaterialTheme.typography.bodySmall)
+                    if (includeDiagnostics) {
+                        // App log tracking is a separate explicit opt-in. Including a
+                        // report snapshot never enables collection or restores missing history.
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(
+                                value = appLogTracking,
+                                enabled = !saving && !AppLogRecorder.privateSessionActive,
+                                role = Role.Checkbox,
+                                onValueChange = AppLogRecorder::setEnabled
+                            ),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Checkbox(checked = appLogTracking, onCheckedChange = null, enabled = !saving && !AppLogRecorder.privateSessionActive)
+                            Text(stringResource(R.string.issue_report_future_log_tracking))
+                        }
+                        Text(
+                            stringResource(R.string.issue_report_future_log_tracking_note),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                        DiagnosticAreaSelector(draft.diagnosticArea, saving) { area ->
+                            onDraft(draft.copy(diagnosticArea = area))
+                            onDiagnostics(true)
+                        }
+                        preview?.context?.diagnostics?.let { capture ->
+                            if (capture.captureMode == "NO_CAPTURE" || capture.values.isEmpty()) {
+                                Text(stringResource(R.string.issue_report_capture_unavailable), style = MaterialTheme.typography.bodySmall)
+                            } else {
+                                Text(stringResource(R.string.issue_report_capture_time, DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.MEDIUM).format(Date(capture.capturedAtMillis))), style = MaterialTheme.typography.bodySmall)
+                                if (capture.unavailableFields.isNotEmpty() || capture.omittedFields.isNotEmpty()) Text(stringResource(R.string.issue_report_capture_partial), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        TextButton(onClick = { onDiagnostics(true) }, enabled = !saving && draft.diagnosticArea != null) { Text(stringResource(R.string.issue_report_refresh_capture)) }
+                    }
+                    Text(stringResource(R.string.issue_report_attachment_optional), style = MaterialTheme.typography.titleSmall)
+                    TextButton(
+                        onClick = { attachmentPicker.launch(arrayOf("text/plain", "text/markdown", "application/json")) },
+                        enabled = !saving
+                    ) { Text(stringResource(R.string.issue_report_choose_attachment)) }
+                    draft.attachment?.let { attachment ->
+                        Text("${attachment.name} · ${attachment.originalBytes} bytes", style = MaterialTheme.typography.bodySmall)
+                        Row(
+                            Modifier.fillMaxWidth().toggleable(draft.includeAttachment, enabled = !saving, role = Role.Checkbox) {
+                                onDraft(draft.copy(includeAttachment = it))
+                            },
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Checkbox(draft.includeAttachment, onCheckedChange = null, enabled = !saving)
+                            Text(stringResource(R.string.issue_report_include_attachment))
+                        }
+                        Text(stringResource(R.string.issue_report_attachment_privacy), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (draft.includeAttachment) {
+                            Text(attachment.text, style = MaterialTheme.typography.bodySmall)
                         }
                     }
-                    TextButton(onClick = { onDiagnostics(true) }, enabled = !saving && draft.diagnosticArea != null) { Text(stringResource(R.string.issue_report_refresh_capture)) }
                 }
                 Text(stringResource(R.string.issue_report_public), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                preview?.let { ReportPreview(it) }
+                if (review != null) ReportPreview(review)
                 if (saving) LinearProgressIndicator(Modifier.fillMaxWidth())
                 SubmissionError(error)
-                if (reports.isNotEmpty()) {
+                if (!reviewing && reports.isNotEmpty()) {
                     Text(stringResource(R.string.issue_report_saved_reports), style = MaterialTheme.typography.titleSmall)
                     reports.forEach { report ->
                         TextButton(onClick = { onSelectReport(report.reportId) }, enabled = !saving) {
@@ -229,24 +307,66 @@ private fun ManualIssueDialog(
                 }
             }
         },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving) { Text(stringResource(R.string.issue_report_cancel)) } },
+        dismissButton = {
+            TextButton(onClick = { if (reviewing) reviewed = null else onDismiss() }, enabled = !saving) {
+                Text(if (reviewing) "Edit" else stringResource(R.string.issue_report_cancel))
+            }
+            if (reviewing && route != null) {
+                TextButton(onClick = { preview?.let { onSubmit(it, draft, null) } }, enabled = !saving) {
+                    Text(stringResource(R.string.issue_report_save_later))
+                }
+            }
+        },
         confirmButton = {
             val diagnosticsReady = !includeDiagnostics || draft.diagnosticArea != null && preview?.context?.diagnostics?.area == draft.diagnosticArea
-            Button(onClick = { preview?.let { onSubmit(it, draft, route) } }, enabled = !saving && preview != null && title.isNotBlank() && title.length <= IssueReport.TITLE_LIMIT && description.isNotBlank() && description.length <= descriptionLimit && diagnosticsReady) {
-                Text(
-                    stringResource(
-                        if (saving) {
-                            R.string.issue_report_saving
-                        } else if (route == null) {
-                            R.string.issue_report_save_later
-                        } else {
-                            R.string.issue_report_submit
-                        }
+            Button(onClick = { if (reviewing) preview?.let { onSubmit(it, draft, route) } else reviewed = preview }, enabled = !saving && preview != null && title.isNotBlank() && title.length <= IssueReport.TITLE_LIMIT && description.isNotBlank() && description.length <= descriptionLimit && diagnosticsReady) {
+                if (!reviewing) {
+                    Text("Review")
+                } else {
+                    Text(
+                        stringResource(
+                            if (saving) {
+                                R.string.issue_report_saving
+                            } else if (route == null) {
+                                R.string.issue_report_save_later
+                            } else {
+                                R.string.issue_report_submit
+                            }
+                        )
                     )
-                )
+                }
             }
         }
     )
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AdaptiveIssueReportSurface(
+    onDismissRequest: () -> Unit,
+    title: @Composable () -> Unit,
+    text: @Composable () -> Unit,
+    dismissButton: @Composable () -> Unit,
+    confirmButton: @Composable () -> Unit
+) {
+    val configuration = LocalConfiguration.current
+    if (configuration.screenWidthDp >= 600 || configuration.screenWidthDp > configuration.screenHeightDp) {
+        FadingAlertDialog(onDismissRequest = onDismissRequest, title = title, text = text, dismissButton = dismissButton, confirmButton = confirmButton)
+    } else {
+        FadingModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+            Column(
+                Modifier.fillMaxWidth().heightIn(max = (configuration.screenHeightDp * 0.88f).dp).imePadding().padding(horizontal = 20.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                title()
+                Box(Modifier.weight(1f, fill = false).fillMaxWidth()) { text() }
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
+                    confirmButton()
+                    dismissButton()
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -296,7 +416,7 @@ private fun IssueSubmissionDialog(
     val approved = remember(report.payload) { runCatching { IssueReport.json.decodeFromString(IssueReport.serializer(), report.payload) }.getOrNull() }
     val reconcilingGitHub = report.route?.kind == IssueReportRoute.Kind.GITHUB && report.mayHaveBeenSubmitted
     val retryDestinationAvailable = issueReportRetryDestinationAvailable(report, route)
-    AlertDialog(
+    FadingAlertDialog(
         onDismissRequest = onClose,
         title = { Text(stringResource(if (reconcilingGitHub && report.state == IssueReportOutbox.State.SENDING) R.string.issue_report_check_confirmation else reportStateText(report.state))) },
         text = {
@@ -414,6 +534,10 @@ private fun ReportPreview(report: IssueReport) {
         } ?: Text(stringResource(R.string.issue_report_context_unavailable), style = MaterialTheme.typography.bodySmall)
         report.frames.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
         report.events.forEach { Text(it, style = MaterialTheme.typography.bodySmall) }
+        report.attachment?.let { attachment ->
+            Text("Attachment · ${attachment.name} · ${attachment.mediaType} · ${attachment.originalBytes} bytes", style = MaterialTheme.typography.bodySmall)
+            Text(attachment.text, style = MaterialTheme.typography.bodySmall)
+        }
     }
 }
 
@@ -448,6 +572,7 @@ private fun SubmissionError(error: IssueReportViewModel.Notice?) {
         IssueReportViewModel.Notice.TooLarge -> R.string.issue_report_too_large
         IssueReportViewModel.Notice.StorageFull -> R.string.issue_report_storage_full
         IssueReportViewModel.Notice.DiagnosticsChanged -> R.string.issue_report_diagnostics_changed
+        IssueReportViewModel.Notice.AttachmentRejected -> R.string.issue_report_attachment_rejected
         else -> return
     }
     Text(stringResource(message), color = MaterialTheme.colorScheme.error)

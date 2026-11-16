@@ -83,6 +83,18 @@ internal object GitHubResultProjection {
             )
             return if (data === source) compact else JsonObject(source + ("data" to compact))
         }
+        if (operation == "github_ci" && request["action"] == JsonPrimitive("workflows")) {
+            val data = GitHubSemanticSummary.data(source)
+            val rows = data["workflows"] as? JsonArray ?: return source
+            val projectedRows = JsonArray(
+                rows.map { row ->
+                    if (row is JsonObject) JsonObject(row.filterKeys { it in setOf("id", "name", "path", "state") }) else row
+                }
+            )
+            if (projectedRows == rows) return source
+            val compact = JsonObject(data + ("workflows" to projectedRows))
+            return if (data === source) compact else JsonObject(source + ("data" to compact))
+        }
         var omitted = 0
         fun check(value: JsonObject): JsonObject = buildJsonObject {
             // Check-run REST objects repeat the producer, repository and owner for

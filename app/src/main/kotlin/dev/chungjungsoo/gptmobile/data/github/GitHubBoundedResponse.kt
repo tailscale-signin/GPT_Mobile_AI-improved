@@ -3,8 +3,10 @@ package dev.chungjungsoo.gptmobile.data.github
 import io.ktor.client.HttpClient
 import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.prepareRequest
+import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsChannel
 import io.ktor.http.Headers
+import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
 import io.ktor.utils.io.readAvailable
 import java.io.ByteArrayOutputStream
@@ -13,7 +15,19 @@ import kotlinx.coroutines.yield
 internal class GitHubResponseTooLarge : IllegalStateException("GITHUB_RESPONSE_TOO_LARGE: response exceeds the 4 MiB inspection limit. Request a smaller page, a file range, or a non-recursive tree. A write response requires reconciliation before retry.")
 
 internal data class GitHubBoundedResponse(val status: HttpStatusCode, val headers: Headers, private val text: String) {
+    // Only the factory sets this on its new instance. Generated copies deliberately lose it.
+    private var policyObservation: GitHubPolicyResponseObservation? = null
+
     fun bodyAsText(): String = text
+
+    fun policyObservationFor(path: String, method: HttpMethod, expectedUrl: String): GitHubPolicyResponseObservation? =
+        policyObservation?.takeIf { it.matchesRequest(path, status.value, method, expectedUrl) }
+
+    companion object {
+        fun observed(expectedUrl: String, response: HttpResponse, text: String) = GitHubBoundedResponse(response.status, response.headers, text).also {
+            it.policyObservation = GitHubPolicyResponseObservation.capture(expectedUrl, response, text)
+        }
+    }
 }
 
 /** The streaming statement prevents Ktor from buffering an unbounded body before our limit. */
@@ -31,7 +45,7 @@ internal suspend fun HttpClient.githubRequest(url: String, block: HttpRequestBui
                 if (count == 0) yield() else output.write(buffer, 0, count)
             }
             if (output.size() > limit) throw GitHubResponseTooLarge()
-            GitHubBoundedResponse(response.status, response.headers, output.toByteArray().decodeToString())
+            GitHubBoundedResponse.observed(url, response, output.toByteArray().decodeToString())
         } finally {
             channel.cancel(null)
         }

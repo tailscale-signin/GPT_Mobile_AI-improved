@@ -107,6 +107,9 @@ FIELDS_BY_AREA = {
 }
 # Bounded diagnostic additions for open issue recovery.
 ENUMS["tool_reason_code"].add("SAVED_VIEW_CONTEXT_MISMATCH")
+# Only the app's bound repository-graph receipt may produce these public categories.
+# The service validates this closed vocabulary; no request parameters, URLs, or host details are exported.
+ENUMS["tool_reason_code"].update({"GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER"})
 ENUMS.update({'voice_install_state': {'IDLE', 'QUEUED', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'WAITING_NETWORK'}, 'voice_install_scheduler': {'JOB_SCHEDULER', 'WORK_MANAGER'}, 'voice_install_failure': {'SCHEDULE_REJECTED', 'SCHEDULE_EXCEPTION', 'ASSET_FAILURE', 'WORKER_EXCEPTION'}, 'github_transport_kind': {'DNS', 'DISCONNECTED', 'ABORTED', 'TIMEOUT', 'TLS', 'CANCELLED', 'UNKNOWN', 'CIRCUIT_OPEN', 'HTTP'}, 'reasoning_requested_mode': {'AUTO', 'ON', 'OFF'}, 'reasoning_admission_basis': {'NO_VERIFIED_CONTROL'}})
 COUNTS.update(['voice_install_stop_reason', 'voice_install_progress_percent', 'read_range_count', 'read_invalid_window_count', 'argument_page_size', 'repository_input_blocked_count', 'workflow_input_blocked_count', 'live_evidence_blocked_count', 'acceptance_failed_operation_count'])
 DURATIONS.add("github_transport_wait_ms")
@@ -378,7 +381,7 @@ def validate_diagnostics(value):
     if version == 3 and not capsule.aligned(values):
         raise ValueError("unaligned argument shape observations")
     unavailable, omitted = value["unavailableFields"], value.get("omittedFields", [])
-    optional_unavailable = (REASONING_PROBE_FIELDS & allowed) - values.keys()
+    optional_unavailable = ((REASONING_PROBE_FIELDS | capsule.POLICY_RESPONSE_FIELDS | capsule.REPEAT_HISTORY_FIELDS) & allowed) - values.keys()
     if not _string_list(unavailable, core | optional_unavailable) or not core - values.keys() <= set(unavailable) or set(unavailable) & values.keys():
         raise ValueError("invalid diagnostic availability")
     if not _string_list(omitted, allowed) or set(omitted) & values.keys():
@@ -399,7 +402,7 @@ def diagnostics_body(value):
         ("Observation time (epoch ms)", str(value["capturedAtMillis"])),
     ]
     for key, item in sorted(value["values"].items()):
-        rendered = ", ".join(item) if isinstance(item, list) else str(item).lower() if type(item) is bool else str(item)
+        rendered = ("[]" if not item and key in capsule.POLICY_RESPONSE_HEADER_FIELDS | capsule.REPEAT_HISTORY_LIST_FIELDS else ", ".join(item)) if isinstance(item, list) else str(item).lower() if type(item) is bool else str(item)
         rows.append((key, rendered))
     body = "\n\n### Additional diagnostic observation\n\n| Field | Recorded value |\n| --- | --- |\n"
     body += "\n".join(f"| {key} | `{item}` |" for key, item in rows)

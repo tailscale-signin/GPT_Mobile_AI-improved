@@ -24,6 +24,380 @@ class IncidentReportContractTest(unittest.TestCase):
         return {"reportId": "11111111-1111-4111-8111-111111111111", "source": "debug", "feature": "tools", "errorCode": "INVALID_ARGUMENTS",
                 "version": "1.0", "build": 1, "commit": "abcdef0", "android": "16", "sdk": 36, "device": "Fixture", "context": context}
 
+    def test_search_validation_names_preserve_observed_order_without_private_values_or_siblings(self):
+        key = "search_validation_field_names"
+        names = ["fuzzy_threshold", "context_lines", "max_new_blobs", "batch_size"]
+        for sample in [names[:size] for size in range(1, 5)] + [list(reversed(names))]:
+            with self.subTest(sample=sample):
+                capture = self.capture("TOOL", {key: sample})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                self.assertIn(f"| {key} | `{', '.join(sample)}` |", issue["body"])
+                self.assertNotIn("validation_field_names", capture["values"])
+                for control in ("dispatched", "remoteAcceptance", "retryable", "recoveryAction"):
+                    self.assertNotIn(control, report["context"])
+        omitted = self.capture("TOOL")
+        omitted["omittedFields"] = [key]
+        self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
+        _, issue = issue_from_report(self.report(omitted))
+        self.assertIn(key, issue["body"])
+        self.assertNotIn(key, omitted["values"])
+        absent = self.capture("TOOL")
+        self.assertEqual(absent, validate_diagnostics(copy.deepcopy(absent)))
+        self.assertNotIn(key, absent["values"])
+        self.assertNotIn(key, absent["unavailableFields"])
+        selected = self.capture("TOOL", {key: ["context_lines"]})
+        selected["captureMode"] = "SELECTED_CAPTURE"
+        self.assertEqual(selected, validate_diagnostics(copy.deepcopy(selected)))
+        for name in names:
+            with self.subTest(global_name=name), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {"validation_field_names": [name]}))
+
+    def test_search_validation_names_reject_malformed_unavailable_cross_area_and_legacy_data(self):
+        key = "search_validation_field_names"
+        for bad in (None, {}, "context_lines", True, 1, [], [None], [True], [1], ["private-query"],
+                    ["query"], ["CONTEXT_LINES"], ["context_lines", "private-query"],
+                    ["context_lines", "context_lines"], ["fuzzy_threshold", "context_lines", "max_new_blobs", "batch_size", "context_lines"]):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {key: bad}))
+        absent = self.capture("TOOL")
+        absent["unavailableFields"].append(key)
+        with self.assertRaises(ValueError):
+            validate_diagnostics(absent)
+        for area in CORE_FIELDS.keys() - {"TOOL"}:
+            for marker in ("values", "omittedFields", "unavailableFields"):
+                other = self.capture(area)
+                if marker == "values":
+                    other[marker][key] = ["context_lines"]
+                else:
+                    other.setdefault(marker, []).append(key)
+                with self.subTest(area=area, marker=marker), self.assertRaises(ValueError):
+                    validate_diagnostics(other)
+        legacy = {"schemaVersion": 1, "area": "TOOL", "capturedAtMillis": 1000, "captureMode": "INCIDENT",
+                  "values": {}, "unavailableFields": sorted(CORE_FIELDS["TOOL"])}
+        self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        for marker in ("values", "omittedFields"):
+            bad = copy.deepcopy(legacy)
+            if marker == "values":
+                bad[marker][key] = ["context_lines"]
+            else:
+                bad[marker] = [key]
+            with self.assertRaises(ValueError):
+                validate_diagnostics(bad)
+            disabled = self.capture("TOOL")
+            disabled.update({"captureMode": "NO_CAPTURE", "values": {}, "unavailableFields": sorted(CORE_FIELDS["TOOL"] | capsule.CORE)})
+            if marker == "values":
+                disabled[marker][key] = ["context_lines"]
+            else:
+                disabled[marker] = [key]
+            with self.assertRaises(ValueError):
+                validate_diagnostics(disabled)
+
+    def test_inventory_pagination_observations_are_independent_and_preserve_false_without_authority(self):
+        reason, offered = "inventory_pagination_reason", "inventory_restart_offered"
+        samples = [{reason: code} for code in ("MISSING_VERSION", "VERSION_MISMATCH")] + [{offered: flag} for flag in (False, True)]
+        samples += [{reason: code, offered: flag} for code in ("MISSING_VERSION", "VERSION_MISMATCH") for flag in (False, True)]
+        for observed in samples:
+            with self.subTest(observed=observed):
+                capture = self.capture("TOOL", observed)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                for key, value in observed.items():
+                    rendered = str(value).lower() if type(value) is bool else value
+                    self.assertIn(f"| {key} | `{rendered}` |", issue["body"])
+                self.assertEqual(observed, {key: value for key, value in capture["values"].items() if key in capsule.INVENTORY_PAGINATION_FIELDS})
+                for key in ("dispatched", "remoteAcceptance", "retryable", "recoveryAction"):
+                    self.assertNotIn(key, report["context"])
+        for key, neighbor in ((reason, {offered: False}), (offered, {reason: "VERSION_MISMATCH"})):
+            omitted = self.capture("TOOL", neighbor)
+            omitted["omittedFields"] = [key]
+            self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
+            _, issue = issue_from_report(self.report(omitted))
+            self.assertIn(key, issue["body"])
+            self.assertNotIn(key, omitted["values"])
+        absent = self.capture("TOOL")
+        self.assertEqual(absent, validate_diagnostics(copy.deepcopy(absent)))
+        self.assertFalse(capsule.INVENTORY_PAGINATION_FIELDS & absent["values"].keys())
+        self.assertFalse(capsule.INVENTORY_PAGINATION_FIELDS & set(absent["unavailableFields"]))
+
+    def test_inventory_pagination_rejects_coercion_private_values_unavailable_and_wrong_boundaries(self):
+        invalid = {
+            "inventory_pagination_reason": [None, {}, [], True, 1, "private-reason", "missing_version"],
+            "inventory_restart_offered": [None, {}, [], "true", "false", 0, 1, "private-offer"],
+        }
+        legacy = {"schemaVersion": 1, "area": "TOOL", "capturedAtMillis": 1000, "captureMode": "INCIDENT",
+                  "values": {}, "unavailableFields": sorted(CORE_FIELDS["TOOL"])}
+        self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        for key, malformed in invalid.items():
+            valid = False if key == "inventory_restart_offered" else "MISSING_VERSION"
+            for bad in malformed:
+                with self.subTest(key=key, bad=bad), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("TOOL", {key: bad}))
+            unavailable = self.capture("TOOL")
+            unavailable["unavailableFields"].append(key)
+            with self.assertRaises(ValueError):
+                validate_diagnostics(unavailable)
+            for area in CORE_FIELDS.keys() - {"TOOL"}:
+                for marker in ("values", "omittedFields", "unavailableFields"):
+                    other = self.capture(area)
+                    if marker == "values":
+                        other[marker][key] = valid
+                    else:
+                        other.setdefault(marker, []).append(key)
+                    with self.subTest(key=key, area=area, marker=marker), self.assertRaises(ValueError):
+                        validate_diagnostics(other)
+            for marker in ("values", "omittedFields"):
+                bad = copy.deepcopy(legacy)
+                if marker == "values":
+                    bad[marker][key] = valid
+                else:
+                    bad[marker] = [key]
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(bad)
+                disabled = self.capture("TOOL")
+                disabled.update({"captureMode": "NO_CAPTURE", "values": {}, "unavailableFields": sorted(CORE_FIELDS["TOOL"] | capsule.CORE)})
+                if marker == "values":
+                    disabled[marker][key] = valid
+                else:
+                    disabled[marker] = [key]
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(disabled)
+            selected = self.capture("TOOL", {key: valid})
+            selected["captureMode"] = "SELECTED_CAPTURE"
+            self.assertEqual(selected, validate_diagnostics(copy.deepcopy(selected)))
+
+    def test_ci_semantic_rules_preserve_closed_observed_order_and_independent_omissions(self):
+        key = "semantic_ci_rules"
+        rules = ["BRANCH_NAME", "COMMIT_SHA", "POSITIVE_ID", "WORKFLOW_SELECTOR", "MISSING_SELECTOR", "UNUSED_FIELD", "LOG_START", "LOG_ORDER", "LOG_SPAN"]
+        for sample in [rules[:size] for size in range(1, 10)] + [list(reversed(rules))]:
+            with self.subTest(sample=sample):
+                capture = self.capture("TOOL", {key: sample})
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                self.assertIn(f"| {key} | `{', '.join(sample)}` |", issue["body"])
+                self.assertNotIn("validation_field_names", capture["values"])
+        omitted = self.capture("TOOL")
+        omitted["omittedFields"] = [key]
+        self.assertEqual(omitted, validate_diagnostics(copy.deepcopy(omitted)))
+        _, issue = issue_from_report(self.report(omitted))
+        self.assertIn(key, issue["body"])
+        self.assertNotIn(key, omitted["values"])
+        absent = self.capture("TOOL")
+        self.assertEqual(absent, validate_diagnostics(copy.deepcopy(absent)))
+        self.assertNotIn(key, absent["values"])
+        self.assertNotIn(key, absent["unavailableFields"])
+        selected = self.capture("TOOL", {key: ["LOG_ORDER"]})
+        selected["captureMode"] = "SELECTED_CAPTURE"
+        self.assertEqual(selected, validate_diagnostics(copy.deepcopy(selected)))
+
+    def test_ci_semantic_rules_reject_malformed_unavailable_cross_area_and_legacy_values(self):
+        key = "semantic_ci_rules"
+        for bad in (None, {}, "LOG_START", True, 1, [], [None], [True], [1], ["private-rule"],
+                    ["LOG_START", "private-rule"], ["LOG_START", "LOG_START"], ["LOG_START"] * 10):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {key: bad}))
+        absent = self.capture("TOOL")
+        absent["unavailableFields"].append(key)
+        with self.assertRaises(ValueError):
+            validate_diagnostics(absent)
+        for area in CORE_FIELDS.keys() - {"TOOL"}:
+            for marker in ("values", "omittedFields", "unavailableFields"):
+                other = self.capture(area)
+                if marker == "values":
+                    other[marker][key] = ["LOG_SPAN"]
+                else:
+                    other.setdefault(marker, []).append(key)
+                with self.subTest(area=area, marker=marker), self.assertRaises(ValueError):
+                    validate_diagnostics(other)
+        legacy = {"schemaVersion": 1, "area": "TOOL", "capturedAtMillis": 1000, "captureMode": "INCIDENT",
+                  "values": {}, "unavailableFields": sorted(CORE_FIELDS["TOOL"])}
+        self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        for marker in ("values", "omittedFields"):
+            bad = copy.deepcopy(legacy)
+            if marker == "values":
+                bad[marker][key] = ["LOG_START"]
+            else:
+                bad[marker] = [key]
+            with self.assertRaises(ValueError):
+                validate_diagnostics(bad)
+            disabled = self.capture("TOOL")
+            disabled.update({"captureMode": "NO_CAPTURE", "values": {}, "unavailableFields": sorted(CORE_FIELDS["TOOL"] | capsule.CORE)})
+            if marker == "values":
+                disabled[marker][key] = ["LOG_START"]
+            else:
+                disabled[marker] = [key]
+            with self.assertRaises(ValueError):
+                validate_diagnostics(disabled)
+
+    def test_policy_response_fields_preserve_measured_empty_ordered_subsets_and_independent_unknowns(self):
+        for key in capsule.POLICY_RESPONSE_FIELDS:
+            if key in capsule.POLICY_RESPONSE_HEADER_FIELDS:
+                samples = [[name for index, name in enumerate(capsule.POLICY_RESPONSE_HEADER_ORDER) if mask & (1 << index)]
+                           for mask in range(16)]
+            else:
+                samples = sorted(capsule.ENUMS[key])
+            for sample in samples:
+                with self.subTest(key=key, sample=sample):
+                    capture = self.capture("ACCEPTANCE", {key: sample})
+                    self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                    report = self.report(capture)
+                    approved = json.dumps(report, separators=(",", ":"))
+                    _, issue = issue_from_report(report)
+                    self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                    rendered = "[]" if sample == [] else ", ".join(sample) if isinstance(sample, list) else sample
+                    self.assertIn(f"| {key} | `{rendered}` |", issue["body"])
+                    self.assertEqual({key}, capsule.POLICY_RESPONSE_FIELDS & capture["values"].keys())
+            for marker in ("omittedFields", "unavailableFields"):
+                capture = self.capture("ACCEPTANCE")
+                capture.setdefault(marker, []).append(key)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                _, issue = issue_from_report(self.report(capture))
+                self.assertIn(key, issue["body"])
+                self.assertFalse(capsule.POLICY_RESPONSE_FIELDS & capture["values"].keys())
+        legacy = self.capture("ACCEPTANCE")
+        self.assertEqual(legacy, validate_diagnostics(copy.deepcopy(legacy)))
+        self.assertFalse(capsule.POLICY_RESPONSE_FIELDS & legacy["values"].keys())
+
+    def test_policy_response_contract_rejects_malformed_cross_area_and_no_capture_data(self):
+        for key in capsule.POLICY_RESPONSE_FIELDS:
+            if key in capsule.POLICY_RESPONSE_HEADER_FIELDS:
+                valid = []
+                malformed = ["SSO", ["private-scope"], [True], [1], [None], [{}], ["SSO", "private-scope"],
+                             ["SSO", "SSO"], ["SSO"] * 5, list(reversed(capsule.POLICY_RESPONSE_HEADER_ORDER))]
+            else:
+                valid = "OTHER_404"
+                malformed = [[], ["OTHER_404"], True, 404, "private-message"]
+                if key == "status_policy_rules_404_kind":
+                    malformed.append("EXPLICIT_BRANCH_NOT_PROTECTED")
+            for bad in [None, {}, *malformed]:
+                with self.subTest(key=key, bad=bad), self.assertRaises(ValueError):
+                    validate_diagnostics(self.capture("ACCEPTANCE", {key: bad}))
+            for area in CORE_FIELDS.keys() - {"ACCEPTANCE"}:
+                for marker in ("values", "omittedFields", "unavailableFields"):
+                    other = self.capture(area)
+                    if marker == "values":
+                        other[marker][key] = valid
+                    else:
+                        other.setdefault(marker, []).append(key)
+                    with self.subTest(key=key, area=area, marker=marker), self.assertRaises(ValueError):
+                        validate_diagnostics(other)
+            for marker in ("values", "omittedFields"):
+                disabled = self.capture("ACCEPTANCE")
+                disabled.update({"captureMode": "NO_CAPTURE", "values": {}, "unavailableFields": sorted(CORE_FIELDS["ACCEPTANCE"] | capsule.CORE)})
+                if marker == "values":
+                    disabled[marker][key] = valid
+                else:
+                    disabled[marker] = [key]
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(disabled)
+            unavailable = self.capture("ACCEPTANCE")
+            unavailable["unavailableFields"] += [key, key]
+            with self.assertRaises(ValueError):
+                validate_diagnostics(unavailable)
+            observed = self.capture("ACCEPTANCE", {key: valid})
+            observed["unavailableFields"].append(key)
+            with self.assertRaises(ValueError):
+                validate_diagnostics(observed)
+        selected = self.capture("ACCEPTANCE", {"status_policy_rules_permission_header_names": []})
+        selected["captureMode"] = "SELECTED_CAPTURE"
+        self.assertEqual(selected, validate_diagnostics(copy.deepcopy(selected)))
+
+    def repeat_history(self, prior_count=1, batch_count=1, prior=None, outcomes=None, prior_coverage="COMPLETE", batch=None, batch_coverage="COMPLETE"):
+        prior = ["a" * 64] if prior is None else prior
+        batch = ["b" * 64] if batch is None else batch
+        return {
+            "dependency_repeat_scope": "TOOL_NAME_AND_ARGUMENTS", "dependency_repeat_prior_admissions": prior_count,
+            "dependency_repeat_batch_admissions": batch_count, "dependency_repeat_used": prior_count + batch_count,
+            "dependency_repeat_limit": prior_count + batch_count,
+            "dependency_repeat_prior_call_id_hashes": prior, "dependency_repeat_prior_outcomes": ["UNOBSERVED"] * len(prior) if outcomes is None else outcomes,
+            "dependency_repeat_prior_coverage": prior_coverage, "dependency_repeat_batch_call_id_hashes": batch, "dependency_repeat_batch_coverage": batch_coverage,
+        }
+
+    def test_repeat_history_preserves_coherent_coverage_and_exact_approved_outcomes(self):
+        samples = [
+            self.repeat_history(0, 0, prior=[], batch=[]),
+            self.repeat_history(3, 0, prior_coverage="PARTIAL", batch=[]),
+            self.repeat_history(3, 2, prior=[], prior_coverage="UNAVAILABLE", batch_coverage="PARTIAL"),
+            self.repeat_history(3, 2, prior_coverage="PARTIAL", batch=[], batch_coverage="UNAVAILABLE"),
+            self.repeat_history(16_000_000, 0, prior=[], prior_coverage="UNAVAILABLE", batch=[]),
+            self.repeat_history(8, 8, prior=[f"{i:064x}" for i in range(8)], batch=[f"{i:064x}" for i in range(8, 16)]),
+        ] + [self.repeat_history(outcomes=[outcome]) for outcome in sorted(capsule.REPEAT_HISTORY_OUTCOMES)]
+        for scope in ("TOOL_NAME", "TOOL_NAME_AND_ARGUMENTS"):
+            for sample in samples:
+                values = {**sample, "dependency_repeat_scope": scope, "call_id_hash": "f" * 64}
+                capture = self.capture("TOOL", values)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                report = self.report(capture)
+                approved = json.dumps(report, separators=(",", ":"))
+                _, issue = issue_from_report(report)
+                self.assertEqual(approved, json.dumps(report, separators=(",", ":")))
+                for key in capsule.REPEAT_HISTORY_FIELDS:
+                    self.assertIn(f"| {key} |", issue["body"])
+                self.assertFalse({"remote_acceptance", "requires_reconciliation", "request_replay_allowed"} & capture["values"].keys())
+
+    def test_repeat_history_rejects_partial_malformed_incoherent_and_self_linked_values(self):
+        good = self.repeat_history()
+        invalid = [{key: value for key, value in good.items() if key != missing} for missing in capsule.REPEAT_HISTORY_FIELDS | capsule.TOOL_REPEAT_FIELDS]
+        invalid.extend([
+            self.repeat_history(prior=["a" * 64, "a" * 64], prior_count=2),
+            self.repeat_history(prior=["b" * 64]), self.repeat_history(prior=["f" * 64]), self.repeat_history(batch=["f" * 64]),
+            self.repeat_history(prior=["A" * 64]), self.repeat_history(outcomes=[]), self.repeat_history(outcomes=["UNOBSERVED", "UNKNOWN_OUTCOME"]),
+            self.repeat_history(prior_coverage="PARTIAL"), self.repeat_history(batch_coverage="PARTIAL"),
+            self.repeat_history(prior_coverage="UNAVAILABLE"), self.repeat_history(batch_coverage="UNAVAILABLE"),
+            self.repeat_history(0, 0, prior=[], prior_coverage="UNAVAILABLE", batch=[]),
+            self.repeat_history(0, 0, prior=[], batch=[], batch_coverage="PARTIAL"), self.repeat_history(prior_count=2),
+        ])
+        for key in capsule.REPEAT_HISTORY_FIELDS:
+            malformed = [None, {}, True, 1, "private-value"]
+            malformed += [["PRIVATE"], [None], [True], [1], [f"{i:064x}" for i in range(9)]] if key in capsule.REPEAT_HISTORY_LIST_FIELDS else [[]]
+            invalid.extend({**good, key: value} for value in malformed)
+        invalid.extend({**good, key: value} for key, value in (
+            ("dependency_repeat_scope", "UNKNOWN"), ("dependency_repeat_prior_admissions", -1),
+            ("dependency_repeat_batch_admissions", 16_000_001), ("dependency_repeat_used", 3), ("dependency_repeat_limit", 3),
+            ("dependency_repeat_prior_admissions", "1"), ("dependency_repeat_prior_admissions", 1.0), ("dependency_repeat_prior_admissions", True),
+        ))
+        for values in invalid:
+            with self.subTest(values=values), self.assertRaises(ValueError):
+                validate_diagnostics(self.capture("TOOL", {"call_id_hash": "f" * 64, **values}))
+        legacy = {key: value for key, value in good.items() if key in capsule.TOOL_REPEAT_FIELDS}
+        legacy["dependency_repeat_used"] = 10
+        self.assertEqual(self.capture("TOOL", legacy), validate_diagnostics(self.capture("TOOL", legacy)))
+
+    def test_repeat_history_metadata_remains_unknown_and_area_capture_boundaries_stay_closed(self):
+        for key in capsule.REPEAT_HISTORY_FIELDS:
+            for marker in ("omittedFields", "unavailableFields"):
+                capture = self.capture("TOOL")
+                capture.setdefault(marker, []).append(key)
+                self.assertEqual(capture, validate_diagnostics(copy.deepcopy(capture)))
+                self.assertFalse(capsule.REPEAT_HISTORY_FIELDS & capture["values"].keys())
+                for area in CORE_FIELDS.keys() - {"TOOL"}:
+                    other = self.capture(area)
+                    other.setdefault(marker, []).append(key)
+                    with self.assertRaises(ValueError):
+                        validate_diagnostics(other)
+                observed = self.capture("TOOL", self.repeat_history())
+                observed.setdefault(marker, []).append(key)
+                with self.assertRaises(ValueError):
+                    validate_diagnostics(observed)
+        for area in CORE_FIELDS.keys() - {"TOOL"}:
+            with self.assertRaises(ValueError):
+                validate_diagnostics(self.capture(area, self.repeat_history()))
+        observed = self.capture("TOOL", self.repeat_history())
+        observed["captureMode"] = "NO_CAPTURE"
+        with self.assertRaises(ValueError):
+            validate_diagnostics(observed)
+        observed["captureMode"] = "SELECTED_CAPTURE"
+        self.assertEqual(observed, validate_diagnostics(copy.deepcopy(observed)))
+
     def test_repeat_admission_preserves_observed_operands_without_reconstructing_omitted_siblings(self):
         values = {"dependency_repeat_scope": "TOOL_NAME_AND_ARGUMENTS", "dependency_repeat_prior_admissions": 2,
                   "dependency_repeat_batch_admissions": 1, "dependency_repeat_used": 3, "dependency_repeat_limit": 3}
@@ -1034,7 +1408,7 @@ class IncidentReportContractTest(unittest.TestCase):
         examples = (
             ("TOOL", {"semantic_read_rules": ["LINE_WINDOW"], "validation_field_names": ["ranges", "end_line"],
                       "dependency_admission_reasons": ["CALL_ALLOWANCE"], "saved_view_restore_state": "CURSOR_INDEX_MISSING",
-                      "url_reader_dns_state": "RECOVERY_COOLDOWN"}),
+                      "url_reader_dns_state": "RECOVERY_COOLDOWN", "url_reader_availability": "NEGATIVE_CACHE"}),
             ("INCIDENT", {"incident_capture_site": "CHAT_REPOSITORY_PREFLIGHT", "incident_origin": "APPLICATION",
                           "local_readiness_failure": "PENDING_CLEANUP", "pending_tool_count": 2,
                           "pending_tool_identity_hashes": ["a" * 64], "pending_tool_receipt_state": "SOME_TERMINAL_RECEIPTS_MISSING"}),
@@ -1052,6 +1426,9 @@ class IncidentReportContractTest(unittest.TestCase):
         for key in ("semantic_read_rules", "dependency_admission_reasons"):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 validate_diagnostics(self.capture("TOOL", {key: ["private-value"]}))
+
+        with self.assertRaises(ValueError):
+            validate_diagnostics(self.capture("TOOL", {"url_reader_availability": "https://example.com/private"}))
 
     def test_rate_limit_scheduling_is_an_observation_without_replay_authority(self):
         capture = self.capture("PROVIDER", {"incident_phase": "provider_wait", "causal_provenance": "MODEL_INVOCATION",

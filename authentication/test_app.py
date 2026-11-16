@@ -102,6 +102,25 @@ class IssueReportHttpTest(unittest.TestCase):
         return {**self.metadata(), "source": "manual", "title": "Voice playback stopped",
                 "description": "Playback stopped when opening Voice Chat."}
 
+    def test_manual_text_attachment_is_explicit_bounded_and_rendered_without_active_content(self):
+        report = {**self.manual(), "attachment": {
+            "name": "voice-details.txt", "mediaType": "text/plain", "originalBytes": 24,
+            "sha256": "a" * 64, "text": "first step\nsecond step",
+        }}
+        response = self.submit(report)
+        self.assertEqual(200, response.status_code)
+        body = self.issued[-1]["body"]
+        self.assertIn("### Approved text attachment", body)
+        self.assertIn("voice-details.txt", body)
+        self.assertIn("    first step", body)
+        for malformed in (
+            {**report, "attachment": {**report["attachment"], "mediaType": "image/png"}},
+            {**report, "attachment": {**report["attachment"], "originalBytes": 4097}},
+            {**report, "attachment": {**report["attachment"], "extra": "private"}},
+            {**self.metadata(), "source": "debug", "feature": "app", "errorCode": "APP_ERROR", "attachment": report["attachment"]},
+        ):
+            self.assertEqual(422, self.submit(malformed).status_code)
+
     def context(self, **observed):
         result = {"schemaVersion": 1, "occurredAtMillis": self.now * 1000, "source": "CHAT_FAILURE", **observed}
         fields = CONTEXT_FIELDS_V5 if result["schemaVersion"] in (5, 6, 7) else CONTEXT_FIELDS_V4 if result["schemaVersion"] == 4 else CONTEXT_FIELDS_V2 if result["schemaVersion"] in (2, 3) else CONTEXT_FIELDS
@@ -475,7 +494,7 @@ class IssueReportHttpTest(unittest.TestCase):
         extended = self.client.get("/health/ready?capabilities=extended")
         self.assertEqual(200, extended.status_code)
         additions = ["ACCEPTANCE_PUBLICATION_EVIDENCE_V1", "TOOL_REPEAT_ADMISSION_EVIDENCE_V1",
-                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1"]
+                     "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1", "ACCEPTANCE_OBSERVATION_CAUSES_V1", "SQLITE_CONSTRAINT_EVIDENCE_V1", "URL_READER_AVAILABILITY_V1", "GITHUB_POLICY_RESPONSE_EVIDENCE_V1", "TOOL_REPEAT_HISTORY_EVIDENCE_V1", "GITHUB_CI_SEMANTIC_EVIDENCE_V1", "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1", "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1", "REPORT_TEXT_ATTACHMENT_V1"]
         self.assertEqual(legacy.json()["reportDiagnosticFeatures"] + additions,
                          extended.json()["reportDiagnosticFeatures"])
         for key in ("service", "version", "reportContextVersions"):
@@ -494,6 +513,181 @@ class IssueReportHttpTest(unittest.TestCase):
         check_readiness(self.origin, fetch)
         self.assertEqual([self.origin + "/health/ready?capabilities=extended"], requested)
         self.assertFalse(self.issued)
+
+    def test_policy_response_observations_cross_http_boundary_and_reject_private_or_malformed_data(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        from authentication.issue_reports import ADMISSION_WINDOW
+        fixtures = IncidentReportContractTest()
+        samples = (
+            {"status_policy_protection_404_kind": "EXPLICIT_BRANCH_NOT_PROTECTED", "status_policy_protection_permission_header_names": []},
+            {"status_policy_rules_404_kind": "OTHER_404", "status_policy_rules_permission_header_names": ["REPORTED_OAUTH_SCOPES", "ACCEPTED_GITHUB_PERMISSIONS", "SSO"]},
+        )
+        for values in samples:
+            self.now += ADMISSION_WINDOW + 1
+            report = fixtures.report(fixtures.capture("ACCEPTANCE", values))
+            report["reportId"] = str(uuid4())
+            approved = json.dumps(report, separators=(",", ":")).encode()
+            response = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+            self.assertEqual(200, response.status_code)
+            self.assertLessEqual(len(response.content), 1024)
+            self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+            for key in values:
+                self.assertIn(f"| {key} |", self.issued[-1]["body"])
+            if "status_policy_protection_permission_header_names" in values:
+                self.assertIn("| status_policy_protection_permission_header_names | `[]` |", self.issued[-1]["body"])
+            self.assertEqual(200, self.submit(report).status_code)
+        for values in (
+            {"status_policy_rules_404_kind": "EXPLICIT_BRANCH_NOT_PROTECTED"},
+            {"status_policy_protection_permission_header_names": ["private-oauth-scope"]},
+            {"status_policy_rules_permission_header_names": ["SSO", "SSO"]},
+            {"status_policy_protection_permission_header_names": "private-header-value"},
+        ):
+            report = fixtures.report(fixtures.capture("ACCEPTANCE", values))
+            report["reportId"] = str(uuid4())
+            self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual(len(samples), len(self.issued))
+
+    def test_atomic_repeat_history_crosses_http_boundary_without_repairing_approved_groups(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        from authentication.issue_reports import ADMISSION_WINDOW
+        fixtures = IncidentReportContractTest()
+        observations = {
+            "dependency_repeat_scope": "TOOL_NAME_AND_ARGUMENTS", "dependency_repeat_prior_admissions": 1,
+            "dependency_repeat_batch_admissions": 0, "dependency_repeat_used": 1, "dependency_repeat_limit": 1,
+            "dependency_repeat_prior_call_id_hashes": ["a" * 64], "dependency_repeat_prior_outcomes": ["UNKNOWN_OUTCOME"],
+            "dependency_repeat_prior_coverage": "COMPLETE", "dependency_repeat_batch_call_id_hashes": [], "dependency_repeat_batch_coverage": "COMPLETE",
+        }
+        report = fixtures.report(fixtures.capture("TOOL", observations))
+        approved = json.dumps(report, separators=(",", ":")).encode()
+        response = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+        self.assertEqual(200, response.status_code)
+        self.assertLessEqual(len(response.content), 1024)
+        self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+        self.assertIn("| dependency_repeat_batch_call_id_hashes | `[]` |", self.issued[-1]["body"])
+        self.assertIn("| dependency_repeat_prior_outcomes | `UNKNOWN_OUTCOME` |", self.issued[-1]["body"])
+        for malformed in (
+            {key: value for key, value in observations.items() if key != "dependency_repeat_prior_outcomes"},
+            {**observations, "dependency_repeat_prior_outcomes": []},
+            {**observations, "dependency_repeat_prior_call_id_hashes": ["private-call"]},
+            {**observations, "dependency_repeat_prior_coverage": "UNAVAILABLE"},
+            {**observations, "dependency_repeat_used": 2},
+        ):
+            self.now += ADMISSION_WINDOW + 1
+            bad = fixtures.report(fixtures.capture("TOOL", malformed))
+            bad["reportId"] = str(uuid4())
+            self.assertEqual(422, self.submit(bad).status_code)
+        self_linked = fixtures.report(fixtures.capture("TOOL", observations))
+        self_linked["reportId"] = str(uuid4())
+        self_linked["context"]["callIdHash"] = "a" * 64
+        self_linked["context"]["unavailableFields"].remove("callIdHash")
+        original = json.dumps(self_linked, separators=(",", ":"))
+        self.assertEqual(422, self.submit(self_linked).status_code)
+        self.assertEqual(original, json.dumps(self_linked, separators=(",", ":")))
+        self.assertEqual(1, len(self.issued))
+
+    def test_ci_semantic_rules_cross_http_boundary_without_accepting_private_or_unavailable_data(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        from authentication.issue_reports import ADMISSION_WINDOW
+        fixtures = IncidentReportContractTest()
+        key = "semantic_ci_rules"
+        rules = ["LOG_SPAN", "LOG_ORDER", "LOG_START", "UNUSED_FIELD", "MISSING_SELECTOR", "WORKFLOW_SELECTOR", "POSITIVE_ID", "COMMIT_SHA", "BRANCH_NAME"]
+        for omitted in (False, True):
+            self.now += ADMISSION_WINDOW + 1
+            capture = fixtures.capture("TOOL", {} if omitted else {key: rules})
+            if omitted:
+                capture["omittedFields"] = [key]
+            report = fixtures.report(capture)
+            report["reportId"] = str(uuid4())
+            approved = json.dumps(report, separators=(",", ":")).encode()
+            response = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+            self.assertEqual(200, response.status_code)
+            self.assertLessEqual(len(response.content), 1024)
+            self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+            self.assertIn(key, self.issued[-1]["body"])
+            if not omitted:
+                self.assertIn(f"| {key} | `{', '.join(rules)}` |", self.issued[-1]["body"])
+        for bad in ([], ["private-rule"], ["LOG_ORDER", "private-rule"], ["LOG_START", "LOG_START"], rules + ["LOG_START"]):
+            report = fixtures.report(fixtures.capture("TOOL", {key: bad}))
+            report["reportId"] = str(uuid4())
+            response = self.submit(report)
+            self.assertEqual(422, response.status_code)
+            self.assertNotIn("private-rule", response.text)
+        unobserved = fixtures.capture("TOOL")
+        unobserved["unavailableFields"].append(key)
+        report = fixtures.report(unobserved)
+        report["reportId"] = str(uuid4())
+        self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual(2, len(self.issued))
+
+    def test_search_validation_names_cross_http_boundary_with_exact_approval_and_no_private_data(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        from authentication.issue_reports import ADMISSION_WINDOW
+        fixtures = IncidentReportContractTest()
+        key = "search_validation_field_names"
+        names = ["batch_size", "max_new_blobs", "context_lines", "fuzzy_threshold"]
+        for omitted in (False, True):
+            self.now += ADMISSION_WINDOW + 1
+            capture = fixtures.capture("TOOL", {} if omitted else {key: names})
+            if omitted:
+                capture["omittedFields"] = [key]
+            report = fixtures.report(capture)
+            report["reportId"] = str(uuid4())
+            approved = json.dumps(report, separators=(",", ":")).encode()
+            response = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+            self.assertEqual(200, response.status_code)
+            self.assertLessEqual(len(response.content), 1024)
+            self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+            self.assertIn(key, self.issued[-1]["body"])
+            if not omitted:
+                self.assertIn(f"| {key} | `{', '.join(names)}` |", self.issued[-1]["body"])
+        for bad in ([], ["private-query"], ["context_lines", "private-query"], ["context_lines", "context_lines"], names + ["context_lines"]):
+            report = fixtures.report(fixtures.capture("TOOL", {key: bad}))
+            report["reportId"] = str(uuid4())
+            response = self.submit(report)
+            self.assertEqual(422, response.status_code)
+            self.assertNotIn("private-query", response.text)
+        unobserved = fixtures.capture("TOOL")
+        unobserved["unavailableFields"].append(key)
+        report = fixtures.report(unobserved)
+        report["reportId"] = str(uuid4())
+        self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual(2, len(self.issued))
+
+    def test_inventory_pagination_crosses_http_boundary_with_exact_optional_observations(self):
+        from authentication.test_incident_report_contract import IncidentReportContractTest
+        from authentication.issue_reports import ADMISSION_WINDOW
+        fixtures = IncidentReportContractTest()
+        reason, offered = "inventory_pagination_reason", "inventory_restart_offered"
+        samples = [({reason: "MISSING_VERSION"}, []), ({reason: "VERSION_MISMATCH", offered: False}, []),
+                   ({offered: True}, [reason]), ({reason: "VERSION_MISMATCH"}, [offered])]
+        for values, omissions in samples:
+            self.now += ADMISSION_WINDOW + 1
+            capture = fixtures.capture("TOOL", values)
+            if omissions:
+                capture["omittedFields"] = omissions
+            report = fixtures.report(capture)
+            report["reportId"] = str(uuid4())
+            approved = json.dumps(report, separators=(",", ":")).encode()
+            response = self.client.post("/v1/issue-reports", content=approved, headers={"content-type": "application/json"})
+            self.assertEqual(200, response.status_code)
+            self.assertLessEqual(len(response.content), 1024)
+            self.assertEqual(approved, json.dumps(report, separators=(",", ":")).encode())
+            for key, value in values.items():
+                rendered = str(value).lower() if type(value) is bool else value
+                self.assertIn(f"| {key} | `{rendered}` |", self.issued[-1]["body"])
+        for values in ({reason: "private-version"}, {reason: True}, {offered: "false"}, {offered: 0}):
+            report = fixtures.report(fixtures.capture("TOOL", values))
+            report["reportId"] = str(uuid4())
+            response = self.submit(report)
+            self.assertEqual(422, response.status_code)
+            self.assertNotIn("private-version", response.text)
+        for key in (reason, offered):
+            capture = fixtures.capture("TOOL")
+            capture["unavailableFields"].append(key)
+            report = fixtures.report(capture)
+            report["reportId"] = str(uuid4())
+            self.assertEqual(422, self.submit(report).status_code)
+        self.assertEqual(len(samples), len(self.issued))
 
     def test_new_incident_observations_cross_http_boundary_without_replacing_approved_payload(self):
         from authentication.test_incident_report_contract import IncidentReportContractTest

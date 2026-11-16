@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.agent.tool
 
 import dev.chungjungsoo.gptmobile.data.agent.AgentToolResult
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
+import dev.chungjungsoo.gptmobile.data.github.GatewayGraphHttpFailure
 import java.io.IOException
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
@@ -15,6 +16,19 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class RepositoryGraphFallbackTest {
+    @Test fun graphInternalHttp500UsesClosedCodesAndRejectsUntrustedResponseValues() {
+        val storage = GatewayGraphHttpFailure.fromResponse(500, null, JsonObject(mapOf("code" to JsonPrimitive("graph_internal_storage_error"))))
+        val io = GatewayGraphHttpFailure.fromResponse(500, null, JsonObject(mapOf("code" to JsonPrimitive("graph_internal_io_error"))))
+        val other = GatewayGraphHttpFailure.fromResponse(500, null, JsonObject(mapOf("code" to JsonPrimitive("graph_internal_error"))))
+        val unknown = GatewayGraphHttpFailure.fromResponse(500, null, JsonObject(mapOf("code" to JsonPrimitive("unrecognized"))))
+        val wrongStatus = GatewayGraphHttpFailure.fromResponse(503, null, JsonObject(mapOf("code" to JsonPrimitive("graph_internal_storage_error"))))
+        assertEquals("GRAPH_INTERNAL_STORAGE", storage.code)
+        assertEquals("GRAPH_INTERNAL_IO", io.code)
+        assertEquals("GRAPH_INTERNAL_SERVER", other.code)
+        assertEquals("GRAPH_HTTP_REJECTED", unknown.code)
+        assertEquals("GRAPH_HTTP_REJECTED", wrongStatus.code)
+    }
+
     @Test fun transportFailureRetainsGraphFailureAndOneIndependentNativeReceipt() = runTest {
         var nativeReads = 0
         val receipt = JsonObject(mapOf("read_requests" to JsonPrimitive(1)))

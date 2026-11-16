@@ -12,6 +12,7 @@ import kotlinx.serialization.json.JsonObject
 /** Child calls inherit their parent's collection/temporary-chat decision and never acquire a budget permit. */
 class ObservedTool(private val delegate: AgentTool, private val identity: ToolIdentity) : OwnedAgentTool {
     override val definition = delegate.definition
+    override val searchValidationOwner get() = delegate.searchValidationOwner
     override val managesExecutionBudget = delegate.managesExecutionBudget
     override val coordinatesChildWork = delegate.coordinatesChildWork
     override val executionOwner = (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT

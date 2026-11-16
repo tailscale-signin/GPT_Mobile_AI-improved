@@ -77,7 +77,7 @@ def main():
             assert (root / 'data' / 'activity.json').exists()
             subprocess.run([str(exe), 'dashboard', '--root', str(root), '--smoke-ui', '--quiet'], check=True, timeout=150)
             ui = json.loads((root / 'dashboard-ui-smoke.json').read_text(encoding='utf-8'))
-            assert ui['pages'] == ['Overview', 'Chat', 'Saved', 'Jobs', 'Benchmarks']
+            assert ui['pages'] == ['Overview', 'Chat', 'Saved', 'Jobs', 'Tools', 'Benchmarks']
             assert ui['width'] >= 900 and ui['height'] >= 600
             for capture in root.glob('dashboard-*.png'):
                 shutil.copy2(capture, output / capture.name)

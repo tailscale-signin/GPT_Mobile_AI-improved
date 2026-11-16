@@ -1,9 +1,11 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -64,6 +66,70 @@ class GitHubActionSchemaTest {
         AgentRunner(AgentRunLimits(githubMode = true)).run(session, listOf(tool, catalog), selectDefinitions = catalog::selected).toList()
         assertEquals(requireNotNull(GitHubActionSchema.project(original, "logs")), advertised)
         assertEquals(1, executed)
+    }
+
+    @Test fun rejectedCiAndFileReadsOfferBoundedSchemaValidCorrections() {
+        val sha = "a".repeat(40)
+        fun checkCorrection(tool: String, input: String, expected: String) {
+            val schema = GitHubOperationTool.definition(tool).inputSchema
+            val arguments = Json.parseToJsonElement(input) as JsonObject
+            val violations = ToolArgumentValidator.errors(arguments, schema) + GitHubOperationArguments.errors(tool, arguments)
+            assertTrue(violations.isNotEmpty())
+            val result = ToolArgumentValidator.rejection("test-call", tool, arguments, schema, violations)
+            assertFalse(result.dispatched)
+            val correction = ((result.content as ToolResultContent.Json).value as JsonObject)["correction_call"] as JsonObject
+            val corrected = correction["arguments"] as JsonObject
+            assertEquals(Json.parseToJsonElement(expected), corrected)
+            assertTrue(ToolArgumentValidator.errors(corrected, schema).isEmpty())
+            assertTrue(GitHubOperationArguments.errors(tool, corrected).isEmpty())
+        }
+        checkCorrection(
+            "github_ci",
+            """{"action":"runs","branch":"main","status":"completed","conclusion":"failure"}""",
+            """{"action":"runs","branch":"main","status":"failure"}"""
+        )
+        checkCorrection(
+            "github_ci",
+            """{"action":"logs","job_id":3,"start_line":10,"end_line":3010}""",
+            """{"action":"logs","job_id":3,"start_line":10,"end_line":2009}"""
+        )
+        checkCorrection(
+            "github_read",
+            """{"action":"ranges","commit_sha":"$sha","ranges":[{"path":"build.yml","start_line":1,"max_lines":2000,"end_line":-1}]}""",
+            """{"action":"ranges","commit_sha":"$sha","ranges":[{"path":"build.yml","start_line":1,"max_lines":2000}]}"""
+        )
+    }
+
+    @Test fun searchCorrectsTheReadLimitWithoutRewritingPinnedContinuationArguments() {
+        val definition = GitHubOperationTool.definition("github_search")
+        val arguments = Json.parseToJsonElement("""{"action":"search","query":"object Task","max_new_blobs":0}""") as JsonObject
+        fun reject(proposal: JsonObject): JsonObject {
+            val result = ToolArgumentValidator.rejection("search", definition.name, proposal, definition.inputSchema)
+            assertTrue(result.isError)
+            assertFalse(result.dispatched)
+            return (result.content as ToolResultContent.Json).value as JsonObject
+        }
+        val corrected = (reject(arguments)["correction_call"] as JsonObject)["arguments"] as JsonObject
+        assertEquals(JsonObject(arguments + ("max_new_blobs" to JsonPrimitive(1))), corrected)
+        assertTrue(ToolArgumentValidator.errors(corrected, definition.inputSchema).isEmpty())
+        for ((key, value) in mapOf("view_cursor" to JsonPrimitive("opaque"), "index_cursor" to JsonPrimitive(5), "page" to JsonPrimitive(2))) {
+            assertNull(reject(JsonObject(arguments + (key to value)))["correction_call"])
+        }
+    }
+
+    @Test fun workflowInventoryProjectionKeepsRemotePaginationAndAnExplicitFullView() {
+        val source = Json.parseToJsonElement(
+            """{"data":{"workflows":[{"id":1,"name":"Build","path":"build.yml","state":"active","updated_at":"then","html_url":"fixture"}],"total_count":2,"has_more":true,"continuation":{"page":2}}}"""
+        ) as JsonObject
+        val request = buildJsonObject { put("action", "workflows") }
+        val compact = dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project("github_ci", request, source)["data"] as JsonObject
+        val original = source["data"] as JsonObject
+        val row = (compact["workflows"] as JsonArray).single() as JsonObject
+        assertEquals(setOf("id", "name", "path", "state"), row.keys)
+        assertEquals(original["continuation"], compact["continuation"])
+        assertEquals(original["total_count"], compact["total_count"])
+        assertEquals(original["has_more"], compact["has_more"])
+        assertEquals(source, dev.chungjungsoo.gptmobile.data.github.GitHubResultProjection.project("github_ci", JsonObject(request + ("response_detail" to JsonPrimitive("full"))), source))
     }
 
     @Test fun ciLogContractRetainsBoundsAndPagingButExcludesDispatch() {

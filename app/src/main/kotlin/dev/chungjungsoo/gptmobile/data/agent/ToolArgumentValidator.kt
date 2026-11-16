@@ -31,7 +31,10 @@ internal object ToolArgumentValidator {
             }
             "github_read" ->
                 "Use one to eight ranges with a repository-relative path and start_line>=1. " +
-                    "Choose either max_lines (1..2000) or end_line, never both; end_line=-1 means bounded EOF. "
+                    "Choose either max_lines (1..2000) or end_line, never both; omit both for a bounded default read. end_line=-1 means bounded EOF. "
+            "github_ci" ->
+                "Use only the declared fields for the selected action. Runs filters use status; returned runs include conclusion. " +
+                    "For failed runs set status=failure. For logs use an observed job_id and positive ordered start_line/end_line spanning at most 2000 lines; read longer logs in successive windows. "
             "github_context" ->
                 "For saved content use only the exact view_cursor from continuation_call. " +
                     "For a fresh page use per_page=1..100. Do not copy an action from a different request. "
@@ -46,16 +49,17 @@ internal object ToolArgumentValidator {
     }
 
     /** A safe read recipe is constructed from the actual registered schema; no ID is inferred. */
-    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet()): AgentToolResult {
+    fun rejection(callId: String, toolName: String, arguments: JsonObject, schema: JsonObject, validationErrors: List<String> = errors(arguments, schema), readRules: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule> = emptySet(), ciRejections: Set<dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.CiRejection> = emptySet(), searchValidationOwner: GitHubSearchValidationEvidence.Owner? = null): AgentToolResult {
         val correction = discoveryCorrection(toolName, arguments, schema)
         val selector = selectorProblem(toolName, arguments)
-        return AgentToolResult(
+        val rejected = AgentToolResult(
             callId,
             ToolResultContent.Json(
                 buildJsonObject {
                     put("schema", "gptmobile.arguments.v2")
                     put("operation", toolName)
-                    put("message", repairMessage(toolName, validationErrors, schema, arguments))
+                    val message = repairMessage(toolName, validationErrors, schema, arguments)
+                    put("message", if (correction == null) message else "$message Use correction_call for the bounded read.")
                     put("validation_errors", JsonArray(validationErrors.map(::JsonPrimitive)))
                     put("state", "PRECHECK_REJECTED")
                     put("dispatched", false)
@@ -103,11 +107,22 @@ internal object ToolArgumentValidator {
                     }
                     if (readRules.isNotEmpty()) {
                         put("semantic_read_rules", JsonArray(readRules.map { JsonPrimitive(it.name) }))
-                        put("validation_field_names", JsonArray(readRules.flatMap { it.fields.asList() }.distinct().sorted().map(::JsonPrimitive)))
                     }
+                    val declaredFields = (schema["properties"] as? JsonObject).orEmpty().keys
+                    val unknownFields = if (schema["additionalProperties"] == JsonPrimitive(false)) {
+                        arguments.keys.filter { it !in declaredFields && it in dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.fieldNames }
+                    } else {
+                        emptyList()
+                    }
+                    val ci = ciRejections.takeIf { toolName.githubOperationFamily() == "github_ci" }.orEmpty()
+                        .filter { it.fields.isNotEmpty() && it.fields.all(declaredFields::contains) }
+                    if (ci.isNotEmpty()) put("semantic_ci_rules", JsonArray(ci.map { it.rule.name }.distinct().sorted().map(::JsonPrimitive)))
+                    val fields = (unknownFields + readRules.flatMap { it.fields.asList() } + ci.flatMap { it.fields }).distinct().sorted()
+                    if (fields.isNotEmpty()) put("validation_field_names", JsonArray(fields.take(12).map(::JsonPrimitive)))
                 }
             )
         )
+        return searchValidationOwner?.capture(rejected, toolName, arguments, schema) ?: rejected
     }
 
     /** Typed cause and constraint classes; no argument values enter public diagnostic fields. */
@@ -172,9 +187,29 @@ internal object ToolArgumentValidator {
 
     private fun discoveryCorrection(toolName: String, arguments: JsonObject, schema: JsonObject): JsonObject? {
         val operation = toolName.githubOperationFamily()
-        if (operation == "github_search" && "per_page" in arguments && arguments.keys.none { it in setOf("view_cursor", "index_cursor", "search_id") }) {
-            val proposal = JsonObject(arguments - "per_page")
-            return proposal.takeIf { errors(it, schema).isEmpty() }
+        if (operation == "github_search" &&
+            arguments.keys.none { it in setOf("view_cursor", "index_cursor", "search_id") } &&
+            (integer(arguments["page"]) ?: 1) == 1
+        ) {
+            val declared = schema["properties"] as? JsonObject
+            val properties = declared?.get("max_new_blobs") as? JsonObject
+            val requested = integer(arguments["max_new_blobs"])
+            val minimum = integer(properties?.get("minimum"))
+            val maximum = integer(properties?.get("maximum"))
+            val corrected = arguments.toMutableMap()
+            if (declared?.containsKey("per_page") == false) corrected.remove("per_page")
+            if (requested != null && minimum != null && maximum != null && minimum <= maximum) {
+                corrected["max_new_blobs"] = JsonPrimitive(requested.coerceIn(minimum, maximum))
+            }
+            val proposal = JsonObject(corrected)
+            return proposal.takeIf {
+                it != arguments &&
+                    errors(it, schema).isEmpty() &&
+                    dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors(operation, it).isEmpty()
+            }
+        }
+        boundedReadCorrection(operation, arguments)?.let { proposal ->
+            if (errors(proposal, schema).isEmpty() && dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors(operation, proposal).isEmpty()) return proposal
         }
         if (operation !in setOf("github_pr", "github_issue") || "view_cursor" in arguments) return null
         val issue = operation == "github_issue"
@@ -204,6 +239,40 @@ internal object ToolArgumentValidator {
         }
         return proposal.takeIf { errors(it, schema).isEmpty() }
     }
+
+    private fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
+        if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
+        return when (operation to arguments["action"]) {
+            "github_ci" to JsonPrimitive("runs") -> {
+                val conclusion = arguments["conclusion"]?.takeIf { it == JsonPrimitive("failure") } ?: return null
+                if (arguments["status"] !in setOf(null, JsonPrimitive("completed"), conclusion)) return null
+                JsonObject(arguments - "conclusion" + ("status" to conclusion))
+            }
+            "github_ci" to JsonPrimitive("logs") -> {
+                val start = if ("start_line" in arguments) integer(arguments["start_line"]) ?: return null else 1
+                val end = integer(arguments["end_line"]) ?: return null
+                if (start < 1 || end.toLong() - start < 2000) return null
+                JsonObject(arguments + ("end_line" to JsonPrimitive(start + 1999)))
+            }
+            "github_read" to JsonPrimitive("ranges") -> {
+                val ranges = arguments["ranges"] as? JsonArray ?: return null
+                val corrected = ranges.map { value ->
+                    val range = value as? JsonObject ?: return null
+                    if (range["end_line"] == JsonPrimitive(-1) && integer(range["max_lines"])?.let { it in 1..2000 } == true) {
+                        JsonObject(range - "end_line")
+                    } else {
+                        range
+                    }
+                }
+                val correctedRanges = JsonArray(corrected)
+                if (correctedRanges == ranges) return null
+                JsonObject(arguments + ("ranges" to correctedRanges))
+            }
+            else -> null
+        }
+    }
+
+    private fun integer(value: JsonElement?): Int? = (value as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
 
     private data class SelectorProblem(val field: String, val missing: Boolean, val reason: String, val source: String)
 

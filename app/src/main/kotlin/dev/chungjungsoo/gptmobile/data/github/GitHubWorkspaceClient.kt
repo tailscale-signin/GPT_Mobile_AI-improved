@@ -2697,8 +2697,7 @@ class GitHubWorkspaceClient(
                         response.headers["X-Accepted-GitHub-Permissions"]?.takeIf { it.isNotBlank() }?.let { add("acceptedGitHubPermissions=$it") }
                         response.headers["X-GitHub-SSO"]?.takeIf { it.isNotBlank() }?.let { add("sso=$it") }
                     }.joinToString(" · ")
-                    throw GitHubRequestRejected(
-                        response.status.value,
+                    throw GitHubRequestRejected.observedResponse(
                         "$category · GitHub HTTP ${response.status.value}" +
                             (if (details.isBlank()) ". " else " · $details. ") +
                             (
@@ -2724,7 +2723,11 @@ class GitHubWorkspaceClient(
                             )
                         } else {
                             GitHubRateLimitResponseEvidence.fromResponse(response.status.value, category, response.headers, responseObservedAtMillis)
-                        }
+                        },
+                        path = path,
+                        method = method,
+                        expectedUrl = "${apiOrigins.rest}$path",
+                        response = response
                     )
                 }
                 val parsed = if (text.isBlank()) JsonObject(emptyMap()) else json.parseToJsonElement(text)

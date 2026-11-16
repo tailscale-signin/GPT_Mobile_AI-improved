@@ -93,6 +93,50 @@ class GatewayGraphRepositoryTest {
         }
     }
 
+    @Test fun interruptedReadOnlyGraphStatusRetriesOnceWithoutIndexing() = runTest {
+        var statusReads = 0
+        var indexWrites = 0
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(ready, HttpStatusCode.OK, headers)
+                } else {
+                    val body = Json.parseToJsonElement((request.body as TextContent).text).jsonObject
+                    if (body["action"] == JsonPrimitive("index")) indexWrites++
+                    statusReads++
+                    if (statusReads == 1) throw IOException("temporary lost status reply")
+                    respond(notIndexed, HttpStatusCode.OK, headers)
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val result = repository(http).executeForMap(context, action("status"), host.uid)
+            assertEquals(JsonPrimitive("NOT_INDEXED"), result.result["status"])
+            assertEquals(2, statusReads)
+            assertEquals(0, indexWrites)
+            assertFalse(result.indexOutcomeUnknown)
+        }
+    }
+
+    @Test fun graphStatusTransportRetryRevalidatesSelectedAccountBeforeNewRead() = runTest {
+        var statusReads = 0
+        HttpClient(
+            MockEngine { request ->
+                if (request.url.encodedPath.endsWith("capabilities")) {
+                    respond(ready, HttpStatusCode.OK, headers)
+                } else {
+                    statusReads++
+                    profiles = listOf(host)
+                    throw IOException("temporary status interruption")
+                }
+            }
+        ) { install(HttpTimeout) }.use { http ->
+            val result = runCatching { repository(http).executeForMap(context, action("status"), host.uid) }
+            assertTrue(result.isFailure)
+            // Current profile ownership was revoked before the proposed retry.
+            assertEquals(1, statusReads)
+        }
+    }
+
     @Test fun lostBackgroundAcknowledgementReconcilesTheExactQueuedRequestWithoutReplaying() = runTest {
         var saved = notIndexed
         var writes = 0

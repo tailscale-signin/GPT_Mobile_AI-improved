@@ -9,36 +9,36 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "684477ac86a6158ad7b068f270c2cd0ab74ffc130b0b8cb66247e810dc360315"
-    val fileCount: Int = 2639
-    val lineCount: Int = 426466
+    val sourceDigest: String = "9b40f2a54a8bf689bf4ef0102a0f2aa68b454125ede7e01558ddd1cde33d9230"
+    val fileCount: Int = 2657
+    val lineCount: Int = 430700
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
-        AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8623),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 553, 96340),
-        AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 198, 9234),
-        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 231, 39133),
-        AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 22236),
+        AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8632),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 553, 96959),
+        AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 198, 9242),
+        AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 39741),
+        AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 22306),
         AppAuditSourceArea("mcp_plugins", "MCP connections and tool catalogues", 31, 4675),
         AppAuditSourceArea("marketplace_plugins", "Plugin marketplace", 13, 1732),
-        AppAuditSourceArea("model_providers", "Model providers and adapters", 63, 9207),
+        AppAuditSourceArea("model_providers", "Model providers and adapters", 63, 9220),
         AppAuditSourceArea("models_and_profiles", "Model profiles and settings", 40, 3972),
         AppAuditSourceArea("local_inference", "Local inference and admission", 111, 14855),
-        AppAuditSourceArea("gateway_client", "Android gateway client", 35, 5702),
-        AppAuditSourceArea("network", "Networking and readiness", 99, 9838),
-        AppAuditSourceArea("github", "GitHub and engineering workspace", 235, 38874),
+        AppAuditSourceArea("gateway_client", "Android gateway client", 35, 5836),
+        AppAuditSourceArea("network", "Networking and readiness", 99, 9850),
+        AppAuditSourceArea("github", "GitHub and engineering workspace", 237, 39256),
         AppAuditSourceArea("research", "Research and source acquisition", 113, 13979),
         AppAuditSourceArea("memory_and_rag", "Memory, retrieval and indexing", 44, 4932),
-        AppAuditSourceArea("persistence", "Databases, backup and storage", 110, 14698),
-        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 93, 13226),
-        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 118, 17609),
+        AppAuditSourceArea("persistence", "Databases, backup and storage", 110, 14700),
+        AppAuditSourceArea("diagnostics_and_export", "Diagnostics, statistics and sharing", 93, 13449),
+        AppAuditSourceArea("benchmark", "Benchmarks and app audit", 118, 17613),
         AppAuditSourceArea("auth_and_security", "Permissions, privacy and credentials", 20, 1953),
-        AppAuditSourceArea("voice_and_media", "Voice and media", 30, 5929),
+        AppAuditSourceArea("voice_and_media", "Voice and media", 30, 6072),
         AppAuditSourceArea("portable_domain", "Portable domain contracts", 2, 68),
         AppAuditSourceArea("native_bridge", "Native runtime bridge and policies", 39, 4075),
-        AppAuditSourceArea("gateway_software", "Companion gateway software", 154, 73873),
-        AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2442),
-        AppAuditSourceArea("external_integrations", "External integration servers", 62, 6422),
+        AppAuditSourceArea("gateway_software", "Companion gateway software", 166, 75692),
+        AppAuditSourceArea("authentication_service", "Authentication broker software", 9, 2543),
+        AppAuditSourceArea("external_integrations", "External integration servers", 63, 6509),
         AppAuditSourceArea("other_production", "Additional production source", 62, 2839)
     )
 }

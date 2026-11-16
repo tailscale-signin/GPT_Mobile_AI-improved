@@ -71,6 +71,35 @@ class GatewayEngineeringRepository @Inject constructor(
         check(!store.hasMigratedAdmission(chatId, profileUid)) { "A saved gateway submission from the earlier app still needs receipt reconciliation. Reconnect to its original job before sending another turn." }
     }
 
+    suspend fun checkpoints(requestId: String): GatewayEngineeringCheckpoints {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val config = config(binding)
+        check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
+        val job = requireNotNull(binding.job)
+        return client.checkpoints(config, job.id).also { check(it.jobId == job.id) }
+    }
+
+    suspend fun candidateDetails(requestId: String, checkId: String): String {
+        val binding = bindings().single { it.request.requestId == requestId }
+        val config = config(binding)
+        check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
+        return client.candidateDetails(config, requireNotNull(binding.job).id, checkId)
+    }
+
+    suspend fun restoreCandidate(requestId: String, expected: GatewayEngineeringJob, checkId: String) = synchronization.withLock {
+        val binding = bindings().single { it.request.requestId == requestId }
+        check(binding.job?.id == expected.id && binding.job?.revision == expected.revision) { "Refresh the job before restoring." }
+        val config = config(binding)
+        check(binding.principalId == client.principal(config, requireReady = false)) { "The gateway account changed." }
+        val identity = history.identity(config)
+        check(identity.principalId == binding.principalId && identity.gatewayId == binding.gatewayId) { "The original gateway changed." }
+        check(config(binding) == config) { "The gateway credentials changed." }
+        val result = client.restoreCandidate(config.withGatewayIdentity(identity), expected, checkId)
+        check(result.id == expected.id && result.revision > expected.revision)
+        save(binding.copy(job = result))
+        lastPoll.remove(requestId)
+    }
+
     suspend fun evidence(requestId: String, receiptId: String): String {
         val binding = bindings().single { it.request.requestId == requestId }
         val config = config(binding)
@@ -496,21 +525,36 @@ class GatewayEngineeringRepository @Inject constructor(
     suspend fun syncAll(): Boolean {
         var success = true
         val candidates = bindings().filter { store.admissionState(it.request.requestId)?.startsWith("REJECTED:") != true && (it.job == null || it.job.terminal != true || it.syncedRevision < it.job.revision || conversations.needsEngineeringRefresh(it)) }
-        for (binding in candidates.sortedBy { lastPoll[it.request.requestId] ?: Long.MIN_VALUE }.take(16)) {
+        // The same unavailable gateway must not monopolize the 16-job observer
+        // window: failures need an attempted-at timestamp too. The mutex
+        // protects the in-memory scheduling map, never remote execution.
+        val selected = synchronization.withLock {
+            GatewayObserverPolling.select(candidates.map { it.request.requestId }, lastPoll)
+        }
+        for (requestId in selected) {
             try {
-                observe(binding.request.requestId)
+                observe(requestId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 success = false
+            } finally {
+                withContext(NonCancellable) {
+                    synchronization.withLock {
+                        GatewayObserverPolling.record(lastPoll, requestId, System.nanoTime() / 1_000_000)
+                    }
+                }
             }
         }
         return success
     }
 
     suspend fun refreshChat(chatId: Int) {
-        for (binding in bindings(chatId)) observe(binding.request.requestId)
+        val failure = GatewayObserverPolling.observeAll(bindings(chatId).map { it.request.requestId }) { observe(it) }
         conversations.refreshChat(chatId)
+        // Refresh the available transcript before reporting a saved job's failure.
+        // Observation never creates or resumes that job.
+        failure?.let { throw it }
     }
 
     /** This method is invoked by explicit UI buttons; it is never registered as an AI tool. */
@@ -541,5 +585,30 @@ class GatewayEngineeringRepository @Inject constructor(
     companion object {
         const val OBSERVER_WORK_NAME = "gateway-engineering-sync"
         const val OBSERVER_GENERATION_KEY = "observer_generation"
+    }
+}
+
+// Scheduling only: this does not create, resume or approve a gateway job.
+internal object GatewayObserverPolling {
+    suspend fun observeAll(ids: List<String>, observe: suspend (String) -> Unit): Exception? {
+        var firstFailure: Exception? = null
+        for (id in ids) {
+            try {
+                observe(id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                if (firstFailure == null) firstFailure = failure
+            }
+        }
+        return firstFailure
+    }
+
+    fun select(ids: List<String>, lastAttempt: Map<String, Long>, limit: Int = 16): List<String> =
+        ids.sortedWith(compareBy<String> { lastAttempt[it] ?: Long.MIN_VALUE }.thenBy { it })
+            .take(limit.coerceAtLeast(0))
+
+    fun record(lastAttempt: MutableMap<String, Long>, id: String, observedAtMs: Long) {
+        lastAttempt[id] = maxOf(lastAttempt[id] ?: Long.MIN_VALUE, observedAtMs)
     }
 }

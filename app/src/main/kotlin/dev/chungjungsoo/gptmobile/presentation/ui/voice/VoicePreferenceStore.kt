@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.voice.KokoroVoice
+import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
+import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePreferenceWriter
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
 import javax.inject.Inject
@@ -37,7 +39,9 @@ internal class VoicePreferenceStore internal constructor(private val open: () ->
                     .putBoolean("automatic", value.automatic).putFloat("rate", value.rate)
                     .putString("voice", value.voice).putString("recognition_backend", value.recognitionBackend.name)
                     .putString("kokoro_voice", value.kokoroVoice?.name).putBoolean("spoken_replies", value.spokenReplies)
-                    .putInt("kokoro_threads", value.kokoroThreads).putBoolean("button_sounds", value.buttonSounds).commit()
+                    .putInt("kokoro_threads", value.kokoroThreads).putBoolean("button_sounds", value.buttonSounds)
+                    .putString("pause_duration", value.pause.name).putString("performance_mode", value.performance.name)
+                    .putBoolean("speak_while_generating", value.speakWhileGenerating).commit()
             )
             error.value = null
         } catch (cancelled: CancellationException) {
@@ -82,6 +86,9 @@ internal fun readVoicePreferences(saved: Map<String, *>): VoicePreferences {
         kokoroVoice = KokoroVoice.fromSaved(saved["kokoro_voice"] as? String),
         spokenReplies = saved["spoken_replies"] as? Boolean ?: defaults.spokenReplies,
         kokoroThreads = (saved["kokoro_threads"] as? Int)?.coerceIn(2, 4) ?: defaults.kokoroThreads,
-        buttonSounds = saved["button_sounds"] as? Boolean ?: defaults.buttonSounds
+        buttonSounds = saved["button_sounds"] as? Boolean ?: defaults.buttonSounds,
+        pause = VoicePauseDuration.entries.firstOrNull { it.name == saved["pause_duration"] } ?: defaults.pause,
+        performance = VoicePerformanceMode.entries.firstOrNull { it.name == saved["performance_mode"] } ?: defaults.performance,
+        speakWhileGenerating = saved["speak_while_generating"] as? Boolean ?: defaults.speakWhileGenerating
     )
 }

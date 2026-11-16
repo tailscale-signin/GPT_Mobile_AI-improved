@@ -23,6 +23,7 @@ class MeasuredAgentTool(
     ApprovedReadOnlyAgentTool {
     override fun withChildBudget(bind: (AgentTool) -> AgentTool): AgentTool = MeasuredAgentTool(delegate.withChildBudget(bind), nanoTime, onMeasured, approvedReadOnly)
     override val definition = delegate.definition
+    override val searchValidationOwner get() = delegate.searchValidationOwner
     override val managesExecutionBudget = delegate.managesExecutionBudget
     override val coordinatesChildWork = delegate.coordinatesChildWork
     override val executionOwner: AgentToolExecutionOwner =

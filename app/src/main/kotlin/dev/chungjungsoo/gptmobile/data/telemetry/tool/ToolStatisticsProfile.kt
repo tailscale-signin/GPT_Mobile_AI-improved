@@ -19,6 +19,7 @@ fun AgentTool.forStatisticsProfile(uid: String): AgentTool {
     val delegate = this
     return object : PreparableAgentTool, OwnedAgentTool {
         override val definition = delegate.definition
+        override val searchValidationOwner get() = delegate.searchValidationOwner
         override val managesExecutionBudget = delegate.managesExecutionBudget
         override val coordinatesChildWork = delegate.coordinatesChildWork
         override val executionOwner = (delegate as? OwnedAgentTool)?.executionOwner ?: AgentToolExecutionOwner.CLIENT

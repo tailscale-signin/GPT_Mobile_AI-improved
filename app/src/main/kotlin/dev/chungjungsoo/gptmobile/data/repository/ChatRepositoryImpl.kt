@@ -2548,7 +2548,7 @@ class ChatRepositoryImpl(
                         emitAll(
                             streamPrimaryAnswer(
                                 platform, requestPlatform, latestUser, runId, turnKey, chatToolConfig, contextPlan,
-                                budgetSettings, limits, customRunner, delegationSettings, effectiveTools, exposedTools,
+                                budgetSettings, limits, admission.capacityDecision, customRunner, delegationSettings, effectiveTools, exposedTools,
                                 resolvedTools, taskRoutedTools, delegatedTools, trace, traceSequences, recalled, documentContext,
                                 localResearch, processingOwnership, reservedFinalToolCalls, followUps,
                                 remainingToolCalls = toolBudget::remainingCalls,
@@ -4769,6 +4769,7 @@ class ChatRepositoryImpl(
         chatToolConfig: ChatMcpToolConfig?,
         contextPlan: dev.chungjungsoo.gptmobile.data.context.ContextPlan,
         limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
+        capacityDecision: dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.PrimaryContextDecision,
         effectiveTools: List<ResolvedAgentTool>,
         exposedTools: List<ResolvedAgentTool>,
         localResearch: Boolean,
@@ -4801,7 +4802,8 @@ class ChatRepositoryImpl(
         val requestedCap = if (writerPlan != null) routeOutputCap else dev.chungjungsoo.gptmobile.data.agent.responseOutputAllowance(limits.copy(outputTokens = requestedOutputTokens ?: limits.outputTokens), routeOutputCap)
         val toolContext = if (chatToolConfig?.github != null || exposedTools.isNotEmpty()) {
             dev.chungjungsoo.gptmobile.data.context.ReplayAllowance.allocate(limits.contextTokens, contextPlan.promptTokens, requestedCap, 4096).also {
-                dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.requireAllocation(it, limits.contextTokens, requestedCap ?: 4096)
+                val observation = dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.Observation.capture(platform.uid, platform.model, platform.maxTokens, capacityDecision, limits.contextTokens)
+                dev.chungjungsoo.gptmobile.data.context.ToolEvidenceContextBudgetException.requireAllocation(it, limits.contextTokens, requestedCap ?: 4096, observation)
             }
         } else {
             null
@@ -4873,6 +4875,7 @@ class ChatRepositoryImpl(
 
     /** Allocate execution limits and persisted ownership outside the large response-stream state machine. */
     private suspend fun streamPrimaryAnswerRunner(
+        runId: String,
         platform: PlatformV2,
         latestUser: MessageV2?,
         chatToolConfig: ChatMcpToolConfig?,
@@ -4965,7 +4968,8 @@ class ChatRepositoryImpl(
                 }
                 outputContinuation?.restoreToolResults(exchanges)
             },
-            remainingTaskMillis = verifiedEvidence?.let { it::remainingTaskMillis }
+            remainingTaskMillis = verifiedEvidence?.let { it::remainingTaskMillis },
+            diagnosticRunId = dev.chungjungsoo.gptmobile.data.agent.ToolRepeatAdmissionHistory.runIdWithoutPriorEvents(runId, agentPersistenceDao::rawMaxToolEventSequence)
         )
     }
 
@@ -5072,6 +5076,7 @@ class ChatRepositoryImpl(
         contextPlan: dev.chungjungsoo.gptmobile.data.context.ContextPlan,
         budgetSettings: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
         limits: dev.chungjungsoo.gptmobile.data.context.TokenBudgetSettings,
+        capacityDecision: dev.chungjungsoo.gptmobile.data.agent.provider.ProviderRouteCapacity.PrimaryContextDecision,
         customRunner: dev.chungjungsoo.gptmobile.data.agent.AgentRunner,
         delegationSettings: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings,
         effectiveTools: List<ResolvedAgentTool>,
@@ -5104,7 +5109,7 @@ class ChatRepositoryImpl(
         validateSavedEvidence: suspend () -> Boolean = { true }
     ): Flow<ApiState> = channelFlow {
         val admission = streamPrimaryAnswerAdmission(
-            platform, latestUser, runId, chatToolConfig, contextPlan, limits, authorizedEvidenceTools, exposedTools,
+            platform, latestUser, runId, chatToolConfig, contextPlan, limits, capacityDecision, authorizedEvidenceTools, exposedTools,
             localResearch, processingOwnership, toolBudgetSourceMessageId, acceptanceRequest, restoreGatewayHandoffRequested
         )
         val dispatchAuthority = admission.dispatchAuthority
@@ -5237,8 +5242,9 @@ class ChatRepositoryImpl(
                 override val hasPreparedSearchEvidence: Boolean = preparedSearch
                 override fun streamRound(tools: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolDefinition>, exchanges: List<dev.chungjungsoo.gptmobile.data.agent.AgentToolExchange>): Flow<ProviderEvent> =
                     raw.streamRound(tools, exchanges).map { event ->
-                        if (chatToolConfig?.github != null && platform.compatibleType == ClientType.LLAMA) {
-                            kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.receipts?.lastOrNull()?.contextTokens?.takeIf { it > 0 }?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()?.let { capacity ->
+                        if (chatToolConfig?.github != null && kind in setOf("primary", "github-output-continuation", "github-task-resume", "github-execution-continuation")) {
+                            val observed = kotlinx.coroutines.currentCoroutineContext()[dev.chungjungsoo.gptmobile.data.context.RequestDispatchContext]?.receipts?.lastOrNull()?.contextTokens
+                            dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.observedContext(observed, event as? ProviderEvent.Failed)?.let { capacity ->
                                 observedRequestContext.updateAndGet { previous -> minOf(previous ?: Int.MAX_VALUE, capacity) }
                             }
                         }
@@ -5890,14 +5896,18 @@ class ChatRepositoryImpl(
                     }
                 ) { draft, exchanges, tools ->
                     val selected = catalog?.selected(tools) ?: tools
+                    val capacity = minOf(limits.contextTokens, observedRequestContext.get() ?: 32_768)
+                    val allowance = dev.chungjungsoo.gptmobile.data.github.GitHubStageBudget.resolve(capacity, resolvedOutputCap, "github-output-continuation")
+                    require(allowance.output > 0) { "CONTINUATION_CONTEXT_CAPACITY: No output allowance remains." }
                     val continuation = dev.chungjungsoo.gptmobile.data.agent.planResponseContinuation(
                         contextPlan.turns,
                         requestPlatform.systemPrompt.orEmpty(),
-                        limits.copy(outputTokens = resolvedOutputCap),
+                        limits.copy(contextTokens = capacity, outputTokens = allowance.output),
                         draft,
-                        "Continue the saved GitHub draft from its stopping point. Do not repeat text or completed operations. If repository work is unfinished, use the authorized tools and retained receipts; a finished model response does not establish task completion.",
+                        "Finish the next outstanding GitHub requirement using the accepted task and retained receipts. Prefer a short conclusion with receipt references. If a tool is still required, request that tool directly. Never repeat completed operations or claim unverified completion.",
                         exchanges,
-                        advertisedTools = selected
+                        advertisedTools = selected,
+                        fitProviderBudget = true
                     )
                     val reopened = openPrimarySession(continuation.turns, "github-output-continuation", textOnly = selected.isEmpty(), passOutputTokens = continuation.outputTokens, continuationPrefixDigest = dev.chungjungsoo.gptmobile.data.research.researchHash(draft))
                     catalog?.let { reopened.withToolCatalog(it) } ?: reopened
@@ -6124,7 +6134,7 @@ class ChatRepositoryImpl(
         recordPrimaryToolCatalog(catalog, runnerTools, executableTools)
 
         val runner = streamPrimaryAnswerRunner(
-            platform, latestUser, chatToolConfig, contextPlan, limits, budgetSettings, customRunner,
+            runId, platform, latestUser, chatToolConfig, contextPlan, limits, budgetSettings, customRunner,
             delegationSettings, effectiveTools, githubEffectiveTask, resolvedOutputCap, admission.toolContext, reservedFinalToolCalls,
             toolBudgetSourceMessageId, dispatchAuthority, catalog, retryUndispatchedBudgetFailures,
             resumeToolBudget, toolCallsAlreadyUsed, reviewEvidence, verifiedEvidence,

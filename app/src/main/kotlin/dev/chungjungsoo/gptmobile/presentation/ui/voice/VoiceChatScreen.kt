@@ -82,6 +82,8 @@ import dev.chungjungsoo.gptmobile.data.voice.MoonshineVoiceRecognizer
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageIdentity
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessagePlayback
 import dev.chungjungsoo.gptmobile.data.voice.VoiceMessageReply
+import dev.chungjungsoo.gptmobile.data.voice.VoicePauseDuration
+import dev.chungjungsoo.gptmobile.data.voice.VoicePerformanceMode
 import dev.chungjungsoo.gptmobile.data.voice.VoicePhase
 import dev.chungjungsoo.gptmobile.data.voice.VoicePluginAudio
 import dev.chungjungsoo.gptmobile.data.voice.VoiceRecognitionBackend
@@ -268,7 +270,10 @@ private fun VoiceChatSessionScreen(
         createKokoroVoiceOutput(context.applicationContext, stores.kokoro, systemAudio::playbackAttributes) { systemAudio.speechRate }
     }
     val audio = remember(systemAudio, localRecognition, kokoroOutput) {
-        VoicePluginAudio(systemAudio, localRecognition, kokoroOutput, systemAudio::speakOffline, systemAudio::releaseRecognition).apply { requireLocalOutput = true }
+        // The fallback is AndroidVoiceAudio.speakOffline, which accepts installed
+        // on-device voices only. Kokoro keeps priority and already-started
+        // speech is never replayed through the alternate engine.
+        VoicePluginAudio(systemAudio, localRecognition, kokoroOutput, systemAudio::speakOffline, systemAudio::releaseRecognition)
     }
     val localModel by stores.moonshine.state.collectAsStateWithLifecycle()
     val kokoroModel by stores.kokoro.state.collectAsStateWithLifecycle()
@@ -313,7 +318,10 @@ private fun VoiceChatSessionScreen(
     val feedback = remember(context) { VoiceButtonFeedback(context.applicationContext) }
     DisposableEffect(feedback) { onDispose { feedback.close() } }
     SideEffect { localRecognition.onManualCaptureReady = if (buttonSounds) feedback::start else null }
-    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1f) }
+    var rate by rememberSaveable { androidx.compose.runtime.mutableFloatStateOf(1.25f) }
+    var pause by rememberSaveable { mutableStateOf(VoicePauseDuration.SHORT) }
+    var performance by rememberSaveable { mutableStateOf(VoicePerformanceMode.BALANCED) }
+    var speakWhileGenerating by rememberSaveable { mutableStateOf(true) }
     var preferencesInitialized by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(model, loaded, roomReady, selectedProfile, lifecycleState, settingsOpen) {
         profilePreflightReady = false
@@ -347,6 +355,9 @@ private fun VoiceChatSessionScreen(
                 spokenReplies = saved.spokenReplies
                 buttonSounds = saved.buttonSounds
                 rate = saved.rate
+                pause = saved.pause
+                performance = saved.performance
+                speakWhileGenerating = saved.speakWhileGenerating
                 kokoroVoice = saved.kokoroVoice ?: KokoroVoice.HEART
                 kokoroThreads = saved.kokoroThreads
                 preferencesInitialized = true
@@ -355,6 +366,9 @@ private fun VoiceChatSessionScreen(
             localRecognition.languageTag = language
             audio.kokoroVoice = kokoroVoice
             kokoroOutput?.configureThreads(kokoroThreads)
+            kokoroOutput?.configurePacing(pause, performance)
+            session.performanceMode = performance
+            session.speakWhileGenerating = speakWhileGenerating
             if (session.states.value.speaker != spokenReplies) session.speaker()
             // Configure before permitting the first listen, including after restoring the screen.
             systemAudio.languageTag = language
@@ -384,6 +398,9 @@ private fun VoiceChatSessionScreen(
         systemAudio.speechRate = rate
         audio.kokoroVoice = kokoroVoice
         kokoroOutput?.configureThreads(kokoroThreads)
+        kokoroOutput?.configurePacing(pause, performance)
+        session.performanceMode = performance
+        session.speakWhileGenerating = speakWhileGenerating
         session.editBeforeSend = editBeforeSend
         session.autoContinue = listeningEnabled && !playback.hasPending
     }
@@ -446,7 +463,7 @@ private fun VoiceChatSessionScreen(
         }
     }
     fun savePreferences() {
-        voiceSettings.save(VoicePreferences(language = language, captions = captions, review = editBeforeSend, rate = rate, kokoroVoice = kokoroVoice, spokenReplies = spokenReplies, kokoroThreads = kokoroThreads, buttonSounds = buttonSounds))
+        voiceSettings.save(VoicePreferences(language = language, captions = captions, review = editBeforeSend, rate = rate, kokoroVoice = kokoroVoice, spokenReplies = spokenReplies, kokoroThreads = kokoroThreads, buttonSounds = buttonSounds, pause = pause, performance = performance, speakWhileGenerating = speakWhileGenerating))
     }
     fun setSpokenReplies(value: Boolean) {
         spokenReplies = value
@@ -692,194 +709,250 @@ private fun VoiceChatSessionScreen(
             pauseCapture = { latestPauseCapture.value() }
         )
     }
-    if (settingsOpen) {
-        VoiceSettingsScreen(
-            state = VoiceSettingsUiState(
-                profiles = profiles,
-                activeProfiles = activeProfiles,
-                session = state,
-                saveError = saveError,
-                localModel = localModel,
-                language = language,
-                kokoroVoice = kokoroVoice,
-                editBeforeSend = editBeforeSend,
-                captions = captions,
-                spokenReplies = spokenReplies,
-                buttonSounds = buttonSounds,
-                kokoroModel = kokoroModel,
-                kokoroThreads = kokoroThreads,
-                rate = rate
-            ),
-            actions = VoiceSettingsActions(
-                done = ::closeSettings,
-                selectProfile = { uid ->
-                    session.pause()
-                    model.selectVoiceProfile(uid) { changed -> if (changed) closeSettings() }
-                },
-                installLocalModel = voiceSettings::installLocalModel,
-                cancelLocalModelInstall = voiceSettings::cancelLocalModelInstall,
-                removeLocalModel = {
-                    session.pause()
-                    voiceSettings.removeLocalModel()
-                },
-                changeLanguage = {
-                    session.recognitionConfigurationChanged()
-                    language = it.take(35)
-                    savePreferences()
-                },
-                changeReview = {
-                    editBeforeSend = it
-                    savePreferences()
-                },
-                changeCaptions = {
-                    captions = it
-                    savePreferences()
-                },
-                changeSpokenReplies = ::setSpokenReplies,
-                changeButtonSounds = {
-                    buttonSounds = it
-                    savePreferences()
-                },
-                selectKokoroVoice = {
-                    kokoroVoice = it
-                    audio.kokoroVoice = it
-                    savePreferences()
-                },
-                selectKokoroThreads = {
-                    audio.stop()
-                    kokoroThreads = it
-                    kokoroOutput?.configureThreads(it)
-                    savePreferences()
-                },
-                installKokoroModel = voiceSettings::installKokoroModel,
-                cancelKokoroInstall = voiceSettings::cancelKokoroInstall,
-                removeKokoroModel = {
-                    audio.stop()
-                    kokoroOutput?.releaseWarmModel()
-                    voiceSettings.removeKokoroModel()
-                },
-                previewKokoro = { selected, report ->
-                    audio.stop()
-                    if (kokoroOutput == null) {
-                        report("Kokoro playback is unavailable on this device.")
-                    } else {
-                        report(null)
-                        playKokoroPreview(kokoroOutput, selected) { message, _ -> report(message) }
+    VoiceChatSessionPresentation(
+        settingsOpen = settingsOpen,
+        chatView = chatView,
+        routeOpen = routeOpen,
+        settings = {
+            VoiceSettingsScreen(
+                state = VoiceSettingsUiState(
+                    profiles = profiles,
+                    activeProfiles = activeProfiles,
+                    session = state,
+                    saveError = saveError,
+                    localModel = localModel,
+                    language = language,
+                    kokoroVoice = kokoroVoice,
+                    editBeforeSend = editBeforeSend,
+                    captions = captions,
+                    spokenReplies = spokenReplies,
+                    buttonSounds = buttonSounds,
+                    kokoroModel = kokoroModel,
+                    kokoroThreads = kokoroThreads,
+                    rate = rate,
+                    pause = pause,
+                    performance = performance,
+                    speakWhileGenerating = speakWhileGenerating
+                ),
+                actions = VoiceSettingsActions(
+                    done = ::closeSettings,
+                    selectProfile = { uid ->
+                        session.pause()
+                        model.selectVoiceProfile(uid) { changed -> if (changed) closeSettings() }
+                    },
+                    installLocalModel = voiceSettings::installLocalModel,
+                    cancelLocalModelInstall = voiceSettings::cancelLocalModelInstall,
+                    removeLocalModel = {
+                        session.pause()
+                        voiceSettings.removeLocalModel()
+                    },
+                    changeLanguage = {
+                        session.recognitionConfigurationChanged()
+                        language = it.take(35)
+                        savePreferences()
+                    },
+                    changeReview = {
+                        editBeforeSend = it
+                        savePreferences()
+                    },
+                    changeCaptions = {
+                        captions = it
+                        savePreferences()
+                    },
+                    changeSpokenReplies = ::setSpokenReplies,
+                    changeButtonSounds = {
+                        buttonSounds = it
+                        savePreferences()
+                    },
+                    selectKokoroVoice = {
+                        kokoroVoice = it
+                        audio.kokoroVoice = it
+                        savePreferences()
+                    },
+                    selectKokoroThreads = {
+                        audio.stop()
+                        kokoroThreads = it
+                        kokoroOutput?.configureThreads(it)
+                        savePreferences()
+                    },
+                    installKokoroModel = voiceSettings::installKokoroModel,
+                    cancelKokoroInstall = voiceSettings::cancelKokoroInstall,
+                    removeKokoroModel = {
+                        audio.stop()
+                        kokoroOutput?.releaseWarmModel()
+                        voiceSettings.removeKokoroModel()
+                    },
+                    previewKokoro = { selected, report ->
+                        audio.stop()
+                        if (kokoroOutput == null) {
+                            report("Kokoro playback is unavailable on this device.")
+                        } else {
+                            report(null)
+                            playKokoroPreview(kokoroOutput, selected) { message, _ -> report(message) }
+                        }
+                    },
+                    changeRate = {
+                        rate = it
+                        savePreferences()
+                    },
+                    changePause = {
+                        pause = it
+                        savePreferences()
+                    },
+                    changePerformance = {
+                        performance = it
+                        savePreferences()
+                    },
+                    useConversationalFast = {
+                        rate = 1.25f
+                        pause = VoicePauseDuration.SHORT
+                        performance = VoicePerformanceMode.FAST
+                        speakWhileGenerating = true
+                        savePreferences()
+                    },
+                    changeSpeakWhileGenerating = {
+                        speakWhileGenerating = it
+                        savePreferences()
                     }
-                },
-                changeRate = {
-                    rate = it
-                    savePreferences()
-                }
+                )
             )
-        )
+        },
+        transcript = {
+            VoiceTranscriptScreen(
+                model = model,
+                profileName = profileName,
+                status = status,
+                controls = messageControls,
+                spokenReplies = spokenReplies,
+                changeSpokenReplies = ::setSpokenReplies,
+                showVoice = {
+                    chatView = false
+                    listeningEnabled = true
+                    listen()
+                },
+                microphone = ::toggleMicrophone,
+                audioRoute = {
+                    session.pause()
+                    routeOpen = true
+                },
+                settings = {
+                    session.pause()
+                    settingsOpen = true
+                },
+                end = ::leaveTranscript,
+                destinations = destinations,
+                bottomInteractionContent = bottomInteractionContent
+            )
+        },
+        conversation = {
+            VoiceConversationScreen(
+                state = VoiceConversationUiState(
+                    profileName = profileName,
+                    profiles = profiles.filter { it.enabled },
+                    selectedProfileId = selectedProfile?.uid,
+                    captions = captions,
+                    session = state,
+                    status = status,
+                    remaining = remaining,
+                    localModel = localModel,
+                    language = language,
+                    recognitionReady = recognitionReady,
+                    enabled = enabled,
+                    voiceReady = voiceReady,
+                    profileError = profilePreflightError,
+                    preferencesApplied = preferencesApplied,
+                    waitingApproval = waitingApproval,
+                    draft = draft,
+                    outputLevel = kokoroOutput?.outputLevel
+                ),
+                actions = VoiceConversationActions(
+                    selectProfile = { uid ->
+                        session.pause()
+                        model.selectVoiceProfile(uid) {}
+                    },
+                    openTranscript = ::openChat,
+                    openSettings = {
+                        val currentState = session.states.value
+                        val currentAdmission = model.voiceAdmission.value
+                        if (currentState.shouldCheckpointDraft(currentAdmission?.requestId, currentAdmission?.stage)) model.checkpointVoiceDraft(currentState.transcript)
+                        session.pause()
+                        settingsOpen = true
+                    },
+                    showSettings = { settingsOpen = true },
+                    installLocalModel = voiceSettings::installLocalModel,
+                    cancelLocalModelInstall = voiceSettings::cancelLocalModelInstall,
+                    changeDraft = {
+                        draft = it.take(8000)
+                        session.editDraft(draft)
+                    },
+                    sendDraft = { session.sendDraft(draft) },
+                    listen = { listen() },
+                    recordAgain = {
+                        session.discardDraft()
+                        listen()
+                    },
+                    repair = { action ->
+                        session.pause()
+                        if (action == VoiceRecoveryAction.LOCAL_MODEL) settingsOpen = true else openVoiceRepairSettings(context, action)
+                    },
+                    openVoiceConfiguration = {
+                        session.pause()
+                        settingsOpen = true
+                    },
+                    replay = { readResponse(VoiceMessageIdentity(retainedMessageId, retainedRunId, retainedRevision), state.reply) },
+                    openChat = ::openChat,
+                    toggleMicrophone = ::toggleMicrophone,
+                    toggleCaptions = {
+                        if (preferencesApplied) {
+                            captions = !captions
+                            savePreferences()
+                        }
+                    },
+                    openAudioRoute = {
+                        session.pause()
+                        if (buttonSounds) feedback.click()
+                        routeOpen = true
+                    },
+                    end = ::end
+                )
+            )
+        },
+        audioRoute = {
+            VoiceRouteDialog(
+                route = route,
+                routes = systemAudio.routes(),
+                speaker = state.speaker,
+                dismiss = { routeOpen = false },
+                selectRoute = { id ->
+                    if (systemAudio.selectRoute(id)) route = systemAudio.routeName()
+                    routeOpen = false
+                },
+                toggleSpokenReplies = { setSpokenReplies(!spokenReplies) }
+            )
+        }
+    )
+}
+
+@Composable
+private fun VoiceChatSessionPresentation(
+    settingsOpen: Boolean,
+    chatView: Boolean,
+    routeOpen: Boolean,
+    settings: @Composable () -> Unit,
+    transcript: @Composable () -> Unit,
+    conversation: @Composable () -> Unit,
+    audioRoute: @Composable () -> Unit
+) {
+    if (settingsOpen) {
+        settings()
         return
     }
     if (chatView) {
-        VoiceTranscriptScreen(
-            model = model,
-            profileName = profileName,
-            status = status,
-            controls = messageControls,
-            spokenReplies = spokenReplies,
-            changeSpokenReplies = ::setSpokenReplies,
-            showVoice = {
-                chatView = false
-                listeningEnabled = true
-                listen()
-            },
-            microphone = ::toggleMicrophone,
-            audioRoute = {
-                session.pause()
-                routeOpen = true
-            },
-            settings = {
-                session.pause()
-                settingsOpen = true
-            },
-            end = ::leaveTranscript,
-            destinations = destinations,
-            bottomInteractionContent = bottomInteractionContent
-        )
+        transcript()
     } else {
-        VoiceConversationScreen(
-            state = VoiceConversationUiState(
-                profileName = profileName,
-                profiles = profiles.filter { it.enabled },
-                selectedProfileId = selectedProfile?.uid,
-                captions = captions,
-                session = state,
-                status = status,
-                remaining = remaining,
-                localModel = localModel,
-                language = language,
-                recognitionReady = recognitionReady,
-                enabled = enabled,
-                voiceReady = voiceReady,
-                profileError = profilePreflightError,
-                preferencesApplied = preferencesApplied,
-                waitingApproval = waitingApproval,
-                draft = draft
-            ),
-            actions = VoiceConversationActions(
-                selectProfile = { uid ->
-                    session.pause()
-                    model.selectVoiceProfile(uid) {}
-                },
-                openTranscript = ::openChat,
-                openSettings = {
-                    val currentState = session.states.value
-                    val currentAdmission = model.voiceAdmission.value
-                    if (currentState.shouldCheckpointDraft(currentAdmission?.requestId, currentAdmission?.stage)) model.checkpointVoiceDraft(currentState.transcript)
-                    session.pause()
-                    settingsOpen = true
-                },
-                showSettings = { settingsOpen = true },
-                installLocalModel = voiceSettings::installLocalModel,
-                cancelLocalModelInstall = voiceSettings::cancelLocalModelInstall,
-                changeDraft = {
-                    draft = it.take(8000)
-                    session.editDraft(draft)
-                },
-                sendDraft = { session.sendDraft(draft) },
-                listen = { listen() },
-                recordAgain = {
-                    session.discardDraft()
-                    listen()
-                },
-                repair = { action ->
-                    session.pause()
-                    if (action == VoiceRecoveryAction.LOCAL_MODEL) settingsOpen = true else openVoiceRepairSettings(context, action)
-                },
-                openVoiceConfiguration = {
-                    session.pause()
-                    settingsOpen = true
-                },
-                replay = { readResponse(VoiceMessageIdentity(retainedMessageId, retainedRunId, retainedRevision), state.reply) },
-                openChat = ::openChat,
-                toggleMicrophone = ::toggleMicrophone,
-                openAudioRoute = {
-                    session.pause()
-                    if (buttonSounds) feedback.click()
-                    routeOpen = true
-                },
-                end = ::end
-            )
-        )
+        conversation()
     }
-    if (routeOpen) {
-        VoiceRouteDialog(
-            route = route,
-            routes = systemAudio.routes(),
-            speaker = state.speaker,
-            dismiss = { routeOpen = false },
-            selectRoute = { id ->
-                if (systemAudio.selectRoute(id)) route = systemAudio.routeName()
-                routeOpen = false
-            },
-            toggleSpokenReplies = { setSpokenReplies(!spokenReplies) }
-        )
-    }
+    if (routeOpen) audioRoute()
 }
 
 internal fun playKokoroPreview(output: KokoroOutput, voice: KokoroVoice, error: (String, Boolean) -> Unit) {
@@ -903,7 +976,10 @@ private data class VoiceSettingsUiState(
     val buttonSounds: Boolean,
     val kokoroModel: LocalVoiceModelState,
     val kokoroThreads: Int,
-    val rate: Float
+    val rate: Float,
+    val pause: VoicePauseDuration,
+    val performance: VoicePerformanceMode,
+    val speakWhileGenerating: Boolean
 )
 
 private class VoiceSettingsActions(
@@ -923,7 +999,11 @@ private class VoiceSettingsActions(
     val cancelKokoroInstall: () -> Unit,
     val removeKokoroModel: () -> Unit,
     val previewKokoro: (KokoroVoice, (String?) -> Unit) -> Unit,
-    val changeRate: (Float) -> Unit
+    val changeRate: (Float) -> Unit,
+    val changePause: (VoicePauseDuration) -> Unit,
+    val changePerformance: (VoicePerformanceMode) -> Unit,
+    val useConversationalFast: () -> Unit,
+    val changeSpeakWhileGenerating: (Boolean) -> Unit
 )
 
 @Composable
@@ -976,8 +1056,12 @@ private fun VoiceSettingsScreen(
             },
             preview = { selected -> actions.previewKokoro(selected) { previewError = it } }
         )
-        Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.1f", state.rate)}×")
+        Text("Speech rate · ${String.format(LocalLocale.current.platformLocale, "%.2f", state.rate)}×")
         Slider(state.rate, actions.changeRate, valueRange = .5f..2f)
+        VoiceChoice("Pause duration", state.pause.name, VoicePauseDuration.entries.map { it.name to it.label }, { actions.changePause(VoicePauseDuration.valueOf(it)) })
+        VoiceChoice("Performance mode", state.performance.name, VoicePerformanceMode.entries.map { it.name to it.label }, { actions.changePerformance(VoicePerformanceMode.valueOf(it)) })
+        VoiceSettingSwitch("Speak while the reply is generating", state.speakWhileGenerating, actions.changeSpeakWhileGenerating)
+        OutlinedButton(onClick = actions.useConversationalFast) { Text("Use Conversational Fast") }
     }
 }
 

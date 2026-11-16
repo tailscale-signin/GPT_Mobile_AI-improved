@@ -35,7 +35,16 @@ def act(backend, job, action):
         raise ValueError('Workspace action must name the current pinned head_sha')
     kind = action.get('action')
     receipt = {'action': kind, 'head_sha': job['data']['head_sha']}
-    if kind in {'checks', 'check', 'check_output', 'candidates', 'candidate_files'}:
+    if kind == 'requirements':
+        offset = action.get('offset', 0)
+        if type(offset) is not int or offset < 0:
+            raise ValueError('Invalid acceptance requirement offset')
+        rows = job['request'].get('acceptance', [])
+        receipt.update(requirements=rows[offset:offset + 4], total=len(rows), next_offset=offset + 4 if offset + 4 < len(rows) else None)
+    elif kind in {'repo_search', 'glob', 'symbols', 'relationships', 'explore'} or kind == 'search' and 'paths' not in action:
+        from v14.workspace_search import WorkspaceSearchService
+        receipt.update(WorkspaceSearchService(backend, job).act(action))
+    elif kind in {'checks', 'check', 'check_output', 'candidates', 'candidate_files', 'discover_tests', 'run_test', 'compile_module', 'lint_changed_files', 'check_patch', 'inspect_failure', 'compare_candidates'}:
         from v14.engineering_workspace_checks import act as check_action
         receipt.update(check_action(backend, job, action))
     elif kind == 'paths':

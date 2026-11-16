@@ -13,9 +13,17 @@ class ToolRepeatAdmissionEvidence private constructor(
     private val callId: String,
     private val modelToolName: String,
     private val repeatKey: String,
-    internal val snapshot: ToolDependencyDiagnostics.RepeatLimitSnapshot
+    internal val snapshot: ToolDependencyDiagnostics.RepeatLimitSnapshot,
+    private val history: ToolRepeatAdmissionHistory.Snapshot? = null
 ) {
     override fun toString(): String = "ToolRepeatAdmissionEvidence"
+
+    internal fun withHistory(call: ProviderEvent.ToolCall, history: ToolRepeatAdmissionHistory.Snapshot): ToolRepeatAdmissionEvidence =
+        if (call.callId == callId && call.name == modelToolName && toolRepeatKey(call) == repeatKey) {
+            ToolRepeatAdmissionEvidence(callId, modelToolName, repeatKey, snapshot, history)
+        } else {
+            this
+        }
 
     companion object {
         internal val FIELD_NAMES = setOf(
@@ -25,19 +33,22 @@ class ToolRepeatAdmissionEvidence private constructor(
             "dependency_repeat_used",
             "dependency_repeat_limit"
         )
+        internal val REPORT_FIELD_NAMES = FIELD_NAMES + ToolRepeatAdmissionHistory.FIELD_NAMES
 
         internal fun capture(call: ProviderEvent.ToolCall, repeatKey: String, snapshot: ToolDependencyDiagnostics.RepeatLimitSnapshot): ToolRepeatAdmissionEvidence =
             ToolRepeatAdmissionEvidence(call.callId, call.name, repeatKey, snapshot)
 
         internal fun attachTo(result: AgentToolResult, evidence: ToolRepeatAdmissionEvidence?): AgentToolResult {
             if (evidence == null || result.callId != evidence.callId || !directRejection(result)) return result
-            val fields = ToolDependencyDiagnostics.repeatLimitDetails(evidence.snapshot)
-            if (fields.isEmpty()) return result
+            val operands = ToolDependencyDiagnostics.repeatLimitDetails(evidence.snapshot)
+            if (operands.isEmpty()) return result
+            val fields = operands + evidence.history?.receiptFields().orEmpty()
             val receipt = buildJsonObject {
                 fields.forEach { (name, value) ->
                     when (value) {
                         is String -> put(name, value)
                         is Int -> put(name, value)
+                        is List<*> -> put(name, JsonArray(value.filterIsInstance<String>().map(::JsonPrimitive)))
                     }
                 }
             }
@@ -45,7 +56,7 @@ class ToolRepeatAdmissionEvidence private constructor(
         }
 
         /** No fallback to raw receipt fields or reconstruction of retained observations. */
-        internal fun reportFields(result: AgentToolResult, persistedCallId: String?, persistedModelToolName: String?, persistedArguments: String?): Map<String, Any> {
+        internal fun reportFields(result: AgentToolResult, persistedCallId: String?, persistedModelToolName: String?, persistedArguments: String?, persistedRunId: String? = null): Map<String, Any> {
             val evidence = result.repeatAdmissionEvidence ?: return emptyMap()
             if (!directRejection(result) || result.callId != evidence.callId || persistedCallId != evidence.callId || persistedModelToolName != evidence.modelToolName) return emptyMap()
             if (persistedArguments == null || persistedArguments.length > 65_536) return emptyMap()
@@ -62,7 +73,8 @@ class ToolRepeatAdmissionEvidence private constructor(
             if (!bounded(arguments, 0)) return emptyMap()
             val persistedKey = runCatching { toolRepeatKey(ProviderEvent.ToolCall(evidence.callId, evidence.modelToolName, arguments)) }.getOrNull() ?: return emptyMap()
             if (persistedKey != evidence.repeatKey) return emptyMap()
-            return ToolDependencyDiagnostics.repeatLimitDetails(evidence.snapshot)
+            val operands = ToolDependencyDiagnostics.repeatLimitDetails(evidence.snapshot)
+            return if (operands.isEmpty()) emptyMap() else operands + evidence.history?.fields(persistedRunId, arguments).orEmpty()
         }
 
         private fun directRejection(result: AgentToolResult): Boolean {

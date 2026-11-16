@@ -195,7 +195,15 @@ internal object IssueReportIncidents {
                 evidence
             }
             val toolBudget = toolPrecheck && toolContext?.diagnostics?.values?.get("tool_budget_kind") != null
-            val publicCode = if (toolBudget) "TOOL_BUDGET_EXHAUSTED" else precheck?.code ?: IssueReportCodes.select(code, if (toolPrecheck) "TOOL_FAILURE" else "APP_ERROR")
+            // Exhaustion can accompany the last admitted call's specific failure; it is not its cause.
+            val fallbackCode = if (toolBudget) {
+                "TOOL_BUDGET_EXHAUSTED"
+            } else if (toolPrecheck) {
+                "TOOL_FAILURE"
+            } else {
+                "APP_ERROR"
+            }
+            val publicCode = precheck?.code ?: IssueReportCodes.select(code, fallbackCode)
             failure(feature, publicCode, error, reportEvidence, reportSource)
         } else {
             synchronized(lock) {
@@ -316,7 +324,13 @@ internal object IssueReportIncidents {
                 "failure_origin" to "APPLICATION"
             )
         } else if (publicCode == "CHAT_FAILED" && "diagnostic_area" !in fields) {
+            // This is a typed source observation, not proof of dispatch or HTTP
+            // acceptance. Avoid presenting a code-less provider error as an
+            // unexplained application exception.
+            val codeAbsent = fields["provider_error_code_state"] in setOf("ABSENT", kotlinx.serialization.json.JsonPrimitive("ABSENT"))
+            val sourceObserved = fields["provider_error_origin"] in setOf("OPENAI_COMPAT_STREAM_ERROR_VALUE", kotlinx.serialization.json.JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"))
             fields + mapOf(
+                "failure_origin" to (if (codeAbsent && sourceObserved) "PROVIDER" else fields["failure_origin"]),
                 "diagnostic_area" to "INCIDENT",
                 "diagnostic_capture_mode" to "INCIDENT",
                 "chat_failure_code_state" to when {

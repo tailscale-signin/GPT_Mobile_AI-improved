@@ -1,6 +1,8 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.setting
 
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.work.WorkManager
@@ -8,6 +10,8 @@ import dagger.Lazy
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReport
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportAttachment
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportAttachmentCapture
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidents
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportManualCapture
 import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportOutbox
@@ -125,6 +129,51 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
         mutableDraft.value = value
     }
 
+    internal fun selectManualAttachment(uri: Uri?) {
+        if (uri == null || mutableSaving.value) return
+        viewModelScope.launch {
+            try {
+                val attachment = withContext(Dispatchers.IO) {
+                    val resolver = context.contentResolver
+                    var name = "report-evidence.txt"
+                    var declared: Long? = null
+                    resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = cursor.getString(it) ?: name }
+                            cursor.getColumnIndex(OpenableColumns.SIZE).takeIf { it >= 0 && !cursor.isNull(it) }?.let { declared = cursor.getLong(it).takeIf { size -> size >= 0 } }
+                        }
+                    }
+                    require(declared == null || declared!! <= IssueReportAttachment.MAX_ORIGINAL_BYTES)
+                    val bytes = requireNotNull(resolver.openInputStream(uri)).use { input ->
+                        val limit = (IssueReportAttachment.MAX_ORIGINAL_BYTES + 1).toInt()
+                        val buffer = ByteArray(limit)
+                        var size = 0
+                        while (size < limit) {
+                            val count = input.read(buffer, size, limit - size)
+                            if (count < 0) break
+                            if (count == 0) {
+                                val byte = input.read()
+                                if (byte < 0) break
+                                buffer[size++] = byte.toByte()
+                            } else {
+                                size += count
+                            }
+                        }
+                        buffer.copyOf(size)
+                    }
+                    val mediaType = resolver.getType(uri)?.substringBefore(';')?.lowercase() ?: "text/plain"
+                    IssueReportAttachmentCapture.fromBytes(name, mediaType, declared, bytes)
+                }
+                mutableDraft.update { it.copy(attachment = attachment, includeAttachment = false) }
+                mutableError.value = null
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                mutableError.value = Notice.AttachmentRejected
+            }
+        }
+    }
+
     internal fun refreshAvailability() {
         viewModelScope.launch(Dispatchers.IO) { refreshRoutes() }
     }
@@ -163,7 +212,14 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
             return
         }
         enqueue(approvedRoute) {
-            IssueReportManualCapture.submission(preview, draft.title, draft.description, draft.includeDiagnostics, draft.relatedIssueNumber)
+            IssueReportManualCapture.submission(
+                preview,
+                draft.title,
+                draft.description,
+                draft.includeDiagnostics,
+                draft.relatedIssueNumber,
+                draft.attachment.takeIf { draft.includeAttachment }
+            )
         }
     }
 
@@ -304,12 +360,14 @@ class IssueReportViewModel @Inject constructor(@ApplicationContext private val c
 
     private fun defaultRoute(options: List<IssueReportRoute>): IssueReportRoute? = options.firstOrNull { it.kind == IssueReportRoute.Kind.SERVICE } ?: options.singleOrNull()
 
-    internal enum class Notice { SaveFailed, TooLarge, StorageFull, DiagnosticsChanged }
+    internal enum class Notice { SaveFailed, TooLarge, StorageFull, DiagnosticsChanged, AttachmentRejected }
     internal data class ManualDraft(
         val title: String = "",
         val description: String = "",
         val includeDiagnostics: Boolean = false,
         val diagnosticArea: String? = null,
-        val relatedIssueNumber: Int? = null
+        val relatedIssueNumber: Int? = null,
+        val attachment: IssueReportAttachment? = null,
+        val includeAttachment: Boolean = false
     )
 }

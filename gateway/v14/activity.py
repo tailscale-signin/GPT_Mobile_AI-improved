@@ -174,6 +174,8 @@ def desktop_snapshot(runtime, service, tracker, principal=None, ownership=None):
     result = tracker.snapshot(principal)
     result['usage'] = usage_snapshot(runtime)
     result['service'] = service.snapshot()
+    from v14.capability_inventory import capability_inventory
+    result['capabilityInventory'] = capability_inventory(runtime, tracker, principal)
     result['jobs'], result['engineering'] = [], []
     result['historyError'] = None
     result['openJobs'] = None
@@ -227,7 +229,7 @@ def client_snapshot(runtime, service, tracker, principal, ownership):
     result = desktop_snapshot(runtime, service, tracker, principal=principal.id, ownership=ownership)
     result.update(schema='gptmobile.gateway.dashboard.v1', schemaVersion=1, instanceId=service.instance_id, scope='admitted_identity',
                   serviceScope='this_installation', historyLimit=100,
-                  availability={'devices': True, 'activities': True, 'service': True,
+                  availability={'devices': True, 'activities': True, 'service': True, 'capabilities': True,
                                 'usage': bool(result['usage'].get('available')),
                                 'openJobs': result['openJobs'] is not None,
                                 'history': result['historyError'] is None and bool(runtime.GATEWAY_DURABLE_JOBS and runtime.durable_job_initialized)})

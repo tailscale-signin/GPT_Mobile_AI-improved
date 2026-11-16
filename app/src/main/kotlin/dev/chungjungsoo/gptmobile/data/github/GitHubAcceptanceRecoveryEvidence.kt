@@ -46,6 +46,7 @@ internal object GitHubAcceptanceRecoveryEvidence {
                     (policy[key] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull?.let { put(key, it) }
                 }
                 policy.text("status_policy_recovery_hint").takeIf { it in policyRecoveryHints }?.let { put("status_policy_recovery_hint", it) }
+                GitHubPolicyResponseObservation.coverageFields(policy).forEach { (key, value) -> put(key, value) }
             }
     }
 

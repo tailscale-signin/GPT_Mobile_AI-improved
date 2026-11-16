@@ -20,6 +20,7 @@ from cryptography.hazmat.primitives.asymmetric import padding, rsa
 
 from .github_broker import NoRedirect
 from .engineering_report_contract import ENGINEERING_FIELDS, ENGINEERING_REASONS, MODEL_PREPARATION_REASONS
+from . import incident_report_contract as capsule
 from .issue_report_diagnostics import diagnostics_body, validate_diagnostics
 
 
@@ -261,6 +262,8 @@ SAFE_DEVICE = re.compile(r"[a-zA-Z0-9 ._()+-]{1,80}")
 SAFE_FRAME = re.compile(r"(?:dev\.(?:chungjungsoo|melo)\.gptmobile|android|com\.android|java|kotlin)\.[\w.$<>]{1,145}:[0-9]{1,6}", re.ASCII)
 SAFE_EVENT = re.compile(r"-[0-9]{1,5}ms [DIWEF] (?:app|chat|voice|gateway|local|tools)(?: [A-Z][A-Z0-9_]{0,63})?")
 SAFE_TYPE = re.compile(r"[A-Za-z][A-Za-z0-9_$]{0,63}")
+SAFE_ATTACHMENT_NAME = re.compile(r"[^\x00-\x1f\x7f]{1,100}")
+SAFE_ATTACHMENT_HASH = re.compile(r"[a-f0-9]{64}")
 SECRET = re.compile(
     r"(?i)\b(?:bearer\s+[^\s,;]+|(?:gh[pousr]_|github_pat_|sk-|hf_|xox[baprs]-)[a-z0-9_-]{8,}"
     r"|(?:authorization|api[_ -]?key|password|(?:access|refresh)[_ -]?token|client[_ -]?secret)\s*[:=]\s*[^\s,;]+)"
@@ -404,6 +407,22 @@ def marker(report_id):
     return f"<!-- gpt-mobile-report:{report_id} -->"
 
 
+def _attachment(value):
+    fields = {"name", "mediaType", "originalBytes", "sha256", "text"}
+    if not isinstance(value, dict) or set(value) != fields:
+        raise ReportError(422, "INVALID_REPORT")
+    name = _field(value, "name", SAFE_ATTACHMENT_NAME)
+    media = value.get("mediaType")
+    size = value.get("originalBytes")
+    digest = value.get("sha256")
+    if media not in {"text/plain", "text/markdown", "application/json"} or type(size) is not int or not 1 <= size <= 4096:
+        raise ReportError(422, "INVALID_REPORT")
+    if not isinstance(digest, str) or not SAFE_ATTACHMENT_HASH.fullmatch(digest):
+        raise ReportError(422, "INVALID_REPORT")
+    text = _text(value, "text", 1536)
+    return name, media, size, digest, text
+
+
 def _report_context(value):
     required = {"schemaVersion", "occurredAtMillis", "source", "unavailableFields"}
     if not isinstance(value, dict) or not required <= value.keys():
@@ -466,6 +485,8 @@ def _report_context(value):
                 raise ValueError("diagnostic extension requires context version six")
             if version == 6 and diagnostic["schemaVersion"] == 3 or version == 7 and diagnostic["schemaVersion"] != 3:
                 raise ValueError("incident capsule requires context version seven")
+            if not capsule.repeat_history_aligned(diagnostic["values"], value.get("callIdHash")):
+                raise ValueError("repeat history links to the current call")
         except ValueError as error:
             raise ReportError(422, "INVALID_REPORT") from error
     return value
@@ -502,7 +523,7 @@ def _context_body(context):
 
 def issue_from_report(values):
     allowed = {"reportId", "source", "title", "description", "version", "build", "commit", "android", "sdk", "device",
-               "feature", "errorCode", "errorType", "frames", "events", "context"}
+               "feature", "errorCode", "errorType", "frames", "events", "context", "attachment"}
     if not isinstance(values, dict) or set(values) - allowed:
         raise ReportError(422, "INVALID_REPORT")
     report_id = _field(values, "reportId", REPORT_ID)
@@ -523,7 +544,13 @@ def issue_from_report(values):
         description = _text(values, "description", 1200)
         # Indented code keeps links, HTML, mentions and hidden report markers in user text inert.
         body = "### What happened\n\n" + "\n".join("    " + line for line in description.split("\n"))
+        if "attachment" in values:
+            name, media, size, digest, text = _attachment(values["attachment"])
+            body += (f"\n\n### Approved text attachment\n\n- `{name}` · `{media}` · {size} original bytes"
+                     f"\n- Original SHA-256: `{digest}`\n\n" + "\n".join("    " + line for line in text.split("\n")))
     elif source == "debug" and not ({"title", "description"} & values.keys()):
+        if "attachment" in values:
+            raise ReportError(422, "INVALID_REPORT")
         feature, code = values.get("feature"), values.get("errorCode")
         if not isinstance(feature, str) or feature not in FEATURES or not isinstance(code, str) or code not in ERROR_CODES:
             raise ReportError(422, "INVALID_REPORT")

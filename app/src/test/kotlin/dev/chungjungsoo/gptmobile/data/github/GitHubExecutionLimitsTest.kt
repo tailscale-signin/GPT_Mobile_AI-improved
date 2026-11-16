@@ -14,9 +14,9 @@ class GitHubExecutionLimitsTest {
         assertEquals(listOf("profile/chat allowance"), profileLimited.sources)
         val ci = GitHubWorkflowPreset.selected("diagnose_ci")
         val diagnostic = GitHubExecutionLimits.callLimit(ci.prompt(), 100, ci)
-        assertEquals(32, diagnostic.effective)
+        assertEquals(48, diagnostic.effective)
         assertEquals(48, diagnostic.workflow)
-        assertEquals(listOf("task scope policy"), diagnostic.sources)
+        assertEquals(listOf("workflow preset", "request ceiling"), diagnostic.sources)
     }
 
     @Test fun integrationCannotExceedItsPresetOrExplicitUserLimit() {
@@ -36,7 +36,7 @@ class GitHubExecutionLimitsTest {
     @Test fun aSelectedPresetUsesTheSameLimitBeforeBindingAndBeforeInference() {
         val task = GitHubWorkflowPreset.selected("diagnose_ci").prompt()
         val beforeBinding = GitHubExecutionLimits.toolCalls(task, 512, preset)
-        assertEquals(32, beforeBinding)
+        assertEquals(48, beforeBinding)
         assertEquals(beforeBinding, GitHubExecutionLimits.toolCalls(task, beforeBinding, preset))
     }
 }

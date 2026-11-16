@@ -11,6 +11,7 @@ import java.io.EOFException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
@@ -21,6 +22,37 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GatewayDashboardClientTest {
+    @Test fun normalizedInventoryPreservesStableIdsAndOnlyMeasuredMetrics() {
+        val body = """{
+            "schema":"gptmobile.gateway.capability-inventory.v1","schemaVersion":1,"status":"PARTIAL",
+            "scope":"selected_gateway_authorized_mcp","visibleCount":1,"hasMore":false,
+            "cursorLineage":"${"b".repeat(64)}","reason":"Other sources are outside this snapshot.",
+            "tools":[{"id":"${"a".repeat(64)}","name":"github_read","sourceId":"github","category":"GitHub",
+              "contractVersion":"${"c".repeat(64)}","description":"Read repository data","inputFields":["ref"],
+              "authorized":true,"enabled":true,"executableNow":null,"blockedReason":null,
+              "metrics":{"scope":"retained_gateway_activity","total":3,"success":2,"failure":1,
+                "p50Millis":200,"p95Millis":1000,"sampleCount":2,"lastUsed":123.5}}]
+        }"""
+        val inventory = parseGatewayToolInventory(Json.parseToJsonElement(body) as JsonObject, 456L)
+        assertEquals("PARTIAL", inventory.status)
+        assertEquals("selected_gateway_authorized_mcp", inventory.scope)
+        assertEquals("a".repeat(64), inventory.tools.single().id)
+        assertEquals(3L, inventory.tools.single().metrics?.total)
+        assertEquals(1000L, inventory.tools.single().metrics?.p95Millis)
+        assertNull(inventory.tools.single().executableNow)
+    }
+
+    @Test fun inventoryRejectsIncompleteOrDuplicateEvidence() {
+        val tool = """{"type":"function","function":{"name":"github_read","parameters":{"properties":{"ref":{},"unsafe\nfield":{}}}}}"""
+        fun parse(body: String) = parseGatewayToolInventory(Json.parseToJsonElement(body) as JsonObject, 123L)
+        val snapshot = parse("""{"value":[$tool],"Count":1}""")
+        assertEquals(listOf("ref"), snapshot.tools.single().inputFields)
+        assertEquals("GitHub", snapshot.tools.single().category)
+        assertEquals(123L, snapshot.observedAtMillis)
+        assertTrue(runCatching { parse("""{"value":[$tool],"Count":2}""") }.isFailure)
+        assertTrue(runCatching { parse("""{"value":[$tool,$tool],"Count":2}""") }.isFailure)
+    }
+
     @Test fun readyAndUnavailableModelsNeverShareEvidenceAndConfigurationEditsRecheck() = runTest {
         val selected = config.copy(apiUrl = "https://model-scoped-readiness.example/v1", profileRevision = "a".repeat(64))
         var calls = 0

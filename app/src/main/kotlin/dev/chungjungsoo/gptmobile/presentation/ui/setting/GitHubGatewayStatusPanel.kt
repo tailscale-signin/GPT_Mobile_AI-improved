@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,13 +57,122 @@ import java.time.format.TextStyle
 internal fun GitHubGatewayStatusPanel(profile: PlatformV2, now: Long, model: GitHubGatewayStatusViewModel = hiltViewModel()) {
     val state by model.state.collectAsStateWithLifecycle()
     val diagnostics by model.diagnostics.collectAsStateWithLifecycle()
+    val inventory by model.inventory.collectAsStateWithLifecycle()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(profile.uid, lifecycle) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) { model.observe(profile.uid) }
     }
     if (state.target?.selectedProfileUid == profile.uid) {
+        if (state.phase != GatewayDashboardPhase.HIDDEN) {
+            GatewayCapabilityDashboard(inventory.takeIf { it.identity == state.target?.identity }, model::refreshInventory)
+        }
         GitHubGatewayStatusContent(state, maxOf(now, System.currentTimeMillis()), model::refresh)
         if (state.phase != GatewayDashboardPhase.HIDDEN) GatewayDiagnosticPanel(diagnostics, model::diagnosticFilter, model::diagnosticTrace, model::loadDiagnosticPage, model::refresh, model::exportDiagnostics)
+    }
+}
+
+/** The legacy gateway contract enumerates exposed MCP tools but cannot prove all downstream coverage. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun GatewayCapabilityDashboard(inventory: GatewayCapabilityInventory?, refresh: () -> Unit) {
+    var open by remember(inventory?.identity) { mutableStateOf(false) }
+    var query by remember(inventory?.identity) { mutableStateOf("") }
+    var category by remember(inventory?.identity) { mutableStateOf<String?>(null) }
+    var selected by remember(inventory?.identity) { mutableStateOf<String?>(null) }
+    val observation = inventory?.observation
+    val tools = observation?.tools.orEmpty()
+    LaunchedEffect(inventory?.identity) {
+        if (inventory?.identity != null && observation == null && inventory.loading.not()) refresh()
+    }
+    val categories = remember(tools) { tools.groupingBy { it.category }.eachCount() }
+    val coverage = when {
+        inventory?.loading == true && observation == null -> "Discovering"
+        inventory?.error != null && observation == null -> "Blocked"
+        observation == null -> "Not discovered"
+        inventory?.loading == true || inventory?.error != null -> "STALE · observed minimum"
+        else -> observation?.status?.replace('_', ' ') ?: "NOT DISCOVERED"
+    }
+    Surface(shape = RoundedCornerShape(24.dp), color = MaterialTheme.colorScheme.surfaceContainer, modifier = Modifier.fillMaxWidth().testTag("github_capability_dashboard")) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Capability Dashboard", style = MaterialTheme.typography.titleMedium)
+            Text("$coverage · Selected gateway", style = MaterialTheme.typography.labelMedium)
+            inventory?.error?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+            observation?.let {
+                Text("${it.tools.size} observed tools · ${java.text.DateFormat.getTimeInstance(java.text.DateFormat.SHORT).format(java.util.Date(it.observedAtMillis))}", style = MaterialTheme.typography.bodySmall)
+                it.reason?.let { reason -> Text(reason, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                if (it.hasMore) Text("More capabilities exist beyond this bounded snapshot.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                if (categories.isNotEmpty()) {
+                    val colors = MaterialTheme.colorScheme
+                    val palette = listOf(colors.primaryContainer, colors.secondaryContainer, colors.tertiaryContainer)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        categories.values.forEachIndexed { index, count ->
+                            Surface(modifier = Modifier.weight(count.toFloat()).heightIn(min = 8.dp), color = palette[index % palette.size], shape = RoundedCornerShape(4.dp)) {}
+                        }
+                    }
+                    categories.entries.forEachIndexed { index, (name, count) ->
+                        Surface(
+                            onClick = {
+                                category = name
+                                open = true
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = palette[index % palette.size],
+                            shape = RoundedCornerShape(8.dp)
+                        ) { Text("$name · $count", Modifier.padding(12.dp), style = MaterialTheme.typography.labelMedium) }
+                    }
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                androidx.compose.material3.TextButton(onClick = refresh, enabled = inventory?.loading != true) { Text("Refresh inventory") }
+                androidx.compose.material3.TextButton(onClick = {
+                    category = null
+                    open = true
+                }, enabled = observation != null) { Text("All tools") }
+            }
+        }
+    }
+    if (open) {
+        val filtered = remember(tools, query, category) {
+            tools.filter {
+                (category == null || it.category == category) && (it.name.contains(query, true) || it.description?.contains(query, true) == true)
+            }
+        }
+        dev.chungjungsoo.gptmobile.presentation.common.FadingModalBottomSheet(onDismissRequest = { open = false }) {
+            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Gateway tools", style = MaterialTheme.typography.titleLarge)
+                androidx.compose.material3.OutlinedTextField(query, { query = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Search tools") })
+                Text("${filtered.size} of ${tools.size} observed tools", style = MaterialTheme.typography.bodySmall)
+                category?.let { androidx.compose.material3.TextButton(onClick = { category = null }) { Text("Clear $it filter") } }
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 500.dp)) {
+                    items(filtered.size, key = { filtered[it].name }) { index ->
+                        val tool = filtered[index]
+                        androidx.compose.material3.TextButton(onClick = { selected = if (selected == tool.name) null else tool.name }, modifier = Modifier.fillMaxWidth()) {
+                            Column(Modifier.fillMaxWidth()) {
+                                Text(tool.name)
+                                Text(tool.category, style = MaterialTheme.typography.bodySmall)
+                                if (selected == tool.name) {
+                                    tool.description?.takeIf(String::isNotBlank)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                                    if (tool.inputFields.isNotEmpty()) Text("Inputs · ${tool.inputFields.joinToString()}", style = MaterialTheme.typography.bodySmall)
+                                    Text("Source · ${tool.sourceId} · ${if (tool.authorized == true) "authorized for discovery" else "authorization unverified"}", style = MaterialTheme.typography.bodySmall)
+                                    tool.metrics?.let { metric ->
+                                        Text(
+                                            if (metric.total == 0L) {
+                                                "Usage and latency not measured."
+                                            } else {
+                                                val latency = if (metric.sampleCount == 0L) "latency not measured" else "p50 ${metric.p50Millis} ms · p95 ${metric.p95Millis} ms"
+                                                "Observed retained activity · ${metric.total} calls · ${metric.success} succeeded · ${metric.failure} failed · $latency"
+                                            },
+                                            style = MaterialTheme.typography.bodySmall
+                                        )
+                                    } ?: Text("Usage and latency not measured.", style = MaterialTheme.typography.bodySmall)
+                                    if (tool.executableNow != true) Text(tool.blockedReason ?: "Current execution readiness is unverified.", style = MaterialTheme.typography.bodySmall)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

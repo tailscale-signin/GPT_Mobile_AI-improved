@@ -353,6 +353,14 @@ class ProgressiveToolCatalog(
         return selectResult(callId, arguments)
     }
 
+    private fun invalidInventoryCursor(callId: String) = AgentToolResult(
+        callId,
+        ToolResultContent.Text("Invalid inventory_cursor; use the exact continuation_call from the preceding inventory page."),
+        true,
+        errorCode = "INVALID_ARGUMENTS",
+        dispatched = false
+    )
+
     private fun workflowLinks(tool: AgentToolDefinition): JsonArray = JsonArray(
         tool.workflowLinks.sortedWith(compareBy({ it.action }, { it.sourceTool }, { it.sourceAction }, { it.purpose })).map { link ->
             buildJsonObject {
@@ -400,7 +408,7 @@ class ProgressiveToolCatalog(
             val cursorValue = arguments["inventory_cursor"]
             val cursor = if (cursorValue == null) 0 else (cursorValue as? JsonPrimitive)?.takeUnless { it.isString }?.content?.toIntOrNull()
             if (cursor == null) return@synchronized AgentToolResult(callId, ToolResultContent.Text("inventory_cursor must be the exact integer returned in continuation_call."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
-            if (cursor !in 0..inventory.size) return@synchronized AgentToolResult(callId, ToolResultContent.Text("Invalid inventory_cursor; use the exact continuation_call from the preceding inventory page."), true, errorCode = "INVALID_ARGUMENTS", dispatched = false)
+            if (cursor < 0) return@synchronized invalidInventoryCursor(callId)
             val version = fingerprint(
                 JsonArray(
                     inventory.map { tool ->
@@ -445,12 +453,20 @@ class ProgressiveToolCatalog(
                     executionReceipt = buildJsonObject {
                         put("failed_stage", "inventory_pagination")
                         put("catalog_pagination_invalidated", true)
+                        put("reason_code", if (expectedVersion == null) "INVENTORY_VERSION_MISSING" else "INVENTORY_VERSION_CHANGED")
                         put("retryable", false)
                         put("requires_argument_correction", offerRestart)
                         put("permissions_changed", false)
-                    }
+                    },
+                    inventoryPaginationEvidence = ToolInventoryPaginationEvidence.capture(
+                        callId,
+                        arguments,
+                        if (expectedVersion == null) ToolInventoryPaginationEvidence.Reason.MISSING_VERSION else ToolInventoryPaginationEvidence.Reason.VERSION_MISMATCH,
+                        offerRestart
+                    )
                 )
             }
+            if (cursor > inventory.size) return@synchronized invalidInventoryCursor(callId)
             // GitHub mode mounts the complete authorized GitHub catalog at admission.
             // Its compact inventory is listed in one bounded batch when possible.
             val items = inventory.drop(cursor).take(if (githubUpfront) 256 else 12)

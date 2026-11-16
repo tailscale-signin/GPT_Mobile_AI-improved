@@ -230,7 +230,7 @@ internal object GitHubReplayRecovery {
             val sourceId = (envelope(previous.content)?.get("previous_call_id") as? JsonPrimitive)?.content ?: break
             previous = candidates.firstOrNull { it.callId == sourceId && it.callId !in visited } ?: break
         }
-        if (previous.isError) return currentGitHubInvocationReceipt(previous.copy(callId = call.callId, dispatched = false, sharedResult = true, retainedContent = null, traceContent = null))
+        if (previous.isError) return currentGitHubInvocationReceipt(previous.copy(callId = call.callId, dispatched = false, sharedResult = true, retainedContent = null, traceContent = null, searchValidationEvidence = null))
         val original = envelope(previous.content)
         val repeated = original?.get("schema") == JsonPrimitive("github.repeat.v1")
         val sourceCallId = previous.executionReceipt?.get("source_observation_call_id")

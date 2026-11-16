@@ -64,7 +64,7 @@ internal object IssueReportIncidentCapsule {
     )
     private val policyObservation = setOf("OBSERVED", "UNOBSERVED", "INVALID_RESPONSE", "ACCESS_DENIED", "NOT_FOUND_OR_INACCESSIBLE", "RATE_LIMITED", "UNAVAILABLE", "HTTP_FAILURE")
     private val common = setOf("incident_phase", "incident_capture_site", "incident_phase_provenance", "causal_id_hash", "causal_provenance", "causal_failure_code", "incident_evidence_status", "incident_origin", "recovery_observation", "recovery_attempt_count", "retry_delay_ms", "retry_delay_source", "exception_type_hashes", "sqlite_constraint_kind", "provider_wait_state", "provider_wait_persisted", "recovery_authority") + dispatchPolicyFields + policyDiagnostics
-    val toolFailureFields = setOf("url_reader_dns_state", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
+    val toolFailureFields = setOf("url_reader_dns_state", "url_reader_availability", "tool_execution_observation", "tool_budget_kind", "tool_budget_phase", "tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "tool_permission_scope")
     val gatewayDeliveryFields = setOf("gateway_terminal_status", "gateway_result_quality", "reasoning_probe_observation", "gateway_upstream_status", "gateway_dependency")
     val providerExecutionFields = setOf("tls_failure_kind", "tls_response_started", "provider_local_budget_block", "provider_tool_rejection")
     val combinedDeliveryFields = setOf("combined_requirement_gap", "combined_issue_count")
@@ -78,18 +78,32 @@ internal object IssueReportIncidentCapsule {
     const val REPEAT_ADMISSION_FEATURE = "TOOL_REPEAT_ADMISSION_EVIDENCE_V1"
     private val repeatAdmissionCounts = setOf("dependency_repeat_prior_admissions", "dependency_repeat_batch_admissions", "dependency_repeat_used", "dependency_repeat_limit")
     val repeatAdmissionFields = repeatAdmissionCounts + "dependency_repeat_scope"
+    const val REPEAT_HISTORY_FEATURE = "TOOL_REPEAT_HISTORY_EVIDENCE_V1"
+    private val repeatHistoryHashFields = setOf("dependency_repeat_prior_call_id_hashes", "dependency_repeat_batch_call_id_hashes")
+    val repeatHistoryListFields = repeatHistoryHashFields + "dependency_repeat_prior_outcomes"
+    val repeatHistoryFields = repeatHistoryListFields + setOf("dependency_repeat_prior_coverage", "dependency_repeat_batch_coverage")
+    private val repeatHistoryOutcomes = setOf("UNOBSERVED", "DISPATCHED_SUCCESS", "DISPATCHED_FAILURE", "NOT_DISPATCHED", "SHARED_RESULT", "UNKNOWN_OUTCOME")
+    const val GITHUB_CI_SEMANTIC_FEATURE = "GITHUB_CI_SEMANTIC_EVIDENCE_V1"
+    const val GITHUB_SEARCH_VALIDATION_FEATURE = "GITHUB_SEARCH_VALIDATION_EVIDENCE_V1"
+    const val TOOL_INVENTORY_PAGINATION_FEATURE = "TOOL_INVENTORY_PAGINATION_EVIDENCE_V1"
+    val inventoryPaginationFields = setOf("inventory_pagination_reason", "inventory_restart_offered")
     const val TOOL_EVENT_PERSISTENCE_FEATURE = "TOOL_EVENT_PERSISTENCE_EVIDENCE_V1"
     const val SQLITE_CONSTRAINT_FEATURE = "SQLITE_CONSTRAINT_EVIDENCE_V1"
+    const val URL_READER_AVAILABILITY_FEATURE = "URL_READER_AVAILABILITY_V1"
     private val toolEventSignedSequences = setOf("tool_event_requested_sequence", "tool_event_previous_max_sequence")
     val toolEventPersistenceFields = toolEventSignedSequences + setOf("tool_event_persistence_operation", "tool_event_persistence_phase", "tool_event_persistence_failure", "tool_event_assigned_sequence", "tool_event_write_attempted")
     val reviewComparisonFields = setOf("review_comparison_state", "review_comparison_policy")
+    const val GITHUB_POLICY_RESPONSE_FEATURE = "GITHUB_POLICY_RESPONSE_EVIDENCE_V1"
+    private val policyResponseHeaderOrder = listOf("REPORTED_OAUTH_SCOPES", "ACCEPTED_OAUTH_SCOPES", "ACCEPTED_GITHUB_PERMISSIONS", "SSO")
+    private val policyResponseHeaderFields = setOf("status_policy_protection_permission_header_names", "status_policy_rules_permission_header_names")
+    val policyResponseFields = policyResponseHeaderFields + setOf("status_policy_protection_404_kind", "status_policy_rules_404_kind")
     private val toolFields = setOf(
         "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count",
         "argument_field_names", "argument_field_types", "resolved_argument_field_names", "resolved_argument_field_types", "resolved_argument_shape_hash",
         "saved_view_owner_operation", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_cursor_issued", "saved_view_expired", "saved_view_restore_state", "saved_view_restore_error_hash",
         "github_error_resources", "github_error_fields", "github_error_codes", "server_request_id_hash", "argument_repair_signature_hash", "argument_repair_attempt", "argument_repair_exhausted",
         "mcp_connection_hash", "mcp_failure_phase", "mcp_failure_category", "mcp_connection_state", "mcp_readiness_state", "mcp_connection_health", "mcp_health_observation", "mcp_health_age_ms",
-        "native_dependency_state", "dependency_call_id_hashes", "dependency_count", "dependency_failed_count", "semantic_read_rules", "dependency_admission_reasons", "search_cursor_state", "search_id_hash", "search_cursor_hash"
+        "native_dependency_state", "dependency_call_id_hashes", "dependency_count", "dependency_failed_count", "semantic_read_rules", "semantic_ci_rules", "search_validation_field_names", "dependency_admission_reasons", "search_cursor_state", "search_id_hash", "search_cursor_hash"
     )
     private val acceptanceFields = setOf(
         "task_kind", "acceptance_evaluator_branch", "acceptance_mismatch", "eligible_receipt_count", "excluded_receipt_count", "receipt_count_scope", "receipt_exclusion_reasons",
@@ -97,6 +111,7 @@ internal object IssueReportIncidentCapsule {
     )
     private val gatewayFields = setOf("command_receipt_observation", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash")
     private val providerFields = setOf(
+        "provider_error_code_state", "provider_error_origin",
         "provider_rejection_category", "provider_error_type_hash", "provider_parameter", "provider_parameter_path_hash", "payload_contract",
         "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count",
         "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "privacy_metadata_age_ms", "privacy_blockers"
@@ -104,12 +119,17 @@ internal object IssueReportIncidentCapsule {
     private val voiceFields = setOf("run_id_hash", "invocation_id_hash", "voice_reply_failed", "voice_reply_terminal_status", "voice_reply_failure_evidence", "voice_chat_failure_code", "voice_chat_failure_code_hash", "voice_chat_failure_phase")
     private val hashes = setOf("causal_id_hash", "action_schema_generation_hash", "resolved_argument_shape_hash", "saved_view_connection_hash", "saved_view_scope_hash", "saved_view_source_hash", "saved_view_cursor_hash", "saved_view_restore_error_hash", "server_request_id_hash", "command_id_hash", "gateway_source_commit_hash", "gateway_package_digest_hash", "argument_repair_signature_hash", "provider_error_type_hash", "provider_parameter_path_hash", "voice_chat_failure_code_hash", "mcp_connection_hash", "search_id_hash", "search_cursor_hash", "provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_route_hash") + handoffReconciliationHashes
     private val hashLists = setOf("validation_path_hashes", "unknown_field_hashes", "evidence_ref_hashes", "exception_type_hashes", "dependency_call_id_hashes", "pending_tool_identity_hashes")
-    private val flags = setOf("tls_response_started", "provider_local_budget_block", "saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required", "chat_delivery_counts_capped", "tool_event_write_attempted")
+    private val flags = setOf("tls_response_started", "provider_local_budget_block", "saved_view_cursor_issued", "saved_view_expired", "provider_wait_persisted", "argument_repair_exhausted", "voice_reply_failed", "dispatch_policy_resume_required", "chat_delivery_counts_capped", "tool_event_write_attempted", "inventory_restart_offered")
     private val counts = setOf("recovery_attempt_count", "unknown_field_count", "eligible_receipt_count", "excluded_receipt_count", "required_capability_count", "verified_capability_count", "blocked_capability_count", "untested_capability_count", "privacy_catalog_entries", "privacy_model_endpoint_count", "privacy_compatible_endpoint_count", "privacy_allowlist_excluded_count", "privacy_denylist_excluded_count", "privacy_fallback_excluded_count", "dependency_count", "dependency_failed_count", "pending_tool_count") + policyCounts
     private val executionCounts = setOf("tool_result_bytes_used", "tool_result_bytes_limit", "tool_budget_calls_used", "tool_budget_calls_limit", "combined_issue_count") + acceptanceBlockerFields
     private val types = setOf("STRING", "NUMBER", "BOOLEAN", "OBJECT", "ARRAY", "NULL")
     private val mcpHealth = setOf("DNS_FAILED", "DNS_RECOVERY", "ROUTE_UNAVAILABLE", "CONNECTION_REFUSED", "AUTHENTICATION_FAILED", "TLS_FAILED", "CONNECT_TIMEOUT", "HTTP_ERROR", "MCP_HANDSHAKE_FAILED", "STREAM_INTERRUPTED", "STREAM_IDLE_TIMEOUT", "REQUEST_TIMEOUT", "HEALTHY", "UNKNOWN")
     private val enums = mapOf(
+        // The selected provider's error object may omit both code and type.
+        // Capture only the producer's closed type, never its raw error string.
+        "provider_error_code_state" to setOf("ABSENT"),
+        "provider_error_origin" to setOf("OPENAI_COMPAT_STREAM_ERROR_VALUE"),
+        "inventory_pagination_reason" to setOf("MISSING_VERSION", "VERSION_MISMATCH"),
         "sqlite_constraint_kind" to setOf("UNIQUE", "FOREIGN_KEY", "NOT_NULL", "CHECK", "PRIMARY_KEY", "TRIGGER", "UNKNOWN"),
         "dependency_repeat_scope" to setOf("TOOL_NAME", "TOOL_NAME_AND_ARGUMENTS"),
         "tool_event_persistence_operation" to setOf("START"),
@@ -122,6 +142,7 @@ internal object IssueReportIncidentCapsule {
         "handoff_checkpoint_state" to setOf("TOOL_HANDOFF", "TOOL_RESULTS_READY"),
         "handoff_durable_lookup" to setOf("RETURNED_EMPTY", "RETURNED_RECEIPTS"),
         "url_reader_dns_state" to setOf("RECOVERY_COOLDOWN", "LOOKUP_FAILED"),
+        "url_reader_availability" to setOf("HTTP_UNAVAILABLE", "NEGATIVE_CACHE", "TURN_SUPPRESSION", "REPEAT_LIMIT", "REPEATED_FAILURE"),
         "fixture_decision_mode" to setOf("AUTO_APPROVE", "SUGGESTED", "ASK", "UNKNOWN"),
         "crash_surface" to setOf("CHAT", "DEBUG_LOGS", "GITHUB_WORKSPACE"),
         "crash_boundary" to setOf("ANDROID_VIEW_DRAW"),
@@ -130,6 +151,10 @@ internal object IssueReportIncidentCapsule {
         "fixture_approval_state" to setOf("READY", "CONDITIONAL", "UNKNOWN"),
         "branch_protection_observation" to policyObservation,
         "branch_rules_observation" to policyObservation,
+        "dependency_repeat_prior_coverage" to setOf("COMPLETE", "PARTIAL", "UNAVAILABLE"),
+        "dependency_repeat_batch_coverage" to setOf("COMPLETE", "PARTIAL", "UNAVAILABLE"),
+        "status_policy_protection_404_kind" to setOf("NOT_FOUND", "OTHER_404", "EXPLICIT_BRANCH_NOT_PROTECTED"),
+        "status_policy_rules_404_kind" to setOf("NOT_FOUND", "OTHER_404"),
         "provider_wait_terminal_status" to setOf("COMPLETED", "PARTIAL", "FAILED", "BLOCKED", "INTERRUPTED", "CANCELED", "EVIDENCE_MISSING", "WAITING_FOR_APPROVAL"),
         "changed_policy_observation" to setOf("OBSERVED", "PARTIAL", "MALFORMED"),
         "incident_phase" to phases,
@@ -181,10 +206,14 @@ internal object IssueReportIncidentCapsule {
         "command_receipt_observation" to setOf("PRESENT", "UNAVAILABLE_404", "CONTRACT_UNSUPPORTED", "READ_INTERRUPTED", "UNOBSERVED")
     )
     private val enumLists = mapOf(
+        "status_policy_protection_permission_header_names" to policyResponseHeaderOrder.toSet(),
+        "status_policy_rules_permission_header_names" to policyResponseHeaderOrder.toSet(),
         "acceptance_claim_freshness_predicates" to setOf("OBSERVATION_TIME_UNAVAILABLE", "OBSERVATION_TIME_FUTURE", "MUTABLE_AGE_EXCEEDED", "MUTABLE_EPOCH_MISMATCH"),
         "dispatch_policy_sections" to policySections,
         "changed_policy_fields" to policyFieldNames,
         "semantic_read_rules" to dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.ReadRule.entries.mapTo(linkedSetOf()) { it.name },
+        "semantic_ci_rules" to setOf("BRANCH_NAME", "COMMIT_SHA", "POSITIVE_ID", "WORKFLOW_SELECTOR", "MISSING_SELECTOR", "UNUSED_FIELD", "LOG_START", "LOG_ORDER", "LOG_SPAN"),
+        "search_validation_field_names" to setOf("fuzzy_threshold", "context_lines", "max_new_blobs", "batch_size"),
         "dependency_admission_reasons" to dev.chungjungsoo.gptmobile.data.agent.ToolDependencyDiagnostics.Admission.entries.mapTo(linkedSetOf()) { it.name },
         "validation_field_names" to fieldNames,
         "argument_field_names" to fieldNames,
@@ -248,9 +277,9 @@ internal object IssueReportIncidentCapsule {
     }
 
     fun fieldsFor(area: String): Set<String> = common + when (area) {
-        "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields
-        "INCIDENT" -> combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure")
-        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + GitHubAcceptancePublicationEvidence.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
+        "TOOL" -> toolFields + toolFailureFields + repeatAdmissionFields + repeatHistoryFields + inventoryPaginationFields
+        "INCIDENT" -> combinedDeliveryFields + handoffReconciliationFields + chatDeliveryFields + toolEventPersistenceFields + reviewComparisonFields + setOf("pending_tool_count", "pending_tool_identity_hashes", "pending_tool_receipt_state", "local_readiness_failure", "provider_error_code_state", "provider_error_origin")
+        "ACCEPTANCE" -> acceptanceFields + acceptanceBlockerFields + claimFreshnessFields + policyResponseFields + GitHubAcceptancePublicationEvidence.fields + setOf("fixture_approval_state", "fixture_decision_mode", "branch_protection_observation", "branch_rules_observation")
         "GATEWAY" -> gatewayFields
         "PROVIDER" -> providerFields + setOf("provider_wait_checkpoint_hash", "provider_wait_claim_hash", "provider_wait_terminal_status", "provider_route_hash")
         "APP" -> setOf("crash_surface", "crash_boundary")
@@ -260,14 +289,27 @@ internal object IssueReportIncidentCapsule {
 
     fun validValue(key: String, value: JsonElement): JsonElement? {
         if (key in GitHubAcceptancePublicationEvidence.fields) return GitHubAcceptancePublicationEvidence.validValue(key, value)
+        if (key in repeatHistoryListFields) {
+            val items = value as? JsonArray ?: return null
+            if (items.size > 8 || items.any { item -> text(item)?.let { if (key in repeatHistoryHashFields) it.matches(HASH) else it in repeatHistoryOutcomes } != true }) return null
+            if (key in repeatHistoryHashFields && items.distinct().size != items.size) return null
+            return JsonArray(items.toList())
+        }
         if (key in hashLists || key in enumLists) {
             val items = value as? JsonArray ?: return null
-            if (key in claimFreshnessFields) {
+            if (key == "semantic_ci_rules") {
+                if (items.size !in 1..9 || items.distinct().size != items.size) return null
+            } else if (key == "search_validation_field_names") {
+                if (items.size !in 1..4 || items.distinct().size != items.size) return null
+            } else if (key in claimFreshnessFields || key in policyResponseHeaderFields) {
                 if (items.size !in 0..4 || items.distinct().size != items.size) return null
             } else if (items.size !in 1..if (key == "privacy_blockers") 4 else 8) {
                 return null
             }
             if (items.any { item -> text(item)?.let { if (key in hashLists) it.matches(HASH) else it in enumLists.getValue(key) } != true }) return null
+            // An empty qualified list is a measured absence. Never obtain it by
+            // filtering malformed entries; retained subsets keep producer order.
+            if (key in policyResponseHeaderFields && items.map { text(it) } != policyResponseHeaderOrder.filter { JsonPrimitive(it) in items }) return null
             return JsonArray(items.toList())
         }
         val primitive = value as? JsonPrimitive ?: return null
@@ -294,8 +336,34 @@ internal object IssueReportIncidentCapsule {
         names == null && types == null || names != null && types != null && names.size == types.size
     } &&
         policyAligned(values) &&
+        repeatHistoryAligned(values) &&
         executionCountsAligned(values, "tool_result_bytes_used", "tool_result_bytes_limit") &&
         executionCountsAligned(values, "tool_budget_calls_used", "tool_budget_calls_limit")
+
+    /** History is one observed group; the pre-existing admission operands remain independently valid without it. */
+    fun repeatHistoryAligned(values: Map<String, JsonElement>, currentCallIdHash: JsonElement? = null): Boolean {
+        if (repeatHistoryFields.none { it in values }) return true
+        if (!(repeatHistoryFields + repeatAdmissionFields).all { it in values }) return false
+        if (text(values["dependency_repeat_scope"]) !in setOf("TOOL_NAME", "TOOL_NAME_AND_ARGUMENTS")) return false
+        fun count(key: String) = (values[key] as? JsonPrimitive)?.takeUnless { it.isString }?.longOrNull?.takeIf { it in 0L..16_000_000L }
+        val priorCount = count("dependency_repeat_prior_admissions") ?: return false
+        val batchCount = count("dependency_repeat_batch_admissions") ?: return false
+        val used = count("dependency_repeat_used") ?: return false
+        val limit = count("dependency_repeat_limit") ?: return false
+        if (priorCount + batchCount != used || used < limit) return false
+        val prior = validValue("dependency_repeat_prior_call_id_hashes", values.getValue("dependency_repeat_prior_call_id_hashes")) as? JsonArray ?: return false
+        val batch = validValue("dependency_repeat_batch_call_id_hashes", values.getValue("dependency_repeat_batch_call_id_hashes")) as? JsonArray ?: return false
+        val outcomes = validValue("dependency_repeat_prior_outcomes", values.getValue("dependency_repeat_prior_outcomes")) as? JsonArray ?: return false
+        if (prior.size != outcomes.size || (prior + batch).distinct().size != prior.size + batch.size) return false
+        if (listOfNotNull(values["call_id_hash"], currentCallIdHash).any { it in prior || it in batch }) return false
+        fun covered(key: String, retained: Int, count: Long): Boolean = when (text(values[key])) {
+            "COMPLETE" -> retained.toLong() == count
+            "PARTIAL" -> retained > 0 && retained.toLong() < count
+            "UNAVAILABLE" -> count > 0 && retained == 0
+            else -> false
+        }
+        return covered("dependency_repeat_prior_coverage", prior.size, priorCount) && covered("dependency_repeat_batch_coverage", batch.size, batchCount)
+    }
 
     private fun executionCountsAligned(values: Map<String, JsonElement>, used: String, limit: String): Boolean {
         val observed = (values[used] as? JsonPrimitive)?.longOrNull ?: return true

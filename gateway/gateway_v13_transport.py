@@ -11,7 +11,7 @@ import requests
 
 from gateway_v13_runtime import (GatewayContractError, backend_template_error, consume_sse, normalize_backend_messages,
                                 validate_completion_tools, validate_tool_message_pairs, visible_answer_text)
-from v14.inference_execution import before_physical_dispatch, observe_physical_response, selected_dispatch_headers
+from v14.inference_execution import before_physical_dispatch, observe_physical_response, selected_dispatch_headers, checkpoint_structured_stream
 from v14.debug import diagnostic_trace_headers
 
 
@@ -397,6 +397,7 @@ def _post_once(session, url, request, connect_timeout, idle_timeout, deadline_at
             progress({"phase": "model_output", "event": "backend_first_visible_output", "status": "running", "stage": "generating",
                       "message": "Backend answer text received; completion validation is pending",
                       "backend_first_visible_output_ms": backend_first_visible_output_ms, "user_visible": False})
+        checkpoint_structured_stream(state.message.get('content') or '')
         if visible_output is not None:
             if state.calls:
                 raise GatewayContractError('The backend returned a tool in a text-only final round. No tool was executed.',

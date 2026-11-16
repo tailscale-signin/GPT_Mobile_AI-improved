@@ -286,6 +286,25 @@ class Client:
             raise ClientError('The original saved job identity changed.', not_dispatched=True)
         return job
 
+    def engineering_checkpoints(self, conversation):
+        job = self.engineering_review(conversation)
+        history = self.request('GET', '/gateway/engineering/jobs/' + job['id'] + '/checkpoints')
+        if history.get('job_id') != job['id']:
+            raise ClientError('Checkpoint job identity changed.', not_dispatched=True)
+        return job, history
+
+    def candidate_details(self, job, check_id):
+        if not isinstance(check_id, str) or not re.fullmatch('[a-f0-9]{64}', check_id):
+            raise ClientError('Invalid candidate identity.', not_dispatched=True)
+        value = self.request('GET', '/gateway/engineering/jobs/' + job['id'] + '/checkpoints/' + check_id)
+        if value.get('job_id') != job['id'] or value.get('check_id') != check_id:
+            raise ClientError('Candidate identity changed.', not_dispatched=True)
+        return value
+
+    def restore_candidate(self, job, check_id):
+        return self.request('POST', '/gateway/engineering/jobs/' + job['id'] + '/rewind',
+            payload={'revision': job['revision'], 'check_id': check_id}, user_action='restore-local-candidate')
+
     def engineering_review(self, conversation):
         parent = self.engineering_job(conversation.get('active_job_id'))
         if parent.get('conversation_id') != conversation.get('conversation_id'):

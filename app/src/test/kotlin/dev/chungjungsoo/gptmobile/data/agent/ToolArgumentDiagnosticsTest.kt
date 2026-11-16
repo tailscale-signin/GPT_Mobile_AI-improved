@@ -65,6 +65,103 @@ class ToolArgumentDiagnosticsTest {
         assertEquals(JsonArray(listOf(JsonPrimitive("UNKNOWN_FIELD"), JsonPrimitive("WRONG_TYPE"))), receipt["invalid_field_classes"])
     }
 
+    @Test fun unknownPublicFieldProjectsItsIdentityWithoutBecomingAnInvalidDeclaredField() {
+        val args = buildJsonObject {
+            put("query", "private query contents")
+            put("limit", 739)
+        }
+        val errors = ToolArgumentValidator.errors(args, searchSchema)
+        assertEquals(listOf("$.limit: undeclared field"), errors)
+        val result = ToolArgumentValidator.rejection("public-unknown", "github_search", args, searchSchema, errors)
+        val receipt = requireNotNull(result.executionReceipt)
+        assertEquals(JsonPrimitive(1), receipt["unknown_field_count"])
+        assertEquals(JsonPrimitive(0), receipt["invalid_field_count"])
+        assertEquals(JsonPrimitive(0), receipt["missing_field_count"])
+        assertFalse("invalid_fields" in receipt)
+        assertEquals(JsonArray(listOf(JsonPrimitive("limit"))), receipt["validation_field_names"])
+        assertEquals(JsonArray(listOf(JsonPrimitive("UNKNOWN_FIELD"))), receipt["invalid_field_classes"])
+        assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        assertFalse(result.dispatched)
+        assertEquals(JsonPrimitive(false), receipt["retryable"])
+        assertEquals(JsonPrimitive(false), receipt["requires_reconciliation"])
+        assertFalse("correction_call" in ((result.content as ToolResultContent.Json).value as JsonObject))
+        val snapshot = publicSnapshot("github_search", args, result)
+        assertEquals(receipt["validation_field_names"], snapshot.values["validation_field_names"])
+        assertEquals(receipt["unknown_field_count"], snapshot.values["unknown_field_count"])
+        assertEquals(receipt["invalid_field_count"], snapshot.values["invalid_field_count"])
+        assertFalse(snapshot.toString().contains("private query contents"))
+        assertFalse(snapshot.values.values.contains(JsonPrimitive(739)))
+    }
+
+    @Test fun unknownPrivateFieldIsCountedWithoutPublishingItsNameOrValues() {
+        val args = buildJsonObject {
+            put("query", "private query contents")
+            put("private-token-field", "private argument contents")
+        }
+        val errors = ToolArgumentValidator.errors(args, searchSchema)
+        assertEquals(listOf("$.private-token-field: undeclared field"), errors)
+        val result = ToolArgumentValidator.rejection("private-unknown", "github_search", args, searchSchema, errors)
+        val receipt = requireNotNull(result.executionReceipt)
+        assertEquals(JsonPrimitive(1), receipt["unknown_field_count"])
+        assertEquals(JsonPrimitive(0), receipt["invalid_field_count"])
+        assertEquals(JsonPrimitive(0), receipt["missing_field_count"])
+        assertFalse("invalid_fields" in receipt)
+        assertFalse("validation_field_names" in receipt)
+        assertFalse(result.dispatched)
+        val snapshot = publicSnapshot("github_search", args, result)
+        assertFalse("validation_field_names" in snapshot.values)
+        assertEquals(receipt["unknown_field_count"], snapshot.values["unknown_field_count"])
+        assertEquals(receipt["invalid_field_count"], snapshot.values["invalid_field_count"])
+        for (privateText in listOf("private-token-field", "private query contents", "private argument contents")) {
+            assertFalse(receipt.toString().contains(privateText))
+            assertFalse(snapshot.toString().contains(privateText))
+        }
+        assertTrue(ToolArgumentValidator.errors(args, JsonObject(searchSchema + ("additionalProperties" to JsonPrimitive(true)))).isEmpty())
+    }
+
+    @Test fun unknownFieldNamesJoinSemanticReadAndCiEvidenceWithoutChangingCorrectionAdmission() {
+        val cases = listOf(
+            "github_read" to """{"action":"ranges","ranges":[{"path":"private-source-path","start_line":1,"end_line":-1,"max_lines":5}],"limit":739}""",
+            "github_ci" to """{"action":"logs","job_id":7,"start_line":20,"end_line":2020,"limit":739}"""
+        )
+        for ((operation, input) in cases) {
+            val args = Json.parseToJsonElement(input) as JsonObject
+            val schema = GitHubOperationTool.definition(operation).inputSchema
+            val readRules = linkedSetOf<GitHubOperationArguments.ReadRule>()
+            val ciRejections = linkedSetOf<GitHubOperationArguments.CiRejection>()
+            val semanticErrors = GitHubOperationArguments.errors(operation, args, readRules, ciRejections)
+            assertTrue(semanticErrors.isNotEmpty())
+            val errors = ToolArgumentValidator.errors(args, schema) + semanticErrors
+            val result = ToolArgumentValidator.rejection("joined-$operation", operation, args, schema, errors, readRules, ciRejections)
+            val receipt = requireNotNull(result.executionReceipt)
+            val expected = if (operation == "github_read") {
+                listOf("end_line", "limit", "max_lines", "ranges", "start_line")
+            } else {
+                listOf("end_line", "limit", "start_line")
+            }
+            assertEquals(JsonArray(expected.map(::JsonPrimitive)), receipt["validation_field_names"])
+            assertEquals(JsonPrimitive(1), receipt["unknown_field_count"])
+            assertEquals(JsonPrimitive(if (operation == "github_read") 1 else 0), receipt["invalid_field_count"])
+            assertFalse(result.dispatched)
+            assertFalse("correction_call" in ((result.content as ToolResultContent.Json).value as JsonObject))
+            val snapshot = publicSnapshot(operation, args, result)
+            assertEquals(receipt["validation_field_names"], snapshot.values["validation_field_names"])
+            assertEquals(receipt[if (operation == "github_read") "semantic_read_rules" else "semantic_ci_rules"], snapshot.values[if (operation == "github_read") "semantic_read_rules" else "semantic_ci_rules"])
+            assertFalse(snapshot.toString().contains("private-source-path"))
+            assertFalse(snapshot.values.values.contains(JsonPrimitive(739)))
+
+            val knownArgs = JsonObject(args - "limit")
+            val stillRejected = ToolArgumentValidator.rejection("known-$operation", operation, knownArgs, schema, semanticErrors, readRules, ciRejections)
+            assertFalse(stillRejected.dispatched)
+            val body = (stillRejected.content as ToolResultContent.Json).value as JsonObject
+            val correction = requireNotNull(body["correction_call"] as? JsonObject)
+            assertEquals(JsonPrimitive(operation), correction["tool"])
+            val corrected = correction["arguments"] as JsonObject
+            assertTrue(ToolArgumentValidator.errors(corrected, schema).isEmpty())
+            assertTrue(GitHubOperationArguments.errors(operation, corrected).isEmpty())
+        }
+    }
+
     @Test fun domainConstraintFailuresDoNotInventSchemaFieldFailures() {
         val args = buildJsonObject { put("query", "class.*Test") }
         val result = ToolArgumentValidator.rejection("call", "github_search", args, searchSchema, listOf("Pattern mode does not accept regex syntax"))
@@ -192,6 +289,11 @@ class ToolArgumentDiagnosticsTest {
             assertEquals(buildJsonObject { put("action", "list") }, (body["correction_call"] as JsonObject)["arguments"])
             assertFalse(result.dispatched)
         }
+    }
+
+    private fun publicSnapshot(operation: String, args: JsonObject, result: AgentToolResult): IssueReportDiagnostics {
+        val event = ToolEvent("private-event", "private-run", 1, result.callId, null, null, operation, operation, args.toString(), null, null, "FAILED")
+        return requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", requireNotNull(result.executionReceipt) + ToolReportDiagnostics.fields(event, result), 1_800_000_000_000))
     }
 
     private fun selectorSchema(field: String) = buildJsonObject {

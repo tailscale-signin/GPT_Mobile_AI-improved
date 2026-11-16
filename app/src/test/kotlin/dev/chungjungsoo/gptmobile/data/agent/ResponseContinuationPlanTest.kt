@@ -42,6 +42,29 @@ class ResponseContinuationPlanTest {
         assertEquals(4096, LongResponsePolicy.countWords(draft))
     }
 
+    @Test fun githubContinuationCompactsLargeResultsAgainstTheProviderSafetyReserve() {
+        val request = "Verify the already selected repository and revision."
+        val call = ProviderEvent.ToolCall("read-1", "github_read", buildJsonObject {})
+        val result = AgentToolResult("read-1", ToolResultContent.Text("Saved source evidence. ".repeat(3000)), false)
+        val draft = (1..4000).joinToString(" ") { "saved$it" }
+        val continued = planResponseContinuation(
+            listOf(current(request)),
+            "Return only conclusions supported by the retained evidence.",
+            TokenBudgetSettings(contextTokens = 4096, outputTokens = 512),
+            draft,
+            "\nFinish the next outstanding requirement.",
+            listOf(AgentToolExchange(listOf(call), listOf(result))),
+            fitProviderBudget = true
+        )
+        val content = continued.turns.single().userMessage.content
+        assertTrue(content.startsWith(request))
+        assertTrue(content.contains("github_read"))
+        assertTrue(content.contains("saved4000"))
+        assertTrue(content.length < (result.content as ToolResultContent.Text).text.length)
+        val prompt = continued.promptTokens.toLong()
+        assertTrue(prompt + dev.chungjungsoo.gptmobile.data.context.RequestAdmission.estimateSafety(prompt) + 512 <= 4096)
+    }
+
     @Test fun originalUserScopeIsNeverClippedToMakeAContinuationFit() {
         val request = "Required original scope ".repeat(1000)
         val error = runCatching {

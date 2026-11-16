@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "9dbcff94820c08a10a1010572055a74f914c9edd2ac5c750b9726087865a90cf",
+  "source_digest": "8ac0acd43fe35fccbd8442f7d552ea76ec4daf5a6ca194006def0cf72070c4a8",
   "file_count": 2660,
   "indexed_line_count": 431526,
   "line_coverage_available": false,
@@ -17066,132 +17066,6 @@
       "indexed_lines": 6
     },
     {
-      "path": "app/src/main/res/values-ar/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "be944c55d8b19b3e08d37587b2bb46b1ba6ebfe642f753a287f94452a3bc9d2a",
-      "indexed_lines": 167
-    },
-    {
-      "path": "app/src/main/res/values-ars/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "54392bf7027f61cbd3def37609ec9d8f53f4913544770fedfccdbb17bd553943",
-      "indexed_lines": 166
-    },
-    {
-      "path": "app/src/main/res/values-de/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "cd520dc01f686d2b393ee67e1c92a7536ec89f49d73a5886058c42d436e41a9b",
-      "indexed_lines": 97
-    },
-    {
-      "path": "app/src/main/res/values-es/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "c4957fce49e5850c9e5556e14f6b7447fba83f46eab4a6be09c00e4a9af58cee",
-      "indexed_lines": 167
-    },
-    {
-      "path": "app/src/main/res/values-fa/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "26a244cf778daa5a15731f8a68708f4986faffe8e7fec39ad39e0c863557c62b",
-      "indexed_lines": 17
-    },
-    {
-      "path": "app/src/main/res/values-fr/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "ea504f15dce46ef818af7f2534644355d07c89878eab222af6a8353274801716",
-      "indexed_lines": 15
-    },
-    {
-      "path": "app/src/main/res/values-in/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "05911a9507db0de94e477b5afed889a16ad7e189e0cd8ec0f38b089271eed05f",
-      "indexed_lines": 353
-    },
-    {
-      "path": "app/src/main/res/values-iw/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "945e84477899757d80e798ea64b71896680056e21924835bfff434f9cec30181",
-      "indexed_lines": 167
-    },
-    {
-      "path": "app/src/main/res/values-ja/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "ab612e2fbd1776dfb5a24bbf43d81c40ef641c7f35699c6756355aee3b5f42c2",
-      "indexed_lines": 167
-    },
-    {
-      "path": "app/src/main/res/values-ko-rKR/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "bfb20a679f0b244160ff80d8d3208eaa71ad6dc6f73bb47129137303d788c44c",
-      "indexed_lines": 170
-    },
-    {
-      "path": "app/src/main/res/values-night/themes.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "6cd91fa16d2470b9ef6168b6bc9320602945d5b22378c44685fab825a1568772",
-      "indexed_lines": 11
-    },
-    {
-      "path": "app/src/main/res/values-pl/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "cc3f56af8626c61b64bb011a603ca474050eb7cacfe0d169e7de8214621b3d8c",
-      "indexed_lines": 168
-    },
-    {
-      "path": "app/src/main/res/values-pt-rBR/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "5e07442721e399efdd34b9d3595fe883ff87102f40fda2c82dbff6e839dc44e5",
-      "indexed_lines": 166
-    },
-    {
-      "path": "app/src/main/res/values-pt/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "5da868c80147290d02b2eab073a6ac00e544e62c435ed70904d0a7b33eac5191",
-      "indexed_lines": 164
-    },
-    {
-      "path": "app/src/main/res/values-ru/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "eb12e55148e4a477ba0bccfbef73027af6a3f389f99871ac7a16dc8f8f56953b",
-      "indexed_lines": 360
-    },
-    {
-      "path": "app/src/main/res/values-ta/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "c36eef955ec6070f50cee77c441aa16a66b061dd86bb8fcb8091e90117b12398",
-      "indexed_lines": 166
-    },
-    {
-      "path": "app/src/main/res/values-tr/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "e754d6daf5ca0bca7bcf46dfb218c94b067163c0d384fa971fd443d9ad737e4c",
-      "indexed_lines": 206
-    },
-    {
-      "path": "app/src/main/res/values-zh-rCN/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "1e7feed58b6514313315e277b929544cec6aebef3a80edfb913e63d133938d51",
-      "indexed_lines": 249
-    },
-    {
       "path": "app/src/main/res/values/attrs.xml",
       "area_id": "accessibility_and_localization",
       "kind": "ui_resource",
@@ -17309,6 +17183,132 @@
       "kind": "ui_resource",
       "sha256": "7a1d842bba43943ca59aab0289db49a4c99001558c760ddfbdc7190ffa43ae3e",
       "indexed_lines": 25
+    },
+    {
+      "path": "app/src/main/res/values-ar/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "be944c55d8b19b3e08d37587b2bb46b1ba6ebfe642f753a287f94452a3bc9d2a",
+      "indexed_lines": 167
+    },
+    {
+      "path": "app/src/main/res/values-ars/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "54392bf7027f61cbd3def37609ec9d8f53f4913544770fedfccdbb17bd553943",
+      "indexed_lines": 166
+    },
+    {
+      "path": "app/src/main/res/values-de/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "cd520dc01f686d2b393ee67e1c92a7536ec89f49d73a5886058c42d436e41a9b",
+      "indexed_lines": 97
+    },
+    {
+      "path": "app/src/main/res/values-es/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "c4957fce49e5850c9e5556e14f6b7447fba83f46eab4a6be09c00e4a9af58cee",
+      "indexed_lines": 167
+    },
+    {
+      "path": "app/src/main/res/values-fa/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "26a244cf778daa5a15731f8a68708f4986faffe8e7fec39ad39e0c863557c62b",
+      "indexed_lines": 17
+    },
+    {
+      "path": "app/src/main/res/values-fr/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "ea504f15dce46ef818af7f2534644355d07c89878eab222af6a8353274801716",
+      "indexed_lines": 15
+    },
+    {
+      "path": "app/src/main/res/values-in/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "05911a9507db0de94e477b5afed889a16ad7e189e0cd8ec0f38b089271eed05f",
+      "indexed_lines": 353
+    },
+    {
+      "path": "app/src/main/res/values-iw/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "945e84477899757d80e798ea64b71896680056e21924835bfff434f9cec30181",
+      "indexed_lines": 167
+    },
+    {
+      "path": "app/src/main/res/values-ja/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "ab612e2fbd1776dfb5a24bbf43d81c40ef641c7f35699c6756355aee3b5f42c2",
+      "indexed_lines": 167
+    },
+    {
+      "path": "app/src/main/res/values-ko-rKR/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "bfb20a679f0b244160ff80d8d3208eaa71ad6dc6f73bb47129137303d788c44c",
+      "indexed_lines": 170
+    },
+    {
+      "path": "app/src/main/res/values-night/themes.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "6cd91fa16d2470b9ef6168b6bc9320602945d5b22378c44685fab825a1568772",
+      "indexed_lines": 11
+    },
+    {
+      "path": "app/src/main/res/values-pl/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "cc3f56af8626c61b64bb011a603ca474050eb7cacfe0d169e7de8214621b3d8c",
+      "indexed_lines": 168
+    },
+    {
+      "path": "app/src/main/res/values-pt/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "5da868c80147290d02b2eab073a6ac00e544e62c435ed70904d0a7b33eac5191",
+      "indexed_lines": 164
+    },
+    {
+      "path": "app/src/main/res/values-pt-rBR/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "5e07442721e399efdd34b9d3595fe883ff87102f40fda2c82dbff6e839dc44e5",
+      "indexed_lines": 166
+    },
+    {
+      "path": "app/src/main/res/values-ru/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "eb12e55148e4a477ba0bccfbef73027af6a3f389f99871ac7a16dc8f8f56953b",
+      "indexed_lines": 360
+    },
+    {
+      "path": "app/src/main/res/values-ta/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "c36eef955ec6070f50cee77c441aa16a66b061dd86bb8fcb8091e90117b12398",
+      "indexed_lines": 166
+    },
+    {
+      "path": "app/src/main/res/values-tr/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "e754d6daf5ca0bca7bcf46dfb218c94b067163c0d384fa971fd443d9ad737e4c",
+      "indexed_lines": 206
+    },
+    {
+      "path": "app/src/main/res/values-zh-rCN/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "1e7feed58b6514313315e277b929544cec6aebef3a80edfb913e63d133938d51",
+      "indexed_lines": 249
     },
     {
       "path": "app/src/main/res/xml/backup_rules.xml",

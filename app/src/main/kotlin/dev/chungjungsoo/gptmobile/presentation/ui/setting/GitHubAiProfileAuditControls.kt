@@ -45,10 +45,12 @@ internal fun GitHubAiProfileAuditControls(
                 style = MaterialTheme.typography.bodySmall
             )
             Text("Select exactly one saved AI profile:", style = MaterialTheme.typography.bodyMedium)
-            if (profiles.isEmpty()) Text(
-                "No enabled AI profiles are available. Configure an AI profile before running this check.",
-                style = MaterialTheme.typography.bodySmall
-            )
+            if (profiles.isEmpty()) {
+                Text(
+                    "No enabled AI profiles are available. Configure an AI profile before running this check.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
             profiles.forEach { profile ->
                 Row(
                     Modifier.fillMaxWidth().selectable(profile.uid == profileUid, enabled = !busy, role = Role.RadioButton) {

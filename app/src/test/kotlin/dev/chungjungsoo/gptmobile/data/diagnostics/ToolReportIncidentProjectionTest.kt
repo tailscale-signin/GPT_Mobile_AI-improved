@@ -274,6 +274,7 @@ class ToolReportIncidentProjectionTest {
         val fields = ToolReportDiagnostics.fields(event, result)
         val report = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
         assertEquals(JsonPrimitive("GITHUB_PR_HEAD_CHANGED"), report.values["tool_error_code"])
+        assertEquals(report, report.validated()) // Restored schema must retain the allowlisted head-race code.
         assertEquals(JsonPrimitive(true), report.values["pr_context_revision_changed"])
         assertEquals(JsonPrimitive(3), report.values["pr_context_read_requests"])
         assertEquals(JsonPrimitive(3), report.values["pr_context_read_responses"])

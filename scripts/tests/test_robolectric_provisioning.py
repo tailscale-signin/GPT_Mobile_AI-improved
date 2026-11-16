@@ -36,6 +36,52 @@ class RobolectricProvisioningTest(unittest.TestCase):
         self.assertEqual(2, len(calls))
         self.assertFalse(list(self.target.parent.glob('*.part')))
 
+    def test_canonical_mirror_recovers_from_primary_429_with_verified_artifact(self):
+        calls, delays = [], []
+        canonical = f"{sdk.BASE}/sample/runtime.jar"
+
+        def opener(url, timeout):
+            calls.append(url)
+            if url == canonical:
+                raise urllib.error.HTTPError(url, 429, 'shared-runner throttle', {}, None)
+            return io.BytesIO(self.body)
+
+        sdk.download(self.target, canonical, self.digest, 100, opener, delays.append,
+                     lambda: 0, lambda _low, _high: 0, lambda: 0)
+        self.assertEqual([canonical, sdk.MAVEN_CENTRAL_ALTERNATE_BASE + '/sample/runtime.jar'], calls)
+        self.assertEqual([15], delays)
+        self.assertEqual(self.body, self.target.read_bytes())
+        self.assertFalse(list(self.target.parent.glob('*.part')))
+
+    def test_mirror_cannot_bypass_publisher_digest_or_unsupported_source(self):
+        calls = []
+        canonical = f"{sdk.BASE}/sample/runtime.jar"
+
+        def bad_mirror(url, timeout):
+            calls.append(url)
+            if url == canonical:
+                raise urllib.error.HTTPError(url, 429, 'throttled', {}, None)
+            return io.BytesIO(b'wrong contents')
+
+        with self.assertRaisesRegex(ValueError, 'SHA-512'):
+            sdk.download(self.target, canonical, self.digest, 100, bad_mirror,
+                         lambda _: None, lambda: 0, lambda _low, _high: 0, lambda: 0)
+        self.assertEqual(2, len(calls))
+        self.assertFalse(self.target.exists())
+        self.assertFalse(list(self.target.parent.glob('*.part')))
+
+        unrelated = 'https://example.com/private/resource.jar'
+        redirects = []
+
+        def throttled(url, timeout):
+            redirects.append(url)
+            raise urllib.error.HTTPError(url, 429, 'throttled', {}, None)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            sdk.download(self.target, unrelated, self.digest, 100, throttled,
+                         lambda _: None, lambda: 0, lambda _low, _high: 0, lambda: 0)
+        self.assertEqual([unrelated] * 6, redirects)
+
     def test_verified_cache_does_not_access_the_network(self):
         self.target.write_bytes(self.body)
         self.download(lambda *args, **kwargs: self.fail('unexpected network access'))

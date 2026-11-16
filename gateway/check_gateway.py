@@ -5,6 +5,19 @@ import sys
 from pathlib import Path
 
 STRESS_SUITE = 'test_gateway_diagnostic_stress.py'
+WINDOWS_ENGINEERING_SUITE = 'test_gateway_v14_engineering.py'
+
+
+def suite_timeout(pattern, platform=None):
+    """Bound each suite without treating slow Windows SQLite commits as a hang."""
+    if pattern == STRESS_SUITE:
+        return 600
+    if pattern == WINDOWS_ENGINEERING_SUITE and (sys.platform if platform is None else platform) == 'win32':
+        # The 1,000-checkpoint durability regression uses real FULL-sync SQLite
+        # transactions. On Windows runners it can exceed the ordinary 120s gate.
+        # Preserve the entire test and its faulthandler watchdog with a finite cap.
+        return 480
+    return 120
 
 
 def run_suite(root, pattern, timeout=120):
@@ -48,11 +61,9 @@ def main():
               if p.name != STRESS_SUITE]
     suites.append(STRESS_SUITE)
     for pattern in suites:
-        # Fifty thousand durable events require 782 FULL-sync batch commits.
-        # This is a liveness watchdog, not a throughput acceptance threshold.
-        # Windows FULL-sync commits can keep progressing beyond 300 seconds;
-        # allow this isolated workload 600s and keep ordinary groups at 120s.
-        if not run_suite(root, pattern, timeout=600 if pattern == STRESS_SUITE else 120):
+        # Both endurance workloads retain finite, platform-appropriate watchdogs.
+        # Ordinary suites still fail if they run longer than 120 seconds.
+        if not run_suite(root, pattern, timeout=suite_timeout(pattern)):
             failures.append(pattern)
     result = subprocess.run(['node', '--test', str(root / 'tests/test_gateway_browser_bridge.mjs')], timeout=30)
     if result.returncode:

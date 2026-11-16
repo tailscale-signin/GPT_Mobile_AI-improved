@@ -533,6 +533,15 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertIsNone(redacted['provider_retry_source'])
         self.assertIsNone(redacted['provider_retry_attempts'])
 
+    def test_gateway_suite_watchdogs_preserve_windows_durability_coverage(self):
+        from check_gateway import suite_timeout
+        self.assertEqual(480, suite_timeout('test_gateway_v14_engineering.py', 'win32'))
+        self.assertEqual(120, suite_timeout('test_gateway_v14_engineering.py', 'linux'))
+        self.assertEqual(600, suite_timeout('test_gateway_diagnostic_stress.py', 'win32'))
+        self.assertEqual(600, suite_timeout('test_gateway_diagnostic_stress.py', 'linux'))
+        self.assertEqual(120, suite_timeout('test_gateway_v14_debug.py', 'win32'))
+        self.assertEqual(120, suite_timeout('test_gateway_v14_engineering_extended.py', 'win32'))
+
     def test_until_complete_checkpoints_one_thousand_steps_without_resetting_authority(self):
         job = self.store.create('owner', dict(self.request, duration_hours=0))
         self.service.tick(job['id'])

@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "46ca20ee7159ec07fe8db96d1d28acaa20b07d2888de4dd00f6097eb515f40c8",
+  "source_digest": "89ece0eaeec0c5202cc5a89ee279218e45a3f711a09e69ff78fb41563945e19a",
   "file_count": 2662,
-  "indexed_line_count": 432160,
+  "indexed_line_count": 432171,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 167,
-      "indexed_line_count": 76070
+      "indexed_line_count": 76081
     },
     {
       "id": "authentication_service",
@@ -17517,8 +17517,8 @@
       "path": "gateway/check_gateway.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "b82e492da013d5c17a9ef0669bf15288b6ae1a2d11c07b08e627b90c6959d348",
-      "indexed_lines": 64
+      "sha256": "4ff7cd064b97fb2f56a985a07e0ca785f6c6c910be404a994a0ae32bfecb5ff2",
+      "indexed_lines": 75
     },
     {
       "path": "gateway/desktop/Firewall.ps1",

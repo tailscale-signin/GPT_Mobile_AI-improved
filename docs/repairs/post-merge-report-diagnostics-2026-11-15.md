@@ -183,3 +183,31 @@ The 20 most recent retained issue-correlations also included `INVALID_ARGUMENTS`
 ## New regression scope in #1349
 
 The in-memory issue-report deduplication previously keyed generic reports by public category and available run/invocation/call IDs but omitted the observed failed stage and already privacy-safe exception fingerprint. Two distinct failures during the three-second debounce could be collapsed. The patch adds these observed dimensions without changing the public report contract, leaving same-incident deduplication and source-owned causal identity rules intact. Tests assert distinct stage and type retention, same-key duplicate suppression and no private exception text in approved payloads.
+
+
+---
+
+## New intake reconciliation: November 16, 2026 UTC (PR #1349)
+
+### Source boundaries
+
+- New uploaded capture: `diagnostics-dca45322-…-part-1-….zip`; 21 archive members containing 12 agent-run records, 80 tool-receipt records, 20 retained incident-correlation records, and bounded app/timeline snapshots. The staged manifest says `captureCompleted=true`, `capturedFully=false`, `captureCompletionPercent=100`, and `externalPartsRequired=false`. Completion of the bounded capture is **not** full historical coverage.
+- The app revision in the capture is **0.9.66.7 (build 141)**, `482eb81645e462f0690979d152cd02070ee4eda3`. All captured failures predate this branch and do not prove a regression in the new PR head.
+- A subsequent issue query found **19 currently open issue reports**, numbered #1350, #1348, #1347, #1346, #1345, #1343, #1342, #1336, #1335, #1328, #1327, #1326, #1324, #1323, #1321, #1312, #1311, #1305 and #1300. The older 25-report ledger above is an earlier snapshot, **not** the current open-issue count. Do not reopen other issues based on an old report.
+- Exclude personal profile fields, chat text, raw identifiers, request URLs, authorization headers, complete exception messages and opaque service responses from issue comments. The GitHub issue body and source-provided sanitized capsule are the public evidence boundary.
+
+### Newly observed pagination report #1350
+
+Issue [#1350](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/issues/1350) contains an observed `GITHUB_PAGINATION_INCOMPLETE` for `github_ci`, action `runs`, with `per_page=30`, `dispatched=true` and HTTP **200**. The old report contains argument names/types and call hashes but does **not** contain the traversal's page count, deduplicated record counts, prior page coverage, changing-inventory flag, or terminal reason. Thus no one can safely distinguish changed history, overlapping pages, omitted earlier pages or a cross-epoch refresh from that report alone. Treat HTTP success as a successful *remote read*, not verified *complete inventory*.
+
+**Current-branch source fix:** `GitHubPaginationBoundary.completedPage` now invalidates the entire previous traversal (including stale first-page observations) on an explicit `verify_live=true` request even when the requested page is later than one. Previously that flag bypassed the page-end guard without resetting earlier page membership. A regression test checks that a fresh page 2 cannot inherit page 1 from an older epoch or be counted as a complete traversal.
+
+**Current-branch reporting improvement:** when an actual GitHub CI pagination tool result has an `INCOMPLETE` or `STALLED` traversal receipt, `ToolReportDiagnostics` copies only validated local counts and booleans from `github.pagination-progress.v1`: requested page, number of observed pages, upstream reported total, unique seen records, duplicates on the page, first-page contiguity, and observed upstream inventory changes. The incident capsule accepts only these bounded fields and the closed traversal-state enum. It never copies raw identifiers, response text or live URLs. Tests cover the safely projected diagnostic fields and non-GitHub/mismatched-call suppression.
+
+**Remaining verification:** These tests and the exact PR head must compile and pass CI. The Android app with the new build must reproduce a controlled changing-inventory or refresh case; prior issue #1350 must not be described as repaired in a deployed installation before that observation. The reporter enhancement provides the missing evidence for subsequent occurrences.
+
+### Required disposition of the remaining open reports
+
+The existing ledger above documents the independent causes and missing evidence. None of the old-build issues should be blanket-closed as `fixed` simply because a synthetic code test passes. Provider 429 and DNS retry windows require actual provider/network observations; GitHub policy 404 requires a permission-qualified policy read; full-catalog integration requires authorized fixtures and approvals; Llama model loading requires gateway reachability; Kokoro pronunciation requires physical-device playback; and acceptance/checkpoint failures require a current-head receipt. Publish final issue closure evidence only after a matching verified run, or close transparently as a duplicate/diagnostic-limited issue only when an accountable open tracking issue retains the work.
+
+No other branch was rewritten in this intake. All patches remain on the single existing PR #1349 branch, and merge stays blocked until the exact head's required checks and policy visibility are satisfied.

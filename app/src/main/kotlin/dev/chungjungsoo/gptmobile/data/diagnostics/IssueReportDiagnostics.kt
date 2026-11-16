@@ -357,7 +357,7 @@ internal data class IssueReportDiagnostics(
             "acceptance_evidence_scope" to setOf("CURRENT_VERDICT", "RETAINED_VERDICT"),
             "voice_engine" to setOf("SYSTEM", "LOCAL", "KOKORO"),
             "voice_phase" to setOf("PAUSED", "STARTING", "LISTENING", "FINALIZING", "REVIEWING", "THINKING", "PREPARING", "SPEAKING", "ERROR", "CLOSED"),
-            "voice_playback_failure" to setOf("AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED", "PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE"),
+            "voice_playback_failure" to setOf("AUDIO_FOCUS_DENIED", "AUDIO_FOCUS_LOST", "AUDIO_FOCUS_TIMEOUT", "AUDIO_FOCUS_RESUME_FAILED", "TIMEOUT", "MEMORY_PRESSURE", "TEXT_QUEUE_FULL", "SYNTHESIS_FAILED", "ENGINE_FAILED", "AUDIO_FAILED", "PRONUNCIATION_UNAVAILABLE", "LEXICON_UNAVAILABLE"),
             "voice_install_recognition_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),
             "voice_install_playback_status" to setOf("CHECKING", "NOT_INSTALLED", "DOWNLOADING", "READY", "FAILED"),
             "voice_capture_silenced_stage" to setOf("CAPTURE_START", "CAPTURE_READ"),

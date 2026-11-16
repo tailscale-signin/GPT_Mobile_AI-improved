@@ -697,6 +697,60 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun sourceOwnedToolResultPhasePreservesExecutionBoundaryWithoutInventingTheRemoteCause() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        for ((index, phase) in listOf("READ_FAILED", JsonPrimitive("OBSERVED")).withIndex()) {
+            IssueReportIncidents.failure(
+                ReportFeature.TOOLS,
+                "APP_ERROR",
+                null,
+                mapOf(
+                    "run_id" to "private-run-$index",
+                    "call_id" to "private-call-$index",
+                    "tool" to "github_pr",
+                    "tool_action" to "context",
+                    "tool_dispatch_phase" to phase,
+                    "http_status" to 200
+                ),
+                "TOOL_RESULT"
+            )
+            val report = IssueReportIncidents.pending.value.last()
+            assertEquals("tool_execution", report.context?.stage)
+            assertEquals(200, report.context?.httpStatus)
+            assertEquals(JsonPrimitive("tool_execution"), report.context?.diagnostics?.values?.get("incident_phase"))
+            assertEquals(JsonPrimitive("TOOL_CALL"), report.context?.diagnostics?.values?.get("causal_provenance"))
+            assertEquals(JsonPrimitive("TYPED_EVIDENCE"), report.context?.diagnostics?.values?.get("incident_evidence_status"))
+            assertFalse(report.approvedPayload().contains("private-run"))
+            assertFalse(report.approvedPayload().contains("private-call"))
+        }
+    }
+
+    @Test
+    fun toolPrecheckAndGenericStructuredEventsMustNotInheritAResultExecutionStage() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.failure(
+            ReportFeature.TOOLS,
+            "APP_ERROR",
+            null,
+            mapOf("tool_dispatch_phase" to "PRECHECK_REJECTED", "run_id" to "precheck-run", "call_id" to "precheck-call"),
+            "TOOL_RESULT"
+        )
+        IssueReportIncidents.failure(
+            ReportFeature.TOOLS,
+            "APP_ERROR",
+            null,
+            mapOf("tool_dispatch_phase" to "READ_FAILED", "run_id" to "structured-run", "call_id" to "structured-call"),
+            "STRUCTURED_EVENT"
+        )
+        val reports = IssueReportIncidents.pending.value
+        assertEquals(2, reports.size)
+        assertNull(reports[0].context?.stage)
+        assertNull(reports[1].context?.stage)
+        assertEquals(JsonPrimitive("unknown"), reports[0].context?.diagnostics?.values?.get("incident_phase"))
+        assertEquals(JsonPrimitive("unknown"), reports[1].context?.diagnostics?.values?.get("incident_phase"))
+    }
+
+    @Test
     fun deterministicCallIdsAreScopedToTheirRunWhileExactIncidentDuplicatesCollapse() {
         LocalDiagnosticsPolicy.setEnabled(true)
         for (run in listOf("first-run", "second-run")) {

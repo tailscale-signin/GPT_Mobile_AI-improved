@@ -225,7 +225,8 @@ class BenchmarkCleanupOwnershipTest(unittest.TestCase):
                 def measure(_runner, _run, _name, _turns, _expected, *, validate, output_tokens):
                     dispatches.append(_name)
                     validate(proposal)
-                    return {'firstMs': 3, 'totalMs': 9, 'observedModel': 'selected', 'gatewayJobId': 'observed-job'}
+                    return {'firstMs': 3, 'totalMs': 9, 'finishReason': 'stop',
+                            'observedModel': 'selected', 'gatewayJobId': 'observed-job'}
                 with patch.object(fixtures, 'suite', return_value=[task, dict(task, id='unstarted-trial')]), \
                         patch.object(sandbox, 'preflight', return_value='/local/docker'), \
                         patch.object(sandbox, 'run_bounded', side_effect=bounded), \

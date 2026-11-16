@@ -109,24 +109,41 @@ INSTRUMENTATION_STATUS_CODE: 0
         voice_test = 'kokoroDelegateFallsBackToRealAndroidTextToSpeechWhenModelIsMissing'
         reason = 'The Android device has no available English TTS voice'
         identity = (voice_class, voice_test)
-        skipped = (f'INSTRUMENTATION_STATUS: class={voice_class}\n'
+        # Reproduces API34 AndroidJUnitRunner: start(1), exact assumption(-4),
+        # and completed instrumentation(-1). The old checker rejected this.
+        started = (f'INSTRUMENTATION_STATUS: class={voice_class}\n'
                    f'INSTRUMENTATION_STATUS: test={voice_test}\n'
+                   'INSTRUMENTATION_STATUS_CODE: 1\n')
+        skipped = (f'INSTRUMENTATION_STATUS: class={voice_class}\n'
                    f'INSTRUMENTATION_STATUS: stack=org.junit.AssumptionViolatedException: {reason}\n'
+                   f'INSTRUMENTATION_STATUS: test={voice_test}\n'
                    'INSTRUMENTATION_STATUS_CODE: -4\n')
-        self.check_output(skipped + self.FINISH, test_class=voice_class, test_method=voice_test,
-                          optional_assumption_reasons={identity: reason})
+        approved = {identity: reason}
+        self.check_output(started + skipped + self.FINISH, test_class=voice_class, test_method=voice_test,
+                          optional_assumption_reasons=approved)
+        # API36, different exceptions and unrelated failures remain hard errors.
         with self.assertRaisesRegex(ValueError, 'failed or was skipped'):
-            self.check_output(skipped + self.FINISH, test_class=voice_class, test_method=voice_test)
+            self.check_output(started + skipped + self.FINISH, test_class=voice_class, test_method=voice_test)
         for bad in (skipped.replace(reason, 'Unrelated instrumentation failure'),
-                    skipped.replace('CODE: -4', 'CODE: -2')):
+                    skipped.replace('CODE: -4', 'CODE: -2'),
+                    skipped.replace('org.junit.AssumptionViolatedException:', 'java.lang.IllegalStateException:')):
             with self.subTest(bad=bad), self.assertRaisesRegex(ValueError, 'failed or was skipped'):
-                self.check_output(bad + self.FINISH, test_class=voice_class, test_method=voice_test,
-                                  optional_assumption_reasons={identity: reason})
+                self.check_output(started + bad + self.FINISH, test_class=voice_class, test_method=voice_test,
+                                  optional_assumption_reasons=approved)
+        for bad in (skipped + self.FINISH,
+                    started + skipped + skipped + self.FINISH,
+                    started + skipped + f'INSTRUMENTATION_STATUS: class={voice_class}\n'
+                                        f'INSTRUMENTATION_STATUS: test={voice_test}\n'
+                                        'INSTRUMENTATION_STATUS_CODE: 0\n' + self.FINISH):
+            with self.subTest(bad=bad), self.assertRaises(ValueError):
+                self.check_output(bad, test_class=voice_class, test_method=voice_test,
+                                  optional_assumption_reasons=approved)
         with self.assertRaisesRegex(ValueError, 'did not execute'):
             self.check_output(self.FINISH, test_class=voice_class, test_method=voice_test,
-                              optional_assumption_reasons={identity: reason})
+                              optional_assumption_reasons=approved)
         with self.assertRaisesRegex(ValueError, 'did not execute'):
-            self.check_output(skipped + self.FINISH, optional_assumption_reasons={identity: reason})
+            self.check_output(started + skipped + self.FINISH, optional_assumption_reasons=approved)
+
 
     def test_aosp_tts_prerequisite_scope_is_bound_to_ci_emulator_matrix(self):
         root = Path(__file__).resolve().parents[2]

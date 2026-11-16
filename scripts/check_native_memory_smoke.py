@@ -48,12 +48,16 @@ def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD
             permitted_reason = optional_assumption_reasons.get(identity)
             reason_matched = (
                 code == -4 and permitted_reason is not None
-                and packet.get("stack", "").endswith(permitted_reason)
+                and packet.get("stack", "") == f"org.junit.AssumptionViolatedException: {permitted_reason}"
             )
             optional_skip = (
                 code == -4 and identity in optional_assumptions and identity != (test_class, test_method)
             ) or reason_matched
             if reason_matched and identity == (test_class, test_method):
+                # AndroidJUnitRunner sends the start packet before an assumption skip.
+                # Allow exactly one skip only for that started, uncompleted target case.
+                if not started or passed or finished or optional_target_skipped:
+                    raise ValueError("Approved prerequisite skip has no unique matching start packet")
                 optional_target_skipped = True
             if code < 0 and not optional_skip:
                 raise ValueError(f"Native smoke failed or was skipped: {packet}")
@@ -63,7 +67,7 @@ def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD
                         raise ValueError("Native test has duplicate or out-of-order start packets")
                     started = True
                 elif code == 0:
-                    if not started or passed or finished:
+                    if not started or passed or finished or optional_target_skipped:
                         raise ValueError("Native test completion has no matching start packet")
                     passed = True
             packet = {}
@@ -71,7 +75,7 @@ def check_instrumentation(output, test_class=TEST_CLASS, test_method=TEST_METHOD
             if int(line.removeprefix("INSTRUMENTATION_CODE: ")) != -1 or finished:
                 raise ValueError(f"Native instrumentation did not finish successfully: {line}")
             finished = True
-    if optional_target_skipped and finished and not started and not passed:
+    if optional_target_skipped and finished and started and not passed:
         print(f"Instrumentation: {test_class}.{test_method} skipped for the exact approved device prerequisite")
         return
     if not (started and passed and finished):

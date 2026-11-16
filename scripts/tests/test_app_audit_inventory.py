@@ -119,6 +119,17 @@ class AppAuditInventoryTest(unittest.TestCase):
         self.assertIn('val lineCoverageAvailable: Boolean = false', output)
         self.assertEqual(26, output.count('        AppAuditSourceArea('))
 
+    def test_new_github_audit_sources_are_classified_as_production(self):
+        profile = 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/GitHubProfileAuditSuite.kt'
+        controls = 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubAiProfileAuditControls.kt'
+        self.write(profile)
+        self.write(controls)
+        snapshot = inventory.document(self.root)
+        indexed = {item['path']: item for item in snapshot['files']}
+        self.assertEqual(2, snapshot['file_count'])
+        self.assertEqual('benchmark', indexed[profile]['area_id'])
+        self.assertEqual('chat_ui', indexed[controls]['area_id'])
+
     def test_committed_inventory_matches_current_source(self):
         root = SCRIPT.parents[1]
         data = inventory.document(root)

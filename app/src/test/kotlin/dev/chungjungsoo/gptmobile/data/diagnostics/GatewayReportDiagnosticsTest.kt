@@ -2,6 +2,7 @@ package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import android.app.Application
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayModelPreparationFailure
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayModelPreparationReceipt
 import kotlinx.serialization.json.Json
@@ -107,6 +108,37 @@ class GatewayReportDiagnosticsTest {
         assertNull(snapshot.values["gateway_http_status"])
         assertTrue(snapshot.isValid())
         assertFalse(Json.encodeToString(IssueReportDiagnostics.serializer(), snapshot).contains("private-"))
+    }
+
+    @Test fun observedEngineeringWaitCapturesRetryWithoutPrivateJobDetails() {
+        val job = GatewayEngineeringJob(
+            id = "eng_" + "a".repeat(32),
+            repository = "private-owner/repository",
+            branch = "private-branch",
+            state = "PLAN",
+            revision = 4,
+            createdAt = 1.0,
+            deadline = 4000.0,
+            message = "private-token",
+            serverNow = 100.0,
+            providerRetryAt = 180.0,
+            providerRetrySource = "TRANSIENT_TRANSPORT",
+            providerRetryAttempts = 16,
+            detachSafe = true
+        )
+        val snapshot = requireNotNull(
+            GatewayReportDiagnostics.engineeringWait(job, "private-profile", "private-model", 1_000_000)
+        )
+        assertEquals(JsonPrimitive("RETRY_SCHEDULED"), snapshot.values["recovery_observation"])
+        assertEquals(JsonPrimitive(80_000), snapshot.values["retry_delay_ms"])
+        assertEquals(JsonPrimitive("LOCAL_BACKOFF"), snapshot.values["retry_delay_source"])
+        assertEquals(JsonPrimitive(16), snapshot.values["recovery_attempt_count"])
+        assertEquals(JsonPrimitive(true), snapshot.values["provider_wait_persisted"])
+        assertEquals(JsonPrimitive(IssueReportContext.identifierHash("job", job.id)), snapshot.values["job_id_hash"])
+        assertTrue(snapshot.isValid())
+        assertFalse(Json.encodeToString(IssueReportDiagnostics.serializer(), snapshot).contains("private-"))
+        assertNull(GatewayReportDiagnostics.engineeringWait(job.copy(providerRetryAt = Double.NaN), "profile", "model", 1_000_000))
+        assertNull(GatewayReportDiagnostics.engineeringWait(job.copy(serverNow = null), "profile", "model", 1_000_000))
     }
 
     @Test fun ownedRecoveryPreservesRemoteStateAndCheckpointWithoutInventingReplayAuthority() {

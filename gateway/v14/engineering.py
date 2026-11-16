@@ -1575,12 +1575,20 @@ def public_job(job):
     data = job['data']
     state = job['state']
     completed = len(job.get('milestones', []))
+    wait = job.get('provider_wait') or {}
+    source = wait.get('source')
+    source = source if source in {'RETRY_AFTER', 'RATE_LIMIT_RESET', 'APP_BACKOFF',
+                                  'TRANSIENT_TRANSPORT', 'MODEL_READINESS',
+                                  'BACKEND_READINESS', 'SHARED_COOLDOWN'} else None
+    attempts = wait.get('attempts')
+    attempts = attempts if type(attempts) is int and 0 <= attempts <= 16000000 else None
     readiness = data.get('readiness') or {}
     return {'conversation_id': job.get('conversation_id'), 'gateway_id': job.get('gateway_id'), 'principal_id': job['principal'],
             'command_id': job.get('command_id', job['request']['request_id']), 'accepted_at': job.get('accepted_at', job['created_at']),
             'server_now': time.time(), 'detach_safe': bool(job.get('detach_safe')), 'task_scope': accepted_scope(job['request']),
             'started_at': job.get('started_at'), 'queued_at': job.get('queued_at'), 'title': job.get('title'),
-            'provider_retry_at': (job.get('provider_wait') or {}).get('retry_at'),
+            'provider_retry_at': wait.get('retry_at'),
+            'provider_retry_source': source, 'provider_retry_attempts': attempts,
             'execution_mode': job['request'].get('execution_mode', 'standard'),
             'batch_progress': batch_summary(data.get('integration_batch')),
             'cancellation_requested': bool(job.get('cancellation_requested')), 'cancellation_outcome': job.get('cancellation_outcome'),

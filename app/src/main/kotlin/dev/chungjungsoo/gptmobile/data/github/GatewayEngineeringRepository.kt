@@ -478,6 +478,11 @@ class GatewayEngineeringRepository @Inject constructor(
             val snapshot = client.get(config, requireNotNull(binding.job).id, binding.syncedRevision)
             check(snapshot.id == binding.job?.id) { "Engineering job identity changed." }
             verifyReceipt(binding, snapshot)
+            // Retain only an already-observed wait. This read never dispatches
+            // inference or repeats a command, and the cache enforces privacy.
+            dev.chungjungsoo.gptmobile.data.diagnostics.GatewayReportDiagnostics.engineeringWait(
+                snapshot, binding.request.profileId, binding.request.model
+            )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
             if (binding.request.executionBindingId != null) {
                 check(snapshot.executionBindingId == binding.request.executionBindingId && snapshot.executionBinding == binding.executionAdmission?.binding) { "The retained execution identity changed." }
             }

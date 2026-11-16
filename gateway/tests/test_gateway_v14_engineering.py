@@ -519,6 +519,18 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertNotIn('provider_wait', recovered)
         self.assertEqual(16, failures[0])
 
+    def test_public_job_reports_sanitized_retry_source_attempts_and_deadline(self):
+        job = self.store.create('owner', self.request)
+        job['provider_wait'] = {'retry_at': self.time + 120, 'source': 'TRANSIENT_TRANSPORT', 'attempts': 16}
+        snapshot = public_job(job)
+        self.assertEqual(self.time + 120, snapshot['provider_retry_at'])
+        self.assertEqual('TRANSIENT_TRANSPORT', snapshot['provider_retry_source'])
+        self.assertEqual(16, snapshot['provider_retry_attempts'])
+        job['provider_wait'].update(source='unsafe private error text', attempts=-2)
+        redacted = public_job(job)
+        self.assertIsNone(redacted['provider_retry_source'])
+        self.assertIsNone(redacted['provider_retry_attempts'])
+
     def test_server_cooldown_is_preserved_in_the_durable_schedule(self):
         job = self.store.create('owner', self.request)
         response = requests.Response()

@@ -258,7 +258,9 @@ data class GatewayEngineeringJob(
     @SerialName("post_merge") val postMerge: JsonObject? = null,
     @SerialName("recovery_of") val recoveryOf: String? = null,
     @SerialName("recovery_job_id") val recoveryJobId: String? = null,
-    @SerialName("qualified_revision") val qualifiedRevision: String? = null
+    @SerialName("qualified_revision") val qualifiedRevision: String? = null,
+    @SerialName("provider_retry_source") val providerRetrySource: String? = null,
+    @SerialName("provider_retry_attempts") val providerRetryAttempts: Int? = null
 ) {
     val ownershipLabel: String get() = if (detachSafe && acceptedAt != null && id.isNotBlank()) {
         when {

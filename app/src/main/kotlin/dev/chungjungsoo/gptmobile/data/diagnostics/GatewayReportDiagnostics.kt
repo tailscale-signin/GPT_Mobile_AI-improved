@@ -1,6 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.diagnostics
 
 import dev.chungjungsoo.gptmobile.data.database.entity.AgentRun
+import dev.chungjungsoo.gptmobile.data.github.GatewayEngineeringJob
 import dev.chungjungsoo.gptmobile.data.network.gateway.GatewayModelPreparationReceipt
 import dev.chungjungsoo.gptmobile.data.research.researchHash
 import java.util.Locale
@@ -121,6 +122,40 @@ internal object GatewayReportDiagnostics {
             ),
             capturedAtMillis
         )
+
+    /** An observed server wait, never an inferred retry of a prompt or GitHub mutation. */
+    fun engineeringWait(
+        job: GatewayEngineeringJob,
+        profileUid: String?,
+        modelId: String?,
+        capturedAtMillis: Long = System.currentTimeMillis()
+    ): IssueReportDiagnostics? {
+        val retryAt = job.providerRetryAt ?: return null
+        val serverNow = job.serverNow ?: return null
+        val waitSeconds = retryAt - serverNow
+        if (!waitSeconds.isFinite() || waitSeconds < 0.0 || waitSeconds > 86_400.0) return null
+        val source = when (job.providerRetrySource) {
+            "RETRY_AFTER", "RATE_LIMIT_RESET" -> "PROVIDER_HEADER"
+            "APP_BACKOFF", "TRANSIENT_TRANSPORT", "MODEL_READINESS", "BACKEND_READINESS" -> "LOCAL_BACKOFF"
+            else -> "UNKNOWN"
+        }
+        return IssueReportDiagnostics.fromFields(
+            "STRUCTURED_EVENT",
+            buildMap {
+                put("diagnostic_area", "GATEWAY")
+                put("diagnostic_capture_mode", "INCIDENT")
+                put("job_id_hash", IssueReportContext.identifierHash("job", job.id))
+                profileUid?.takeIf { it.isNotBlank() && it.length <= 256 }?.let { put("profile_hash", researchHash(it)) }
+                modelId?.takeIf { it.isNotBlank() && it.length <= 256 }?.let { put("model_hash", researchHash(it)) }
+                put("recovery_observation", "RETRY_SCHEDULED")
+                put("retry_delay_ms", (waitSeconds * 1_000).toLong())
+                put("retry_delay_source", source)
+                job.providerRetryAttempts?.takeIf { it in 1..16_000_000 }?.let { put("recovery_attempt_count", it) }
+                if (job.detachSafe) put("provider_wait_persisted", true)
+            },
+            capturedAtMillis
+        )
+    }
 
     fun recovery(run: AgentRun, observedJobId: String, remoteStatus: String?, capturedAtMillis: Long = System.currentTimeMillis()): IssueReportDiagnostics? {
         if (run.gatewayJobId != observedJobId || observedJobId.isBlank()) return null

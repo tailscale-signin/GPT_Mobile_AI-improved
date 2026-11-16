@@ -2997,6 +2997,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/benchmark/BenchmarkAuditPolicyTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroFocusPolicyTest.kt",
     "docs/repairs/benchmark-1794850459049-2026-11-16.md",
-    "docs/repairs/issue-frontier-2026-11-16.md"
+    "docs/repairs/issue-frontier-2026-11-16.md",
+    "docs/repairs/gateway-transport-retry-continuity-2026-11-16.md"
   ]
 }

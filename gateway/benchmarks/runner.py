@@ -262,8 +262,11 @@ class BenchmarkRunner:
                     # Case-level evidence is sufficient for later issue triage
                     # without storing unapproved model-generated patch content.
                     final.update({key: timing.get(key) for key in (
-                        'observedModel', 'modelReceipt', 'identityScope', 'gatewayJobId',
-                        'outputDigest', 'outputBytes')})
+                        'observedModel', 'modelReceipt', 'identityScope', 'gatewayJobId')})
+                    # The sandbox's outputDigest measures executed candidate
+                    # outputs; a model submission has a separate digest.
+                    final['submissionDigest'] = timing.get('outputDigest')
+                    final['submissionBytes'] = timing.get('outputBytes')
                 except sandbox.SandboxInterrupted as error:
                     self.sandbox_interrupted(run, ordinal, task, error, 'CANDIDATE', attempts, timing)
                     raise

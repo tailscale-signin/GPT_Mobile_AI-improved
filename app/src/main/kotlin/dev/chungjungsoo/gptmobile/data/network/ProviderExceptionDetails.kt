@@ -412,6 +412,8 @@ internal fun providerExceptionDetails(
             (http?.retryAfterMillis ?: retryAt?.let { ProviderRetryPolicy.remainingMillis(it, nowMillis) })?.let { put("retry_after_ms", it) }
             (retryAt ?: observedRetryAt)?.let { put("retry_at_ms", it) }
             httpFailure?.retrySource?.let { put("retry_source", it) }
+            httpFailure?.limitSource?.let { put("provider_limit_source", it) }
+            httpFailure?.cooldownScope?.removePrefix("provider:")?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }?.let { put("provider_cooldown_scope_hash", it) }
             httpFailure?.consecutiveRejections?.takeIf { it > 0 }?.let { put("consecutive_rejections", it) }
             httpFailure?.errorOrigin?.let { put("provider_error_origin", it) }
             httpFailure?.errorType?.let { put("provider_error_type", it) }

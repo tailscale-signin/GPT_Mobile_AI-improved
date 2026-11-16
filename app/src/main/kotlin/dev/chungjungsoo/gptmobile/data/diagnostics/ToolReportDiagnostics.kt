@@ -119,6 +119,37 @@ internal object ToolReportDiagnostics {
             putAll(typeShape(arguments, "argument"))
         }
         val receipt = result.executionReceipt
+        // A successful upstream HTTP response does not prove full pagination coverage.
+        // Preserve only typed counts and flags from the call-bound traversal receipt,
+        // never upstream record IDs, URLs or unbounded provider text.
+        if (event.modelToolName.substringBefore("__") == "github_ci" &&
+            result.isError &&
+            result.errorCode in setOf("GITHUB_PAGINATION_INCOMPLETE", "GITHUB_PAGINATION_STALLED") &&
+            receipt?.get("traversal_state") in setOf(JsonPrimitive("INCOMPLETE"), JsonPrimitive("STALLED"))
+        ) {
+            val pagination = receipt?.get("pagination_progress") as? JsonObject
+            if (pagination?.get("schema") == JsonPrimitive("github.pagination-progress.v1")) {
+                for ((source, target) in listOf(
+                    "remote_page" to "remote_pagination_page",
+                    "reported_total" to "remote_pagination_reported_total",
+                    "unique_records_observed" to "remote_pagination_unique_records",
+                    "duplicate_records_on_page" to "remote_pagination_duplicate_records"
+                )) {
+                    (pagination[source] as? JsonPrimitive)?.takeUnless { it.isString }?.intOrNull
+                        ?.takeIf { it in 0..16_000_000 }?.let { put(target, it) }
+                }
+                (pagination["remote_pages_observed"] as? JsonArray)?.takeIf { it.size <= 512 }
+                    ?.let { put("remote_pagination_pages_observed", it.size) }
+                for ((source, target) in listOf(
+                    "contiguous_from_first_page" to "remote_pagination_contiguous",
+                    "upstream_changed_during_traversal" to "remote_pagination_changed"
+                )) {
+                    (pagination[source] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
+                        ?.let { put(target, it) }
+                }
+                put("remote_pagination_reason", (receipt.getValue("traversal_state") as JsonPrimitive).content)
+            }
+        }
         if (event.modelToolName.substringBefore("__") == "repository_graph" &&
             receipt?.get("schema") == JsonPrimitive(RepositoryGraphTool.RECEIPT_SCHEMA) &&
             receipt["call_id"] == JsonPrimitive(result.callId) &&

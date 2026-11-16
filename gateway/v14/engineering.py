@@ -1439,10 +1439,25 @@ class EngineeringService:
                 job['data']['blocked_reason'] = {'code': code, 'retryable': False}
                 output.update(error_code=code, retryable=False)
             else:
-                phase = 'NEEDS_INPUT' if job['connection_retries'] >= 12 else job['state']
+                # This failure was classified as retry-safe. Do not terminate a
+                # multi-hour job after twelve transient transport attempts.
+                # Unknown GitHub writes have already taken the reconciliation
+                # path above and must never be replayed automatically.
                 delay = max(recovery_delay, min(300, 5 * 2 ** min(6, job['connection_retries'])))
-                output.update(retryable=phase != 'NEEDS_INPUT', retry_after_seconds=delay)
-                job['message'] = 'Connection unavailable; waiting for the bounded retry deadline. Confirmed work is retained.'
+                retry_at = self.store.now() + delay
+                available = retry_at < job['deadline'] - job['request'].get('execution_budget', {}).get('final_seconds', 30)
+                output.update(error_code='ENGINEERING_TRANSPORT_RETRY_WAIT', retryable=available,
+                              retry_after_seconds=delay, retry_at=retry_at,
+                              retry_source='TRANSIENT_TRANSPORT', attempts=job['connection_retries'])
+                if available:
+                    job['provider_wait'] = {'retry_at': retry_at, 'source': 'TRANSIENT_TRANSPORT',
+                                            'attempts': job['connection_retries']}
+                    job['message'] = 'Connection temporarily unavailable. The saved step will resume after its scheduled retry.'
+                else:
+                    phase = 'NEEDS_INPUT'
+                    delay = 0
+                    job['message'] = 'The retry would exceed the accepted job deadline. Confirmed work is retained.'
+                    job['data']['blocked_reason'] = dict(output)
         if output and 'error_type' not in output:
             job['connection_retries'] = 0
             job['stalls'] = 0

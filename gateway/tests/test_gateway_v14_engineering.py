@@ -486,17 +486,38 @@ class DurableEngineeringTests(unittest.TestCase):
         self.assertFalse(self.store.complete(claimed, lease, 'READ', {'ok': True}))
         self.assertEqual('CANCELLED', self.store.get(job['id'])['state'])
 
-    def test_network_interruption_retries_with_a_separate_bounded_budget(self):
+    def test_network_interruption_waits_durably_beyond_twelve_attempts_and_recovers(self):
         job = self.store.create('owner', self.request)
-        self.backend.step = lambda *args: (_ for _ in ()).throw(requests.ConnectionError('offline'))
-        for _ in range(4):
+        original_step = self.backend.step
+        failures = [0]
+
+        def temporarily_offline(current, phase):
+            if failures[0] < 16:
+                failures[0] += 1
+                raise requests.ConnectionError('offline')
+            return original_step(current, phase)
+
+        self.backend.step = temporarily_offline
+        for attempt in range(1, 17):
             self.service.tick(job['id'])
-        current = self.store.get(job['id'])
-        self.assertEqual('PLAN', current['state'])
-        self.assertEqual(0, current['stalls'])
-        for _ in range(8):
+            waiting = self.store.get(job['id'])
+            self.assertEqual('PLAN', waiting['state'])
+            self.assertEqual(0, waiting['stalls'])
+            self.assertEqual(attempt, waiting['connection_retries'])
+            self.assertEqual('TRANSIENT_TRANSPORT', waiting['provider_wait']['source'])
+            self.assertGreater(waiting['provider_wait']['retry_at'], self.time)
+            self.assertNotIn(job['id'], self.store.due())
+            # Even an explicit tick must honor the saved retry deadline.
             self.service.tick(job['id'])
-        self.assertEqual('NEEDS_INPUT', self.store.get(job['id'])['state'])
+            self.assertEqual(attempt, failures[0])
+            self.time = waiting['provider_wait']['retry_at'] + .1
+        self.store.recover()
+        self.service.tick(job['id'])
+        recovered = self.store.get(job['id'])
+        self.assertEqual('READ', recovered['state'])
+        self.assertEqual(0, recovered['connection_retries'])
+        self.assertNotIn('provider_wait', recovered)
+        self.assertEqual(16, failures[0])
 
     def test_server_cooldown_is_preserved_in_the_durable_schedule(self):
         job = self.store.create('owner', self.request)

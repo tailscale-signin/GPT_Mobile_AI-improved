@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import requests
 import subprocess
 import sys
 import tempfile
@@ -123,6 +124,34 @@ class AutonomousToolsTests(unittest.TestCase):
                  for name in ('targetCaller', 'target')]
         self.backend.recall_graph.return_value = {'status': 'FOUND', 'graph': {'commit_sha': self.head, 'coverage_complete': True}, 'nodes': nodes}
         self.assertEqual('target', self.action(action='explore', query='target')['graph']['nodes'][0]['name'])
+
+    def test_graph_transport_fallback_searches_only_pinned_source(self):
+        self.backend.recall_graph = Mock(side_effect=OSError('offline graph'))
+        result = self.action(action='explore', query='target')
+        self.assertEqual('text', result['method'])
+        self.assertEqual('UNAVAILABLE', result['graph_status'])
+        self.assertEqual('GRAPH_TRANSPORT_INTERRUPTED', result['graph_reason'])
+        self.assertTrue(result['matches'])
+        self.assertEqual({}, self.job['data']['files'])
+        with self.assertRaises(OSError):
+            self.action(action='symbols', query='target')
+        self.backend.recall_graph.side_effect = PermissionError('revoked')
+        with self.assertRaises(PermissionError):
+            self.action(action='explore', query='target')
+
+    def test_graph_http_error_fallback_only_for_service_failures(self):
+        self.backend.recall_graph = Mock()
+        unavailable = requests.Response()
+        unavailable.status_code = 503
+        self.backend.recall_graph.side_effect = requests.HTTPError('graph unavailable', response=unavailable)
+        result = self.action(action='explore', query='target')
+        self.assertEqual('text', result['method'])
+        self.assertEqual('GRAPH_HTTP_5XX', result['graph_reason'])
+        rejected = requests.Response()
+        rejected.status_code = 403
+        self.backend.recall_graph.side_effect = requests.HTTPError('graph authorization rejected', response=rejected)
+        with self.assertRaises(requests.HTTPError):
+            self.action(action='explore', query='target')
 
     def test_static_discovery_exposes_missing_policy_without_execution(self):
         source = 'import unittest\nclass Tests(unittest.TestCase):\n    def test_answer(self):\n        self.assertTrue(True)\n'

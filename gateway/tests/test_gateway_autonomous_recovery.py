@@ -1,6 +1,7 @@
 """Local checkpoint, streaming and qualification failure regressions."""
 from copy import deepcopy
 import json
+import threading
 from pathlib import Path
 import sys
 import unittest
@@ -10,6 +11,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import test_gateway_v14_engineering as durable_fixture
 from v14.engineering_checkpoints import rewind, history, candidate_details
+from v14.engineering_specialists import investigate
 from v14.engineering_operations import EngineeringOperations
 from v14.engineering_validation import patch_identity
 from v14.inference_execution import BoundModelInvocation
@@ -109,6 +111,59 @@ class AutonomousRecoveryTests(unittest.TestCase):
         self.service.completion_verification(self.job, dict(self.backend.evidence, head_sha='c' * 40))
         self.assertEqual(original, first)
         self.assertTrue(first['criterion_receipts'])
+
+
+class SpecialistCheckpointTests(unittest.TestCase):
+    def setUp(self):
+        self.job = {'id': 'specialist-fixture', 'principal': 'test-owner',
+                    'request': {'model': 'local-model', 'execution_mode': 'full',
+                                'execution_binding_id': 'verified-route-a'},
+                    'data': {'head_sha': 'a' * 40, 'tree': {}, 'files': {}, 'plan': {}}}
+        self.tasks = [{'role': 'source explorer', 'evidence': {'focus': 'inspect source'}}]
+        def save(job, value):
+            job['data']['specialists'] = deepcopy(value)
+        self.backend = SimpleNamespace(
+            save_specialists=save, cancellation=Mock(return_value=threading.Event()), model=Mock())
+
+    def test_malformed_model_response_recovers_and_checkpoint_is_binding_scoped(self):
+        attempts = []
+        def model(job, role, evidence):
+            attempts.append(evidence['format_repair'])
+            if len(attempts) == 1:
+                raise ValueError('invalid structured response')
+            return {'findings': ['bounded result ' + str(len(attempts))], 'paths': []}
+        self.backend.model = Mock(side_effect=model)
+        first = investigate(self.backend, self.job, self.tasks)
+        self.assertEqual('COMPLETED', first[0]['status'])
+        self.assertEqual(2, first[0]['calls'])
+        self.assertEqual([False, True], attempts)
+        self.assertEqual(first, investigate(self.backend, self.job, self.tasks))
+        self.assertEqual(2, len(attempts))
+        self.job['request']['execution_binding_id'] = 'verified-route-b'
+        refreshed = investigate(self.backend, self.job, self.tasks)
+        self.assertEqual(3, len(attempts))
+        self.assertNotEqual(first[0]['findings'], refreshed[0]['findings'])
+
+    def test_failed_format_checkpoint_is_retryable_without_claiming_success(self):
+        self.backend.model.side_effect = ValueError('unusable response')
+        rejected = investigate(self.backend, self.job, self.tasks)[0]
+        self.assertEqual('FORMAT_REJECTED', rejected['status'])
+        self.assertEqual([], rejected['findings'])
+        self.assertEqual(2, rejected['calls'])
+        self.backend.model.side_effect = None
+        self.backend.model.return_value = {'findings': ['recovered'], 'paths': []}
+        accepted = investigate(self.backend, self.job, self.tasks)[0]
+        self.assertEqual('COMPLETED', accepted['status'])
+        self.assertEqual(['recovered'], accepted['findings'])
+        self.assertEqual('COMPLETED', self.job['data']['specialists']['results']['source explorer']['status'])
+
+    def test_cancellation_stops_without_persisting_a_fake_result(self):
+        cancelled = threading.Event()
+        cancelled.set()
+        self.backend.cancellation.return_value = cancelled
+        with self.assertRaises(InterruptedError):
+            investigate(self.backend, self.job, self.tasks)
+        self.assertNotIn('specialists', self.job['data'])
 
 
 if __name__ == '__main__':

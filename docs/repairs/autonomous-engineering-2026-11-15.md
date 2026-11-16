@@ -86,3 +86,9 @@ environment (`Network is unreachable`). Full Android compilation, native display
 interaction, installed Windows/phone execution and the ten live production
 scenarios require CI or the configured runtime. No parity or live completion
 score is inferred from source changes and controlled tests.
+
+## Review follow-up: read-only graph fallback and specialist checkpoint safety
+
+- The `explore` workspace action now degrades from a failed graph transport or observed graph HTTP 5xx into exact-head, read-only text search over the pinned Git mirror. It retains `graph_status=UNAVAILABLE` and a typed `graph_reason`; it does **not** downgrade permission/cancellation failures or rewrite remote state. The `symbols` and `relationships` graph-only actions continue to surface their original failure.
+- Investigator checkpoints are now bound to model, selected execution route, principal/actor, permission revision, source SHA and task identity. Only complete findings can be reused. Malformed model output remains a typed, bounded `FORMAT_REJECTED` result, and a later authorized attempt can retry without treating that failed checkpoint as successful work.
+- Regression tests cover graph connection failure, HTTP 503, HTTP 403, cancellation, transient invalid structured output, and checkpoint rebinding. These are host-level source validations, not proof of live device or deployed Gateway behavior. Exact-head CI and real engineering qualification remain required before merge.

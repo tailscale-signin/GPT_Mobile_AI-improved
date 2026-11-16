@@ -9,6 +9,8 @@ import io
 import json
 import re
 
+import requests
+
 from v14.engineering_validation import cancellation_scope, load_policy, run_bounded
 
 PAGE_FILES = 64
@@ -125,10 +127,26 @@ class WorkspaceSearchService:
         if kind in {'symbols', 'relationships'}:
             return self.graph(action)
         if kind == 'explore':
-            graph = self.graph(action)
-            if graph.get('graph', {}).get('nodes'):
+            try:
+                graph = self.graph(action)
+            except (InterruptedError, PermissionError):
+                # Never reinterpret cancellation or revoked authority as an index outage.
+                raise
+            except requests.exceptions.HTTPError as error:
+                # Retry/fallback here is only for observed graph-service 5xx responses.
+                # Authentication, 404 and rate limits retain their original failures.
+                response = error.response
+                if response is None or not 500 <= response.status_code <= 599:
+                    raise
+                graph = {'status': 'UNAVAILABLE', 'reason': 'GRAPH_HTTP_5XX', 'complete': False}
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, OSError):
+                # Source exploration is read-only: the pinned mirror can still answer.
+                graph = {'status': 'UNAVAILABLE', 'reason': 'GRAPH_TRANSPORT_INTERRUPTED', 'complete': False}
+            nodes = graph.get('graph', {}).get('nodes') if isinstance(graph.get('graph'), dict) else None
+            if nodes:
                 return dict(graph, method='graph')
-            return dict(self.search(action), method='text', graph_status=graph['status'])
+            return dict(self.search(action), method='text', graph_status=graph['status'],
+                        graph_reason=graph.get('reason'))
         if kind == 'glob':
             paths = self.paths(action)
             offset = action.get('offset', 0)

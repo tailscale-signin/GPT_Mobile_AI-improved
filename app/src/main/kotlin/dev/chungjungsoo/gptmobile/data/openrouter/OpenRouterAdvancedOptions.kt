@@ -168,8 +168,8 @@ data class OpenRouterOptions(
         const val DEFAULT_PROVIDER_SORT = "price"
         const val DEFAULT_PROVIDER_ALLOW_FALLBACKS = true
 
+        // Let OpenRouter's reliability-aware router choose unless users explicitly select a sort.
         val DEFAULT_PROVIDER = OpenRouterProviderRouting(
-            sort = DEFAULT_PROVIDER_SORT,
             allowFallbacks = DEFAULT_PROVIDER_ALLOW_FALLBACKS
         )
 

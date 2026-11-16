@@ -35,6 +35,31 @@ class ProviderCooldownPreflightTest {
         }
     }
 
+    @Test fun aVerifiedFreeTier429BlocksOtherFreeModelsButNotPaidModels() = runBlocking {
+        val profile = profile().copy(model = "model/alpha:free")
+        val config = ProviderRequestConfig(
+            profile.apiUrl,
+            profile.token,
+            profileUid = profile.uid,
+            providerType = "OPENROUTER",
+            selectedModel = profile.model
+        )
+        withContext(ProviderWaitContext(durableRateLimits = true) {}) {
+            val failure = ProviderCooldown.rejected(
+                config,
+                429,
+                "60",
+                knownNotAccepted = true,
+                limitSource = "openrouter_free_tier_per_minute"
+            )
+            assertEquals("openrouter_free_tier_per_minute", failure.limitSource)
+            assertEquals(ProviderCooldown.scope(config, failure.limitSource), failure.cooldownScope)
+            val otherFree = requireNotNull(providerPreflightLimit(profile.copy(model = "model/beta:free")))
+            assertEquals(failure.cooldownScope, otherFree.scope)
+            assertNull(providerPreflightLimit(profile.copy(model = "model/beta")))
+        }
+    }
+
     @Test fun anAvailableAlternateCredentialRemainsDispatchableAndAllBlockedKeysUseTheEarliestDeadline() {
         val profile = profile()
         val alternate = "alternate-${UUID.randomUUID()}"

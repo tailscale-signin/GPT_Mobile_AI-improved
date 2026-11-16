@@ -344,7 +344,8 @@ class GitHubEngineeringBackend:
                 return self.operations.service.artifacts.json_value(job, operation['response_ref'])
             # Physical intent is recorded only after API admission succeeds.
         try:
-            resource = 'search' if path.startswith('/search/') else 'graphql' if path == '/graphql' else 'core'
+            resource = ('code_search' if path.startswith('/search/code?') or path == '/search/code'
+                        else 'search' if path.startswith('/search/') else 'graphql' if path == '/graphql' else 'core')
             with self.github_governor.lease(token, mutating=mutating, cancelled=admission_stopped,
                                            resource=resource, reserve=capacity_reserve):
                 if operation:

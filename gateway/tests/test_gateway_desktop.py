@@ -533,6 +533,37 @@ class UpdateTransactionTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_watchdog_keeps_trying_after_five_crashes_and_records_recovery(self):
+        manager = self.manager
+        manager.start_desktop_observer = Mock()
+        clock = [0.0]
+        starts = []
+        manager.child = Mock()
+        manager.child.poll.return_value = 1
+
+        def boot():
+            starts.append(clock[0])
+            if 1 < len(starts) <= 7:
+                raise RuntimeError('fixture failure')
+            if len(starts) == 8:
+                manager.child.poll.return_value = None
+                atomic_json(self.root / 'request.json', {'action': 'stop', 'id': 'fixture'})
+            return 0
+
+        def sleep(seconds):
+            clock[0] += seconds
+
+        manager.boot = boot
+        manager.respond = Mock()
+        with patch('desktop.manager.load', return_value={'update_mode': 'off'}), \
+                patch('desktop.manager.time.monotonic', side_effect=lambda: clock[0]), \
+                patch('desktop.manager.time.sleep', side_effect=sleep):
+            self.assertEqual(0, manager.run())
+        self.assertEqual([0, 2, 6, 14, 30, 62, 126, 254], starts)
+        self.assertEqual('crash_recovery', manager.startup_reason)
+        self.assertTrue(any(call.kwargs.get('recoveryAttempt') == 7 for call in manager.publish.mock_calls))
+        manager.respond.assert_called_once_with({'id': 'fixture', 'accepted': True, 'error': 'Active work must finish before restarting'})
+
     def test_busy_gateway_never_changes_pointer_or_cancels_work(self):
         self.manager.stop.return_value=False
         self.assertFalse(self.manager.activate('15.0.1'))

@@ -149,6 +149,10 @@ class GatewayEngineeringViewModel @Inject constructor(
         mutable.update { it.copy(checkpoints = null) }
     }
 
+    fun setContinuousEngineering(enabled: Boolean) = action {
+        repository.setContinuousEngineering(enabled)
+    }
+
     fun closeEvidence() {
         mutable.update { it.copy(evidencePreview = null) }
     }

@@ -253,6 +253,8 @@ data class GatewayEngineeringJob(
     val acceptance: List<GatewayEngineeringAcceptance> = emptyList(),
     val admission: JsonObject? = null,
     @SerialName("provider_retry_at") val providerRetryAt: Double? = null,
+    val retry: GatewayJobRetry? = null,
+    @SerialName("continuous_progress") val continuousProgress: GatewayContinuousProgress? = null,
     @SerialName("execution_mode") val executionMode: String? = null,
     @SerialName("batch_progress") val batchProgress: GatewayIntegrationBatchProgress? = null,
     @SerialName("post_merge") val postMerge: JsonObject? = null,
@@ -265,7 +267,7 @@ data class GatewayEngineeringJob(
     val ownershipLabel: String get() = if (detachSafe && acceptedAt != null && id.isNotBlank()) {
         when {
             terminal -> "Saved on Gateway"
-            providerRetryAt != null -> "Saved on Gateway · waiting for provider"
+            providerRetryAt != null -> "Saved on Gateway · waiting to retry"
             state in setOf("MERGE_READY", "NEEDS_INPUT") -> "Saved on Gateway · waiting for your input"
             else -> "Saved and running on Gateway"
         }

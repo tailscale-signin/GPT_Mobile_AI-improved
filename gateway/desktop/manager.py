@@ -389,19 +389,32 @@ class Supervisor:
             return result
         self.start_desktop_observer()
         next_check, next_activate, candidate = time.monotonic() + 30, 0, None
-        crashes = []
+        crashes, retry_at = [], None
         while True:
-            if self.child.poll() is not None:
-                crashes = [t for t in crashes if time.monotonic() - t < 600]
-                if len(crashes) >= 5:
-                    raise RuntimeError('Five unexpected exits within ten minutes; restart stopped')
-                crashes.append(time.monotonic())
-                self.publish(state='recovering')
-                self.startup_reason = 'crash_recovery'
-                time.sleep(min(2 ** len(crashes), 30))
-                result = self.boot()
-                if result:
-                    return result
+            if self.child is None or self.child.poll() is not None:
+                now = time.monotonic()
+                if retry_at is not None and now >= retry_at:
+                    try:
+                        result = self.boot()
+                    except (OSError, RuntimeError, requests.RequestException) as error:
+                        # Restart failures only return to the watchdog when the
+                        # process is gone. Never duplicate a live engine.
+                        if self.child is not None and self.child.poll() is None:
+                            raise
+                        self.log.warning('Gateway recovery boot failed: %s', type(error).__name__)
+                        retry_at = None
+                    else:
+                        if result:
+                            return result
+                        retry_at = None
+                        self.publish(recoveryAttempt=None, recoveryRetryAt=None)
+                if (self.child is None or self.child.poll() is not None) and retry_at is None:
+                    crashes = [t for t in crashes if now - t < 600]
+                    crashes.append(now)
+                    delay = min(300, 2 ** min(9, len(crashes)))
+                    retry_at = now + delay
+                    self.publish(state='recovering', recoveryAttempt=len(crashes), recoveryRetryAt=time.time() + delay)
+                    self.startup_reason = 'crash_recovery'
             request_path = self.root / 'request.json'
             action, ident = None, None
             try:
@@ -429,6 +442,8 @@ class Supervisor:
                     ident = None
                 elif action not in {None, 'check', 'install'}:
                     raise ValueError('Unknown manager command')
+                if action == 'install' and retry_at is not None:
+                    raise RuntimeError('Install is available when Gateway has recovered')
                 if action in {'check', 'install'} or current_cfg['update_mode'] != 'off' and time.monotonic() >= next_check:
                     candidate = releases.check(read_pointer(self.root)['version'])
                     next_check = time.monotonic() + current_cfg['update_interval_hours'] * 3600
@@ -439,7 +454,7 @@ class Supervisor:
                         self.respond({'id': ident, 'accepted': True})
                 automatic = current_cfg['update_mode'] == 'auto' and time.monotonic() >= next_activate
                 failed = read_pointer(self.root).get('failedVersion')
-                if candidate and (action == 'install' or automatic and candidate['version'] != failed):
+                if retry_at is None and candidate and (action == 'install' or automatic and candidate['version'] != failed):
                     self.publish(updateState='downloading')
                     self.stage(candidate)
                     next_activate = time.monotonic() + 60

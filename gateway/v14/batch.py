@@ -121,20 +121,27 @@ def deferred_read(result):
             and result['error'].get('code') == 'BATCH_READ_DEFERRED')
 
 
+def is_rate_limit_response(status, headers):
+    if status == 429:
+        return True
+    if status != 403:
+        return False
+    normalized = {str(key).lower(): str(value) for key, value in headers.items()}
+    return 'retry-after' in normalized or normalized.get('x-ratelimit-remaining') == '0'
+
+
 def deferred_receipt(error, attempt):
     """Keep sanitized cooldown evidence instead of erasing an HTTP 429 inside a batch."""
     response = getattr(error, 'response', None)
     status = getattr(response, 'status_code', None)
     headers = getattr(response, 'headers', {}) or {}
-    lowered = {str(key).lower(): value for key, value in headers.items()}
-    secondary = (status == 403 and
-                 ('retry-after' in lowered or lowered.get('x-ratelimit-remaining') == '0'))
-    if status != 429 and not secondary:
+    if not is_rate_limit_response(status, headers):
         return None
-    wait, source = provider_rate_limit_delay(headers, attempt + 1, time.time())
+    now = time.time()
+    wait, source = provider_rate_limit_delay(headers, attempt + 1, now)
     return {'isError': True, 'error': {
         'code': 'BATCH_READ_DEFERRED', 'http_status': 429,
-        'original_status': status, 'retry_at': round(time.time() + wait, 3),
+        'original_status': status, 'retry_at': round(now + wait, 3),
         'retry_source': source}, 'dispatched': getattr(error, 'dispatched', True)}
 
 
@@ -157,7 +164,7 @@ def provider_rate_limit_delay(headers, attempt, now):
                 seconds = None
         if seconds is not None and math.isfinite(seconds):
             hints.append((max(0.0, seconds), 'RETRY_AFTER'))
-    if 'x-ratelimit-reset' in headers:
+    if 'x-ratelimit-reset' in headers and str(headers.get('x-ratelimit-remaining', '0')) == '0':
         try:
             epoch = float(headers['x-ratelimit-reset'])
             if epoch >= 1_000_000_000_000:
@@ -170,7 +177,7 @@ def provider_rate_limit_delay(headers, attempt, now):
     return max(1.0, delay) + random.uniform(0, .25), source
 
 
-def retry_delay(error, attempt):
+def retry_delay(error, attempt, *, max_retry_after=120, now=None):
     """A safe-read retry delay, or None when recovery requires explicit action.
 
     A server cooldown is a lower bound, not a value to clamp downward. Long
@@ -191,19 +198,19 @@ def retry_delay(error, attempt):
     if status is None and not isinstance(error, (TimeoutError, requests.Timeout, requests.ConnectionError)):
         return None
     headers = getattr(response, 'headers', {}) or {}
-    value = headers.get('Retry-After')
+    value = next((value for key, value in headers.items() if str(key).lower() == 'retry-after'), None)
     retry_after = 0.0
     if value is not None:
         try:
             retry_after = float(value)
         except (TypeError, ValueError, OverflowError):
             try:
-                retry_after = parsedate_to_datetime(str(value)).timestamp() - time.time()
+                retry_after = parsedate_to_datetime(str(value)).timestamp() - (time.time() if now is None else now())
             except (TypeError, ValueError, OverflowError):
                 # An unparseable explicit cooldown is not permission to guess a
                 # shorter wait. Preserve the failure for an explicit refresh.
                 return None
-        if not math.isfinite(retry_after) or retry_after > 120:
+        if not math.isfinite(retry_after) or max_retry_after is not None and retry_after > max_retry_after:
             return None
         retry_after = max(0.0, retry_after)
     return max(retry_after, min(8, .5 * 2 ** min(4, max(0, attempt))) + random.uniform(0, .25))

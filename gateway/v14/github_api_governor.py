@@ -13,6 +13,8 @@ from types import SimpleNamespace
 
 import requests
 
+from v14.batch import is_rate_limit_response
+
 
 class GitHubApiRateWait(requests.HTTPError):
     def __init__(self, seconds, *, reason='RATE_LIMIT_COOLDOWN'):
@@ -23,9 +25,37 @@ class GitHubApiRateWait(requests.HTTPError):
             'Retry-After': str(max(1, math.ceil(seconds)))})
 
 
+class DurableGitHubCooldowns:
+    def __init__(self, transaction):
+        self.transaction = transaction
+
+    @staticmethod
+    def schema(db):
+        db.execute('CREATE TABLE IF NOT EXISTS engineering_github_cooldowns ('
+                   'credential_hash TEXT NOT NULL, resource TEXT NOT NULL, retry_at REAL NOT NULL, '
+                   'PRIMARY KEY(credential_hash,resource))')
+
+    def load(self, key, now):
+        def read(db):
+            self.schema(db)
+            return dict(db.execute('SELECT resource,retry_at FROM engineering_github_cooldowns '
+                                   'WHERE credential_hash=? AND retry_at>?', (key, now)).fetchall())
+        return self.transaction(read)
+
+    def save(self, key, resource, retry_at, now):
+        def write(db):
+            self.schema(db)
+            db.execute('DELETE FROM engineering_github_cooldowns WHERE retry_at<=?', (now,))
+            db.execute('INSERT INTO engineering_github_cooldowns VALUES(?,?,?) '
+                       'ON CONFLICT(credential_hash,resource) DO UPDATE SET retry_at=MAX(retry_at,excluded.retry_at)',
+                       (key, resource, retry_at))
+        self.transaction(write)
+
+
 class GitHubApiGovernor:
-    def __init__(self, clock=time.monotonic, wall=time.time):
+    def __init__(self, clock=time.monotonic, wall=time.time, cooldowns=None):
         self.clock, self.wall = clock, wall
+        self.cooldowns = cooldowns
         self.condition = threading.Condition(threading.RLock())
         self.accounts = {}
 
@@ -35,10 +65,14 @@ class GitHubApiGovernor:
             raise ValueError('GitHub account credential is unavailable')
         return hashlib.sha256(token.encode('utf-8')).hexdigest()
 
-    def _record(self, token):
-        key = self._identity(token)
-        return self.accounts.setdefault(key, {'active': False, 'cooldown_until': 0.0,
-                                              'next_mutation': 0.0})
+    def _record(self, key):
+        if key not in self.accounts:
+            wall_now, now = self.wall(), self.clock()
+            saved = self.cooldowns.load(key, wall_now) if self.cooldowns is not None else {}
+            self.accounts[key] = {'active': False, 'next_mutation': 0.0,
+                                  'cooldowns': {resource: now + retry_at - wall_now
+                                                for resource, retry_at in saved.items()}}
+        return self.accounts[key]
 
     @contextmanager
     def lease(self, token, *, mutating=False, cancelled=lambda: False, resource='core', reserve=0):
@@ -47,11 +81,15 @@ class GitHubApiGovernor:
             while True:
                 if cancelled():
                     raise InterruptedError('GitHub request stopped before dispatch')
-                record = self.accounts.setdefault(key, {'active': False, 'cooldown_until': 0.0, 'next_mutation': 0.0})
+                record = self._record(key)
                 now = self.clock()
-                if record['cooldown_until'] > now:
+                account_until = record['cooldowns'].get('account', 0)
+                resource_until = record['cooldowns'].get(resource, 0)
+                until = max(account_until, resource_until)
+                if until > now:
                     # Hand the authoritative wait back to the durable job journal.
-                    raise GitHubApiRateWait(record['cooldown_until'] - now)
+                    reason = 'OBSERVED_QUOTA_EXHAUSTED' if resource_until > account_until else 'RATE_LIMIT_COOLDOWN'
+                    raise GitHubApiRateWait(until - now, reason=reason)
                 # Source indexing shares the credential with foreground work.
                 # A reserve is local policy, never an assumed GitHub quota. Only
                 # an observed core remaining/reset pair can defer a source read.
@@ -87,7 +125,7 @@ class GitHubApiGovernor:
             except (TypeError, ValueError, OverflowError):
                 try:
                     value = parsedate_to_datetime(str(raw)).timestamp() - wall_now
-                except (TypeError, ValueError, OverflowError):
+                except (TypeError, ValueError, OverflowError, OSError):
                     value = None
             if value is not None and math.isfinite(value):
                 return max(0.0, value)
@@ -118,9 +156,7 @@ class GitHubApiGovernor:
     def retry_delay(cls, status, headers, wall_now):
         """Bounded metadata-only classification; a bare forbidden response is not throttling."""
         headers = cls._headers(headers)
-        limited = status == 429 or status == 403 and (
-            'retry-after' in headers or str(headers.get('x-ratelimit-remaining')) == '0')
-        if not limited:
+        if not is_rate_limit_response(status, headers):
             return None
         cooldown = cls._retry_after(headers, wall_now)
         if cooldown is None:
@@ -134,16 +170,28 @@ class GitHubApiGovernor:
         headers = self._headers(headers)
         wall_now = self.wall()
         cooldown = self.retry_delay(status, headers, wall_now)
+        key = self._identity(token)
         with self.condition:
-            record = self._record(token)
+            record = self._record(key)
             now = self.clock()
             reset = self._reset(headers)
             remaining = str(headers.get('x-ratelimit-remaining', ''))
             if headers.get('x-ratelimit-resource') == 'core' and 1 <= len(remaining) <= 12 and remaining.isascii() and remaining.isdecimal() and reset is not None and reset > wall_now:
                 record.update(core_remaining=int(remaining), core_reset_at=now + reset - wall_now)
-            if cooldown is not None:
-                record['cooldown_until'] = max(record['cooldown_until'], now + cooldown)
+            resource = headers.get('x-ratelimit-resource')
+            primary_exhausted = remaining == '0' and reset is not None and reset > wall_now
+            if primary_exhausted and resource in ('core', 'search', 'graphql', 'code_search', 'integration_manifest'):
+                self._defer(key, record, resource, max(reset - wall_now, cooldown or 0), now, wall_now)
+            elif cooldown is not None:
+                self._defer(key, record, 'account', cooldown, now, wall_now)
             self.condition.notify_all()
+
+    def _defer(self, key, record, resource, seconds, now, wall_now):
+        retry_at = now + seconds
+        if retry_at > record['cooldowns'].get(resource, 0):
+            record['cooldowns'][resource] = retry_at
+            if self.cooldowns is not None:
+                self.cooldowns.save(key, resource, wall_now + seconds, wall_now)
 
 
 GLOBAL_GITHUB_GOVERNOR = GitHubApiGovernor()

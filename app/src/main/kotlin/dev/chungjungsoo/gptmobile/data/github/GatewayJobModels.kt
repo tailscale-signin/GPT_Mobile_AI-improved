@@ -29,6 +29,17 @@ data class GatewayJobCounts(
 }
 
 @Serializable
+data class GatewayJobRetry(val source: String, val attempts: Int, val stage: String? = null, val outcome: String? = null)
+
+@Serializable
+data class GatewayContinuousProgress(
+    val session: Int,
+    @SerialName("session_limit") val sessionLimit: Int,
+    @SerialName("confirmed_steps") val confirmedSteps: Int,
+    @SerialName("verified_milestones") val verifiedMilestones: Int
+)
+
+@Serializable
 data class GatewayJobSummary(
     @SerialName("job_id") val jobId: String,
     @SerialName("job_kind") val jobKind: String,
@@ -57,6 +68,8 @@ data class GatewayJobSummary(
     @SerialName("source_sha") val sourceSha: String? = null,
     @SerialName("working_branch") val workingBranch: String? = null,
     @SerialName("provider_retry_at") val providerRetryAt: Double? = null,
+    val retry: GatewayJobRetry? = null,
+    @SerialName("continuous_progress") val continuousProgress: GatewayContinuousProgress? = null,
     @SerialName("execution_mode") val executionMode: String? = null,
     @SerialName("batch_progress") val batchProgress: GatewayIntegrationBatchProgress? = null,
     @SerialName("recovery_of") val recoveryOf: String? = null,

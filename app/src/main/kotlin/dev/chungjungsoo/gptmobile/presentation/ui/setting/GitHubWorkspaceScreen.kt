@@ -489,6 +489,24 @@ fun GitHubWorkspaceScreen(
                                         },
                                         onDecisionMode = programmer::setDecisionMode
                                     )
+                                    Row(
+                                        Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text("Continuous engineering", style = MaterialTheme.typography.titleSmall)
+                                            Text(
+                                                "Continue new Gateway jobs across saved sessions for up to 72 hours within the accepted model budget.",
+                                                style = MaterialTheme.typography.bodySmall
+                                            )
+                                        }
+                                        androidx.compose.material3.Switch(
+                                            checked = engineering.options.durationHours == 0,
+                                            onCheckedChange = engineeringModel::setContinuousEngineering,
+                                            enabled = !engineering.busy && visibleProgrammer.chatId != null
+                                        )
+                                    }
                                     if (state.selection != null) {
                                         OutlinedTextField(branchName, { branchName = it }, label = { Text("New working branch") }, singleLine = true, modifier = Modifier.fillMaxWidth())
                                         Button(onClick = {

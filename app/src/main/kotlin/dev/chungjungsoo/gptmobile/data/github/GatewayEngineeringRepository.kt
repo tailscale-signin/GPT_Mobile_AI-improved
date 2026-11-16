@@ -59,6 +59,14 @@ class GatewayEngineeringRepository @Inject constructor(
 
     suspend fun options(): GatewayEngineeringSettings = settings.getFeatureSettings().githubEngineeringSettings
 
+    suspend fun setContinuousEngineering(enabled: Boolean) {
+        settings.mutateFeatureSettings { current ->
+            val options = current.githubEngineeringSettings
+            val duration = if (enabled) 0 else if (options.durationHours == 0) GatewayEngineeringSettings().durationHours else options.durationHours
+            current.copy(githubEngineeringSettings = options.copy(durationHours = duration))
+        }
+    }
+
     /** Composer guard: checking uncertainty never creates or resumes gateway execution. */
     suspend fun hasUnconfirmedAdmission(chatId: Int, profileUid: String): Boolean = store.hasMigratedAdmission(chatId, profileUid) || bindings(chatId).any { it.request.profileId == profileUid && it.job == null && store.admissionState(it.request.requestId)?.startsWith("REJECTED:") != true }
 

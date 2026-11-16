@@ -130,6 +130,17 @@ class AppAuditInventoryTest(unittest.TestCase):
         self.assertEqual('benchmark', indexed[profile]['area_id'])
         self.assertEqual('chat_ui', indexed[controls]['area_id'])
 
+    def test_inventory_source_path_sort_matches_python_path(self):
+        # pathlib.Path sorts directory components, not the raw path string.
+        # "values" must precede "values-ar" even though "-" sorts before "/".
+        regular = 'app/src/main/res/values/attrs.xml'
+        localized = 'app/src/main/res/values-ar/strings.xml'
+        self.write(localized, '<resources/>\\n')
+        self.write(regular, '<resources/>\\n')
+        found = [row['path'] for row in inventory.document(self.root)['files']]
+        self.assertEqual([regular, localized], found)
+        self.assertNotEqual(sorted(found), found)
+
     def test_committed_inventory_matches_current_source(self):
         root = SCRIPT.parents[1]
         data = inventory.document(root)

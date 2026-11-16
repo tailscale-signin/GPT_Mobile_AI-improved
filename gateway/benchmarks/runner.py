@@ -169,12 +169,31 @@ class BenchmarkRunner:
                     samples = [sample(entry) for entry in CASES]
                 else:
                     with ThreadPoolExecutor(max_workers=width, thread_name_prefix='benchmark-request') as pool:
-                        futures = {pool.submit(sample, entry): index for index, entry in enumerate(CASES)}
-                        results = {}
+                        # Submit only the admitted wave. Previously every trial
+                        # was queued at once, making cancellation race with
+                        # already-scheduled work beyond the requested width.
+                        futures, results = {}, {}
+                        next_index = 0
+
+                        def admit_one():
+                            nonlocal next_index
+                            if next_index >= len(CASES) or self.cancelled.is_set():
+                                return
+                            future = pool.submit(sample, CASES[next_index])
+                            futures[future] = next_index
+                            next_index += 1
+
+                        for _ in range(min(width, len(CASES))):
+                            admit_one()
                         try:
-                            for future in as_completed(futures):
-                                results[futures[future]] = future.result()
+                            while futures:
+                                future = next(as_completed(tuple(futures)))
+                                index = futures.pop(future)
+                                results[index] = future.result()
+                                admit_one()
                         except InterruptedError:
+                            # Wait for already-admitted observations to settle;
+                            # no additional trial may be dispatched.
                             self.cancelled.set()
                             for pending in futures:
                                 pending.cancel()

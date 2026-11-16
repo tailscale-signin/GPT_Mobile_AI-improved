@@ -516,7 +516,7 @@ class BenchmarkLifecycleTest(unittest.TestCase):
             lock = threading.Lock()
             dispatched = []
             receipt = dict(passed=True, firstContentMs=1, totalMs=2, maximumContentGapMs=0,
-                           backendTimings=None, usage=None, outputSha256='measured', finishReason='stop',
+                           backendTimings=None, usage=None, outputSha256='measured', outputBytes=8, finishReason='stop',
                            observedModel='selected', modelReceipt='REPORTED_IDENTIFIER',
                            identityScope='HTTP_ROUTE_AND_REPORTED_IDENTIFIER', gatewayJobId='completed')
 

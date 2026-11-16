@@ -18,11 +18,11 @@
     "benchmark_selected_model.py": "74985610accaf4f5d173bd7a3729b53efdb97977a369622872f0a3e6ffc2e702",
     "benchmarks/__init__.py": "41272b2eea9583e478e1e0b5b060ec446c14871ff038feecc8e30fb3aae86a56",
     "benchmarks/capstones.py": "698734a2660efeca4a96454d00cb5ddaa63d19d08b61f041e334f3e1de3b754b",
-    "benchmarks/coding.py": "a95957044a3e372478cd62209697b6ab75630cb89ca3d37f5ea65b404222fa34",
+    "benchmarks/coding.py": "0bb143e638f80eecbf50383186f90202528b0c90e77ca00f0f5b97142f02a67a",
     "benchmarks/contracts.py": "8461268b80340b2708010cfd06850ee0b4219cf9b10a96294e4ebfebd4526779",
     "benchmarks/engineering_qualification.py": "5c5369002e50bb543b1d9b07beb72bad4a3f536309b7caed7076c31da78c76d8",
-    "benchmarks/fixtures.py": "5391e9028629063c2d34d4edccf4703ab72817ad84e25edd4b4cba5f08e291b2",
-    "benchmarks/runner.py": "4bb563b5bc89e6fe124d9fe0df4d1b571db5dd2ed427b4d870a6ce1082bfe280",
+    "benchmarks/fixtures.py": "6d9e4ace76895e267750c1ec8f6b8ca1ae4f62438a416a275cc758bcb869da3c",
+    "benchmarks/runner.py": "5f8e4568c7c5cf3d262f030fdfa47c14519b0b260979343847398df2492e4451",
     "benchmarks/sandbox.py": "4b4e3ff6338ee6fb1dae30e8d67c2f215c8214c7536a2d80cb88fe2ae9ba0e87",
     "benchmarks/service.py": "74ea962ffdd78b0147947de05b2350559e1ed0c2b37f1bda60a58f729bfa4a28",
     "benchmarks/settings.py": "ae0ed267e377c673cac908122b31c33df8aa8fe1bedae721b4d68afabc93f6d3",
@@ -348,6 +348,7 @@
     "v14/tools.py": "528eeb0a680b257d3de4bb856afc67a1ddd493763a7d7ed0ba2e9c052fbceb63",
     "v14/usage.py": "78ed6358fe1ea50c045d41438aeb57d40ea1e6c2f84fd0f66d01b1204ae316c7",
     "v14/validation_host.py": "a06b03dcb7e5b31aa50a40de8ede44ef446c3922c33ca46033deccda4296632e",
-    "v14/workspace_search.py": "ec58767ddff53d50fc3f1ffd3c5fb48046506f7f8f71b143916cbadc5d556c3c"
+    "v14/workspace_search.py": "ec58767ddff53d50fc3f1ffd3c5fb48046506f7f8f71b143916cbadc5d556c3c",
+    "tests/test_gateway_benchmark_patch_recovery.py": "57a4c148798c9823678853b4ca0b138b009a03ebaece412d02cc71fcc8adcbdf"
   }
 }

@@ -63,56 +63,124 @@ internal object GitHubProfileAuditSuite {
 
     /** Values are intentionally fabricated and are never submitted to GitHub. */
     private fun arguments(operation: String, action: String?, fields: Set<String>): JsonObject = buildJsonObject {
-        fun str(key: String, value: String) { if (key in fields) put(key, value) }
-        fun num(key: String, value: Int) { if (key in fields) put(key, value) }
-        fun names(key: String) { if (key in fields) put(key, buildJsonArray { add(JsonPrimitive("fixture-user")) }) }
+        fun str(key: String, value: String) {
+            if (key in fields) put(key, value)
+        }
+
+        fun num(key: String, value: Int) {
+            if (key in fields) put(key, value)
+        }
+
+        fun names(key: String) {
+            if (key in fields) put(key, buildJsonArray { add(JsonPrimitive("fixture-user")) })
+        }
+
         action?.let { str("action", it) }
-        if (operation != "github_repository") { str("owner", "fixture"); str("repo", "offline") }
+        if (operation != "github_repository") {
+            str("owner", "fixture")
+            str("repo", "offline")
+        }
         when (operation) {
             "github_repository" -> when (action) {
                 "create", "fork", "import" -> {
-                    str("destination_owner", "fixture-user"); str("destination_repo", "offline"); str("owner_type", "user"); str("visibility", "private")
-                    if (action != "create") { str("source_owner", "fixture-user"); str("source_repo", "original") }
-                    if (action == "import") { str("source_ref", "main"); str("copy_mode", "snapshot") }
+                    str("destination_owner", "fixture-user")
+                    str("destination_repo", "offline")
+                    str("owner_type", "user")
+                    str("visibility", "private")
+                    if (action != "create") {
+                        str("source_owner", "fixture-user")
+                        str("source_repo", "original")
+                    }
+                    if (action == "import") {
+                        str("source_ref", "main")
+                        str("copy_mode", "snapshot")
+                    }
                 }
-                "clone" -> { str("source_owner", "fixture-user"); str("source_repo", "original"); str("source_ref", "main") }
-                "status" -> { str("operation", "create_repository"); str("operation_id", "repoop_" + "a".repeat(32)) }
+                "clone" -> {
+                    str("source_owner", "fixture-user")
+                    str("source_repo", "original")
+                    str("source_ref", "main")
+                }
+                "status" -> {
+                    str("operation", "create_repository")
+                    str("operation_id", "repoop_" + "a".repeat(32))
+                }
             }
             "github_context" -> if (action == "repositories") str("query", "fixture")
             "github_search" -> str("query", "fixture")
-            "github_read" -> if ("ranges" in fields) put("ranges", buildJsonArray {
-                add(buildJsonObject { put("path", "README.md"); put("start_line", 1); put("max_lines", 5) })
-            })
+            "github_read" -> if ("ranges" in fields) {
+                put(
+                    "ranges",
+                    buildJsonArray {
+                        add(
+                            buildJsonObject {
+                                put("path", "README.md")
+                                put("start_line", 1)
+                                put("max_lines", 5)
+                            }
+                        )
+                    }
+                )
+            }
             "github_watch_checks" -> num("pr_number", 1)
-            "github_stage_patch" -> { str("target_file", "README.md"); str("search_snippet", "before"); str("replacement_snippet", "after") }
+            "github_stage_patch" -> {
+                str("target_file", "README.md")
+                str("search_snippet", "before")
+                str("replacement_snippet", "after")
+            }
             "github_write" -> {
-                str("branch", "fixture-branch"); str("expected_head_sha", sha); str("message", "Offline fixture")
-                if ("files" in fields) put("files", buildJsonArray { add(buildJsonObject { put("path", "fixture.txt"); put("content", "fixture") }) })
+                str("branch", "fixture-branch")
+                str("expected_head_sha", sha)
+                str("message", "Offline fixture")
+                if ("files" in fields) {
+                    put("files", buildJsonArray {
+                        add(buildJsonObject {
+                            put("path", "fixture.txt")
+                            put("content", "fixture")
+                        })
+                    })
+                }
             }
             "github_commit" -> {
-                str("branch", "fixture-branch"); str("expected_head_sha", sha)
+                str("branch", "fixture-branch")
+                str("expected_head_sha", sha)
                 when (action) {
                     "branch" -> str("from_branch", "main")
                     "delete_fixture_branch" -> str("origin_head_sha", "b".repeat(40))
                     "delete_branch" -> Unit
-                    else -> { str("stage_id", "offline-stage"); str("message", "Offline fixture") }
+                    else -> {
+                        str("stage_id", "offline-stage")
+                        str("message", "Offline fixture")
+                    }
                 }
             }
             "github_ci" -> when (action) {
                 "run", "artifacts", "rerun", "rerun_failed_jobs", "rerun_all", "cancel", "jobs" -> num("run_id", 1)
                 "job", "logs" -> num("job_id", 1)
-                "dispatch" -> { str("workflow_id", "ci.yml"); str("ref", "main"); str("expected_head_sha", sha) }
+                "dispatch" -> {
+                    str("workflow_id", "ci.yml")
+                    str("ref", "main")
+                    str("expected_head_sha", sha)
+                }
             }
             "github_pr" -> {
                 when (action) {
                     "list" -> Unit
-                    "create" -> { str("title", "Fixture"); str("head", "feature"); str("base", "main") }
+                    "create" -> {
+                        str("title", "Fixture")
+                        str("head", "feature")
+                        str("base", "main")
+                    }
                     "headers", "context", "comments", "reviews", "threads" -> num("pull_number", 1)
                     else -> {
-                        num("pull_number", 1); str("expected_head_sha", sha)
+                        num("pull_number", 1)
+                        str("expected_head_sha", sha)
                         when (action) {
                             "update" -> str("title", "Fixture update")
-                            "comment", "reply" -> { str("body", "Fixture comment"); if (action == "reply") num("comment_id", 1) }
+                            "comment", "reply" -> {
+                                str("body", "Fixture comment")
+                                if (action == "reply") num("comment_id", 1)
+                            }
                             "review" -> str("event", "APPROVE")
                         }
                     }
@@ -121,12 +189,22 @@ internal object GitHubProfileAuditSuite {
                     when (action) {
                         "request_reviewers", "remove_reviewers" -> names("reviewers")
                         "resolve_thread", "reopen_thread" -> str("thread_id", "fixture-thread")
-                        "dismiss_review" -> { num("review_id", 1); str("body", "Fixture reason") }
-                        "edit_comment", "edit_review_comment" -> { num("comment_id", 1); str("body", "Fixture"); str("expected_comment_updated_at", "2026-01-01T00:00:00Z") }
+                        "dismiss_review" -> {
+                            num("review_id", 1)
+                            str("body", "Fixture reason")
+                        }
+                        "edit_comment", "edit_review_comment" -> {
+                            num("comment_id", 1)
+                            str("body", "Fixture")
+                            str("expected_comment_updated_at", "2026-01-01T00:00:00Z")
+                        }
                         "add_labels" -> names("labels")
                         "remove_label" -> str("label", "fixture")
                         "add_assignees", "remove_assignees" -> names("assignees")
-                        "react", "remove_reaction" -> { str("reaction", "+1"); if (action == "remove_reaction") num("reaction_id", 1) }
+                        "react", "remove_reaction" -> {
+                            str("reaction", "+1")
+                            if (action == "remove_reaction") num("reaction_id", 1)
+                        }
                     }
                 }
             }
@@ -134,16 +212,30 @@ internal object GitHubProfileAuditSuite {
                 when (action) {
                     "headers", "context", "comments", "history" -> num("issue_number", 1)
                     "create" -> str("title", "Fixture")
-                    "update" -> { num("issue_number", 1); str("expected_updated_at", "2026-01-01T00:00:00Z"); str("title", "Fixture update") }
-                    in GitHubCollaboration.issueActions -> { num("issue_number", 1); str("expected_updated_at", "2026-01-01T00:00:00Z") }
+                    "update" -> {
+                        num("issue_number", 1)
+                        str("expected_updated_at", "2026-01-01T00:00:00Z")
+                        str("title", "Fixture update")
+                    }
+                    in GitHubCollaboration.issueActions -> {
+                        num("issue_number", 1)
+                        str("expected_updated_at", "2026-01-01T00:00:00Z")
+                    }
                 }
                 if (action in GitHubCollaboration.issueActions) {
                     when (action) {
-                        "edit_comment" -> { num("comment_id", 1); str("body", "Fixture"); str("expected_comment_updated_at", "2026-01-01T00:00:00Z") }
+                        "edit_comment" -> {
+                            num("comment_id", 1)
+                            str("body", "Fixture")
+                            str("expected_comment_updated_at", "2026-01-01T00:00:00Z")
+                        }
                         "add_labels" -> names("labels")
                         "remove_label" -> str("label", "fixture")
                         "add_assignees", "remove_assignees" -> names("assignees")
-                        "react", "remove_reaction" -> { str("reaction", "+1"); if (action == "remove_reaction") num("reaction_id", 1) }
+                        "react", "remove_reaction" -> {
+                            str("reaction", "+1")
+                            if (action == "remove_reaction") num("reaction_id", 1)
+                        }
                     }
                 }
             }
@@ -153,4 +245,5 @@ internal object GitHubProfileAuditSuite {
             }
         }
     }
+
 }

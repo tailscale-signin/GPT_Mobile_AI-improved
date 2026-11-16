@@ -534,7 +534,7 @@ class DisplayReadinessTest(unittest.TestCase):
         self.assertRegex(workflow, r'(?m)^            target: default$')
         self.assertRegex(workflow, r'(?m)^          - api: 36\n            profile: pixel_c\n            target: google_apis$')
         self.assertIn('          target: ${{ matrix.target }}', workflow)
-        self.assertIn('script: bash scripts/run_release0950_acceptance.sh', workflow)
+        self.assertIn('script: ACCEPTANCE_EMULATOR_API=${{ matrix.api }} ACCEPTANCE_EMULATOR_TARGET=${{ matrix.target }} bash scripts/run_release0950_acceptance.sh', workflow)
         dump = ('ACTIVITY MANAGER RUNNING PROCESSES (dumpsys activity processes)\n'
                 'ProcessRecord{abc 1035:com.android.systemui/u0a99}\n'
                 '  mCrashing=false mNotResponding=false\n'

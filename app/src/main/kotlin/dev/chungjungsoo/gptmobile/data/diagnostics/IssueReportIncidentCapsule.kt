@@ -97,11 +97,17 @@ internal object IssueReportIncidentCapsule {
     private val policyResponseHeaderOrder = listOf("REPORTED_OAUTH_SCOPES", "ACCEPTED_OAUTH_SCOPES", "ACCEPTED_GITHUB_PERMISSIONS", "SSO")
     private val policyResponseHeaderFields = setOf("status_policy_protection_permission_header_names", "status_policy_rules_permission_header_names")
     val policyResponseFields = policyResponseHeaderFields + setOf("status_policy_protection_404_kind", "status_policy_rules_404_kind")
+
     /** Sanitized fields retained when an observed remote traversal fails. */
     val remotePaginationFields = setOf(
-        "remote_pagination_page", "remote_pagination_pages_observed", "remote_pagination_reported_total",
-        "remote_pagination_unique_records", "remote_pagination_duplicate_records",
-        "remote_pagination_contiguous", "remote_pagination_changed", "remote_pagination_reason"
+        "remote_pagination_page",
+        "remote_pagination_pages_observed",
+        "remote_pagination_reported_total",
+        "remote_pagination_unique_records",
+        "remote_pagination_duplicate_records",
+        "remote_pagination_contiguous",
+        "remote_pagination_changed",
+        "remote_pagination_reason"
     )
     private val toolFields = setOf(
         "native_tool_action", "tool_contract_version", "action_schema_generation_hash", "validation_field_names", "validation_path_hashes", "unknown_field_hashes", "unknown_field_count",

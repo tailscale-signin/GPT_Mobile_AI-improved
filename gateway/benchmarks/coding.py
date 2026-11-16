@@ -13,6 +13,72 @@ def same(left, right):
     return json.dumps(left, sort_keys=True, ensure_ascii=True, allow_nan=False) == json.dumps(right, sort_keys=True, ensure_ascii=True, allow_nan=False)
 
 
+
+# Closed, source-owned diagnostic categories. Never export raw model patches
+# or exception messages: both may contain private source and filenames.
+PATCH_REPAIR_HINTS = {
+    'PATCH_JSON_INVALID': 'Return one complete JSON object without Markdown or trailing commentary.',
+    'PATCH_OUTPUT_TRUNCATED': 'Use smaller anchored edits and shorter regression vectors so the JSON can finish.',
+    'PATCH_GENERATION_INCOMPLETE': 'Return one complete proposal with a verified terminal response.',
+    'PATCH_BLOB_MISMATCH': 'Copy the exact displayed BLOB SHA for each changed file.',
+    'PATCH_ANCHOR_CONFLICT': 'Choose old text that occurs exactly once in the displayed file.',
+    'PATCH_ANCHOR_NOT_EXPOSED': 'Use only exact anchors from the displayed source.',
+    'PATCH_ANCHOR_OVERLAP': 'Use disjoint edits or combine them into one replacement.',
+    'PATCH_REPRESENTATION_INVALID': 'Select exactly one of edits, hunks, content, or delete per change.',
+    'PATCH_PATH_INVALID': 'Use only the displayed safe relative paths.',
+    'PATCH_CONTRACT_INVALID': 'Follow the declared changes, diagnosis, tests and evidence JSON schema.',
+    'PATCH_SCOPE_VIOLATION': 'Edit only allowed displayed files; do not request deletion.',
+    'PATCH_UNCHANGED': 'Provide an actual correction, not the original source.',
+    'REGRESSION_VECTOR_LIMIT': 'Provide no more than six bounded regression vectors.',
+    'REGRESSION_VECTOR_INVALID': 'Each vector needs an input object and expected value.',
+    'PATCH_OUTPUT_TOO_LARGE': 'Reduce the output to a bounded patch.',
+    'PATCH_PARSE_OR_ANCHOR_INVALID': 'Verify JSON structure, exact source anchors and blob hashes.',
+}
+
+
+def classify_patch_rejection(error):
+    """Map validator messages to privacy-safe codes, never raw exception text."""
+    if isinstance(error, json.JSONDecodeError):
+        return 'PATCH_JSON_INVALID'
+    message = str(error)
+    if message in PATCH_REPAIR_HINTS:
+        return message
+    matchers = (
+        ('ANCHOR_CONFLICT', 'PATCH_ANCHOR_CONFLICT'),
+        ('Read the exact existing blob', 'PATCH_BLOB_MISMATCH'),
+        ('New files must have null expected_blob_sha', 'PATCH_BLOB_MISMATCH'),
+        ('Read the exact patch anchor range', 'PATCH_ANCHOR_NOT_EXPOSED'),
+        ('Patch anchors must not overlap', 'PATCH_ANCHOR_OVERLAP'),
+        ('Select exactly one patch representation', 'PATCH_REPRESENTATION_INVALID'),
+        ('Invalid anchored edits', 'PATCH_ANCHOR_CONFLICT'),
+        ('Invalid repository file path', 'PATCH_PATH_INVALID'),
+        ('Unsafe repository file path', 'PATCH_PATH_INVALID'),
+        ('Invalid change contract', 'PATCH_CONTRACT_INVALID'),
+        ('Duplicate file change', 'PATCH_CONTRACT_INVALID'),
+        ('Return 1–20 coordinated file changes', 'PATCH_CONTRACT_INVALID'),
+    )
+    for fragment, code in matchers:
+        if fragment in message:
+            return code
+    return 'PATCH_PARSE_OR_ANCHOR_INVALID'
+
+
+def rejected_submission(task, code):
+    """Grade a received invalid submission without claiming sandbox execution."""
+    safe = code if code in PATCH_REPAIR_HINTS else 'PATCH_PARSE_OR_ANCHOR_INVALID'
+    return {
+        'id': task['id'], 'family': task['family'], 'title': task['title'],
+        'capstone': task['capstone'], 'fixtureDigest': task['manifestDigest'],
+        'status': 'FAILED', 'executed': False, 'graded': True, 'resolved': False,
+        'qualified': True,
+        'integrity': 'VIOLATION' if safe in {'PATCH_SCOPE_VIOLATION', 'PATCH_PATH_INVALID'} else 'VERIFIED',
+        'error': safe,
+        'failureStage': 'MODEL_OUTPUT' if safe in {'PATCH_OUTPUT_TRUNCATED', 'PATCH_GENERATION_INCOMPLETE'} else 'PATCH_VALIDATION',
+        'repairHint': PATCH_REPAIR_HINTS[safe], 'score': 0,
+        'dimensions': {key: 0.0 for key in CODING_WEIGHTS},
+    }
+
+
 def proposal(text, task):
     if len(text.encode()) > 65536:
         raise ValueError('PATCH_OUTPUT_TOO_LARGE')
@@ -71,12 +137,8 @@ def grade(task, text, settings, cancel, *, execute=sandbox.execute, docker=None)
     try:
         value, candidate, changes = proposal(text, task)
     except (ValueError, KeyError, TypeError, RecursionError, OverflowError) as error:
-        code = str(error) if str(error) in {'PATCH_OUTPUT_TOO_LARGE', 'PATCH_CONTRACT_INVALID', 'PATCH_SCOPE_VIOLATION', 'PATCH_UNCHANGED', 'REGRESSION_VECTOR_LIMIT', 'REGRESSION_VECTOR_INVALID'} else 'PATCH_PARSE_OR_ANCHOR_INVALID'
-        # A received model answer that cannot form a patch is an observed failed
-        # submission. Infrastructure/transport failures remain ungraded instead.
-        result.update(error=code, integrity='VIOLATION' if code == 'PATCH_SCOPE_VIOLATION' else 'VERIFIED',
-                      graded=True, qualified=True, score=0, dimensions={key: 0.0 for key in CODING_WEIGHTS})
-        return result
+        # Keep distinct reasons separate; never retain the raw source exception.
+        return rejected_submission(task, classify_patch_rejection(error))
     # Randomized data was frozen before dispatch. The model does not receive
     # these inputs until its candidate runs; expected values never enter Docker.
     vectors = task['vectors']

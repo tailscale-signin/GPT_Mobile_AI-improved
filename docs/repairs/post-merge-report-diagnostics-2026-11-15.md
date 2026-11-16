@@ -222,3 +222,49 @@ This intake inspects the uploaded archive `diagnostics-e0007ab2-...-part-1-...zi
 - **Next-report diagnostics.** `GITHUB_PR_HEAD_CHANGED` is a recognized public code. A persisted matching tool result may project only the fact of a detected revision race and the dispatch-owned request/response counts; it cannot project raw PR SHAs, actor profiles, provider text or inferred causality. Optional capability `GITHUB_PR_CONTEXT_RACE_EVIDENCE_V1` marks the additional reporter fields. The existing outbox must retain the approved report if the receiving service lacks the capability.
 
 The live issue query found **26 open issue reports** at this intake; several new reports (including #1356 and #1357) are still tied to the older build. Review each as a distinct incident but correlate common root causes. External provider 429, GitHub policy permissions, approval/fixture limits, gateway availability and voice hardware still need fresh runtime verification. Nothing here authorizes a blind issue closure, a branch history rewrite or a merge of a draft PR. Closure as fixed requires the current source's successful checks and a matching deployed/live observation, while diagnostic-limited disposition must name the missing evidence and a route to recapture.
+
+
+---
+
+## November 16, 2026 — Gateway coding benchmark and refreshed issue frontier
+
+### Evidence from the uploaded Gateway benchmark
+
+- Benchmark ID: `bench_79ddfba0995845b1928d23e623c9b35d`, schema `gateway.benchmark.v1`.
+- The **source commit in the benchmark equals the reviewed initial PR #1349 head**: `e85c2dce759a403172b3cc01995b38d751fc22b2`.
+- Gateway 17.0.0, selected model `qwen3.5-9b`, coding/standard preset, seed 17, concurrency 2.
+- The snapshot was still `RUNNING`: **12 recorded failures, 24 pending, 0 executed, 0 passes**, from 36 planned trials. The global score was `null`. All 12 completed grades showed `PATCH_PARSE_OR_ANCHOR_INVALID`, but the first three budget-family cases reached the exact **4,096-token output ceiling** with `finishReason=length`. This is not proof of 36 failures or a final zero model score.
+- The reported families were pagination, idempotency, dependencies, and budget (three trials each). Reused gateway job IDs and token counts within families may correspond to identical seeded prompts; this cannot establish independent inference without per-submission digests.
+- The benchmark uses isolated Python repository fixtures; it does **not** exercise the Android GitHub AI tool audit, real GitHub permissions, or protected-branch publication.
+- The score remains unqualified when independent caller-input-preservation evidence is absent. Never relabel model-output correctness as full safety qualification.
+
+### Source repair on the existing PR branch
+
+1. `gateway/benchmarks/coding.py` now classifies safe JSON, blob, anchor, edit-representation and scope rejection codes instead of conflating distinct causes. Fixed allowlisted repair hints never contain raw generated patches or source exception text.
+2. `gateway/benchmarks/runner.py` recognizes `finishReason=length` as `PATCH_OUTPUT_TRUNCATED` **before** applying a partial patch. It records output digest and byte count, provider finish reason and model job ID per attempt.
+3. Retried local-model prompts use the original immutable fixture plus a short, typed validator result instead of replaying the truncated model answer, preserving more of the selected model's context.
+4. The fixture prompt prioritizes compact exact anchors and concise regression vectors. New `gateway/tests/test_gateway_benchmark_patch_recovery.py` verifies failure classification, SHA/anchor distinction, scope enforcement, valid anchored edits and absence of sensitive exception text in exported feedback.
+5. `gateway/manifest-v14.json` was refreshed to include current file SHA-256 values and the new discoverable gateway test.
+
+These are **source fixes**. A successful current-head GitHub Actions run, a newly packaged Gateway and an actual rerun of the 36-case coding suite are still required before claiming that local `qwen3.5-9b` performance improved.
+
+### Live GitHub issue frontier
+
+The subsequent connected GitHub query found **31 currently open reports**. Five reports were newly present compared with the preceding 26-report snapshot:
+
+| Report | Source-owned observation | Disposition / next verification |
+| --- | --- | --- |
+| #1358 | `INVALID_ARGUMENTS`, precheck `github_search`, field `max_new_blobs`, `OUT_OF_RANGE`; not dispatched | This is a correctly rejected model-provided argument, not remote GitHub failure. Inspect the model-visible tool schema and retry feedback on the current Android head; retain field name/class and bounded attempt count only. |
+| #1359 | `GITHUB_TASK_INCOMPLETE`, one unmet criterion with `MATCHING_EVIDENCE_MISSING`, only 6 of 512 calls consumed | Investigate acceptance claim mapping and evidence attribution; no authorization to declare completed or to generate missing acceptance evidence. |
+| #1360 | `CHAT_FAILED`, unrecognized producer code and no trustworthy failed stage | Diagnostic-limited: origin remains unknown. Require typed boundary, invocation identity, safe original-code fingerprint and sanitized exception type on a future reproduction. |
+| #1361, #1362 | OpenRouter HTTP 429, explicit retry-after ~60s / ~120s, `remoteAcceptance=NO` | Provider-side throttling observed. Respect cooldown; restore only proven resumable work, never claim the provider has recovered without new receipts. |
+
+The other 26 issues remain classified in the earlier ledger and require refreshed installed-build evidence or an explicit documented diagnostic-limited/duplicate disposition. Different reports from a single run can represent distinct layers of the same underlying problem; do not equate a fixed validator with a fixed network/provider failure.
+
+### Privacy-safe recapture contract
+
+For coding benchmark reports, retain only the case ID/family, selected-model route/identity scope, exact source revision, fixture digest, terminal finish reason, attempted output token/byte counts, output digest, closed patch-validator code, closed failure stage, repair count, and independent sandbox status. No raw code snippets, prompts, credentials, repository access tokens or paths should appear in public issue bodies.
+
+For Android issues, source-owned call/dispatch identity and typed failure stages must be preserved when available. Missing evidence stays explicitly unknown. Device-only voice, branch-protection permissions, provider quotas and real gateway availability cannot be replaced by synthetic fixtures.
+
+**Closure and merge gate:** Verify the exact final PR head, required Actions checks, and follow-up behavior on the installed build before closing a report as fixed. Diagnostic-limited reports may close only with a documented missing-evidence list, a tested reporter improvement and an accountable follow-up tracker. Do not merge a failing or draft head merely because the initial benchmark was incomplete.

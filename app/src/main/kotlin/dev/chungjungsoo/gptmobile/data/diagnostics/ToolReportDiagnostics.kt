@@ -122,10 +122,11 @@ internal object ToolReportDiagnostics {
         // A successful upstream HTTP response does not prove full pagination coverage.
         // Preserve only typed counts and flags from the call-bound traversal receipt,
         // never upstream record IDs, URLs or unbounded provider text.
+        val paginationState = (receipt?.get("traversal_state") as? JsonPrimitive)?.contentOrNull
         if (event.modelToolName.substringBefore("__") == "github_ci" &&
             result.isError &&
             result.errorCode in setOf("GITHUB_PAGINATION_INCOMPLETE", "GITHUB_PAGINATION_STALLED") &&
-            receipt?.get("traversal_state") in setOf(JsonPrimitive("INCOMPLETE"), JsonPrimitive("STALLED"))
+            (paginationState == "INCOMPLETE" || paginationState == "STALLED")
         ) {
             val pagination = receipt?.get("pagination_progress") as? JsonObject
             if (pagination?.get("schema") == JsonPrimitive("github.pagination-progress.v1")) {
@@ -147,7 +148,7 @@ internal object ToolReportDiagnostics {
                     (pagination[source] as? JsonPrimitive)?.takeUnless { it.isString }?.booleanOrNull
                         ?.let { put(target, it) }
                 }
-                (receipt?.get("traversal_state") as? JsonPrimitive)?.contentOrNull?.let { put("remote_pagination_reason", it) }
+                paginationState?.let { put("remote_pagination_reason", it) }
             }
         }
         if (event.modelToolName.substringBefore("__") == "repository_graph" &&

@@ -520,8 +520,7 @@ class GitHubWorkspaceClient(
                     val pinned = listOf("expected_head", "expected_head_sha", "expected_base_sha").any {
                         (args[it] as? JsonPrimitive)?.content?.isNotBlank() == true
                     }
-                    val isConcurrentFileRead = changed.message ==
-                        "Pull request head changed or its base changed while files were loading; restart the review at its new revision."
+                    val isConcurrentFileRead = changed.message == "Pull request head changed or its base changed while files were loading; restart the review at its new revision."
                     if (args["verify_live"] != JsonPrimitive(true) || pinned || !isConcurrentFileRead) {
                         throw changed
                     }

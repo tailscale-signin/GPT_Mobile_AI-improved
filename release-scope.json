@@ -160,7 +160,8 @@
     "Offer opt-in Windows Docker and WSL 2 engineering onboarding with non-destructive prerequisite diagnosis and repair, preserved credential configuration, managed repository validation and explicit offline image smoke evidence.",
     "Provide operator-approved pinned Python sandbox preparation, offline coding-benchmark preflight, Windows onboarding, typed setup diagnosis and retained regression evidence without downloading automatically during benchmark execution.",
     "Add selected-profile offline GitHub tool action benchmarks with exact approved schemas, in-memory no-mutation fixtures, and explicit tests; extend scoped release paths only for the four audited source/test files.",
-    "Isolate OpenRouter HTTP 429 cooldowns by requested model and verified shared free-tier scope, retain typed source evidence in approved diagnostics, improve default upstream routing and cover independent model availability with regression tests."
+    "Isolate OpenRouter HTTP 429 cooldowns by requested model and verified shared free-tier scope, retain typed source evidence in approved diagnostics, improve default upstream routing and cover independent model availability with regression tests.",
+    "Scope the dedicated Gateway continuous-session/retry helper under existing bounded runtime verification and explicit recovery limits."
   ],
   "limitations": [
     "GitHub AI tool audit exercises selected-profile tool calls against isolated offline fixtures, not live GitHub authorization or mutations; bounded live-read probes remain separately qualified.",
@@ -2998,6 +2999,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/data/voice/KokoroFocusPolicyTest.kt",
     "docs/repairs/benchmark-1794850459049-2026-11-16.md",
     "docs/repairs/issue-frontier-2026-11-16.md",
-    "docs/repairs/gateway-transport-retry-continuity-2026-11-16.md"
+    "docs/repairs/gateway-transport-retry-continuity-2026-11-16.md",
+    "gateway/v14/engineering_recovery.py"
   ]
 }

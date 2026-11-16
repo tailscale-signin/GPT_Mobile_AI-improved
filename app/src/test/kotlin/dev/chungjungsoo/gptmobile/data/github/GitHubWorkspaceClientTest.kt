@@ -882,30 +882,35 @@ class GitHubWorkspaceClientTest {
         val base = "c".repeat(40)
         var prReads = 0
         var fileReads = 0
-        val http = HttpClient(MockEngine { request ->
-            assertEquals(HttpMethod.Get, request.method)
-            when (request.url.encodedPath) {
-                "/repos/o/r/pulls/7" -> {
-                    prReads++
-                    val observed = if (prReads == 1) first else second
-                    respond("""{"number":7,"title":"PR","state":"open","changed_files":1,"head":{"sha":"$observed"},"base":{"sha":"$base"}}""")
+        val http = HttpClient(
+            MockEngine { request ->
+                assertEquals(HttpMethod.Get, request.method)
+                when (request.url.encodedPath) {
+                    "/repos/o/r/pulls/7" -> {
+                        prReads++
+                        val observed = if (prReads == 1) first else second
+                        respond("""{"number":7,"title":"PR","state":"open","changed_files":1,"head":{"sha":"$observed"},"base":{"sha":"$base"}}""")
+                    }
+                    "/repos/o/r/pulls/7/files" -> {
+                        fileReads++
+                        respond("""[{"filename":"src/file.kt","status":"modified"}]""")
+                    }
+                    else -> error("Unexpected read path")
                 }
-                "/repos/o/r/pulls/7/files" -> {
-                    fileReads++
-                    respond("""[{"filename":"src/file.kt","status":"modified"}]""")
-                }
-                else -> error("Unexpected read path")
             }
-        })
+        )
         try {
             val client = GitHubWorkspaceClient("token", http, conditionalReads = false)
-            val result = client.execute("pr_context", buildJsonObject {
-                put("owner", "o")
-                put("repo", "r")
-                put("pull_number", 7)
-                put("verify_live", true)
-                put("include_checks", false)
-            }).jsonObject
+            val result = client.execute(
+                "pr_context",
+                buildJsonObject {
+                    put("owner", "o")
+                    put("repo", "r")
+                    put("pull_number", 7)
+                    put("verify_live", true)
+                    put("include_checks", false)
+                }
+            ).jsonObject
             assertEquals(JsonPrimitive(second), result["expected_head"])
             assertEquals(JsonPrimitive("HEAD_CHANGED_DURING_FILES"), result["pr_context_refresh_reason"])
             assertEquals(4, prReads)
@@ -919,29 +924,34 @@ class GitHubWorkspaceClientTest {
         val first = "a".repeat(40)
         val second = "b".repeat(40)
         var prReads = 0
-        val http = HttpClient(MockEngine { request ->
-            assertEquals(HttpMethod.Get, request.method)
-            when (request.url.encodedPath) {
-                "/repos/o/r/pulls/7" -> {
-                    prReads++
-                    val observed = if (prReads == 1) first else second
-                    respond("""{"number":7,"state":"open","changed_files":1,"head":{"sha":"$observed"},"base":{"sha":"cccc"}}""")
+        val http = HttpClient(
+            MockEngine { request ->
+                assertEquals(HttpMethod.Get, request.method)
+                when (request.url.encodedPath) {
+                    "/repos/o/r/pulls/7" -> {
+                        prReads++
+                        val observed = if (prReads == 1) first else second
+                        respond("""{"number":7,"state":"open","changed_files":1,"head":{"sha":"$observed"},"base":{"sha":"cccc"}}""")
+                    }
+                    "/repos/o/r/pulls/7/files" -> respond("""[{"filename":"src/file.kt","status":"modified"}]""")
+                    else -> error("Unexpected read path")
                 }
-                "/repos/o/r/pulls/7/files" -> respond("""[{"filename":"src/file.kt","status":"modified"}]""")
-                else -> error("Unexpected read path")
             }
-        })
+        )
         try {
             val client = GitHubWorkspaceClient("token", http, conditionalReads = false)
             val failure = runCatching {
-                client.execute("pr_context", buildJsonObject {
-                    put("owner", "o")
-                    put("repo", "r")
-                    put("pull_number", 7)
-                    put("expected_head_sha", first)
-                    put("verify_live", true)
-                    put("include_checks", false)
-                })
+                client.execute(
+                    "pr_context",
+                    buildJsonObject {
+                        put("owner", "o")
+                        put("repo", "r")
+                        put("pull_number", 7)
+                        put("expected_head_sha", first)
+                        put("verify_live", true)
+                        put("include_checks", false)
+                    }
+                )
             }.exceptionOrNull()
             assertTrue(failure is IllegalArgumentException)
             assertEquals(2, prReads)
@@ -949,5 +959,4 @@ class GitHubWorkspaceClientTest {
             http.close()
         }
     }
-
 }

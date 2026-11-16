@@ -14,6 +14,29 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class IssueReportDiagnosticsTest {
+    @Test fun codeLessProviderStreamErrorRetainsClosedPrivacySafeOrigin() {
+        val fields = mapOf<String, Any?>(
+            "diagnostic_area" to "INCIDENT",
+            "provider_error_code_state" to "ABSENT",
+            "provider_error_origin" to "OPENAI_COMPAT_STREAM_ERROR_VALUE",
+            "chat_failure_code_state" to "ABSENT"
+        )
+        val snapshot = requireNotNull(IssueReportDiagnostics.fromFields("CHAT_FAILURE", fields, 1_800_000_000_000L))
+        assertEquals(JsonPrimitive("ABSENT"), snapshot.values["provider_error_code_state"])
+        assertEquals(JsonPrimitive("OPENAI_COMPAT_STREAM_ERROR_VALUE"), snapshot.values["provider_error_origin"])
+        assertTrue("INCIDENT_FAILURE_DETAILS_V1" in snapshot.requiredServiceFeatures())
+        assertTrue(snapshot.isValid())
+        val context = IssueReportContext.fromFields("CHAT_FAILURE", fields, 1_800_000_000_000L)
+        assertEquals(snapshot.values["provider_error_origin"], context.diagnostics?.values?.get("provider_error_origin"))
+        val untrusted = requireNotNull(IssueReportDiagnostics.fromFields(
+            "CHAT_FAILURE", fields + mapOf("provider_error_origin" to "https://private-host/key", "provider_error_code_state" to "secret"), 1_800_000_000_000L
+        ))
+        assertFalse("provider_error_origin" in untrusted.values)
+        assertFalse("provider_error_code_state" in untrusted.values)
+        assertFalse("https://private-host/key" in untrusted.toString())
+    }
+
+
     private val time = 1_700_000_000_000L
     private val hash = "a".repeat(64)
 

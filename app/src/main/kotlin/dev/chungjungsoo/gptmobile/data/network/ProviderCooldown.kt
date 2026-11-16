@@ -65,10 +65,13 @@ internal object ProviderCooldown {
             val wait = ProviderRetryPolicy.retryAfterMillis(retryAfter.orEmpty(), System.currentTimeMillis()) ?: 5_000L
             registry.defer(identity, wait)
             return ProviderHttpFailure(
-                status, wait, knownNotAccepted,
+                status,
+                wait,
+                knownNotAccepted,
                 observedHttpStatus = observedHttpStatus,
                 serverRequestId = safeProviderRequestIdentity(serverRequestId),
-                cooldownScope = "provider:" + identity, limitSource = normalizedSource
+                cooldownScope = "provider:" + identity,
+                limitSource = normalizedSource
             )
         }
         val now = System.currentTimeMillis()
@@ -77,7 +80,10 @@ internal object ProviderCooldown {
         val hint = listOfNotNull(retryDelay, resetDelay).maxOrNull()
         val (wait, count) = registry.reject(identity, hint)
         return ProviderHttpFailure(
-            status, wait, knownNotAccepted, now,
+            status,
+            wait,
+            knownNotAccepted,
+            now,
             retrySource = when {
                 hint == null -> "APP_BACKOFF"
                 hint == retryDelay -> "RETRY_AFTER"
@@ -89,7 +95,8 @@ internal object ProviderCooldown {
             checkpointContinuationAllowed = checkpointContinuationAllowed,
             observedHttpStatus = observedHttpStatus,
             serverRequestId = safeProviderRequestIdentity(serverRequestId),
-            cooldownScope = "provider:" + identity, limitSource = normalizedSource
+            cooldownScope = "provider:" + identity,
+            limitSource = normalizedSource
         )
     }
 
@@ -118,13 +125,17 @@ internal object ProviderCooldown {
     fun preflight(profile: dev.chungjungsoo.gptmobile.data.database.entity.PlatformV2): ProviderLimitDecision? {
         if (profile.compatibleType == dev.chungjungsoo.gptmobile.data.model.ClientType.FREE ||
             dev.chungjungsoo.gptmobile.data.model.FreeAiProvider.fromApiUrl(profile.apiUrl) != null
-        ) return null
+        ) {
+            return null
+        }
         val candidates = ApiCredentialRotator.parseKeys(profile.token).ifEmpty { listOf("") }
         val now = System.currentTimeMillis()
         val waiting = candidates.map { credential ->
             val config = ProviderRequestConfig(
-                profile.apiUrl, credential.takeIf(String::isNotBlank),
-                providerType = profile.compatibleType.name, selectedModel = profile.model
+                profile.apiUrl,
+                credential.takeIf(String::isNotBlank),
+                providerType = profile.compatibleType.name,
+                selectedModel = profile.model
             )
             // All applicable quota scopes are read-only until dispatch.
             val active = keys(config).mapNotNull { identity ->
@@ -132,9 +143,13 @@ internal object ProviderCooldown {
             }.maxByOrNull { it.second.waitMillis } ?: return null
             val (identity, cooldown) = active
             ProviderLimitDecision(
-                profile.compatibleType.name, profile.uid, profile.model,
-                ProviderRetryPolicy.deadlineMillis(now, cooldown.waitMillis), "provider:" + identity,
-                FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE.name, knownNotAccepted = true,
+                profile.compatibleType.name,
+                profile.uid,
+                profile.model,
+                ProviderRetryPolicy.deadlineMillis(now, cooldown.waitMillis),
+                "provider:" + identity,
+                FreeFailureCategory.LOCAL_COOLDOWN_ACTIVE.name,
+                knownNotAccepted = true,
                 retrySource = if (cooldown.rejectionCount == 0 && cooldown.authoritativeReset) "RATE_LIMIT_RESET" else "SHARED_COOLDOWN",
                 consecutiveRejections = cooldown.rejectionCount
             )
@@ -153,11 +168,13 @@ internal object ProviderCooldown {
                 .maxByOrNull { it.second.waitMillis }
             if (blocked != null) {
                 throw ProviderHttpFailure(
-                    429, blocked.second.waitMillis,
+                    429,
+                    blocked.second.waitMillis,
                     knownNotAccepted = true,
                     retrySource = if (blocked.second.rejectionCount == 0) "RATE_LIMIT_RESET" else "SHARED_COOLDOWN",
                     consecutiveRejections = blocked.second.rejectionCount,
-                    beforeDispatch = true, cooldownScope = "provider:" + blocked.first
+                    beforeDispatch = true,
+                    cooldownScope = "provider:" + blocked.first
                 )
             }
             if (admissions.none { it.second.ownsProbe }) await(config)
@@ -177,8 +194,11 @@ internal object ProviderCooldown {
         val reset = quotaHeaders.mapNotNull { (remaining, reset) ->
             if (header(remaining)?.trim()?.toLongOrNull() == 0L) header(reset)?.let { ProviderRetryPolicy.resetDelayMillis(it, now) } else null
         }.maxOrNull() ?: return
-        val identity = if (OpenRouterRateLimitScopes.isOpenRouter(config) && OpenRouterRateLimitScopes.isFreeModel(config))
-            key(config, "openrouter_free_tier_per_minute") else key(config)
+        val identity = if (OpenRouterRateLimitScopes.isOpenRouter(config) && OpenRouterRateLimitScopes.isFreeModel(config)) {
+            key(config, "openrouter_free_tier_per_minute")
+        } else {
+            key(config)
+        }
         registry.defer(identity, reset, authoritativeReset = true)
     }
 
@@ -188,13 +208,20 @@ internal object ProviderCooldown {
             val blocked = identities.mapNotNull { identity ->
                 val remaining = registry.blockedMillis(identity)
                 val count = registry.rejectionCount(identity)
-                if (remaining > 0 && count > 0) Triple(identity, remaining, count) else null
+                if (remaining > 0 && count > 0) {
+                    Triple(identity, remaining, count)
+                } else {
+                    null
+                }
             }.maxByOrNull { it.second }
             if (blocked != null) {
                 throw ProviderHttpFailure(
-                    429, blocked.second,
-                    knownNotAccepted = true, retrySource = "SHARED_COOLDOWN",
-                    consecutiveRejections = blocked.third, beforeDispatch = true,
+                    429,
+                    blocked.second,
+                    knownNotAccepted = true,
+                    retrySource = "SHARED_COOLDOWN",
+                    consecutiveRejections = blocked.third,
+                    beforeDispatch = true,
                     cooldownScope = "provider:" + blocked.first
                 )
             }

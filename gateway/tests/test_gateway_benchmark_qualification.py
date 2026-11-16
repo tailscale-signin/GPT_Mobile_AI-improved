@@ -132,7 +132,10 @@ class BenchmarkQualificationTest(unittest.TestCase):
         def measure(_run, name, turns, _expected, *, validate, output_tokens):
             dispatches[name] += 1
             repairing = first_output_incorrect and name == first['id'] and dispatches[name] > 1
-            self.assertEqual(3 if repairing else 1, len(turns))
+            self.assertEqual(1, len(turns))
+            if repairing:
+                self.assertIn('Previous submission failed independent validation', turns[0]['content'])
+                self.assertNotIn('observed_wrong_output', turns[0]['content'])
             text = json.dumps(bad) if first_output_incorrect and name == first['id'] and dispatches[name] == 1 else proposals[name]
             self.assertTrue(validate(text))
             return {'firstMs': 4, 'totalMs': 8, 'inputTokens': 30, 'outputTokens': 40,

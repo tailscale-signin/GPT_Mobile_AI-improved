@@ -79,6 +79,11 @@ class BenchmarkFailurePolicyTest {
             requestDispatched = true
         )
         assertEquals("CLIENT_TOOL_RESULTS_REQUIRED", failure.code)
+        assertFalse(failure.retryable)
+        assertEquals(
+            "Resume the exact saved gateway job with verified pending results; never rerun completed tools",
+            failure.retryCondition()
+        )
         assertEquals(BenchmarkRecoveryAction.STOP_PROFILE, sample.recoveryAction())
     }
 }

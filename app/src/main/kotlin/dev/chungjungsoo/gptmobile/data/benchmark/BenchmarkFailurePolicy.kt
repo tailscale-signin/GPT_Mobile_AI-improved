@@ -25,6 +25,7 @@ private val reasoningChecks = setOf("REASONING_CAPABILITY_UNVERIFIED", "REASONIN
 
 internal fun BenchmarkFailure.retryCondition(): String = when {
     code in modelLoadBlockers -> "After the selected model is available and loaded"
+    code == "CLIENT_TOOL_RESULTS_REQUIRED" -> "Resume the exact saved gateway job with verified pending results; never rerun completed tools"
     code in unsupportedReasoning || code in reasoningChecks -> "After changing the reasoning mode or checking model support"
     code in setOf("HTTP_400", "HTTP_ERROR_400", "INVALID_REQUEST", "PROVIDER_PAYLOAD_ERROR", "UNSUPPORTED_OUTPUT_CONTRACT") -> "After correcting the request configuration"
     nextEligibleAt != null -> "After the provider cooldown"
@@ -84,7 +85,7 @@ internal fun benchmarkFailure(error: Throwable, stage: String = "request"): Benc
         else -> "EXECUTION_FAILED"
     }
     val next = limit?.retryAt ?: causes.filterIsInstance<FreeAiRateLimitException>().firstOrNull()?.retryAt ?: retryTimestampFromLegacyMessage(message)
-    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("AUDIT_MODEL_") && !code.startsWith("UNSUPPORTED_") && code !in unsupportedReasoning && code !in modelLoadBlockers && code !in reasoningChecks && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED", "HTTP_400", "INVALID_REQUEST", "PROVIDER_PAYLOAD_ERROR", "BENCHMARK_ENDPOINT_REDACTED"), nextEligibleAt = next)
+    return BenchmarkFailure(code, effectiveStage, message, retryable = !code.startsWith("AUDIT_MODEL_") && !code.startsWith("UNSUPPORTED_") && code !in unsupportedReasoning && code !in modelLoadBlockers && code !in reasoningChecks && code !in setOf("FIXTURE_INVALID", "POLICY_BLOCKED", "CACHED_UNUSABLE_RESPONSE", "HOSTED_GENERATION_FAILED", "HTTP_400", "INVALID_REQUEST", "PROVIDER_PAYLOAD_ERROR", "BENCHMARK_ENDPOINT_REDACTED", "CLIENT_TOOL_RESULTS_REQUIRED"), nextEligibleAt = next)
 }
 
 /** Compatibility for older persisted failures; punctuation is never part of an ISO instant. */

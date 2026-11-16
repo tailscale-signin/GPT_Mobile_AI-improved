@@ -127,7 +127,8 @@ internal object ToolReportDiagnostics {
             result.errorCode == "TOOL_FAILURE" &&
             !result.dispatched &&
             event.modelToolName.substringBefore("__").startsWith("github_") &&
-            receipt?.get("schema") in setOf(JsonPrimitive("github.dispatch.v1"), JsonPrimitive("gptmobile.tool-execution.v1")) &&
+            receipt != null &&
+            receipt["schema"] in setOf(JsonPrimitive("github.dispatch.v1"), JsonPrimitive("gptmobile.tool-execution.v1")) &&
             receipt["call_id"] == JsonPrimitive(result.callId) &&
             receipt["error_code"] == JsonPrimitive(result.errorCode) &&
             receipt["dispatched"] == JsonPrimitive(false) &&

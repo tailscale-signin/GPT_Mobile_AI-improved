@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ce68636fe18e5ab0d9963474844d5872bdc211b1fe9d68aee0888d23634c2283",
-  "file_count": 2659,
-  "indexed_line_count": 431392,
+  "source_digest": "9dbcff94820c08a10a1010572055a74f914c9edd2ac5c750b9726087865a90cf",
+  "file_count": 2660,
+  "indexed_line_count": 431526,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -76,7 +76,7 @@
       "id": "model_providers",
       "label": "Model providers and adapters",
       "file_count": 63,
-      "indexed_line_count": 9220
+      "indexed_line_count": 9224
     },
     {
       "id": "models_and_profiles",
@@ -99,8 +99,8 @@
     {
       "id": "network",
       "label": "Networking and readiness",
-      "file_count": 99,
-      "indexed_line_count": 9850
+      "file_count": 100,
+      "indexed_line_count": 9971
     },
     {
       "id": "github",
@@ -130,7 +130,7 @@
       "id": "diagnostics_and_export",
       "label": "Diagnostics, statistics and sharing",
       "file_count": 93,
-      "indexed_line_count": 13543
+      "indexed_line_count": 13552
     },
     {
       "id": "benchmark",
@@ -2271,8 +2271,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAdapters.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "762307dd3bc309e6de34828fb9ec81079bcbebf7b6cfc2fa27f1c4082865c26e",
-      "indexed_lines": 1929
+      "sha256": "17ac728fcf53cbe6c8a57cdb480447fa0d589f50e5f79307ef6463554777405c",
+      "indexed_lines": 1933
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/provider/ProviderAttachmentEncoder.kt",
@@ -5673,8 +5673,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportDiagnostics.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "18c8790e00b398c36d930aa9e05c0e8a3ede594548201d657e237ceecaae590f",
-      "indexed_lines": 628
+      "sha256": "4422248ce5e57cb447cf1e0e90d7687540bcabaf8d0e5a35e789a7a0f50d1714",
+      "indexed_lines": 630
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/IssueReportGitHubSubmission.kt",
@@ -5827,8 +5827,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/ProviderFailureReport.kt",
       "area_id": "diagnostics_and_export",
       "kind": "source",
-      "sha256": "48f176501de9cf4f90ca60e2856d1e0d9d9926dfb6b34eb60cc73f47250423d4",
-      "indexed_lines": 171
+      "sha256": "97b39a11117eb8c39221f44b6a65241e9bd3f9b40b21bb47abd6c5fa97aea0da",
+      "indexed_lines": 178
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/diagnostics/RenderingEffectDiagnostics.kt",
@@ -9607,8 +9607,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAIAPIImpl.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "0c9f4244c5465c15540bfa9a4ecc5f755fa822641c15ae2a7aa240d406e4d409",
-      "indexed_lines": 1188
+      "sha256": "c5e9e62b68fa6fa26d81f5867a37156187e326a1fb682018cc8bfd0f269943f4",
+      "indexed_lines": 1191
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenAICompletionDecoder.kt",
@@ -9616,6 +9616,13 @@
       "kind": "source",
       "sha256": "cfc212063c48c7dc57859dcc7eefbe96cc5ee6ab03a5698ef6e96864ef26f640",
       "indexed_lines": 28
+    },
+    {
+      "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/OpenRouterRateLimitScopes.kt",
+      "area_id": "network",
+      "kind": "source",
+      "sha256": "ef2f553e9217c2c74d6295c38f8e3f2f4032aa783be28707016cbfe0e77d158f",
+      "indexed_lines": 55
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/PollinationsClassic.kt",
@@ -9656,8 +9663,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderCooldown.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "b151acb811283258ef8dbd56f7c8d2f02ddde0a84d912901c53e5001f33b8f7b",
-      "indexed_lines": 189
+      "sha256": "5ce0193974a11935463fdac20542193623a2a4f4a7e5db95167ae09db2cfafc6",
+      "indexed_lines": 246
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderDispatchRetryGuard.kt",
@@ -9684,15 +9691,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderExceptionDetails.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "4fc982880ff1818c8c175e1d09591f4c5dd6087aa2e114f8b1245e0f9e9ad51e",
-      "indexed_lines": 422
+      "sha256": "b14aba092b876e908834c74175015781e4dbba6ca8c1318b0feb5cff57e64ac2",
+      "indexed_lines": 424
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderLimitDecision.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "d03709561e51738b25b03f2cc2e409dd0a55069e4a156dd1a666a967036574e8",
-      "indexed_lines": 142
+      "sha256": "d0eda5f77947e897f8a46fbee6100d8ef84baf4990c68d0f786fe522eca805c5",
+      "indexed_lines": 144
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderPayloadFailure.kt",
@@ -9712,8 +9719,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRequestConfig.kt",
       "area_id": "network",
       "kind": "source",
-      "sha256": "52902ac7f19da378ff5e4505d2a324bb54eb8773e974f51a9f3a9da9e910c8b3",
-      "indexed_lines": 112
+      "sha256": "4941d08b0cd95ae1eb4326da2aefac9ac54f4562a23b09274e521a0418a550a1",
+      "indexed_lines": 114
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/network/ProviderRequestIdentity.kt",
@@ -10181,7 +10188,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/openrouter/OpenRouterAdvancedOptions.kt",
       "area_id": "model_providers",
       "kind": "source",
-      "sha256": "f6043f1c0b17a98155fdda721838566154593e53e405f77463b4039f746a98d5",
+      "sha256": "b9c9d216bfba9884a1b00a24cf3f4848a7942c3e8c1b68dccdf1f63c0548982e",
       "indexed_lines": 189
     },
     {
@@ -17059,6 +17066,132 @@
       "indexed_lines": 6
     },
     {
+      "path": "app/src/main/res/values-ar/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "be944c55d8b19b3e08d37587b2bb46b1ba6ebfe642f753a287f94452a3bc9d2a",
+      "indexed_lines": 167
+    },
+    {
+      "path": "app/src/main/res/values-ars/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "54392bf7027f61cbd3def37609ec9d8f53f4913544770fedfccdbb17bd553943",
+      "indexed_lines": 166
+    },
+    {
+      "path": "app/src/main/res/values-de/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "cd520dc01f686d2b393ee67e1c92a7536ec89f49d73a5886058c42d436e41a9b",
+      "indexed_lines": 97
+    },
+    {
+      "path": "app/src/main/res/values-es/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "c4957fce49e5850c9e5556e14f6b7447fba83f46eab4a6be09c00e4a9af58cee",
+      "indexed_lines": 167
+    },
+    {
+      "path": "app/src/main/res/values-fa/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "26a244cf778daa5a15731f8a68708f4986faffe8e7fec39ad39e0c863557c62b",
+      "indexed_lines": 17
+    },
+    {
+      "path": "app/src/main/res/values-fr/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "ea504f15dce46ef818af7f2534644355d07c89878eab222af6a8353274801716",
+      "indexed_lines": 15
+    },
+    {
+      "path": "app/src/main/res/values-in/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "05911a9507db0de94e477b5afed889a16ad7e189e0cd8ec0f38b089271eed05f",
+      "indexed_lines": 353
+    },
+    {
+      "path": "app/src/main/res/values-iw/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "945e84477899757d80e798ea64b71896680056e21924835bfff434f9cec30181",
+      "indexed_lines": 167
+    },
+    {
+      "path": "app/src/main/res/values-ja/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "ab612e2fbd1776dfb5a24bbf43d81c40ef641c7f35699c6756355aee3b5f42c2",
+      "indexed_lines": 167
+    },
+    {
+      "path": "app/src/main/res/values-ko-rKR/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "bfb20a679f0b244160ff80d8d3208eaa71ad6dc6f73bb47129137303d788c44c",
+      "indexed_lines": 170
+    },
+    {
+      "path": "app/src/main/res/values-night/themes.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "6cd91fa16d2470b9ef6168b6bc9320602945d5b22378c44685fab825a1568772",
+      "indexed_lines": 11
+    },
+    {
+      "path": "app/src/main/res/values-pl/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "cc3f56af8626c61b64bb011a603ca474050eb7cacfe0d169e7de8214621b3d8c",
+      "indexed_lines": 168
+    },
+    {
+      "path": "app/src/main/res/values-pt-rBR/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "5e07442721e399efdd34b9d3595fe883ff87102f40fda2c82dbff6e839dc44e5",
+      "indexed_lines": 166
+    },
+    {
+      "path": "app/src/main/res/values-pt/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "5da868c80147290d02b2eab073a6ac00e544e62c435ed70904d0a7b33eac5191",
+      "indexed_lines": 164
+    },
+    {
+      "path": "app/src/main/res/values-ru/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "eb12e55148e4a477ba0bccfbef73027af6a3f389f99871ac7a16dc8f8f56953b",
+      "indexed_lines": 360
+    },
+    {
+      "path": "app/src/main/res/values-ta/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "c36eef955ec6070f50cee77c441aa16a66b061dd86bb8fcb8091e90117b12398",
+      "indexed_lines": 166
+    },
+    {
+      "path": "app/src/main/res/values-tr/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "e754d6daf5ca0bca7bcf46dfb218c94b067163c0d384fa971fd443d9ad737e4c",
+      "indexed_lines": 206
+    },
+    {
+      "path": "app/src/main/res/values-zh-rCN/strings.xml",
+      "area_id": "accessibility_and_localization",
+      "kind": "ui_resource",
+      "sha256": "1e7feed58b6514313315e277b929544cec6aebef3a80edfb913e63d133938d51",
+      "indexed_lines": 249
+    },
+    {
       "path": "app/src/main/res/values/attrs.xml",
       "area_id": "accessibility_and_localization",
       "kind": "ui_resource",
@@ -17176,132 +17309,6 @@
       "kind": "ui_resource",
       "sha256": "7a1d842bba43943ca59aab0289db49a4c99001558c760ddfbdc7190ffa43ae3e",
       "indexed_lines": 25
-    },
-    {
-      "path": "app/src/main/res/values-ar/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "be944c55d8b19b3e08d37587b2bb46b1ba6ebfe642f753a287f94452a3bc9d2a",
-      "indexed_lines": 167
-    },
-    {
-      "path": "app/src/main/res/values-ars/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "54392bf7027f61cbd3def37609ec9d8f53f4913544770fedfccdbb17bd553943",
-      "indexed_lines": 166
-    },
-    {
-      "path": "app/src/main/res/values-de/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "cd520dc01f686d2b393ee67e1c92a7536ec89f49d73a5886058c42d436e41a9b",
-      "indexed_lines": 97
-    },
-    {
-      "path": "app/src/main/res/values-es/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "c4957fce49e5850c9e5556e14f6b7447fba83f46eab4a6be09c00e4a9af58cee",
-      "indexed_lines": 167
-    },
-    {
-      "path": "app/src/main/res/values-fa/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "26a244cf778daa5a15731f8a68708f4986faffe8e7fec39ad39e0c863557c62b",
-      "indexed_lines": 17
-    },
-    {
-      "path": "app/src/main/res/values-fr/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "ea504f15dce46ef818af7f2534644355d07c89878eab222af6a8353274801716",
-      "indexed_lines": 15
-    },
-    {
-      "path": "app/src/main/res/values-in/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "05911a9507db0de94e477b5afed889a16ad7e189e0cd8ec0f38b089271eed05f",
-      "indexed_lines": 353
-    },
-    {
-      "path": "app/src/main/res/values-iw/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "945e84477899757d80e798ea64b71896680056e21924835bfff434f9cec30181",
-      "indexed_lines": 167
-    },
-    {
-      "path": "app/src/main/res/values-ja/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "ab612e2fbd1776dfb5a24bbf43d81c40ef641c7f35699c6756355aee3b5f42c2",
-      "indexed_lines": 167
-    },
-    {
-      "path": "app/src/main/res/values-ko-rKR/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "bfb20a679f0b244160ff80d8d3208eaa71ad6dc6f73bb47129137303d788c44c",
-      "indexed_lines": 170
-    },
-    {
-      "path": "app/src/main/res/values-night/themes.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "6cd91fa16d2470b9ef6168b6bc9320602945d5b22378c44685fab825a1568772",
-      "indexed_lines": 11
-    },
-    {
-      "path": "app/src/main/res/values-pl/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "cc3f56af8626c61b64bb011a603ca474050eb7cacfe0d169e7de8214621b3d8c",
-      "indexed_lines": 168
-    },
-    {
-      "path": "app/src/main/res/values-pt/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "5da868c80147290d02b2eab073a6ac00e544e62c435ed70904d0a7b33eac5191",
-      "indexed_lines": 164
-    },
-    {
-      "path": "app/src/main/res/values-pt-rBR/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "5e07442721e399efdd34b9d3595fe883ff87102f40fda2c82dbff6e839dc44e5",
-      "indexed_lines": 166
-    },
-    {
-      "path": "app/src/main/res/values-ru/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "eb12e55148e4a477ba0bccfbef73027af6a3f389f99871ac7a16dc8f8f56953b",
-      "indexed_lines": 360
-    },
-    {
-      "path": "app/src/main/res/values-ta/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "c36eef955ec6070f50cee77c441aa16a66b061dd86bb8fcb8091e90117b12398",
-      "indexed_lines": 166
-    },
-    {
-      "path": "app/src/main/res/values-tr/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "e754d6daf5ca0bca7bcf46dfb218c94b067163c0d384fa971fd443d9ad737e4c",
-      "indexed_lines": 206
-    },
-    {
-      "path": "app/src/main/res/values-zh-rCN/strings.xml",
-      "area_id": "accessibility_and_localization",
-      "kind": "ui_resource",
-      "sha256": "1e7feed58b6514313315e277b929544cec6aebef3a80edfb913e63d133938d51",
-      "indexed_lines": 249
     },
     {
       "path": "app/src/main/res/xml/backup_rules.xml",

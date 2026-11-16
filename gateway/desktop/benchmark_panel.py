@@ -187,9 +187,11 @@ class BenchmarkPanel(tk.Frame):
     def show_qualification(self, report):
         self.selected = None
         self.metrics['score'].configure(text='Qualified' if report['qualified'] else 'Not qualified')
-        self.metrics['completion'].configure(text=str(report['passed']) + ' / 10')
+        self.metrics['completion'].configure(text=f"{report['passed']} / {report['total']}")
         self.metrics['latency'].configure(text='Not measured')
-        self.metrics['state'].configure(text='Production tasks')
+        from benchmarks.engineering_qualification import CONTINUOUS_SCHEMA
+        label = 'Continuous engineering' if report['schema'] == CONTINUOUS_SCHEMA else 'Production tasks'
+        self.metrics['state'].configure(text=label)
         measured = [row for row in report['cases'] if row.get('elapsed_seconds') is not None]
         self.chart.set([(row['scenario'].replace('_', ' '), row['elapsed_seconds'], theme.CYAN if row['status'] == 'PASSED' else theme.ERROR) for row in measured], ' s')
         self.summary_text.configure(text='Ten scenario-specific evidence gates. Missing runtime, recovery, device, or mutation observations remain unverified. Fixture scores are separate.')

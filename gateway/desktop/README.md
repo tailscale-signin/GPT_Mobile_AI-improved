@@ -156,6 +156,18 @@ In the dashboard, open **Benchmarks**, select an advertised model and choose a s
 
 Overview, Breakdown, Evidence and History provide charts, criterion scores, solved counts, first-submission and repair results, and saved comparisons. Latency views show time to first text, total time, stream gaps and provider-reported throughput where available. The coding score uses declared functional, regression, testing, diagnosis, design, workflow, recovery, scope and evidence criteria; missing required grading evidence leaves it incomplete. Results describe the tested fixtures, with unavailable measurements shown explicitly. See [Gateway 17 contracts](../V17_DESKTOP.md) for the complete benchmark scope and recovery rules.
 
+## Headless startup on Windows
+
+The installed launcher accepts `-Headless` and suppresses tray windows, update pop-ups and startup dialogs. It still serves the dashboard and records status and recovery diagnostics. For startup before you sign in, use Windows Task Scheduler to run the same launcher under the same Windows account that configured Gateway and saved its GitHub credential. Select **Run whether user is logged on or not**, leave **Do not store password** and **Run with highest privileges** unchecked, and enter the account password only in Windows Task Scheduler.
+
+Use an **At startup** trigger and set the program to Windows PowerShell. Set the arguments to `-NoProfile -File "<installed Gateway folder>\Start-Gateway.ps1" -Headless`. Disable the task's execution time limit, allow Task Scheduler to restart failed launches, and select **Do not start a new instance**. Turn off Gateway's **Start when I sign in** setting when using the scheduled task. Use Gateway's normal Stop or update controls so active work can checkpoint. Gateway records startup failures in its installed logs and status when the supervisor can initialize.
+
+## Continuous engineering qualification
+
+Generate a ten-case manifest with `python gateway/qualify_engineering.py --continuous-template OWNER/TEST-REPO --output continuous.json`. Add the saved Gateway job ID for each exercised scenario. In the desktop Benchmarks view, open the qualification manifest to read and export the results. The CLI can also read the manifest with `--root`, `--manifest`, and `--output`.
+
+Each scenario uses an authorized job in the designated test repository. The runner reports missing jobs as unexecuted and leaves cases unverified when durable evidence is incomplete. Induce outages and throttling in the designated test environment. Windows restart, phone disconnect, provider isolation, and concurrent publication require verified behavior evidence on the corresponding job. Merge still requires normal exact-head approval.
+
 ## Chat, saved messages and benchmarks
 
 The dashboard now has Overview, Chat, Saved, Jobs and Benchmarks. New prompt opens the selected-model composer; Ctrl+Enter sends. Saved offers history search, bookmarks, favorites and archiving. Advanced setup is optional. See [Gateway 17 contracts](../V17_DESKTOP.md) for conversation identity, benchmark scope, safe recovery and upgrade behavior.

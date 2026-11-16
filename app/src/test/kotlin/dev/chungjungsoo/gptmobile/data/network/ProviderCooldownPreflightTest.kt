@@ -35,6 +35,14 @@ class ProviderCooldownPreflightTest {
         }
     }
 
+    @Test fun explicitProviderSelectionIsNotBlockedByTheUnpinnedModelCooldown() {
+        val profile = profile()
+        ProviderCooldown.defer(ProviderRequestConfig(profile.apiUrl, profile.token, selectedModel = profile.model), "60")
+        val pinned = profile.copy(openRouterRouting = """{"only":["beta"]}""")
+        assertNull(providerPreflightLimit(pinned))
+        assertEquals("LOCAL_COOLDOWN_ACTIVE", providerPreflightLimit(profile)?.category)
+    }
+
     @Test fun aVerifiedFreeTier429BlocksOtherFreeModelsButNotPaidModels() = runBlocking {
         val profile = profile().copy(model = "model/alpha:free")
         val config = ProviderRequestConfig(

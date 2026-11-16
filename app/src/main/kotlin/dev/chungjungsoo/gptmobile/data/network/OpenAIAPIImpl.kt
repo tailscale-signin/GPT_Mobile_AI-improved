@@ -191,6 +191,14 @@ class OpenAIAPIImpl @Inject constructor(
                 FreeQueuedTransport(networkClient(), requestPreparation).generate(preparedRequest, config, timeoutSeconds) { emit(it) }
                 return@flow
             }
+            if (free == null && OpenRouterRateLimitScopes.isOpenRouter(config)) {
+                config = config.copy(
+                    openRouterPinnedProvider = OpenRouterRateLimitScopes.pinnedProvider(
+                        preparedRequest.provider,
+                        !preparedRequest.models.isNullOrEmpty()
+                    )
+                )
+            }
             config = ProviderConnectivityPreflight.withAvailability(config.apiUrl) {
                 gatewayControls.prepare(GatewayClientDiagnostics.withHeaders(config, request.model))
             }

@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterPolicy
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 
@@ -128,6 +129,8 @@ internal object ProviderCooldown {
         ) {
             return null
         }
+        val profileRouting = runCatching { OpenRouterPolicy.decodeProfile(profile.openRouterRouting).second }.getOrNull()
+        val explicitPin = OpenRouterRateLimitScopes.pinnedProvider(profileRouting, hasModelFallbacks = false)
         val candidates = ApiCredentialRotator.parseKeys(profile.token).ifEmpty { listOf("") }
         val now = System.currentTimeMillis()
         val waiting = candidates.map { credential ->
@@ -138,7 +141,15 @@ internal object ProviderCooldown {
                 selectedModel = profile.model
             )
             // All applicable quota scopes are read-only until dispatch.
-            val active = keys(config).mapNotNull { identity ->
+            val applicable = if (explicitPin != null && OpenRouterRateLimitScopes.isOpenRouter(config)) {
+                // Global policy can narrow this pin. Its exact quota is enforced
+                // against the final request, while a confirmed free-tier limit
+                // can be enforced before request preparation.
+                if (OpenRouterRateLimitScopes.isFreeModel(config)) listOf(key(config, "openrouter_free_tier_per_minute")) else emptyList()
+            } else {
+                keys(config)
+            }
+            val active = applicable.mapNotNull { identity ->
                 registry.cooldown(identity)?.let { identity to it }
             }.maxByOrNull { it.second.waitMillis } ?: return null
             val (identity, cooldown) = active

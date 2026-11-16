@@ -3,18 +3,27 @@ import argparse
 import json
 from pathlib import Path
 
-from benchmarks.engineering_qualification import run_manifest
+from benchmarks.engineering_qualification import CONTINUOUS_SCHEMA, CONTINUOUS_SCENARIOS, run_manifest
 from desktop.configuration import atomic_json
 from desktop.conversation_client import Client
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--root', required=True, help='Installed Gateway desktop configuration directory')
-    parser.add_argument('--manifest', required=True)
+    parser.add_argument('--root', help='Installed Gateway desktop configuration directory')
+    parser.add_argument('--manifest')
     parser.add_argument('--output', required=True)
+    parser.add_argument('--continuous-template', metavar='OWNER/REPO', help='Write an empty continuous engineering manifest')
     parser.add_argument('--execute', action='store_true', help='Submit listed implementation jobs with their fixed request IDs')
     args = parser.parse_args()
+    if args.continuous_template:
+        if args.execute or args.manifest:
+            parser.error('Template generation cannot read or execute jobs')
+        atomic_json(Path(args.output), {'schema': CONTINUOUS_SCHEMA, 'test_repository': args.continuous_template,
+                    'cases': [{'scenario': case} for case in CONTINUOUS_SCENARIOS]})
+        return 0
+    if not args.root or not args.manifest:
+        parser.error('Qualification requires --root and --manifest')
     path = Path(args.manifest)
     if path.stat().st_size > 1024 * 1024:
         parser.error('Manifest exceeds 1 MiB')
@@ -28,7 +37,7 @@ def main():
         # A later attempt reconciles the same request IDs if a response was lost.
         atomic_json(path, manifest)
     atomic_json(Path(args.output), report)
-    print(str(report['passed']) + '/10 scenarios qualified. Re-run to inspect saved jobs after required operator actions.')
+    print(f"{report['passed']}/{report['total']} scenarios qualified. Re-run to inspect saved jobs after required operator actions.")
     return 0 if report['qualified'] else 2
 
 

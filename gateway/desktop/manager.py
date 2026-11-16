@@ -108,7 +108,8 @@ def request(root, action, timeout=50):
 
 
 class Supervisor:
-    def __init__(self, root):
+    def __init__(self, root, *, headless=False):
+        self.headless = headless
         self.root = Path(root).resolve()
         self.cfg = load(self.root)
         self.token = secrets.token_urlsafe(48)
@@ -331,14 +332,15 @@ class Supervisor:
 
     def start_desktop_observer(self):
         from desktop.dashboard_model import counters, read_snapshot
-        from desktop.tray import TrayIcon
-        def tooltip():
-            snapshot = read_snapshot(self.root)
-            clients, active, _, _ = counters(snapshot)
-            return f'Gateway {self.status.get("state", "starting")} | {clients if clients is not None else "—"} clients | {active if active is not None else "—"} open jobs'
-        self.tray = TrayIcon(tooltip, {
-            'dashboard': lambda: self.open_window('dashboard'), 'settings': lambda: self.open_window('settings'),
-            'restart': lambda: request(self.root, 'restart'), 'stop': lambda: request(self.root, 'stop')}).start()
+        if not self.headless:
+            from desktop.tray import TrayIcon
+            def tooltip():
+                snapshot = read_snapshot(self.root)
+                clients, active, _, _ = counters(snapshot)
+                return f'Gateway {self.status.get("state", "starting")} | {clients if clients is not None else "—"} clients | {active if active is not None else "—"} open jobs'
+            self.tray = TrayIcon(tooltip, {
+                'dashboard': lambda: self.open_window('dashboard'), 'settings': lambda: self.open_window('settings'),
+                'restart': lambda: request(self.root, 'restart'), 'stop': lambda: request(self.root, 'stop')}).start()
         def observe():
             with requests.Session() as client:
                 client.trust_env = False
@@ -367,7 +369,7 @@ class Supervisor:
             self.observer_thread.join(timeout=5)
 
     def notify(self, number):
-        if os.name != 'nt':
+        if self.headless or os.name != 'nt':
             return
         marker = self.root / 'notified.json'
         try:
@@ -470,7 +472,7 @@ class Supervisor:
             time.sleep(.5)
 
 
-def supervise(root):
+def supervise(root, *, headless=False):
     lock = StateDirectoryLock(Path(root) / 'manager.sqlite3')
     try:
         lock.acquire()
@@ -478,7 +480,7 @@ def supervise(root):
         return 0  # Idempotent launch; existing process continues.
     manager = None
     try:
-        manager = Supervisor(root)
+        manager = Supervisor(root, headless=headless)
         return manager.run()
     except Exception as exc:
         if manager:

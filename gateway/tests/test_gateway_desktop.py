@@ -533,6 +533,21 @@ class UpdateTransactionTests(unittest.TestCase):
     def tearDown(self):
         self.temp.cleanup()
 
+    def test_headless_supervisor_collects_dashboard_without_tray_or_notifications(self):
+        manager = self.manager
+        manager.headless = True
+        manager.tray = None
+        manager.observer_stop = Mock()
+        observer = Mock()
+        with patch('desktop.manager.threading.Thread', return_value=observer) as thread:
+            manager.start_desktop_observer()
+            manager.notify('15.0.1')
+            thread.assert_called_once()
+        self.assertIsNone(manager.tray)
+        self.assertIs(manager.observer_thread, observer)
+        observer.start.assert_called_once_with()
+        self.assertFalse((self.root / 'notified.json').exists())
+
     def test_watchdog_keeps_trying_after_five_crashes_and_records_recovery(self):
         manager = self.manager
         manager.start_desktop_observer = Mock()

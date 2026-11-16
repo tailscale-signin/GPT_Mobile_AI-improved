@@ -20,11 +20,14 @@ def main():
     parser.add_argument('command', choices=['supervise', 'settings', 'github-settings', 'engineering-setup', 'validate-ui', 'configure', 'validate-settings', 'serve-engine', 'validate-engine', 'stop', 'restart', 'check', 'install', 'firewall', 'remove-firewall', 'dashboard', 'benchmark-settings'])
     parser.add_argument('--root', required=True, type=Path)
     parser.add_argument('--version')
+    parser.add_argument('--headless', action='store_true', help='Run the supervisor without desktop UI')
     parser.add_argument('--quiet', action='store_true')
     parser.add_argument('--error-file', type=Path)
     parser.add_argument('--settings-file', type=Path)
     parser.add_argument('--smoke-ui', action='store_true')
     args = parser.parse_args()
+    if args.headless and args.command != 'supervise':
+        parser.error('--headless requires the supervise command')
     root = args.root.resolve()
     if args.command in {'firewall', 'remove-firewall'}:
         from desktop.firewall import apply
@@ -171,7 +174,7 @@ def main():
             window.destroy()
         return 0
     if args.command == 'supervise':
-        return supervise(root)
+        return supervise(root, headless=args.headless)
     request(root, args.command)
     if args.command == 'stop':
         from desktop.window_lifecycle import close_windows

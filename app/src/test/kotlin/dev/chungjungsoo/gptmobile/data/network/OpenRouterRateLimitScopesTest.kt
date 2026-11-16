@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -24,6 +25,22 @@ class OpenRouterRateLimitScopesTest {
             OpenRouterRateLimitScopes.identity(first),
             OpenRouterRateLimitScopes.identity(first, "upstream_provider_shared_pool")
         )
+    }
+
+    @Test fun aPinnedRouteDoesNotBlockAnAlternativeProviderForTheSameModel() {
+        val model = config("vendor/a")
+        val alpha = model.copy(openRouterPinnedProvider = OpenRouterRateLimitScopes.pinnedProvider(OpenRouterProviderRouting(only = listOf("alpha")), false))
+        val beta = model.copy(openRouterPinnedProvider = OpenRouterRateLimitScopes.pinnedProvider(OpenRouterProviderRouting(only = listOf("beta")), false))
+        val cooldown = OpenRouterRateLimitScopes.identity(alpha, "upstream_provider_shared_pool")
+        assertTrue(OpenRouterRateLimitScopes.admissionIdentities(alpha).contains(cooldown))
+        assertFalse(OpenRouterRateLimitScopes.admissionIdentities(beta).contains(cooldown))
+        assertFalse(OpenRouterRateLimitScopes.admissionIdentities(model).contains(cooldown))
+    }
+
+    @Test fun orderAndMultiProviderPoliciesCannotBeTreatedAsAProviderPin() {
+        assertNull(OpenRouterRateLimitScopes.pinnedProvider(OpenRouterProviderRouting(order = listOf("alpha")), false))
+        assertNull(OpenRouterRateLimitScopes.pinnedProvider(OpenRouterProviderRouting(only = listOf("alpha", "beta")), false))
+        assertNull(OpenRouterRateLimitScopes.pinnedProvider(OpenRouterProviderRouting(only = listOf("alpha")), true))
     }
 
     @Test fun verifiedFreeTierQuotaIsSharedOnlyByFreeModels() {

@@ -1498,11 +1498,13 @@ class EngineeringService:
         wait = job.get('provider_wait')
         retry_event = None
         if wait and wait != previous_wait:
-            retry_event = dict(wait, outcome='SCHEDULED')
+            retry_event = dict(wait, outcome='SCHEDULED', http_status=output.get('http_status'),
+                               observed_at=self.store.now(), boot_hash=digest(self.bindings.boot_id))
         elif previous_wait and not wait:
             outcome = ('NEEDS_INPUT' if phase == 'NEEDS_INPUT' else
                        'RESUMED' if 'error_type' not in output else 'INTERRUPTED')
-            retry_event = dict(previous_wait, outcome=outcome)
+            retry_event = dict(previous_wait, outcome=outcome, observed_at=self.store.now(),
+                               boot_hash=digest(self.bindings.boot_id))
         if retry_event:
             job['data']['latest_retry'] = retry_event
             history = job['data'].get('retry_history', [])

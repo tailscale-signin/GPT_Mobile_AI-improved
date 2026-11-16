@@ -1,5 +1,6 @@
 package dev.chungjungsoo.gptmobile.data.network
 
+import dev.chungjungsoo.gptmobile.data.openrouter.OpenRouterProviderRouting
 import java.net.URI
 import java.security.MessageDigest
 import kotlinx.serialization.json.Json
@@ -10,6 +11,7 @@ import kotlinx.serialization.json.contentOrNull
 /** An upstream 429 must not quarantine all models on an OpenRouter key. */
 internal object OpenRouterRateLimitScopes {
     private val freeTierSources = setOf("openrouter_free_tier_per_minute", "openrouter_free_tier_daily")
+    private val providerSlug = Regex("[a-z0-9][a-z0-9_.-]{0,79}(/[a-z0-9][a-z0-9_.-]{0,79})?")
     private val recognizedSources = freeTierSources + "upstream_provider_shared_pool"
 
     fun validLimitSource(value: String?): String? = value?.takeIf { it in recognizedSources }
@@ -30,6 +32,9 @@ internal object OpenRouterRateLimitScopes {
         return model.endsWith(":free", ignoreCase = true) || model.equals("openrouter/free", ignoreCase = true)
     }
 
+    fun pinnedProvider(routing: OpenRouterProviderRouting?, hasModelFallbacks: Boolean): String? =
+        routing?.only?.singleOrNull()?.takeIf { !hasModelFallbacks && providerSlug.matches(it) }
+
     private fun digest(value: String): String =
         MessageDigest.getInstance("SHA-256").digest(value.encodeToByteArray()).joinToString("") { "%02x".format(it) }
 
@@ -39,7 +44,9 @@ internal object OpenRouterRateLimitScopes {
         val resource = if (validLimitSource(limitSource) in freeTierSources) {
             "shared-free-tier"
         } else {
-            "model:" + (config.selectedModel ?: config.lockedModel ?: config.profileUid ?: "unbound")
+            val model = config.selectedModel ?: config.lockedModel ?: config.profileUid ?: "unbound"
+            val pinned = config.openRouterPinnedProvider?.takeIf(providerSlug::matches)
+            if (pinned == null) "model:$model" else "model:$model\u0000provider:$pinned"
         }
         return digest("openrouter-v2\u0000" + credential + "\u0000" + resource)
     }

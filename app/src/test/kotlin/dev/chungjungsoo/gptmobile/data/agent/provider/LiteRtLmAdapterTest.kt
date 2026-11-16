@@ -3182,7 +3182,10 @@ class LiteRtLmAdapterTest {
         assertTrue(events.last() is ProviderEvent.Completed)
     }
 
-    private fun configuredLocalRequest(\n        images: Int = 0,\n        effectiveOutputTokens: Int = 1024\n    ) = ProviderEvent.RequestConfigured(
+    private fun configuredLocalRequest(
+        images: Int = 0,
+        effectiveOutputTokens: Int = 1024
+    ) = ProviderEvent.RequestConfigured(
         configuredProfileOutputTokens = 1024,
         requestedOutputTokens = 1024,
         effectiveOutputTokens = effectiveOutputTokens,

@@ -90,6 +90,23 @@ class GatewayEngineeringBudgetTest {
         assertEquals(0, untilComplete.effectiveDurationHours)
     }
 
+    @Test fun unsuccessfulObserverPollsRotateToRemainingJobs() {
+        val jobs = (1..40).map { "job-${it.toString().padStart(2, '0')}" }
+        val attempts = mutableMapOf<String, Long>()
+        val first = GatewayObserverPolling.select(jobs, attempts)
+        assertEquals(16, first.size)
+        first.forEach { GatewayObserverPolling.record(attempts, it, 100L) }
+        val second = GatewayObserverPolling.select(jobs, attempts)
+        assertEquals(16, second.size)
+        assertTrue(first.toSet().intersect(second.toSet()).isEmpty())
+        second.forEach { GatewayObserverPolling.record(attempts, it, 101L) }
+        val third = GatewayObserverPolling.select(jobs, attempts)
+        assertEquals(16, third.size)
+        assertTrue(jobs.drop(32).all { it in third })
+        GatewayObserverPolling.record(attempts, first.first(), 90L)
+        assertEquals(100L, attempts[first.first()])
+    }
+
     private fun request(selection: GatewayEngineeringBudgetSelection) = GatewayEngineeringRequest(
         "owner/repo", "work", "main", "Inspect", "selected",
         durationHours = selection.effectiveDurationHours, chatId = 7, requestId = "saved",

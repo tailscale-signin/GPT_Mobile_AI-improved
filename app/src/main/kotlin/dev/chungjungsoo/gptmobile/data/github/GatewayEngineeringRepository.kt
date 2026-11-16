@@ -525,13 +525,25 @@ class GatewayEngineeringRepository @Inject constructor(
     suspend fun syncAll(): Boolean {
         var success = true
         val candidates = bindings().filter { store.admissionState(it.request.requestId)?.startsWith("REJECTED:") != true && (it.job == null || it.job.terminal != true || it.syncedRevision < it.job.revision || conversations.needsEngineeringRefresh(it)) }
-        for (binding in candidates.sortedBy { lastPoll[it.request.requestId] ?: Long.MIN_VALUE }.take(16)) {
+        // The same unavailable gateway must not monopolize the 16-job observer
+        // window: failures need an attempted-at timestamp too. The mutex
+        // protects the in-memory scheduling map, never remote execution.
+        val selected = synchronization.withLock {
+            GatewayObserverPolling.select(candidates.map { it.request.requestId }, lastPoll)
+        }
+        for (requestId in selected) {
             try {
-                observe(binding.request.requestId)
+                observe(requestId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
                 success = false
+            } finally {
+                withContext(NonCancellable) {
+                    synchronization.withLock {
+                        GatewayObserverPolling.record(lastPoll, requestId, System.nanoTime() / 1_000_000)
+                    }
+                }
             }
         }
         return success
@@ -570,5 +582,16 @@ class GatewayEngineeringRepository @Inject constructor(
     companion object {
         const val OBSERVER_WORK_NAME = "gateway-engineering-sync"
         const val OBSERVER_GENERATION_KEY = "observer_generation"
+    }
+}
+
+// Scheduling only: this does not create, resume or approve a gateway job.
+internal object GatewayObserverPolling {
+    fun select(ids: List<String>, lastAttempt: Map<String, Long>, limit: Int = 16): List<String> =
+        ids.sortedWith(compareBy<String> { lastAttempt[it] ?: Long.MIN_VALUE }.thenBy { it })
+            .take(limit.coerceAtLeast(0))
+
+    fun record(lastAttempt: MutableMap<String, Long>, id: String, observedAtMs: Long) {
+        lastAttempt[id] = maxOf(lastAttempt[id] ?: Long.MIN_VALUE, observedAtMs)
     }
 }

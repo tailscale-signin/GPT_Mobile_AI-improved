@@ -197,10 +197,9 @@ internal object IssueReportIncidents {
             } else {
                 evidence
             }
-            val toolBudget = toolPrecheck && (
-                toolContext?.diagnostics?.values?.get("tool_budget_kind") != null ||
-                    reportSource == "TOOL_RESULT" && evidence["tool_budget_kind"] in setOf("CALLS", "RESULT_BYTES", "BOTH")
-                )
+            val capturedBudgetKind = toolContext?.diagnostics?.values?.get("tool_budget_kind") != null
+            val sourceBudgetKind = reportSource == "TOOL_RESULT" && evidence["tool_budget_kind"] in setOf("CALLS", "RESULT_BYTES", "BOTH")
+            val toolBudget = toolPrecheck && (capturedBudgetKind || sourceBudgetKind)
             // Exhaustion can accompany the last admitted call's specific failure; it is not its cause.
             val fallbackCode = if (toolBudget) {
                 "TOOL_BUDGET_EXHAUSTED"
@@ -214,15 +213,16 @@ internal object IssueReportIncidents {
             // must not hide this distinct, actionable budget condition.
             val validatedAdmissionReasons = (evidence["dependency_admission_reasons"] as? List<*>)
                 ?.takeIf { reasons ->
-                    reasons.isNotEmpty() && reasons.size <= 16 && reasons.all { reason ->
-                        reason is String && dev.chungjungsoo.gptmobile.data.agent.ToolDependencyDiagnostics.Admission.entries.any { it.name == reason }
-                    }
+                    reasons.isNotEmpty() &&
+                        reasons.size <= 16 &&
+                        reasons.all { reason ->
+                            reason is String && dev.chungjungsoo.gptmobile.data.agent.ToolDependencyDiagnostics.Admission.entries.any { it.name == reason }
+                        }
                 }
-            val callAllowanceExhausted = toolPrecheck && (
-                (toolContext?.diagnostics?.values?.get("dependency_admission_reasons") as? JsonArray)
-                    ?.contains(JsonPrimitive("CALL_ALLOWANCE")) == true ||
-                    reportSource == "TOOL_RESULT" && validatedAdmissionReasons?.contains("CALL_ALLOWANCE") == true
-                )
+            val capturedCallAllowance = (toolContext?.diagnostics?.values?.get("dependency_admission_reasons") as? JsonArray)
+                ?.contains(JsonPrimitive("CALL_ALLOWANCE")) == true
+            val trustedSourceCallAllowance = reportSource == "TOOL_RESULT" && validatedAdmissionReasons?.contains("CALL_ALLOWANCE") == true
+            val callAllowanceExhausted = toolPrecheck && (capturedCallAllowance || trustedSourceCallAllowance)
             val publicCode = if (callAllowanceExhausted && code in setOf(null, "TOOL_FAILURE", "DEPENDENCY_FAILED", "DEPENDENCY_DEFERRED")) {
                 "TOOL_BUDGET_EXHAUSTED"
             } else {

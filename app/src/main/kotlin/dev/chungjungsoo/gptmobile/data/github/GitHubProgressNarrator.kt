@@ -159,7 +159,7 @@ internal class GitHubProgressNarrator(
         internal fun validSummary(raw: String, evidence: String): String? {
             val text = (dev.chungjungsoo.gptmobile.data.diagnostics.redactChatDebugData(JsonPrimitive(raw)) as JsonPrimitive).content.trim()
             val words = text.split(Regex("\\s+"))
-            if (text.length > MAXIMUM_CHARACTERS || words.size !in 20..100 || text.contains("```") || Regex("(?i)<(?:think|analysis|tool)|(?:all|everything|task|work)\\s+(?:is\\s+)?(?:done|complete|finished)|no (?:request|model request) was (?:sent|dispatched)").containsMatchIn(text)) return null
+            if (text.length > MAXIMUM_CHARACTERS || words.size !in 20..100 || text.contains("```") || Regex("(?m)^\\s*\\|").containsMatchIn(text) || Regex("(?i)<(?:think|analysis|tool)|(?:all|everything|task|work)\\s+(?:is\\s+)?(?:done|complete|finished)|no (?:request|model request) was (?:sent|dispatched)").containsMatchIn(text)) return null
             // A progress narrator has operation observations, not acceptance receipts.
             if (Regex("(?i)\\b(?:tests?|checks?|builds?|ci)\\s+(?:(?:have|has|all|are|is)\\s+)*(?:passed|green|successful)|\\b(?:merged|deployed|published|released)\\b|\\b(?:finished|completed)\\s+(?:the\\s+)?(?:task|work|request)\\b").containsMatchIn(text)) return null
             // A number appearing somewhere in the prompt does not prove a different quantity.

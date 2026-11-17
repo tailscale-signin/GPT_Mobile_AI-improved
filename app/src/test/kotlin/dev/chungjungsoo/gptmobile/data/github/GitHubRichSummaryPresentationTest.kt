@@ -120,6 +120,44 @@ class GitHubRichSummaryPresentationTest {
         assertEquals("", GitHubRichSummaryPresentation.render(sample()))
     }
 
+    @Test fun alternatingRepeatedSourceReadsDoNotCreateRepeatedInsightCards() {
+        var now = 0L
+        val progress = GitHubChatProgress("Inspect sources") { now }
+        progress.tick()
+        fun read(path: String, id: String, failed: Boolean = false) {
+            val args = kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"path":"$path"}"""
+            ) as kotlinx.serialization.json.JsonObject
+            progress.observe(
+                ApiState.GatewayProgressChanged(
+                    GatewayProgress(
+                        event = if (failed) "tool_failed" else "tool_completed",
+                        toolName = "github_read",
+                        toolCallId = id,
+                        toolArgs = args
+                    )
+                )
+            )
+        }
+
+        read("src/Alpha.kt", "alpha-1")
+        now = 45_000L
+        assertEquals(1, progress.tick().filterIsInstance<ApiState.ActivitySummary>().size)
+
+        read("src/Beta.kt", "beta-1")
+        now = 90_000L
+        assertEquals(1, progress.tick().filterIsInstance<ApiState.ActivitySummary>().size)
+
+        read("src/Alpha.kt", "alpha-2")
+        now = 135_000L
+        assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
+
+        read("src/Alpha.kt", "alpha-3", failed = true)
+        now = 180_000L
+        val newest = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+        assertTrue(newest.text.contains("failed"))
+    }
+
     @Test fun clockOnlyChangesCannotGenerateANewActivitySummary() {
         var now = 0L
         val progress = GitHubChatProgress("Review CI") { now }

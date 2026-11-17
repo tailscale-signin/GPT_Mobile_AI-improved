@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "84c4e20ac4e22f3fd7637dcdc7ecf062a1b9441997147d1692c43e68cb287a72",
+  "source_digest": "935dc6d88e6d80336c7b3594c300fb2b91ac0aa10c44ac3a1933fdeba240bdc7",
   "file_count": 2666,
   "indexed_line_count": 433415,
   "line_coverage_available": false,
@@ -1984,7 +1984,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "49a3239c1a8e2417d4d8fc4eb16d77f9bdd1e611d689015c7edffd1eaf14fca7",
+      "sha256": "5309f3d6f85118fccd1a18c800a561ffce8a10afc3550878494dae73f7a4a131",
       "indexed_lines": 439
     },
     {

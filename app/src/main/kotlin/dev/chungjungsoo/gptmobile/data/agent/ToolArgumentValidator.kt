@@ -246,9 +246,9 @@ internal object ToolArgumentValidator {
         if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
         if (
             operation == "github_read" &&
-                "ranges" !in arguments &&
-                arguments["action"] in setOf(null, JsonPrimitive("ranges")) &&
-                arguments.keys.all { it in setOf("owner", "repo", "commit_sha", "action", "path", "start_line", "end_line", "max_lines") }
+            "ranges" !in arguments &&
+            arguments["action"] in setOf(null, JsonPrimitive("ranges")) &&
+            arguments.keys.all { it in setOf("owner", "repo", "commit_sha", "action", "path", "start_line", "end_line", "max_lines") }
         ) {
             // Reuse only the observed path, never an inferred source identity.
             // This is a non-dispatched correction proposal, not an authorized read.
@@ -256,9 +256,9 @@ internal object ToolArgumentValidator {
             val path = rawPath?.takeIf { it.isString }?.content
             if (
                 !path.isNullOrBlank() &&
-                    !path.startsWith("/") &&
-                    !path.contains('\\') &&
-                    path.split('/').none { it == "." || it == ".." }
+                !path.startsWith("/") &&
+                !path.contains('\\') &&
+                path.split('/').none { it == "." || it == ".." }
             ) {
                 val range = buildJsonObject {
                     put("path", path)

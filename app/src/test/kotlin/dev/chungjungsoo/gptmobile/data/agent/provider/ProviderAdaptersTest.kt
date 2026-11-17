@@ -97,10 +97,12 @@ class ProviderAdaptersTest {
         assertFalse(retained.toString().contains("weather"))
         assertFalse(retained.toString().contains("call"))
 
-        val untrusted = valid.copy(failureDetails = buildJsonObject {
-            put("tool_protocol_frame_kind", "INJECTED_PRIVATE_TEXT")
-            put("raw_arguments", "secret")
-        })
+        val untrusted = valid.copy(
+            failureDetails = buildJsonObject {
+                put("tool_protocol_frame_kind", "INJECTED_PRIVATE_TEXT")
+                put("raw_arguments", "secret")
+            }
+        )
         assertEquals(existing, retainSafeToolProtocolFrameKind(existing, untrusted))
         assertEquals(existing, retainSafeToolProtocolFrameKind(existing, valid.copy(errorCode = "CHAT_FAILED")))
     }

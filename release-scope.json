@@ -163,7 +163,8 @@
     "Isolate OpenRouter HTTP 429 cooldowns by requested model and verified shared free-tier scope, retain typed source evidence in approved diagnostics, improve default upstream routing and cover independent model availability with regression tests.",
     "Scope the dedicated Gateway continuous-session/retry helper under existing bounded runtime verification and explicit recovery limits.",
     "Redesign GitHub AI audit controls, bind saved result views to exact attempts, clarify Gateway retry states and harden transient voice focus recovery.",
-    "Repair pre-dispatch tool budget classification, saved-view immutable recovery, Windows acceptance fixture, and call-bound missing-path diagnostics with aligned reporter allowlists and regression evidence; reconcile new uploaded diagnostics in the issue frontier."
+    "Repair pre-dispatch tool budget classification, saved-view immutable recovery, Windows acceptance fixture, and call-bound missing-path diagnostics with aligned reporter allowlists and regression evidence; reconcile new uploaded diagnostics in the issue frontier.",
+    "Add evidence-bound GitHub Chat headings, meaningful progress bullets, observed check tables, optional recorded-count bar charts, CSV copying, semantic repeat suppression, and UI/unit regression coverage without treating narration as verification."
   ],
   "limitations": [
     "GitHub AI tool audit exercises selected-profile tool calls against isolated offline fixtures, not live GitHub authorization or mutations; bounded live-read probes remain separately qualified.",
@@ -2057,6 +2058,7 @@
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubLiveProgressTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubPromptAnchorTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubReducedMotionTest.kt",
+    "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRichSummaryRenderTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLineLedgerTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubRenderedLinesLayoutTest.kt",
     "app/src/test/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubTopFadeGeometryTest.kt",

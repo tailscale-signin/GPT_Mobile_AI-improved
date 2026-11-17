@@ -210,6 +210,31 @@ class GitHubPaginationBoundaryTest {
         assertEquals(JsonPrimitive("NOT_MEASURED"), missing.data.getValue("pagination_progress").jsonObject["acceptance_status"])
     }
 
+    @Test fun terminalPageWithoutEarlierRemotePagesFailsExplicitly() {
+        val boundary = GitHubPaginationBoundary()
+        val result = boundary.assessPage(
+            "github_ci",
+            json("""{"action":"list_workflow_runs","page":2,"per_page":1}"""),
+            json("""{"has_more":false,"total_count":1,"workflow_runs":[{"id":7}],"continuation":{"action":"list_workflow_runs","page":3}}""")
+        )
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", result.errorCode)
+        assertEquals(JsonPrimitive(false), result.data["has_more"])
+        assertFalse(result.data.containsKey("continuation"))
+        val progress = result.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(false), progress["contiguous_from_first_page"])
+        assertEquals(JsonPrimitive(false), progress["complete"])
+    }
+
+    @Test fun emptyTerminalWithoutExplicitZeroTotalFailsExplicitly() {
+        val boundary = GitHubPaginationBoundary()
+        val args = json("""{"action":"list_workflow_runs","page":1}""")
+        val unknown = boundary.assessPage("github_ci", args, json("""{"has_more":false}"""))
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", unknown.errorCode)
+        assertEquals(JsonPrimitive("MISSING_REMOTE_RECORD_COLLECTION"), unknown.data["reason"])
+        val explicitZero = boundary.assessPage("github_ci", args, json("""{"has_more":false,"total_count":0}"""))
+        assertEquals(null, explicitZero.errorCode)
+    }
+
     @Test fun missingRemoteCollectionWhileMorePagesAdvertisedIsIncompleteButEmptyTerminalIsAllowed() {
         val boundary = GitHubPaginationBoundary()
         val args = json("""{"action":"list_workflow_runs","page":1}""")

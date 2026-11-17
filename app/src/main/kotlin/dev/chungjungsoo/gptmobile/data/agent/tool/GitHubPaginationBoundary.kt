@@ -89,7 +89,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             // coverage when the provider advertises records or another page.
             // An explicitly empty terminal result remains valid.
             val reportedTotal = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
-            if ((reportedTotal ?: 0) == 0 && result["has_more"] != JsonPrimitive(true)) return Assessment(result)
+            if (reportedTotal == 0 && result["has_more"] == JsonPrimitive(false)) return Assessment(result)
             val number = page(args)
             val progress = buildJsonObject {
                 put("schema", "github.pagination-progress.v1")
@@ -151,7 +151,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val consistent = !state.changed && result["pagination_inconsistent"] != JsonPrimitive(true) && (total == null || all.size == total)
         val error = when {
             stalled -> "GITHUB_PAGINATION_STALLED"
-            terminal && (!consistent && contiguous || state.changed) -> "GITHUB_PAGINATION_INCOMPLETE"
+            terminal && (!contiguous || !consistent) -> "GITHUB_PAGINATION_INCOMPLETE"
             else -> null
         }
         if (terminal || stalled) ends[key] = End(number, now(), error)

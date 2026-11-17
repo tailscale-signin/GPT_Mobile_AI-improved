@@ -1,9 +1,9 @@
 # Diagnostics e469cfb1 — live issue reconciliation and review-baseline remediation
 
-**Date:** 2026-11-16 (America/Toronto)  
-**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`  
-**Sole open draft PR:** [#1349](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1349)  
-**Branch:** `fix/post-1299-incident-diagnostics-2026-11-15`  
+**Date:** 2026-11-16 (America/Toronto)
+**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`
+**Sole open draft PR:** [#1349](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1349)
+**Branch:** `fix/post-1299-incident-diagnostics-2026-11-15`
 **Source archive:** `diagnostics-e469cfb1-57d3-426d-80ca-f3190f9b8f81-part-1-2a6eaafb-70ec-4209-a35f-26fd67d787cb.zip`; private archive content is not copied here.
 
 ## Evidence boundaries

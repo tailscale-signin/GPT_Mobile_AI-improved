@@ -42,22 +42,26 @@ internal object GitHubRichSummaryPresentation {
             latest != null && sourceWords.containsMatchIn(latest) -> "Source inspection"
             else -> "Repository findings"
         }
-        val statements = buildList {
+        val facts = buildList {
             if (problem != null) add("**Attention:** ${escape(problem)}")
-            specific.takeLast(2).forEach { step ->
-                if (step != problem) add("**Observed:** ${escape(step)}")
-            }
             if (counts != null) {
-                add("**Evidence:** These are recorded check results, not a new test execution.")
                 counts.scope?.let { add("**Source:** ${escape(it)}") }
                 if (!counts.complete) add("**Coverage:** The captured check list is incomplete; missing checks are not measured.")
-            } else if (specific.size == 1 && problem == null && sourceWords.containsMatchIn(specific.single())) {
-                add("**Verification:** Inspecting the source does not establish that the requested fix or tests passed.")
+                add("**Evidence:** These are recorded check results, not a new test execution.")
+                if (problem == null) specific.lastOrNull()?.let { add("**Observed:** ${escape(it)}") }
+            } else {
+                specific.takeLast(2).forEach { step ->
+                    if (step != problem) add("**Observed:** ${escape(step)}")
+                }
+                if (specific.size == 1 && problem == null && sourceWords.containsMatchIn(specific.single())) {
+                    add("**Verification:** Inspecting the source does not establish that the requested fix or tests passed.")
+                }
             }
-            snapshot.next.takeIf { it.isNotBlank() }?.let {
-                add("**Next:** ${escape(it.replaceFirstChar(Char::lowercase))}")
-            }
-        }.take(5)
+        }
+        val nextAction = snapshot.next.takeIf(String::isNotBlank)?.let {
+            "**Next:** ${escape(it.replaceFirstChar(Char::lowercase))}"
+        }
+        val statements = facts.take(4) + listOfNotNull(nextAction)
         if (statements.isEmpty()) return ""
         return buildString {
             append("### ").append(headline).append('\n')

@@ -20,6 +20,34 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ToolReportIncidentProjectionTest {
+    @Test fun githubMissingPathKeepsCallBoundReasonWithoutDisclosingTheRequestedPath() {
+        val event = event("""{"action":"ranges","ranges":[{"path":"PRIVATE_FILE_PATH"}]}""").copy(modelToolName = "github_read__selected")
+        val receipt = buildJsonObject {
+            put("schema", "github.dispatch.v1")
+            put("call_id", event.callId)
+            put("error_code", "GITHUB_PATH_NOT_FOUND")
+            put("phase", "PREFLIGHT_REJECTED")
+            put("dispatched", false)
+            put("requires_reconciliation", false)
+        }
+        val result = AgentToolResult(
+            event.callId, ToolResultContent.Text("PRIVATE_FILE_PATH"), true,
+            errorCode = "GITHUB_PATH_NOT_FOUND", dispatched = false, executionReceipt = receipt
+        )
+        assertEquals("GITHUB_PATH_NOT_FOUND", ToolReportDiagnostics.reportCode(event, result))
+        val fields = ToolReportDiagnostics.fields(event, result)
+        assertEquals("GITHUB_PATH_NOT_FOUND", fields["tool_reason_code"])
+        val diagnostics = requireNotNull(IssueReportDiagnostics.fromFields("TOOL_RESULT", fields, 1_800_000_000_000))
+        assertEquals(JsonPrimitive("GITHUB_PATH_NOT_FOUND"), diagnostics.values["tool_reason_code"])
+        assertFalse(diagnostics.toString().contains("PRIVATE_FILE_PATH"))
+        val context = IssueReportContext.fromFields(
+            "TOOL_RESULT", fields + mapOf("failed_stage" to "tool_precheck", "operation" to "github_read", "dispatched" to false)
+        )
+        assertEquals("GITHUB_VALIDATION_FAILED", IssueReportCodes.nativeGitHubPrecheck("GITHUB_PATH_NOT_FOUND", context)?.code)
+        val wrongReceipt = result.copy(executionReceipt = JsonObject(receipt + ("call_id" to JsonPrimitive("wrong-call"))))
+        assertFalse(ToolReportDiagnostics.fields(event, wrongReceipt).containsKey("tool_reason_code"))
+    }
+
     @Test fun savedIndexPublicAliasRequiresTheExactPersistedCallAndTypedPriorCheckpointReceipt() = runBlocking {
         val event = event("""{"action":"index"}""").copy(modelToolName = "repository_graph__selected")
         val tool = RepositoryGraphTool(event.modelToolName) {

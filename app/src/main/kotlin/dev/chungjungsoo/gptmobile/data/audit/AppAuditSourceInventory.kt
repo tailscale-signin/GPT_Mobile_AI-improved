@@ -9,13 +9,13 @@ data class AppAuditSourceArea(val id: String, val label: String, val fileCount: 
 object AppAuditSourceInventory {
     val schemaVersion: Int = 1
     val assetPath: String = "diagnostics/app-code-inventory.json"
-    val sourceDigest: String = "4f98b2d89d8eb9d88d5c18e72e4fc8b7d56a40eee0442dc1919e702a35cd57ed"
+    val sourceDigest: String = "0233f35e5d02348bd46edd46c75694bbea439bc8797393f77f242941cfe59d49"
     val fileCount: Int = 2666
-    val lineCount: Int = 433271
+    val lineCount: Int = 433287
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8632),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 556, 97386),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 556, 97402),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 199, 9279),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 39743),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 22352),

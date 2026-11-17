@@ -64,6 +64,14 @@ class DiagnosticsTest(unittest.TestCase):
         self.assertEqual([2], scan.findings(b'line1\n' + b'ghp_' + b'A' * 36))
         self.assertEqual([], scan.findings(b'no secrets here'))
 
+    def test_github_workspace_appearance_preferences_remain_off_main_thread(self):
+        source = (SCRIPTS.parent / 'app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/setting/GitHubWorkspaceScreen.kt').read_text()
+        self.assertNotIn('remember(workspaceContext) { workspaceContext.getSharedPreferences', source)
+        self.assertIn('withContext(Dispatchers.IO)', source)
+        self.assertIn('scope.launch(Dispatchers.IO)', source)
+        self.assertIn('if (!fadePreferenceTouched)', source)
+        self.assertIn('fadePreferenceTouched = true', source)
+
 
 class WorkflowPolicyTest(unittest.TestCase):
     def test_floating_action_rejected_and_sha_accepted(self):

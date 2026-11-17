@@ -16,7 +16,7 @@ internal object GitHubResultProjection {
         "github_pr" to setOf("list")
     )
 
-    fun project(operation: String, request: JsonObject, source: JsonObject): JsonObject {
+    fun project(operation: String, request: JsonObject, source: JsonObject, retainedSource: JsonElement = source): JsonObject {
         if (operation == "github_release" && request["response_detail"] != JsonPrimitive("full") && request["action"] in setOf(JsonPrimitive("list"), JsonPrimitive("status"))) {
             var notes = 0
             fun releaseView(value: JsonElement): JsonElement = when (value) {
@@ -75,7 +75,7 @@ internal object GitHubResultProjection {
                         "projection",
                         buildJsonObject {
                             put("kind", "CAPTURED_STATUS_COUNTS")
-                            put("source_result_sha256", GitHubEvidenceBook.digest(source.toString()))
+                            put("source_result_sha256", GitHubEvidenceBook.digest(retainedSource.toString()))
                             put("detail", "Counts describe this captured remote page. Exact check rows remain in the immutable source receipt; follow remote pagination for complete inventory or request response_detail=full for row detail.")
                         }
                     )

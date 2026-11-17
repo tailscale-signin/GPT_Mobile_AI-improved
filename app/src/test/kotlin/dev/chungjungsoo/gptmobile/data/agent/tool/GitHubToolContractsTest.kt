@@ -227,7 +227,9 @@ class GitHubToolContractsTest {
         )
         try {
             val tool = GitHubOperationTool("github_ci", GitHubTool("token", http), "failure-search")
-            val first = data(tool.execute("first", call("failure", """, "run_id":7""")))
+            val searched = tool.execute("first", call("failure", """, "run_id":7"""))
+            assertFalse(searched.isError)
+            val first = data(searched)
             assertEquals(JsonPrimitive("job_search_incomplete"), first["data"]!!.jsonObject["status"])
             val next = first["continuation_call"]!!.jsonObject["arguments"]!!.jsonObject
             assertEquals(JsonPrimitive(11), next["page"])

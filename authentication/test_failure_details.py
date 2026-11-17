@@ -43,6 +43,8 @@ class FailureDetailsTest(unittest.TestCase):
         for area, values in [
             ("TOOL", {"tool_action": "headers", "tool_error_code": "INVALID_ARGUMENTS",
                       "tool_reason_code": "TOOL_ARGUMENT_SCHEMA_REJECTED", "unknown_field_count": 1}),
+            ("TOOL", {"tool_error_code": "INVALID_ARGUMENTS", "tool_reason_code": "SAVED_VIEW_CURSOR_MALFORMED",
+                      "tool_dispatch_phase": "PREFLIGHT_REJECTED"}),
             ("PROVIDER", {"provider_wait_eligible": True, "provider_checkpoint_present": False,
                           "provider_consecutive_rejections": 3}),
             ("ACCEPTANCE", {"unmet_requirement_count": 2, "unmet_capability_count": 9}),

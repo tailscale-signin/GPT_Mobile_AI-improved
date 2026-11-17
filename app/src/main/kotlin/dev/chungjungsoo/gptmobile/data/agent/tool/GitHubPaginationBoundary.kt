@@ -18,7 +18,16 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
 
     private fun key(operation: String, args: JsonObject): String = operation + dev.chungjungsoo.gptmobile.data.github.GitHubInventoryQuery.arguments(operation, args)
     private fun page(args: JsonObject) = (args["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
-    private fun numberedRemotePage(args: JsonObject) = "view_cursor" !in args && "index_cursor" !in args && args["action"] !in setOf(JsonPrimitive("workflow_catalog"), JsonPrimitive("search_repository"))
+
+    // The failure digest bounds a search for one failed job. Its continuation
+    // advances that search without publishing a page of workflow jobs.
+    private fun numberedRemotePage(args: JsonObject) = "view_cursor" !in args &&
+        "index_cursor" !in args &&
+        args["action"] !in setOf(
+            JsonPrimitive("workflow_catalog"),
+            JsonPrimitive("search_repository"),
+            JsonPrimitive("ci_failure_digest")
+        )
 
     @Synchronized fun completedPage(operation: String, args: JsonObject): Int? {
         if (!numberedRemotePage(args)) return null

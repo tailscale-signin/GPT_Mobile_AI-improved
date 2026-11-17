@@ -170,9 +170,11 @@ class GitHubAuditEvidenceTest {
         assertFalse("status_details" in data)
         val projection = data.getValue("projection").jsonObject
         assertEquals(JsonPrimitive("CAPTURED_STATUS_COUNTS"), projection["kind"])
-        assertEquals(JsonPrimitive(GitHubEvidenceBook.digest(source.toString())), projection["source_result_sha256"])
         val retained = (result.retainedContent as ToolResultContent.Json).value.jsonObject
-        assertEquals(source, retained)
+        assertEquals(JsonPrimitive(GitHubEvidenceBook.digest(retained.toString())), projection["source_result_sha256"])
+        assertEquals(source, JsonObject(retained - "pagination_progress"))
+        assertEquals(JsonPrimitive(true), retained.getValue("pagination_progress").jsonObject["complete"])
+        assertEquals(retained["pagination_progress"], data["pagination_progress"])
         assertEquals(18, (retained.getValue("check_details").jsonObject["check_runs"] as JsonArray).size)
         assertFalse(envelope.toString().contains("avatar_url"))
         assertFalse(envelope.toString().contains("\"required\":true"))

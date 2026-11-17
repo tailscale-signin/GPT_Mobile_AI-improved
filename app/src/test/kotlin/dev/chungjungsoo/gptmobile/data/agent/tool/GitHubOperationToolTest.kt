@@ -407,6 +407,8 @@ class GitHubOperationToolTest {
         assertFalse(result.dispatched)
         assertEquals("INVALID_ARGUMENTS", result.errorCode)
         assertTrue((result.content as ToolResultContent.Text).text.contains("omit view_cursor"))
+        assertEquals(JsonPrimitive("SAVED_VIEW_CURSOR_MALFORMED"), result.executionReceipt?.get("reason_code"))
+        assertEquals(JsonPrimitive("PREFLIGHT_REJECTED"), result.executionReceipt?.get("phase"))
         assertTrue(backend.calls.isEmpty())
     }
 

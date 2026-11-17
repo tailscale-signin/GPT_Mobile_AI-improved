@@ -138,7 +138,7 @@ DURATIONS.update({"reasoning_probe_age_ms", "reasoning_metadata_age_ms"})
 FIELDS_BY_AREA["PROVIDER"].update(REASONING_PROBE_FIELDS)
 
 # Bounded admission observations; raw requests and host paths are never accepted.
-COUNTS.update({"reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
+COUNTS.update({"reasoning_capability_age_ms", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "gateway_preflight_candidate_count", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
 ENUMS["admission_measurement"] = {"SERVING_TOKENIZER", "UTF8_ESTIMATE"}
 ENUMS["admission_dominant_component"] = {"tool_schemas", "system_instructions", "retained_history", "tool_results", "current_request", "response_schema", "serialization_and_template_estimate", "attachments"}
 ENUMS["status_policy_recovery"] = {"CHECK_PROTECTION_READ_PERMISSION", "CHECK_RULES_READ_PERMISSION"}
@@ -146,9 +146,12 @@ ENUMS["reasoning_model_state"] = {"UNKNOWN", "UNAVAILABLE", "UNLOADED", "LOADING
 ENUMS["reasoning_recovery_action"] = {"CHOOSE_AUTO_OR_QUALIFIED_MODEL"}
 ENUMS["queue_blocker"] = {"ACTIVE_LEASE", "CHAT_BUSY", "DELIVERY_PENDING", "EXTERNAL_WORK", "GATEWAY_NOT_READY", "MODEL_PREPARATION", "CONFIGURATION", "NONE"}
 ENUMS["gateway_validation_policy_state"] = {"NOT_CONFIGURED", "MISSING_OR_OVERSIZED", "REPOSITORY_UNCONFIGURED", "INVALID_DOCUMENT", "INVALID_ENTRY", "UNREADABLE", "VALIDATED"}
-ENUMS["gateway_preflight_reason"] = {"VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED", "VALIDATION_RUNTIME_UNAVAILABLE", "VALIDATION_REVISION_UNAVAILABLE", "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED"}
+ENUMS["gateway_preflight_reason"] = {"VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED", "VALIDATION_CHECK_UNSUPPORTED", "VALIDATION_RUNTIME_UNAVAILABLE", "VALIDATION_REVISION_UNAVAILABLE", "SOURCE_REVISION_REQUIRED", "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED"}
+ENUMS["gateway_preflight_discovery_state"] = {"REVIEW_REQUIRED", "DISCOVERY_UNAVAILABLE"}
+ENUM_LISTS["gateway_preflight_blocker_codes"] = ENUMS["gateway_preflight_reason"]
+ENUM_LISTS["gateway_preflight_recovery_actions"] = {"CONFIGURE_VALIDATION_POLICY", "DEFINE_ACCEPTANCE_REQUIREMENTS", "CONFIGURE_CI_CHECK_MAPPING", "CONFIGURE_ACCEPTANCE_MAPPING", "REFRESH_SOURCE_REVISION", "PROVISION_PINNED_MIRROR", "PROVISION_VALIDATION_RUNTIME"}
 FIELDS_BY_AREA["PROVIDER"].update({"reasoning_capability_age_ms", "reasoning_model_state", "admission_prompt_tokens", "admission_safety_tokens", "admission_output_tokens", "admission_capacity_tokens", "admission_dominant_tokens", "admission_measurement", "admission_dominant_component", "reasoning_recovery_action"})
-FIELDS_BY_AREA["GATEWAY"].update({"queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason"})
+FIELDS_BY_AREA["GATEWAY"].update({"queue_active_leases", "queue_pending_deliveries", "queue_unsettled_submissions", "queue_legacy_runs", "queue_cached_active_jobs", "queue_concurrency_limit", "gateway_preflight_blocker_count", "gateway_preflight_candidate_count", "gateway_preflight_blocker_codes", "gateway_preflight_recovery_actions", "gateway_preflight_discovery_state", "queue_blocker", "gateway_validation_policy_state", "gateway_preflight_reason"})
 FIELDS_BY_AREA["ACCEPTANCE"].update({"status_policy_recovery", "branch_protection_http_status", "branch_rules_http_status", "acceptance_approval_blocked_total", "acceptance_input_blocked_total", "acceptance_live_blocked_total", "acceptance_continuation_blocked_total"})
 
 COUNTS.add("graph_input_blocked_count")

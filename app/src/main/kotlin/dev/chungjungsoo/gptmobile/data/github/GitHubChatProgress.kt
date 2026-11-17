@@ -41,6 +41,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var lastSummaryKey = ""
     private val reportedFactKeys = linkedSetOf<String>()
     private var lastSummaryRevision = -1L
+
     // Preserve selected-profile findings until a new source-owned result or blocker arrives.
     private var selectedAuthoredSummary = false
     private val terminalCalls = mutableSetOf<Pair<String, String>>()

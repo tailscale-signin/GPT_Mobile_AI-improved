@@ -3000,6 +3000,8 @@
     "docs/repairs/benchmark-1794850459049-2026-11-16.md",
     "docs/repairs/issue-frontier-2026-11-16.md",
     "docs/repairs/gateway-transport-retry-continuity-2026-11-16.md",
-    "gateway/v14/engineering_recovery.py"
+    "gateway/v14/engineering_recovery.py",
+    "docs/repairs/benchmark-920cbe5a-open-issues-2026-11-16.md",
+    "docs/repairs/issue-frontier-benchmark-1794878766222-2026-11-16.md"
   ]
 }

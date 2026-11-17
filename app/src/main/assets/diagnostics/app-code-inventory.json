@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "607e8bf15a26acab5c581bd8c81c7e89248998a0c2428b8a6e345c4660bba1cf",
+  "source_digest": "69f994a255d7524e84b9166c610c4e73148afe7d3fc9781a1f448332a67036ff",
   "file_count": 2662,
   "indexed_line_count": 432383,
   "line_coverage_available": false,
@@ -11945,7 +11945,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/voice/VoiceDiagnosticTrace.kt",
       "area_id": "voice_and_media",
       "kind": "source",
-      "sha256": "76755f7d386615c98f538fae5062e46f075064c09f198265e5010cff9dc0052c",
+      "sha256": "885c0c0edb8d22d03901bba9e3fb0cb87cbb98aefd013779effa8a052765d2aa",
       "indexed_lines": 247
     },
     {

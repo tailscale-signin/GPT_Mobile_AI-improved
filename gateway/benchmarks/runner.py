@@ -50,6 +50,41 @@ def benchmark_error_receipt(error, stage):
     return result
 
 
+def best_verified_attempt_index(attempts):
+    """Retain the strongest measured repair without hiding unsafe attempts.
+
+    Every attempted candidate remains in the evidence journal. Never promote an
+    unexecuted/unknown observation or roll back a terminal integrity violation.
+    """
+    last = len(attempts) - 1
+    if last < 1 or attempts[last].get('status') != 'FAILED' or any(
+            row.get('integrity') == 'VIOLATION' for row in attempts):
+        return last
+
+    def rank(case):
+        if (case.get('status') != 'FAILED' or case.get('integrity') != 'VERIFIED'
+                or case.get('executed') is not True or case.get('graded') is not True):
+            return None
+        checks = case.get('checks')
+        if not isinstance(checks, dict):
+            return None
+        hidden, total = checks.get('hiddenPassed'), checks.get('hiddenTotal')
+        replay, replay_total = checks.get('replayPassed'), checks.get('replayTotal')
+        if (type(hidden) is not int or type(total) is not int or not 0 <= hidden <= total
+                or total == 0 or type(replay) is not int or type(replay_total) is not int
+                or not 0 <= replay <= replay_total or replay_total == 0):
+            return None
+        earned = case.get('earned', 0)
+        earned = float(earned) if type(earned) in (int, float) else 0.0
+        return (hidden / total, replay / replay_total, earned)
+
+    candidates = [(rank(row), index) for index, row in enumerate(attempts)]
+    candidates = [(quality, index) for quality, index in candidates if quality is not None]
+    # Equal-quality proposals retain the most recent candidate rather than
+    # repeatedly picking an older patch without measurable improvement.
+    return max(candidates, default=(None, last), key=lambda item: (item[0] is not None, item[0] or (), item[1]))[1]
+
+
 class BenchmarkRunner:
     def __init__(self, store, origin, cancelled, identity, settings):
         self.store, self.origin, self.cancelled = store, origin, cancelled
@@ -295,6 +330,7 @@ class BenchmarkRunner:
                 raise sandbox.SandboxUnavailable('The trusted reference failed in this sandbox; no model score was recorded.')
             turns = [{'role': 'user', 'content': fixtures.prompt(task)}]
             attempts = []
+            evaluated_attempts = []
             final = None
             for attempt in range(settings['repair_attempts'] + 1):
                 answer = []
@@ -334,6 +370,7 @@ class BenchmarkRunner:
                              'status': 'ERROR', 'executed': None, 'graded': False, 'resolved': False,
                              'integrity': 'VERIFIED', **benchmark_error_receipt(error, phase),
                              'dimensions': {key: None for key in coding.CODING_WEIGHTS}}
+                evaluated_attempts.append(final)
                 attempts.append({key: value for key, value in final.items() if key not in {'dimensionDefinitions'}})
                 self.store.case(run['id'], ordinal, dict(final, status='RUNNING', graded=False, attempts=list(attempts), repairBudget=settings['repair_attempts']))
                 # A missing evaluator proof cannot be repaired by another model
@@ -348,6 +385,10 @@ class BenchmarkRunner:
                           json.dumps(feedback, sort_keys=True, ensure_ascii=True) +
                           '\nReturn ONE concise complete JSON proposal for the ORIGINAL displayed files. '
                           'Use their exact BLOB hashes and unique anchors. No Markdown; do not claim tests ran.'}]
+            selected_index = best_verified_attempt_index(attempts)
+            final = dict(evaluated_attempts[selected_index])
+            final['selectedAttempt'] = selected_index + 1
+            final['attemptSelection'] = 'BEST_VERIFIED_MEASURED' if selected_index != len(attempts) - 1 else 'LATEST'
             final['attempts'] = attempts
             final['firstSubmissionScore'] = attempts[0].get('score')
             final['firstSubmissionResolved'] = attempts[0].get('resolved', False)

@@ -294,7 +294,11 @@ class StagedChatDebugExportTest {
     @Test fun automaticReducedMemoryCaptureRetainsCriticalEvidenceAndExplainsSelection() = runBlocking {
         val mib = 1024L * 1024
         every { AndroidDiagnosticExportMemory.sample() } returns DiagnosticExportMemory(
-            1, 268L * mib, 268L * mib, 252L * mib, 16L * mib
+            1,
+            268L * mib,
+            268L * mib,
+            252L * mib,
+            16L * mib,
         )
         val result = capture()
         assertEquals(JsonPrimitive(true), result.manifest["reducedMemory"])

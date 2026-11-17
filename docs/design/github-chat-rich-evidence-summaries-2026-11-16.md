@@ -1,9 +1,9 @@
 # GitHub Chat: rich, evidence-based engineering summaries
 
-**Status:** feature design / implementation specification (not a claim of shipped behavior)  
-**Target:** Android GitHub Chat + persistent Gateway engineering conversations  
-**Integration:** existing draft PR #1349, `fix/post-1299-incident-diagnostics-2026-11-15`  
-**Date:** 2026-11-16  
+**Status:** feature design / implementation specification (not a claim of shipped behavior)
+**Target:** Android GitHub Chat + persistent Gateway engineering conversations
+**Integration:** existing draft PR #1349, `fix/post-1299-incident-diagnostics-2026-11-15`
+**Date:** 2026-11-16
 **Product goal:** make GitHub Chat's visible updates read like a useful technical assistant's work summary, not a repetitive log of tool calls.
 
 ## 1. Problem and source inspection
@@ -28,9 +28,9 @@ After a run terminates, render a distinct **final outcome** with what was *actua
 
 Simple insight:
 
-> **CI failure traced to Android build**  
-> - **Found:** Kotlin compilation failed in the current run.  
-> - **Changed:** The retry guard has a proposed fix; publication is not yet verified.  
+> **CI failure traced to Android build**
+> - **Found:** Kotlin compilation failed in the current run.
+> - **Changed:** The retry guard has a proposed fix; publication is not yet verified.
 > - **Next:** Run the affected test and compare the exact PR head.
 
 Use title case sparingly; 3-7 words in a heading, not `# Status Update` repeated every time.
@@ -47,7 +47,7 @@ The table includes no inferred status. `Unknown` / `Not measured` are distinct f
 
 Chart, when a consistent numeric series is *actually observed*:
 
-> **Check results across runs**  
+> **Check results across runs**
 > A line/bar chart of passed checks for three or more **actual run snapshots**, labelled by run/revision. Do not fabricate a trend from one snapshot, interpolate missing runs, mix denominators, or imply success from "tests discovered". Show the measure, unit, legend, time labels, source and a text equivalent.
 
 ### C. Layout and interaction

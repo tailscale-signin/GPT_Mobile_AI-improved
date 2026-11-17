@@ -70,10 +70,12 @@ class GitHubRichSummaryPresentationTest {
     }
 
     @Test fun errorsStayVisibleEvenWhenTheNewestResultIsNotAFailure() {
-        val output = GitHubRichSummaryPresentation.render(sample(
-            "The source read for Failure.kt failed.",
-            "The source read for Latest.kt returned a result for inspection."
-        ))
+        val output = GitHubRichSummaryPresentation.render(
+            sample(
+                "The source read for Failure.kt failed.",
+                "The source read for Latest.kt returned a result for inspection."
+            )
+        )
         assertTrue(output.contains("Failure.kt failed"))
         assertTrue(output.contains("Latest.kt"))
         assertTrue(output.contains("Attention"))

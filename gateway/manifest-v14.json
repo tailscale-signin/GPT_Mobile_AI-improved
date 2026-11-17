@@ -2,7 +2,7 @@
   "baseCommit": "a66155dfdc0cf647dd368019f605d91689d48583",
   "version": "17.0.0",
   "schemaVersion": 1,
-  "sourceCommit": "8da13b18ecf890ada0605d856138a3cf6ac5dd3a",
+  "sourceCommit": "17c11f72636e024cbdf9b76779fa7e9cc09b3f47",
   "files": {
     "COMPLETION_RECOVERY.md": "69f942eab0a85b9c1a2f1f0684a4cf653a3417401814673ffc426605ac3be429",
     "DIAGNOSTICS.md": "2899dadea84f2a973e8b541f95c2f32f96a87a71206c0d82ee45510500c4e687",
@@ -162,7 +162,7 @@
     "tests/test_gateway_benchmark_patch_recovery.py": "57a4c148798c9823678853b4ca0b138b009a03ebaece412d02cc71fcc8adcbdf",
     "tests/test_gateway_benchmark_qualification.py": "d57c36141fb799c5352aca4163d0de9034dbea0c68c993db47867526c44a1bc6",
     "tests/test_gateway_benchmark_setup.py": "d662bcd704abd925eda98c730b4afa05b39e5997b0adc250daac6e48a1fa26d9",
-    "tests/test_gateway_benchmark_v17.py": "3c8028768c10633e2aaa54fb24879827f1fbe752ef2de6c4e00f7ce20e90cf1e",
+    "tests/test_gateway_benchmark_v17.py": "1935a82b76d8b3559225b127a0c8ad2ee9387c08ca4bf08fe4ddd8ebe36eee84",
     "tests/test_gateway_browser_bridge.mjs": "673e8604bd44317355c9824213d1d1f6c9ce12eef81f7b093b75e2bc621568b0",
     "tests/test_gateway_capabilities.py": "fd9007218951b687f199f37d72881c4cf9482016be585cdc67942a71b39d4664",
     "tests/test_gateway_command_outcomes.py": "af672663eca137a980de6cf98dbd9cef253fc8fa019cfbfc79fde2946e9d771a",

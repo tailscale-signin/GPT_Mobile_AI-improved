@@ -99,6 +99,49 @@ class GitHubOperationToolTest {
         }
     }
 
+    @Test fun rejectedHandWrittenIssuePageExposesItsMissingContinuationContract() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject) = AgentToolResult(
+                callId,
+                ToolResultContent.Text("Follow the exact issue continuation"),
+                true,
+                errorCode = "INVALID_ARGUMENTS",
+                dispatched = false
+            )
+        }
+        val tool = GitHubOperationTool("github_issue", backend, "build142")
+        val result = tool.execute("page-two", args("""{"action":"list","page":2,"per_page":20,"state":"open"}"""))
+        assertFalse(result.dispatched)
+        assertEquals("INVALID_ARGUMENTS", result.errorCode)
+        val body = (result.content as ToolResultContent.Json).value.jsonObject
+        assertTrue(body["message"].toString().contains("exact continuation_call"))
+        assertEquals(JsonPrimitive("TOOL_ARGUMENT_CONSTRAINT_REJECTED"), result.executionReceipt?.get("reason_code"))
+    }
+
+    @Test fun nativeSourceBatchCannotSpendTheVerificationReserve() = runBlocking {
+        var dispatches = 0
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                dispatches++
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("ok", true) }), false)
+            }
+        }
+        val read = GitHubOperationTool("github_read", backend, "reserve")
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 4, githubTask = true))
+        val bound = budget.bind(read)
+        val results = coroutineScope {
+            (0..7).map { index ->
+                async { bound.execute("read-$index", args("""{"path":"AGENTS.md","start_line":1,"end_line":250,"response_detail":"full"}""")) }
+            }.awaitAll()
+        }
+        assertEquals(2, results.count { !it.isError })
+        assertEquals(6, results.count { it.errorCode == "VERIFICATION_RESERVE_REACHED" && !it.dispatched })
+        assertEquals(2, dispatches)
+        assertEquals(2, budget.usedCalls())
+    }
+
     @Test fun nativeAndRestoredBatchReadsNormalizeBeforeDispatchAndKeepCallId() = runBlocking {
         val observed = mutableListOf<Pair<String, JsonObject>>()
         val backend = object : AgentTool {
@@ -125,6 +168,7 @@ class GitHubOperationToolTest {
         assertEquals("restored-read", result.callId)
         assertEquals(JsonPrimitive("ranges"), authorized?.get("action"))
         assertEquals(1, budget.usedCalls())
+        assertEquals(authorized, result.executionReceipt?.get("corrected_arguments"))
         assertEquals(original.providerInvocation(), restored.providerInvocation())
         assertEquals(JsonPrimitive("read_ranges"), observed.single().second["action"])
         assertEquals(raw["response_detail"], authorized?.get("response_detail"))

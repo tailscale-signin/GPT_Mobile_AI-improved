@@ -267,7 +267,12 @@ class BenchmarkStore @Inject constructor(@param:ApplicationContext context: Cont
                     require(after.executedProbes >= before.executedProbes && after.networkProbesDispatched >= before.networkProbesDispatched && after.results.take(before.results.size) == before.results) { "Committed app audit evidence and budgets cannot be replaced." }
                 }
                 val effectiveBatch = if (event.startsWith("AUDIT_") || event in setOf("CASE_STARTED", "CASE_FINISHED", "CASE_NOT_ADMITTED", "CASE_INTERRUPTED", "PREFLIGHT", "PREFLIGHT_CLEANUP", "PREFLIGHT_INTERRUPTED", "READINESS_CHECKPOINT", "READINESS_FINISHED")) accepted.copy(stopOrigin = saved?.stopOrigin ?: accepted.stopOrigin) else accepted
-                var effectiveRun = run?.copy(samples = run.samples.map { sample -> sample.copy(attemptId = sample.attemptId ?: "${run.id}:${sample.testId}:0") })
+                // A run records one logical result per case. Repeated physical attempts
+                // have their own retained attempt receipts; duplicate case rows must not
+                // inflate coverage, exports or overwrite one canonical attempt in storage.
+                var effectiveRun = run?.copy(samples = run.samples.distinctBy { it.testId }.map { sample ->
+                    sample.copy(attemptId = sample.attemptId ?: "${run.id}:${sample.testId}:0")
+                })
                 val existing = dao.attempts(batch.id).map { json.decodeFromString<BenchmarkAttempt>(it.payload) }.associateBy { it.id }.toMutableMap()
                 val changed = attempts.map { it.id }.toMutableSet()
                 attempts.forEach { existing[it.id] = it }

@@ -35,13 +35,16 @@ internal object GitHubRichSummaryPresentation {
     fun publicationKey(markdown: String): String {
         if (!isRich(markdown)) return GitHubProgressPresentation.lineKey(markdown)
         val observations = markdown.lineSequence().map(String::trim).filter { line ->
-            line.startsWith("- **Attention:**") ||
-                line.startsWith("- **Observed:**") ||
-                line.startsWith("- **Evidence:**") ||
-                line.startsWith("- **Source:**") ||
-                line.startsWith("- **Coverage:**") ||
-                line.startsWith("- **Verification:**") ||
-                line.startsWith("| ") && !line.startsWith("| ---") && !line.startsWith("| Check state ")
+            when {
+                line.startsWith("- **Attention:**") -> true
+                line.startsWith("- **Observed:**") -> true
+                line.startsWith("- **Evidence:**") -> true
+                line.startsWith("- **Source:**") -> true
+                line.startsWith("- **Coverage:**") -> true
+                line.startsWith("- **Verification:**") -> true
+                line.startsWith("| ") -> !line.startsWith("| ---") && !line.startsWith("| Check state ")
+                else -> false
+            }
         }.map(GitHubProgressPresentation::lineKey).toList()
         return observations.takeIf(List<String>::isNotEmpty)?.joinToString("\u001f")
             ?: GitHubProgressPresentation.lineKey(markdown)

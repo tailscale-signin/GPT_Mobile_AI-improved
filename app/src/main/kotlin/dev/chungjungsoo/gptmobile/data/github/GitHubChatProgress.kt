@@ -80,11 +80,9 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         val factKeys = GitHubRichSummaryPresentation.factKeys(source)
         // A rotated bounded history, event replay, timer or changed "Next" label
         // cannot manufacture a new insight without a previously unreported fact.
-        if (!initial && (
-                factKeys.isNotEmpty() && factKeys.all(reportedFactKeys::contains) ||
-                    generated == null && factKeys.isEmpty()
-            )
-        ) {
+        val allFactsReported = factKeys.isNotEmpty() && factKeys.all(reportedFactKeys::contains)
+        val noNewFacts = generated == null && factKeys.isEmpty()
+        if (!initial && (allFactsReported || noNewFacts)) {
             lastSummaryRevision = revision
             return null
         }

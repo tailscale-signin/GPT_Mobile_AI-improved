@@ -59,6 +59,20 @@ class GatewayJobsPresentationTest {
         assertEquals("Waiting for this device", gatewayPhaseLabel("WAITING_FOR_CLIENT_TOOL"))
     }
 
+    @Test fun scheduledCooldownIsQueuedWithoutConcealingRequiredHumanInput() {
+        val retry = GatewayJobRetry("PROVIDER_RATE_LIMIT", 2, "RETRY", "scheduled")
+        val job = GatewayJobSummary("job", "engineering", state = "waiting", phase = "PROVIDER_COOLDOWN", acceptedAt = 100.0, providerRetryAt = 200.0, retry = retry)
+        assertEquals(GatewayJobGroup.QUEUED, gatewayJobDisplayGroup(job.state, job.phase, job.providerRetryAt, job.retry?.outcome))
+        assertEquals(GatewayRetryPresentation.SCHEDULED, gatewayRetryPresentation(job))
+        assertEquals("Waiting to retry", gatewayPhaseLabel("PROVIDER_COOLDOWN"))
+        assertEquals("waiting for input or a checkpoint", gatewaySchedulingLabel("WAITING"))
+        assertEquals("running", gatewaySchedulingLabel(" Running "))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "MERGE_READY", 200.0))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "PROVIDER_COOLDOWN", 200.0, "NEEDS_INPUT"))
+        assertEquals(GatewayRetryPresentation.NEEDS_INPUT, gatewayRetryPresentation(job.copy(retry = retry.copy(outcome = "needs_input"))))
+        assertEquals(GatewayJobGroup.NEEDS_ATTENTION, gatewayJobDisplayGroup("waiting", "PROVIDER_COOLDOWN", Double.NaN))
+    }
+
     @Test fun durationShowsTotalAcceptedTimeAndUnknownMeansUnmeasured() {
         assertEquals("Not recorded", gatewayElapsedLabel(null))
         assertEquals("2h 3m 4s", gatewayElapsedLabel(7_384_000))

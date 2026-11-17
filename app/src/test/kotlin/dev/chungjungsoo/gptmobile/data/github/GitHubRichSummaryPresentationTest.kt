@@ -81,6 +81,20 @@ class GitHubRichSummaryPresentationTest {
         assertEquals(4, GitHubRichSummaryPresentation.chartData(result).size)
     }
 
+    @Test fun malformedSavedCheckTablesCannotBeChartedOrExported() {
+        val canonical = GitHubRichSummaryPresentation.render(
+            sample("Recorded checks: 3 successful, 2 skipped, 0 in progress, 1 failed (complete captured list).")
+        )
+        val duplicate = canonical.replace("| Failed | 1 |", "| Successful | 1 |")
+        val missingState = canonical.replace("| Failed | 1 |", "| Other completed | 1 |")
+        val extra = canonical + "\n| Failed | 1 |"
+        listOf(duplicate, missingState, extra).forEach { invalid ->
+            assertTrue(GitHubRichSummaryPresentation.chartData(invalid).isEmpty())
+            assertNull(GitHubRichSummaryPresentation.csv(invalid))
+        }
+        assertEquals(4, GitHubRichSummaryPresentation.chartData(canonical).size)
+    }
+
     @Test fun singleNonzeroCategoryOrIncompleteFactsDoNotCreateAMisleadingChart() {
         val allSuccessful = GitHubRichSummaryPresentation.render(
             sample("Recorded checks: 9 successful, 0 skipped, 0 in progress, 0 failed (complete captured list).")

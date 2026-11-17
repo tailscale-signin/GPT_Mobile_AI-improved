@@ -48,7 +48,8 @@ internal fun GitHubAiProfileAuditControls(
     var advanced by rememberSaveable { mutableStateOf(false) }
     var strictDeterministic by rememberSaveable { mutableStateOf(false) }
     val eligible = remember(profiles) { profiles.filter { it.enabled && it.model.isNotBlank() } }
-    val selected = eligible.singleOrNull { it.uid == profileUid }
+    // Default only for a sole eligible profile; never silently replace an explicit UID.
+    val selected = eligible.singleOrNull { it.uid == profileUid } ?: if (profileUid == null) eligible.singleOrNull() else null
     val visible = remember(eligible, query) {
         eligible.filter { query.isBlank() || listOf(it.name, it.model, it.compatibleType.name).any { value -> value.contains(query.trim(), ignoreCase = true) } }
     }

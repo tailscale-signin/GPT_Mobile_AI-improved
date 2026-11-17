@@ -114,30 +114,34 @@ internal object GitHubRichSummaryPresentation {
 
     /** Chart rows must match the deterministic table, not arbitrary model text. */
     fun chartData(markdown: String): List<CheckCount> {
-        if (!sourceCountTable(markdown)) return emptyList()
-        val rows = markdown.lineSequence().mapNotNull { line ->
-            val match = chartRow.matchEntire(line.trim()) ?: return@mapNotNull null
-            val count = match.groupValues[2].toIntOrNull()?.takeIf { it in 0..100_000 } ?: return@mapNotNull null
-            CheckCount(match.groupValues[1], count)
-        }.toList()
-        if (rows.size !in 4..5 || rows.map { it.label }.distinct().size != rows.size) return emptyList()
-        if (rows.count { it.count > 0 } < 3 || rows.sumOf { it.count } < 6) return emptyList()
+        val rows = parseRecordedTable(markdown) ?: return emptyList()
+        if (rows.count { it.count > 0 } < 2 || rows.sumOf { it.count } < 3) return emptyList()
         return rows
     }
 
     fun csv(markdown: String): String? {
+        val rows = parseRecordedTable(markdown) ?: return null
+        // Fixed source-owned labels and bounded integers cannot become CSV formulas.
+        return "Check state,Count\r\n" + rows.joinToString("\r\n") { it.label + "," + it.count } + "\r\n"
+    }
+
+    /** Malformed saved or modified tables must not become chart/export data. */
+    private fun parseRecordedTable(markdown: String): List<CheckCount>? {
         if (!sourceCountTable(markdown)) return null
-        val data = chartData(markdown)
-        val rows = if (data.isNotEmpty()) {
-            data
-        } else {
-            markdown.lineSequence().mapNotNull { line ->
-                val match = chartRow.matchEntire(line.trim()) ?: return@mapNotNull null
-                match.groupValues[2].toIntOrNull()?.takeIf { it in 0..100_000 }?.let { CheckCount(match.groupValues[1], it) }
-            }.toList().takeIf { it.size in 4..5 && markdown.contains("| Check state | Count |") } ?: return null
+        val lines = markdown.lines().map { it.trim() }.dropLastWhile { it.isBlank() }
+        val headerIndex = lines.indexOf("| Check state | Count |")
+        if (headerIndex < 0 || lines.getOrNull(headerIndex + 1) != "| --- | ---: |") return null
+        val tableLines = lines.drop(headerIndex + 2)
+        if (tableLines.size !in 4..5) return null
+        val rows = tableLines.map { line ->
+            val match = chartRow.matchEntire(line) ?: return null
+            val count = match.groupValues[2].toIntOrNull()?.takeIf { it in 0..100_000 } ?: return null
+            CheckCount(match.groupValues[1], count)
         }
-        // Labels are fixed source-owned strings and quantities are integers: no CSV formula inputs.
-        return "Check state,Count\r\n" + rows.joinToString("\r\n") { "${it.label},${it.count}" } + "\r\n"
+        val labels = rows.map { it.label }
+        val required = listOf("Successful", "Skipped", "In progress", "Failed")
+        if (labels != required && labels != required + "Other completed") return null
+        return rows
     }
 
     private fun sourceCountTable(markdown: String): Boolean =

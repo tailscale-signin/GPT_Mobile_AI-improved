@@ -43,6 +43,28 @@ class GitHubAiAuditControlsInstrumentedTest {
         compose.runOnIdle { assertEquals(listOf(Triple("b", true, true)), requests) }
     }
 
+    @Test fun soleEligibleProfileCanStartWithoutSetupButMultipleProfilesRequireAChoice() {
+        var profiles by mutableStateOf(listOf(PlatformV2(uid = "only", name = "Only profile", model = "model")))
+        val requests = mutableListOf<String>()
+        compose.setContent {
+            MaterialTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    GitHubAiProfileAuditControls(profiles, ready = true, busy = false) { uid, _, _ -> requests += uid }
+                }
+            }
+        }
+        compose.onNodeWithTag("github_ai_audit_profile_only").assertIsSelected()
+        compose.onNodeWithTag("github_ai_audit_start").performScrollTo().performClick()
+        compose.runOnIdle {
+            assertEquals(listOf("only"), requests)
+            profiles = profiles + PlatformV2(uid = "another", name = "Another profile", model = "model-2")
+        }
+        compose.onNodeWithTag("github_ai_audit_start").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("github_ai_audit_profile_another").performScrollTo().performClick()
+        compose.onNodeWithTag("github_ai_audit_start").performScrollTo().performClick()
+        compose.runOnIdle { assertEquals(listOf("only", "another"), requests) }
+    }
+
     @Test fun unavailableSelectionAndExecutionOwnershipPreventNewRequests() {
         var profiles by mutableStateOf(listOf(PlatformV2(uid = "a", name = "Profile", model = "model")))
         var busy by mutableStateOf(false)

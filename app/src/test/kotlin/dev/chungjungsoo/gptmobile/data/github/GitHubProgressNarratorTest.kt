@@ -261,6 +261,7 @@ class GitHubProgressNarratorTest {
         assertEquals(null, GitHubProgressNarrator.validSummary("Seven tools were tested. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("7 tools were tested. $prose", evidence))
         assertEquals(null, GitHubProgressNarrator.validSummary("2 authorized tools remain. $prose", evidence))
+        assertEquals(null, GitHubProgressNarrator.validSummary("$prose\n| Check state | Count |\n| --- | ---: |\n| Failed | 9 |", evidence))
     }
 
     @Test fun newerFailureDuringValidationPreventsPublishingAnObsoleteFallback() = runTest {

@@ -1706,6 +1706,8 @@ class ChatRepositoryImplTest {
         ).toList().filterNot { it is ApiState.AssistStatus || it is ApiState.GatewayProgressChanged || it is ApiState.ProgressCheckpoint || (it is ApiState.Notice && (it.message.startsWith("Context estimate:") || it.message.startsWith("Context: no app-imposed limit."))) }
 
         val expectedDetails = buildJsonObject {
+            put("incident_capture_site", "CHAT_REPOSITORY_ERROR_VALUE")
+            put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
             put("diagnostic_area", "PROVIDER")
             put("diagnostic_capture_mode", "INCIDENT")
             put("run_id_hash", IssueReportContext.identifierHash("run", runId))
@@ -2107,6 +2109,8 @@ class ChatRepositoryImplTest {
                     "Service temporarily unavailable due to high error rates. Please wait a moment before trying again.",
                     errorCode = "CIRCUIT_BREAKER_OPEN",
                     failureDetails = kotlinx.serialization.json.buildJsonObject {
+                        put("incident_capture_site", kotlinx.serialization.json.JsonPrimitive("CHAT_REPOSITORY_ERROR_VALUE"))
+                        put("incident_phase_provenance", kotlinx.serialization.json.JsonPrimitive("CAPTURE_BOUNDARY_ONLY"))
                         put("failed_stage", kotlinx.serialization.json.JsonPrimitive("provider_admission"))
                         put("dispatched", kotlinx.serialization.json.JsonPrimitive(false))
                         put("retry_after_ms", kotlinx.serialization.json.JsonPrimitive(5000L))

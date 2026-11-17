@@ -791,6 +791,30 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun genericChatFailureRetainsOnlyHashedThrowableCauseTypes() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        val error = IllegalStateException("PRIVATE_PROVIDER_EXCEPTION_MESSAGE", java.io.IOException("PRIVATE_CAUSE"))
+        IssueReportIncidents.chatFailure(
+            "UNRECOGNIZED_ERROR_CODE",
+            false,
+            error,
+            mapOf("run_id" to "private-generic-run")
+        )
+
+        val report = IssueReportIncidents.pending.value.single()
+        val diagnostic = requireNotNull(report.context?.diagnostics)
+        val expected = dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error)
+            .take(4).mapNotNull { IssueReportContext.identifierHash("exception-type", it) }
+        assertTrue(expected.isNotEmpty())
+        val retained = (diagnostic.values["exception_type_hashes"] as? JsonArray)
+            ?.map { (it as JsonPrimitive).content }
+        assertEquals(expected, retained)
+        assertEquals(JsonPrimitive("CAUSAL_EVIDENCE_UNAVAILABLE"), diagnostic.values["incident_evidence_status"])
+        assertFalse(report.approvedPayload().contains("PRIVATE_PROVIDER_EXCEPTION_MESSAGE"))
+        assertFalse(report.approvedPayload().contains("PRIVATE_CAUSE"))
+    }
+
+    @Test
     fun laterProviderWaitObservationRetainsExplicitPersistenceForFollowupOnly() {
         LocalDiagnosticsPolicy.setEnabled(true)
         IssueReportIncidents.chatFailure("PROVIDER_RATE_LIMITED", true, null, mapOf("run_id" to "owned-run", "provider" to "OPENROUTER", "failed_stage" to "model_invocation", "http_status" to 429))

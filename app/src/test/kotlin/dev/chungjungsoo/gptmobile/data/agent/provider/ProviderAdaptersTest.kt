@@ -87,6 +87,24 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 class ProviderAdaptersTest {
+    @Test fun typedToolProtocolParserKindSurvivesProviderAdapterFailureProjection() {
+        val valid = dev.chungjungsoo.gptmobile.data.agent.provider.toolCall("call", "weather", "{")
+            .single() as ProviderEvent.Failed
+        val existing = buildJsonObject { put("http_status", 200) }
+        val retained = retainSafeToolProtocolFrameKind(existing, valid)
+        assertEquals(JsonPrimitive("MALFORMED_JSON"), retained?.get("tool_protocol_frame_kind"))
+        assertEquals(JsonPrimitive(200), retained?.get("http_status"))
+        assertFalse(retained.toString().contains("weather"))
+        assertFalse(retained.toString().contains("call"))
+
+        val untrusted = valid.copy(failureDetails = buildJsonObject {
+            put("tool_protocol_frame_kind", "INJECTED_PRIVATE_TEXT")
+            put("raw_arguments", "secret")
+        })
+        assertEquals(existing, retainSafeToolProtocolFrameKind(existing, untrusted))
+        assertEquals(existing, retainSafeToolProtocolFrameKind(existing, valid.copy(errorCode = "CHAT_FAILED")))
+    }
+
     @Test fun ordinaryCompatibleChatRetainsTheActualProfileOutputSettingBeforeAdmissionFailure() = runBlocking {
         for (configuredLimit in listOf(null, 0, 8192)) {
             val failure = dev.chungjungsoo.gptmobile.data.dto.openai.response.ErrorDetail(

@@ -81,18 +81,19 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
                 put("complete", false)
                 put("acceptance_status", "NOT_MEASURED")
             }
-            return Assessment(
-                JsonObject(result.filterKeys { it !in setOf("continuation", "continuation_call", "remote_continuations", "next_page") } + buildJsonObject {
-                    put("reason", "MISSING_REMOTE_RECORD_COLLECTION")
-                    put("complete", false)
-                    put("has_more", false)
-                    put("traversal_state", "INCOMPLETE")
-                    put("upstream_has_more", result["has_more"] ?: JsonPrimitive(false))
-                    put("pagination_progress", progress)
-                    put("message", "Remote coverage is unverified: no record collection was returned. Refresh page 1 with verify_live=true before accepting evidence.")
-                }),
-                "GITHUB_PAGINATION_INCOMPLETE"
-            )
+            val withoutContinuations = result.filterKeys {
+                it !in setOf("continuation", "continuation_call", "remote_continuations", "next_page")
+            }
+            val failureBody = buildJsonObject {
+                put("reason", "MISSING_REMOTE_RECORD_COLLECTION")
+                put("complete", false)
+                put("has_more", false)
+                put("traversal_state", "INCOMPLETE")
+                put("upstream_has_more", result["has_more"] ?: JsonPrimitive(false))
+                put("pagination_progress", progress)
+                put("message", "Remote coverage is unverified: no record collection was returned. Refresh page 1 with verify_live=true before accepting evidence.")
+            }
+            return Assessment(JsonObject(withoutContinuations + failureBody), "GITHUB_PAGINATION_INCOMPLETE")
         }
         val key = key(operation, args)
         val state = traversals.getOrPut(key) { Traversal() }

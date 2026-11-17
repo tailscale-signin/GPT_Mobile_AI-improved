@@ -46,6 +46,20 @@ class GitHubChatPolicyTest {
         assertEquals(profile.model, GitHubChatPolicy.platform(profile, configured, context).model)
     }
 
+    @Test fun githubReasoningPreservesCallerSettingForProviderCapabilityNegotiation() {
+        // A model that only supports reasoning OFF must not receive a forced ON
+        // setting merely because GitHub tools were selected.
+        val disabled = ChatMcpToolConfig(github = context, reasoning = false)
+        assertEquals(false, GitHubChatPolicy.tools(disabled, features, "p")?.reasoning)
+
+        // A null preference is resolved by the existing selected-provider
+        // capability policy rather than being converted to ON here.
+        val automatic = ChatMcpToolConfig(github = context, reasoning = null)
+        assertEquals(null, GitHubChatPolicy.tools(automatic, features, "p")?.reasoning)
+        val explicit = ChatMcpToolConfig(github = context, reasoning = true)
+        assertEquals(true, GitHubChatPolicy.tools(explicit, features, "p")?.reasoning)
+    }
+
     @Test fun ordinaryChatsAndOtherProfilesKeepOriginalSettings() {
         assertSame(profile, GitHubChatPolicy.platform(profile, features, null))
         assertSame(features, GitHubChatPolicy.features(features, "other", context))

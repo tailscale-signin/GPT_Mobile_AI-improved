@@ -172,6 +172,39 @@ class GitHubRichSummaryPresentationTest {
         assertTrue(newest.text.contains("failed"))
     }
 
+    @Test fun selectedNarrationDoesNotSuppressNewFactualEvidenceWhenNarratorIsUnavailable() {
+        var now = 0L
+        val progress = GitHubChatProgress("Inspect CI") { now }
+        progress.tick()
+        progress.observe(
+            ApiState.ActivitySummary(
+                "The selected model has read the requested workflow definition. Its current observation is limited to the source; no validation run has been verified.",
+                modelAuthored = true
+            )
+        )
+        now = 45_000L
+        assertTrue(progress.tick().filterIsInstance<ApiState.ActivitySummary>().single().modelAuthored)
+
+        val args = kotlinx.serialization.json.Json.parseToJsonElement(
+            """{"path":"src/Reader.kt"}"""
+        ) as kotlinx.serialization.json.JsonObject
+        progress.observe(
+            ApiState.GatewayProgressChanged(
+                GatewayProgress(
+                    event = "tool_completed",
+                    toolName = "github_read",
+                    toolCallId = "new-evidence",
+                    toolArgs = args
+                )
+            )
+        )
+        now = 90_000L
+        val fallback = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
+        assertFalse(fallback.modelAuthored)
+        assertTrue(fallback.text.startsWith("### Source inspection"))
+        assertTrue(fallback.text.contains("Reader.kt"))
+    }
+
     @Test fun clockOnlyChangesCannotGenerateANewActivitySummary() {
         var now = 0L
         val progress = GitHubChatProgress("Review CI") { now }

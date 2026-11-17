@@ -2723,7 +2723,7 @@ class ChatRepositoryImpl(
             event.invocationId,
             kotlinx.serialization.json.JsonObject(event.failureDetails.orEmpty())
         )
-        val boundary = if ("incident_capture_site" !in original && (event.errorCode.isNullOrBlank() || event.errorCode in setOf("UNKNOWN", "CHAT_FAILED", "GITHUB_TASK_INCOMPLETE") || original.isEmpty())) {
+        val boundary = if ("incident_capture_site" !in original) {
             dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.boundaryFields(
                 dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE
             )

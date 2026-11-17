@@ -92,7 +92,8 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(False, result['acceptance_preparation']['executed'])
         self.assertEqual(False, result['acceptance_preparation']['approved_mappings_present'])
         self.assertEqual([], result['acceptance_preparation']['candidates'][0]['requirement_ids'])
-        discovery.assert_called_once_with({'mirror': '/mirror'}, source_sha=source, approved_cases=None)
+        discovery.assert_called_once_with({'mirror': '/mirror'}, source_sha=source, approved_cases=None,
+                                          max_files=12, max_candidates=48)
 
     def test_acceptance_contract_rejects_unbounded_or_empty_requirements(self):
         request = {'repository': 'owner/repo', 'base': 'main', 'branch': 'fix', 'objective': 'fix it', 'model': 'local', 'request_id': 'test'}

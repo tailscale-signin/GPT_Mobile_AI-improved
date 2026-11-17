@@ -11,17 +11,21 @@ internal fun gatewayJobDisplayGroup(
     retryOutcome: String? = null
 ): GatewayJobGroup {
     val stage = phase?.uppercase(java.util.Locale.ROOT)
-    val requiresUser = stage in setOf(
+    val attentionPhase = stage in setOf(
         "MERGE_READY", "APPROVAL", "WAITING_APPROVAL", "AWAITING_APPROVAL",
         "DEVICE", "WAITING_DEVICE", "WAITING_FOR_DEVICE", "NEEDS_INPUT",
         "WAITING_FOR_CLIENT_TOOL", "CANCELLING", "BLOCKED", "UNKNOWN_OUTCOME",
         "RECONCILING", "RECOVERY_BLOCKED"
-    ) || retryOutcome?.uppercase(java.util.Locale.ROOT) in setOf("NEEDS_INPUT", "INTERRUPTED")
+    )
+    val attentionOutcome = retryOutcome?.uppercase(java.util.Locale.ROOT) in setOf("NEEDS_INPUT", "INTERRUPTED")
+    val waiting = state.equals("waiting", ignoreCase = true)
+    val ciWait = stage in setOf("CI", "CHECKS", "WAITING_CI", "WAITING_FOR_CI")
+    val retryScheduled = providerRetryAt?.let { it.isFinite() && it > 0.0 } == true
     return when {
         state.equals("interrupted", ignoreCase = true) -> GatewayJobGroup.NEEDS_ATTENTION
-        state.equals("waiting", ignoreCase = true) && stage in setOf("CI", "CHECKS", "WAITING_CI", "WAITING_FOR_CI") -> GatewayJobGroup.RUNNING
-        state.equals("waiting", ignoreCase = true) && !requiresUser &&
-            providerRetryAt?.let { it.isFinite() && it > 0.0 } == true -> GatewayJobGroup.QUEUED
+        waiting && (attentionPhase || attentionOutcome) -> GatewayJobGroup.NEEDS_ATTENTION
+        waiting && ciWait -> GatewayJobGroup.RUNNING
+        waiting && retryScheduled -> GatewayJobGroup.QUEUED
         else -> gatewayJobGroup(state)
     }
 }
@@ -71,7 +75,9 @@ internal fun gatewayRetryPresentation(job: GatewayJobSummary): GatewayRetryPrese
         val group = gatewayJobDisplayGroup(job.schedulingState ?: job.state, job.phase, job.providerRetryAt, job.retry?.outcome)
         if (group in setOf(GatewayJobGroup.RUNNING, GatewayJobGroup.QUEUED) && job.providerRetryAt?.let { it.isFinite() && it > 0.0 } == true) {
             GatewayRetryPresentation.SCHEDULED
-        } else GatewayRetryPresentation.RECORDED
+        } else {
+            GatewayRetryPresentation.RECORDED
+        }
     }
 }
 

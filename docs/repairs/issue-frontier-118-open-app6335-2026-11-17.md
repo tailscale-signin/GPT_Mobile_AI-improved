@@ -1,7 +1,7 @@
 # Issue frontier and uploaded app diagnostics — November 17, 2026 (UTC)
 
-**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`  
-**Only open PR:** [#1349](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1349) — `fix/post-1299-incident-diagnostics-2026-11-15`  
+**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`
+**Only open PR:** [#1349](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1349) — `fix/post-1299-incident-diagnostics-2026-11-15`
 **Scope:** Read-only issue snapshot during continued repairs, not evidence that reports are fixed. New issues may arrive later.
 
 ## Exact provenance and counted evidence

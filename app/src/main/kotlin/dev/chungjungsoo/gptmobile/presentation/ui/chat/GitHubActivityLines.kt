@@ -104,8 +104,7 @@ internal fun gitHubActivityLines(timeline: List<AssistantTimelineItem>, task: St
                 // Local fallback reports can be rehydrated with a new next-action
                 // phrase after reconnect. Compare only their recorded findings.
                 // Preserve distinct selected-model explanations without rewriting them.
-                val isFactualRich = !item.modelAuthored &&
-                    dev.chungjungsoo.gptmobile.data.github.GitHubRichSummaryPresentation.isRich(item.content)
+                val isFactualRich = !item.modelAuthored && dev.chungjungsoo.gptmobile.data.github.GitHubRichSummaryPresentation.isRich(item.content)
                 val key = if (isFactualRich) {
                     dev.chungjungsoo.gptmobile.data.github.GitHubRichSummaryPresentation.publicationKey(item.content)
                 } else {

@@ -208,6 +208,42 @@ class GatewayReportDiagnosticsTest {
         assertFalse(snapshot.toString().contains("private-profile"))
     }
 
+    @Test fun preflightCollectsAllClosedRecoveryCodesAndRealDiscoveryCounts() {
+        val snapshot = requireNotNull(GatewayReportDiagnostics.preflight(
+            "private-profile", "private-model", false,
+            listOf("ACCEPTANCE_CONTRACT_REQUIRED", "VALIDATION_RUNTIME_UNAVAILABLE"),
+            capturedAtMillis = 1_000_000, policyState = "VALIDATED",
+            recoveryActions = listOf("DEFINE_ACCEPTANCE_REQUIREMENTS", "PROVISION_VALIDATION_RUNTIME"),
+            discoveryState = "REVIEW_REQUIRED", candidateCount = 3
+        ))
+        assertEquals(JsonPrimitive(2), snapshot.values["gateway_preflight_blocker_count"])
+        assertEquals(JsonPrimitive(3), snapshot.values["gateway_preflight_candidate_count"])
+        assertEquals(JsonPrimitive("REVIEW_REQUIRED"), snapshot.values["gateway_preflight_discovery_state"])
+        assertEquals(
+            kotlinx.serialization.json.JsonArray(listOf(
+                JsonPrimitive("ACCEPTANCE_CONTRACT_REQUIRED"), JsonPrimitive("VALIDATION_RUNTIME_UNAVAILABLE")
+            )), snapshot.values["gateway_preflight_blocker_codes"]
+        )
+        assertEquals(
+            kotlinx.serialization.json.JsonArray(listOf(
+                JsonPrimitive("DEFINE_ACCEPTANCE_REQUIREMENTS"), JsonPrimitive("PROVISION_VALIDATION_RUNTIME")
+            )), snapshot.values["gateway_preflight_recovery_actions"]
+        )
+        assertTrue(snapshot.isValid())
+        assertFalse(snapshot.toString().contains("private-"))
+
+        val hostile = requireNotNull(GatewayReportDiagnostics.preflight(
+            "private-profile", "private-model", false, listOf("secret-error-name"),
+            capturedAtMillis = 1_000_000, recoveryActions = listOf("RUN_UNTRUSTED_CODE"),
+            discoveryState = "private", candidateCount = 1000
+        ))
+        assertNull(hostile.values["gateway_preflight_blocker_codes"])
+        assertNull(hostile.values["gateway_preflight_recovery_actions"])
+        assertNull(hostile.values["gateway_preflight_discovery_state"])
+        assertNull(hostile.values["gateway_preflight_candidate_count"])
+        assertTrue(hostile.isValid())
+    }
+
     @Test fun queueSnapshotExplainsSerialLeaseWithoutClaimingServerCapacity() {
         val snapshot = requireNotNull(GatewayReportDiagnostics.queue("ACTIVE_LEASE", 1, 0, 2, 0, 1, 1000))
         assertEquals(JsonPrimitive(1), snapshot.values["queue_concurrency_limit"])

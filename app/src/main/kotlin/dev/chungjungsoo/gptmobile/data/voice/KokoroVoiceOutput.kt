@@ -506,7 +506,8 @@ internal class KokoroVoiceOutput(
                         playback.unknownWords,
                         playback.initialisms,
                         playback.queuedAudio,
-                        playback.firstFrame
+                        playback.firstFrame,
+                        observation.failure
                     )
                     timing("pronunciation_unavailable", playback, "reason=${observation.failure?.name ?: "UNKNOWN"} · unknownWords=${playback.unknownWords} · normalizedFormats=${playback.removedFormatCharacters}")
                     main.post {

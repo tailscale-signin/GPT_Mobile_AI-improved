@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "37ea760fb35c35bcf877c6fb16307643f7823834aedd386a6c5d4e6eeffbde79",
+  "source_digest": "4b0841215fcb9d999143ba151307af382a01741bbe6b9f94687ec9bbd4d10b8f",
   "file_count": 2666,
-  "indexed_line_count": 433360,
+  "indexed_line_count": 433396,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,13 +52,13 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 234,
-      "indexed_line_count": 39743
+      "indexed_line_count": 39767
     },
     {
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 100,
-      "indexed_line_count": 22413
+      "indexed_line_count": 22425
     },
     {
       "id": "mcp_plugins",
@@ -1984,8 +1984,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "fe5107436f5fbfe9949512cc4937c64b34aaf0ebf7bf5a99d7e575bd2e97d519",
-      "indexed_lines": 410
+      "sha256": "9e7454c61548e559e5bc3bd09469a6a7bdbcabae5ef2e47b417fef8e696ff647",
+      "indexed_lines": 434
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchCheckpoint.kt",
@@ -2698,15 +2698,15 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "2e0028aeb4d1775eea9009681248082c4a16d8fed2baf54be32cecca45f70a97",
+      "sha256": "346175cbcea09346c669cb7e350e2f28591e13926363492c075377c7b8180f70",
       "indexed_lines": 1224
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "9279bb92b50f9091ea0613737227095c0f9f7bd770ebd9ce1c617ec6e6a3dcc9",
-      "indexed_lines": 218
+      "sha256": "6eabaca5e7726c58fb29644c798d2d877a576dd1a9074784482441d7988500c3",
+      "indexed_lines": 230
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubProviderPolicy.kt",

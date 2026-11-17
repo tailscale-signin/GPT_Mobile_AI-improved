@@ -256,7 +256,7 @@ internal class GitHubResultViews(
                             if (unissued) {
                                 "This view_cursor was never issued. Do not retry or alter it. Start a fresh authorized source read with observed selectors; do not repeat a mutation."
                             } else {
-                                "The saved page is unavailable. Execute the exact source_recovery_call from the retained result when available. Otherwise start a fresh authorized read; never replay a mutation."
+                                "The saved page is unavailable. When source_recovery_call is available, reopen the same immutable source with that exact read-only recipe. Otherwise start a fresh authorized read; never replay a mutation."
                             }
                         )
                         known?.let { view ->

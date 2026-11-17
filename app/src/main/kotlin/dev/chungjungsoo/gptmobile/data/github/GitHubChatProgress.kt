@@ -96,7 +96,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         lastSummaryRevision = revision
         val key = GitHubProgressPresentation.lineKey(candidate.text)
         if (key.isBlank() || key == lastSummaryKey) return null
-        val introduction = initial
+        val introduction = initial && generated == null
         summary = candidate.text
         lastSummaryKey = key
         lastSummaryAt = at

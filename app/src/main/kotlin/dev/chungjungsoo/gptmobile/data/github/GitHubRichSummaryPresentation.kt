@@ -83,7 +83,7 @@ internal object GitHubRichSummaryPresentation {
 
     /** Chart rows must match the deterministic table, not arbitrary model text. */
     fun chartData(markdown: String): List<CheckCount> {
-        if (!isRich(markdown) || !markdown.contains("| Check state | Count |\n| --- | ---: |")) return emptyList()
+        if (!sourceCountTable(markdown)) return emptyList()
         val rows = markdown.lineSequence().mapNotNull { line ->
             val match = chartRow.matchEntire(line.trim()) ?: return@mapNotNull null
             val count = match.groupValues[2].toIntOrNull()?.takeIf { it in 0..100_000 } ?: return@mapNotNull null
@@ -95,6 +95,7 @@ internal object GitHubRichSummaryPresentation {
     }
 
     fun csv(markdown: String): String? {
+        if (!sourceCountTable(markdown)) return null
         val data = chartData(markdown)
         val rows = if (data.isNotEmpty()) {
             data
@@ -107,6 +108,11 @@ internal object GitHubRichSummaryPresentation {
         // Labels are fixed source-owned strings and quantities are integers: no CSV formula inputs.
         return "Check state,Count\r\n" + rows.joinToString("\r\n") { "${it.label},${it.count}" } + "\r\n"
     }
+
+    private fun sourceCountTable(markdown: String): Boolean =
+        markdown.startsWith("### Recorded check results\n") &&
+            markdown.contains("- **Evidence:** These are recorded check results, not a new test execution.") &&
+            markdown.contains("| Check state | Count |\n| --- | ---: |")
 
     private fun observations(snapshot: GitHubProgressSnapshot): List<String> =
         snapshot.recentSteps.map { raw ->

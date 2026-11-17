@@ -232,9 +232,9 @@ class GatewayEngineeringClient internal constructor(
             result.ready,
             result.blockers.map { it.reasonCode },
             policyState = result.validationPolicyState,
-                                recoveryActions = result.blockers.map { it.recoveryAction },
-                                discoveryState = (result.acceptancePreparation?.get("status") as? JsonPrimitive)?.contentOrNull,
-                                candidateCount = (result.acceptancePreparation?.get("candidates") as? kotlinx.serialization.json.JsonArray)?.size
+            recoveryActions = result.blockers.map { it.recoveryAction },
+            discoveryState = (result.acceptancePreparation?.get("status") as? JsonPrimitive)?.contentOrNull,
+            candidateCount = (result.acceptancePreparation?.get("candidates") as? kotlinx.serialization.json.JsonArray)?.size
         )?.let(dev.chungjungsoo.gptmobile.data.diagnostics.ReportDiagnosticSnapshots::retain)
         if (!result.ready) throw GatewayEngineeringPrerequisites.rejected(412, result)
         check(request.taskScope != "implement" || result.acceptance.isNotEmpty()) { "The gateway did not provide a testable acceptance contract." }

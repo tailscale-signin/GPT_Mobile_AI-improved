@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ff4f81a05ebe763b1d9a085b82be223ee6124f1e284fd5fe01d011b8b72a94b7",
+  "source_digest": "9228e59e8b733c138400fbb2592a0c1efa46439ea9ccefe4debe2158a69a82c9",
   "file_count": 2667,
   "indexed_line_count": 433699,
   "line_coverage_available": false,
@@ -2096,7 +2096,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolExecutionBudget.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "d35d9c11b4c642c623ab8dcd4fd7966ffaa92da12b4629ab86cf83d5e7212480",
+      "sha256": "edbd61d761f34c934fca397d076f0ecd97a1975a63e263189f73ed55c8ff9cca",
       "indexed_lines": 751
     },
     {

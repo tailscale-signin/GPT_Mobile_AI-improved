@@ -25,18 +25,20 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val action = (args["action"] as? JsonPrimitive)?.content
         // A PR context, commit, or branch dependency is one resource, not a
         // numbered collection. Nested has_more is not a page-2 authorization.
-        if (operation == "github_pr" && action == "context" ||
+        if (
+            operation == "github_pr" && action == "context" ||
             operation == "github_context" && action in setOf("commit", "branch_dependencies")
         ) {
             return false
         }
         return "view_cursor" !in args &&
-        "index_cursor" !in args &&
-        args["action"] !in setOf(
-            JsonPrimitive("workflow_catalog"),
-            JsonPrimitive("search_repository"),
-            JsonPrimitive("ci_failure_digest")
-        )
+            "index_cursor" !in args &&
+            args["action"] !in setOf(
+                JsonPrimitive("workflow_catalog"),
+                JsonPrimitive("search_repository"),
+                JsonPrimitive("ci_failure_digest")
+            )
+    }
 
     fun expectsNumberedRemotePage(operation: String, args: JsonObject): Boolean =
         numberedRemotePage(operation, args)

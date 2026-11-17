@@ -243,7 +243,9 @@ class BenchmarkBatchRunnerTest {
             assertEquals(14, selected.size)
             val profile = profiles.first()
             val accepted = BenchmarkBatch(
-                "github-quick-preflight-failure", BenchmarkMode.GITHUB_INTEGRATION, 1,
+                "github-quick-preflight-failure",
+                BenchmarkMode.GITHUB_INTEGRATION,
+                1,
                 listOf(BenchmarkQueueItem(0, profile.benchmarkSnapshot(), "github-quick-failure", benchmarkConfigKey(profile))),
                 caseManifest = selected
             )
@@ -269,7 +271,9 @@ class BenchmarkBatchRunnerTest {
             val selected = GitHubProfileAuditSuite.cases(allActions = false)
             val profile = profiles.first()
             val accepted = BenchmarkBatch(
-                "github-quick-user-skip", BenchmarkMode.GITHUB_INTEGRATION, 1,
+                "github-quick-user-skip",
+                BenchmarkMode.GITHUB_INTEGRATION,
+                1,
                 listOf(BenchmarkQueueItem(0, profile.benchmarkSnapshot(), "github-quick-skip-run", benchmarkConfigKey(profile))),
                 caseManifest = selected
             )

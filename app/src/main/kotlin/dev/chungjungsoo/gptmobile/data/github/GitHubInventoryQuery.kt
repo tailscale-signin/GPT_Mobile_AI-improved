@@ -11,10 +11,13 @@ internal object GitHubInventoryQuery {
         val ci = tool.substringBefore("__") == "github_ci"
         val workflows = ci && action in setOf("workflows", "list_workflows")
         val runs = ci && action in setOf("runs", "list_workflow_runs")
+        val issues = tool.substringBefore("__") == "github_issue" && action in setOf("list", "list_issues")
         val ignored = setOf("page", "response_detail", "verify_live") + when {
             workflows -> setOf("ref", "commit_sha")
             // The runs endpoint filters on branch/head_sha; ref is workspace context.
             runs -> setOf("ref", "commit_sha")
+            // An opaque issue after cursor advances one remote collection, not a new query.
+            issues -> setOf("after")
             else -> emptySet()
         }
         val normalized = arguments.filterKeys { it !in ignored }.toMutableMap()

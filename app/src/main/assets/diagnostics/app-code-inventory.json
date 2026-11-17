@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "819de3e714f83ce927116571fd7d40d51db95653915a66b1cb98652e8a1b518a",
+  "source_digest": "ed7818af5a13d3040a83007b9002707c3430a48bbcae687674a573304bcf5efa",
   "file_count": 2667,
   "indexed_line_count": 433789,
   "line_coverage_available": false,
@@ -7150,7 +7150,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryQuery.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "4ee8240ec492bbc3a7b5f3736e47b377726b7156b90721c1a77f0811703bfb5e",
+      "sha256": "c8904eff5e5eeb989afc6fc46a002d25fd86ecd83912eb74d933d1f3d7f50c61",
       "indexed_lines": 39
     },
     {

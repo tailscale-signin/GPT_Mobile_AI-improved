@@ -106,20 +106,31 @@ class GitHubOperationToolTest {
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
                 forwarded = arguments
                 val page = (arguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
-                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject {
-                    put("has_more", page == 1)
-                    put("total_count", 2)
-                    put("items", kotlinx.serialization.json.JsonArray(listOf(buildJsonObject { put("id", page) })))
-                    if (page == 1) put("continuation", buildJsonObject {
-                        put("action", "list_issues")
-                        put("state", "open")
-                        put("page", 2)
-                        put("per_page", 20)
-                        put("sort", "created")
-                        put("direction", "asc")
-                        put("after", "issued-opaque-cursor")
-                    })
-                }), false)
+                return AgentToolResult(
+                    callId,
+                    ToolResultContent.Json(
+                        buildJsonObject {
+                            put("has_more", page == 1)
+                            put("total_count", 2)
+                            put("items", kotlinx.serialization.json.JsonArray(listOf(buildJsonObject { put("id", page) })))
+                            if (page == 1) {
+                                put(
+                                    "continuation",
+                                    buildJsonObject {
+                                        put("action", "list_issues")
+                                        put("state", "open")
+                                        put("page", 2)
+                                        put("per_page", 20)
+                                        put("sort", "created")
+                                        put("direction", "asc")
+                                        put("after", "issued-opaque-cursor")
+                                    }
+                                )
+                            }
+                        }
+                    ),
+                    false
+                )
             }
         }
         val tool = GitHubOperationTool("github_issue", backend, "continued-issues", "github_issue__selected")

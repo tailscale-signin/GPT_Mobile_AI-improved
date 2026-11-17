@@ -225,7 +225,6 @@ class GitHubPaginationBoundaryTest {
         assertEquals(JsonPrimitive(false), progress["complete"])
     }
 
-
     @Test fun issuedIssueCursorAndExplicitRestDefaultsPreserveOneRemoteTraversal() {
         val boundary = GitHubPaginationBoundary()
         val first = json("""{"action":"list_issues","page":1,"state":"open","per_page":20}""")

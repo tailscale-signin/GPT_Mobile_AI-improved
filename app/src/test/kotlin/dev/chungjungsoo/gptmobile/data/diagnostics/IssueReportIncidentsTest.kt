@@ -791,6 +791,33 @@ class IssueReportIncidentsTest {
     }
 
     @Test
+    fun callAllowancePrecheckReportsBudgetInsteadOfUnexplainedToolFailure() {
+        LocalDiagnosticsPolicy.setEnabled(true)
+        IssueReportIncidents.log(
+            "Tools", "E", tracking = false, code = "TOOL_FAILURE",
+            fields = mapOf(
+                "run_id" to "owned-call-allowance-run",
+                "call_id" to "owned-precheck-call",
+                "failed_stage" to "tool_precheck",
+                "dispatched" to false,
+                "dependency_admission_reasons" to listOf("CALL_ALLOWANCE")
+            ),
+            source = "TOOL_RESULT"
+        )
+        val report = IssueReportIncidents.pending.value.single()
+        assertEquals("TOOL_BUDGET_EXHAUSTED", report.errorCode)
+        assertEquals(false, report.context?.dispatched)
+        assertEquals("tool_precheck", report.context?.stage)
+
+        IssueReportIncidents.log(
+            "Tools", "E", tracking = false, code = "TOOL_FAILURE",
+            fields = mapOf("run_id" to "different-run", "failed_stage" to "tool_precheck", "dispatched" to false),
+            source = "TOOL_RESULT"
+        )
+        assertEquals("TOOL_FAILURE", IssueReportIncidents.pending.value.last().errorCode)
+    }
+
+    @Test
     fun genericChatFailureRetainsOnlyHashedThrowableCauseTypes() {
         LocalDiagnosticsPolicy.setEnabled(true)
         val error = IllegalStateException("PRIVATE_PROVIDER_EXCEPTION_MESSAGE", java.io.IOException("PRIVATE_CAUSE"))

@@ -297,6 +297,22 @@ internal object GitHubReviewComparison {
                 base = (pull["base"] as JsonObject).text("sha")
                 policy = "OBSERVED_PR_BASE"
             } else {
+                // A review of the selected default branch has no implied comparison base.
+                // Ask immediately instead of consuming the user's tool budget paging an
+                // unrelated PR inventory. A previously verified, exactly matching PR
+                // above is still eligible to supply its observed base SHA.
+                if (branch.isNotBlank() && default.isNotBlank() && branch == default) {
+                    val observedHead = eligible.lastOrNull {
+                        targetReceipt(it) &&
+                            operation(it) == "github_context" &&
+                            args(it).text("action") == "commit" &&
+                            data(it).text("commit_sha").equals(head, ignoreCase = true)
+                    }
+                    val parent = (observedHead?.let(::data)?.get("parents") as? JsonArray)?.singleOrNull()
+                        ?.let { it as? JsonObject }?.text("sha")?.takeIf { sha.matches(it) && !it.equals(head, ignoreCase = true) }
+                    val suggestion = parent?.let { " For a one-commit review, you can select the observed parent with Baseline: $it." }.orEmpty()
+                    return state("BASELINE_REQUIRED", "The selected branch is also the default branch ($branch). Send the review request again with Baseline: <commit, tag or branch>.$suggestion Saved observations remain retained.")
+                }
                 val inventory = pulls.filter { args(it).text("action") == "list" }
                 if (inventory.isEmpty()) {
                     return state(
@@ -316,18 +332,6 @@ internal object GitHubReviewComparison {
                 if (pending != null) return state("PR_BASE_LOOKUP", "Finish the exact retained PR inventory page before excluding a PR base.", (pending["arguments"] as? JsonObject)?.let { call(pending.text("tool").githubOperationFamily(), it, issuedToolName = pending.text("tool")) })
                 if (inventory.none { data(it)["has_more"] == JsonPrimitive(false) }) return state("PR_BASE_UNVERIFIED", "PR inventory completeness is unverified; reuse its exact continuation or establish the intended baseline.")
                 if (branch.isBlank() || default.isBlank()) return state("BASELINE_REQUIRED", "The selected/default branch identity is incomplete. Choose the baseline for the captured head.")
-                if (branch == default) {
-                    val observedHead = eligible.lastOrNull {
-                        targetReceipt(it) &&
-                            operation(it) == "github_context" &&
-                            args(it).text("action") == "commit" &&
-                            data(it).text("commit_sha").equals(head, ignoreCase = true)
-                    }
-                    val parent = (observedHead?.let(::data)?.get("parents") as? JsonArray)?.singleOrNull()
-                        ?.let { it as? JsonObject }?.text("sha")?.takeIf { sha.matches(it) && !it.equals(head, ignoreCase = true) }
-                    val suggestion = parent?.let { " For a one-commit review, you can select the observed parent with Baseline: $it." }.orEmpty()
-                    return state("BASELINE_REQUIRED", "The selected branch is also the default branch ($branch). Send the review request again with Baseline: <commit, tag or branch>.$suggestion Saved observations remain retained.")
-                }
                 policy = "DEFAULT_BRANCH_HEAD"
                 val baseline = eligible.lastOrNull { targetReceipt(it) && lookupMatches(it, default) && sha.matches(data(it).text("commit_sha")) }
                 if (baseline == null) {

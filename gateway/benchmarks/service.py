@@ -208,8 +208,17 @@ class BenchmarkService:
             self.store.update(ident, state='COMPLETED', summary=summary, endedAt=time.time(), progress='Results saved')
         except InterruptedError as error:
             receipts = getattr(runner, 'cancellation_receipts', [])
-            if getattr(error, 'cancellation', None) and error.cancellation not in receipts:
-                receipts = [*receipts, error.cancellation]
+            # The runner's richer case receipt and the raised exception can
+            # describe the same cancelled HTTP job. Keep the case/stage while
+            # avoiding duplicate shutdown requests in the final evidence.
+            raised = getattr(error, 'cancellation', None)
+            if raised:
+                key = 'jobId' if raised.get('jobId') else 'container' if raised.get('container') else None
+                seen = any(row.get('outcome') == raised.get('outcome') and
+                           (row.get(key) == raised.get(key) if key else row == raised)
+                           for row in receipts)
+                if not seen:
+                    receipts = [*receipts, raised]
             unknown = any(row.get('outcome') not in {'confirmed', 'terminal', 'not_canceled'} for row in receipts)
             state = 'INTERRUPTED' if self.stop.is_set() or unknown else 'CANCELLED'
             self.store.update(ident, state=state, endedAt=time.time(),

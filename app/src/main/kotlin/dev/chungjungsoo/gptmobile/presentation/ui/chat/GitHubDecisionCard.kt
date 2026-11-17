@@ -126,7 +126,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
                     // "Show earlier" only reveals retained rows and adds no reading budget.
                     val animateEntry = remember { (lineIdentity to item.statusSummary) !in seenEntries }
                     if (item.statusSummary) {
-                        GitHubActivitySummary(item.content, animateEntry, lineIdentity)
+                        GitHubActivitySummary(item.content, animateEntry, lineIdentity, sourceOwned = !item.modelAuthored)
                     } else {
                         GitHubActivityPreview(item.content, latest = index == latestPreview, motion = motion, search = search.takeIf { index == latestPreview && dev.chungjungsoo.gptmobile.data.github.GitHubProgressPresentation.liveKey(item.content) == null }, animateEntry = animateEntry, lineIdentity = lineIdentity)
                     }
@@ -137,7 +137,7 @@ internal fun GitHubLiveProgressCard(timeline: List<dev.chungjungsoo.gptmobile.da
 }
 
 @Composable
-private fun GitHubActivitySummary(text: String, animateEntry: Boolean, lineIdentity: Any) {
+private fun GitHubActivitySummary(text: String, animateEntry: Boolean, lineIdentity: Any, sourceOwned: Boolean) {
     val entry = rememberGitHubActivityEntry(animateEntry)
     if (dev.chungjungsoo.gptmobile.data.github.GitHubRichSummaryPresentation.isRich(text)) {
         // The normal Markdown renderer already supports headings, bullets and
@@ -154,7 +154,7 @@ private fun GitHubActivitySummary(text: String, animateEntry: Boolean, lineIdent
                 animateStreaming = false,
                 modifier = Modifier.fillMaxWidth()
             )
-            GitHubRichSummaryChart(text)
+            if (sourceOwned) GitHubRichSummaryChart(text)
         }
     } else {
         val reportLayout = rememberGitHubTextLayout("summary" to lineIdentity, firstAppearanceAddsLines = animateEntry)

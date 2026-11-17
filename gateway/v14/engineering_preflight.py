@@ -138,8 +138,11 @@ def preflight(request, *, runner=None):
         from desktop.acceptance_discovery import discover
         approved_cases = {item['case_id'] for item in coverage} if coverage else None
         try:
+            # Fresh installs have no approved coverage; keep the read-only discovery
+            # within the interactive admission deadline instead of scanning 80 files.
+            limits = {} if coverage else {'max_files': 12, 'max_candidates': 48}
             discovery = discover({'mirror': str(mirror)}, source_sha=head,
-                                 approved_cases=approved_cases)
+                                 approved_cases=approved_cases, **limits)
         except (OSError, ValueError, TimeoutError):
             result['acceptance_preparation'] = {'status': 'DISCOVERY_UNAVAILABLE', 'source_sha': head,
                                                 'executed': False}

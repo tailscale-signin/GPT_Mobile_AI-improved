@@ -403,4 +403,36 @@ class BenchmarkStoreTest {
             store.close()
         }
     }
+
+    @Test fun duplicateCaseRowsDoNotInflateCanonicalHistoryOrAttempts() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val store = BenchmarkStore(context)
+        try {
+            val batch = BenchmarkBatch("duplicate-logical-case", BenchmarkMode.QUICK, 1, emptyList())
+            store.checkpoint(batch)
+            val original = BenchmarkSample(
+                "fixture-case", "Fixture case", "tools", BenchmarkOutcome.FAILED,
+                requestDispatched = true, failureCategory = "MODEL_QUALITY"
+            )
+            val accidentalDuplicate = original.copy(
+                outcome = BenchmarkOutcome.SKIPPED, failureCategory = "SKIPPED_DEPENDENCY"
+            )
+            val run = BenchmarkRun(
+                "duplicate-case-run", "profile", "Profile", "OPENAI", "model", "config",
+                false, BenchmarkMode.QUICK, 1, listOf(original, accidentalDuplicate),
+                batchId = batch.id, plannedTrials = 1
+            )
+            store.checkpoint(batch, run, event = "PROFILE_COMPLETED")
+            val saved = store.history.value.single { it.id == run.id }
+            assertEquals(1, saved.samples.size)
+            assertEquals(BenchmarkOutcome.FAILED, saved.samples.single().outcome)
+            assertEquals(1, benchmarkCoverage(saved).accounted)
+            val attempts = kotlinx.serialization.json.Json {
+                ignoreUnknownKeys = true
+            }.decodeFromString<BenchmarkBackupPayload>(store.exportJson()).attempts
+            assertEquals(1, attempts.count { it.runId == run.id })
+        } finally {
+            store.close()
+        }
+    }
 }

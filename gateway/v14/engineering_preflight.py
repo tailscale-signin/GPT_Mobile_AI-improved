@@ -129,22 +129,28 @@ def preflight(request, *, runner=None):
         result['checks']['validation_runtime'] = 'ready'
     except (OSError, ValueError, TimeoutError):
         block('validation_runtime', 'VALIDATION_RUNTIME_UNAVAILABLE', 'Start Docker and pre-provision the approved digest-pinned validation image.', 'PROVISION_VALIDATION_RUNTIME')
-    if (head and result['checks'].get('source_revision') == 'ready' and coverage
+    if (head and result['checks'].get('source_revision') == 'ready'
             and any(row['reason_code'] == 'ACCEPTANCE_CONTRACT_REQUIRED' for row in result['blockers'])):
+        # Discover static test identities even when the default policy has no
+        # behavior mappings. Previously the empty coverage guard hid all candidates,
+        # leaving a fresh installation with no path forward beyond raw policy JSON.
+        # Discovery never executes repository code, grants approval, or admits work.
         from desktop.acceptance_discovery import discover
+        approved_cases = {item['case_id'] for item in coverage} if coverage else None
         try:
             discovery = discover({'mirror': str(mirror)}, source_sha=head,
-                                 approved_cases={item['case_id'] for item in coverage})
+                                 approved_cases=approved_cases)
         except (OSError, ValueError, TimeoutError):
-            result['acceptance_preparation'] = {'status': 'DISCOVERY_UNAVAILABLE', 'source_sha': head}
+            result['acceptance_preparation'] = {'status': 'DISCOVERY_UNAVAILABLE', 'source_sha': head,
+                                                'executed': False}
         else:
             mapped = {}
             for item in coverage:
                 mapped.setdefault(item['case_id'], set()).add(item['requirement_id'])
             result['acceptance_preparation'] = {
                 'status': 'REVIEW_REQUIRED', 'source_sha': head, 'executed': False,
-                'allowed_checks': allowed_checks,
-                'candidates': [dict(candidate, requirement_ids=sorted(mapped[candidate['case_id']]))
+                'allowed_checks': allowed_checks, 'approved_mappings_present': bool(coverage),
+                'candidates': [dict(candidate, requirement_ids=sorted(mapped.get(candidate['case_id'], ())))
                                for candidate in discovery['candidates']],
                 'truncated': discovery['truncated']}
     result['ready'] = not result['blockers']

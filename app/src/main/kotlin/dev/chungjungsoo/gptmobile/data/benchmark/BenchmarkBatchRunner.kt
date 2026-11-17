@@ -204,7 +204,12 @@ class BenchmarkBatchRunner @Inject constructor(
         }
         require(plan.isNotEmpty()) { "FIXTURE_INVALID: Unknown suite ${batch.suiteVersion}" }
         val preflightContext = BenchmarkRequestContext(policy, plannedRequestCategories = plan.map { it.requestCategory }.toSet())
-        var run = newRun(batch, item, primary, plan.size)
+        // Persist the exact accepted suite before admission. A canceled 14-case smoke
+        // audit must never be reconstructed as the default 114-action full audit.
+        var run = newRun(batch, item, primary, plan.size).copy(
+            caseManifest = plan,
+            fixtureManifestHash = benchmarkHash(plan.joinToString("\n") { it.id + it.prompt + it.expected })
+        )
         checkpoint(batch, run, event = "PREFLIGHT")
         var stage = "preflight"
         val preflightStarted = android.os.SystemClock.elapsedRealtime()
@@ -605,11 +610,37 @@ class BenchmarkBatchRunner @Inject constructor(
     }
 
     private suspend fun failedProfile(batch: BenchmarkBatch, item: BenchmarkQueueItem, error: Exception, skip: Boolean): BenchmarkRun {
-        val run = store.history.value.firstOrNull { it.id == item.runId } ?: newRun(batch, item, batch.delegationPrimary ?: item.profile, benchmarkSuiteForVersion(batch.suiteVersion, batch.mode).size)
+        // A preflight exception can occur before the first run checkpoint; retain
+        // the batch's immutable selection rather than defaulting to a full suite.
+        val acceptedPlan = batch.caseManifest ?: when (batch.mode) {
+            BenchmarkMode.CPU_EXPERIMENT -> BenchmarkCpuExperiment.cases(item.runId)
+            BenchmarkMode.DELEGATION -> delegationBenchmarkSuite(batch.delegationPlan ?: BenchmarkMode.QUICK, batch.paired)
+            else -> benchmarkSuiteForVersion(batch.suiteVersion, batch.mode, batch.fixtureRotationSeed ?: 0)
+        }
+        val run = store.history.value.firstOrNull { it.id == item.runId } ?: newRun(
+            batch, item, batch.delegationPrimary ?: item.profile, acceptedPlan.size
+        ).copy(
+            caseManifest = acceptedPlan,
+            fixtureManifestHash = benchmarkHash(acceptedPlan.joinToString("\n") { it.id + it.prompt + it.expected })
+        )
         val failure = if (skip) BenchmarkFailure("USER_SKIP", "request", "Skipped by user.", owner = "user") else benchmarkFailure(error, if (run.samples.isEmpty()) "preflight" else "request")
         val childAborted = !skip && error is CancellationException && error !is kotlinx.coroutines.TimeoutCancellationException
         val retained = run.copy(
-            samples = if (childAborted) run.samples.map { sample -> if (sample.outcome == BenchmarkOutcome.CANCELED) sample.copy(outcome = BenchmarkOutcome.ERROR, failure = failure, failureCategory = "CHILD_OPERATION_ABORTED") else sample } else run.samples,
+            samples = when {
+                skip -> run.samples.map { sample ->
+                    if (sample.outcome == BenchmarkOutcome.CANCELED) sample.copy(
+                        outcome = BenchmarkOutcome.SKIPPED, failure = failure,
+                        failureCategory = "USER_SKIP", error = failure.message
+                    ) else sample
+                }
+                childAborted -> run.samples.map { sample ->
+                    if (sample.outcome == BenchmarkOutcome.CANCELED) sample.copy(
+                        outcome = BenchmarkOutcome.ERROR, failure = failure,
+                        failureCategory = "CHILD_OPERATION_ABORTED"
+                    ) else sample
+                }
+                else -> run.samples
+            },
             cancellationOrigin = if (skip) {
                 BenchmarkStopOrigin.USER_SKIP
             } else if (error is CancellationException && error !is kotlinx.coroutines.TimeoutCancellationException) {

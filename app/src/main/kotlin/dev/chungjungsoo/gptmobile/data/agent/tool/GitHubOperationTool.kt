@@ -346,7 +346,12 @@ internal class GitHubOperationTool(
                 definition.inputSchema,
                 listOf("$.after is required for this issue continuation; use the exact continuation_call with its original filters and page size")
             )
-            executed = rejection.copy(executionReceipt = JsonObject(executed.executionReceipt.orEmpty() + rejection.executionReceipt.orEmpty()))
+            executed = rejection.copy(
+                executionReceipt = JsonObject(
+                    executed.executionReceipt.orEmpty() + rejection.executionReceipt.orEmpty() +
+                        ("reason_code" to JsonPrimitive("TOOL_ARGUMENT_CONSTRAINT_REJECTED"))
+                )
+            )
         }
         val rejectedRead = (executed.content as? ToolResultContent.Json)?.value as? JsonObject
         val initialReceipt = executed.executionReceipt

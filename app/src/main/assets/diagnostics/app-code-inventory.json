@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "ef6eef4de809ffe55e405250e5de3eb15303150e8ed10126047b884b0c39ca2e",
+  "source_digest": "607e8bf15a26acab5c581bd8c81c7e89248998a0c2428b8a6e345c4660bba1cf",
   "file_count": 2662,
-  "indexed_line_count": 432357,
+  "indexed_line_count": 432383,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 237,
-      "indexed_line_count": 39327
+      "indexed_line_count": 39336
     },
     {
       "id": "research",
@@ -166,7 +166,7 @@
       "id": "gateway_software",
       "label": "Companion gateway software",
       "file_count": 167,
-      "indexed_line_count": 76161
+      "indexed_line_count": 76178
     },
     {
       "id": "authentication_service",
@@ -6632,8 +6632,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubAcceptanceReportDiagnostics.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "e4fee45f52e0298ff49beff0cf58d9cf25722b2e4057d170c0e2aec30ea5d499",
-      "indexed_lines": 179
+      "sha256": "e9db60e30e03d6bf1405fd1b9472efcd4cefb5ca84ed7d57ddc23e461a9cb424",
+      "indexed_lines": 181
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubActionIdentity.kt",
@@ -7682,8 +7682,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusPolicyEvidence.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "7839b3715c55649e83e5575a6e714482a2f9e5670591bec5c4dd9da7703fa384",
-      "indexed_lines": 64
+      "sha256": "b0d163635b854b4a6cf2169fb20d7104e0d146473fc5fd93905a8fd97b7c1a62",
+      "indexed_lines": 71
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubStatusRequest.kt",
@@ -17489,8 +17489,8 @@
       "path": "gateway/benchmarks/service.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "74ea962ffdd78b0147947de05b2350559e1ed0c2b37f1bda60a58f729bfa4a28",
-      "indexed_lines": 309
+      "sha256": "35c6e79ef4012a231d8580118de042758783b1fb8fc0bf6b6e7295885990f15b",
+      "indexed_lines": 318
     },
     {
       "path": "gateway/benchmarks/settings.py",
@@ -17503,8 +17503,8 @@
       "path": "gateway/benchmarks/store.py",
       "area_id": "gateway_software",
       "kind": "source",
-      "sha256": "c5729b0729d84e59511309e87f54720af1d41efa424ba70ec96b7862c387fc33",
-      "indexed_lines": 222
+      "sha256": "c9bf3efc9e0c055aaea887c77af7fb21abd7fbbe53725a9d81e9d4ee9fec8ed2",
+      "indexed_lines": 230
     },
     {
       "path": "gateway/build_v14_package.py",

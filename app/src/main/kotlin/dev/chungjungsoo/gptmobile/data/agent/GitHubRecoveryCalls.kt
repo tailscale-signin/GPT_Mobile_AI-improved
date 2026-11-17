@@ -10,12 +10,28 @@ internal object GitHubRecoveryCalls {
     private val keys = setOf("continuation_call", "correction_call", "recovery_call", "source_recovery_call")
 
     fun repairSourceRead(call: ProviderEvent.ToolCall, tool: AgentTool?): ProviderEvent.ToolCall {
-        if (tool == null || call.name.githubOperationFamily() != "github_read") return call
+        val operation = call.name.githubOperationFamily()
+        if (tool == null || operation !in setOf("github_read", "github_search")) return call
         val schema = tool.definition.inputSchema
         if (ToolArgumentValidator.errors(call.arguments, schema).isEmpty()) return call
-        val corrected = ToolArgumentValidator.sourceReadArgumentCorrection(call.arguments) ?: return call
+        val corrected = when (operation) {
+            "github_read" -> ToolArgumentValidator.sourceReadArgumentCorrection(call.arguments)
+            "github_search" -> {
+                // The selected model sometimes attaches per_page to a first-page search.
+                // Search does not accept that field; never rewrite cursors or other invalid calls.
+                if ("per_page" !in call.arguments ||
+                    call.arguments.keys.any { it in setOf("view_cursor", "index_cursor", "search_id") } ||
+                    call.arguments["page"] !in setOf(null, JsonPrimitive(1))
+                ) {
+                    null
+                } else {
+                    JsonObject(call.arguments - "per_page")
+                }
+            }
+            else -> null
+        } ?: return call
         if (ToolArgumentValidator.errors(corrected, schema).isNotEmpty() ||
-            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors("github_read", corrected).isNotEmpty() ||
+            dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.errors(operation, corrected).isNotEmpty() ||
             !GitHubAuthorizationBoundary.isReplayableRead(call.name, corrected)
         ) {
             return call

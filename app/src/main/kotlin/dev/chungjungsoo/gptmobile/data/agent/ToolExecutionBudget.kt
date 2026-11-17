@@ -142,14 +142,7 @@ class ToolExecutionBudget(
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = prepareExecution(callId, arguments).invoke()
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
-            // Native callbacks and restored calls reach this validator before the
-            // operation tool. Normalize safe reads before both schema admission
-            // and authorization; keep the original invocation in its journal.
             val submittedArguments = arguments
-            val arguments = GitHubRecoveryCalls.repairSourceRead(
-                ProviderEvent.ToolCall(callId, definition.name, arguments),
-                tool
-            ).arguments
             synchronized(outputAdmissionLock) { outputAdmissionClosed = true }
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
             AgentContractValidation.admission(definition, callId)?.let { rejected -> return { withBudgetState(rejected) } }
@@ -166,6 +159,13 @@ class ToolExecutionBudget(
             }
             val invocation = "$executionOwner:${tool.definition.name}:$callId"
             if (!invocationIds.add(invocation)) return { withBudgetState(ToolResultEnvelope.error(callId, "DUPLICATE_INVOCATION", "This invocation ID was already admitted. No action repeated.")) }
+            // Native callbacks and restored calls reach this validator before the
+            // operation tool. Normalize safe reads before both schema admission
+            // and authorization; keep the original invocation in its journal.
+            val arguments = GitHubRecoveryCalls.repairSourceRead(
+                ProviderEvent.ToolCall(callId, definition.name, arguments),
+                tool
+            ).arguments
             val signature = "$executionOwner:${tool.definition.name}:" + dev.chungjungsoo.gptmobile.data.permissions.ScopedToolGrant.canonicalHash(arguments)
             val replayableRead = ToolReplaySafety.isReplayableRead(tool.definition.name, arguments, tool) ||
                 AgentToolCapability.USER_DECISION in tool.definition.capabilities

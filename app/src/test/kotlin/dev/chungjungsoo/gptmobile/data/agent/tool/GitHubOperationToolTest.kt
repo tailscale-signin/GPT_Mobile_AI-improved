@@ -119,6 +119,25 @@ class GitHubOperationToolTest {
         assertEquals(JsonPrimitive("TOOL_ARGUMENT_CONSTRAINT_REJECTED"), result.executionReceipt?.get("reason_code"))
     }
 
+    @Test fun argumentRepairCannotShrinkAnOversizedNativeEnvelopePastAdmission() = runBlocking {
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = error("Oversized original arguments must never dispatch")
+        }
+        val search = GitHubOperationTool("github_search", backend, "oversized")
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 4))
+        val result = budget.bind(search).execute(
+            "oversized",
+            buildJsonObject {
+                put("query", "checkpoint")
+                put("per_page", "x".repeat(20_000))
+            }
+        )
+        assertEquals("TOOL_BATCH_OVERSIZE", result.errorCode)
+        assertFalse(result.dispatched)
+        assertEquals(0, budget.usedCalls())
+    }
+
     @Test fun nativeSourceBatchCannotSpendTheVerificationReserve() = runBlocking {
         var dispatches = 0
         val backend = object : AgentTool {

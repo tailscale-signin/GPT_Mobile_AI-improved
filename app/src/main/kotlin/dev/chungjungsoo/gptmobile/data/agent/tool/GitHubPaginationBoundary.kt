@@ -25,12 +25,8 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val action = (args["action"] as? JsonPrimitive)?.content
         // A PR context, commit, or branch dependency is one resource, not a
         // numbered collection. Nested has_more is not a page-2 authorization.
-        if (
-            operation == "github_pr" && action == "context" ||
-            operation == "github_context" && action in setOf("commit", "branch_dependencies")
-        ) {
-            return false
-        }
+        if (operation == "github_pr" && action == "context") return false
+        if (operation == "github_context" && action in setOf("commit", "branch_dependencies")) return false
         return "view_cursor" !in args &&
             "index_cursor" !in args &&
             args["action"] !in setOf(

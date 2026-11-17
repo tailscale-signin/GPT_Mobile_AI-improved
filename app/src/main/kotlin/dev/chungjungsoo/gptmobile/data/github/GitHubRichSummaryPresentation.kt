@@ -6,9 +6,10 @@ package dev.chungjungsoo.gptmobile.data.github
  */
 internal object GitHubRichSummaryPresentation {
     internal data class CheckCount(val label: String, val count: Int)
+    private data class CheckEvidence(val counts: List<CheckCount>, val scope: String?, val complete: Boolean)
 
     private val countEvidence = Regex(
-        """(?i)recorded checks(?: for [^:\n]{1,96})?:\s*(\d+) successful,\s*(\d+) skipped,\s*(\d+) in progress,\s*(\d+) failed(?:,\s*(\d+) other completed)?\s*\((complete|incomplete) captured list\)"""
+        """(?i)recorded checks(?: for ([^:\n]{1,96}))?:\s*(\d+) successful,\s*(\d+) skipped,\s*(\d+) in progress,\s*(\d+) failed(?:,\s*(\d+) other completed)?\s*\((complete|incomplete) captured list\)"""
     )
     private val chartRow = Regex("""^\| (Successful|Skipped|In progress|Failed|Other completed) \| (\d{1,9}) \|$""")
     private val failure = Regex("""(?i)\b(?:failed|failure|blocked|needs attention)\b|policy.*unavailable""")
@@ -34,7 +35,7 @@ internal object GitHubRichSummaryPresentation {
         val problem = specific.lastOrNull { failure.containsMatchIn(it.replace(zeroFailure, "")) }
         val latest = specific.lastOrNull()
         val headline = when {
-            counts != null -> "Recorded check results"
+            counts != null -> if (counts.complete) "Recorded check results" else "Partial recorded check results"
             problem != null && checkWords.containsMatchIn(problem) -> "Validation needs attention"
             problem != null -> "Repository blocker identified"
             latest != null && changeWords.containsMatchIn(latest) -> "Repository changes"
@@ -48,13 +49,15 @@ internal object GitHubRichSummaryPresentation {
             }
             if (counts != null) {
                 add("**Evidence:** These are recorded check results, not a new test execution.")
+                counts.scope?.let { add("**Source:** ${escape(it)}") }
+                if (!counts.complete) add("**Coverage:** The captured check list is incomplete; missing checks are not measured.")
             } else if (specific.size == 1 && problem == null && sourceWords.containsMatchIn(specific.single())) {
                 add("**Verification:** Inspecting the source does not establish that the requested fix or tests passed.")
             }
             snapshot.next.takeIf { it.isNotBlank() }?.let {
                 add("**Next:** ${escape(it.replaceFirstChar(Char::lowercase))}")
             }
-        }.take(4)
+        }.take(5)
         if (statements.isEmpty()) return ""
         return buildString {
             append("### ").append(headline).append('\n')
@@ -62,23 +65,24 @@ internal object GitHubRichSummaryPresentation {
             counts?.let { observed ->
                 append('\n')
                 append("| Check state | Count |\n| --- | ---: |\n")
-                observed.forEach { append("| ").append(it.label).append(" | ").append(it.count).append(" |\n") }
+                observed.counts.forEach { append("| ").append(it.label).append(" | ").append(it.count).append(" |\n") }
             }
         }.trim().take(1600)
     }
 
     /** Only source-owned, complete five-field check observations can create rows. */
-    private fun parseChecks(text: String): List<CheckCount>? {
+    private fun parseChecks(text: String): CheckEvidence? {
         val match = countEvidence.find(text) ?: return null
-        val values = (1..5).map { index ->
+        val values = (2..6).map { index ->
             match.groupValues[index].ifBlank { "0" }.toIntOrNull()?.takeIf { it in 0..100_000 } ?: return null
         }
-        return listOf(
+        val checkCounts = listOf(
             CheckCount("Successful", values[0]),
             CheckCount("Skipped", values[1]),
             CheckCount("In progress", values[2]),
             CheckCount("Failed", values[3])
         ) + if (values[4] > 0) listOf(CheckCount("Other completed", values[4])) else emptyList()
+        return CheckEvidence(checkCounts, match.groupValues[1].takeIf(String::isNotBlank), match.groupValues[7].equals("complete", ignoreCase = true))
     }
 
     /** Chart rows must match the deterministic table, not arbitrary model text. */
@@ -110,7 +114,7 @@ internal object GitHubRichSummaryPresentation {
     }
 
     private fun sourceCountTable(markdown: String): Boolean =
-        markdown.startsWith("### Recorded check results\n") &&
+        (markdown.startsWith("### Recorded check results\n") || markdown.startsWith("### Partial recorded check results\n")) &&
             markdown.contains("- **Evidence:** These are recorded check results, not a new test execution.") &&
             markdown.contains("| Check state | Count |\n| --- | ---: |")
 
@@ -121,7 +125,7 @@ internal object GitHubRichSummaryPresentation {
             .distinctBy(GitHubProgressPresentation::lineKey)
 
     private fun escape(text: String): String = buildString {
-        text.trim().forEach { c ->
+        text.trim().take(220).forEach { c ->
             if (c == '\\' || c.code == 96 || c == '*' || c == '_' || c == '[' || c == ']' || c == '<' || c == '>' || c == '|') append('\\')
             append(c)
         }

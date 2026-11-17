@@ -15,19 +15,21 @@ internal object GitHubRecoveryCalls {
         val schema = tool.definition.inputSchema
         if (ToolArgumentValidator.errors(call.arguments, schema).isEmpty()) return call
         val corrected = when (operation) {
-            "github_read" -> ToolArgumentValidator.sourceReadArgumentCorrection(call.arguments)
+            "github_read" -> ToolArgumentValidator.boundedReadCorrection(operation, call.arguments)
             "github_search" -> {
-                // The selected model sometimes attaches per_page to a first-page search.
-                // Search does not accept that field; never rewrite cursors or other invalid calls.
+                // Drop only known unsupported presentation/size options on a fresh search.
+                // Cursor-bearing calls and unknown fields still fail full validation.
                 val query = (call.arguments["query"] as? JsonPrimitive)
                     ?.takeIf { it.isString }?.content
-                if ("per_page" !in call.arguments || query.isNullOrBlank() || query.length > 200 ||
+                if (call.arguments.keys.none { it in setOf("per_page", "response_detail") } ||
+                    query.isNullOrBlank() ||
+                    query.length > 200 ||
                     call.arguments.keys.any { it in setOf("view_cursor", "index_cursor", "search_id") } ||
                     call.arguments["page"] !in setOf(null, JsonPrimitive(1))
                 ) {
                     null
                 } else {
-                    JsonObject(call.arguments - "per_page")
+                    JsonObject(call.arguments - setOf("per_page", "response_detail"))
                 }
             }
             else -> null

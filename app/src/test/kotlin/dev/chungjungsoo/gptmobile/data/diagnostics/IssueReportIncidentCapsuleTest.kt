@@ -28,6 +28,16 @@ import org.robolectric.annotation.Config
 class IssueReportIncidentCapsuleTest {
     private val time = 1_800_000_000_000L
 
+    @Test fun modelInvocationSurvivesGenericErrorWithoutReplacingToolCausality() {
+        val boundary = IssueReportIncidentCapsule.boundaryFields(IssueReportIncidentCapsule.ExceptionCaptureSite.CHAT_REPOSITORY_ERROR_VALUE)
+        val linked = IssueReportIncidentCapsule.invocationFields("model-one", boundary)
+        assertEquals(JsonPrimitive("MODEL_INVOCATION"), linked["causal_provenance"])
+        assertEquals(JsonPrimitive("model-one"), linked["causal_id"])
+        val tool = JsonObject(boundary + mapOf("causal_id" to JsonPrimitive("tool-one"), "causal_provenance" to JsonPrimitive("TOOL_CALL")))
+        assertEquals(tool, IssueReportIncidentCapsule.invocationFields("model-one", tool))
+        assertEquals(boundary, IssueReportIncidentCapsule.invocationFields(null, boundary))
+    }
+
     @Test fun sqliteConstraintReportsOnlyAClosedConstraintCategory() {
         val error = IllegalStateException(
             "private run details",

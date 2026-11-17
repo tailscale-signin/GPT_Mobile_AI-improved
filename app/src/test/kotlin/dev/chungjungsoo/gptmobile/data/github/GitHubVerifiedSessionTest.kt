@@ -43,6 +43,35 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GitHubVerifiedSessionTest {
+    @Test fun ordinaryProviderAcquisitionStopsAtVerificationReserveAndRetainsPartialTask() = runTest {
+        var verdict: JsonObject? = null
+        val book = GitHubEvidenceBook(
+            "reserve",
+            "owner/repo",
+            "main",
+            setOf("github_context"),
+            now = { 1000L },
+            save = { id, row -> if (id.startsWith("verification_current_")) verdict = row }
+        )
+        book.observe(
+            ProviderEvent.ToolCall("read", "github_context", buildJsonObject { put("action", "status") }),
+            AgentToolResult("read", ToolResultContent.Json(buildJsonObject { put("branch", "main") }), false)
+        )
+        val forbidden = object : AgentProviderSession {
+            override fun streamRound(tools: List<AgentToolDefinition>, exchanges: List<AgentToolExchange>): kotlinx.coroutines.flow.Flow<ProviderEvent> =
+                error("Acquisition must stop at the reserve")
+        }
+        val gate = GitHubVerifiedSession(
+            forbidden, book, "Implement a source change and run its tests", { 8192 },
+            { error("No private draft needs extraction") }, {}, {}, now = { 1000L }, remainingToolCalls = { 2 }
+        )
+        val events = gate.streamRound(listOf(AgentToolDefinition("github_context", "", buildJsonObject {})), emptyList()).toList()
+        assertTrue(events.none { it is ProviderEvent.ToolCall || it is ProviderEvent.Completed })
+        assertEquals("VERIFICATION_RESERVE_REACHED", (events.last() as ProviderEvent.Failed).errorCode)
+        assertEquals(JsonPrimitive(false), verdict?.get("completion_verified"))
+        assertEquals(JsonPrimitive(true), verdict?.get("resume_required"))
+    }
+
     @Test fun unknownOrUnfinishedExtractorInvocationsDoNotTriggerSchemaRepairAttempts() = runBlocking {
         for (phase in listOf("open", "stream", "collect", "empty", "partial")) {
             var attempts = 0

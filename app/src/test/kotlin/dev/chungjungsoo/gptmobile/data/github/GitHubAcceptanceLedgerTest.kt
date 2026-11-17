@@ -23,6 +23,29 @@ class GitHubAcceptanceLedgerTest {
     private val task = "Implement the feature"
     private val sha = "a".repeat(40)
 
+    @Test fun receiptLinkedRevisionsAreRetainedWithoutInventingTestSuccess() {
+        val receipts = mapOf(
+            "read" to json("""{"receipt_id":"read","trusted":true,"source_head_sha":"$sha","success":true,"epoch":2}"""),
+            "unbound" to json("""{"receipt_id":"unbound","trusted":true,"source_head_sha":"main"}"""),
+            "foreign" to json("""{"receipt_id":"foreign","trusted":false,"source_head_sha":"$sha"}""")
+        )
+        val evidence = GitHubAcceptanceLedger.revisionEvidence(receipts)
+        assertEquals(JsonPrimitive("RECEIPT_LINKED"), evidence["revision_state"])
+        assertEquals(JsonPrimitive(1), evidence["total"])
+        assertEquals(JsonPrimitive(sha), evidence["receipts"]!!.jsonArray.single().jsonObject["source_head_sha"])
+        assertFalse(evidence.containsKey("tests_passed"))
+        assertEquals(JsonPrimitive("NOT_RECORDED"), GitHubAcceptanceLedger.revisionEvidence(emptyMap())["revision_state"])
+    }
+
+    @Test fun exactReceiptRevisionsRemainAvailableWithoutInventingMissingShaOrTestPass() {
+        val receipt = json("""{"receipt_id":"read","trusted":true,"source_head_sha":"$sha","success":true,"epoch":3}""")
+        val projection = GitHubAcceptanceLedger.revisionEvidence(mapOf("read" to receipt))
+        assertEquals(JsonPrimitive("RECEIPT_LINKED"), projection["revision_state"])
+        assertEquals(JsonPrimitive(sha), projection["receipts"]!!.jsonArray.single().jsonObject["source_head_sha"])
+        assertFalse(projection.containsKey("tests_passed"))
+        assertEquals(JsonPrimitive("NOT_RECORDED"), GitHubAcceptanceLedger.revisionEvidence(mapOf("bad" to json("""{"trusted":true,"source_head_sha":"main"}""")))["revision_state"])
+    }
+
     @Test fun catalogDiscoveryAndAuthorizationNeverClaimSuccessfulExecution() {
         val row = GitHubTestChecklist.rows(emptyMap(), tools, "test all tools").single().jsonObject
         val readiness = row.getValue("readiness").jsonObject

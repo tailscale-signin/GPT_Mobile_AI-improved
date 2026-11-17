@@ -46,17 +46,24 @@ internal object OpenRouterRateLimitScopes {
         } else {
             val model = config.selectedModel ?: config.lockedModel ?: config.profileUid ?: "unbound"
             val pinned = config.openRouterPinnedProvider?.takeIf(providerSlug::matches)
-            if (pinned == null) "model:$model" else "model:$model\u0000provider:$pinned"
+            when {
+                pinned == null -> "model:$model"
+                limitSource == "upstream_provider_shared_pool" -> "provider-pool:$pinned"
+                else -> "model:$model\u0000provider:$pinned"
+            }
         }
         return digest("openrouter-v2\u0000" + credential + "\u0000" + resource)
     }
 
     fun admissionIdentities(config: ProviderRequestConfig): List<String> {
         val model = identity(config)
-        return if (isOpenRouter(config) && isFreeModel(config)) {
-            listOf(model, identity(config, "openrouter_free_tier_per_minute"))
-        } else {
-            listOf(model)
-        }
+        if (!isOpenRouter(config)) return listOf(model)
+        return buildList {
+            add(model)
+            if (isFreeModel(config)) add(identity(config, "openrouter_free_tier_per_minute"))
+            if (config.openRouterPinnedProvider?.let(providerSlug::matches) == true) {
+                add(identity(config, "upstream_provider_shared_pool"))
+            }
+        }.distinct()
     }
 }

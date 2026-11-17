@@ -7,6 +7,20 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderThrottleRegistryTest {
+    @Test fun observed60117Millisecond429SurvivesCheckpointRestoreWithoutBlockingOtherRoutes() {
+        var now = 1000L
+        val registry = ProviderThrottleRegistry({ now }, { 0 })
+        assertEquals(60_117L to 1, registry.reject("model-a", 60_117L))
+        now += 117L
+        val remaining = registry.blockedMillis("model-a")
+        val restored = ProviderThrottleRegistry({ now }, { 0 })
+        restored.restore("model-a", remaining, 1)
+        assertEquals(60_000L, restored.admit("model-a").waitMillis)
+        assertEquals(0L, restored.admit("model-b").waitMillis)
+        now += 60_000L
+        assertTrue(restored.admit("model-a").ownsProbe)
+    }
+
     @Test fun deadlineRevisionCoalescesEqualLimitsAndIgnoresReadAndPermitActivity() {
         var now = 1000L
         val registry = ProviderThrottleRegistry({ now }, { 0 })

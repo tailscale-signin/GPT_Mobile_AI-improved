@@ -8,7 +8,9 @@ import dev.chungjungsoo.gptmobile.data.agent.ProviderEvent
 import dev.chungjungsoo.gptmobile.data.agent.ToolArgumentValidator
 import dev.chungjungsoo.gptmobile.data.agent.ToolResultContent
 import dev.chungjungsoo.gptmobile.data.agent.ToolRoundAdmission
+import dev.chungjungsoo.gptmobile.data.agent.captureProviderInvocation
 import dev.chungjungsoo.gptmobile.data.agent.planToolBatch
+import dev.chungjungsoo.gptmobile.data.agent.providerInvocation
 import dev.chungjungsoo.gptmobile.data.agent.toolRepeatKey
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -95,6 +97,51 @@ class GitHubOperationToolTest {
             assertFalse(rejected.dispatched)
             assertEquals(before + 1, observed.size)
         }
+    }
+
+    @Test fun nativeAndRestoredBatchReadsNormalizeBeforeDispatchAndKeepCallId() = runBlocking {
+        val observed = mutableListOf<Pair<String, JsonObject>>()
+        val backend = object : AgentTool {
+            override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
+            override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
+                observed += callId to arguments
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("ok", true) }), false)
+            }
+        }
+        val read = GitHubOperationTool("github_read", backend, "build142", "github_read__selected")
+        val raw = args("""{"path":"AGENTS.md","start_line":1,"end_line":250,"response_detail":"full"}""")
+        val checkpoint = dev.chungjungsoo.gptmobile.data.agent.ToolBatchCheckpoint(null, "build142")
+        val original = ProviderEvent.ToolCall("restored-read", read.definition.name, raw).captureProviderInvocation()
+        checkpoint.enqueue(listOf(original))
+        val restored = checkpoint.recoverySnapshot().pending.single()
+        var authorized: JsonObject? = null
+        val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 4))
+        val bound = budget.bind(read, authorize = { _, arguments ->
+            authorized = arguments
+            true
+        })
+        val result = bound.execute(restored.callId, restored.arguments)
+        assertFalse(result.isError)
+        assertEquals("restored-read", result.callId)
+        assertEquals(JsonPrimitive("ranges"), authorized?.get("action"))
+        assertEquals(1, budget.usedCalls())
+        assertEquals(original.providerInvocation(), restored.providerInvocation())
+        assertEquals(JsonPrimitive("read_ranges"), observed.single().second["action"])
+        assertEquals(raw["response_detail"], authorized?.get("response_detail"))
+        assertEquals(args("""{"path":"AGENTS.md","start_line":1,"end_line":250}"""), observed.single().second["ranges"]!!.jsonArray.single())
+        for (invalid in listOf(
+            """{"path":"../secret","response_detail":"full"}""",
+            """{"path":"AGENTS.md","response_detail":"invalid"}""",
+            """{"path":"AGENTS.md","view_cursor":"unissued:1"}""",
+            """{"path":"AGENTS.md","ranges":[{"path":"other"}]}"""
+        )) {
+            val rejected = read.execute("bad", args(invalid))
+            assertTrue(rejected.isError)
+            assertFalse(rejected.dispatched)
+        }
+        val search = GitHubOperationTool("github_search", backend, "build142")
+        assertFalse(search.execute("search", args("""{"query":"checkpoint","per_page":50,"response_detail":"full"}""")).isError)
+        assertEquals(2, observed.size)
     }
 
     @Test fun structuredReadValidationPreservesPinnedCandidatesAndUsesTheActiveToolRoute() = runBlocking {

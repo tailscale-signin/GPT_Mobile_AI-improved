@@ -200,6 +200,7 @@ internal object ToolArgumentValidator {
             val maximum = integer(properties?.get("maximum"))
             val corrected = arguments.toMutableMap()
             if (declared?.containsKey("per_page") == false) corrected.remove("per_page")
+            if (declared?.containsKey("response_detail") == false) corrected.remove("response_detail")
             if (requested != null && minimum != null && maximum != null && minimum <= maximum) {
                 corrected["max_new_blobs"] = JsonPrimitive(requested.coerceIn(minimum, maximum))
             }
@@ -243,7 +244,7 @@ internal object ToolArgumentValidator {
     }
 
     internal fun sourceReadArgumentCorrection(arguments: JsonObject): JsonObject? {
-        val argumentFields = setOf("owner", "repo", "commit_sha", "action", "path", "start_line", "end_line", "max_lines")
+        val argumentFields = setOf("owner", "repo", "commit_sha", "action", "response_detail", "path", "start_line", "end_line", "max_lines")
         if (arguments["action"] !in setOf(null, JsonPrimitive("ranges")) || arguments.keys.any { it !in argumentFields }) return null
         val rawPath = arguments["path"] as? JsonPrimitive
         val path = rawPath?.takeIf { it.isString }?.content
@@ -259,7 +260,7 @@ internal object ToolArgumentValidator {
         )
     }
 
-    private fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
+    internal fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
         if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
         if (operation == "github_read") sourceReadArgumentCorrection(arguments)?.let { return it }
         return when (operation to arguments["action"]) {

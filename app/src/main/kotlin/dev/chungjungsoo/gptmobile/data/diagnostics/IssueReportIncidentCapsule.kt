@@ -256,6 +256,19 @@ internal object IssueReportIncidentCapsule {
         put("incident_phase_provenance", "CAPTURE_BOUNDARY_ONLY")
     }
 
+    /** Preserve an observed model invocation without replacing a more specific tool cause. */
+    fun invocationFields(invocationId: String?, fields: JsonObject): JsonObject {
+        if (fields["causal_id"] != null || fields["causal_id_hash"] != null || fields["call_id"] != null) return fields
+        val id = invocationId?.takeIf { it.isNotBlank() && it.length <= 256 } ?: return fields
+        return JsonObject(
+            fields + buildJsonObject {
+                put("invocation_id", id)
+                put("causal_id", id)
+                put("causal_provenance", "MODEL_INVOCATION")
+            }
+        )
+    }
+
     /** Captured at the actual catch. A boundary identifies where observed, not where dispatched. */
     fun exceptionFields(error: Throwable, site: ExceptionCaptureSite): JsonObject = buildJsonObject {
         boundaryFields(site).forEach { (key, value) -> put(key, value) }

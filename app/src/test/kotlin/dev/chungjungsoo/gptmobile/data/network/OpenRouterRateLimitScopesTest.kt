@@ -16,6 +16,17 @@ class OpenRouterRateLimitScopesTest {
         selectedModel = model
     )
 
+    @Test fun onlyConfirmedUpstreamPoolSharesCooldownAcrossModelsOnThePinnedProvider() {
+        val first = config("vendor/a").copy(openRouterPinnedProvider = "alpha")
+        val second = config("vendor/b").copy(openRouterPinnedProvider = "alpha")
+        val other = second.copy(openRouterPinnedProvider = "beta")
+        val shared = OpenRouterRateLimitScopes.identity(first, "upstream_provider_shared_pool")
+        assertEquals(shared, OpenRouterRateLimitScopes.identity(second, "upstream_provider_shared_pool"))
+        assertTrue(shared in OpenRouterRateLimitScopes.admissionIdentities(second))
+        assertFalse(shared in OpenRouterRateLimitScopes.admissionIdentities(other))
+        assertFalse(OpenRouterRateLimitScopes.identity(first) in OpenRouterRateLimitScopes.admissionIdentities(second))
+    }
+
     @Test fun unrelatedPaidModelsDoNotShareUpstreamCooldowns() {
         val first = config("vendor/a")
         val second = config("vendor/b")

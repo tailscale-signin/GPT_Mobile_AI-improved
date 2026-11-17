@@ -108,6 +108,32 @@ class GitHubRecoveryCallsTest {
         }
     }
 
+    @Test fun build142ReadAndSearchShapesKeepTheirOriginalIdentity() {
+        for ((name, raw, expected) in listOf(
+            Triple(
+                "github_read",
+                """{"path":"AGENTS.md","start_line":1,"end_line":250,"response_detail":"full"}""",
+                """{"action":"ranges","ranges":[{"path":"AGENTS.md","start_line":1,"end_line":250}],"response_detail":"full"}"""
+            ),
+            Triple(
+                "github_read",
+                """{"action":"ranges","ranges":[{"path":"AGENTS.md","end_line":-1,"max_lines":250}],"response_detail":"full"}""",
+                """{"action":"ranges","ranges":[{"path":"AGENTS.md","max_lines":250}],"response_detail":"full"}"""
+            ),
+            Triple(
+                "github_search",
+                """{"query":"checkpoint","per_page":50,"response_detail":"full"}""",
+                """{"query":"checkpoint"}"""
+            )
+        )) {
+            val call = ProviderEvent.ToolCall("original", name, Json.parseToJsonElement(raw).jsonObject).captureProviderInvocation()
+            val repaired = GitHubRecoveryCalls.repairSourceRead(call, tool(name))
+            assertEquals(Json.parseToJsonElement(expected).jsonObject, repaired.arguments)
+            assertEquals(call.providerInvocation(), repaired.providerInvocation())
+            assertEquals(call.callId, repaired.callId)
+        }
+    }
+
     @Test fun retainedMutationRecipeIsNeverAutomaticallyExecutedOrUnwrapped() {
         val recipe = buildJsonObject {
             put("tool", "github_commit")

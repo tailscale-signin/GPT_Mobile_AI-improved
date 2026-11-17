@@ -45,17 +45,12 @@ internal class GitHubOperationTool(
 
     override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
         val canonicalArguments = dev.chungjungsoo.gptmobile.data.github.GitHubActionIdentity.canonicalArguments(operation, arguments)
-        // A native batch may bypass AgentRunner's early read correction. At the final
-        // dispatch boundary, normalize only a validated first-page search with one
-        // obsolete per_page field. Cursor, unknown-field and mutation calls stay rejected.
-        val arguments = if (operation == "github_search" && "per_page" in canonicalArguments) {
-            dev.chungjungsoo.gptmobile.data.agent.GitHubRecoveryCalls.repairSourceRead(
-                dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall(callId, definition.name, canonicalArguments),
-                this
-            ).arguments
-        } else {
-            canonicalArguments
-        }
+        // Direct callbacks and restored batches share the same schema-safe read
+        // normalization. Authorization, operation rules and budgets still run below.
+        val arguments = dev.chungjungsoo.gptmobile.data.agent.GitHubRecoveryCalls.repairSourceRead(
+            dev.chungjungsoo.gptmobile.data.agent.ProviderEvent.ToolCall(callId, definition.name, canonicalArguments),
+            this
+        ).arguments
         val started = System.nanoTime()
         val repairScope = currentCoroutineContext()[ToolArgumentRepairScope]
         val previous = synchronized(rejectedCalls) { rejectedCalls[arguments] }
@@ -334,6 +329,25 @@ internal class GitHubOperationTool(
         var resolved = native
         var effectiveArguments = arguments
         var executed = backend.execute(callId, native)
+        if (operation == "github_issue" &&
+            executed.isError &&
+            !executed.dispatched &&
+            executed.errorCode == "INVALID_ARGUMENTS" &&
+            arguments["action"] == JsonPrimitive("list") &&
+            ((arguments["page"] as? JsonPrimitive)?.intOrNull ?: 1) > 1 &&
+            "after" !in arguments
+        ) {
+            // The authenticated issue connection requires its bound cursor. Keep
+            // a rejected hand-written page local and expose the exact missing rule.
+            val rejection = ToolArgumentValidator.rejection(
+                callId,
+                definition.name,
+                arguments,
+                definition.inputSchema,
+                listOf("$.after is required for this issue continuation; use the exact continuation_call with its original filters and page size")
+            )
+            executed = rejection.copy(executionReceipt = JsonObject(executed.executionReceipt.orEmpty() + rejection.executionReceipt.orEmpty()))
+        }
         val rejectedRead = (executed.content as? ToolResultContent.Json)?.value as? JsonObject
         val initialReceipt = executed.executionReceipt
         if (backend is GitHubTool &&

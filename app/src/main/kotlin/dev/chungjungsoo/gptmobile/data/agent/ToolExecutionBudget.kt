@@ -142,6 +142,13 @@ class ToolExecutionBudget(
         override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult = prepareExecution(callId, arguments).invoke()
 
         override suspend fun prepareExecution(callId: String, arguments: JsonObject): suspend () -> AgentToolResult {
+            // Native callbacks and restored calls reach this validator before the
+            // operation tool. Normalize safe reads before both schema admission
+            // and authorization; keep the original invocation in its journal.
+            val arguments = GitHubRecoveryCalls.repairSourceRead(
+                ProviderEvent.ToolCall(callId, definition.name, arguments),
+                tool
+            ).arguments
             synchronized(outputAdmissionLock) { outputAdmissionClosed = true }
             fun failure(message: String) = ToolResultEnvelope.error(callId, "BUDGET_EXHAUSTED", message)
             AgentContractValidation.admission(definition, callId)?.let { rejected -> return { withBudgetState(rejected) } }

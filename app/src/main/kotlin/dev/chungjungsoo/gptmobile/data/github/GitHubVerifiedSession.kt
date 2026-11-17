@@ -395,6 +395,19 @@ internal class GitHubVerifiedSession(
                 return@flow
             }
         }
+        if (!GitHubChecklistBudget.acquisitionAllowed(evidence.snapshot().first, remainingToolCalls())) {
+            // The normal provider path must honor the same reserve as the checklist.
+            // Publish the immutable receipt snapshot while verification capacity remains.
+            // Resume uses the durable task; this does not renew its authorized allowance.
+            emitAll(
+                publish(
+                    null,
+                    GitHubAcceptancePublicationEvidence.Entry.RETAINED_FAILURE,
+                    failureCode = "VERIFICATION_RESERVE_REACHED"
+                )
+            )
+            return@flow
+        }
         var round = collectDraft(delegate, tools, exchanges)
         val retained = evidence.snapshot().first
         if (!initiallyVerifiedComplete &&

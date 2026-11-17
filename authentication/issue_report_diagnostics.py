@@ -106,7 +106,7 @@ FIELDS_BY_AREA = {
     "INCIDENT": COMMON_HASHES | {"original_error_code_hash", "chat_failure_code_state"},
 }
 # Bounded diagnostic additions for open issue recovery.
-ENUMS["tool_reason_code"].add("SAVED_VIEW_CONTEXT_MISMATCH")
+ENUMS["tool_reason_code"].update({"SAVED_VIEW_CONTEXT_MISMATCH", "GITHUB_PATH_NOT_FOUND"})
 # Only the app's bound repository-graph receipt may produce these public categories.
 # The service validates this closed vocabulary; no request parameters, URLs, or host details are exported.
 ENUMS["tool_reason_code"].update({"GRAPH_HTTP_REJECTED", "GRAPH_TRANSPORT_UNAVAILABLE", "GRAPH_TLS_REJECTED", "GRAPH_INDEX_OUTCOME_UNKNOWN", "GRAPH_OPERATION_FAILED", "GRAPH_REQUEST_REJECTED", "GRAPH_REVISION_MISMATCH", "GRAPH_JOB_CHANGED", "GRAPH_JOB_ACK_MISSING", "GRAPH_INTERNAL_STORAGE", "GRAPH_INTERNAL_IO", "GRAPH_INTERNAL_SERVER"})

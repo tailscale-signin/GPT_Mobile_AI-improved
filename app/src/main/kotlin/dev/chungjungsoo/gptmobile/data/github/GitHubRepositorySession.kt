@@ -311,6 +311,8 @@ internal class GitHubRepositorySession(
                 put("evidence", JsonArray(evidence))
                 put("page", page)
                 put("has_more", page * 16 < allHandles.size)
+                put("upstream_record_ids", JsonArray(handles.map(::JsonPrimitive)))
+                put("total_count", allHandles.size)
                 put("total_retained_evidence", allHandles.size)
                 put("retention_note", "Bounded source inventory for this repository, account, connection and conversation; expired records are marked unavailable. Stages remain task-local. Use read_recovery_context for the conversation action ledger.")
                 put("stage_id", stageId)

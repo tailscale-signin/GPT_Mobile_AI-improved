@@ -44,7 +44,7 @@ archive records no Gateway job identifier for this run.
 | --- | --- |
 | #1505, #1541 | Saved views. #1505 records a missing persistent body. The store has a regression for rewriting missing bodies. #1541 supplied a local view cursor. Its report does not identify the rejected handle. Keep local-view recovery distinct from remote issue pagination. |
 | #1506, #1510, #1512, #1513, #1518, #1521, #1522, #1525, #1526, #1528 | Single-resource commit, branch-dependency and PR context results were treated as collections. Check singleton responses and real nested collections independently. |
-| #1527 | Context recovery was flagged as an incomplete collection. The operation hash matches recovery. Check its own response shape. |
+| #1527 | The recovery inventory actually pages through retained evidence handles. Its rows lacked the stable IDs expected by the shared pagination validator. Each page now supplies its handle IDs and total. The selected recovery contract accepts the next page. An expired body still counts as a listed handle with available=false. |
 | #1529, #1530, #1553–#1556 | Source-read arguments arrived outside the ranges array. Normalize safe paths before admission and preserve corrected arguments on the receipt. |
 | #1516, #1519, #1549 | Argument constraints with insufficient public values to establish an identical rejected request. Keep finite conflicting limits rejected. Normalize the bounded EOF form only where independently validated. |
 | #1531, #1542, #1543, #1557 | First-page searches included unsupported presentation or page-size fields. Repair the first page only, preserving later-page cursor requirements. |

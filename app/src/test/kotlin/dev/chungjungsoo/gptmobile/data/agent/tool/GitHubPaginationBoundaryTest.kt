@@ -42,6 +42,19 @@ class GitHubPaginationBoundaryTest {
         assertEquals("GITHUB_PAGINATION_INCOMPLETE", invalid.errorCode)
     }
 
+    @Test fun recoveryEvidenceIsCountedByRetainedHandleAcrossPages() {
+        val boundary = GitHubPaginationBoundary()
+        val first = json("""{"action":"recovery_context","page":1}""")
+        val second = json("""{"action":"recovery_context","page":2}""")
+        val pageOne = json("""{"evidence":[{"evidence_id":"a","available":false}],"upstream_record_ids":["a"],"total_count":2,"has_more":true}""")
+        val pageTwo = json("""{"evidence":[{"evidence_id":"b","available":true}],"upstream_record_ids":["b"],"total_count":2,"has_more":false}""")
+        assertEquals(null, boundary.assessPage("github_context", first, pageOne).errorCode)
+        val result = boundary.assessPage("github_context", second, pageTwo)
+        assertEquals(null, result.errorCode)
+        assertEquals(JsonPrimitive(2), result.data.getValue("pagination_progress").jsonObject["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), result.data.getValue("pagination_progress").jsonObject["complete"])
+    }
+
     @Test fun singletonPrContextDoesNotInventASyntheticSecondRemotePage() = runBlocking {
         var dispatched = 0
         val backend = object : AgentTool {

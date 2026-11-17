@@ -27,7 +27,7 @@ internal object GitHubActionSchema {
             "branch_dependencies" -> "branch fixture_plan engineering_task_id"
             "commit", "checks" -> "commit_sha ref include_patches page per_page"
             "commit_search", "repositories" -> "query page per_page"
-            "recovery" -> "stage_id engineering_task_id fixture_plan branch base_sha commit_sha"
+            "recovery" -> "stage_id engineering_task_id fixture_plan branch base_sha commit_sha page"
             else -> null
         }
         "github_ci" -> when (action) {

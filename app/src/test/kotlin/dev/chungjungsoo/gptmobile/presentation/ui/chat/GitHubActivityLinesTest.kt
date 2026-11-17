@@ -93,6 +93,22 @@ class GitHubActivityLinesTest {
         assertEquals(1, lines.count { it.content == "Summary" })
     }
 
+    @Test fun restoredRichSummaryKeepsNewestNextStepWithoutRepeatingTheSameFinding() {
+        val first = "### Source inspection\n- **Observed:** Reader.kt returned a result.\n- **Next:** Inspect tests."
+        val repeated = "### Source inspection\n- **Observed:** Reader.kt returned a result.\n- **Next:** Check the workflow."
+        val genuinelyNew = "### Source inspection\n- **Observed:** Writer.kt returned a result.\n- **Next:** Inspect tests."
+        val displayed = gitHubActivityLines(
+            listOf(line(first, true), line(repeated, true), line(genuinelyNew, true)),
+            "review",
+            active = false
+        ).filter { it.statusSummary }
+        assertEquals(2, displayed.size)
+        assertEquals(repeated, displayed[0].content)
+        assertEquals(genuinelyNew, displayed[1].content)
+        val model = listOf(line(first, true).copy(modelAuthored = true), line(repeated, true).copy(modelAuthored = true))
+        assertEquals(2, gitHubActivityLines(model, "review").count { it.statusSummary })
+    }
+
     @Test fun reactivatedCountersRemainTheNewestPairAfterHistoryTrimming() {
         val timeline = listOf(line("Summary", true), line("Check 1/8"), line("Files: 2/6")) +
             (1..30).map { line("Reviewing item $it") } + listOf(line("Check 3/8"), line("Files: 5/6"))

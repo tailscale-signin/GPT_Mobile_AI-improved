@@ -252,9 +252,17 @@ internal object IssueReportIncidents {
             } else {
                 fields
             }
+            // Producer-owned exceptions are typed evidence even when the public
+            // error code is generic. Retain only allowlisted cause categories as
+            // hashes; do not copy messages, stack strings or a nearby run's state.
+            val exceptionFields = if (error != null && "cause_types" !in reportFields) {
+                reportFields + ("cause_types" to dev.chungjungsoo.gptmobile.data.network.sanitizedCauseTypes(error).take(4))
+            } else {
+                reportFields
+            }
             val evidence = IssueReportContext.fromFields(
                 reportSource,
-                IssueReportIncidentCapsule.fields(feature, reportSource, publicCode, if (feature == ReportFeature.APP) reportFields + appDiagnosticFields(code) else reportFields)
+                IssueReportIncidentCapsule.fields(feature, reportSource, publicCode, if (feature == ReportFeature.APP) exceptionFields + appDiagnosticFields(code) else exceptionFields)
             )
             // Distinct failures may share a public code and run within the debounce window.
             // Retain observed stage and a sanitized exception fingerprint in the private key;

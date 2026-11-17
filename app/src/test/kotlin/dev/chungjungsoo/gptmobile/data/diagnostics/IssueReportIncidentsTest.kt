@@ -794,7 +794,10 @@ class IssueReportIncidentsTest {
     fun callAllowancePrecheckReportsBudgetInsteadOfUnexplainedToolFailure() {
         LocalDiagnosticsPolicy.setEnabled(true)
         IssueReportIncidents.log(
-            "Tools", "E", tracking = false, code = "TOOL_FAILURE",
+            "Tools",
+            "E",
+            tracking = false,
+            code = "TOOL_FAILURE",
             fields = mapOf(
                 "run_id" to "owned-call-allowance-run",
                 "call_id" to "owned-precheck-call",
@@ -810,7 +813,10 @@ class IssueReportIncidentsTest {
         assertEquals("tool_precheck", report.context?.stage)
 
         IssueReportIncidents.log(
-            "Tools", "E", tracking = false, code = "TOOL_FAILURE",
+            "Tools",
+            "E",
+            tracking = false,
+            code = "TOOL_FAILURE",
             fields = mapOf("run_id" to "different-run", "failed_stage" to "tool_precheck", "dispatched" to false),
             source = "TOOL_RESULT"
         )

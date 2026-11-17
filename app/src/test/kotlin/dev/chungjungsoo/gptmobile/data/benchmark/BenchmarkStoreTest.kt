@@ -411,11 +411,16 @@ class BenchmarkStoreTest {
             val batch = BenchmarkBatch("duplicate-logical-case", BenchmarkMode.QUICK, 1, emptyList())
             store.checkpoint(batch)
             val original = BenchmarkSample(
-                "fixture-case", "Fixture case", "tools", BenchmarkOutcome.FAILED,
-                requestDispatched = true, failureCategory = "MODEL_QUALITY"
+                "fixture-case",
+                "Fixture case",
+                "tools",
+                BenchmarkOutcome.FAILED,
+                requestDispatched = true,
+                failureCategory = "MODEL_QUALITY"
             )
             val accidentalDuplicate = original.copy(
-                outcome = BenchmarkOutcome.SKIPPED, failureCategory = "SKIPPED_DEPENDENCY"
+                outcome = BenchmarkOutcome.SKIPPED,
+                failureCategory = "SKIPPED_DEPENDENCY"
             )
             val run = BenchmarkRun(
                 "duplicate-case-run",

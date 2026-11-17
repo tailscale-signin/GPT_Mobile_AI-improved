@@ -251,9 +251,14 @@ internal class GitHubResultViews(
                         put("reason", if (unissued) "UNISSUED_CURSOR" else known?.reason ?: "UNAVAILABLE_IN_AUTHORIZED_SCOPE")
                         put("recovery_action", if (unissued) "START_FRESH_SCOPED_READ" else "REOPEN_ORIGINAL_SOURCE")
                         put("mutation_replay_allowed", false)
-                        put("message", if (unissued)
-                            "This view_cursor was never issued. Do not retry or alter it. Start a fresh authorized source read with observed selectors; do not repeat a mutation."
-                            else "The saved page is unavailable. Execute the exact source_recovery_call from the retained result when available. Otherwise start a fresh authorized read; never replay a mutation.")
+                        put(
+                            "message",
+                            if (unissued) {
+                                "This view_cursor was never issued. Do not retry or alter it. Start a fresh authorized source read with observed selectors; do not repeat a mutation."
+                            } else {
+                                "The saved page is unavailable. Execute the exact source_recovery_call from the retained result when available. Otherwise start a fresh authorized read; never replay a mutation."
+                            }
+                        )
                         known?.let { view ->
                             put(
                                 "recovery_identity",

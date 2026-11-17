@@ -275,12 +275,16 @@ class GitHubPaginationBoundaryTest {
             false
         )
         val presented = views.present(
-            "scope", "github_pr", "github_pr__original", original,
+            "scope",
+            "github_pr",
+            "github_pr__original",
+            original,
             json("""{"action":"list","owner":"owner","repo":"repo"}""")
         )
         val page = (presented.content as ToolResultContent.Json).value.jsonObject
-        val issued = (page.getValue("recovery_call").jsonObject
-            .getValue("arguments").jsonObject.getValue("view_cursor") as JsonPrimitive).content
+        val issued = page.getValue("recovery_call").jsonObject
+            .getValue("arguments").jsonObject
+            .getValue("view_cursor").let { (it as JsonPrimitive).content }
         val invented = issued.substringBefore(':') + ":9999:2048"
 
         val result = views.read("scope", "github_pr", "github_pr__original", invented, "invented")

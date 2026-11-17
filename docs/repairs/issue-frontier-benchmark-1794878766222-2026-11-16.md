@@ -1,10 +1,10 @@
 # GitHub issue frontier and benchmark evidence — November 16, 2026
 
-**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`  
-**Existing draft PR:** [#1349](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1349)  
-**Observed open-issue snapshot:** 96 reports / 28 public error-code families.  
-**Source builds:** 0.9.66.7/2e8d6e7f0262, 0.9.66.7/278527e30e3c, 0.9.66.7/712d7d92a6b8, 0.9.66.7/72a2cd088487, 0.9.66.7/482eb81645e4, 0.9.66.7/a0777e0598bc, 0.9.66.7/1d4256a6eb2e, 0.9.66.7/e9610259b723. The reporter build predates the current draft branch.  
-**Attached benchmark:** `benchmarks-1794878766222.json` (`gptmobile.benchmarks.v2`).  
+**Repository:** `tailscale-signin/GPT_Mobile_AI-improved`
+**Existing draft PR:** [#1349](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1349)
+**Observed open-issue snapshot:** 96 reports / 28 public error-code families.
+**Source builds:** 0.9.66.7/2e8d6e7f0262, 0.9.66.7/278527e30e3c, 0.9.66.7/712d7d92a6b8, 0.9.66.7/72a2cd088487, 0.9.66.7/482eb81645e4, 0.9.66.7/a0777e0598bc, 0.9.66.7/1d4256a6eb2e, 0.9.66.7/e9610259b723. The reporter build predates the current draft branch.
+**Attached benchmark:** `benchmarks-1794878766222.json` (`gptmobile.benchmarks.v2`).
 
 This is a read-only source-based triage ledger, not evidence that an issue is fixed. No issue should be labeled resolved merely because the code contains a proposed patch. No credentials, raw exception strings, user input, hashed identifiers or user-private reports are copied here. The issue frontier may grow after this snapshot.
 

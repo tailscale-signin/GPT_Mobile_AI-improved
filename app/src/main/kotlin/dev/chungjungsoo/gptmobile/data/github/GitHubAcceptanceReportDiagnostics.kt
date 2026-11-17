@@ -92,7 +92,9 @@ internal object GitHubAcceptanceReportDiagnostics {
         }
         (verdict["status_coverage"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
             .firstOrNull { it.text("item") == "Required-check policy" }?.let { coverage ->
-                if (coverage.text("branch_protection_observation") in setOf("NOT_FOUND_OR_INACCESSIBLE", "ACCESS_DENIED")) {
+                if (coverage.text("branch_protection_observation") in setOf("NOT_FOUND_OR_INACCESSIBLE", "ACCESS_DENIED") &&
+                    coverage.text("status_policy_protection_404_kind") != "EXPLICIT_BRANCH_NOT_PROTECTED"
+                ) {
                     put("status_policy_recovery", "CHECK_PROTECTION_READ_PERMISSION")
                 } else if (coverage.text("branch_rules_observation") in setOf("NOT_FOUND_OR_INACCESSIBLE", "ACCESS_DENIED")) {
                     put("status_policy_recovery", "CHECK_RULES_READ_PERMISSION")

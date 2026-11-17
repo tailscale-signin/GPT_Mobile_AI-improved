@@ -84,7 +84,10 @@ internal object GitHubChatPolicy {
             if (config.webSearch) addAll(setOf("web_search", "read_url"))
         }
         val controlled = setOf(connection, "github_decide", "web_search", "read_url", "memory", "memory_recall", "memory_capture", "memory_search", "memory_read_document", "delegate_to_model", "local_assist_plan")
-        return request.copy(allowAllByDefault = false, enabledToolIds = (request.enabledToolIds - controlled) + enabled, disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled), maxTools = maxOf(request.maxTools ?: 0, 64), maxToolCalls = minOf(request.maxToolCalls ?: Int.MAX_VALUE, callLimit(config.engineeringMode)), reasoning = true, delegation = null, research = null, combined = null)
+        return request.copy(allowAllByDefault = false, enabledToolIds = (request.enabledToolIds - controlled) + enabled, disabledToolIds = (request.disabledToolIds - controlled) + (controlled - enabled), maxTools = maxOf(request.maxTools ?: 0, 64), maxToolCalls = minOf(request.maxToolCalls ?: Int.MAX_VALUE, callLimit(config.engineeringMode)), // GitHub work cannot override an explicit chat reasoning setting or
+            // force an unsupported model into reasoning mode. Null delegates to
+            // the existing provider/profile capability negotiation.
+            reasoning = request.reasoning, delegation = null, research = null, combined = null)
     }
 
     fun delegation(original: dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings, context: GitHubConversationContext?): dev.chungjungsoo.gptmobile.data.model.ModelDelegationSettings =

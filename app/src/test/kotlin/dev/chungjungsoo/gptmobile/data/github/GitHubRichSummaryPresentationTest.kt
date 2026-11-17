@@ -54,6 +54,33 @@ class GitHubRichSummaryPresentationTest {
         assertEquals("Check state,Count\r\nSuccessful,15\r\nSkipped,18\r\nIn progress,0\r\nFailed,2\r\n", GitHubRichSummaryPresentation.csv(output))
     }
 
+    @Test fun incompleteRecordedChecksKeepJobScopeCoverageAndNextAction() {
+        val source = "Recorded checks for Job 7: 2 successful, 1 skipped, 0 in progress, 4 failed (incomplete captured list)."
+        val result = GitHubRichSummaryPresentation.render(sample(source))
+        assertTrue(result.startsWith("### Partial recorded check results"))
+        assertTrue(result.contains("**Source:** Job 7"))
+        assertTrue(result.contains("**Coverage:** The captured check list is incomplete"))
+        assertTrue(result.contains("**Next:**"))
+        assertTrue(result.contains("| Failed | 4 |"))
+        assertEquals(4, GitHubRichSummaryPresentation.chartData(result).size)
+        assertTrue(GitHubRichSummaryPresentation.csv(result)?.contains("Failed,4") == true)
+    }
+
+    @Test fun longObservationsKeepCompleteTableAndNextStepWithoutSplittingRows() {
+        val longObservation = "The source read for Reader.kt returned a result for inspection. " + "Review the source. ".repeat(24)
+        val result = GitHubRichSummaryPresentation.render(
+            sample(
+                longObservation,
+                "The source read for Second.kt returned a result for inspection.",
+                "Recorded checks for Job 7: 12 successful, 1 skipped, 0 in progress, 2 failed (complete captured list)."
+            )
+        )
+        assertTrue(result.length <= 1600)
+        assertTrue(result.contains("**Next:**"))
+        assertTrue(result.endsWith("| Failed | 2 |"))
+        assertEquals(4, GitHubRichSummaryPresentation.chartData(result).size)
+    }
+
     @Test fun singleNonzeroCategoryOrIncompleteFactsDoNotCreateAMisleadingChart() {
         val allSuccessful = GitHubRichSummaryPresentation.render(
             sample("Recorded checks: 9 successful, 0 skipped, 0 in progress, 0 failed (complete captured list).")

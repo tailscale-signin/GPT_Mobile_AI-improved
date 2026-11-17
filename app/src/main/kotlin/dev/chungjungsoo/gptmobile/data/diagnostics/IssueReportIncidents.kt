@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
@@ -205,7 +206,17 @@ internal object IssueReportIncidents {
             } else {
                 "APP_ERROR"
             }
-            val publicCode = precheck?.code ?: IssueReportCodes.select(code, fallbackCode)
+            // A trusted local dependency admission can reject a tool before
+            // dispatch because no call allowance remains. Generic TOOL_FAILURE
+            // must not hide this distinct, actionable budget condition.
+            val callAllowanceExhausted = toolPrecheck &&
+                (toolContext?.diagnostics?.values?.get("dependency_admission_reasons") as? JsonArray)
+                    ?.contains(JsonPrimitive("CALL_ALLOWANCE")) == true
+            val publicCode = if (callAllowanceExhausted && code in setOf(null, "TOOL_FAILURE", "DEPENDENCY_FAILED", "DEPENDENCY_DEFERRED")) {
+                "TOOL_BUDGET_EXHAUSTED"
+            } else {
+                precheck?.code ?: IssueReportCodes.select(code, fallbackCode)
+            }
             failure(feature, publicCode, error, reportEvidence, reportSource)
         } else {
             synchronized(lock) {

@@ -57,6 +57,40 @@ class GitHubRecoveryCallsTest {
         assertEquals(repaired, GitHubRecoveryCalls.repairSourceRead(repaired, tool(name)))
     }
 
+    @Test fun unsupportedFirstPageSearchSizeIsDroppedWithoutChangingOriginalInvocation() {
+        val name = "github_search__selected"
+        val original = Json.parseToJsonElement(
+            """{"action":"search","query":"important class","per_page":50}"""
+        ).jsonObject
+        val call = ProviderEvent.ToolCall("search", name, original).captureProviderInvocation()
+        val registered = tool(name)
+        val repaired = GitHubRecoveryCalls.repairSourceRead(call, registered)
+        assertEquals(
+            Json.parseToJsonElement("""{"action":"search","query":"important class"}""").jsonObject,
+            repaired.arguments
+        )
+        assertEquals(call.callId, repaired.callId)
+        assertEquals(call.name, repaired.name)
+        assertEquals(call.providerInvocation(), repaired.providerInvocation())
+        assertEquals(emptyList<String>(), ToolArgumentValidator.errors(repaired.arguments, registered.definition.inputSchema))
+        assertEquals(repaired, GitHubRecoveryCalls.repairSourceRead(repaired, registered))
+    }
+
+    @Test fun unsafeOrAmbiguousSearchCorrectionsRemainRejectedWithoutDispatch() {
+        val name = "github_search"
+        for (value in listOf(
+            """{"action":"search","query":"class","per_page":50,"view_cursor":"unissued"}""",
+            """{"action":"search","query":"class","per_page":50,"index_cursor":4}""",
+            """{"action":"search","query":"class","per_page":50,"search_id":"previous"}""",
+            """{"action":"search","query":"class","per_page":50,"page":2}""",
+            """{"action":"search","query":"class","per_page":50,"unknown":"unsafe"}""",
+            """{"action":"search","per_page":50}"""
+        )) {
+            val call = ProviderEvent.ToolCall("search", name, Json.parseToJsonElement(value).jsonObject)
+            assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool(name)))
+        }
+    }
+
     @Test fun malformedRecoveryLeavesUnsafePathsAndMixedSelectorsForRejection() {
         val name = "github_read"
         for (text in listOf(

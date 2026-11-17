@@ -3,7 +3,7 @@
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
   "source_digest": "9ddabfe0f8f9d2e1850f2b4d193acb9942191de03d808133f0de93142c360ef8",
   "file_count": 2664,
-  "indexed_line_count": 432650,
+  "indexed_line_count": 432664,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -40,7 +40,7 @@
       "id": "chat_ui",
       "label": "Chat, rendering and interaction",
       "file_count": 555,
-      "indexed_line_count": 97215
+      "indexed_line_count": 97229
     },
     {
       "id": "accessibility_and_localization",

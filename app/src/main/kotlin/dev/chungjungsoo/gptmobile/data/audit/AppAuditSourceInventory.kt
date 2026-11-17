@@ -11,11 +11,11 @@ object AppAuditSourceInventory {
     val assetPath: String = "diagnostics/app-code-inventory.json"
     val sourceDigest: String = "9ddabfe0f8f9d2e1850f2b4d193acb9942191de03d808133f0de93142c360ef8"
     val fileCount: Int = 2664
-    val lineCount: Int = 432650
+    val lineCount: Int = 432664
     val lineCoverageAvailable: Boolean = false
     val areas: List<AppAuditSourceArea> = listOf(
         AppAuditSourceArea("android_shell", "Android application and lifecycle", 74, 8632),
-        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 555, 97215),
+        AppAuditSourceArea("chat_ui", "Chat, rendering and interaction", 555, 97229),
         AppAuditSourceArea("accessibility_and_localization", "Accessibility, themes and UI resources", 199, 9279),
         AppAuditSourceArea("agent_execution", "Agent execution and recovery", 234, 39743),
         AppAuditSourceArea("agent_tools", "Built-in tool routing and execution", 100, 22352),

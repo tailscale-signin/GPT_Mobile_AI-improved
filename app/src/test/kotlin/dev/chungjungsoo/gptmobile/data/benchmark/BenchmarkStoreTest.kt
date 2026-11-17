@@ -418,9 +418,18 @@ class BenchmarkStoreTest {
                 outcome = BenchmarkOutcome.SKIPPED, failureCategory = "SKIPPED_DEPENDENCY"
             )
             val run = BenchmarkRun(
-                "duplicate-case-run", "profile", "Profile", "OPENAI", "model", "config",
-                false, BenchmarkMode.QUICK, 1, listOf(original, accidentalDuplicate),
-                batchId = batch.id, plannedTrials = 1
+                "duplicate-case-run",
+                "profile",
+                "Profile",
+                "OPENAI",
+                "model",
+                "config",
+                false,
+                BenchmarkMode.QUICK,
+                1,
+                listOf(original, accidentalDuplicate),
+                batchId = batch.id,
+                plannedTrials = 1
             )
             store.checkpoint(batch, run, event = "PROFILE_COMPLETED")
             val saved = store.history.value.single { it.id == run.id }

@@ -159,7 +159,7 @@ class VoiceDiagnosticTrace internal constructor(
         }
 
         /** Counts and already-audible state only; no unsupported word or reply text leaves the device. */
-        fun pronunciationFailure(unknownWords: Int, initialisms: Int, audioQueued: Boolean, firstAudioObserved: Boolean, failure: KokoroPronunciationFailure? = null) = owner.record(this) {
+        internal fun pronunciationFailure(unknownWords: Int, initialisms: Int, audioQueued: Boolean, firstAudioObserved: Boolean, failure: KokoroPronunciationFailure? = null) = owner.record(this) {
             owner.values["voice_pronunciation_unknown_words"] = unknownWords.toLong().coerceIn(0L, MAX_COUNT)
             owner.values["voice_pronunciation_initialisms"] = initialisms.toLong().coerceIn(0L, MAX_COUNT)
             failure?.let { owner.values["voice_pronunciation_failure_kind"] = it.name }

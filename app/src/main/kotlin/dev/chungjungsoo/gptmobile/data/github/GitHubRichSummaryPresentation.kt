@@ -25,7 +25,11 @@ internal object GitHubRichSummaryPresentation {
      * may change it. A revision counter by itself never creates an insight.
      */
     fun evidenceKey(snapshot: GitHubProgressSnapshot): String =
-        observations(snapshot).joinToString("\u001f") { GitHubProgressPresentation.lineKey(it) }
+        factKeys(snapshot).joinToString("\u001f")
+
+    /** Canonical source facts, independent of ordering, clock or narration phrasing. */
+    fun factKeys(snapshot: GitHubProgressSnapshot): List<String> =
+        observations(snapshot).map(GitHubProgressPresentation::lineKey)
 
     fun render(snapshot: GitHubProgressSnapshot): String {
         val seen = observations(snapshot)

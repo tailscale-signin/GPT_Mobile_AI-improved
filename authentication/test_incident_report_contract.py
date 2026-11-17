@@ -10,6 +10,39 @@ from authentication.issue_reports import CONTEXT_ENUMS_V6, CONTEXT_ENUMS_V7, CON
 
 
 class IncidentReportContractTest(unittest.TestCase):
+    def test_gateway_preflight_receipt_retains_all_closed_blockers_without_private_values(self):
+        from authentication.engineering_report_contract import GATEWAY_ADMISSION_CORE
+
+        values = {
+            "gateway_admission_ready": False,
+            "gateway_preflight_reason": "ACCEPTANCE_CONTRACT_REQUIRED",
+            "gateway_preflight_blocker_count": 2,
+            "gateway_preflight_blocker_codes": [
+                "ACCEPTANCE_CONTRACT_REQUIRED", "VALIDATION_RUNTIME_UNAVAILABLE"
+            ],
+            "gateway_preflight_recovery_actions": [
+                "DEFINE_ACCEPTANCE_REQUIREMENTS", "PROVISION_VALIDATION_RUNTIME"
+            ],
+            "gateway_preflight_discovery_state": "REVIEW_REQUIRED",
+            "gateway_preflight_candidate_count": 3,
+        }
+        receipt = {
+            "schemaVersion": 2, "area": "GATEWAY", "capturedAtMillis": 1_800_000_000_000,
+            "captureMode": "INCIDENT", "values": values,
+            "unavailableFields": sorted((CORE_FIELDS["GATEWAY"] | GATEWAY_ADMISSION_CORE) - values.keys()),
+        }
+        self.assertEqual(receipt, validate_diagnostics(copy.deepcopy(receipt)))
+        for field, malformed in [
+            ("gateway_preflight_blocker_codes", ["PRIVATE_SOURCE_PATH"]),
+            ("gateway_preflight_recovery_actions", ["RUN_HOST_COMMAND"]),
+            ("gateway_preflight_discovery_state", "PRIVATE_STATUS"),
+            ("gateway_preflight_candidate_count", -1),
+        ]:
+            with self.subTest(field=field), self.assertRaises(ValueError):
+                forged = copy.deepcopy(receipt)
+                forged["values"][field] = malformed
+                validate_diagnostics(forged)
+
     def capture(self, area="TOOL", values=None):
         values = {
             "incident_phase": "tool_precheck", "causal_provenance": "TOOL_CALL", "causal_id_hash": "a" * 64,

@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
+import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments
+import dev.chungjungsoo.gptmobile.data.diagnostics.IssueReportIncidentCapsule
 import dev.chungjungsoo.gptmobile.data.github.githubOperationFamily
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
@@ -35,6 +37,9 @@ internal object ToolArgumentValidator {
             "github_ci" ->
                 "Use only the declared fields for the selected action. Runs filters use status; returned runs include conclusion. " +
                     "For failed runs set status=failure. For logs use an observed job_id and positive ordered start_line/end_line spanning at most 2000 lines; read longer logs in successive windows. "
+            "github_watch_checks" ->
+                "Use github_ci action=runs with head_sha to discover a run_id, or github_pr action=list to discover a pr_number. " +
+                    "Supply an observed selector for the head to monitor. "
             "github_context" ->
                 "For saved content use only the exact view_cursor from continuation_call. " +
                     "For a fresh page use per_page=1..100. Do not copy an action from a different request. "
@@ -99,7 +104,15 @@ internal object ToolArgumentValidator {
             dispatched = false,
             executionReceipt = JsonObject(
                 rejectionReceipt(toolName.githubOperationFamily(), arguments, schema, validationErrors, selector) + buildJsonObject {
-                    if (toolName.githubOperationFamily() == "github_read") {
+                    val operation = toolName.githubOperationFamily()
+                    val nestedUnknown = if (operation == "github_read") {
+                        (arguments["ranges"] as? JsonArray).orEmpty().filterIsInstance<JsonObject>()
+                            .flatMap { it.keys - GitHubOperationArguments.readRangeFields }.toSet()
+                    } else {
+                        emptySet()
+                    }
+                    val effectiveReadRules = if (nestedUnknown.isEmpty()) readRules else readRules + GitHubOperationArguments.ReadRule.RANGE_FIELDS
+                    if (operation == "github_read") {
                         (arguments["ranges"] as? JsonArray)?.let { ranges ->
                             put("read_range_count", ranges.size)
                             val failures = ranges.filterIsInstance<JsonObject>().flatMap { dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationArguments.readWindowFailures(it) }.distinct()
@@ -107,8 +120,8 @@ internal object ToolArgumentValidator {
                         }
                         put("read_invalid_window_count", validationErrors.count { "needs start_line>=1" in it })
                     }
-                    if (readRules.isNotEmpty()) {
-                        put("semantic_read_rules", JsonArray(readRules.map { JsonPrimitive(it.name) }))
+                    if (effectiveReadRules.isNotEmpty()) {
+                        put("semantic_read_rules", JsonArray(effectiveReadRules.map { JsonPrimitive(it.name) }))
                     }
                     val declaredFields = (schema["properties"] as? JsonObject).orEmpty().keys
                     val unknownFields = if (schema["additionalProperties"] == JsonPrimitive(false)) {
@@ -119,7 +132,12 @@ internal object ToolArgumentValidator {
                     val ci = ciRejections.takeIf { toolName.githubOperationFamily() == "github_ci" }.orEmpty()
                         .filter { it.fields.isNotEmpty() && it.fields.all(declaredFields::contains) }
                     if (ci.isNotEmpty()) put("semantic_ci_rules", JsonArray(ci.map { it.rule.name }.distinct().sorted().map(::JsonPrimitive)))
-                    val fields = (unknownFields + readRules.flatMap { it.fields.asList() } + ci.flatMap { it.fields }).distinct().sorted()
+                    val missingWatchSelector = operation == "github_watch_checks" && "view_cursor" !in arguments && GitHubOperationArguments.watchSelectors.none(arguments::containsKey)
+                    val watchFields = if (missingWatchSelector) GitHubOperationArguments.watchSelectors else emptyList()
+                    val fields = (
+                        unknownFields + nestedUnknown.filter { it in IssueReportIncidentCapsule.fieldNames } +
+                            effectiveReadRules.flatMap { it.fields.asList() } + ci.flatMap { it.fields } + watchFields
+                        ).distinct().sorted()
                     if (fields.isNotEmpty()) put("validation_field_names", JsonArray(fields.take(12).map(::JsonPrimitive)))
                 }
             )

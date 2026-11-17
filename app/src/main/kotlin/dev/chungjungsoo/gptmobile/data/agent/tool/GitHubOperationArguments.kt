@@ -10,8 +10,18 @@ import kotlinx.serialization.json.put
 
 /** Action-specific admission after schema validation, before any repository request. */
 internal object GitHubOperationArguments {
+    val watchSelectors = listOf("pr_number", "run_id")
+    val readRangeFields = setOf("path", "start_line", "end_line", "max_lines", "start_offset")
+
     /** Advertise the same conditional prerequisites enforced before dispatch. */
     fun schemaAlternatives(operation: String): JsonArray? {
+        if (operation == "github_watch_checks") {
+            return JsonArray(
+                (watchSelectors + "view_cursor").map { field ->
+                    buildJsonObject { put("required", JsonArray(listOf(JsonPrimitive(field)))) }
+                }
+            )
+        }
         val alternatives: List<Pair<List<String>, List<String>>> = when (operation) {
             "github_repository" -> listOf(
                 listOf("capabilities") to emptyList(),
@@ -167,7 +177,7 @@ internal object GitHubOperationArguments {
                 positive("pr_number")
                 positive("run_id")
                 if ("commit_sha" in args && !text("commit_sha").matches(Regex("[a-fA-F0-9]{40}"))) errors += "commit_sha must be the exact 40-character head to monitor"
-                if ("pr_number" !in args && "run_id" !in args) errors += "provide pr_number or run_id from PR or workflow discovery"
+                if (watchSelectors.none(args::containsKey)) errors += "provide pr_number or run_id from PR or workflow discovery"
                 if ("wait_timeout_seconds" in args && text("wait_timeout_seconds").toIntOrNull()?.let { it in 1..30 } != true) errors += "wait_timeout_seconds must be 1..30; omit it for the existing background subscription"
             }
             "github_read" -> {
@@ -181,7 +191,7 @@ internal object GitHubOperationArguments {
                         readError(ReadRule.RANGE_OBJECT, "ranges[$index] must be a source range object")
                         return@forEachIndexed
                     }
-                    if (range.keys.any { it !in setOf("path", "start_line", "end_line", "max_lines", "start_offset") }) {
+                    if (range.keys.any { it !in readRangeFields }) {
                         readError(ReadRule.RANGE_FIELDS, "ranges[$index] accepts only path, start_line, end_line, max_lines and start_offset")
                     }
                     val path = (range["path"] as? JsonPrimitive)?.takeIf { it.isString }?.content.orEmpty()

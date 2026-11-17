@@ -36,6 +36,38 @@ class ToolArgumentDiagnosticsTest {
         put("additionalProperties", false)
     }
 
+    @Test fun watchRequiresAnObservedSelectorAndAcceptsSavedViewContinuations() {
+        val schema = GitHubOperationTool.definition("github_watch_checks").inputSchema
+        val args = buildJsonObject {
+            put("commit_sha", "a".repeat(40))
+            put("wait_timeout_seconds", 5)
+        }
+        assertTrue(ToolArgumentValidator.errors(args, schema).isNotEmpty())
+        assertTrue(GitHubOperationArguments.errors("github_watch_checks", args).isNotEmpty())
+        val result = ToolArgumentValidator.rejection("watch", "github_watch_checks", args, schema)
+        assertFalse(result.dispatched)
+        assertEquals(JsonArray(listOf("pr_number", "run_id").map(::JsonPrimitive)), publicSnapshot("github_watch_checks", args, result).values["validation_field_names"])
+        assertTrue((result.content as ToolResultContent.Json).value.toString().contains("github_ci action=runs"))
+        for (selector in listOf("pr_number", "run_id")) {
+            val valid = JsonObject(args + (selector to JsonPrimitive(7)))
+            assertTrue(ToolArgumentValidator.errors(valid, schema).isEmpty())
+            assertTrue(GitHubOperationArguments.errors("github_watch_checks", valid).isEmpty())
+        }
+        assertTrue(ToolArgumentValidator.errors(buildJsonObject { put("view_cursor", "saved") }, schema).isEmpty())
+    }
+
+    @Test fun schemaRejectionOfNestedReadKeysKeepsOnlyPublicFieldNames() {
+        val args = Json.parseToJsonElement("""{"ranges":[{"path":"private-path","per_page":23,"private-key":"private-value"}]}""") as JsonObject
+        val schema = GitHubOperationTool.definition("github_read").inputSchema
+        val result = ToolArgumentValidator.rejection("read", "github_read", args, schema)
+        assertFalse(result.dispatched)
+        val snapshot = publicSnapshot("github_read", args, result)
+        assertEquals(JsonArray(listOf(JsonPrimitive("RANGE_FIELDS"))), snapshot.values["semantic_read_rules"])
+        assertTrue(JsonPrimitive("per_page") in (snapshot.values["validation_field_names"] as JsonArray))
+        assertFalse(snapshot.toString().contains("private"))
+        assertFalse(requireNotNull(result.executionReceipt).toString().contains("private"))
+    }
+
     @Test fun missingSearchQueryRetainsTypedNonDispatchEvidence() {
         val result = ToolArgumentValidator.rejection("call", "github_search__github_api", buildJsonObject {}, searchSchema)
         val receipt = requireNotNull(result.executionReceipt)

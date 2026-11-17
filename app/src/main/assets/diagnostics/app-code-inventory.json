@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "1ed9be22eb3ee4570d366c786e52b8e686727e8be3acc4fc1f82f91245872775",
+  "source_digest": "197508b6dac597266345029e9bff49ee72aac4ed5a98d1788f9eb83fc19091ae",
   "file_count": 2667,
-  "indexed_line_count": 433751,
+  "indexed_line_count": 433779,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -52,13 +52,13 @@
       "id": "agent_execution",
       "label": "Agent execution and recovery",
       "file_count": 234,
-      "indexed_line_count": 39829
+      "indexed_line_count": 39847
     },
     {
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 100,
-      "indexed_line_count": 22463
+      "indexed_line_count": 22473
     },
     {
       "id": "mcp_plugins",
@@ -1984,8 +1984,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolArgumentValidator.kt",
       "area_id": "agent_execution",
       "kind": "source",
-      "sha256": "280f25fcb22709afac36009ff44b2190d6b31a2a4f5496f49879e1f27a74f14e",
-      "indexed_lines": 429
+      "sha256": "a86b5fd9ce52c7d69e9a7d3a9960b3f1b0f0cf5c560c997f57478d50733237b6",
+      "indexed_lines": 447
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/ToolBatchCheckpoint.kt",
@@ -2691,8 +2691,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationArguments.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "3563c560e7c8201e92c5c7aa6262feb5487dd6edb6d4596577fe8859c9110735",
-      "indexed_lines": 343
+      "sha256": "368b0a0aedb8f5cb6af886503899bc2516ea1892ffe0c8c915249ffe6615c0b2",
+      "indexed_lines": 353
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubOperationTool.kt",

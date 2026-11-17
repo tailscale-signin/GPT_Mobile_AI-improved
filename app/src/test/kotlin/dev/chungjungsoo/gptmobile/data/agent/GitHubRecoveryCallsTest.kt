@@ -1,8 +1,10 @@
 package dev.chungjungsoo.gptmobile.data.agent
 
 import dev.chungjungsoo.gptmobile.data.agent.tool.GitHubOperationTool
+import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -37,6 +39,37 @@ class GitHubRecoveryCallsTest {
         assertEquals("next", routed.callId)
         assertEquals(call, GitHubRecoveryCalls.resolve(call, emptyList(), mapOf("github_search" to tool("github_search"))))
         assertEquals(call, GitHubRecoveryCalls.resolve(call, exchanges, emptyMap()))
+    }
+
+    @Test fun exactMalformedSourceReadBecomesAnAdmittedToolProposalWithOriginalReplayIdentity() {
+        val name = "github_read__selected"
+        val original = Json.parseToJsonElement("""{"owner":"owner","repo":"repo","path":"src/Reader.kt","start_line":2,"max_lines":12}""").jsonObject
+        val call = ProviderEvent.ToolCall("read", name, original).captureProviderInvocation()
+        val repaired = GitHubRecoveryCalls.repairSourceRead(call, tool(name))
+        assertEquals(call.callId, repaired.callId)
+        assertEquals(call.name, repaired.name)
+        assertEquals(call.providerInvocation(), repaired.providerInvocation())
+        assertEquals(
+            Json.parseToJsonElement("""{"owner":"owner","repo":"repo","action":"ranges","ranges":[{"path":"src/Reader.kt","start_line":2,"max_lines":12}]}""").jsonObject,
+            repaired.arguments
+        )
+        assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, null))
+        assertEquals(repaired, GitHubRecoveryCalls.repairSourceRead(repaired, tool(name)))
+    }
+
+    @Test fun malformedRecoveryLeavesUnsafePathsAndMixedSelectorsForRejection() {
+        val name = "github_read"
+        for (text in listOf(
+            """{"path":"../secret.txt"}""",
+            """{"path":"src/App.kt","view_cursor":"untrusted"}""",
+            """{"path":"src/App.kt","start_line":0}""",
+            """{"path":"src/App.kt","ranges":[{"path":"src/Other.kt"}]}"""
+        )) {
+            val call = ProviderEvent.ToolCall("read", name, Json.parseToJsonElement(text).jsonObject)
+            assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool(name)))
+            val mutation = call.copy(name = "github_write")
+            assertEquals(mutation, GitHubRecoveryCalls.repairSourceRead(mutation, tool("github_write")))
+        }
     }
 
     @Test fun retainedMutationRecipeIsNeverAutomaticallyExecutedOrUnwrapped() {

@@ -1,5 +1,7 @@
 package dev.chungjungsoo.gptmobile.presentation.ui.chat
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -13,17 +15,28 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import dev.chungjungsoo.gptmobile.data.github.GitHubRichSummaryPresentation
+import dev.chungjungsoo.gptmobile.data.github.GitHubSummaryWorkbook
+import java.io.IOException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /** Source-count chart; rendering never infers a pass or a time series. */
 @Composable
@@ -33,7 +46,7 @@ internal fun GitHubRichSummaryChart(markdown: String) {
     val clipboard = LocalClipboardManager.current
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().padding(top = 4.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 text = when {
                     markdown.startsWith("### Partial recorded check results") && rows.isNotEmpty() -> "Partial check distribution"
@@ -48,6 +61,7 @@ internal fun GitHubRichSummaryChart(markdown: String) {
             TextButton(onClick = { clipboard.setText(AnnotatedString(csv)) }, modifier = Modifier.testTag("github_summary_copy_csv")) {
                 Text("Copy CSV")
             }
+            SaveSummaryWorkbook(markdown)
         }
         if (rows.isNotEmpty()) {
             val maximum = rows.maxOf { it.count }.coerceAtLeast(1)
@@ -86,5 +100,48 @@ internal fun GitHubRichSummaryChart(markdown: String) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SaveSummaryWorkbook(markdown: String) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var pending by rememberSaveable { mutableStateOf<String?>(null) }
+    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(GitHubSummaryWorkbook.MIME_TYPE)) { uri ->
+        val table = pending?.let(GitHubRichSummaryPresentation::checkTable)
+        pending = null
+        if (uri != null && table != null) {
+            scope.launch {
+                val saved = withContext(Dispatchers.IO) {
+                    try {
+                        val output = context.contentResolver.openOutputStream(uri) ?: throw IOException("Document unavailable")
+                        GitHubSummaryWorkbook.write(output, table)
+                        true
+                    } catch (_: IOException) {
+                        false
+                    } catch (_: SecurityException) {
+                        false
+                    }
+                }
+                val message = if (saved) "Workbook saved" else "Could not save the workbook"
+                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+    TextButton(
+        enabled = pending == null,
+        onClick = {
+            pending = markdown
+            try {
+                launcher.launch("github-recorded-checks.xlsx")
+            } catch (_: android.content.ActivityNotFoundException) {
+                pending = null
+                android.widget.Toast.makeText(context, "No document picker available", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        },
+        modifier = Modifier.testTag("github_summary_save_xlsx")
+    ) {
+        Text("Save XLSX")
     }
 }

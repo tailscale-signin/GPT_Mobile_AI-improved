@@ -2,7 +2,7 @@
 
 ## GitHub and Gateway delivery
 
-This release candidate adds the singleton GitHub context corrections from PR #1534 and a longer interval between follow-up GitHub chat summaries. Windows Gateway 17.0.1 has a separate Windows installer and update package, built from the same source revision when published for this Android build.
+This release candidate adds the singleton GitHub context corrections from PR #1534 and a longer interval between follow-up GitHub chat summaries. GitHub Chat can use the selected profile to narrate observed findings when the task has budget available. Recorded check tables can be saved as XLSX. Windows Gateway 17.0.1 has a separate Windows installer and update package, built from the same source revision when published for this Android build.
 
 See the [feature delivery and qualification matrix](https://github.com/tailscale-signin/GPT_Mobile_AI-improved/pull/1534) for implementation and observed test status. Physical Android, installed Windows Gateway and selected-provider GitHub qualification require their own receipts.
 

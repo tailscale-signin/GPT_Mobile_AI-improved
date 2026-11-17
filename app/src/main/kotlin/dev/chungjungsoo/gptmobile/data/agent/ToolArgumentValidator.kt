@@ -242,37 +242,26 @@ internal object ToolArgumentValidator {
         return proposal.takeIf { errors(it, schema).isEmpty() }
     }
 
+    internal fun sourceReadArgumentCorrection(arguments: JsonObject): JsonObject? {
+        val argumentFields = setOf("owner", "repo", "commit_sha", "action", "path", "start_line", "end_line", "max_lines")
+        if (arguments["action"] !in setOf(null, JsonPrimitive("ranges")) || arguments.keys.any { it !in argumentFields }) return null
+        val rawPath = arguments["path"] as? JsonPrimitive
+        val path = rawPath?.takeIf { it.isString }?.content
+        if (path.isNullOrBlank() || path.startsWith("/") || path.contains('\\') || path.split('/').any { it == "." || it == ".." }) {
+            return null
+        }
+        val window = setOf("path", "start_line", "end_line", "max_lines")
+        val range = JsonObject(arguments.filterKeys { it in window })
+        return JsonObject(
+            arguments.filterKeys { it !in window } +
+                ("action" to JsonPrimitive("ranges")) +
+                ("ranges" to JsonArray(listOf(range)))
+        )
+    }
+
     private fun boundedReadCorrection(operation: String, arguments: JsonObject): JsonObject? {
         if (arguments.keys.any { it in setOf("view_cursor", "index_cursor", "evidence_id", "start_offset") }) return null
-        if (
-            operation == "github_read" &&
-            "ranges" !in arguments &&
-            arguments["action"] in setOf(null, JsonPrimitive("ranges")) &&
-            arguments.keys.all { it in setOf("owner", "repo", "commit_sha", "action", "path", "start_line", "end_line", "max_lines") }
-        ) {
-            // Reuse only the observed path, never an inferred source identity.
-            // This is a non-dispatched correction proposal, not an authorized read.
-            val rawPath = arguments["path"] as? JsonPrimitive
-            val path = rawPath?.takeIf { it.isString }?.content
-            if (
-                !path.isNullOrBlank() &&
-                !path.startsWith("/") &&
-                !path.contains('\\') &&
-                path.split('/').none { it == "." || it == ".." }
-            ) {
-                val range = buildJsonObject {
-                    put("path", path)
-                    listOf("start_line", "end_line", "max_lines").forEach { field ->
-                        arguments[field]?.let { put(field, it) }
-                    }
-                }
-                return JsonObject(
-                    arguments.filterKeys { it !in setOf("path", "start_line", "end_line", "max_lines") } +
-                        ("action" to JsonPrimitive("ranges")) +
-                        ("ranges" to JsonArray(listOf(range)))
-                )
-            }
-        }
+        if (operation == "github_read") sourceReadArgumentCorrection(arguments)?.let { return it }
         return when (operation to arguments["action"]) {
             "github_ci" to JsonPrimitive("runs") -> {
                 val conclusion = arguments["conclusion"]?.takeIf { it == JsonPrimitive("failure") } ?: return null

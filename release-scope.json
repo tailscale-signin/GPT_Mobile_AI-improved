@@ -4,7 +4,7 @@
   "qualification": "scoped",
   "baseCommit": "3de77a00946f5c621443dc7c8668dc8879ef0d1c",
   "changes": [
-    "Add a versioned Windows Gateway publication workflow and GitHub chat summary cadence, with a delivery matrix for source, CI, packaging and installation evidence.",
+    "Add a versioned Windows Gateway publication workflow and GitHub chat summary cadence, selected-profile narration and native check-table workbook export, with a delivery matrix for source, CI, packaging and installation evidence.",
     "Add an explicit saved-AI-profile GitHub tool audit with live model requests, isolated fixture tool execution, full model-facing action inventory, durable case results and negative-write regression coverage.",
     "Repair final request budgeting, local tool projection, workspace evidence and logs, recovery and completion receipts, and explicit client recovery review. Classify terminal Android CI blockers and keep the validation form scrollable.",
     "Add shared Android admission/replay allocation and action-specific GitHub schema selection; approved workspace check selection and bounded logs; static behavior-test discovery; bounded selected-model investigators; exact-revision artifact and isolated release checks; and idempotent main-build recovery with fresh approval, remaining budgets and cancellation propagation.",
@@ -837,6 +837,7 @@
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewSchema.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubReviewedSession.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentation.kt",
+    "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubSummaryWorkbook.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunAcceptance.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunPolicySnapshot.kt",
     "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRuntimeIdentity.kt",

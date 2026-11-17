@@ -2,6 +2,10 @@ package dev.chungjungsoo.gptmobile.data.github
 
 import dev.chungjungsoo.gptmobile.data.dto.ApiState
 import dev.chungjungsoo.gptmobile.data.dto.openai.response.GatewayProgress
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.zip.ZipInputStream
+import javax.xml.parsers.DocumentBuilderFactory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -55,6 +59,35 @@ class GitHubRichSummaryPresentationTest {
         assertTrue(csv.startsWith("Check state,Count,Source,Captured list,Observation\r\n"))
         assertTrue(csv.contains("Successful,15,\"Job 7\",Complete,Recorded results; not a new test execution\r\n"))
         assertEquals(5, csv.trim().lines().size)
+    }
+
+    @Test fun workbookPreservesNumericCountsAndStoresTheSourceAsText() {
+        val markdown = GitHubRichSummaryPresentation.render(
+            sample("Recorded checks for =SUM(1,2)&<job>: 15 successful, 4 skipped, 0 in progress, 1 failed (incomplete captured list).")
+        )
+        val output = ByteArrayOutputStream()
+        GitHubSummaryWorkbook.write(output, requireNotNull(GitHubRichSummaryPresentation.checkTable(markdown)))
+        val parts = mutableMapOf<String, ByteArray>()
+        ZipInputStream(ByteArrayInputStream(output.toByteArray())).use { zip ->
+            while (true) {
+                val entry = zip.nextEntry ?: break
+                parts[entry.name] = zip.readBytes()
+            }
+        }
+        assertEquals(
+            setOf("[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/worksheets/sheet1.xml"),
+            parts.keys
+        )
+        val factory = DocumentBuilderFactory.newInstance().apply { isNamespaceAware = true }
+        val sheet = factory.newDocumentBuilder().parse(ByteArrayInputStream(parts.getValue("xl/worksheets/sheet1.xml")))
+        val cells = sheet.getElementsByTagNameNS("*", "c")
+        val byRef = (0 until cells.length).map { cells.item(it) }.associateBy { it.attributes.getNamedItem("r").nodeValue }
+        assertEquals("n", byRef.getValue("B2").attributes.getNamedItem("t").nodeValue)
+        assertEquals("15", byRef.getValue("B2").textContent)
+        assertEquals("inlineStr", byRef.getValue("C2").attributes.getNamedItem("t").nodeValue)
+        assertEquals("=SUM(1,2)&<job>", byRef.getValue("C2").textContent)
+        assertEquals("Incomplete", byRef.getValue("D2").textContent)
+        assertEquals(0, sheet.getElementsByTagNameNS("*", "f").length)
     }
 
     @Test fun incompleteRecordedChecksKeepJobScopeCoverageAndNextAction() {

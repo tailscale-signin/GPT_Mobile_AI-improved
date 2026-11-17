@@ -6,6 +6,11 @@ package dev.chungjungsoo.gptmobile.data.github
  */
 internal object GitHubRichSummaryPresentation {
     internal data class CheckCount(val label: String, val count: Int)
+    internal data class CheckTable(val rows: List<CheckCount>, val source: String, val coverage: String) {
+        val headers = listOf("Check state", "Count", "Source", "Captured list", "Observation")
+        val observation = "Recorded results; not a new test execution"
+    }
+
     private data class CheckEvidence(val counts: List<CheckCount>, val scope: String?, val complete: Boolean)
 
     private val countEvidence = Regex(
@@ -120,11 +125,16 @@ internal object GitHubRichSummaryPresentation {
         return rows
     }
 
-    fun csv(markdown: String): String? {
+    fun checkTable(markdown: String): CheckTable? {
         val rows = parseRecordedTable(markdown) ?: return null
         val source = markdown.lineSequence().singleOrNull { it.startsWith("- **Source:** ") }
             ?.removePrefix("- **Source:** ")?.replace(Regex("""\\(.)"""), "$1") ?: "Not recorded"
         val coverage = if (markdown.startsWith("### Partial recorded check results")) "Incomplete" else "Complete"
+        return CheckTable(rows, source, coverage)
+    }
+
+    fun csv(markdown: String): String? {
+        val table = checkTable(markdown) ?: return null
 
         // A copied table must keep the same scope and limitations as the visible card.
         // Source labels may contain spreadsheet syntax even when Markdown-escaped.
@@ -132,8 +142,8 @@ internal object GitHubRichSummaryPresentation {
             val safe = if (value.trimStart().firstOrNull() in setOf('=', '+', '-', '@')) "'$value" else value
             return "\"" + safe.replace("\"", "\"\"") + "\""
         }
-        return "Check state,Count,Source,Captured list,Observation\r\n" + rows.joinToString("\r\n") {
-            it.label + "," + it.count + "," + cell(source) + "," + coverage + ",Recorded results; not a new test execution"
+        return table.headers.joinToString(",") + "\r\n" + table.rows.joinToString("\r\n") {
+            it.label + "," + it.count + "," + cell(table.source) + "," + table.coverage + "," + table.observation
         } + "\r\n"
     }
 

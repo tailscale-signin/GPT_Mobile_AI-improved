@@ -65,7 +65,7 @@ internal class GitHubProgressNarrator(
             lastRevision = current.revision
             return
         }
-        if (deterministic) {
+        if (deterministic || GitHubRichSummaryPresentation.checkTable(factual) != null) {
             validate()
             if (snapshot().revision != current.revision) return
             lastAttemptAt = at

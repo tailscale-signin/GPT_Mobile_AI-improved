@@ -6114,7 +6114,8 @@ class ChatRepositoryImpl(
                             budgetSettings.totalRunTokens.toLong() - invocationLedger.dao.committedTokens(turnKey) >= reservation + finalReserve
                     },
                     publish = { send(it) },
-                    tokenBudget = if (budgetSettings.totalRunTokens == Int.MAX_VALUE) 8192 else (budgetSettings.totalRunTokens / 10).coerceIn(0, 8192)
+                    tokenBudget = if (budgetSettings.totalRunTokens == Int.MAX_VALUE) 8192 else (budgetSettings.totalRunTokens / 10).coerceIn(0, 8192),
+                    deterministic = false
                 )
             } else {
                 null

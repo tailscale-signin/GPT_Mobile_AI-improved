@@ -578,6 +578,24 @@ class BenchmarkLifecycleTest(unittest.TestCase):
             self.assertEqual('INTERRUPTED', saved['state'])
             self.assertEqual('CANCELLATION_UNCONFIRMED', saved['failure']['code'])
 
+    def test_cancel_exception_reuses_richer_case_receipt_for_same_job(self):
+        with tempfile.TemporaryDirectory() as directory:
+            service = self.make_service(directory)
+            run = service.create(Principal('admin', frozenset(), True), request())
+            with patch('benchmarks.service.BenchmarkRunner') as runner:
+                runner.return_value.execute.side_effect = BenchmarkInterrupted(
+                    {'jobId': 'gwjob-same', 'outcome': 'requested'})
+                runner.return_value.cancellation_receipts = [
+                    {'jobId': 'gwjob-same', 'outcome': 'requested',
+                     'case': 'streaming-1', 'stage': 'CANDIDATE'}]
+                service.run_one(run['id'])
+            saved = service.store.get(run['id'])
+            self.assertEqual('INTERRUPTED', saved['state'])
+            self.assertEqual('CANCELLATION_UNCONFIRMED', saved['failure']['code'])
+            self.assertEqual([{'jobId': 'gwjob-same', 'outcome': 'requested',
+                               'case': 'streaming-1', 'stage': 'CANDIDATE'}],
+                             saved['failure']['cancellationReceipts'])
+
     def test_unknown_concurrent_outcome_fences_queued_trials_and_keeps_completed_pair_evidence(self):
         with tempfile.TemporaryDirectory() as directory:
             service = self.make_service(directory)

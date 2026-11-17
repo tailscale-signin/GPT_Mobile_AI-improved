@@ -121,7 +121,7 @@ internal object GitHubRichSummaryPresentation {
             CheckCount(match.groupValues[1], count)
         }.toList()
         if (rows.size !in 4..5 || rows.map { it.label }.distinct().size != rows.size) return emptyList()
-        if (rows.count { it.count > 0 } < 2 || rows.sumOf { it.count } < 3) return emptyList()
+        if (rows.count { it.count > 0 } < 3 || rows.sumOf { it.count } < 6) return emptyList()
         return rows
     }
 

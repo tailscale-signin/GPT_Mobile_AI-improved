@@ -47,7 +47,12 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
 
     private fun rows(result: JsonObject): Map<String, JsonArray> {
         val upstream = result["upstream_record_ids"] as? JsonArray
-        return if (!upstream.isNullOrEmpty()) mapOf("upstream_record_ids" to upstream) else result.filter { (name, value) -> name in COLLECTIONS && value is JsonArray }.mapValues { it.value as JsonArray }
+        if (!upstream.isNullOrEmpty()) return mapOf("upstream_record_ids" to upstream)
+        val direct = result.filter { (name, value) -> name in COLLECTIONS && value is JsonArray }.mapValues { it.value as JsonArray }
+        if (direct.isNotEmpty()) return direct
+        // Commit status summaries store the actual check rows inside check_details.
+        val nested = (result["check_details"] as? JsonObject)?.get("check_runs") as? JsonArray
+        return if (nested != null) mapOf("check_runs" to nested) else emptyMap()
     }
 
     private fun identity(collection: String, row: JsonElement): String {
@@ -64,7 +69,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             // A successful envelope with no record collection cannot establish
             // coverage when the provider advertises records or another page.
             // An explicitly empty terminal result remains valid.
-            val reportedTotal = (result["total_count"] as? JsonPrimitive)?.content?.toIntOrNull()
+            val reportedTotal = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
             if ((reportedTotal ?: 0) == 0 && result["has_more"] != JsonPrimitive(true)) return Assessment(result)
             val number = page(args)
             val progress = buildJsonObject {
@@ -107,7 +112,7 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
         val earlier = state.pages.filterKeys { it < number }.values.flatMapTo(mutableSetOf()) { it.identities }
         val previous = state.pages[number]
         if (previous != null && previous.identities != identities) state.changed = true
-        val total = (result["total_count"] as? JsonPrimitive)?.content?.toIntOrNull()
+        val total = ((result["total_count"] ?: (result["check_details"] as? JsonObject)?.get("total_count")) as? JsonPrimitive)?.content?.toIntOrNull()
         if (state.total != null && total != null && state.total != total) state.changed = true
         if (state.total == null) state.total = total
         state.pages[number] = Page(identities, now())

@@ -21,6 +21,32 @@ import org.junit.Test
 class GitHubPaginationBoundaryTest {
     private fun json(text: String) = Json.parseToJsonElement(text).jsonObject
 
+    @Test fun nestedCommitChecksRequireRealRowsAndCompleteRemoteCoverage() {
+        val boundary = GitHubPaginationBoundary()
+        val first = boundary.assessPage(
+            "github_context",
+            json("""{"action":"checks","page":1,"per_page":2}"""),
+            json("""{"has_more":true,"check_details":{"total_count":3,"check_runs":[{"id":1},{"id":2}]}}""")
+        )
+        assertEquals(null, first.errorCode)
+        val last = boundary.assessPage(
+            "github_context",
+            json("""{"action":"checks","page":2,"per_page":2}"""),
+            json("""{"has_more":false,"check_details":{"total_count":3,"check_runs":[{"id":3}]}}""")
+        )
+        assertEquals(null, last.errorCode)
+        val progress = last.data.getValue("pagination_progress").jsonObject
+        assertEquals(JsonPrimitive(3), progress["unique_records_observed"])
+        assertEquals(JsonPrimitive(true), progress["complete"])
+
+        val missing = GitHubPaginationBoundary().assessPage(
+            "github_context",
+            json("""{"action":"checks","page":1}"""),
+            json("""{"has_more":false,"check_details":{"total_count":1}}""")
+        )
+        assertEquals("GITHUB_PAGINATION_INCOMPLETE", missing.errorCode)
+    }
+
     @Test fun repositoryRecoveryUsesTheSameAuthorizedConnectionAlias() = runBlocking {
         val backend = object : AgentTool {
             override val definition = AgentToolDefinition("github", "test", JsonObject(emptyMap()))

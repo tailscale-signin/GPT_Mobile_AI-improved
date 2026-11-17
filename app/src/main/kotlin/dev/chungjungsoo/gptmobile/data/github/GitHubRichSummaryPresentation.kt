@@ -70,7 +70,8 @@ internal object GitHubRichSummaryPresentation {
             if (counts != null) {
                 counts.scope?.let { add("**Source:** ${escape(it)}") }
                 if (!counts.complete) add("**Coverage:** The captured check list is incomplete; missing checks are not measured.")
-                add("**Evidence:** These are recorded check results, not a new test execution.")
+                val counted = counts.counts.joinToString(", ") { "${it.count} ${it.label.lowercase(java.util.Locale.ROOT)}" }
+                add("**Evidence:** These are recorded check results, not a new test execution. $counted (${if (counts.complete) "complete" else "incomplete"} captured list).")
                 if (problem == null) specific.lastOrNull()?.let { add("**Observed:** ${escape(it)}") }
             } else {
                 specific.takeLast(2).forEach { step ->

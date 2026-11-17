@@ -87,6 +87,254 @@ class WorkflowPolicyTest(unittest.TestCase):
         self.assertGreaterEqual(len(policy.check_ruleset(weakened)), 4)
 
 
+    def test_pr_validation_unit_budget_preserves_full_test_and_coverage_gates(self):
+        # Run 43988347373 was killed after 25 minutes while named tests
+        # were still executing. No failing assertion was reported.
+        import re
+
+        workflow = (SCRIPTS.parent / '.github/workflows/pr-validation.yml').read_text()
+        validate = workflow.split('\n  validate:\n', 1)[1].split('\n  android_lint:\n', 1)[0]
+        unit = validate.split(
+            '\n      - name: Run Unit Tests & JaCoCo Coverage Report\n', 1
+        )[1].split('\n      - name: Collect named audit qualification', 1)[0]
+        job_minutes = int(re.search(r'(?m)^    timeout-minutes: (\d+)
+        # Run 43968609247 passed unit tests and APK, but lint analysis was
+        # killed by its own 2040-second deadline without a lint finding.
+        import re
+
+        workflow = (SCRIPTS.parent / '.github/workflows/audit-workspace.yml').read_text()
+        android = workflow.split('\n  android:\n', 1)[1]
+        job_minutes = int(re.search(r'(?m)^    timeout-minutes: (\d+)$', android).group(1))
+        lint = android.split('\n      - name: Android lint\n', 1)[1].split('\n      - uses:', 1)[0]
+        step_minutes = int(re.search(r'(?m)^        timeout-minutes: (\d+)$', lint).group(1))
+        process_seconds = int(re.search(r'--timeout-seconds (\d+)', lint).group(1))
+
+        self.assertGreaterEqual(step_minutes, 65)
+        self.assertGreaterEqual(process_seconds, 3840)
+        self.assertLessEqual(process_seconds, step_minutes * 60 - 60)
+        # Lint began 57 minutes after job start in the observed failed run.
+        self.assertLessEqual(57 + step_minutes + 10, job_minutes)
+        self.assertIn(':app:lintDebug', lint)
+        self.assertIn('set -o pipefail', lint)
+        self.assertNotIn('continue-on-error: true', lint)
+
+
+class WorkflowHealthTest(unittest.TestCase):
+    def test_same_named_workflows_keep_separate_identity(self):
+        health = module('collect_workflow_health')
+        result = health.summarize([{'id': 1, 'workflow_id': 10, 'name': 'build'},
+                                   {'id': 2, 'workflow_id': 20, 'name': 'build'}])
+        self.assertEqual([10, 20], [row['workflow_id'] for row in result])
+        self.assertEqual([1, 1], [row['runs'] for row in result])
+
+    def test_history_resume_deduplicates_without_claiming_partial_history_is_complete(self):
+        health = module('collect_workflow_health')
+        rows = [{'id': n, 'name': 'build', 'status': 'completed', 'conclusion': 'success'} for n in range(150, 0, -1)]
+        pages = {1: {'total_count': 150, 'workflow_runs': rows[:100]},
+                 2: {'total_count': 150, 'workflow_runs': rows[99:]}}
+        partial = health.collect(pages.__getitem__, 'o/r', 1)
+        self.assertFalse(partial['history_complete'])
+        self.assertEqual(2, partial['next_page'])
+        final = health.collect(pages.__getitem__, 'o/r', 1, partial)
+        self.assertTrue(final['history_complete'])
+        self.assertEqual(150, final['unique_runs'])
+        self.assertEqual(150, final['metrics'][0]['successes'])
+
+    def test_missing_runs_and_wrong_repository_never_report_complete(self):
+        health = module('collect_workflow_health')
+        partial = health.collect(lambda page: {'total_count': 20, 'workflow_runs': [{'id': 1, 'name': 'build'}]}, 'o/r')
+        self.assertTrue(partial['traversal_complete'])
+        self.assertFalse(partial['history_complete'])
+        with self.assertRaises(ValueError):
+            health.collect(lambda page: self.fail('must not fetch'), 'o/other', checkpoint=partial)
+
+    def test_page_failure_preserves_the_last_successful_checkpoint(self):
+        import copy
+        health = module('collect_workflow_health')
+        saved = []
+        def fetch(page):
+            if page == 2:
+                raise OSError('rate limited')
+            return {'total_count': 200, 'workflow_runs': [{'id': n, 'name': 'build'} for n in range(200, 100, -1)]}
+        with self.assertRaises(OSError):
+            health.collect(fetch, 'o/r', save=lambda state: saved.append(copy.deepcopy(state)))
+        self.assertEqual(2, saved[-1]['next_page'])
+        self.assertEqual(100, saved[-1]['unique_runs'])
+
+    def test_pending_and_cancelled_are_not_successes(self):
+        health = module('collect_workflow_health')
+        rows = [{'name': 'build', 'status': 'in_progress'},
+                {'name': 'build', 'status': 'completed', 'conclusion': 'cancelled'},
+                {'name': 'build', 'status': 'completed', 'conclusion': 'success',
+                 'run_started_at': '2026-10-28T10:00:00Z', 'updated_at': '2026-10-28T10:02:00Z'}]
+        result = health.summarize(rows)[0]
+        self.assertEqual(1, result['successes'])
+        self.assertEqual(1, result['cancelled'])
+        self.assertEqual(120, result['median_observed_seconds'])
+
+
+class DependencyReviewTest(unittest.TestCase):
+    def test_manifest_selection_includes_deletions_and_nested_dependency_files(self):
+        review = module('check_dependency_review')
+        for path in ('gradle/libs.versions.toml', 'gateway/requirements.txt', 'app/build.gradle.kts', 'nested/package-lock.json', 'gradle/wrapper/gradle-wrapper.properties'):
+            self.assertTrue(review.dependency_manifest(path), path)
+        self.assertFalse(review.dependency_manifest('docs/README.md'))
+        self.assertFalse(review.dependency_manifest('app/src/Test.kt'))
+
+
+    def test_version_only_edit_requires_identical_remaining_build_script(self):
+        review = module('check_dependency_review')
+        before = '        versionCode = 131\n        versionName = "0.9.63.0"\ndependencies { implementation("safe:lib:1") }\n'
+        after = before.replace('131', '132').replace('0.9.63.0', '0.9.64.0')
+        self.assertTrue(review.only_app_version_changed('app/build.gradle.kts', before, after))
+        for changed in (after.replace('safe:lib:1', 'safe:lib:2'), after + 'apply(from="new.gradle")\n', after.replace('132', 'computeVersion()'), after + '        versionCode = 999\n'):
+            self.assertFalse(review.only_app_version_changed('app/build.gradle.kts', before, changed))
+        self.assertFalse(review.only_app_version_changed('other/build.gradle.kts', before, after))
+        self.assertFalse(review.only_app_version_changed('app/build.gradle.kts', '', after))
+        self.assertFalse(review.only_app_version_changed('app/build.gradle.kts', before, ''))
+
+    def test_removed_advisories_do_not_block_but_added_high_risk_does(self):
+        review = module('check_dependency_review')
+        rows = [{'change_type': 'removed', 'vulnerabilities': [{'severity': 'critical'}]},
+                {'change_type': 'added', 'name': 'library', 'vulnerabilities': [
+                    {'severity': 'low'}, {'severity': 'high', 'advisory_ghsa_id': 'GHSA-example'}]}]
+        self.assertEqual(1, len(review.findings(rows)))
+        self.assertEqual('GHSA-example', review.findings(rows)[0]['advisory'])
+        with self.assertRaises(ValueError):
+            review.findings({'error': 'unavailable'})
+
+
+if __name__ == '__main__':
+    unittest.main()
+, validate).group(1))
+        step_minutes = int(re.search(r'(?m)^        timeout-minutes: (\d+)
+        # Run 43968609247 passed unit tests and APK, but lint analysis was
+        # killed by its own 2040-second deadline without a lint finding.
+        import re
+
+        workflow = (SCRIPTS.parent / '.github/workflows/audit-workspace.yml').read_text()
+        android = workflow.split('\n  android:\n', 1)[1]
+        job_minutes = int(re.search(r'(?m)^    timeout-minutes: (\d+)$', android).group(1))
+        lint = android.split('\n      - name: Android lint\n', 1)[1].split('\n      - uses:', 1)[0]
+        step_minutes = int(re.search(r'(?m)^        timeout-minutes: (\d+)$', lint).group(1))
+        process_seconds = int(re.search(r'--timeout-seconds (\d+)', lint).group(1))
+
+        self.assertGreaterEqual(step_minutes, 65)
+        self.assertGreaterEqual(process_seconds, 3840)
+        self.assertLessEqual(process_seconds, step_minutes * 60 - 60)
+        # Lint began 57 minutes after job start in the observed failed run.
+        self.assertLessEqual(57 + step_minutes + 10, job_minutes)
+        self.assertIn(':app:lintDebug', lint)
+        self.assertIn('set -o pipefail', lint)
+        self.assertNotIn('continue-on-error: true', lint)
+
+
+class WorkflowHealthTest(unittest.TestCase):
+    def test_same_named_workflows_keep_separate_identity(self):
+        health = module('collect_workflow_health')
+        result = health.summarize([{'id': 1, 'workflow_id': 10, 'name': 'build'},
+                                   {'id': 2, 'workflow_id': 20, 'name': 'build'}])
+        self.assertEqual([10, 20], [row['workflow_id'] for row in result])
+        self.assertEqual([1, 1], [row['runs'] for row in result])
+
+    def test_history_resume_deduplicates_without_claiming_partial_history_is_complete(self):
+        health = module('collect_workflow_health')
+        rows = [{'id': n, 'name': 'build', 'status': 'completed', 'conclusion': 'success'} for n in range(150, 0, -1)]
+        pages = {1: {'total_count': 150, 'workflow_runs': rows[:100]},
+                 2: {'total_count': 150, 'workflow_runs': rows[99:]}}
+        partial = health.collect(pages.__getitem__, 'o/r', 1)
+        self.assertFalse(partial['history_complete'])
+        self.assertEqual(2, partial['next_page'])
+        final = health.collect(pages.__getitem__, 'o/r', 1, partial)
+        self.assertTrue(final['history_complete'])
+        self.assertEqual(150, final['unique_runs'])
+        self.assertEqual(150, final['metrics'][0]['successes'])
+
+    def test_missing_runs_and_wrong_repository_never_report_complete(self):
+        health = module('collect_workflow_health')
+        partial = health.collect(lambda page: {'total_count': 20, 'workflow_runs': [{'id': 1, 'name': 'build'}]}, 'o/r')
+        self.assertTrue(partial['traversal_complete'])
+        self.assertFalse(partial['history_complete'])
+        with self.assertRaises(ValueError):
+            health.collect(lambda page: self.fail('must not fetch'), 'o/other', checkpoint=partial)
+
+    def test_page_failure_preserves_the_last_successful_checkpoint(self):
+        import copy
+        health = module('collect_workflow_health')
+        saved = []
+        def fetch(page):
+            if page == 2:
+                raise OSError('rate limited')
+            return {'total_count': 200, 'workflow_runs': [{'id': n, 'name': 'build'} for n in range(200, 100, -1)]}
+        with self.assertRaises(OSError):
+            health.collect(fetch, 'o/r', save=lambda state: saved.append(copy.deepcopy(state)))
+        self.assertEqual(2, saved[-1]['next_page'])
+        self.assertEqual(100, saved[-1]['unique_runs'])
+
+    def test_pending_and_cancelled_are_not_successes(self):
+        health = module('collect_workflow_health')
+        rows = [{'name': 'build', 'status': 'in_progress'},
+                {'name': 'build', 'status': 'completed', 'conclusion': 'cancelled'},
+                {'name': 'build', 'status': 'completed', 'conclusion': 'success',
+                 'run_started_at': '2026-10-28T10:00:00Z', 'updated_at': '2026-10-28T10:02:00Z'}]
+        result = health.summarize(rows)[0]
+        self.assertEqual(1, result['successes'])
+        self.assertEqual(1, result['cancelled'])
+        self.assertEqual(120, result['median_observed_seconds'])
+
+
+class DependencyReviewTest(unittest.TestCase):
+    def test_manifest_selection_includes_deletions_and_nested_dependency_files(self):
+        review = module('check_dependency_review')
+        for path in ('gradle/libs.versions.toml', 'gateway/requirements.txt', 'app/build.gradle.kts', 'nested/package-lock.json', 'gradle/wrapper/gradle-wrapper.properties'):
+            self.assertTrue(review.dependency_manifest(path), path)
+        self.assertFalse(review.dependency_manifest('docs/README.md'))
+        self.assertFalse(review.dependency_manifest('app/src/Test.kt'))
+
+
+    def test_version_only_edit_requires_identical_remaining_build_script(self):
+        review = module('check_dependency_review')
+        before = '        versionCode = 131\n        versionName = "0.9.63.0"\ndependencies { implementation("safe:lib:1") }\n'
+        after = before.replace('131', '132').replace('0.9.63.0', '0.9.64.0')
+        self.assertTrue(review.only_app_version_changed('app/build.gradle.kts', before, after))
+        for changed in (after.replace('safe:lib:1', 'safe:lib:2'), after + 'apply(from="new.gradle")\n', after.replace('132', 'computeVersion()'), after + '        versionCode = 999\n'):
+            self.assertFalse(review.only_app_version_changed('app/build.gradle.kts', before, changed))
+        self.assertFalse(review.only_app_version_changed('other/build.gradle.kts', before, after))
+        self.assertFalse(review.only_app_version_changed('app/build.gradle.kts', '', after))
+        self.assertFalse(review.only_app_version_changed('app/build.gradle.kts', before, ''))
+
+    def test_removed_advisories_do_not_block_but_added_high_risk_does(self):
+        review = module('check_dependency_review')
+        rows = [{'change_type': 'removed', 'vulnerabilities': [{'severity': 'critical'}]},
+                {'change_type': 'added', 'name': 'library', 'vulnerabilities': [
+                    {'severity': 'low'}, {'severity': 'high', 'advisory_ghsa_id': 'GHSA-example'}]}]
+        self.assertEqual(1, len(review.findings(rows)))
+        self.assertEqual('GHSA-example', review.findings(rows)[0]['advisory'])
+        with self.assertRaises(ValueError):
+            review.findings({'error': 'unavailable'})
+
+
+if __name__ == '__main__':
+    unittest.main()
+, unit).group(1))
+
+        self.assertGreaterEqual(step_minutes, 55)
+        self.assertGreaterEqual(job_minutes, step_minutes + 60)
+        for required in (
+            ':core-domain:jvmTest',
+            ':app:testDebugUnitTest',
+            ':app:jacocoTestReport',
+            '--rerun',
+            'check_jacoco_coverage.py',
+            'set -o pipefail',
+            'exit 1',
+        ):
+            self.assertIn(required, unit)
+        self.assertNotIn('continue-on-error: true', unit)
+        self.assertIn('fail_on_failure: true', validate)
+        self.assertIn('require_tests: true', validate)
+
+
     def test_diagnostic_lint_deadline_preserves_full_analysis_and_artifact_budget(self):
         # Run 43968609247 passed unit tests and APK, but lint analysis was
         # killed by its own 2040-second deadline without a lint finding.

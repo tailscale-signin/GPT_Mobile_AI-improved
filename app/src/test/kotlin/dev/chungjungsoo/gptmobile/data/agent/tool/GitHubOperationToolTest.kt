@@ -105,15 +105,35 @@ class GitHubOperationToolTest {
             override val definition = AgentToolDefinition("github", "backend", buildJsonObject {})
             override suspend fun execute(callId: String, arguments: JsonObject): AgentToolResult {
                 forwarded = arguments
-                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject { put("has_more", false) }), false)
+                val page = (arguments["page"] as? JsonPrimitive)?.content?.toIntOrNull() ?: 1
+                return AgentToolResult(callId, ToolResultContent.Json(buildJsonObject {
+                    put("has_more", page == 1)
+                    put("total_count", 2)
+                    put("items", kotlinx.serialization.json.JsonArray(listOf(buildJsonObject { put("id", page) })))
+                    if (page == 1) put("continuation", buildJsonObject {
+                        put("action", "list_issues")
+                        put("state", "open")
+                        put("page", 2)
+                        put("per_page", 20)
+                        put("sort", "created")
+                        put("direction", "asc")
+                        put("after", "issued-opaque-cursor")
+                    })
+                }), false)
             }
         }
         val tool = GitHubOperationTool("github_issue", backend, "continued-issues", "github_issue__selected")
         val selected = requireNotNull(dev.chungjungsoo.gptmobile.data.agent.GitHubActionSchema.project(tool.definition, "list"))
-        val request = args("""{"action":"list","state":"open","page":2,"per_page":20,"after":"issued-opaque-cursor"}""")
+        val first = tool.execute("first", args("""{"action":"list","state":"open","per_page":20}"""))
+        assertFalse(first.toString(), first.isError)
+        val request = (first.content as ToolResultContent.Json).value.jsonObject.getValue("continuation_call")
+            .jsonObject.getValue("arguments").jsonObject
+        assertEquals(JsonPrimitive("issued-opaque-cursor"), request["after"])
         val budget = dev.chungjungsoo.gptmobile.data.agent.ToolExecutionBudget(dev.chungjungsoo.gptmobile.data.agent.AgentRunLimits(maxToolCalls = 1))
-        assertFalse(budget.bindPresented(tool, selected).execute("continued", request).isError)
+        val second = budget.bindPresented(tool, selected).execute("continued", request)
+        assertFalse(second.toString(), second.isError)
         assertEquals(JsonObject(request + ("action" to JsonPrimitive("list_issues"))), forwarded)
+        assertEquals(JsonPrimitive(true), second.executionReceipt?.get("pagination_progress")?.jsonObject?.get("complete"))
     }
 
     @Test fun rejectedHandWrittenIssuePageExposesItsMissingContinuationContract() = runBlocking {

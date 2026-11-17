@@ -22,6 +22,14 @@ internal object GitHubInventoryQuery {
             normalized["action"] = JsonPrimitive(if (workflows) "workflows" else "runs")
             normalized.putIfAbsent("per_page", JsonPrimitive(if (workflows) 30 else 100))
         }
+        if (issues) {
+            // The authenticated cursor and omitted REST defaults must not split one issue traversal.
+            normalized["action"] = JsonPrimitive("list_issues")
+            normalized.putIfAbsent("state", JsonPrimitive("open"))
+            normalized.putIfAbsent("per_page", JsonPrimitive(30))
+            normalized.putIfAbsent("sort", JsonPrimitive("created"))
+            normalized.putIfAbsent("direction", JsonPrimitive("asc"))
+        }
         if (runs) (arguments["commit_sha"] as? JsonPrimitive)?.takeIf { it.content.isNotBlank() }?.let { normalized["head_sha"] = it }
         for (key in listOf("owner", "repo")) {
             (normalized[key] as? JsonPrimitive)?.takeIf { it.isString }?.let { normalized[key] = JsonPrimitive(it.content.lowercase(Locale.ROOT)) }

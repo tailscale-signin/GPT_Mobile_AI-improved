@@ -225,6 +225,26 @@ class GitHubPaginationBoundaryTest {
         assertEquals(JsonPrimitive(false), progress["complete"])
     }
 
+
+    @Test fun issuedIssueCursorAndExplicitRestDefaultsPreserveOneRemoteTraversal() {
+        val boundary = GitHubPaginationBoundary()
+        val first = json("""{"action":"list_issues","page":1,"state":"open","per_page":20}""")
+        val second = json("""{"action":"list_issues","page":2,"state":"open","per_page":20,"sort":"created","direction":"asc","after":"issued-opaque-cursor"}""")
+        assertEquals(null, boundary.assessPage("github_issue", first, json("""{"has_more":true,"total_count":2,"items":[{"id":1}]}""")).errorCode)
+        val final = boundary.assessPage("github_issue", second, json("""{"has_more":false,"total_count":2,"items":[{"id":2}]}"""))
+        assertEquals(null, final.errorCode)
+        assertEquals(JsonPrimitive(true), final.data.getValue("pagination_progress").jsonObject["complete"])
+    }
+
+    @Test fun jobLogWindowsCannotBeMistakenForIncompleteRemoteCollections() {
+        val boundary = GitHubPaginationBoundary()
+        val args = json("""{"action":"get_job_logs","job_id":8,"start_line":1,"end_line":2}""")
+        val lines = json("""{"has_more":true,"excerpts":[{"line":1,"text":"error"}]}""")
+        assertFalse(boundary.expectsNumberedRemotePage("github_ci", args))
+        assertEquals(null, boundary.assessPage("github_ci", args, lines).errorCode)
+        assertEquals(lines, boundary.assessPage("github_ci", args, lines).data)
+    }
+
     @Test fun emptyTerminalWithoutExplicitZeroTotalFailsExplicitly() {
         val boundary = GitHubPaginationBoundary()
         val args = json("""{"action":"list_workflow_runs","page":1}""")

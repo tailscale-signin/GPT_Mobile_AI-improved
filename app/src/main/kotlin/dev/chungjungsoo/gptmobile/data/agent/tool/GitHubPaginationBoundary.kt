@@ -32,7 +32,9 @@ internal class GitHubPaginationBoundary(private val now: () -> Long = System::na
             args["action"] !in setOf(
                 JsonPrimitive("workflow_catalog"),
                 JsonPrimitive("search_repository"),
-                JsonPrimitive("ci_failure_digest")
+                JsonPrimitive("ci_failure_digest"),
+                // Log windows are local text excerpts, not remote record collection pages.
+                JsonPrimitive("get_job_logs")
             )
     }
 

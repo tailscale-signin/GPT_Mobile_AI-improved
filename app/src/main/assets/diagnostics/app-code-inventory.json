@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "1e74a506e2895b8d2bfb9b6fbf0c4390540a75c8d36efc838166a4b3ce852362",
+  "source_digest": "819de3e714f83ce927116571fd7d40d51db95653915a66b1cb98652e8a1b518a",
   "file_count": 2667,
-  "indexed_line_count": 433779,
+  "indexed_line_count": 433789,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -58,7 +58,7 @@
       "id": "agent_tools",
       "label": "Built-in tool routing and execution",
       "file_count": 100,
-      "indexed_line_count": 22473
+      "indexed_line_count": 22475
     },
     {
       "id": "mcp_plugins",
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 239,
-      "indexed_line_count": 39706
+      "indexed_line_count": 39714
     },
     {
       "id": "research",
@@ -2705,8 +2705,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubPaginationBoundary.kt",
       "area_id": "agent_tools",
       "kind": "source",
-      "sha256": "607ec8c2d8880def1be121c6342f0cd69e713574a9299ff7b20dd84f190a3681",
-      "indexed_lines": 228
+      "sha256": "cb963a7d3a469f080e85497f12c060f9e098f44572088afaf353570f1d4c5b6e",
+      "indexed_lines": 230
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/agent/tool/GitHubProviderPolicy.kt",
@@ -7150,8 +7150,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubInventoryQuery.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "988c6cead4a47a262242683eb12fbff8d6659828b086e380f453ab516beeb1c3",
-      "indexed_lines": 31
+      "sha256": "4ee8240ec492bbc3a7b5f3736e47b377726b7156b90721c1a77f0811703bfb5e",
+      "indexed_lines": 39
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubLiveProcess.kt",

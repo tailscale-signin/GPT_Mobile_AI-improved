@@ -228,15 +228,15 @@ class GitHubRichSummaryPresentationTest {
         assertEquals(1, progress.tick().filterIsInstance<ApiState.ActivitySummary>().size)
 
         read("src/Beta.kt", "beta-1")
-        now = 90_000L
+        now = 180_000L
         assertEquals(1, progress.tick().filterIsInstance<ApiState.ActivitySummary>().size)
 
         read("src/Alpha.kt", "alpha-2")
-        now = 135_000L
+        now = 315_000L
         assertTrue(progress.tick().none { it is ApiState.ActivitySummary })
 
         read("src/Alpha.kt", "alpha-3", failed = true)
-        now = 180_000L
+        now = 450_000L
         val newest = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertTrue(newest.text.contains("failed"))
     }
@@ -267,7 +267,7 @@ class GitHubRichSummaryPresentationTest {
                 )
             )
         )
-        now = 90_000L
+        now = 180_000L
         val fallback = progress.tick().filterIsInstance<ApiState.ActivitySummary>().single()
         assertFalse(fallback.modelAuthored)
         assertTrue(fallback.text.startsWith("### Source inspection"))

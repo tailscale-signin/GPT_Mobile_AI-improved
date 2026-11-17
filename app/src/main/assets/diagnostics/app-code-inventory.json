@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
   "generated_by": "python3 scripts/generate_app_audit_inventory.py",
-  "source_digest": "d7cc6ac0e18db654b9e870bc48d2aa7a06a454ada9a8f7d1bff4104b903859b1",
+  "source_digest": "ebe2433e33a74aec8bea09516a75d8d526ff9bbb929b516463aec86aaf08f5cc",
   "file_count": 2666,
-  "indexed_line_count": 432900,
+  "indexed_line_count": 432906,
   "line_coverage_available": false,
   "coverage_meaning": "Source association only. No file, line, branch or UI interaction is marked executed by this inventory.",
   "scope": {
@@ -106,7 +106,7 @@
       "id": "github",
       "label": "GitHub and engineering workspace",
       "file_count": 238,
-      "indexed_line_count": 39477
+      "indexed_line_count": 39483
     },
     {
       "id": "research",
@@ -7311,7 +7311,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubProgressNarrator.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "55d74357e3d30cba12653a6ba032245773b08b86501cf4a8685e0622705f239f",
+      "sha256": "f5cc69fd759bb90352248174f13b25d4b320df5485bec579af5169c5ec2405da",
       "indexed_lines": 173
     },
     {
@@ -7528,8 +7528,8 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRichSummaryPresentation.kt",
       "area_id": "github",
       "kind": "source",
-      "sha256": "e616bbf5382c2571fc1ba73d3d8453e4ff77e88c9abf587959b2e3e87018529b",
-      "indexed_lines": 123
+      "sha256": "c045e2cf3432b762339ef46978d1318f2a4dae3f9cf3b35ea38609f6d76f6832",
+      "indexed_lines": 129
     },
     {
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/data/github/GitHubRunAcceptance.kt",
@@ -13464,7 +13464,7 @@
       "path": "app/src/main/kotlin/dev/chungjungsoo/gptmobile/presentation/ui/chat/GitHubDecisionCard.kt",
       "area_id": "chat_ui",
       "kind": "source",
-      "sha256": "0e2b12cd9b59d783e25e4c11e6203c7ab53ed758e61531912ca2425c7f854e01",
+      "sha256": "92b83dbe71ca6d70e8e81229e9b2234a0626f116b63c26dbbae481200ea333c8",
       "indexed_lines": 200
     },
     {

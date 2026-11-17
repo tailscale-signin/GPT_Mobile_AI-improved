@@ -97,7 +97,12 @@ class GitHubRichSummaryPresentationTest {
         progress.tick()
         progress.observe(
             ApiState.GatewayProgressChanged(
-                GatewayProgress(event = "tool_completed", toolName = "github_read", toolCallId = "first")
+                GatewayProgress(
+                    event = "tool_completed",
+                    toolName = "github_read",
+                    toolCallId = "first",
+                    toolArgs = kotlinx.serialization.json.Json.parseToJsonElement("""{"path":"src/Reader.kt"}""") as kotlinx.serialization.json.JsonObject
+                )
             )
         )
         now = 45_000L

@@ -54,6 +54,46 @@ class EvidenceTests(unittest.TestCase):
         job['data']['result'] = {'model_says_merged': True}
         self.assertFalse(completion_gate(job, state, merged=True)['passed'])
 
+    def test_unconfigured_acceptance_exposes_discovered_tests_without_executing_them(self):
+        from unittest.mock import patch
+        from v14.engineering_preflight import preflight
+
+        source = 'a' * 40
+        request = {
+            'repository': 'owner/repo', 'branch': 'fix/report', 'base': 'main',
+            'objective': 'Repair report validation', 'model': 'local',
+            'request_id': 'acceptance-discovery', 'task_scope': 'implement',
+            'source_sha': source,
+        }
+        policy = {
+            'allowed_checks': ['Required verification'], 'acceptance_templates': [],
+            'draft_repair_requirements': [], 'post_merge': {'artifacts': [], 'installation_checks': [], 'smoke_checks': []},
+        }
+        candidate = {
+            'case_id': 'test_reports.ReportTest.test_recovery', 'path': 'gateway/tests/test_reports.py',
+            'framework': 'unittest', 'class_name': 'test_reports.ReportTest',
+        }
+        def probe(args, _cwd, _timeout, maximum=4096):
+            if args[:3] == ['git', '--git-dir=/mirror', 'rev-parse']:
+                return {'exit_code': 0, 'output_tail': 'true'}
+            if args[0] == 'docker':
+                return {'exit_code': 0, 'output_tail': 'sha256:' + 'b' * 64}
+            return {'exit_code': 0, 'output_tail': ''}
+
+        with patch('v14.engineering_preflight.load_policy', return_value=(
+                policy, Path('/mirror'), 'docker.io/library/python@sha256:' + 'c' * 64,
+                [['python3', '--version']], [])), patch(
+                'desktop.acceptance_discovery.discover',
+                return_value={'candidates': [candidate], 'truncated': False}) as discovery:
+            result = preflight(request, runner=probe)
+        self.assertFalse(result['ready'])
+        self.assertEqual('ACCEPTANCE_CONTRACT_REQUIRED', result['blockers'][0]['reason_code'])
+        self.assertEqual('REVIEW_REQUIRED', result['acceptance_preparation']['status'])
+        self.assertEqual(False, result['acceptance_preparation']['executed'])
+        self.assertEqual(False, result['acceptance_preparation']['approved_mappings_present'])
+        self.assertEqual([], result['acceptance_preparation']['candidates'][0]['requirement_ids'])
+        discovery.assert_called_once_with({'mirror': '/mirror'}, source_sha=source, approved_cases=None)
+
     def test_acceptance_contract_rejects_unbounded_or_empty_requirements(self):
         request = {'repository': 'owner/repo', 'base': 'main', 'branch': 'fix', 'objective': 'fix it', 'model': 'local', 'request_id': 'test'}
         valid = {'id': 'fix', 'paths': ['Fix.kt'], 'checks': ['tests']}

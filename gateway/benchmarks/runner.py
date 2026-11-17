@@ -15,6 +15,41 @@ from desktop.benchmark import CASES, client_session, get_json, matches, models
 from v14 import VERSION
 
 
+def benchmark_error_receipt(error, stage):
+    """Retain a bounded failure category and phase, never raw provider text.
+
+    Unknown model/transport outcomes must not be relabelled as invalid model
+    patches or treated as permission to replay an uncertain HTTP request.
+    """
+    known = {'SELECTED_EXECUTION_CHANGED', 'GATEWAY_NOT_READY',
+             'SELECTED_MODEL_NOT_ADVERTISED', 'GATEWAY_INSTANCE_CHANGED'}
+    if isinstance(error, requests.Timeout):
+        code = 'BENCHMARK_TRANSPORT_TIMEOUT'
+    elif isinstance(error, requests.ConnectionError):
+        code = 'BENCHMARK_CONNECTION_FAILED'
+    elif isinstance(error, requests.HTTPError):
+        code = 'BENCHMARK_HTTP_ERROR'
+    elif isinstance(error, requests.RequestException):
+        code = 'BENCHMARK_TRANSPORT_ERROR'
+    elif isinstance(error, TimeoutError):
+        code = 'BENCHMARK_LOCAL_TIMEOUT'
+    elif isinstance(error, TypeError):
+        code = 'BENCHMARK_RESPONSE_TYPE_ERROR'
+    elif isinstance(error, ValueError):
+        code = str(error) if str(error) in known else 'BENCHMARK_VALUE_ERROR'
+    else:
+        code = 'BENCHMARK_UNCLASSIFIED_ERROR'
+    result = {'error': type(error).__name__, 'errorCode': code, 'failureStage': stage}
+    if isinstance(error, requests.RequestException):
+        # The server may have accepted the request before the client failed.
+        result['requestOutcome'] = 'UNKNOWN'
+        response = getattr(error, 'response', None)
+        status = getattr(response, 'status_code', None)
+        if type(status) is int and 100 <= status <= 599:
+            result['httpStatus'] = status
+    return result
+
+
 class BenchmarkRunner:
     def __init__(self, store, origin, cancelled, identity, settings):
         self.store, self.origin, self.cancelled = store, origin, cancelled
@@ -126,7 +161,7 @@ class BenchmarkRunner:
                 case = self.measure_case(run, name, turns, expected)
             except (requests.RequestException, TimeoutError, ValueError, TypeError) as error:
                 case = {'id': name, 'name': name, 'status': 'ERROR', 'executed': None, 'graded': False,
-                        'error': type(error).__name__}
+                        **benchmark_error_receipt(error, 'MODEL_INVOCATION')}
             cases.append(case)
             self.checkpoint(run, ordinal, case)
         complete = all(c['graded'] for c in cases)
@@ -164,7 +199,8 @@ class BenchmarkRunner:
                         self.cancelled.set()
                         raise
                     except (requests.RequestException, TimeoutError, ValueError, TypeError) as error:
-                        return {'id': name, 'status': 'ERROR', 'executed': None, 'graded': False, 'error': type(error).__name__}
+                        return {'id': name, 'status': 'ERROR', 'executed': None, 'graded': False,
+                                **benchmark_error_receipt(error, 'MODEL_INVOCATION')}
                 if arm == 'sequential':
                     samples = [sample(entry) for entry in CASES]
                 else:
@@ -224,7 +260,7 @@ class BenchmarkRunner:
     def sandbox_interrupted(self, run, ordinal, task, error, stage, attempts=(), timing=None):
         receipt = dict(error.cancellation, case=task['id'], stage=stage)
         with self.receipt_lock:
-            self.cancellation_receipts.append(dict(error.cancellation))
+            self.cancellation_receipts.append(dict(receipt))
         observed = error.observation or {}
         case = {key: task[key] for key in ('id', 'family', 'title', 'capstone')}
         case.update(status='INTERRUPTED', executed=observed.get('executed') if stage == 'CANDIDATE' else False, graded=False, resolved=False,
@@ -263,6 +299,7 @@ class BenchmarkRunner:
             for attempt in range(settings['repair_attempts'] + 1):
                 answer = []
                 timing = None
+                phase = 'MODEL_INVOCATION'
                 def capture(text):
                     answer.append(text)
                     return True
@@ -275,6 +312,7 @@ class BenchmarkRunner:
                         code = 'PATCH_OUTPUT_TRUNCATED' if finish == 'length' else 'PATCH_GENERATION_INCOMPLETE'
                         final = coding.rejected_submission(task, code)
                     else:
+                        phase = 'CANDIDATE_EVALUATION'
                         final = coding.grade(task, answer[0], settings, self.cancelled, docker=docker,
                                              execute=lambda *args, **kwargs: self.execute_sandbox(run, *args, **kwargs))
                     final['timing'] = {key: timing.get(key) for key in ('firstMs', 'totalMs', 'inputTokens', 'outputTokens', 'finishReason')}
@@ -294,7 +332,8 @@ class BenchmarkRunner:
                         raise
                     final = {'id': task['id'], 'family': task['family'], 'title': task['title'], 'capstone': task['capstone'],
                              'status': 'ERROR', 'executed': None, 'graded': False, 'resolved': False,
-                             'integrity': 'VERIFIED', 'error': type(error).__name__, 'dimensions': {key: None for key in coding.CODING_WEIGHTS}}
+                             'integrity': 'VERIFIED', **benchmark_error_receipt(error, phase),
+                             'dimensions': {key: None for key in coding.CODING_WEIGHTS}}
                 attempts.append({key: value for key, value in final.items() if key not in {'dimensionDefinitions'}})
                 self.store.case(run['id'], ordinal, dict(final, status='RUNNING', graded=False, attempts=list(attempts), repairBudget=settings['repair_attempts']))
                 # A missing evaluator proof cannot be repaired by another model

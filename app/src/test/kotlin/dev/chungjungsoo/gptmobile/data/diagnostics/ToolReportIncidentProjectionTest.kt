@@ -31,8 +31,12 @@ class ToolReportIncidentProjectionTest {
             put("requires_reconciliation", false)
         }
         val result = AgentToolResult(
-            event.callId, ToolResultContent.Text("PRIVATE_FILE_PATH"), true,
-            errorCode = "GITHUB_PATH_NOT_FOUND", dispatched = false, executionReceipt = receipt
+            event.callId,
+            ToolResultContent.Text("PRIVATE_FILE_PATH"),
+            true,
+            errorCode = "GITHUB_PATH_NOT_FOUND",
+            dispatched = false,
+            executionReceipt = receipt
         )
         assertEquals("GITHUB_PATH_NOT_FOUND", ToolReportDiagnostics.reportCode(event, result))
         val fields = ToolReportDiagnostics.fields(event, result)
@@ -41,7 +45,8 @@ class ToolReportIncidentProjectionTest {
         assertEquals(JsonPrimitive("GITHUB_PATH_NOT_FOUND"), diagnostics.values["tool_reason_code"])
         assertFalse(diagnostics.toString().contains("PRIVATE_FILE_PATH"))
         val context = IssueReportContext.fromFields(
-            "TOOL_RESULT", fields + mapOf("failed_stage" to "tool_precheck", "operation" to "github_read", "dispatched" to false)
+            "TOOL_RESULT",
+            fields + mapOf("failed_stage" to "tool_precheck", "operation" to "github_read", "dispatched" to false)
         )
         assertEquals("GITHUB_VALIDATION_FAILED", IssueReportCodes.nativeGitHubPrecheck("GITHUB_PATH_NOT_FOUND", context)?.code)
         val wrongReceipt = result.copy(executionReceipt = JsonObject(receipt + ("call_id" to JsonPrimitive("wrong-call"))))

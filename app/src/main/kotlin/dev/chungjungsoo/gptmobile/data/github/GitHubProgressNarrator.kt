@@ -51,6 +51,7 @@ internal class GitHubProgressNarrator(
     private var reservedTokens = 0
     private var unavailableForRun = false
     private val published = mutableSetOf<String>()
+    private val reportedFactKeys = linkedSetOf<String>()
 
     suspend fun beforeRound(workReplayTokens: Long = 0) {
         val at = now()
@@ -59,7 +60,8 @@ internal class GitHubProgressNarrator(
         if (current.revision == lastRevision || current.revision == 0L) return
         val factual = GitHubRichSummaryPresentation.render(current)
         val evidenceKey = GitHubRichSummaryPresentation.evidenceKey(current)
-        if (evidenceKey == lastEvidenceKey) {
+        val factKeys = GitHubRichSummaryPresentation.factKeys(current)
+        if (factKeys.isEmpty() || factKeys.all(reportedFactKeys::contains) || evidenceKey == lastEvidenceKey) {
             lastRevision = current.revision
             return
         }
@@ -69,7 +71,10 @@ internal class GitHubProgressNarrator(
             lastAttemptAt = at
             lastRevision = current.revision
             lastEvidenceKey = evidenceKey
-            if (factual.isNotBlank() && published.add(evidenceKey)) publish(ApiState.ActivitySummary(factual, modelAuthored = false))
+            if (factual.isNotBlank() && published.add(evidenceKey)) {
+                publish(ApiState.ActivitySummary(factual, modelAuthored = false))
+                rememberFacts(factKeys)
+            }
             return
         }
         val prompt = current.prompt()
@@ -118,7 +123,15 @@ internal class GitHubProgressNarrator(
             unavailableForRun = true
             return
         }
-        if (published.add(GitHubProgressPresentation.lineKey(text))) publish(ApiState.ActivitySummary(text, modelAuthored = true))
+        if (published.add(GitHubProgressPresentation.lineKey(text))) {
+            publish(ApiState.ActivitySummary(text, modelAuthored = true))
+            rememberFacts(factKeys)
+        }
+    }
+
+    private fun rememberFacts(keys: List<String>) {
+        keys.forEach(reportedFactKeys::add)
+        while (reportedFactKeys.size > 256) reportedFactKeys.remove(reportedFactKeys.first())
     }
 
     companion object {

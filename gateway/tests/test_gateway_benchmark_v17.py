@@ -20,7 +20,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmark_selected_model import BenchmarkInterrupted, measure
 from benchmarks import coding, fixtures, sandbox
 from benchmarks.contracts import CODING_WEIGHTS, coding_score, coverage, paired_summary, validate_request
-from benchmarks.runner import BenchmarkRunner, benchmark_error_receipt
+from benchmarks.runner import BenchmarkRunner, benchmark_error_receipt, best_verified_attempt_index
 from benchmarks.service import BenchmarkService, install_benchmark_routes
 from benchmarks.store import BenchmarkConflict, BenchmarkStore
 from desktop import benchmark
@@ -499,6 +499,37 @@ class BenchmarkErrorReceiptTest(unittest.TestCase):
             self.assertEqual('MODEL_INVOCATION', case['failureStage'])
             self.assertNotIn('secret internal input', json.dumps(case))
             self.assertEqual('MODEL_INVOCATION', case['attempts'][0]['failureStage'])
+
+
+class BenchmarkRetrySelectionTest(unittest.TestCase):
+    def test_regressive_repair_preserves_better_verified_candidate(self):
+        first = {'status': 'FAILED', 'integrity': 'VERIFIED', 'executed': True,
+                 'graded': True, 'earned': 712.5,
+                 'checks': {'hiddenPassed': 5, 'hiddenTotal': 6,
+                            'replayPassed': 5, 'replayTotal': 6}}
+        worse = {'status': 'FAILED', 'integrity': 'VERIFIED', 'executed': True,
+                 'graded': True, 'earned': 575.0,
+                 'checks': {'hiddenPassed': 4, 'hiddenTotal': 6,
+                            'replayPassed': 4, 'replayTotal': 6}}
+        self.assertEqual(0, best_verified_attempt_index([first, worse]))
+        self.assertEqual(1, best_verified_attempt_index([worse, first]))
+        self.assertEqual(1, best_verified_attempt_index([first, dict(first)]))
+
+    def test_unknown_or_unsafe_final_outcome_is_never_hidden(self):
+        verified = {'status': 'FAILED', 'integrity': 'VERIFIED', 'executed': True,
+                    'graded': True, 'earned': 750,
+                    'checks': {'hiddenPassed': 5, 'hiddenTotal': 6,
+                               'replayPassed': 5, 'replayTotal': 6}}
+        unsafe = {'status': 'FAILED', 'integrity': 'VIOLATION', 'executed': False,
+                  'graded': True}
+        blocked = {'status': 'BLOCKED', 'integrity': 'VERIFIED', 'executed': True,
+                   'graded': True}
+        unknown = {'status': 'ERROR', 'integrity': 'VERIFIED', 'executed': None,
+                   'graded': False}
+        self.assertEqual(1, best_verified_attempt_index([verified, unsafe]))
+        self.assertEqual(1, best_verified_attempt_index([verified, blocked]))
+        self.assertEqual(1, best_verified_attempt_index([verified, unknown]))
+        self.assertEqual(1, best_verified_attempt_index([unsafe, verified]))
 
 
 class BenchmarkLifecycleTest(unittest.TestCase):

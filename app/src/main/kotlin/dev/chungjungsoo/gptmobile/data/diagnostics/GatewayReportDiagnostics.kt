@@ -44,36 +44,58 @@ internal object GatewayReportDiagnostics {
 
     /** Only typed, closed preflight metadata: never upload paths, prompts, or raw test names. */
     fun preflight(
-        profileUid: String?, model: String?, ready: Boolean, reasons: List<String>,
-        capturedAtMillis: Long = System.currentTimeMillis(), policyState: String? = null,
-        recoveryActions: List<String> = emptyList(), discoveryState: String? = null, candidateCount: Int? = null
-    ): IssueReportDiagnostics? = IssueReportDiagnostics.fromFields(
-        "STRUCTURED_EVENT",
-        buildMap {
-            val allowedReasons = setOf("VALIDATION_POLICY_REQUIRED", "VALIDATION_CHECKS_REQUIRED",
-                "VALIDATION_CHECK_UNSUPPORTED", "VALIDATION_RUNTIME_UNAVAILABLE", "VALIDATION_REVISION_UNAVAILABLE",
-                "SOURCE_REVISION_REQUIRED", "ACCEPTANCE_CONTRACT_REQUIRED", "ACCEPTANCE_PRODUCER_REQUIRED")
-            val allowedActions = setOf("CONFIGURE_VALIDATION_POLICY", "DEFINE_ACCEPTANCE_REQUIREMENTS",
-                "CONFIGURE_CI_CHECK_MAPPING", "CONFIGURE_ACCEPTANCE_MAPPING", "REFRESH_SOURCE_REVISION",
-                "PROVISION_PINNED_MIRROR", "PROVISION_VALIDATION_RUNTIME")
-            put("diagnostic_area", "GATEWAY")
-            put("gateway_admission_ready", ready)
-            put("gateway_failure_phase", "provider_admission")
-            put("gateway_preflight_blocker_count", reasons.size)
-            put("gateway_validation_policy_state", policyState)
-            reasons.firstOrNull()?.takeIf { it in allowedReasons }?.let { put("gateway_preflight_reason", it) }
-            reasons.filter { it in allowedReasons }.take(8).takeIf { it.isNotEmpty() }
-                ?.let { put("gateway_preflight_blocker_codes", it) }
-            recoveryActions.filter { it in allowedActions }.take(8).takeIf { it.isNotEmpty() }
-                ?.let { put("gateway_preflight_recovery_actions", it) }
-            discoveryState?.takeIf { it in setOf("REVIEW_REQUIRED", "DISCOVERY_UNAVAILABLE") }
-                ?.let { put("gateway_preflight_discovery_state", it) }
-            candidateCount?.takeIf { it in 0..256 }?.let { put("gateway_preflight_candidate_count", it) }
-            profileUid?.takeIf { it.isNotBlank() && it.length <= 256 }?.let { put("profile_hash", researchHash(it)) }
-            model?.takeIf { it.isNotBlank() && it.length <= 256 }?.let { put("model_hash", researchHash(it)) }
-        },
-        capturedAtMillis
-    )
+        profileUid: String?,
+        model: String?,
+        ready: Boolean,
+        reasons: List<String>,
+        capturedAtMillis: Long = System.currentTimeMillis(),
+        policyState: String? = null,
+        recoveryActions: List<String> = emptyList(),
+        discoveryState: String? = null,
+        candidateCount: Int? = null,
+    ): IssueReportDiagnostics? =
+        IssueReportDiagnostics.fromFields(
+            "STRUCTURED_EVENT",
+            buildMap {
+                val allowedReasons =
+                    setOf(
+                        "VALIDATION_POLICY_REQUIRED",
+                        "VALIDATION_CHECKS_REQUIRED",
+                        "VALIDATION_CHECK_UNSUPPORTED",
+                        "VALIDATION_RUNTIME_UNAVAILABLE",
+                        "VALIDATION_REVISION_UNAVAILABLE",
+                        "SOURCE_REVISION_REQUIRED",
+                        "ACCEPTANCE_CONTRACT_REQUIRED",
+                        "ACCEPTANCE_PRODUCER_REQUIRED",
+                    )
+                val allowedActions =
+                    setOf(
+                        "CONFIGURE_VALIDATION_POLICY",
+                        "DEFINE_ACCEPTANCE_REQUIREMENTS",
+                        "CONFIGURE_CI_CHECK_MAPPING",
+                        "CONFIGURE_ACCEPTANCE_MAPPING",
+                        "REFRESH_SOURCE_REVISION",
+                        "PROVISION_PINNED_MIRROR",
+                        "PROVISION_VALIDATION_RUNTIME",
+                    )
+                put("diagnostic_area", "GATEWAY")
+                put("gateway_admission_ready", ready)
+                put("gateway_failure_phase", "provider_admission")
+                put("gateway_preflight_blocker_count", reasons.size)
+                put("gateway_validation_policy_state", policyState)
+                reasons.firstOrNull()?.takeIf { it in allowedReasons }?.let { put("gateway_preflight_reason", it) }
+                reasons.filter { it in allowedReasons }.take(8).takeIf { it.isNotEmpty() }
+                    ?.let { put("gateway_preflight_blocker_codes", it) }
+                recoveryActions.filter { it in allowedActions }.take(8).takeIf { it.isNotEmpty() }
+                    ?.let { put("gateway_preflight_recovery_actions", it) }
+                discoveryState?.takeIf { it in setOf("REVIEW_REQUIRED", "DISCOVERY_UNAVAILABLE") }
+                    ?.let { put("gateway_preflight_discovery_state", it) }
+                candidateCount?.takeIf { it in 0..256 }?.let { put("gateway_preflight_candidate_count", it) }
+                profileUid?.takeIf { it.isNotBlank() && it.length <= 256 }?.let { put("profile_hash", researchHash(it)) }
+                model?.takeIf { it.isNotBlank() && it.length <= 256 }?.let { put("model_hash", researchHash(it)) }
+            },
+            capturedAtMillis,
+        )
 
     fun queue(blocker: String, active: Int, deliveries: Int, unsettled: Int, legacy: Int, cached: Int, capturedAtMillis: Long = System.currentTimeMillis()): IssueReportDiagnostics? =
         IssueReportDiagnostics.fromFields(

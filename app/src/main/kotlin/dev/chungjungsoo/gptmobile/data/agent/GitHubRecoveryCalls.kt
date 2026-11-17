@@ -19,7 +19,9 @@ internal object GitHubRecoveryCalls {
             "github_search" -> {
                 // The selected model sometimes attaches per_page to a first-page search.
                 // Search does not accept that field; never rewrite cursors or other invalid calls.
-                if ("per_page" !in call.arguments ||
+                val query = (call.arguments["query"] as? JsonPrimitive)
+                    ?.takeIf { it.isString }?.content
+                if ("per_page" !in call.arguments || query.isNullOrBlank() || query.length > 200 ||
                     call.arguments.keys.any { it in setOf("view_cursor", "index_cursor", "search_id") } ||
                     call.arguments["page"] !in setOf(null, JsonPrimitive(1))
                 ) {

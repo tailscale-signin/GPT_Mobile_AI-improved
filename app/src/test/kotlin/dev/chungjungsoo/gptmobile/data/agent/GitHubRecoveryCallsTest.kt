@@ -84,7 +84,9 @@ class GitHubRecoveryCallsTest {
             """{"action":"search","query":"class","per_page":50,"search_id":"previous"}""",
             """{"action":"search","query":"class","per_page":50,"page":2}""",
             """{"action":"search","query":"class","per_page":50,"unknown":"unsafe"}""",
-            """{"action":"search","per_page":50}"""
+            """{"action":"search","per_page":50}""",
+            """{"action":"search","query":" ","per_page":50}""",
+            """{"action":"search","query":123,"per_page":50}"""
         )) {
             val call = ProviderEvent.ToolCall("search", name, Json.parseToJsonElement(value).jsonObject)
             assertEquals(call, GitHubRecoveryCalls.repairSourceRead(call, tool(name)))

@@ -39,6 +39,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
     private var pendingSummary: ApiState.ActivitySummary? = null
     private var pendingSummaryRevision = -1L
     private var lastSummaryKey = ""
+    private var lastEvidenceKey = ""
     private var lastSummaryRevision = -1L
     private var modelSummaryRetained = false
     private val terminalCalls = mutableSetOf<Pair<String, String>>()
@@ -75,8 +76,16 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         if (!initial && at - lastSummaryAt < SUMMARY_INTERVAL_MS) return null
         val generated = pendingSummary.takeIf { it?.modelAuthored == true || pendingSummaryRevision == revision }
         pendingSummary = null
+        val source = summarySnapshot()
+        val evidenceKey = GitHubRichSummaryPresentation.evidenceKey(source)
+        // Revision numbers, identical replayed observations and a changing "Next"
+        // label cannot manufacture a second narrative finding.
+        if (!initial && generated == null && (evidenceKey.isBlank() || evidenceKey == lastEvidenceKey)) {
+            lastSummaryRevision = revision
+            return null
+        }
         val candidate = generated ?: if (allowFallback && !modelSummaryRetained && (initial || revision != lastSummaryRevision)) {
-            ApiState.ActivitySummary(if (initial) summary else GitHubProgressNarrator.factualSummary(summarySnapshot()))
+            ApiState.ActivitySummary(if (initial) summary else GitHubRichSummaryPresentation.render(source))
         } else {
             return null
         }
@@ -85,6 +94,7 @@ internal class GitHubChatProgress(task: String = "", private val now: () -> Long
         if (key.isBlank() || key == lastSummaryKey) return null
         summary = candidate.text
         lastSummaryKey = key
+        lastEvidenceKey = evidenceKey
         lastSummaryAt = at
         modelSummaryRetained = candidate.modelAuthored
         initial = false

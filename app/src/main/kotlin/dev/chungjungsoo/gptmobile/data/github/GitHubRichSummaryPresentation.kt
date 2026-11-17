@@ -96,10 +96,14 @@ internal object GitHubRichSummaryPresentation {
 
     fun csv(markdown: String): String? {
         val data = chartData(markdown)
-        val rows = if (data.isNotEmpty()) data else markdown.lineSequence().mapNotNull { line ->
-            val match = chartRow.matchEntire(line.trim()) ?: return@mapNotNull null
-            match.groupValues[2].toIntOrNull()?.takeIf { it in 0..100_000 }?.let { CheckCount(match.groupValues[1], it) }
-        }.toList().takeIf { it.size in 4..5 && markdown.contains("| Check state | Count |") } ?: return null
+        val rows = if (data.isNotEmpty()) {
+            data
+        } else {
+            markdown.lineSequence().mapNotNull { line ->
+                val match = chartRow.matchEntire(line.trim()) ?: return@mapNotNull null
+                match.groupValues[2].toIntOrNull()?.takeIf { it in 0..100_000 }?.let { CheckCount(match.groupValues[1], it) }
+            }.toList().takeIf { it.size in 4..5 && markdown.contains("| Check state | Count |") } ?: return null
+        }
         // Labels are fixed source-owned strings and quantities are integers: no CSV formula inputs.
         return "Check state,Count\r\n" + rows.joinToString("\r\n") { "${it.label},${it.count}" } + "\r\n"
     }

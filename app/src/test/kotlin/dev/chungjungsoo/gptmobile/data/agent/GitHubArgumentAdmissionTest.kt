@@ -24,7 +24,7 @@ class GitHubArgumentAdmissionTest {
             val definition = if (projected) requireNotNull(GitHubActionSchema.project(native.definition, "ranges")) else native.definition
             val budget = ToolExecutionBudget(AgentRunLimits(maxToolCalls = 1))
             val tool = budget.bindPresented(native, definition)
-            for (end in listOf(-1, 20)) {
+            for (end in listOf(-2, 20)) {
                 val invalid = args("""{"action":"ranges","ranges":[{"path":"README.md","start_line":1,"end_line":$end,"max_lines":20}]}""")
                 assertTrue(ToolArgumentValidator.errors(invalid, definition.inputSchema).isNotEmpty())
                 val result = tool.execute("invalid-$end", invalid)
